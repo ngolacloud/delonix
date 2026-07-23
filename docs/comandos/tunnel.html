@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>delonix tunnel · Delonix Runtime</title>
+<style>
+:root{--accent:#e8590c;--accent-soft:#fff0e6;--ink:#1a1a2e;--muted:#5a6472;--line:#e6e8ec;
+--bg:#ffffff;--side:#f7f8fa;--code-bg:#0f172a;--code-ink:#e2e8f0;--radius:10px}
+@media (prefers-color-scheme: dark){:root{--ink:#e6e8ee;--muted:#9aa4b2;--line:#252a33;
+--bg:#0d1117;--side:#10151c;--accent-soft:#2a1810;--code-bg:#161b22;--code-ink:#dbe2ea}}
+*{box-sizing:border-box}body{margin:0;font:16px/1.65 -apple-system,'Segoe UI',Roboto,Ubuntu,
+sans-serif;color:var(--ink);background:var(--bg)}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.layout{display:flex;min-height:100vh}
+nav.side{width:270px;flex-shrink:0;background:var(--side);border-right:1px solid var(--line);
+padding:1.2rem 1rem 3rem;position:sticky;top:0;height:100vh;overflow-y:auto}
+nav.side .brand{display:flex;align-items:center;gap:.55rem;font-weight:700;font-size:1.12rem;
+margin-bottom:1.1rem;color:var(--ink)}
+nav.side .brand .dot{width:26px;height:26px;border-radius:7px;background:var(--accent);
+display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:.85rem}
+nav.side h5{margin:1.3rem 0 .3rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;
+color:var(--muted)}
+nav.side a{display:block;padding:.28rem .55rem;border-radius:6px;color:var(--ink);font-size:.93rem}
+nav.side a:hover{background:var(--accent-soft);text-decoration:none}
+nav.side a.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+main{flex:1;min-width:0;padding:2.2rem 3rem 5rem;max-width:940px}
+main h1{font-size:1.9rem;margin:.2rem 0 .4rem}
+main h2{font-size:1.35rem;margin-top:2.4rem;padding-bottom:.35rem;border-bottom:1px solid var(--line)}
+main h3{font-size:1.05rem;margin-top:1.6rem}
+.tagline{color:var(--muted);font-size:1.05rem;margin-top:0}
+code{background:var(--accent-soft);padding:.1em .35em;border-radius:5px;font-size:.9em}
+pre{background:var(--code-bg);color:var(--code-ink);padding:1rem 1.2rem;border-radius:var(--radius);
+overflow-x:auto;font-size:.86rem;line-height:1.55}
+pre code{background:none;padding:0;color:inherit;font-size:inherit}
+.help pre{border-left:4px solid var(--accent)}
+.ex{margin:.9rem 0}.ex .cap{font-size:.88rem;color:var(--muted);margin-bottom:.25rem}
+.ex .out{margin-top:.4rem}
+.ex .out pre{background:transparent;border:1px dashed var(--line);color:var(--muted);
+padding:.7rem 1rem;font-size:.82rem}
+.ex .out::before{content:"→ resultado";display:block;font-size:.75rem;color:var(--muted);
+margin-bottom:.15rem;letter-spacing:.03em;text-transform:uppercase}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+td,th{border:1px solid var(--line);padding:.5rem .7rem;text-align:left;vertical-align:top}
+th{background:var(--side)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem;margin:1.4rem 0}
+.card{border:1px solid var(--line);border-radius:var(--radius);padding:1rem 1.1rem}
+.card b{display:block;margin-bottom:.25rem}.card a{font-weight:600}
+.card p{margin:.2rem 0 0;font-size:.88rem;color:var(--muted)}
+.arch{display:flex;flex-direction:column;gap:.6rem;margin:1.4rem 0}
+.arch .row{display:flex;gap:.6rem;flex-wrap:wrap}
+.arch .box{flex:1;min-width:150px;border:1.5px solid var(--accent);border-radius:8px;
+padding:.55rem .8rem;font-size:.85rem;background:var(--accent-soft)}
+.arch .box.mut{border-color:var(--line);background:var(--side)}
+.arch .box b{display:block;font-size:.9rem}
+.pill{display:inline-block;background:var(--accent);color:#fff;border-radius:99px;
+padding:.05rem .6rem;font-size:.75rem;font-weight:600;vertical-align:middle}
+.tag{display:inline-block;border-radius:6px;padding:.1rem .5rem;font-size:.82rem;font-weight:600}
+.tag.ok{background:#d8f3dc;color:#1b4332}.tag.mid{background:#fff3bf;color:#5c4a00}
+.tag.no{background:#ffe3e3;color:#7a1420}
+@media (prefers-color-scheme: dark){.tag.ok{background:#0f3d24;color:#8fe3ac}
+.tag.mid{background:#453800;color:#ffe066}.tag.no{background:#4a1015;color:#ffa8a8}}
+.callout{border:1.5px solid var(--accent);border-radius:var(--radius);padding:1rem 1.2rem;margin:1.4rem 0;
+background:var(--accent-soft)}
+.callout.warn{border-color:#e03131;background:#fff0f0}
+.callout.warn b{color:#c92a2a}
+@media (prefers-color-scheme: dark){.callout.warn{background:#3a1414}.callout.warn b{color:#ff8787}}
+.callout p:first-child{margin-top:0}.callout p:last-child{margin-bottom:0}
+footer{margin-top:4rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:1rem}
+@media (max-width:840px){.layout{flex-direction:column}nav.side{width:100%;height:auto;position:static}
+main{padding:1.4rem 1.2rem 4rem}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="side">
+<div class="brand"><span class="dot">▲</span> Delonix Runtime</div>
+<h5>Documentação</h5>
+<a href="../index.html">Início</a><a href="../cheatsheet.html">Cheatsheet</a><a href="../kinds.html">Kinds e templates</a><a href="../arquitectura.html">Arquitectura</a><a href="../c4.html">Modelo C4 e system design</a><a href="../cri.html">CRI — kubelet sem containerd</a><a href="../comparacao.html">Delonix vs Docker vs Podman</a>
+<h5>Referência CLI</h5>
+<a href="../comandos/container.html">delonix container</a><a href="../comandos/pod.html">delonix pod</a><a href="../comandos/image.html">delonix image</a><a href="../comandos/build.html">delonix build</a><a href="../comandos/vm.html">delonix vm</a><a href="../comandos/volumes.html">delonix volumes</a><a href="../comandos/network.html">delonix network</a><a href="../comandos/stack.html">delonix stack</a><a href="../comandos/cluster.html">delonix cluster</a><a href="../comandos/secret.html">delonix secret</a><a href="../comandos/storage.html">delonix storage</a><a href="../comandos/sharevolume.html">delonix sharevolume</a><a href="../comandos/ingress.html">delonix ingress</a><a href="../comandos/egress.html">delonix egress</a><a href="../comandos/httproute.html">delonix httproute</a><a href="../comandos/tunnel.html" class="on">delonix tunnel</a><a href="../comandos/flow.html">delonix flow</a><a href="../comandos/boot.html">delonix boot</a><a href="../comandos/system.html">delonix system</a><a href="../comandos/dash.html">delonix dash</a><a href="../comandos/docker-api.html">delonix docker-api</a><a href="../comandos/kube.html">delonix kube</a><a href="../comandos/netns.html">delonix netns</a><a href="../comandos/completion.html">delonix completion</a>
+<h5>Projecto</h5>
+<a href="https://github.com/angolardevops/delonix-runtime">GitHub</a>
+<a href="https://github.com/angolardevops/delonix-runtime/releases">Releases</a>
+</nav>
+<main>
+<h1>delonix tunnel</h1><p class='tagline'>Expõe uma porta local à internet pública via pinggy/ngrok/cloudflare (`kind: Tunnel`).</p>
+<p>Faz UMA coisa: leva tráfego da internet pública até UMA porta local — sem conta,
+sem IP público, sem configurar o router. Junta-se ao <code>httproute</code> apontando
+<code>--local-port</code> para a porta onde o proxy L7 escuta, e o routing por <code>Host</code>
+do lado de lá continua a decidir para que container vai cada pedido — uma só URL pública, vários
+backends. Três providers, cada um o binário/mecanismo REAL desse serviço (nunca simulado):
+<strong>pinggy</strong> (zero binário extra — <code>ssh</code> puro, já uma dependência do
+projecto), <strong>ngrok</strong> (precisa do agente <code>ngrok</code> no PATH; a URL pública sai
+da API local do próprio agente) e <strong>cloudflare</strong> (precisa de <code>cloudflared</code>;
+por agora só o quick-tunnel efémero <code>*.trycloudflare.com</code>, sem conta — um tunnel
+NOMEADO com domínio próprio precisa da API do Cloudflare, ainda por implementar).</p>
+<div class='help'><pre><code>Expose a local port to the public internet via pinggy/ngrok/cloudflare (`kind: Tunnel`) — pair with `httproute`&#x27;s listening port to route by Host header behind ONE public URL
+
+Usage: delonix tunnel [OPTIONS] &lt;COMMAND&gt;
+
+Commands:
+  apply     Apply the `kind: Tunnel` documents of a manifest (idempotent)
+  expose    One-shot expose of a local port, no manifest needed
+  ls        List tunnels (state + public URL)
+  describe  Human-readable detail of one tunnel
+  rm        Stop and remove a tunnel
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+      --l18n &lt;en|pt&gt;  Output language: `en` (default) or `pt` (Portuguese, pt_AO). Also settable via `$DELONIX_L18N`. Global — works before any subcommand
+  -h, --help          Print help</code></pre></div>
+<h2 id='expose'><code>tunnel expose</code></h2>
+<div class='help'><pre><code>One-shot expose of a local port, no manifest needed
+
+Usage: delonix tunnel expose [OPTIONS] --provider &lt;PROVIDER&gt; --local-port &lt;LOCAL_PORT&gt;
+
+Options:
+      --l18n &lt;en|pt&gt;                 Output language: `en` (default) or `pt` (Portuguese, pt_AO). Also settable via `$DELONIX_L18N`. Global — works before any subcommand
+      --name &lt;NAME&gt;                  Name (default: `tunnel-&lt;port&gt;`)
+      --provider &lt;PROVIDER&gt;          `pinggy` | `ngrok` | `cloudflare`
+      --local-port &lt;LOCAL_PORT&gt;      
+      --hostname &lt;HOSTNAME&gt;          
+      --token &lt;TOKEN&gt;                
+      --token-secret &lt;TOKEN_SECRET&gt;  
+  -h, --help                         Print help</code></pre></div>
+<p>Validado ao vivo nesta mesma sessão: tráfego HTTPS real da internet
+chegou a um servidor local através do tunnel (HTTP 200) usando exactamente este comando.</p>
+<h3>Exemplos</h3><div class="ex"><div class="cap">Expor uma porta local sem escrever manifesto (pinggy, grátis, efémero)</div><pre><code>delonix tunnel expose --name demo --provider pinggy --local-port 8080</code></pre><div class="out"><pre><code>tunnel/demo: running — https://oxipg-197-148-40-67.free.pinggy.net</code></pre></div></div>
+<h2 id='ls'><code>tunnel ls</code></h2>
+<div class='help'><pre><code>List tunnels (state + public URL)
+
+Usage: delonix tunnel ls [OPTIONS]
+
+Options:
+      --l18n &lt;en|pt&gt;  Output language: `en` (default) or `pt` (Portuguese, pt_AO). Also settable via `$DELONIX_L18N`. Global — works before any subcommand
+  -h, --help          Print help</code></pre></div>
+<h3>Exemplos</h3><div class="ex"><div class="cap">Listar túneis (estado + URL pública)</div><pre><code>delonix tunnel ls</code></pre><div class="out"><pre><code>NAME    PROVIDER   LOCAL PORT   PUBLIC URL                                    STATUS    UPTIME
+test1   pinggy          18234   https://oxipg-197-148-40-67.free.pinggy.net   Running   Up 34 seconds</code></pre></div></div>
+<h2 id='describe'><code>tunnel describe</code></h2>
+<div class='help'><pre><code>Human-readable detail of one tunnel
+
+Usage: delonix tunnel describe [OPTIONS] &lt;NAME&gt;
+
+Arguments:
+  &lt;NAME&gt;  
+
+Options:
+      --l18n &lt;en|pt&gt;  Output language: `en` (default) or `pt` (Portuguese, pt_AO). Also settable via `$DELONIX_L18N`. Global — works before any subcommand
+  -h, --help          Print help</code></pre></div>
+<h3>Exemplos</h3><div class="ex"><div class="cap">Detalhe de um túnel</div><pre><code>delonix tunnel describe demo</code></pre></div>
+<h2 id='rm'><code>tunnel rm</code></h2>
+<div class='help'><pre><code>Stop and remove a tunnel
+
+Usage: delonix tunnel rm [OPTIONS] &lt;NAME&gt;
+
+Arguments:
+  &lt;NAME&gt;  
+
+Options:
+      --l18n &lt;en|pt&gt;  Output language: `en` (default) or `pt` (Portuguese, pt_AO). Also settable via `$DELONIX_L18N`. Global — works before any subcommand
+  -h, --help          Print help</code></pre></div>
+<h3>Exemplos</h3><div class="ex"><div class="cap">Parar e remover (mata o processo agente a sério)</div><pre><code>delonix tunnel rm demo</code></pre><div class="out"><pre><code>tunnel/demo: removed</code></pre></div></div>
+<footer>Delonix Runtime · Apache-2.0 · <a href="https://github.com/angolardevops/delonix-runtime">angolardevops/delonix-runtime</a>
+· Referência gerada do <code>--help</code> real do binário por <code>docs/gen.py</code>.</footer>
+</main>
+</div>
+</body>
+</html>
