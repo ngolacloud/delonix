@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dicionário de códigos · Delonix Engine</title>
+<script>(function(){try{
+var t=localStorage.getItem('delonix-docs-theme');
+if(t)document.documentElement.setAttribute('data-theme',t);
+var l=localStorage.getItem('delonix-docs-lang');
+if(l)document.documentElement.setAttribute('data-lang',l);
+}catch(e){}})();</script>
+<style>
+:root{--accent:#e8590c;--accent-soft:#fff0e6;--ink:#1a1a2e;--muted:#5a6472;--line:#e6e8ec;
+--bg:#ffffff;--side:#f7f8fa;--code-bg:#0f172a;--code-ink:#e2e8f0;--radius:10px;
+--tok-key:#0550ae;--tok-string:#116329;--tok-comment:#6e7781;--tok-flag:#953800;
+--tok-cmd:#8250df;--tok-ph:#6e7781;--tok-head:#c2410c;--tok-sep:#6e7781}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ink:#e6e8ee;--muted:#9aa4b2;--line:#252a33;
+--bg:#0d1117;--side:#10151c;--accent-soft:#2a1810;--code-bg:#161b22;--code-ink:#dbe2ea;
+--tok-key:#79c0ff;--tok-string:#7ee787;--tok-comment:#8b949e;--tok-flag:#ffa657;
+--tok-cmd:#d2a8ff;--tok-ph:#8b949e;--tok-head:#ff9a5a;--tok-sep:#8b949e}}
+:root[data-theme="dark"]{--ink:#e6e8ee;--muted:#9aa4b2;--line:#252a33;
+--bg:#0d1117;--side:#10151c;--accent-soft:#2a1810;--code-bg:#161b22;--code-ink:#dbe2ea;
+--tok-key:#79c0ff;--tok-string:#7ee787;--tok-comment:#8b949e;--tok-flag:#ffa657;
+--tok-cmd:#d2a8ff;--tok-ph:#8b949e;--tok-head:#ff9a5a;--tok-sep:#8b949e}
+*{box-sizing:border-box}body{margin:0;font:16px/1.65 -apple-system,'Segoe UI',Roboto,Ubuntu,
+sans-serif;color:var(--ink);background:var(--bg)}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr) 240px;max-width:1600px;
+margin:0 auto;min-height:100vh}
+nav.side{width:270px;background:var(--side);border-right:1px solid var(--line);
+padding:1.2rem 1rem 3rem;position:sticky;top:0;height:100vh;overflow-y:auto}
+nav.side .brand{display:flex;align-items:center;gap:.55rem;font-weight:700;font-size:1.12rem;
+margin-bottom:1.1rem;color:var(--ink)}
+nav.side .brand .dot{width:26px;height:26px;border-radius:7px;background:var(--accent);
+display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:.85rem}
+nav.side h5{margin:1.3rem 0 .3rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;
+color:var(--muted)}
+nav.side a{display:block;padding:.28rem .55rem;border-radius:6px;color:var(--ink);font-size:.93rem}
+nav.side a:hover{background:var(--accent-soft);text-decoration:none}
+nav.side a.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+nav.side h6.cat{margin:.9rem 0 .15rem;padding:0 .55rem;font-size:.7rem;letter-spacing:.03em;
+text-transform:uppercase;color:var(--muted);opacity:.75;font-weight:600}
+nav.side a.sub{padding-left:1.3rem;font-size:.85rem}
+nav.side a.sub:not(.on){color:var(--muted)}
+nav.side a.sub:not(.on):hover{color:var(--ink)}
+nav.side .brand .toggles{display:flex;align-items:center;gap:.4rem;margin-left:auto}
+.theme-toggle{appearance:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);
+border-radius:8px;width:30px;height:30px;flex-shrink:0;display:inline-flex;align-items:center;
+justify-content:center;cursor:pointer;font-size:.95rem;line-height:1}
+.theme-toggle:hover{border-color:var(--accent)}
+.theme-toggle .i-sun{display:none}
+:root[data-theme="dark"] .theme-toggle .i-moon{display:none}
+:root[data-theme="dark"] .theme-toggle .i-sun{display:inline}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .theme-toggle .i-moon{display:none}
+:root:not([data-theme="light"]) .theme-toggle .i-sun{display:inline}}
+.lang-toggle{appearance:none;border:1px solid var(--line);background:var(--bg);color:var(--ink);
+border-radius:8px;height:30px;padding:0 .55rem;flex-shrink:0;display:inline-flex;align-items:center;
+justify-content:center;cursor:pointer;font-size:.72rem;font-weight:700;letter-spacing:.02em;line-height:1}
+.lang-toggle:hover{border-color:var(--accent)}
+.lang-toggle .lbl-pt{display:none}
+:root[data-lang="en"] .lang-toggle .lbl-en{display:none}
+:root[data-lang="en"] .lang-toggle .lbl-pt{display:inline}
+.lang-en{display:none}
+:root[data-lang="en"] .lang-en{display:inline}
+:root[data-lang="en"] .lang-pt{display:none}
+p.lang-en,p.lang-pt,div.lang-en,div.lang-pt{display:none}
+:root[data-lang="en"] p.lang-en,:root[data-lang="en"] div.lang-en{display:block}
+:root:not([data-lang="en"]) p.lang-pt,:root:not([data-lang="en"]) div.lang-pt{display:block}
+main{min-width:0;padding:2.2rem 3rem 5rem;max-width:860px;margin:0 auto}
+main h1{font-size:1.9rem;margin:.2rem 0 .4rem}
+main h2{font-size:1.35rem;margin-top:2.4rem;padding-bottom:.35rem;border-bottom:1px solid var(--line)}
+main h3{font-size:1.05rem;margin-top:1.6rem}
+.tagline{color:var(--muted);font-size:1.05rem;margin-top:0}
+p.intro{font-size:1.02rem;margin:1rem 0}
+p.src-link{margin:.7rem 0 0;font-size:.85rem;color:var(--muted)}
+p.src-link a{font-weight:600}
+code{background:var(--accent-soft);padding:.1em .35em;border-radius:5px;font-size:.9em}
+pre{background:var(--code-bg);color:var(--code-ink);padding:1rem 1.2rem;border-radius:var(--radius);
+overflow-x:auto;font-size:.86rem;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+pre code{background:none;padding:0;color:inherit;font-size:inherit}
+.help pre{border-left:4px solid var(--accent)}
+.tok-key{color:var(--tok-key)}.tok-string{color:var(--tok-string)}
+.tok-comment{color:var(--tok-comment);font-style:italic}
+.tok-flag{color:var(--tok-flag)}.tok-cmd{color:var(--tok-cmd);font-weight:600}
+.tok-ph{color:var(--tok-ph);font-style:italic}.tok-head{color:var(--tok-head);font-weight:700}
+.tok-sep{color:var(--tok-sep)}
+.ex{margin:.9rem 0}.ex .cap{font-size:.88rem;color:var(--muted);margin-bottom:.25rem}
+.ex .out,div.out{margin-top:.4rem}
+.ex .out pre,div.out pre{background:transparent;border:1px dashed var(--line);color:var(--muted);
+padding:.7rem 1rem;font-size:.82rem}
+.ex .out::before,div.out::before{content:"→ resultado";display:block;font-size:.75rem;color:var(--muted);
+margin-bottom:.15rem;letter-spacing:.03em;text-transform:uppercase}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+td,th{border:1px solid var(--line);padding:.5rem .7rem;text-align:left;vertical-align:top}
+th{background:var(--side)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem;margin:1.4rem 0}
+.card{border:1px solid var(--line);border-radius:var(--radius);padding:1rem 1.1rem}
+.card b{display:block;margin-bottom:.25rem}.card a{font-weight:600}
+.card p{margin:.2rem 0 0;font-size:.88rem;color:var(--muted)}
+.arch{display:flex;flex-direction:column;gap:.6rem;margin:1.4rem 0}
+.arch .row{display:flex;gap:.6rem;flex-wrap:wrap}
+.arch .box{flex:1;min-width:150px;border:1.5px solid var(--accent);border-radius:8px;
+padding:.55rem .8rem;font-size:.85rem;background:var(--accent-soft)}
+.arch .box.mut{border-color:var(--line);background:var(--side)}
+.arch .box b{display:block;font-size:.9rem}
+.pill{display:inline-block;background:var(--accent);color:#fff;border-radius:99px;
+padding:.05rem .6rem;font-size:.75rem;font-weight:600;vertical-align:middle}
+.tag{display:inline-block;border-radius:6px;padding:.1rem .5rem;font-size:.82rem;font-weight:600}
+.tag.ok{background:#d8f3dc;color:#1b4332}.tag.mid{background:#fff3bf;color:#5c4a00}
+.tag.no{background:#ffe3e3;color:#7a1420}
+@media (prefers-color-scheme: dark){.tag.ok{background:#0f3d24;color:#8fe3ac}
+.tag.mid{background:#453800;color:#ffe066}.tag.no{background:#4a1015;color:#ffa8a8}}
+.callout{border:1.5px solid var(--accent);border-radius:var(--radius);padding:1rem 1.2rem;margin:1.4rem 0;
+background:var(--accent-soft)}
+.callout.warn{border-color:#e03131;background:#fff0f0}
+.callout.warn b{color:#c92a2a}
+@media (prefers-color-scheme: dark){.callout.warn{background:#3a1414}.callout.warn b{color:#ff8787}}
+.callout p:first-child{margin-top:0}.callout p:last-child{margin-bottom:0}
+footer{margin-top:4rem;color:var(--muted);font-size:.85rem;border-top:1px solid var(--line);padding-top:1rem}
+aside.toc{padding:2.2rem 1.2rem 3rem 0;position:sticky;top:0;height:100vh;overflow-y:auto;font-size:.82rem}
+aside.toc .toc-inner{border-left:1px solid var(--line);padding-left:1rem}
+aside.toc h5{margin:0 0 .5rem;font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+aside.toc a{display:block;padding:.2rem 0;color:var(--muted);line-height:1.4}
+aside.toc a:hover{color:var(--accent);text-decoration:none}
+@media (max-width:1200px){.layout{grid-template-columns:270px minmax(0,1fr)}aside.toc{display:none}}
+@media (max-width:840px){.layout{display:block}nav.side{width:100%;height:auto;position:static}
+main{padding:1.4rem 1.2rem 4rem;max-width:none}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="side">
+<div class="brand"><span class="dot">▲</span> Delonix Engine
+<div class="toggles">
+<button class="lang-toggle" type="button" aria-label="Switch language / Mudar idioma" title="EN / PT">
+<span class="lbl-en">EN</span><span class="lbl-pt">PT</span></button>
+<button class="theme-toggle" type="button" aria-label="Alternar tema claro/escuro" title="Tema claro/escuro">
+<span class="i-moon">🌙</span><span class="i-sun">☀️</span></button>
+</div></div>
+<h5><span class='lang-pt'>Começar</span><span class='lang-en'>Get started</span></h5><a href="index.html"><span class='lang-pt'>Início</span><span class='lang-en'>Home</span></a><a href="cheatsheet.html"><span class='lang-pt'>Cheatsheet</span><span class='lang-en'>Cheatsheet</span></a><a href="tutorial-delonix-temp.html"><span class='lang-pt'>Projecto completo: Delonix Temp</span><span class='lang-en'>Full project: Delonix Temp</span></a><h5><span class='lang-pt'>Conceitos</span><span class='lang-en'>Concepts</span></h5><a href="estrutura.html"><span class='lang-pt'>Estrutura de recursos</span><span class='lang-en'>Resource structure</span></a><a href="kinds.html"><span class='lang-pt'>Kinds e templates</span><span class='lang-en'>Kinds &amp; templates</span></a><a href="arquitectura.html"><span class='lang-pt'>Arquitectura</span><span class='lang-en'>Architecture</span></a><a href="c4.html"><span class='lang-pt'>Modelo C4 e system design</span><span class='lang-en'>C4 model &amp; system design</span></a><a href="cri.html"><span class='lang-pt'>CRI — kubelet sem containerd</span><span class='lang-en'>CRI — kubelet without containerd</span></a><h5><span class='lang-pt'>Guias</span><span class='lang-en'>Guides</span></h5><a href="gitops.html"><span class='lang-pt'>GitOps e CI</span><span class='lang-en'>GitOps &amp; CI</span></a><a href="cloud.html"><span class='lang-pt'>cloud-init, cloud-img e CH</span><span class='lang-en'>cloud-init, cloud-img &amp; CH</span></a><a href="guia-vm.html"><span class='lang-pt'>Guia de VMs e lab de rede</span><span class='lang-en'>VM &amp; network lab guide</span></a><a href="labs.html"><span class='lang-pt'>Laboratórios</span><span class='lang-en'>Labs</span></a><h5><span class='lang-pt'>Referência</span><span class='lang-en'>Reference</span></h5><a href="estabilidade.html"><span class='lang-pt'>Promessa de estabilidade</span><span class='lang-en'>Stability promise</span></a><a href="codigos.html" class="on"><span class='lang-pt'>Dicionário de códigos</span><span class='lang-en'>Code dictionary</span></a><a href="comparacao.html"><span class='lang-pt'>Delonix vs Docker vs Podman</span><span class='lang-en'>Delonix vs Docker vs Podman</span></a>
+<h5><span class='lang-pt'>Referência CLI</span><span class='lang-en'>CLI reference</span></h5>
+<h6 class='cat'><span class='lang-pt'>Cargas de trabalho</span><span class='lang-en'>Workloads</span></h6><a href="comandos/container.html">delonix container</a><a href="comandos/pod.html">delonix pod</a><a href="comandos/vm.html">delonix vm</a><a href="comandos/workload.html">delonix workload</a><h6 class='cat'><span class='lang-pt'>Artefactos</span><span class='lang-en'>Artifacts</span></h6><a href="comandos/image.html">delonix image</a><a href="comandos/build.html">delonix build</a><a href="comandos/secret.html">delonix secret</a><h6 class='cat'><span class='lang-pt'>Armazenamento</span><span class='lang-en'>Storage</span></h6><a href="comandos/volume.html">delonix volume</a><h6 class='cat'><span class='lang-pt'>Rede</span><span class='lang-en'>Networking</span></h6><a href="comandos/network.html">delonix network</a><a href="comandos/net.html">delonix net</a><a href="comandos/netns.html" class="sub">delonix net netns</a><a href="comandos/flow.html" class="sub">delonix net flow</a><a href="comandos/capture.html" class="sub">delonix net capture</a><a href="comandos/l4guard.html" class="sub">delonix net l4guard</a><a href="comandos/ingress.html" class="sub">delonix net ingress</a><a href="comandos/egress.html" class="sub">delonix net egress</a><a href="comandos/httproute.html" class="sub">delonix net httproute</a><a href="comandos/tunnel.html" class="sub">delonix net tunnel</a><h6 class='cat'><span class='lang-pt'>Clusters</span><span class='lang-en'>Clusters</span></h6><a href="comandos/cluster.html">delonix cluster</a><a href="comandos/kube.html" class="sub">delonix cluster kube</a><h6 class='cat'><span class='lang-pt'>Declarativo</span><span class='lang-en'>Declarative</span></h6><a href="comandos/explain.html">delonix explain</a><a href="comandos/api-resources.html">delonix api-resources</a><a href="comandos/apply.html">delonix apply</a><a href="comandos/plan.html">delonix plan</a><a href="comandos/wait.html">delonix wait</a><a href="comandos/manifest.html">delonix manifest</a><a href="comandos/diff.html">delonix diff</a><a href="comandos/stack.html">delonix stack</a><a href="comandos/compose.html">delonix compose</a><h6 class='cat'><span class='lang-pt'>Recursos</span><span class='lang-en'>Resources</span></h6><a href="comandos/get.html">delonix get</a><a href="comandos/describe.html">delonix describe</a><a href="comandos/delete.html">delonix delete</a><h6 class='cat'><span class='lang-pt'>Servir</span><span class='lang-en'>Serve</span></h6><a href="comandos/compatibility.html">delonix compatibility</a><a href="comandos/serve.html">delonix serve</a><a href="cri.html" class="sub">delonix serve cri</a><a href="comandos/api.html" class="sub">delonix serve api</a><a href="comandos/docker-api.html" class="sub">delonix serve docker-api</a><a href="comandos/mcp.html">delonix mcp</a><h6 class='cat'><span class='lang-pt'>Motor</span><span class='lang-en'>Engine</span></h6><a href="comandos/init.html">delonix init</a><a href="comandos/version.html">delonix version</a><a href="comandos/config.html">delonix config</a><a href="comandos/system.html">delonix system</a><a href="comandos/boot.html" class="sub">delonix system boot</a><a href="comandos/namespace.html" class="sub">delonix system namespace</a><a href="comandos/backup.html">delonix backup</a><a href="comandos/dash.html">delonix dashboard</a><a href="comandos/completion.html">delonix completion</a><a href="comandos/man.html">delonix man</a>
+<h5><span class='lang-pt'>Projecto</span><span class='lang-en'>Project</span></h5>
+<a href="https://github.com/angolardevops/delonix-runtime">GitHub</a>
+<a href="https://github.com/angolardevops/delonix-runtime/releases">Releases</a>
+</nav>
+<main>
+<h1><span class='lang-pt'>Dicionário de códigos</span><span class='lang-en'>Code dictionary</span></h1><div class='lang-pt'><p>Cada falha tem um número <code>DX-CDNN</code> que não muda de significado: o milhar é a <strong>classe</strong> (o que fazer a seguir), a centena o <strong>domínio</strong> (onde aconteceu), e os dois últimos a falha; <code>00</code> é a própria classe. A CLI imprime-o na linha de erro — <code>error[DX-4501] no such VM: dev</code> — e <code>delonix explain DX-4501</code> diz o resto. Decidido no ADR-0043.</p></div><div class='lang-en'><p>Every failure has a <code>DX-CDNN</code> number that never changes meaning: the thousands digit is the <strong>class</strong> (what to do next), the hundreds the <strong>domain</strong> (where it happened), and the last two the failure; <code>00</code> is the class itself. The CLI prints it on the error line — <code>error[DX-4501] no such VM: dev</code> — and <code>delonix explain DX-4501</code> says the rest. Decided in ADR-0043.</p></div><div class='lang-pt'><table><thead><tr><th>Código</th><th>Classe</th><th>Domínio</th><th>Saída</th><th>Mensagem, significado, o que fazer</th></tr></thead><tbody><tr><td><code>DX-0000</code></td><td>sucesso</td><td>motor</td><td>0</td><td><strong>sucesso</strong><br>O comando fez o que lhe foi pedido.<br><em>Nada.</em></td></tr><tr><td><code>DX-1000</code></td><td>argumento inválido</td><td>motor</td><td>1</td><td><strong>argumento inválido</strong><br>Um argumento, o valor de uma flag ou um campo do manifesto não é aceitável. A mensagem diz qual.<br><em>Corrige o argumento que a mensagem nomeia e corre o comando outra vez.</em></td></tr><tr><td><code>DX-2000</code></td><td>uso inválido</td><td>motor</td><td>2</td><td><strong>uso inválido</strong><br>A linha de comando não se lê: um subcomando desconhecido, um argumento em falta ou uma flag que este comando não aceita.<br><em>Corre o comando com --help e segue a linha de uso.</em></td></tr><tr><td><code>DX-2601</code></td><td>uso inválido</td><td>stack</td><td>2</td><td><strong>o plano tem alterações</strong><br>O `stack plan --detailed-exitcode` encontrou diferenças entre o manifesto e o que está a correr. Não é uma falha.<br><em>Revê o plano e corre `delonix stack apply` se as alterações forem desejadas.</em></td></tr><tr><td><code>DX-3000</code></td><td>não está a correr</td><td>motor</td><td>3</td><td><strong>não está a correr</strong><br>O recurso existe mas não está a correr, e a operação precisa dele a correr.<br><em>Arranca-o (`delonix container start &lt;nome&gt;`, `delonix vm start &lt;nome&gt;`) e tenta outra vez.</em></td></tr><tr><td><code>DX-4000</code></td><td>não existe</td><td>motor</td><td>4</td><td><strong>esse recurso não existe</strong><br>Não existe nada com esse nome ou id neste âmbito.<br><em>Confirma o nome e o namespace com o `ls` correspondente, ou cria primeiro o recurso.</em></td></tr><tr><td><code>DX-4501</code></td><td>não existe</td><td>vm</td><td>4</td><td><strong>essa VM não existe</strong><br>Não existe nenhuma máquina virtual com esse nome neste state root.<br><em>Lista-as com `delonix vm ls`, ou cria-a com `delonix vm create`.</em></td></tr><tr><td><code>DX-5000</code></td><td>conflito</td><td>motor</td><td>5</td><td><strong>conflito: já existe</strong><br>O nome já está tomado, ou o estado pedido entra em conflito com o que lá está.<br><em>Escolhe outro nome, remove o recurso existente, ou usa o --force/--replace do comando, se o tiver.</em></td></tr><tr><td><code>DX-6000</code></td><td>indisponível</td><td>motor</td><td>69</td><td><strong>indisponível neste host</strong><br>Falta uma ferramenta, um backend ou uma funcionalidade do kernel de que a operação precisa. Os argumentos estão certos.<br><em>Instala o que a mensagem nomeia (o `delonix system info` mostra o que este host tem) e corre o comando outra vez.</em></td></tr><tr><td><code>DX-7000</code></td><td>permissão negada</td><td>motor</td><td>77</td><td><strong>permissão negada</strong><br>O sistema operativo recusou por uma permissão: um ficheiro, um directório ou uma capability.<br><em>Corrige a permissão no caminho que a mensagem nomeia, ou corre a partir de uma sessão que a tenha, e repete.</em></td></tr><tr><td><code>DX-8000</code></td><td>prazo esgotado</td><td>motor</td><td>124</td><td><strong>prazo esgotado</strong><br>O prazo passou com o trabalho por acabar. Nada recusou; pode ainda estar a terminar.<br><em>Espera e volta a perguntar, ou aumenta o --timeout. Não recries o recurso por cima de um que ainda está a subir.</em></td></tr><tr><td><code>DX-9000</code></td><td>falha do sistema</td><td>motor</td><td>1</td><td><strong>uma chamada de sistema falhou</strong><br>O kernel recusou uma operação (clone, mount, setns…). A mensagem traz a operação e o errno.<br><em>Lê o errno na mensagem; o `delonix system info` verifica os requisitos do host (user namespaces, delegação de cgroup).</em></td></tr><tr><td><code>DX-9001</code></td><td>falha do sistema</td><td>motor</td><td>74</td><td><strong>erro de I/O</strong><br>O sistema de ficheiros recusou num caminho de que o motor precisa: disco cheio, directório em falta, montagem avariada.<br><em>Verifica o caminho na mensagem e o espaço livre do state root (`delonix system df`).</em></td></tr><tr><td><code>DX-9002</code></td><td>falha do sistema</td><td>motor</td><td>1</td><td><strong>registo de estado inválido</strong><br>Um registo de estado em disco não pôde ser lido ou escrito como JSON: está corrompido ou é de uma versão incompatível.<br><em>Inspecciona o registo que a mensagem nomeia; repõe-no a partir de um snapshot (`delonix system snapshot restore`) se estiver corrompido.</em></td></tr><tr><td><code>DX-9401</code></td><td>falha do sistema</td><td>imagem</td><td>1</td><td><strong>erro do registo</strong><br>Um registo OCI respondeu com um erro, ou não foi possível alcançá-lo.<br><em>Verifica a referência da imagem, o teu login (`delonix image login`) e o caminho de rede até ao registo.</em></td></tr></tbody></table></div><div class='lang-en'><table><thead><tr><th>Code</th><th>Class</th><th>Domain</th><th>Exit</th><th>Message, meaning, what to do</th></tr></thead><tbody><tr><td><code>DX-0000</code></td><td>success</td><td>engine</td><td>0</td><td><strong>success</strong><br>The command did what it was asked.<br><em>Nothing.</em></td></tr><tr><td><code>DX-1000</code></td><td>invalid argument</td><td>engine</td><td>1</td><td><strong>invalid argument</strong><br>An argument, a flag value or a manifest field is not acceptable. The message names which.<br><em>Correct the argument the message names and run the command again.</em></td></tr><tr><td><code>DX-2000</code></td><td>invalid usage</td><td>engine</td><td>2</td><td><strong>invalid usage</strong><br>The command line does not parse: an unknown subcommand, a missing argument or a flag this command does not take.<br><em>Run the command with --help and follow its usage line.</em></td></tr><tr><td><code>DX-2601</code></td><td>invalid usage</td><td>stack</td><td>2</td><td><strong>the plan has changes</strong><br>`stack plan --detailed-exitcode` found differences between the manifest and what is running. Not a failure.<br><em>Review the plan, then run `delonix stack apply` if the changes are wanted.</em></td></tr><tr><td><code>DX-3000</code></td><td>not running</td><td>engine</td><td>3</td><td><strong>not running</strong><br>The resource exists but is not running, and the operation needs it running.<br><em>Start it (`delonix container start &lt;name&gt;`, `delonix vm start &lt;name&gt;`) and try again.</em></td></tr><tr><td><code>DX-4000</code></td><td>not found</td><td>engine</td><td>4</td><td><strong>no such resource</strong><br>Nothing with that name or id exists in this scope.<br><em>Check the name and the namespace with the matching `ls`, or create the resource first.</em></td></tr><tr><td><code>DX-4501</code></td><td>not found</td><td>vm</td><td>4</td><td><strong>no such VM</strong><br>There is no virtual machine with that name in this state root.<br><em>List them with `delonix vm ls`, or create it with `delonix vm create`.</em></td></tr><tr><td><code>DX-5000</code></td><td>conflict</td><td>engine</td><td>5</td><td><strong>conflict: already exists</strong><br>The name is already taken, or the desired state conflicts with what is there.<br><em>Pick another name, remove the existing resource, or use the command&#x27;s --force/--replace if it has one.</em></td></tr><tr><td><code>DX-6000</code></td><td>unavailable</td><td>engine</td><td>69</td><td><strong>unavailable on this host</strong><br>A tool, a backend or a kernel feature the operation needs is not present. Nothing about the arguments is wrong.<br><em>Install what the message names (`delonix system info` shows what this host has) and run the command again.</em></td></tr><tr><td><code>DX-7000</code></td><td>permission denied</td><td>engine</td><td>77</td><td><strong>permission denied</strong><br>The operating system refused on a permission: a file, a directory or a capability.<br><em>Fix the permission on the path the message names, or run from a session that has it, and repeat.</em></td></tr><tr><td><code>DX-8000</code></td><td>timeout</td><td>engine</td><td>124</td><td><strong>timed out</strong><br>The deadline passed with the work unfinished. Nothing said no; it may still be finishing.<br><em>Wait and ask again, or raise the --timeout. Do not recreate the resource on top of one still coming up.</em></td></tr><tr><td><code>DX-9000</code></td><td>system failure</td><td>engine</td><td>1</td><td><strong>a system call failed</strong><br>The kernel refused an operation (clone, mount, setns…). The message carries the operation and the errno.<br><em>Read the errno in the message; `delonix system info` checks the host requirements (user namespaces, cgroup delegation).</em></td></tr><tr><td><code>DX-9001</code></td><td>system failure</td><td>engine</td><td>74</td><td><strong>I/O error</strong><br>The filesystem said no on a path the engine needs: a full disk, a missing directory, a bad mount.<br><em>Check the path in the message and the free space of the state root (`delonix system df`).</em></td></tr><tr><td><code>DX-9002</code></td><td>system failure</td><td>engine</td><td>1</td><td><strong>invalid state record</strong><br>A state record on disk could not be read or written as JSON: it is corrupt or from an incompatible version.<br><em>Inspect the record the message names; restore it from a snapshot (`delonix system snapshot restore`) if it is corrupt.</em></td></tr><tr><td><code>DX-9401</code></td><td>system failure</td><td>image</td><td>1</td><td><strong>registry error</strong><br>An OCI registry answered with an error, or could not be reached.<br><em>Check the image reference, your login (`delonix image login`) and the network path to the registry.</em></td></tr></tbody></table></div>
+<footer><span class='lang-pt'>Delonix Engine · Apache-2.0 · <a href="https://github.com/angolardevops/delonix-runtime">angolardevops/delonix-runtime</a> · Referência gerada do <code>--help</code> real do binário por <code>docs/gen.py</code>.</span><span class='lang-en'>Delonix Engine · Apache-2.0 · <a href="https://github.com/angolardevops/delonix-runtime">angolardevops/delonix-runtime</a> · Reference generated from the real <code>--help</code> of the binary by <code>docs/gen.py</code>.</span></footer>
+</main>
+<aside class="toc" id="pagetoc"><div class="toc-inner"><h5><span class='lang-pt'>Nesta página</span><span class='lang-en'>On this page</span></h5><nav id="toc-nav"></nav></div></aside>
+</div>
+<script>(function(){
+function esc(s){return s.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+
+function tokBash(line){
+  var out='',last=0,m;
+  var re=/(#.*$)|("(?:[^"\\]|\\.)*")|('(?:[^'\\]|\\.)*')|(--?[A-Za-z][\w-]*)|\b(delonix|dlx)\b/g;
+  while((m=re.exec(line))){
+    out+=esc(line.slice(last,m.index));
+    if(m[1])out+='<span class="tok-comment">'+esc(m[1])+'</span>';
+    else if(m[2]||m[3])out+='<span class="tok-string">'+esc(m[0])+'</span>';
+    else if(m[4])out+='<span class="tok-flag">'+esc(m[0])+'</span>';
+    else if(m[5])out+='<span class="tok-cmd">'+esc(m[0])+'</span>';
+    last=re.lastIndex;
+  }
+  return out+esc(line.slice(last));
+}
+function highlightBash(text){return text.split('\n').map(tokBash).join('\n');}
+
+function highlightFlagsPh(line){
+  var out='',last=0,m;
+  var re=/(--?[A-Za-z][\w-]*)|(<[^>]+>)|(\[[^\]]+\])/g;
+  while((m=re.exec(line))){
+    out+=esc(line.slice(last,m.index));
+    if(m[1])out+='<span class="tok-flag">'+esc(m[0])+'</span>';
+    else out+='<span class="tok-ph">'+esc(m[0])+'</span>';
+    last=re.lastIndex;
+  }
+  return out+esc(line.slice(last));
+}
+function highlightHelp(text){
+  return text.split('\n').map(function(line){
+    var mm=line.match(/^(Usage|Commands|Options|Arguments|Examples):(.*)$/);
+    if(mm)return '<span class="tok-head">'+mm[1]+':</span>'+highlightFlagsPh(mm[2]);
+    return highlightFlagsPh(line);
+  }).join('\n');
+}
+function highlightYaml(text){
+  return text.split('\n').map(function(line){
+    if(/^\s*#/.test(line))return '<span class="tok-comment">'+esc(line)+'</span>';
+    if(/^---\s*$/.test(line))return '<span class="tok-sep">'+esc(line)+'</span>';
+    var m=line.match(/^(\s*(?:- )?)([A-Za-z0-9_.-]+)(:)(.*)$/);
+    if(m){
+      var rest=m[4],restHtml=esc(rest);
+      var sm=rest.match(/^(\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s#][^#]*?)(\s*(#.*)?)$/);
+      if(sm&&sm[2])restHtml=esc(sm[1])+'<span class="tok-string">'+esc(sm[2])+'</span>'+esc(sm[3]||'');
+      return esc(m[1])+'<span class="tok-key">'+esc(m[2])+'</span>'+esc(m[3])+restHtml;
+    }
+    return esc(line);
+  }).join('\n');
+}
+
+function highlightAll(){
+  document.querySelectorAll('pre > code').forEach(function(code){
+    if(code.dataset.hl)return;
+    code.dataset.hl='1';
+    var pre=code.parentElement;
+    if(pre.closest('.out'))return;
+    var text=code.textContent,html;
+    var isHelp=pre.parentElement&&pre.parentElement.classList.contains('help');
+    if(isHelp)html=highlightHelp(text);
+    else if(/^apiVersion:|\nkind:\s/.test(text))html=highlightYaml(text);
+    else if(pre.closest('.ex')||/^(delonix|dlx)\b/.test(text.trim()))html=highlightBash(text);
+    else return;
+    code.innerHTML=html;
+  });
+}
+
+function visibleHeadingText(h){
+  // A heading pode conter os dois <span class="lang-pt/lang-en"> do bi() —
+  // h.textContent junta os dois, mesmo com um deles escondido por CSS. Usa
+  // só o do idioma activo à data da construção do índice.
+  var lang=document.documentElement.getAttribute('data-lang')||'pt';
+  var want=lang==='en'?'lang-en':'lang-pt';
+  var pick=h.querySelector(':scope > .'+want);
+  return (pick?pick.textContent:h.textContent).trim();
+}
+function isVisibleForLang(el,lang){
+  // Páginas como o index duplicam a secção INTEIRA por idioma (dois <h2>
+  // separados, um por língua) em vez de um <h2> só com dois spans — sem
+  // este filtro o índice listava as duas línguas ao mesmo tempo.
+  var wrap=el.closest('.lang-pt, .lang-en');
+  if(!wrap)return true;
+  return lang==='en'?wrap.classList.contains('lang-en'):wrap.classList.contains('lang-pt');
+}
+function buildToc(){
+  var main=document.querySelector('main'),nav=document.getElementById('toc-nav'),
+      aside=document.getElementById('pagetoc');
+  if(!main||!nav)return;
+  var lang=document.documentElement.getAttribute('data-lang')||'pt';
+  var heads=[].slice.call(main.querySelectorAll('h2')).filter(function(h){
+    return isVisibleForLang(h,lang);
+  });
+  nav.innerHTML='';
+  if(heads.length<2){if(aside)aside.style.display='none';return;}
+  if(aside)aside.style.display='';
+  var used={};
+  heads.forEach(function(h){
+    var label=visibleHeadingText(h);
+    if(!h.id){
+      var slug=label.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'')||'sec';
+      while(used[slug])slug+='-x';
+      used[slug]=1;h.id=slug;
+    }
+    var a=document.createElement('a');
+    a.href='#'+h.id;a.textContent=label;
+    nav.appendChild(a);
+  });
+}
+
+function initThemeToggle(){
+  var KEY='delonix-docs-theme',btn=document.querySelector('.theme-toggle');
+  if(!btn)return;
+  btn.addEventListener('click',function(){
+    var sys=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+    var eff=document.documentElement.getAttribute('data-theme')||sys;
+    var next=eff==='dark'?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    try{localStorage.setItem(KEY,next);}catch(e){}
+  });
+}
+
+function initLangToggle(){
+  var KEY='delonix-docs-lang',btn=document.querySelector('.lang-toggle');
+  if(!btn)return;
+  btn.addEventListener('click',function(){
+    var eff=document.documentElement.getAttribute('data-lang')||'pt';
+    var next=eff==='en'?'pt':'en';
+    document.documentElement.setAttribute('data-lang',next);
+    try{localStorage.setItem(KEY,next);}catch(e){}
+    buildToc();
+  });
+}
+
+document.addEventListener('DOMContentLoaded',function(){
+  initThemeToggle();initLangToggle();buildToc();highlightAll();
+});
+})();</script>
+</body>
+</html>
