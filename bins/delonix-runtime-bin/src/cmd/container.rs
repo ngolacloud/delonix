@@ -3154,6 +3154,14 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
     // teams could not both own `db`/`web`/`api` — exactly the names everyone
     // uses — and had to hand-prefix what the namespace already said (ADR-0011
     // §3). The pair is the boundary the rest of the model already draws.
+    // Hold an exclusive claim on the (namespace, name) pair across the
+    // uniqueness check AND the save below. The store is keyed by id, so without
+    // it two `run --name X` racing both pass this check and both persist a
+    // record sharing the name — proved live: 2x `loja-app`, 2x `loja-db`, and
+    // again here. Keyed the same way the node-api create path keys it, so a CLI
+    // create and a gRPC create of the same pair serialise too. Released when
+    // cmd_run returns.
+    let _name_claim = store.claim_name(&format!("{namespace}.{cname}"))?;
     if let Some(dup) = store
         .list()?
         .iter()
