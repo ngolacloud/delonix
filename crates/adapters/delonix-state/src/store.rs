@@ -85,6 +85,14 @@ impl Drop for FileLock {
     }
 }
 
+/// An exclusive, cross-process claim on a container NAME, held across a
+/// check-then-create. The record store is keyed by **id** (`<id>.json`), so a
+/// name is not a unique path on its own: without this, two `run --name X` racing
+/// each generate a distinct id, each pass the name-uniqueness check, and each
+/// write a record — leaving two records that share one name, after which
+/// resolution by name is ambiguous. Dropping the guard releases the claim.
+pub struct NameClaim(#[allow(dead_code)] FileLock);
+
 /// Writes `bytes` to `path` so that a reader NEVER sees a half-written file and
 /// a **crash** never leaves one behind: temp in the same directory → `fsync` the
 /// temp → `rename` → `fsync` the directory.
@@ -277,6 +285,18 @@ impl Store {
     /// processes lock different inodes and both enter the critical section.
     fn lock_path(&self, id: &str) -> PathBuf {
         self.root.join(format!(".{}.lock", safe_key(id)))
+    }
+
+    /// Acquires the cross-process claim on a container `name` (see [`NameClaim`]),
+    /// blocking until it is ours. Hold it across a check-then-create so two
+    /// racing creates of the same name serialise: the first wins, the second
+    /// sees the name taken. The lock file lives beside the state under a `.name-`
+    /// prefix (never an id path) and is never deleted, the same rule as the
+    /// per-id locks.
+    pub fn claim_name(&self, name: &str) -> Result<NameClaim> {
+        Ok(NameClaim(FileLock::acquire(
+            &self.root.join(format!(".name-{}.lock", safe_key(name))),
+        )?))
     }
 
     /// Persists a container (atomic write).
@@ -1180,6 +1200,46 @@ mod tests {
             .parse()
             .unwrap();
         assert_eq!(got, N, "perderam-se escritas: {got} de {N}");
+    }
+
+    /// REGRESSION (P2-1): `claim_name` gives mutual exclusion on a container
+    /// NAME across threads/processes. The record store is keyed by id, so two
+    /// `run --name X` racing would otherwise each pass the name check and write
+    /// a record sharing the name. With the claim held across the critical
+    /// section, at most ONE holder of a given name exists at a time; a
+    /// DIFFERENT name never blocks.
+    #[test]
+    fn claim_name_serialises_same_name_across_threads() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (_tmp, root) = tmp_dir();
+        let inside = AtomicUsize::new(0);
+        let max_seen = AtomicUsize::new(0);
+        let other_name_ran = AtomicUsize::new(0);
+        const N: usize = 16;
+        std::thread::scope(|sc| {
+            for _ in 0..N {
+                let (root, inside, max_seen) = (root.clone(), &inside, &max_seen);
+                let other = &other_name_ran;
+                sc.spawn(move || {
+                    let st = Store::open(&root).unwrap();
+                    let _claim = st.claim_name("web").unwrap();
+                    let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_seen.fetch_max(now, Ordering::SeqCst);
+                    // A window a competing holder of the SAME name would overlap.
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                    inside.fetch_sub(1, Ordering::SeqCst);
+                    // A different name must be claimable WHILE `web` is held.
+                    let _c2 = st.claim_name("db").unwrap();
+                    other.fetch_add(1, Ordering::SeqCst);
+                });
+            }
+        });
+        assert_eq!(
+            max_seen.load(Ordering::SeqCst),
+            1,
+            "two threads held the 'web' name claim at the same time"
+        );
+        assert_eq!(other_name_ran.load(Ordering::SeqCst), N);
     }
 
     /// A store with no lock at all, used only to prove (by reversion) that
