@@ -7,7 +7,7 @@
   §12 (rollback de binário ≠ rollback de estado).
 - **Tipo:** defeito do produto (reuso de cache sem validação de formato).
 - **Candidato:** `v0.1.1`. Ambiente: `delonix 0.1.0` @ `8ab783dd`, rootless.
-- **Estado:** CORRIGIDO + teste unitário; falta re-prova end-to-end ao vivo.
+- **Estado:** CORRIGIDO + teste unitário + **re-prova end-to-end ao vivo (fechada)**.
 
 ## O que se observou (forense, no host de teste)
 
@@ -71,9 +71,33 @@ em notas de migração).
 - Suite completa `delonix-oci --lib`: **192/192** verdes (nenhuma regressão nos
   testes existentes que afirmam o marcador).
 
-## Pendente (para fechar a P1)
+## Re-prova end-to-end ao vivo (2026-10-29) — FECHADA
 
-Re-prova end-to-end ao vivo: com o binário corrigido, `delonix container run`
-sobre uma das imagens de camada envenenada (ex.: `rabbitmq`) e confirmar que o
-whiteout passa a ser honrado após a re-extracção automática. Requer build do
-binário completo + execução rootless; não feito nesta sessão.
+Binário corrigido construído de `stabilize/0.1.1` (`target/debug/delonix`, 0.1.0).
+A/B rootless num `DELONIX_ROOT` isolado, usando a **camada envenenada autêntica
+do host** (`ba1ebfcb…` de `rabbitmq:4.0-management-alpine`: marcador `ok`, o
+whiteout `.wh.20-management_agent.disable_metrics_collector.conf` como ficheiro
+regular 000, zero char-devs) copiada por cima de uma extracção saudável.
+
+**A) Binário ANTIGO (sem o fix F-1)** — `run … -- ls -la /etc/rabbitmq/conf.d/`:
+
+```
+----------  1 root     root       0  .wh.20-management_agent.disable_metrics_collector.conf
+-rw-r--r--  1 rabbitmq rabbitmq 491  10-defaults.conf
+-rw-r--r--  1 rabbitmq rabbitmq 151  20-management_agent.disable_metrics_collector.conf   <-- NÃO apagado
+```
+
+Reutiliza a camada (marcador fica `ok`, 0 char-devs). O whiteout NÃO é honrado:
+o `.conf` da camada inferior aparece + o marcador `.wh.` literal 000 (que o
+parser de `*.conf` do rabbitmq não consegue ler). Bug reproduzido exactamente.
+
+**B) Binário CORRIGIDO (F-1), MESMA store** — `run … -- ls -la /etc/rabbitmq/conf.d/`:
+
+```
+ ✓ unpacking the image 1.6s        <-- re-extraiu (época antiga != corrente)
+-rw-r--r--  1 rabbitmq rabbitmq 491  10-defaults.conf
+```
+
+`conf.d` limpo (só `10-defaults.conf`); a camada passa a marcador `2`, 1 char-dev
+(whiteout correcto), 0 ficheiros `.wh.` vazados. **Curado automaticamente no
+primeiro uso após o upgrade**, sem acção do operador. P1 fechada.
