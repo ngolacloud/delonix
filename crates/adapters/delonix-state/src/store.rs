@@ -293,7 +293,9 @@ impl Store {
             return Err(Error::Engine(delonix_model::Error::Conflict(format!(
                 "container record '{}' was written in format {}, but this delonix handles up to \
                  {} — operate it with the version that wrote it, or recreate the container",
-                c.id, c.record_format, delonix_compute::RECORD_FORMAT
+                c.id,
+                c.record_format,
+                delonix_compute::RECORD_FORMAT
             ))));
         }
         Ok(c)

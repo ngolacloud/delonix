@@ -449,9 +449,7 @@ impl ImageStore {
             .collect();
         let mut missing: Vec<&str> = Vec::new();
         for (digest, dir) in image.layers.iter().zip(&dirs) {
-            if !layer_is_current(dir)
-                && !missing.iter().any(|m| strip(m) == strip(digest))
-            {
+            if !layer_is_current(dir) && !missing.iter().any(|m| strip(m) == strip(digest)) {
                 missing.push(digest);
             }
         }
@@ -511,7 +509,9 @@ impl ImageStore {
             .and_then(|f| extract_layer_from(f, &tmp))
             .and_then(|owners| write_owners(&owners_path(layers_dir, hex), &owners))
             .and_then(|()| std::fs::write(modes_marker(layers_dir, hex), b"").map_err(Error::from))
-            .and_then(|()| std::fs::write(tmp.join(".extracted"), LAYER_EPOCH).map_err(Error::from));
+            .and_then(|()| {
+                std::fs::write(tmp.join(".extracted"), LAYER_EPOCH).map_err(Error::from)
+            });
         if let Err(e) = extracted {
             let _ = std::fs::remove_dir_all(&tmp);
             return Err(e);
