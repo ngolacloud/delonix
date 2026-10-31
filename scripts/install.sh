@@ -56,6 +56,10 @@
 #                  para uma release antiga sem assinatura. Perde a única
 #                  garantia de que o binário veio mesmo de nós.
 #   --user         binário em ~/.local/bin em vez de /usr/local/bin
+#   --uninstall    remove os binários do Delonix; PRESERVA o estado por omissão
+#                  (containers, imagens, volumes, segredos). Honra --user.
+#   --purge        com --uninstall, remove TAMBÉM o estado e a config
+#                  (/var/lib/delonix ou ~/.local/share/delonix, /etc/delonix).
 #   --version vX   versão específica (default: latest)
 #
 # Porquê cada dependência (a lição veio de instalações reais que falharam):
@@ -115,6 +119,8 @@ WITH_BINARY=1
 WITH_CRI=0
 WITH_EDITOR_PLUGIN=1
 USER_INSTALL=0
+UNINSTALL=0
+PURGE=0
 LOW_PORTS=0
 WITH_IMAGE_BUILD=0
 PRODUCTION=0
@@ -245,6 +251,8 @@ while [ $# -gt 0 ]; do
     --no-delegate) WITH_DELEGATE=0 ;;
     --insecure-skip-signature) SKIP_SIG=1 ;;
     --user)       USER_INSTALL=1 ;;
+    --uninstall)  UNINSTALL=1 ;;
+    --purge)      PURGE=1 ;;
     --version)    shift; VERSION="${1:?--version requires an argument}" ;;
     -h|--help)    grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown flag: $1 (see --help)" ;;
@@ -284,6 +292,63 @@ fi
 # a seguir ao download/instalação do binário. `--user` sem root nenhum é um
 # caso de uso deliberado (só o binário, em ~/.local/bin) e não pode ficar
 # refém de dependências que nem sequer vão ser tocadas.
+
+# ------------------------------------------------------------------- uninstall
+# The counterpart to the install: remove the binaries this script placed, and —
+# only with --purge — the state and config. PRESERVES data by default, the same
+# contract as an upgrade (an install.sh that could silently delete a node's
+# containers/images/volumes/secrets would be the worst kind of footgun). Host
+# config shared with the rest of the system (subuid/subgid, AppArmor, sysctls,
+# the cgroup-delegation drop-in, libvirt) is NAMED, never auto-removed: it is not
+# ours to decide the operator no longer wants it.
+do_uninstall() {
+  # --user touches ONLY the user's own paths; a user-mode uninstall must never
+  # reach the system state/config (/var/lib/delonix, /etc/delonix) — those
+  # belong to a system install and need root this mode does not have.
+  if [ "$USER_INSTALL" = 1 ]; then
+    BIN_DIR="$REAL_HOME/.local/bin"; U_SUDO=""
+    STATE_DIR="${XDG_DATA_HOME:-$REAL_HOME/.local/share}/delonix"
+    CONFIG_DIR=""
+  else
+    BIN_DIR="/usr/local/bin"; U_SUDO="$SUDO"
+    STATE_DIR="/var/lib/delonix"
+    CONFIG_DIR="/etc/delonix"
+  fi
+  # Turn boot persistence off FIRST, while the binary is still here to do it —
+  # otherwise its systemd units outlive the binary they would re-exec.
+  if command -v delonix >/dev/null 2>&1; then
+    delonix system boot disable >/dev/null 2>&1 || true
+  fi
+  removed=0
+  for b in delonix delonix-cri delonix-mgmt delonix-node-api delonix-mcp; do
+    if [ -e "$BIN_DIR/$b" ]; then
+      if $U_SUDO rm -f "$BIN_DIR/$b"; then
+        stepok uninstall "$b removed from $BIN_DIR"; removed=$((removed + 1))
+      else
+        warn "could not remove $BIN_DIR/$b (permission? try with sudo, or --user if it is in \$HOME)"
+      fi
+    fi
+  done
+  [ "$removed" = 0 ] && warn "no delonix binaries found in $BIN_DIR (nothing to remove there)"
+  if [ "$PURGE" = 1 ]; then
+    for d in "$STATE_DIR" "$CONFIG_DIR"; do
+      [ -n "$d" ] && [ -d "$d" ] && $U_SUDO rm -rf "$d" && stepok uninstall "purged $d"
+    done
+    warn "--purge: state and config are GONE — containers, images, volumes and secrets with them."
+  else
+    kept="$STATE_DIR"; [ -n "$CONFIG_DIR" ] && kept="$kept and $CONFIG_DIR"
+    step uninstall state "preserved $kept (pass --purge to remove it)"
+  fi
+  echo
+  echo "left in place (shared host config — remove by hand if you want it gone):"
+  echo "  /etc/subuid, /etc/subgid entries; AppArmor profiles; sysctl drop-ins;"
+  echo "  the cgroup-delegation drop-in under user@.service; libvirt/qemu packages."
+  stepok uninstall "done"
+}
+if [ "$UNINSTALL" = 1 ]; then
+  do_uninstall
+  exit 0
+fi
 
 # ------------------------------------------------------------ detecção de distro
 # NUNCA fazer `source /etc/os-release` no shell principal: ele define VERSION/
