@@ -18,7 +18,7 @@ marcado como pendente de VM/contentor descartável (não validado no host de dev
 | **Actualização** | ✅ + fix | `install.sh` re-corre; `check_version` impõe os 5 binários-irmãos na MESMA versão; **FIX** `dab971fe`: aviso 5.x→0.1.x à frente |
 | **Migração 5.x→0.1.x** | ✅ documentado + à frente | `MIGRATION.md` (latest-por-data=0.1.0; auto-update SemVer NÃO dispara→reinstalar; rollback p/ tags v5.* imutáveis); agora **avisado no upgrade** |
 | **Preservação de dados** | ✅ por construção | `install.sh` NÃO tem nenhum `rm` de `~/.local/share/delonix` nem `/var/lib/delonix` — só apaga temporários (l.144/1256). Upgrade só substitui binários. P3 protege contra downgrade silencioso de estado |
-| **Remoção (uninstall)** | ⚠️ GAP no caminho do operador | `make uninstall`/`uninstall-system` (→`scripts/dev-install.sh`) cobre a instalação **a partir do fonte**; o **`install.sh` publicado não tem contrapartida de remoção** — o operador remove à mão (binários em `BIN_DIR` + opcionalmente o state dir) |
+| **Remoção (uninstall)** | ✅ RESOLVIDO | `install.sh --uninstall` (preserva dados por omissão; `--purge` remove estado/config; honra `--user`; desliga boot primeiro; nomeia a config de host partilhada). `bash -n` + lógica testada nos dois modos. Antes: só `make uninstall` (from-source) |
 | E2E ambiente limpo | ⚠️ PENDENTE de ambiente | Instalação completa (deps via package manager + systemd + subuid) exige distro suportada + root → **validar em VM/contentor descartável**, não no host de dev (§18: ausência de ambiente ≠ aprovação) |
 
 ## Correcção aplicada (`dab971fe`)
