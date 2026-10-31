@@ -519,7 +519,8 @@ pub fn create_in(
     // same-name creates across processes (delonix is daemonless); it is released
     // when `_name_claim` drops at the end of this function.
     let claim_ns = requested_namespace(&req.namespace);
-    let store = delonix_state::Store::open(root.join("containers")).map_err(|e| status_of(&e.into()))?;
+    let store =
+        delonix_state::Store::open(root.join("containers")).map_err(|e| status_of(&e.into()))?;
     let _name_claim = store
         .claim_name(&format!("{claim_ns}.{}", req.name))
         .map_err(|e| status_of(&e.into()))?;
