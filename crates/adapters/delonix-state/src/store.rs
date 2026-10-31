@@ -280,6 +280,25 @@ impl Store {
         self.root.join(format!("{}.json", safe_key(id)))
     }
 
+    /// Decodes a record and gates it against a NEWER on-disk format than this
+    /// build understands ([`delonix_compute::RECORD_FORMAT`]) — the fail-closed
+    /// DOWNGRADE guard. A binary rolled back over state a newer one wrote refuses
+    /// that record (as a conflict) instead of silently dropping or misreading the
+    /// fields it cannot represent, the same rule the backup archive applies on
+    /// restore. `list` stays lenient on purpose: a read-only enumeration must not
+    /// hide a container, only ACTING on one (every `load`) is gated.
+    fn decode(bytes: &[u8]) -> Result<Container> {
+        let c: Container = serde_json::from_slice(bytes)?;
+        if c.record_format > delonix_compute::RECORD_FORMAT {
+            return Err(Error::Engine(delonix_model::Error::Conflict(format!(
+                "container record '{}' was written in format {}, but this delonix handles up to \
+                 {} — operate it with the version that wrote it, or recreate the container",
+                c.id, c.record_format, delonix_compute::RECORD_FORMAT
+            ))));
+        }
+        Ok(c)
+    }
+
     /// Lock file of a container (see [`FileLock`]). It lives alongside the
     /// state and is NEVER deleted — deleting it would open a window in which two
     /// processes lock different inodes and both enter the critical section.
@@ -366,7 +385,7 @@ impl Store {
     pub fn load(&self, id_or_name: &str) -> Result<Container> {
         let exact = self.path(id_or_name);
         if exact.exists() {
-            return Ok(serde_json::from_slice(&fs::read(exact)?)?);
+            return Self::decode(&fs::read(exact)?);
         }
         let qualified = id_or_name.split_once('/');
         let mut hits: Vec<Ident> = Vec::new();
@@ -410,7 +429,7 @@ impl Store {
             });
         }
         if let Some(hit) = named.first() {
-            return Ok(serde_json::from_slice(&fs::read(self.path(&hit.id))?)?);
+            return Self::decode(&fs::read(self.path(&hit.id))?);
         }
         if qualified.is_some() {
             return Err(Error::NoSuchContainer(id_or_name.to_string()));
@@ -420,7 +439,7 @@ impl Store {
         // exactly the container it used to.
         hits.sort_by_key(|i| std::cmp::Reverse(i.created_unix));
         match hits.first() {
-            Some(hit) => Ok(serde_json::from_slice(&fs::read(self.path(&hit.id))?)?),
+            Some(hit) => Self::decode(&fs::read(self.path(&hit.id))?),
             None => Err(Error::NoSuchContainer(id_or_name.to_string())),
         }
     }
@@ -1240,6 +1259,56 @@ mod tests {
             "two threads held the 'web' name claim at the same time"
         );
         assert_eq!(other_name_ran.load(Ordering::SeqCst), N);
+    }
+
+    /// REGRESSION (P3): the DOWNGRADE guard. A record stamped with a format
+    /// NEWER than this build understands is REFUSED on load (by id and by name);
+    /// the current format loads; a legacy record with no stamp (format 0) is
+    /// still understood, so an upgrade never orphans existing containers.
+    #[test]
+    fn load_refuses_a_record_written_by_a_newer_format() {
+        use delonix_compute::RECORD_FORMAT;
+        let (_tmp, root) = tmp_dir();
+        let store = Store::open(&root).unwrap();
+
+        // Current format: stamped by `new`, loads fine.
+        let ok = Container::new(
+            "aaaa1111aaaa1111".into(),
+            "ok".into(),
+            "img".into(),
+            vec!["x".into()],
+            "64M".into(),
+        );
+        assert_eq!(ok.record_format, RECORD_FORMAT);
+        store.save(&ok).unwrap();
+        assert_eq!(store.load("ok").unwrap().id, "aaaa1111aaaa1111");
+
+        // A record from a NEWER engine: refused, by name and by id.
+        let mut future = ok.clone();
+        future.id = "bbbb2222bbbb2222".into();
+        future.name = "future".into();
+        future.record_format = RECORD_FORMAT + 1;
+        store.save(&future).unwrap();
+        let err = store.load("future").unwrap_err();
+        assert!(
+            err.to_string().contains("written in format"),
+            "the downgrade guard must name the mismatch: {err}"
+        );
+        assert!(store.load("bbbb2222bbbb2222").is_err(), "refused by id too");
+
+        // A LEGACY record with no stamp (an older engine wrote it) → 0, understood.
+        let raw = std::fs::read(root.join("aaaa1111aaaa1111.json")).unwrap();
+        let mut v: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("record_format");
+        obj.insert("id".into(), serde_json::json!("cccc3333cccc3333"));
+        obj.insert("name".into(), serde_json::json!("legacy"));
+        std::fs::write(
+            root.join("cccc3333cccc3333.json"),
+            serde_json::to_vec(&v).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(store.load("legacy").unwrap().record_format, 0);
     }
 
     /// A store with no lock at all, used only to prove (by reversion) that
