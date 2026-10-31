@@ -525,6 +525,19 @@ if [ "$WITH_BINARY" = 1 ]; then
       warn "  kind: Egress       -> kind: NetworkPolicy with direction: egress"
       warn "  migration: https://ngolacloud.github.io/delonix/estrutura.html"
       ;;
+    1.*|2.*|3.*|4.*|5.*)
+      # The old `delonix-runtime` line (v1.0.0 … v5.1.1) re-based to the Delonix
+      # `0.x` line ON PURPOSE — a new line, not a downgrade. A SemVer comparator
+      # sees `0.1.0 < 5.1.1`, so no auto-updater would ever bring a 5.x user
+      # here; this install.sh is exactly how they cross, and the warning names
+      # that so a `0.1.0` landing on top of a `5.1.1` reads as intended, not as
+      # a regression. State, config, sockets, services and `DELONIX_*` are
+      # preserved across the re-base (see MIGRATION.md).
+      warn "crossing from delonix-runtime $PREV_VER to the Delonix 0.x line — a deliberate re-base, NOT a downgrade (0.1.0 < $PREV_VER by SemVer)."
+      warn "  your state, images, volumes, config, sockets and services are preserved."
+      warn "  all five sibling binaries (delonix, -cri, -mcp, -mgmt, -node-api) must end on the SAME version — the engine refuses a mismatch."
+      warn "  migration: https://github.com/$REPO/blob/main/MIGRATION.md"
+      ;;
   esac
   # Guarda explícita: sem `--user` isto é a 1ª chamada a sudo do script (a
   # autenticação eager foi adiada para depois desta secção — ver a nota mais
