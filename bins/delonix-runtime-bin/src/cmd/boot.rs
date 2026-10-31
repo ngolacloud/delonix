@@ -210,8 +210,31 @@ pub fn run(action: BootCmd) -> Result<()> {
 ///
 /// `on-failure` is deliberately NOT included: it means «restart if it exits
 /// badly», not «be up at boot», and a container that exited 0 has finished.
-fn wants_to_be_up(policy: Option<&str>) -> bool {
+pub(crate) fn wants_to_be_up(policy: Option<&str>) -> bool {
     matches!(policy, Some("always") | Some("unless-stopped"))
+}
+
+/// Whether `system boot enable` has installed any boot-persistence unit — a
+/// cheap one-`read_dir` check so a create can warn that a restart policy will
+/// NOT survive a reboot while persistence is off (daemonless: nothing brings a
+/// container back on its own). The unit dir is the user's in rootless mode and
+/// the system one otherwise, matching [`run`].
+pub(crate) fn persistence_installed() -> bool {
+    let unit_dir = if runtime::is_rootless() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        std::path::PathBuf::from(home).join(".config/systemd/user")
+    } else {
+        std::path::PathBuf::from("/etc/systemd/system")
+    };
+    std::fs::read_dir(&unit_dir)
+        .map(|rd| {
+            rd.flatten().any(|e| {
+                e.file_name()
+                    .to_str()
+                    .is_some_and(|n| n.starts_with(UNIT_PREFIX))
+            })
+        })
+        .unwrap_or(false)
 }
 
 /// The unit text for one container. **Pure, so it is testable** — the same
