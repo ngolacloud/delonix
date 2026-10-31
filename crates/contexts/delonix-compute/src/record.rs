@@ -334,6 +334,16 @@ pub struct ExtraNet {
     pub idx: u32,
 }
 
+/// On-disk schema version of a persisted [`Container`] record — the gate against
+/// a silent DOWNGRADE. A build refuses to LOAD a record stamped NEWER than this
+/// (see `delonix-state`'s `Store`), the same fail-closed rule the backup archive
+/// uses on restore (`cmd::backup::FORMAT`). Bump it whenever a change to the
+/// record's meaning (not just an additive `serde(default)` field) would make an
+/// older engine misread a newer record. Records written before this stamp
+/// existed deserialize as `0` (the pre-versioning shape), which every build
+/// still understands.
+pub const RECORD_FORMAT: u32 = 1;
+
 /// A container: the unit that Delonix creates, runs, inspects and destroys.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Container {
@@ -775,6 +785,11 @@ pub struct Container {
     /// the ceiling under this name, and an ordinary start writes nothing new.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub mount_pending: bool,
+    /// On-disk schema version (see [`RECORD_FORMAT`]) — the downgrade gate.
+    /// Always serialised (it is the gate, not decoration); absent on records
+    /// written before it existed → `0`, which every build understands.
+    #[serde(default)]
+    pub record_format: u32,
 }
 
 fn default_cpus() -> String {
@@ -897,6 +912,7 @@ impl Container {
             crash_reason: None,
             crashed_at: None,
             mount_pending: false,
+            record_format: RECORD_FORMAT,
         }
     }
 
