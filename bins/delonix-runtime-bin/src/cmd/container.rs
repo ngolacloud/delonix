@@ -3268,6 +3268,25 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
             .insert(POLICY_HOLD_ANNOTATION.to_string(), "1".to_string());
     }
 
+    // A restart policy that asks to be kept up is SILENTLY ineffective across a
+    // host reboot while boot persistence is off: this engine is daemonless, so
+    // nothing re-creates the container on boot unless `system boot enable`
+    // installed its systemd unit. Docker hides this because its daemon is always
+    // enabled; here it is a footgun the engine refuses to leave silent. Warn
+    // once, on the user's own invocation (never the re-exec child), and never
+    // block — it is a heads-up, not a failure.
+    if !reexec
+        && super::boot::wants_to_be_up(Some(opts_copy.restart.as_str()))
+        && !super::boot::persistence_installed()
+    {
+        eprintln!(
+            "warning: restart policy '{}' will NOT survive a host reboot until \
+             `delonix system boot enable` is run — this engine is daemonless, so nothing \
+             brings the container back on its own.",
+            opts_copy.restart
+        );
+    }
+
     // `create` (the engine's `docker create`): persist the record in its born
     // `Created` state — `build_record` already set it, and `reconcile_status`
     // leaves `Created` alone — and stop here, BEFORE any network attach or
