@@ -155,7 +155,10 @@ base64 = "0.22"
 # RFC 1123 date formatting for the S3 Signature V2 `Date` header (RGW bucket
 # creation). Tiny, no_std-friendly, already in the tree via hyper.
 httpdate = "1"
-zstd = "0.13"
+# 0.14+: closes RUSTSEC-2026-0391/0398/0403/0410 (zstd/zstd-safe/zstd-sys —
+# abandoned-stream leak, out-of-capacity Vec len, uninit memory on legacy-frame
+# decompress error, wasm alloc shim). Caught by `cargo deny check advisories`.
+zstd = "0.14"
 # Kernel interfaces
 rustix = "1.1"
 # CLI, manifests, schema
