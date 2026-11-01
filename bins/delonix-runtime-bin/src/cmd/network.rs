@@ -560,14 +560,15 @@ pub enum NetworkCmd {
         /// Host parent NIC (required for macvlan/ipvlan).
         #[arg(long)]
         parent: Option<String>,
-        /// Subnet. For `bridge`, `10.<200-254>.0.0/16` (only /16); required for
-        /// macvlan/ipvlan, e.g. `192.168.1.0/24`. Omit it and a free one is picked.
+        /// Subnet (CIDR). For `bridge`, any private IPv4 range (RFC 1918) between /8 and /28 — e.g. `172.20.0.0/24`, `192.168.50.0/24` or `10.50.0.0/16`; required for macvlan/ipvlan, e.g. `192.168.1.0/24`. Omit it and a free one is picked from the default space.
         //
-        // The old text said only "required for macvlan/ipvlan" and stopped
-        // there — from v0.47.0 `bridge` honours it too (`base_from_subnet`),
-        // which is the version that fixed the bug where the flag was accepted
-        // and silently thrown away. Documenting it as macvlan-only left the
-        // most-used driver's newest behaviour invisible.
+        // `bridge` honours an arbitrary private subnet (ADR-0013 tier A,
+        // `validate_subnet` + `create_with_cidr`): the record is no longer a
+        // single octet, so a network engineer's address plan is accepted
+        // instead of only `10.<200-254>.0.0/16`. The overlap check (against the
+        // reserved ingress/slirp prefixes and existing networks) runs in
+        // `create_with_cidr`; omitting `--subnet` still auto-picks a free /16
+        // from the default workload space.
         #[arg(long)]
         subnet: Option<String>,
         /// Gateway (macvlan/ipvlan).
@@ -713,11 +714,11 @@ fn reject_vpc_vocabulary(doc: &ManifestDoc) -> Result<()> {
     const NOT_HERE: &[(&str, &str)] = &[
         (
             "vpcCidr",
-            "use `subnet: 10.<200-254>.0.0/16` — a network IS the address space here",
+            "use `subnet: <any private CIDR>` (e.g. 172.20.0.0/24) — a network IS the address space here",
         ),
         (
             "cidr",
-            "use `subnet: 10.<200-254>.0.0/16` — a network IS the address space here",
+            "use `subnet: <any private CIDR>` (e.g. 172.20.0.0/24) — a network IS the address space here",
         ),
         (
             "publicSubnets",
