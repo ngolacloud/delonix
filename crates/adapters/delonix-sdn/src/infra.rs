@@ -37,6 +37,16 @@ pub const INFRA_TAP_SUBNET: &str = "10.0.2.0/24";
 /// mode's `delonix`, which lives in the host's netns).
 pub const INGRESS_TABLE: &str = "dlxing";
 
+/// The nft FAMILY the ingress table lives in. `inet` since ADR-0082 phase 3: one
+/// dual-stack table carries both IPv4 and IPv6. The v4 rules are unchanged — an
+/// `ip saddr` match in an `inet` table matches exactly the v4 packets it did in an
+/// `ip` table — and the v6 side is scaffolding with EMPTY sets until phase 4 wires
+/// v6 egress. v6 forwarding stays refused meanwhile (`ingress_v6_refusal_ruleset`),
+/// so the dual-family table never governs a v6 packet yet. Every `nft` command that
+/// addresses this table is addressed by `<family> <name>`, so this is the single
+/// source of truth for the family half of that pair.
+pub const INGRESS_FAMILY: &str = "inet";
+
 // ---- artifact locations (pidfiles, socket, status, refcount) ----------------
 
 /// Delonix data root, WITHOUT depending on `geteuid()` when `DELONIX_ROOT`
@@ -828,11 +838,11 @@ pub fn unconditional_guards_script_for(
         ),
     ] {
         s.push_str(&format!(
-            "add chain ip {t} {chain} {{ type filter hook {hook} priority {prio}; }}\n\
-             flush chain ip {t} {chain}\n"
+            "add chain {INGRESS_FAMILY} {t} {chain} {{ type filter hook {hook} priority {prio}; }}\n\
+             flush chain {INGRESS_FAMILY} {t} {chain}\n"
         ));
         for r in rules {
-            s.push_str(&format!("add rule ip {t} {chain} {r}\n"));
+            s.push_str(&format!("add rule {INGRESS_FAMILY} {t} {chain} {r}\n"));
         }
     }
     s
@@ -990,20 +1000,29 @@ pub fn ingress_table_ruleset() -> String {
     // truth as the guard above, and for the same reason: the reconciler FLUSHES this
     // chain and refills it, so it needs every rule, not just the conditional tail.
     let holder_input = indent_chain_body(&dlxinput_rules());
-    let dispatch: String = fw_dispatch_chains()
-        .iter()
-        .map(|(chain, prio, rule)| {
-            format!(
-                "\x20 chain {chain} {{ type filter hook forward priority {prio};\n\
-                 \x20\x20 {rule}\n\
-                 \x20 }}\n"
-            )
-        })
-        .collect();
+    let render_dispatch = |chains: [(&'static str, i32, String); 2]| -> String {
+        chains
+            .iter()
+            .map(|(chain, prio, rule)| {
+                format!(
+                    "\x20 chain {chain} {{ type filter hook forward priority {prio};\n\
+                     \x20\x20 {rule}\n\
+                     \x20 }}\n"
+                )
+            })
+            .collect()
+    };
+    let dispatch = render_dispatch(fw_dispatch_chains());
+    // ADR-0082 phase 3 — the IPv6 twin of the dispatch, in the same dual-family
+    // table. Inert: `@fwmap6` is empty and the v6 refusal drops every forwarded v6
+    // packet before these run, so v6 is governed by NOTHING yet (phase 4).
+    let dispatch6 = render_dispatch(fw_dispatch_chains_v6());
     format!(
-        "table ip {INGRESS_TABLE} {{\n\
+        "table {INGRESS_FAMILY} {INGRESS_TABLE} {{\n\
          \x20 set {DLXALL_SET} {{ type ipv4_addr; }}\n\
          \x20 map {FWMAP} {{ type ipv4_addr : verdict; }}\n\
+         \x20 set {DLXALL6_SET} {{ type ipv6_addr; }}\n\
+         \x20 map {FWMAP6} {{ type ipv6_addr : verdict; }}\n\
          \x20 set {DLXBR_SET} {{ type ifname; }}\n\
          \x20 map {NETPAIR_MAP} {{ type ifname . ifname : verdict; counter; }}\n\
          \x20 chain {FWGUARD_CHAIN} {{ type filter hook forward priority {FWGUARD_PRIORITY};\n\
@@ -1012,6 +1031,7 @@ pub fn ingress_table_ruleset() -> String {
          \x20 chain {PRIVATE_EGRESS_CHAIN} {{ type filter hook forward priority {PRIVATE_EGRESS_PRIORITY};\n\
          \x20 }}\n\
          {dispatch}\
+         {dispatch6}\
          \x20 chain pre {{ type nat hook prerouting priority -100; }}\n\
          \x20 chain post {{ type nat hook postrouting priority 100; oifname \"tap0\" masquerade; }}\n\
          \x20 chain fwdeny {{ type filter hook forward priority -10;\n\
@@ -1067,6 +1087,20 @@ pub fn fw_dispatch_chains() -> [(&'static str, i32, String); 2] {
     ]
 }
 
+/// The IPv6 twin of [`fw_dispatch_chains`] — ADR-0082 phase 3 scaffolding in the
+/// dual-family table. Same source-before-destination split as the v4 dispatch (so
+/// the P0-1 fix holds for v6 too once phase 4 fills `@fwmap6`), but at priorities of
+/// its OWN: the two families never share a forward-hook priority, because equal
+/// priorities have no defined order between chains. Inert in phase 3 — `@fwmap6` is
+/// empty and `ingress_v6_refusal_ruleset` drops every forwarded v6 packet at -10,
+/// before these at -8/-7 — so it governs nothing while v6 stays off.
+pub fn fw_dispatch_chains_v6() -> [(&'static str, i32, String); 2] {
+    [
+        ("fwout6", -8, format!("ip6 saddr vmap @{FWMAP6}")),
+        ("fwcont6", -7, format!("ip6 daddr vmap @{FWMAP6}")),
+    ]
+}
+
 /// One `nft -f` transaction that brings the dispatch of an EXISTING `dlxing` table to
 /// the shape of [`fw_dispatch_chains`], whatever shape it had.
 ///
@@ -1078,15 +1112,15 @@ pub fn fw_dispatch_chains() -> [(&'static str, i32, String); 2] {
 /// no dispatch), and it never touches the per-container chains or `@fwmap`, so every
 /// container keeps its firewall across the migration.
 pub fn fw_dispatch_migration_script() -> String {
-    let mut s = format!("add map ip {INGRESS_TABLE} {FWMAP} {{ type ipv4_addr : verdict; }}\n");
+    let mut s = format!("add map {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP} {{ type ipv4_addr : verdict; }}\n");
     for (chain, prio, _) in fw_dispatch_chains() {
         s.push_str(&format!(
-            "add chain ip {INGRESS_TABLE} {chain} {{ type filter hook forward priority {prio}; }}\n\
-             flush chain ip {INGRESS_TABLE} {chain}\n"
+            "add chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain} {{ type filter hook forward priority {prio}; }}\n\
+             flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n"
         ));
     }
     for (chain, _, rule) in fw_dispatch_chains() {
-        s.push_str(&format!("add rule ip {INGRESS_TABLE} {chain} {rule}\n"));
+        s.push_str(&format!("add rule {INGRESS_FAMILY} {INGRESS_TABLE} {chain} {rule}\n"));
     }
     s
 }
@@ -1314,8 +1348,8 @@ fn render_private_egress(mode: PrivateEgressMode, allowed: &[crate::Cidr]) -> St
     let t = INGRESS_TABLE;
     let c = PRIVATE_EGRESS_CHAIN;
     let mut s = format!(
-        "add chain ip {t} {c} {{ type filter hook forward priority {PRIVATE_EGRESS_PRIORITY}; }}\n\
-         flush chain ip {t} {c}\n"
+        "add chain {INGRESS_FAMILY} {t} {c} {{ type filter hook forward priority {PRIVATE_EGRESS_PRIORITY}; }}\n\
+         flush chain {INGRESS_FAMILY} {t} {c}\n"
     );
     let verdict = match mode {
         PrivateEgressMode::Off => return s,
@@ -1325,7 +1359,7 @@ fn render_private_egress(mode: PrivateEgressMode, allowed: &[crate::Cidr]) -> St
     // Replies are not new connections: a client on the LAN that reached a published
     // port gets its answer through the uplink, addressed to a private destination.
     s.push_str(&format!(
-        "add rule ip {t} {c} ct state established,related accept\n"
+        "add rule {INGRESS_FAMILY} {t} {c} ct state established,related accept\n"
     ));
     let mut granted: Vec<String> = allowed
         .iter()
@@ -1337,11 +1371,11 @@ fn render_private_egress(mode: PrivateEgressMode, allowed: &[crate::Cidr]) -> St
     // a /24 inside it), and `nft` refuses overlapping intervals in a set.
     for a in granted {
         s.push_str(&format!(
-            "add rule ip {t} {c} oifname \"{UPLINK}\" ip daddr {a} accept\n"
+            "add rule {INGRESS_FAMILY} {t} {c} oifname \"{UPLINK}\" ip daddr {a} accept\n"
         ));
     }
     s.push_str(&format!(
-        "add rule ip {t} {c} oifname \"{UPLINK}\" ip daddr {{ {} }} {verdict}\n",
+        "add rule {INGRESS_FAMILY} {t} {c} oifname \"{UPLINK}\" ip daddr {{ {} }} {verdict}\n",
         PRIVATE_EGRESS_DESTINATIONS.join(", ")
     ));
     s
@@ -2588,10 +2622,11 @@ fn control_plane_threads() -> Vec<(&'static str, fn())> {
     //
     // BUG FIXED HERE: this was spawned unconditionally, so in the DEFAULT
     // configuration the holder advertised a SLAAC `/64` on every ingress bridge —
-    // one RA every 8s — for a dataplane it then refuses to govern. Everything the
-    // firewall writes lives in `table ip` (see the long note on
-    // `ipv6_sdn_enabled`); the only v6 rule is the blanket `forward policy drop` of
-    // `ingress_v6_refusal_ruleset`. Announcing a prefix and governing it with a
+    // one RA every 8s — for a dataplane it then refuses to govern. The firewall is a
+    // dual-family `table inet` since ADR-0082 phase 3, but its v6 side is EMPTY (see
+    // the long note on `ipv6_sdn_enabled`); the only v6 rule that governs anything is
+    // still the blanket `forward policy drop` of `ingress_v6_refusal_ruleset`.
+    // Announcing a prefix and governing it with a
     // single drop is not a dual-stack dataplane, it is an invitation: anything that
     // autoconfigured from the prefix and shared a bridge talked east-west with no
     // policy applying, which is precisely the bypass the v6 refusal exists to close.
@@ -3047,7 +3082,7 @@ fn handle_control(line: &str) -> String {
         }
         let listing = crate::capture(
             "nft",
-            &["list", "chain", "ip", INGRESS_TABLE, &fw_chain_name(ip)],
+            &["list", "chain", INGRESS_FAMILY, INGRESS_TABLE, &fw_chain_name(ip)],
         )
         .unwrap_or_default();
         return format!("ok {}\n", hex_encode(listing.as_bytes()));
@@ -3062,9 +3097,9 @@ fn handle_control(line: &str) -> String {
     // resumo mostraria um porto que já não existe ao lado de um bloqueio que
     // ainda não existia.
     if let ["fwsummary"] = parts.as_slice() {
-        let pre = crate::capture("nft", &["list", "chain", "ip", INGRESS_TABLE, "pre"])
+        let pre = crate::capture("nft", &["list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "pre"])
             .unwrap_or_default();
-        let blocked = crate::capture("nft", &["list", "set", "ip", INGRESS_TABLE, "blocked"])
+        let blocked = crate::capture("nft", &["list", "set", INGRESS_FAMILY, INGRESS_TABLE, "blocked"])
             .unwrap_or_default();
         return format!(
             "ok {}|{}\n",
@@ -3076,7 +3111,7 @@ fn handle_control(line: &str) -> String {
     // and hex-encoded for the same reason as `fwstats` — an nft listing is not
     // one line.
     if let ["netroute-show"] = parts.as_slice() {
-        let listing = crate::capture("nft", &["list", "map", "ip", INGRESS_TABLE, NETPAIR_MAP])
+        let listing = crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP])
             .unwrap_or_default();
         return format!("ok {}\n", hex_encode(listing.as_bytes()));
     }
@@ -3085,7 +3120,7 @@ fn handle_control(line: &str) -> String {
     // `forward` chain also carries the base accept/drop policy and every
     // `NetworkRoute` exemption, and neither is this command's business.
     if let ["l4guard-show"] = parts.as_slice() {
-        let listing = crate::capture("nft", &["list", "chain", "ip", INGRESS_TABLE, "forward"])
+        let listing = crate::capture("nft", &["list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "forward"])
             .unwrap_or_default();
         let filtered: String = listing
             .lines()
@@ -3343,7 +3378,7 @@ fn ensure_net_bridge(bridge: &str, fallback_addr: &str) -> Result<()> {
     for (target, element) in isolation_elements(bridge) {
         run_ok(
             "nft",
-            &["add", "element", "ip", INGRESS_TABLE, target, &element],
+            &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, target, &element],
         );
     }
     // The network's DHCP server (for VMs/clients that request an IP), given the
@@ -3644,11 +3679,14 @@ fn dhcp_opt(opts: &[u8], want: u8) -> Option<Vec<u8>> {
 // **IPv6 IS REFUSED BY DEFAULT — and this is a security fix, not a feature removal.**
 //
 // The SDN used to hand every container an IPv6 ULA derived from its v4 address
-// (`fd00:<o2>::<o3>:<o4>`) while the ENTIRE firewall lives in `table ip` — v4 only.
-// That is a second, completely unfiltered data path to every container. Reproduced
-// live: with the firewall dropping on IPv4, the same target answered on port 80 over
-// its ULA. It defeats `ingress`/`egress` rules, `policy deny`, namespace isolation,
-// `kind: Dependency` and the L4 guard alike, because all of them are `table ip`.
+// (`fd00:<o2>::<o3>:<o4>`) while the ENTIRE firewall was v4 only. That is a second,
+// completely unfiltered data path to every container. Reproduced live: with the
+// firewall dropping on IPv4, the same target answered on port 80 over its ULA. It
+// defeats `ingress`/`egress` rules, `policy deny`, namespace isolation,
+// `kind: Dependency` and the L4 guard alike, because every one of them only ever
+// matched v4. (ADR-0082 phase 3 made the table dual-family `inet`, but its v6 side
+// is still EMPTY — so the refusal below is as necessary as ever until phase 4 wires
+// v6 egress and fills the v6 sets.)
 // Discovery is a single `ping -6 ff02::1%eth0`, which enumerates every neighbour on
 // the bridge, and the address is derivable from the v4 one anyway.
 //
@@ -3667,8 +3705,10 @@ fn dhcp_opt(opts: &[u8], want: u8) -> Option<Vec<u8>> {
 //
 // `DELONIX_ENABLE_IPV6=1` restores the old behaviour, loudly, for whoever needs the
 // v6 SDN and accepts that no firewall rule applies to it. Same escape-hatch shape as
-// `DELONIX_FORWARD_POLICY=accept`. Real dual-stack — `table inet` plus a v6 IPAM and
-// v6 sets — is separate work; this is the explicit refusal that must exist until then.
+// `DELONIX_FORWARD_POLICY=accept`. Real dual-stack is arriving in steps: ADR-0082
+// phase 3 made the firewall a `table inet` with v6 sets and a v6 dispatch already in
+// place — but all EMPTY, so no v6 packet is governed yet. Phase 4 fills the v6 sets
+// from the ULA IPAM and adds v6 egress; THIS refusal is what must exist until it does.
 
 /// Is the (unfiltered) IPv6 SDN explicitly opted back in?
 pub fn ipv6_sdn_enabled() -> bool {
@@ -3886,13 +3926,13 @@ fn do_cni_del(netns: &str, id: &str, ifname: &str, hex: &str) -> Result<()> {
 /// Shared by join (which moves an IP between namespaces) and leave (which takes it out for
 /// good) — two copies of this scan would drift the day the naming changes.
 fn drop_from_every_ns_set(elem: &str) {
-    let sets = crate::capture("nft", &["list", "sets", "ip", INGRESS_TABLE]).unwrap_or_default();
+    let sets = crate::capture("nft", &["list", "sets", INGRESS_FAMILY, INGRESS_TABLE]).unwrap_or_default();
     for line in sets.lines() {
         if let Some(name) = line.split_whitespace().nth(1) {
             if name.starts_with("dlxns") {
                 run_ok(
                     "nft",
-                    &["delete", "element", "ip", INGRESS_TABLE, name, elem],
+                    &["delete", "element", INGRESS_FAMILY, INGRESS_TABLE, name, elem],
                 );
             }
         }
@@ -3915,7 +3955,7 @@ fn ns_set_leave(ip: &str) {
     let elem = format!("{{ {ip} }}");
     run_ok(
         "nft",
-        &["delete", "element", "ip", INGRESS_TABLE, DLXALL_SET, &elem],
+        &["delete", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL_SET, &elem],
     );
     drop_from_every_ns_set(&elem);
 }
@@ -3927,7 +3967,7 @@ fn ns_set_join(ip: &str, ns: &str) {
     let elem = format!("{{ {ip} }}");
     run_ok(
         "nft",
-        &["add", "element", "ip", INGRESS_TABLE, DLXALL_SET, &elem],
+        &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL_SET, &elem],
     );
     // takes the IP out of any previous namespace (set name = 2nd token of "set X {").
     drop_from_every_ns_set(&elem);
@@ -3937,7 +3977,7 @@ fn ns_set_join(ip: &str, ns: &str) {
         &[
             "add",
             "set",
-            "ip",
+            INGRESS_FAMILY,
             INGRESS_TABLE,
             &nsset,
             "{ type ipv4_addr; }",
@@ -3945,7 +3985,7 @@ fn ns_set_join(ip: &str, ns: &str) {
     );
     run_ok(
         "nft",
-        &["add", "element", "ip", INGRESS_TABLE, &nsset, &elem],
+        &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, &nsset, &elem],
     );
 }
 
@@ -4175,7 +4215,7 @@ fn do_netrate_clear(vh: &str) {
 ///
 /// # Why a bridge table, and why the `ip` rule it replaces never matched
 ///
-/// Until 2026-10-02 anti-spoofing was one `ip dlxing fwdeny` rule per port —
+/// Until 2026-10-02 anti-spoofing was one `inet dlxing fwdeny` rule per port —
 /// `iifname <veth> ip saddr != <ip> drop` — and it never dropped a packet.
 /// Traffic between two ports of the same bridge reaches the IP layer only
 /// through `br_netfilter`, and there `iifname` is the BRIDGE, never the port,
@@ -4408,13 +4448,13 @@ fn control_mac_ok(s: &str) -> bool {
             .all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
-/// Removes the legacy `ip dlxing fwdeny` anti-spoofing rule of a port, the one
+/// Removes the legacy `inet dlxing fwdeny` anti-spoofing rule of a port, the one
 /// that never matched (see [`SPOOF_TABLE`]). Kept so a holder that ran an older
 /// binary sheds the dead rule the next time the port is attached or detached.
 fn clear_antispoof(vh: &str) {
     let listed = crate::capture(
         "nft",
-        &["-a", "list", "chain", "ip", INGRESS_TABLE, "fwdeny"],
+        &["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "fwdeny"],
     )
     .unwrap_or_default();
     let needle = format!("iifname \"{vh}\"");
@@ -4430,7 +4470,7 @@ fn clear_antispoof(vh: &str) {
                     &[
                         "delete",
                         "rule",
-                        "ip",
+                        INGRESS_FAMILY,
                         INGRESS_TABLE,
                         "fwdeny",
                         "handle",
@@ -4635,7 +4675,7 @@ fn do_netdel(bridge: &str) -> Result<()> {
         // disagree about what a rule of this bridge looks like.
         let _ = apply_egress_from_state(&bridge, &EgressState::default());
         fqdn_forget(&bridge);
-        let pairs = crate::capture("nft", &["list", "map", "ip", INGRESS_TABLE, NETPAIR_MAP])
+        let pairs = crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP])
             .unwrap_or_default();
         for spec in netdel_nft_deletes(&bridge, &pairs) {
             let args: Vec<&str> = spec.iter().map(String::as_str).collect();
@@ -4657,7 +4697,7 @@ fn do_netdel(bridge: &str) -> Result<()> {
 /// listing came back empty — a failed read must not turn into "nothing to delete".
 fn netdel_nft_deletes(bridge: &str, netpair_listing: &str) -> Vec<Vec<String>> {
     let del = |set: &str, element: String| -> Vec<String> {
-        ["delete", "element", "ip", INGRESS_TABLE, set]
+        ["delete", "element", INGRESS_FAMILY, INGRESS_TABLE, set]
             .iter()
             .map(|s| s.to_string())
             .chain(std::iter::once(element))
@@ -4698,7 +4738,7 @@ fn do_publish(proto: &str, host_port: &str, cip: &str, cport: &str) -> Result<()
         &[
             "add",
             "rule",
-            "ip",
+            INGRESS_FAMILY,
             INGRESS_TABLE,
             "pre",
             "ip",
@@ -4728,7 +4768,7 @@ fn do_unpublish(host_port: &str, proto: Option<&str>) -> Result<()> {
         }
     }
     // lists the chain with handles and deletes the rule(s) matching the dport.
-    let listed = crate::capture("nft", &["-a", "list", "chain", "ip", INGRESS_TABLE, "pre"])
+    let listed = crate::capture("nft", &["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "pre"])
         .unwrap_or_default();
     let needle = match proto {
         Some(p) => format!("{p} dport {host_port} "),
@@ -4746,7 +4786,7 @@ fn do_unpublish(host_port: &str, proto: Option<&str>) -> Result<()> {
                     &[
                         "delete",
                         "rule",
-                        "ip",
+                        INGRESS_FAMILY,
                         INGRESS_TABLE,
                         "pre",
                         "handle",
@@ -4787,7 +4827,7 @@ fn is_global_egress_drop_line(line: &str) -> bool {
 fn do_egress(policy: &str) -> Result<()> {
     let listed = crate::capture(
         "nft",
-        &["-a", "list", "chain", "ip", INGRESS_TABLE, "fwdeny"],
+        &["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "fwdeny"],
     )
     .unwrap_or_default();
     for line in listed.lines() {
@@ -4802,7 +4842,7 @@ fn do_egress(policy: &str) -> Result<()> {
                     &[
                         "delete",
                         "rule",
-                        "ip",
+                        INGRESS_FAMILY,
                         INGRESS_TABLE,
                         "fwdeny",
                         "handle",
@@ -4818,7 +4858,7 @@ fn do_egress(policy: &str) -> Result<()> {
             &[
                 "add",
                 "rule",
-                "ip",
+                INGRESS_FAMILY,
                 INGRESS_TABLE,
                 "fwdeny",
                 "oifname",
@@ -4984,7 +5024,7 @@ fn snoop_fqdn(name: &str, resp: &[u8]) {
                 &[
                     "add",
                     "element",
-                    "ip",
+                    INGRESS_FAMILY,
                     INGRESS_TABLE,
                     set,
                     &format!("{{ {ips} timeout 1h }}"),
@@ -5029,9 +5069,9 @@ fn l4guard_add_script(conn_rate: u32, conn_max: u32) -> String {
     let burst = rate.saturating_mul(2).max(1);
     let max = conn_max.clamp(1, 1_000_000);
     format!(
-        "add rule ip {t} forward iifname \"tap0\" ct state new meter dlx_conn_rate \
+        "add rule {INGRESS_FAMILY} {t} forward iifname \"tap0\" ct state new meter dlx_conn_rate \
             {{ ip saddr limit rate over {rate}/second burst {burst} packets }} counter drop\n\
-         add rule ip {t} forward iifname \"tap0\" ct state new meter dlx_conn_count \
+         add rule {INGRESS_FAMILY} {t} forward iifname \"tap0\" ct state new meter dlx_conn_count \
             {{ ip saddr ct count over {max} }} counter drop\n",
         t = INGRESS_TABLE,
     )
@@ -5059,7 +5099,7 @@ fn do_l4guard(conn_rate: u32, conn_max: u32) -> Result<()> {
 /// "l4guard: cleared", and the guard stayed up, dropping traffic with no
 /// documented way to turn it off.
 fn l4guard_scrub_argv() -> [&'static str; 6] {
-    ["-a", "list", "chain", "ip", INGRESS_TABLE, "forward"]
+    ["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "forward"]
 }
 
 fn clear_l4guard() {
@@ -5078,7 +5118,7 @@ fn clear_l4guard() {
                     &[
                         "delete",
                         "rule",
-                        "ip",
+                        INGRESS_FAMILY,
                         INGRESS_TABLE,
                         chain,
                         "handle",
@@ -5202,6 +5242,11 @@ fn fw_chain_name(ip: &str) -> String {
 /// independent of how many containers exist.
 pub const FWMAP: &str = "fwmap";
 
+/// The IPv6 twin of [`FWMAP`] — ADR-0082 phase 3. Declared `type ipv6_addr : verdict`
+/// in the dual-family table and left EMPTY: no container has a governed v6 address
+/// yet, so its dispatch ([`fw_dispatch_chains_v6`]) is inert until phase 4 fills it.
+pub const FWMAP6: &str = "fwmap6";
+
 /// Every delonix bridge (`delonix0` and each `dlxn*`), as an nft set.
 ///
 /// The pair `DLXBR_SET`/`NETPAIR_MAP` replaces what used to be a MESH: one
@@ -5280,7 +5325,7 @@ fn do_netroute(op: &str, a: &str, b: &str) -> Result<()> {
     // reports success without being installed is precisely the class of lie this
     // engine keeps removing.
     let out = std::process::Command::new("nft")
-        .args([verb, "element", "ip", INGRESS_TABLE, NETPAIR_MAP, &element])
+        .args([verb, "element", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP, &element])
         .output()
         .map_err(|e| Error::Command {
             context: "netroute",
@@ -5308,7 +5353,7 @@ fn netroute_delete_already_absent(verb: &str, stderr: &str) -> bool {
 /// What the route plan needs to know about the node, read ONCE per pass: the
 /// live route pairs and the networks with their bridge and gateway.
 fn workload_route_inputs() -> (Vec<(String, String)>, Vec<crate::route_plan::Net>) {
-    let listing = crate::capture("nft", &["list", "map", "ip", INGRESS_TABLE, NETPAIR_MAP])
+    let listing = crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP])
         .unwrap_or_default();
     let nets = network_list()
         .into_iter()
@@ -5656,20 +5701,30 @@ pub fn fw_chain_body(ip: &str, fw: &delonix_model::records::ContainerFw) -> Resu
     };
     let policy =
         delonix_networking::policy::from_container_fw(fw).map_err(|e| refuse(e.to_string()))?;
-    crate::policy_nft::chain_body(ip, &policy, &|ns| dlxns_set(&namespace_isolation_key(ns)))
-        .map_err(|why| refuse(format!("{why} has no nft form in the holder chain")))
+    // The holder's per-container chains govern IPv4: containers have no governed v6
+    // address in phase 3 (the ULA IPAM is inert and the v6 refusal drops v6), so the
+    // body is always rendered for the v4 family. Phase 4 will render a v6 body too.
+    crate::policy_nft::chain_body(crate::policy_nft::Family::V4, ip, &policy, &|ns| {
+        dlxns_set(&namespace_isolation_key(ns))
+    })
+    .map_err(|why| refuse(format!("{why} has no nft form in the holder chain")))
 }
 
 /// nft set with ALL the SDN container IPs (so namespace isolation
 /// only affects container↔container traffic, not gateway/DNS/internet).
 pub const DLXALL_SET: &str = "dlxall";
 
+/// The IPv6 twin of [`DLXALL_SET`] — ADR-0082 phase 3. Declared `type ipv6_addr` in
+/// the dual-family table and left EMPTY until phase 4 populates v6 namespace
+/// isolation; it governs nothing while v6 forwarding is refused.
+pub const DLXALL6_SET: &str = "dlxall6";
+
 /// Name (short, ≤ nft's limit) of the IP set of a logical namespace.
 pub fn dlxns_set(ns: &str) -> String {
     format!("dlxns{:08x}", crate::fnv32(ns))
 }
 
-/// Parses `nft list map ip dlxing fwmap` into `(address, chain)` pairs. Text and
+/// Parses `nft list map inet dlxing fwmap` into `(address, chain)` pairs. Text and
 /// not `-j`: the JSON shape of a verdict map is markedly more code to walk, for a
 /// listing whose text form is two tokens around a `:`. Pure and tested.
 ///
@@ -5690,7 +5745,7 @@ pub fn parse_fwmap_elements(listing: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Parses `nft list map ip dlxing netpair` into the ORDERED interface pairs that
+/// Parses `nft list map inet dlxing netpair` into the ORDERED interface pairs that
 /// are exempt from the isolation drop.
 ///
 /// **Drops the self-pairs.** `isolation_elements` installs `<b> . <b> : accept`
@@ -5842,7 +5897,7 @@ fn do_firewall(ips: &str, hex: &str) -> Result<()> {
     // Reading is outside the transaction, which is harmless: a stale read can only
     // leave an entry that the next apply removes (see `firewall_script`).
     let listing =
-        crate::capture("nft", &["list", "map", "ip", INGRESS_TABLE, FWMAP]).unwrap_or_default();
+        crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP]).unwrap_or_default();
     // The declared networks are only needed for an address outside the ingress space;
     // the common case does not pay a directory scan per firewall apply.
     let defs = if ips.iter().all(|ip| is_ingress_ip(ip)) {
@@ -5909,22 +5964,22 @@ fn firewall_script(
     // Idempotent re-declarations: they let a table created by an older holder grow
     // the map/chain instead of failing, and cost nothing when they already exist.
     script.push_str(&format!(
-        "add map ip {INGRESS_TABLE} {FWMAP} {{ type ipv4_addr : verdict; }}\n\
-         add chain ip {INGRESS_TABLE} {chain}\n\
-         flush chain ip {INGRESS_TABLE} {chain}\n"
+        "add map {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP} {{ type ipv4_addr : verdict; }}\n\
+         add chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n\
+         flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n"
     ));
     for addr in &stale {
         script.push_str(&format!(
-            "delete element ip {INGRESS_TABLE} {FWMAP} {{ {addr} }}\n"
+            "delete element {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP} {{ {addr} }}\n"
         ));
     }
     for ip in ips {
         script.push_str(&format!(
-            "add element ip {INGRESS_TABLE} {FWMAP} {{ {ip} : jump {chain} }}\n"
+            "add element {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP} {{ {ip} : jump {chain} }}\n"
         ));
     }
     script.push_str(&format!(
-        "table ip {INGRESS_TABLE} {{\n\tchain {chain} {{\n{body}\t}}\n}}\n"
+        "table {INGRESS_FAMILY} {INGRESS_TABLE} {{\n\tchain {chain} {{\n{body}\t}}\n}}\n"
     ));
     Ok(script)
 }
@@ -5936,16 +5991,16 @@ fn firewall_script(
 fn do_unfirewall(ip: &str) -> Result<()> {
     let chain = fw_chain_name(ip);
     let listing =
-        crate::capture("nft", &["list", "map", "ip", INGRESS_TABLE, FWMAP]).unwrap_or_default();
+        crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP]).unwrap_or_default();
     let mut script = String::new();
     for (addr, c) in parse_fwmap_elements(&listing) {
         if c == chain {
             script.push_str(&format!(
-                "delete element ip {INGRESS_TABLE} {FWMAP} {{ {addr} }}\n"
+                "delete element {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP} {{ {addr} }}\n"
             ));
         }
     }
-    script.push_str(&format!("delete chain ip {INGRESS_TABLE} {chain}\n"));
+    script.push_str(&format!("delete chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n"));
     let _ = apply_nft_stdin(&script);
     Ok(())
 }
@@ -6115,7 +6170,7 @@ fn apply_egress_from_state(bridge: &str, state: &EgressState) -> Result<()> {
     let needle_if = format!("iifname \"{bridge}\"");
     let listed = crate::capture(
         "nft",
-        &["-a", "list", "chain", "ip", INGRESS_TABLE, "fwdeny"],
+        &["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "fwdeny"],
     )
     .unwrap_or_default();
     for line in listed.lines() {
@@ -6133,7 +6188,7 @@ fn apply_egress_from_state(bridge: &str, state: &EgressState) -> Result<()> {
                     &[
                         "delete",
                         "rule",
-                        "ip",
+                        INGRESS_FAMILY,
                         INGRESS_TABLE,
                         "fwdeny",
                         "handle",
@@ -6151,7 +6206,7 @@ fn apply_egress_from_state(bridge: &str, state: &EgressState) -> Result<()> {
             &[
                 "add",
                 "set",
-                "ip",
+                INGRESS_FAMILY,
                 INGRESS_TABLE,
                 &set,
                 "{ type ipv4_addr; flags timeout; }",
@@ -6225,7 +6280,7 @@ fn egress_specs(bridge: &str, state: &EgressState) -> Vec<Vec<String>> {
 fn egress_set_members(bridge: &str) -> Vec<String> {
     let set = fqdn_set(&sanitize(bridge));
     let dump =
-        crate::capture("nft", &["list", "set", "ip", INGRESS_TABLE, &set]).unwrap_or_default();
+        crate::capture("nft", &["list", "set", INGRESS_FAMILY, INGRESS_TABLE, &set]).unwrap_or_default();
     let mut ips = Vec::new();
     for tok in dump.split(|c: char| !(c.is_ascii_digit() || c == '.')) {
         if tok.split('.').filter(|o| !o.is_empty()).count() == 4
@@ -6457,7 +6512,7 @@ fn fqdn_forget(bridge: &str) {
     }
     run_ok(
         "nft",
-        &["delete", "set", "ip", INGRESS_TABLE, &fqdn_set(bridge)],
+        &["delete", "set", INGRESS_FAMILY, INGRESS_TABLE, &fqdn_set(bridge)],
     );
 }
 
@@ -10586,11 +10641,105 @@ Inter-|   Receive                                                |  Transmit
     #[test]
     fn ruleset_has_pre_and_post_chains() {
         let rs = ingress_table_ruleset();
-        assert!(rs.contains(&format!("table ip {INGRESS_TABLE}")));
+        assert!(rs.contains(&format!("table {INGRESS_FAMILY} {INGRESS_TABLE}")));
         assert!(rs.contains("chain pre"));
         assert!(rs.contains("hook prerouting"));
         assert!(rs.contains("chain post"));
         assert!(rs.contains("oifname \"tap0\" masquerade"));
+    }
+
+    /// ADR-0082 phase 3: the holder's firewall is ONE `inet` table that carries both
+    /// families. The v4 side is exactly what it was — a dual-stack table matches v4
+    /// packets with the same `ip saddr`/`ipv4_addr` rules an `ip` table did — and the
+    /// v6 side is PRESENT but EMPTY: its sets declared with no elements and its
+    /// dispatch inert, so the table is ready for phase 4 without governing a single v6
+    /// packet yet (the v6 refusal, `ingress_v6_refusal_ruleset`, still drops them all).
+    #[test]
+    fn the_ingress_table_is_dual_family_with_an_empty_v6_side() {
+        let rs = ingress_table_ruleset();
+        // One `inet` table, not the old v4-only `table ip`.
+        assert!(
+            rs.contains(&format!("table {INGRESS_FAMILY} {INGRESS_TABLE}")),
+            "{rs}"
+        );
+        assert_eq!(INGRESS_FAMILY, "inet");
+        assert!(!rs.contains("table ip "), "no v4-only table remains: {rs}");
+        // The v4 address sets stay exactly as they were.
+        assert!(
+            rs.contains(&format!("set {DLXALL_SET} {{ type ipv4_addr; }}")),
+            "{rs}"
+        );
+        assert!(
+            rs.contains(&format!("map {FWMAP} {{ type ipv4_addr : verdict; }}")),
+            "{rs}"
+        );
+        // The v6 address sets sit alongside them, of the v6 element type.
+        assert!(
+            rs.contains(&format!("set {DLXALL6_SET} {{ type ipv6_addr; }}")),
+            "{rs}"
+        );
+        assert!(
+            rs.contains(&format!("map {FWMAP6} {{ type ipv6_addr : verdict; }}")),
+            "{rs}"
+        );
+        // The v6 dispatch chains sit alongside the v4 pair, anchored on `ip6`.
+        assert!(rs.contains(&format!("ip6 saddr vmap @{FWMAP6}")), "{rs}");
+        assert!(rs.contains(&format!("ip6 daddr vmap @{FWMAP6}")), "{rs}");
+        // EMPTY: the base ruleset declares every set by TYPE and never writes an
+        // element (elements arrive later, via `add element`). So no `elements` block
+        // anywhere is the proof that the v6 sets — and the v4 ones — start empty.
+        assert!(!rs.contains("elements"), "the base ruleset seeds no set: {rs}");
+        assert!(
+            !rs.contains("fd00:") && !rs.contains("::"),
+            "no v6 address is written into the ruleset: {rs}"
+        );
+        // Neither family's dispatch shares a forward-hook priority with the other:
+        // equal priorities have no defined order between chains.
+        let v4: Vec<i32> = fw_dispatch_chains().iter().map(|c| c.1).collect();
+        let v6: Vec<i32> = fw_dispatch_chains_v6().iter().map(|c| c.1).collect();
+        assert!(
+            v6.iter().all(|p| !v4.contains(p)),
+            "v4 {v4:?} shares a priority with v6 {v6:?}"
+        );
+    }
+
+    /// The dual-family base ruleset AND the v6 refusal are a script `nft` accepts,
+    /// loaded together — the `inet dlxing` table (v4 rules + empty v6 sets + v6
+    /// dispatch) and the `ip6 dlxing` refusal coexist, same name, different family.
+    /// Needs `nft` and an unprivileged user namespace (`unshare -rn`); where the
+    /// runner blocks that it returns without checking, like the other nft tests.
+    #[test]
+    fn nft_accepts_the_dual_family_base_ruleset() {
+        let probe = std::process::Command::new("unshare")
+            .args(["-rn", "nft", "--version"])
+            .output();
+        if !matches!(probe, Ok(ref o) if o.status.success()) {
+            return;
+        }
+        let script = format!(
+            "{}{}",
+            ingress_table_ruleset(),
+            ingress_v6_refusal_ruleset()
+        );
+        let mut child = std::process::Command::new("unshare")
+            .args(["-rn", "nft", "--check", "-f", "-"])
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "nft refused the dual-family ruleset\n{script}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     #[test]
@@ -10917,8 +11066,8 @@ Inter-|   Receive                                                |  Transmit
         );
         // The script it feeds is the reattach one: both chains, flushed and re-added.
         let s = fw_dispatch_migration_script();
-        assert!(s.contains("flush chain ip dlxing fwout"), "{s}");
-        assert!(s.contains("flush chain ip dlxing fwcont"), "{s}");
+        assert!(s.contains("flush chain inet dlxing fwout"), "{s}");
+        assert!(s.contains("flush chain inet dlxing fwcont"), "{s}");
     }
 
     #[test]
@@ -11056,7 +11205,7 @@ Inter-|   Receive                                                |  Transmit
         assert!(fw_rule_tail(&net).unwrap().contains("10.200.0.0/16"));
         // Exactly how the kernel renders that rule once it has seen traffic.
         let listing = format!(
-            "table ip dlxing {{\n\tchain fwdeadbeef {{\n\
+            "table inet dlxing {{\n\tchain fwdeadbeef {{\n\
              \t\tct state established,related counter packets 9 bytes 900 accept\n\
              \t\tip daddr 10.201.0.5 {} accept\n\
              \t\tip daddr 10.202.0.9 {} accept\n\t}}\n}}\n",
@@ -11076,7 +11225,7 @@ Inter-|   Receive                                                |  Transmit
     /// listing that spans lines (the shape nft actually prints) must not lose entries.
     #[test]
     fn parse_fwmap_le_todas_as_entradas_multilinha() {
-        let listing = "table ip dlxing {\n\tmap fwmap {\n\t\ttype ipv4_addr : verdict\n\
+        let listing = "table inet dlxing {\n\tmap fwmap {\n\t\ttype ipv4_addr : verdict\n\
                        \t\telements = { 10.201.0.5 : jump fwaaaaaaaa,\n\
                        \t\t             10.202.0.9 : jump fwaaaaaaaa,\n\
                        \t\t             10.203.0.7 : jump fwbbbbbbbb }\n\t}\n}\n";
@@ -11102,7 +11251,7 @@ Inter-|   Receive                                                |  Transmit
     /// tráfego dentro de cada rede.
     #[test]
     fn parse_netpair_ignora_os_auto_pares() {
-        let listing = "table ip dlxing {\n\tmap netpair {\n\t\ttype ifname . ifname : verdict\n\
+        let listing = "table inet dlxing {\n\tmap netpair {\n\t\ttype ifname . ifname : verdict\n\
                        \t\telements = { \"dlxnaaaa\" . \"dlxnaaaa\" : accept,\n\
                        \t\t             \"dlxnbbbb\" . \"dlxnbbbb\" : accept,\n\
                        \t\t             \"dlxnaaaa\" . \"dlxnbbbb\" : accept }\n\t}\n}\n";
@@ -11134,7 +11283,7 @@ Inter-|   Receive                                                |  Transmit
     /// um parser escrito para o formato antigo se parte.
     #[test]
     fn parse_netpair_le_os_contadores_e_o_nome_apesar_deles() {
-        let listing = "table ip dlxing {\n\tmap netpair {\n\t\ttype ifname . ifname : verdict\n\
+        let listing = "table inet dlxing {\n\tmap netpair {\n\t\ttype ifname . ifname : verdict\n\
                        \t\tcounter\n\
                        \t\telements = { \"dlxnaaaa\" . \"dlxnaaaa\" counter packets 9 bytes 900 : accept,\n\
                        \t\t             \"dlxnaaaa\" . \"dlxnbbbb\" counter packets 2 bytes 168 : accept }\n\t}\n}\n";
@@ -11156,8 +11305,10 @@ Inter-|   Receive                                                |  Transmit
 
     /// RF-NET-11 — the IPv6 bypass, reproduced live before this fix: with the firewall
     /// dropping on IPv4, the same container answered on port 80 over its ULA, because
-    /// every rule the engine writes lives in `table ip`. Both layers of the refusal are
-    /// asserted here; the live reproduction is in the release notes.
+    /// every rule the engine wrote only ever matched v4. ADR-0082 phase 3 made the
+    /// table dual-family `inet`, but its v6 side is still EMPTY — so both layers of the
+    /// refusal remain, and both are asserted here; the live reproduction is in the
+    /// release notes.
     #[test]
     fn ipv6_e_recusado_nas_duas_camadas() {
         // Layer 2 — forwarding of v6 dies in the holder, in its own table.
@@ -11353,10 +11504,10 @@ Inter-|   Receive                                                |  Transmit
         let strong = unconditional_guards_script_for(false, false);
         for chain in [FWGUARD_CHAIN, DLXINPUT_CHAIN] {
             let add = strong
-                .find(&format!("add chain ip {INGRESS_TABLE} {chain} "))
+                .find(&format!("add chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain} "))
                 .unwrap_or_else(|| panic!("`{chain}` has to be created: {strong}"));
             let flush = strong
-                .find(&format!("flush chain ip {INGRESS_TABLE} {chain}\n"))
+                .find(&format!("flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n"))
                 .unwrap_or_else(|| panic!("`{chain}` has to be flushed: {strong}"));
             assert!(
                 add < flush,
@@ -11365,7 +11516,7 @@ Inter-|   Receive                                                |  Transmit
             );
             // Every rule of that chain comes AFTER its flush, else the flush erases it.
             let first_rule = strong
-                .find(&format!("add rule ip {INGRESS_TABLE} {chain} "))
+                .find(&format!("add rule {INGRESS_FAMILY} {INGRESS_TABLE} {chain} "))
                 .unwrap_or_else(|| panic!("`{chain}` has to be refilled: {strong}"));
             assert!(
                 flush < first_rule,
@@ -11375,10 +11526,10 @@ Inter-|   Receive                                                |  Transmit
         // The hook and priority are carried, so a table that lacks the chain gets it in
         // the right place rather than at the default priority.
         assert!(strong.contains(&format!(
-            "add chain ip {INGRESS_TABLE} {FWGUARD_CHAIN} {{ type filter hook forward priority {FWGUARD_PRIORITY}; }}"
+            "add chain {INGRESS_FAMILY} {INGRESS_TABLE} {FWGUARD_CHAIN} {{ type filter hook forward priority {FWGUARD_PRIORITY}; }}"
         )), "{strong}");
         assert!(strong.contains(&format!(
-            "add chain ip {INGRESS_TABLE} {DLXINPUT_CHAIN} {{ type filter hook input priority {DLXINPUT_PRIORITY}; }}"
+            "add chain {INGRESS_FAMILY} {INGRESS_TABLE} {DLXINPUT_CHAIN} {{ type filter hook input priority {DLXINPUT_PRIORITY}; }}"
         )), "{strong}");
         for denial in [
             "ip daddr 169.254.0.0/16 counter drop",
@@ -11413,7 +11564,7 @@ Inter-|   Receive                                                |  Transmit
         for weakened in [&no_link_local, &no_holder_input] {
             for chain in [FWGUARD_CHAIN, DLXINPUT_CHAIN] {
                 assert!(
-                    weakened.contains(&format!("flush chain ip {INGRESS_TABLE} {chain}\n")),
+                    weakened.contains(&format!("flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n")),
                     "`{chain}` must still be flushed: {weakened}"
                 );
             }
@@ -11461,7 +11612,7 @@ Inter-|   Receive                                                |  Transmit
                  list renders"
             );
             // And what the RECONCILER puts in it.
-            let prefix = format!("add rule ip {INGRESS_TABLE} {chain} ");
+            let prefix = format!("add rule {INGRESS_FAMILY} {INGRESS_TABLE} {chain} ");
             let reconciled: Vec<String> = script
                 .lines()
                 .filter_map(|l| l.strip_prefix(prefix.as_str()))
@@ -11554,8 +11705,8 @@ Inter-|   Receive                                                |  Transmit
         let fresh = forward_base_chains(&ingress_table_ruleset());
         for (chain, prio, rule) in fw_dispatch_chains() {
             // Idempotent: flushed then refilled, never appended to.
-            let flush = format!("flush chain ip {INGRESS_TABLE} {chain}\n");
-            let add = format!("add rule ip {INGRESS_TABLE} {chain} {rule}\n");
+            let flush = format!("flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n");
+            let add = format!("add rule {INGRESS_FAMILY} {INGRESS_TABLE} {chain} {rule}\n");
             assert!(script.contains(&flush) && script.contains(&add), "{script}");
             assert!(script.find(&flush) < script.find(&add), "{script}");
             assert_eq!(script.matches(&add).count(), 1, "{script}");
@@ -11567,7 +11718,7 @@ Inter-|   Receive                                                |  Transmit
             assert_eq!((*p, body.clone()), (prio, vec![rule.clone()]));
         }
         // The old `fwcont` carried BOTH lookups; only a flush removes the second one.
-        assert!(script.contains(&format!("flush chain ip {INGRESS_TABLE} fwcont")));
+        assert!(script.contains(&format!("flush chain {INGRESS_FAMILY} {INGRESS_TABLE} fwcont")));
         assert!(
             !script.contains("delete"),
             "must not touch per-container state: {script}"
@@ -13222,7 +13373,7 @@ mod tests_netdel {
     /// OTHER bridges that must not be touched.
     #[test]
     fn netdel_takes_every_element_naming_the_bridge_and_nothing_else() {
-        let listing = r#"table ip dlxing {
+        let listing = r#"table inet dlxing {
 	map netpair {
 		type ifname . ifname : verdict
 		counter
@@ -13239,9 +13390,9 @@ mod tests_netdel {
         assert_eq!(
             got,
             [
-                r#"delete element ip dlxing dlxbr { "dlxnaaaa0001" }"#,
-                r#"delete element ip dlxing netpair { "dlxnaaaa0001" . "dlxnaaaa0001" }"#,
-                r#"delete element ip dlxing netpair { "dlxnaaaa0001" . "dlxnbbbb0002" }"#,
+                r#"delete element inet dlxing dlxbr { "dlxnaaaa0001" }"#,
+                r#"delete element inet dlxing netpair { "dlxnaaaa0001" . "dlxnaaaa0001" }"#,
+                r#"delete element inet dlxing netpair { "dlxnaaaa0001" . "dlxnbbbb0002" }"#,
             ]
         );
     }
@@ -13438,7 +13589,7 @@ mod tests_private_egress {
     /// anchored on the uplink, or a grant emitted after the drop, changes the answer.
     fn verdict(script: &str, oif: &str, daddr: &str) -> Option<&'static str> {
         let ip = u32::from(daddr.parse::<std::net::Ipv4Addr>().expect("an IPv4"));
-        let prefix = format!("add rule ip {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN} ");
+        let prefix = format!("add rule {INGRESS_FAMILY} {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN} ");
         for line in script.lines() {
             let Some(rule) = line.strip_prefix(&prefix) else {
                 continue;
@@ -13631,7 +13782,7 @@ mod tests_private_egress {
         let script = private_egress_guard_script(&PrivateEgressGuard::default()).unwrap();
         assert!(!script.contains("add rule"), "{script}");
         assert!(script.contains(&format!(
-            "flush chain ip {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN}"
+            "flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN}"
         )));
         assert_eq!(verdict(&script, "tap0", "192.168.200.10"), None);
     }
@@ -13655,10 +13806,10 @@ mod tests_private_egress {
     fn the_script_creates_flushes_then_refills_the_chain() {
         let script = private_egress_guard_script(&deny(&["10.20.0.0/16"])).unwrap();
         let add = format!(
-            "add chain ip {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN} {{ type filter hook forward \
+            "add chain {INGRESS_FAMILY} {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN} {{ type filter hook forward \
              priority {PRIVATE_EGRESS_PRIORITY}; }}"
         );
-        let flush = format!("flush chain ip {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN}");
+        let flush = format!("flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN}");
         let first_rule = script.find("add rule").unwrap();
         assert!(
             script.find(&add).unwrap() < script.find(&flush).unwrap(),
@@ -13758,7 +13909,7 @@ mod tests_private_egress {
         );
         let script = private_egress_guard_script(&deny(&[])).unwrap();
         assert!(script.contains(&format!(
-            "add chain ip {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN} {{ type filter hook forward \
+            "add chain {INGRESS_FAMILY} {INGRESS_TABLE} {PRIVATE_EGRESS_CHAIN} {{ type filter hook forward \
              priority {PRIVATE_EGRESS_PRIORITY}; }}"
         )));
     }
