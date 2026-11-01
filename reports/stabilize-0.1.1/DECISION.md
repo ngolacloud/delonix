@@ -4,12 +4,16 @@
 · **Base:** `origin/develop` `8ab783dd` (= `v0.1.0` + 39) · **v0.1.0 já publicada
 e imutável** → estas correcções são para **`v0.1.1`**.
 
-## Veredicto: **GO** no âmbito explicitamente validado, com 1 residual a confirmar em host limpo
+## Veredicto: **GO** no âmbito explicitamente validado (o único residual foi root-caused e CORRIGIDO)
 
 A `v0.1.1` é uma melhoria inequívoca sobre a `v0.1.0` já no terreno: fecha 1 P1 de
 integridade, advisories de memory-safety alcançáveis, 1 TOCTOU de estado, e 3
-achados P2/P3 — todos com teste **e** prova live. Nada que eu tenha tocado abre
-um bloqueador; o único residual é de ambiente/host, não de código pendente.
+achados P2/P3 — todos com teste **e** prova live. O único residual (o hang do
+attach de rede custom) foi root-caused e CORRIGIDO: era um self-deadlock que o
+próprio P2-1 introduziu (name-claim segura através do re-exec) + um padrão
+sistémico de `flock(LOCK_EX)` sem timeout; ambos tratados. Custom-net attach
+completa em ~1s, e o DEF-003 original (compose não reconcilia) foi finalmente
+testável e NÃO reproduz.
 
 ## 1. Correcções (todas: fix + teste + prova live)
 
@@ -38,33 +42,32 @@ Mais: `install.sh --uninstall`/`--purge`; aviso P2-2 (restart não sobrevive reb
 
 42 células EXPERIMENTAL + 6 IMPLEMENTADA-NÃO-VALIDADA (ver `contrato-suporte-producao.md`).
 
-## 4. Residual — ROOT-CAUSED (sistémico), 2/7 corrigidos; resto precisa de host limpo
+## 4. Residual — ROOT-CAUSED e CORRIGIDO (eram DOIS defeitos)
 
-**Attach de rede custom de container pendura sem timeout.** Root-cause encontrado:
-o caminho serializa em **`flock(LOCK_EX)` BLOQUEANTES sem timeout**, e num host com
-um detentor preso/vazado (visto ao vivo: um `slirp4netns` do dono vivo há 12 h +
-36 procs kind/ceph/kubelet a reter recursos de rede rootless) qualquer um deles
-pendura para sempre, sem log nem exit. **É um padrão sistémico: ~7 sítios** —
-`delonix-sdn` ExclusiveLock + IpamLock, `delonix-state` Store/secret FileLock,
-`infra.rs`, `ippool`, `ingress_proxy`, `hosts_file`.
+O "attach de rede custom pendura sem timeout" era **dois** defeitos, ambos agora
+corrigidos e provados ao vivo:
 
-- **CORRIGIDO + testado** (os 2 do caminho de alocação de IP custom):
-  `ExclusiveLock` e `IpamLock` passam a NB-com-tecto-30s → devolvem `None` →
-  erro claro «could not lock», em vez de pendurar (flock 3/3, ipam 25/25). Commit
-  na linha.
-- **POR FAZER (host limpo):** os restantes ~5 sítios, via um helper
-  bounded-flock partilhado. Com 2 limitados o `netns run` ainda bloqueou noutro
-  aos 37 s — provando que é sistémico. **Não** apliquei o helper aos 5 às cegas
-  neste host encravado: é um caminho de locking quente e não há forma de provar o
-  end-to-end enquanto a rede rootless do host está encravada.
+1. **Self-deadlock introduzido pelo P2-1.** O `cmd_run` segurava a name-claim
+   (namespace,name) através de TODA a função — incluindo o caminho de rede
+   custom, que **re-exec** um SEGUNDO `cmd_run` e ESPERA por ele. O filho
+   re-exec'd re-adquiria a MESMA name-lock e bloqueava no próprio pai. Fix: a
+   claim + o check de unicidade só no 1º passo (`!reexec`) — o re-exec é o mesmo
+   create lógico. **Attach custom completa agora em ~1 s** (antes: pendura). A
+   garantia do P2-1 mantém-se (um create de utilizador é sempre 1º passo → 4×
+   `create --name` concorrentes = 1 criado + 3 recusados, re-provado).
 
-**Natureza:** num host SAUDÁVEL estes locks são instantâneos e o attach completa
-(é funcionalidade a correr há muito); o hang é patologia de **estado de host
-encravado**, agora convertida em falha-limpa em 2 dos 7 pontos. **Ação para GO
-sem ressalva:** host reiniciado/limpo → (a) confirmar que o attach volta a
-completar; (b) passar o helper bounded-flock aos 5 sítios restantes com validação
-end-to-end. O DEF-003 original (compose não reconcilia serviço parado) continua
-não-testável enquanto este hang persistir.
+2. **Padrão sistémico de `flock(LOCK_EX)` sem timeout** (~7 sítios). Novo helper
+   partilhado `delonix_node::flock_exclusive` (NB + tecto 30s, EINTR-safe)
+   roteado em TODOS: `delonix-state` Store+secret, `delonix-sdn` infra +
+   ExclusiveLock + IpamLock, e os locks do bin ippool/ingress_proxy/
+   container-start/hosts_file (este ignorava o resultado). Cada um já tinha via
+   de recusa (Err/None) → passam a **falhar-limpo ao fim do tecto, nunca
+   pendurar** — foi também assim que #1 se diagnosticou (o timeout nomeou o lock).
+
+**Prova live:** attach custom completa 1 s; P2-1 race holds; e o **DEF-003
+original** (compose não reconcilia serviço parado), finalmente testável, **NÃO
+reproduz** — `compose up -d` traz o `proj-cache` parado de volta a Running.
+Testes: delonix-node flock 20/20, state 22/22, sdn 325/325, node-api 14/14.
 
 ## 5. Breadth por fazer (não-bloqueadores)
 
@@ -73,9 +76,12 @@ não-testável enquanto este hang persistir.
 
 ## 6. Condições para cortar a `v0.1.1`
 
-1. Integrar os 20 commits de `stabilize/0.1.1` em `develop` (merge do dono).
-2. Confirmar o residual §4 em host limpo (ou corrigir se reproduzir).
-3. Cortar/etiquetar `v0.1.1` via o pipeline de release (`release.yml` + `release_verify.py`); NÃO tocar na `v0.1.0`.
+1. Integrar os 24 commits de `stabilize/0.1.1` em `develop` (merge do dono).
+2. Cortar/etiquetar `v0.1.1` via o pipeline de release (`release.yml` + `release_verify.py`); NÃO tocar na `v0.1.0`.
+
+(O residual §4 — o hang de attach — foi corrigido, por isso já não é uma
+condição; recomenda-se ainda uma passagem num nó de produção real com churn de
+rede para re-confirmar o attach custom sob carga concorrente.)
 
 ## 7. Rastreabilidade
 
