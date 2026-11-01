@@ -93,11 +93,26 @@ impl IpamLock {
         if fd < 0 {
             return None;
         }
-        // SAFETY: fd is ours and open; LOCK_EX blocks until granted.
-        if unsafe { libc::flock(fd, libc::LOCK_EX) } != 0 {
-            // SAFETY: closing our own fd; we are about to drop it on the floor.
-            unsafe { libc::close(fd) };
-            return None;
+        // Bounded wait, NOT a blocking `flock(LOCK_EX)` that hangs forever: the
+        // read-modify-write under this lock is short, so normal contention clears
+        // in milliseconds. If a holder is stuck/leaked (seen when a netns/slirp
+        // attach wedged and never released), waiting forever turned a container
+        // network attach into a hang with no timeout and no log. The contract is
+        // already to REFUSE on `None`, so fail closed at a deadline instead.
+        let start = std::time::Instant::now();
+        let deadline = std::time::Duration::from_secs(30);
+        loop {
+            // SAFETY: fd is ours and open.
+            if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                break;
+            }
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() != Some(libc::EWOULDBLOCK) || start.elapsed() >= deadline {
+                // SAFETY: closing our own fd; we are about to drop it on the floor.
+                unsafe { libc::close(fd) };
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
         }
         let lock = IpamLock(fd);
         migrate_stray_files();
