@@ -946,6 +946,70 @@ mod tests {
         }
     }
 
+    /// The CI build-failing gate (G1c): the scanner, exercised END TO END on a
+    /// REAL image layer (a gzipped tar written to the CAS, read back by
+    /// `extract_sbom` — not a hand-built `Package` list), must catch a known
+    /// CVE in a known-vulnerable base. If a refactor ever breaks layer reading,
+    /// apk parsing, or matching, `cargo test --workspace` fails here and the
+    /// build stops — which is exactly "an image scan in CI that fails the build
+    /// on a known CVE". The `--fail-on high` decision that turns this into a
+    /// non-zero exit is covered by the CLI's own `admission_rejects` test.
+    #[test]
+    fn image_scan_catches_a_planted_cve_in_a_real_layer() {
+        use std::io::Write;
+
+        // A real layer: an apk database with the busybox alpine:3.12 ships
+        // (1.31.1-r22), known-vulnerable to CVE-2022-48174 (fixed 1.37.0).
+        let apk_db = "C:Q1x\nP:busybox\nV:1.31.1-r22\nA:x86_64\n\nP:zlib\nV:1.2.12-r0\n";
+        let mut tar_buf = Vec::new();
+        {
+            let mut ar = tar::Builder::new(&mut tar_buf);
+            let mut header = tar::Header::new_gnu();
+            header.set_path("lib/apk/db/installed").unwrap();
+            header.set_size(apk_db.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            ar.append(&header, apk_db.as_bytes()).unwrap();
+            ar.finish().unwrap();
+        }
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&tar_buf).unwrap();
+        let layer = gz.finish().unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(dir.path()).unwrap();
+        let digest = store.cas().write(&layer).unwrap();
+        let img = Image {
+            id: "sha256:planted".into(),
+            repo_tags: vec!["vuln:test".into()],
+            layers: vec![digest],
+            config: delonix_oci::ImageConfig::default(),
+            created_unix: 0,
+        };
+
+        // SBOM read from the layer in the CAS — the path `delonix image scan` runs.
+        let sbom = extract_sbom(&store, &img).unwrap();
+        assert!(
+            sbom.iter()
+                .any(|p| p.name == "busybox" && p.version == "1.31.1-r22"),
+            "extract_sbom must read busybox out of the real layer"
+        );
+
+        // The planted CVE is a real advisory (the shape a synced OSV feed yields).
+        let db = AdvisoryDb::load(
+            r#"[{"id":"CVE-2022-48174","package":"busybox","ecosystem":"Apk","fixed":"1.37.0","severity":"high","summary":"busybox ash stack overflow"}]"#,
+        )
+        .unwrap();
+        let findings = db.scan(&sbom);
+        assert_eq!(findings.len(), 1, "the scan must catch the planted CVE");
+        assert_eq!(findings[0].id, "CVE-2022-48174");
+        assert_eq!(findings[0].severity, Severity::High);
+
+        // The build-failing decision: the worst severity trips a `--fail-on high` gate.
+        let worst = findings.iter().map(|f| f.severity).max().unwrap();
+        assert!(worst >= Severity::High);
+    }
+
     #[test]
     fn staleness_deteta_nunca_e_antigo() {
         let dia = 86_400u64;
