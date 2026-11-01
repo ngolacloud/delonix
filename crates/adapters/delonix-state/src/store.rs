@@ -64,13 +64,15 @@ impl FileLock {
                     path.display()
                 ))
             })?;
-        // SAFETY: valid, open fd; LOCK_EX blocks until the lock is ours.
-        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): a
+        // bare `flock(LOCK_EX)` waits forever if a holder is stuck, and this is
+        // the hot state lock — a stuck holder would hang every state op. Fail
+        // closed at the deadline instead, which the `Err` path already demands.
+        if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
             return Err(Error::Lock(format!(
-                "flock on {} failed: {} — refusing the read-modify-write \
-                     rather than doing it unlocked",
-                path.display(),
-                std::io::Error::last_os_error()
+                "could not lock {} within the deadline — refusing the \
+                 read-modify-write rather than hanging or doing it unlocked",
+                path.display()
             )));
         }
         Ok(FileLock(f))
