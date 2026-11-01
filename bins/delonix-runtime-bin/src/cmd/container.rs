@@ -3161,21 +3161,34 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
     // again here. Keyed the same way the node-api create path keys it, so a CLI
     // create and a gRPC create of the same pair serialise too. Released when
     // cmd_run returns.
-    let _name_claim = store.claim_name(&format!("{namespace}.{cname}"))?;
-    if let Some(dup) = store
-        .list()?
-        .iter()
-        .find(|c| c.name == cname && c.namespace == namespace)
-    {
-        return Err(Error::Conflict(super::po::tf(
-            "the name '{name}' is already in use in namespace '{ns}' by container {id} — pick another or remove it first",
-            &[
-                ("name", cname.as_str()),
-                ("ns", namespace.as_str()),
-                ("id", dup.short_id()),
-            ],
-        )));
-    }
+    //
+    // ONLY on the first pass. The custom-network path re-execs a SECOND
+    // `cmd_run` (reexec) that this one WAITS on while still holding the claim —
+    // so the child re-acquiring the same name lock would deadlock on its parent
+    // (seen as a 30s lock timeout on the custom-net attach). The first pass has
+    // already claimed the name and written the record; the re-exec must neither
+    // re-claim nor re-run the uniqueness check (which would now find the record
+    // the first pass just wrote and falsely report a self-conflict).
+    let _name_claim = if reexec {
+        None
+    } else {
+        let claim = store.claim_name(&format!("{namespace}.{cname}"))?;
+        if let Some(dup) = store
+            .list()?
+            .iter()
+            .find(|c| c.name == cname && c.namespace == namespace)
+        {
+            return Err(Error::Conflict(super::po::tf(
+                "the name '{name}' is already in use in namespace '{ns}' by container {id} — pick another or remove it first",
+                &[
+                    ("name", cname.as_str()),
+                    ("ns", namespace.as_str()),
+                    ("id", dup.short_id()),
+                ],
+            )));
+        }
+        Some(claim)
+    };
     // ---- what the record needs from files, the image and this node ----
     // `--env-file`: read here, parsed by the builder (each file before `-e`).
     // Volumes, devices, image, rootfs, `--env-file`, `--user` — resolved through the
@@ -4419,9 +4432,12 @@ impl StartLock {
             .mode(0o600)
             .open(dir.join("start.lock"))
             .map_err(|e| Error::Invalid(format!("start lock: {e}")))?;
-        // SAFETY: valid open fd; LOCK_EX blocks until the lock is ours.
-        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            return Err(Error::Invalid(format!("{id}: could not lock its start")));
+        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): a
+        // stuck holder refuses at the deadline rather than hanging the start.
+        if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
+            return Err(Error::Invalid(format!(
+                "{id}: could not lock its start within the deadline"
+            )));
         }
         Ok(StartLock(f))
     }

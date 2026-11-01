@@ -36,8 +36,10 @@ impl FileLock {
             .truncate(false)
             .open(path)
             .ok()?;
-        // SAFETY: valid, open fd; LOCK_EX blocks until the lock is ours.
-        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): a
+        // bare `flock(LOCK_EX)` waits forever if a holder is stuck. On the
+        // deadline (or a real error) give up, as this already does on failure.
+        if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
             return None;
         }
         Some(FileLock(f))
