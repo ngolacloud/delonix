@@ -92,6 +92,20 @@ jobs:
             exit 1
           fi
           echo "$TAG -> $(git rev-parse --short "refs/tags/$TAG^{commit}")"
+      # G2 of the NO-GO→GO gate: a tag is not published unless it was VALIDATED
+      # on its OWN commit. `release_gate.py` refuses unless cargo-test + e2e +
+      # chaos + critest are all recorded as passed against this exact commit
+      # (`reports/release-validation/<tag>.json`, committed with the release),
+      # and CI is green on it. The old failure this closes: v5.1.1 was cut red,
+      # with the suites "run on develop weeks ago" — validated, but not THIS
+      # build. Fail-closed, before any runner spends ten minutes building.
+      - name: The tag was validated on its own commit (release gate)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(git rev-parse "refs/tags/$TAG^{commit}")
+          python3 scripts/release_gate.py check --tag "$TAG" --commit "$SHA" \
+            --require-ci --repo "$GITHUB_REPOSITORY"
 
   # Native arm64 build (issue #438). Built on a real aarch64 runner, not cross
   # compiled: a cross build would ship binaries whose `#[cfg(target_arch)]`
