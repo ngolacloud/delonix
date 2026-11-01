@@ -737,6 +737,11 @@ fn strict_v4(s: &str) -> bool {
 /// (ADR-0066 D3). An address that is not a strict dotted IPv4 is dropped here,
 /// before it can reach the script. Pure.
 pub fn render_script(table: &str, plans: &[VipPlan], guard: &[Cidr]) -> String {
+    // ADR-0082 phase 3: the ingress table is `inet`, so every chain/rule here is
+    // addressed `<family> <table>`. The DNAT/reject bodies stay family-qualified
+    // on their own (`dnat ip to`, `ip daddr`) — those are v4 matches, not the table
+    // family.
+    let family = crate::infra::INGRESS_FAMILY;
     let mut s = String::new();
     for (chain, hook, kind, prio) in [
         (SVC_PRE_CHAIN, "prerouting", "nat", -101),
@@ -745,8 +750,8 @@ pub fn render_script(table: &str, plans: &[VipPlan], guard: &[Cidr]) -> String {
         (VIP_GUARD_OUT_CHAIN, "output", "filter", -20),
     ] {
         s.push_str(&format!(
-            "add chain ip {table} {chain} {{ type {kind} hook {hook} priority {prio}; }}\n\
-             flush chain ip {table} {chain}\n"
+            "add chain {family} {table} {chain} {{ type {kind} hook {hook} priority {prio}; }}\n\
+             flush chain {family} {table} {chain}\n"
         ));
     }
     for p in plans {
@@ -762,7 +767,7 @@ pub fn render_script(table: &str, plans: &[VipPlan], guard: &[Cidr]) -> String {
             .join(", ");
         for chain in [SVC_PRE_CHAIN, SVC_OUT_CHAIN] {
             s.push_str(&format!(
-                "add rule ip {table} {chain} ip daddr {} tcp dport {} counter dnat ip to numgen \
+                "add rule {family} {table} {chain} ip daddr {} tcp dport {} counter dnat ip to numgen \
                  random mod {} map {{ {map} }}\n",
                 p.vip,
                 p.port,
@@ -775,7 +780,7 @@ pub fn render_script(table: &str, plans: &[VipPlan], guard: &[Cidr]) -> String {
         // the holder itself, where nothing listens: a reset, like the VIP's.
         for hp in p.publish.iter().filter(|hp| **hp != 0) {
             s.push_str(&format!(
-                "add rule ip {table} {SVC_PRE_CHAIN} ip daddr {} tcp dport {hp} counter dnat ip \
+                "add rule {family} {table} {SVC_PRE_CHAIN} ip daddr {} tcp dport {hp} counter dnat ip \
                  to numgen random mod {} map {{ {map} }}\n",
                 crate::infra::INFRA_SLIRP_IP,
                 backends.len()
@@ -796,9 +801,9 @@ pub fn render_script(table: &str, plans: &[VipPlan], guard: &[Cidr]) -> String {
             .join(", ");
         for chain in [VIP_GUARD_CHAIN, VIP_GUARD_OUT_CHAIN] {
             s.push_str(&format!(
-                "add rule ip {table} {chain} ip daddr {{ {set} }} meta l4proto tcp counter reject \
+                "add rule {family} {table} {chain} ip daddr {{ {set} }} meta l4proto tcp counter reject \
                  with tcp reset\n\
-                 add rule ip {table} {chain} ip daddr {{ {set} }} counter reject with icmp type \
+                 add rule {family} {table} {chain} ip daddr {{ {set} }} counter reject with icmp type \
                  port-unreachable\n"
             ));
         }
@@ -1285,9 +1290,9 @@ mod tests {
             &[c("10.90.0.0/16")],
         );
         assert!(!s.contains("dnat"), "{s}");
-        assert!(s.contains("add rule ip dlxing vipguard ip daddr { 10.90.0.0/16 } meta l4proto tcp counter reject with tcp reset"), "{s}");
+        assert!(s.contains("add rule inet dlxing vipguard ip daddr { 10.90.0.0/16 } meta l4proto tcp counter reject with tcp reset"), "{s}");
         assert!(s.contains("vipguardout ip daddr { 10.90.0.0/16 } counter reject with icmp type port-unreachable"), "{s}");
-        assert!(s.contains("flush chain ip dlxing svcpre"), "{s}");
+        assert!(s.contains("flush chain inet dlxing svcpre"), "{s}");
     }
 
     #[test]
@@ -1304,18 +1309,18 @@ mod tests {
         );
         let want = "ip daddr 10.90.0.10 tcp dport 8080 counter dnat ip to numgen random mod 2 map { 0 : 10.233.0.11 . 8080, 1 : 10.233.0.12 . 8080 }";
         assert!(
-            s.contains(&format!("add rule ip dlxing svcpre {want}")),
+            s.contains(&format!("add rule inet dlxing svcpre {want}")),
             "{s}"
         );
         assert!(
-            s.contains(&format!("add rule ip dlxing svcout {want}")),
+            s.contains(&format!("add rule inet dlxing svcout {want}")),
             "{s}"
         );
         // D6: the published port goes straight to the same set, only from the
         // slirp side (prerouting), never through the VIP.
         assert!(
             s.contains(
-                "add rule ip dlxing svcpre ip daddr 10.0.2.100 tcp dport 18080 counter dnat ip \
+                "add rule inet dlxing svcpre ip daddr 10.0.2.100 tcp dport 18080 counter dnat ip \
                  to numgen random mod 2 map { 0 : 10.233.0.11 . 8080, 1 : 10.233.0.12 . 8080 }"
             ),
             "{s}"

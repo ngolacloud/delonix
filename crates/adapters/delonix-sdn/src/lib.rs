@@ -11,7 +11,7 @@
 //!   forwarding and `MASQUERADE`;
 //! - each container gets a `veth` (`eth0`) attached to the bridge, with a
 //!   deterministic IP derived from its id;
-//! - the per-container firewall is a chain of its OWN in table `ip dlxing`,
+//! - the per-container firewall is a chain of its OWN in table `inet dlxing`,
 //!   reached through a verdict map (`@fwmap`) keyed by IP — so dispatch costs
 //!   the same with one container as with fifty.
 //!
