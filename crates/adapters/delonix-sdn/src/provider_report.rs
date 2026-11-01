@@ -141,7 +141,7 @@ pub fn report(host: &SdnHost) -> ProviderReport {
                     component: "a tunnel provider (pinggy, ngrok, cloudflared) and its binary/account",
                 },
                 C::NetIpv6 => S::UnsupportedByProvider {
-                    reason: "disabled in every container netns and dropped by `table ip6` in the holder: the firewall is `table ip` (v0.37.1); `DELONIX_ENABLE_IPV6=1` is a noisy escape, not a feature",
+                    reason: "disabled in every container netns and dropped by `table ip6` in the holder; the firewall is now a dual-family `table inet` (ADR-0082 phase 3) but its v6 side is empty and governs nothing — `DELONIX_ENABLE_IPV6=1` is a noisy escape, not a feature",
                 },
                 C::NetRateLimit => base(S::Supported {
                     evidence: "check:update: net-rate a quente",
