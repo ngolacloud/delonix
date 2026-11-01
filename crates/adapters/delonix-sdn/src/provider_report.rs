@@ -104,9 +104,23 @@ pub fn report(host: &SdnHost) -> ProviderReport {
                 C::NetBridge => base(S::Supported {
                     evidence: "e2e:network: ciclo de vida",
                 }),
-                C::NetMacvlanIpvlan => S::UnsupportedByProvider {
-                    reason: "needs CAP_NET_ADMIN in the host's init netns; registered with Realized=False, never realised rootless",
-                },
+                C::NetMacvlanIpvlan => {
+                    if host.rootless {
+                        // KERNEL CONSTRAINT, not a defect: enslaving a physical NIC needs
+                        // CAP_NET_ADMIN in the INITIAL netns, which a nested user/network
+                        // namespace never has. Impossible by design — use a bridge network.
+                        S::UnsupportedByProvider {
+                            reason: "enslaving a physical NIC for macvlan/ipvlan needs CAP_NET_ADMIN in the host's INITIAL network namespace; a rootless node runs in a nested user/network namespace where the kernel forbids it — impossible by design, not unimplemented (use a `bridge` network)",
+                        }
+                    } else {
+                        // Rootful (real root in the init netns): `attach` realizes a
+                        // macvlan/ipvlan sub-interface on the parent NIC, addresses it and
+                        // moves it into the container's netns (`lan::realize_attach`).
+                        S::Partial {
+                            detail: "rootful (CAP_NET_ADMIN in the init netns): `network create --driver macvlan|ipvlan --parent <NIC> --subnet <CIDR>` realizes a sub-interface on the parent at attach, addresses it (derived from the subnet) and moves it into the container's netns; the realization + privilege gate are unit-tested, a live attach on a rootful host is not yet measured",
+                        }
+                    }
+                }
                 C::NetVlan => S::Partial {
                     detail: "`network vlan` puts an 802.1Q VLAN on a physical NIC — root only, and it says so on every run",
                 },

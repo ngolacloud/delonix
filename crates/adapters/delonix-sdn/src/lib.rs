@@ -48,6 +48,8 @@ pub mod gc;
 pub use delonix_networking::{gateway, ownership, segment};
 pub mod infra;
 pub mod ipam;
+/// Rootful realization of the `macvlan`/`ipvlan` LAN drivers (see the module).
+pub mod lan;
 pub mod netops;
 mod pin_userns;
 pub mod policy_nft;
@@ -1916,6 +1918,14 @@ impl NetworkStore {
     /// Creates a `macvlan`/`ipvlan` network: the container sits directly on the
     /// `parent`'s physical LAN (e.g.: `eno1`), with that LAN's `subnet`/`gateway`. Validates
     /// the name, the driver, the parent NIC's existence and the subnet format (CIDR).
+    ///
+    /// Create RECORDS the network; it does not touch the host — the same as
+    /// Docker, where a macvlan network creates no link until a container
+    /// attaches. The link is REALIZED at attach ([`crate::lan::realize_attach`]):
+    /// a sub-interface enslaved to `parent`, addressed from `subnet`, and moved
+    /// into the container's netns. That enslave needs `CAP_NET_ADMIN` in the
+    /// host's initial netns, so it succeeds only on a rootful node and is
+    /// refused — clearly — when rootless (see the [`crate::lan`] module).
     pub fn create_lan(
         &self,
         name: &str,
