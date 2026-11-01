@@ -122,7 +122,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Instala protoc
         run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
@@ -281,7 +281,7 @@ jobs:
 
       - name: Guarda o log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: chaos-log
           path: |
@@ -322,7 +322,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: A harness that did not run must have a declared reason
         run: |
           python3 scripts/chaos_skip_gate.py \

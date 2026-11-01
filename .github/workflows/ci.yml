@@ -21,7 +21,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # rustup honra o rust-toolchain.toml (canal + componentes rustfmt/clippy).
       - name: Instala toolchain fixada
         run: rustup show
@@ -32,7 +32,7 @@ jobs:
     name: lang ratchet
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Identifiers, comments and user-facing messages still in Portuguese
         run: python3 scripts/lang_ratchet.py
 
@@ -54,7 +54,7 @@ jobs:
     name: capability ratchet
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Proved cells against the recorded baseline
         run: python3 scripts/capability_ratchet.py
 
@@ -76,7 +76,7 @@ jobs:
     name: cli execution ratchet
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Executed CLI leaves against the recorded baseline
         run: python3 scripts/cli_exec_ratchet.py
 
@@ -106,7 +106,7 @@ jobs:
     name: leaf inventory ratchet
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Leaves of the six surfaces with a denominator in the code
         run: python3 scripts/folhas_gate.py
 
@@ -120,7 +120,7 @@ jobs:
     name: arch fitness
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Instala toolchain fixada
         run: rustup show
       - name: Layer direction, foundation purity and the debt ratchets
@@ -144,11 +144,11 @@ jobs:
     name: contract gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - uses: ./.github/actions/protoc
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.26"
       - name: buf and protoc-gen-openapi (pinned)
@@ -167,7 +167,7 @@ jobs:
     name: version gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Workspace version vs. tags
@@ -184,12 +184,12 @@ jobs:
     name: cli surface
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # `delonix-cri` builds the CRI .proto through prost/tonic — needs protoc.
       - uses: ./.github/actions/protoc
       - name: Install the pinned toolchain
         run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --release -p delonix-runtime-bin
       - name: Every CLI leaf has a decided destination
         run: scripts/cli-tree.sh --gate
@@ -206,12 +206,12 @@ jobs:
     name: clippy -D warnings
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # `delonix-cri` compila os .proto do CRI via prost/tonic — precisa de protoc.
       - uses: ./.github/actions/protoc
       - name: Instala toolchain fixada
         run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   # ---- Testes: a suite toda (os testes que exigem privilégio auto-skipam) ----
@@ -219,12 +219,12 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # `delonix-cri` compila os .proto do CRI via prost/tonic — precisa de protoc.
       - uses: ./.github/actions/protoc
       - name: Instala toolchain fixada
         run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --workspace --locked
       # The tests get an EMPTY temp dir of their own, so whatever is in it
       # afterwards was left by them. `scripts/tmp_roots_gate.py` judges it
@@ -260,13 +260,13 @@ jobs:
     name: test (arm64)
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/protoc
       - name: Instala toolchain fixada
         run: rustup show
       - name: Arquitectura do runner
         run: test "$(uname -m)" = aarch64
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --workspace --locked
       - run: cargo test --workspace --locked --no-fail-fast
 
@@ -275,10 +275,34 @@ jobs:
     name: cargo-deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
           command: check advisories licenses sources
+
+  # ---- Supply-chain: toda a Action de terceiros tem de estar pinada a um SHA ----
+  #
+  # G-020 (security-assessment): uma tag flutuante (`@v4`) deixa um atacante que
+  # comprometa a tag injectar código no pipeline que PRODUZ as releases "de
+  # confiança" — o elo mais fraco da cadeia. Esta guarda recusa qualquer `uses:`
+  # externo que não seja um SHA de 40 hex; `./.github/actions/*` (local, versionado
+  # connosco) é a única excepção. Mantém o 20/20 que não regride sozinho.
+  actions-pinned:
+    name: actions-pinned
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Toda a Action externa pinada a SHA
+        run: |
+          bad=$(grep -rhnE '^\s*(-\s*)?uses:' .github/workflows/ \
+            | grep -vE 'uses:\s*\./' \
+            | grep -vE 'uses:\s*[^@]+@[0-9a-f]{40}(\s|$|#)' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::Action(s) de terceiros sem SHA pin (G-020):"
+            echo "$bad"
+            exit 1
+          fi
+          echo "ok — toda a Action externa está pinada a um SHA de 40 hex"
 
   # ---- Fuzz: hand-written parsers fed with attacker-influenceable input ----
   #
@@ -292,12 +316,12 @@ jobs:
     name: fuzz (60s smoke, per target)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install pinned toolchain + nightly (libFuzzer's sanitizer needs it)
         run: |
           rustup show
           rustup toolchain install nightly --profile minimal
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: fuzz -> target
       - run: cargo install cargo-fuzz --locked
@@ -327,7 +351,7 @@ jobs:
     name: script tests (Python gates)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Run every scripts/test_*.py
         run: |
           shopt -s nullglob
@@ -370,7 +394,7 @@ jobs:
     outputs:
       ok: ${{ steps.probe.outputs.ok }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Can this machine MEASURE?
         id: probe
         run: |
@@ -404,11 +428,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/protoc
       - name: Install the pinned toolchain
         run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --release --locked -p delonix-runtime-bin
       - name: Measure (human report to stderr, the object to the file)
         run: scripts/bench.sh --json --runs 10 > run.json
@@ -428,11 +452,11 @@ jobs:
     name: release verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/protoc
       - name: Install the pinned toolchain
         run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --release --locked -p delonix-runtime-bin
       - run: python3 scripts/release_verify.py
 
@@ -457,7 +481,7 @@ jobs:
     name: generated docs and valid examples
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/protoc
       - name: Instala toolchain fixada
         run: rustup show
