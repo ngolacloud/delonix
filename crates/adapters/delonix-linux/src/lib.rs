@@ -1887,6 +1887,14 @@ fn mount_devpts(dev: &str, with_gid: bool) {
 /// accessible under `old_root` (the old root preserved by `pivot_root`, still to
 /// be unmounted). The caller unmounts `old_root` right after.
 fn setup_dev_userns(old_root: &str, devices: &[String]) {
+    // Create `/dev` FIRST, or the tmpfs below has no mount point. A `FROM
+    // scratch` (or distroless) rootfs ships no `/dev`, so this mount — and every
+    // node under it, including `/dev/null` — silently no-op'd (`let _ =`), and
+    // the container then died LATER with "could not mask '/proc/sysrq-trigger':
+    // ENOENT" when `mask_proc_paths` reached for the missing `/dev/null` as its
+    // bind SOURCE. `setup_dev` (the non-userns twin) always did this; the
+    // userns path did not.
+    let _ = std::fs::create_dir_all("/dev");
     let _ = mount(
         Some("tmpfs"),
         "/dev",
