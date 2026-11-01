@@ -38,18 +38,33 @@ Mais: `install.sh --uninstall`/`--purge`; aviso P2-2 (restart não sobrevive reb
 
 42 células EXPERIMENTAL + 6 IMPLEMENTADA-NÃO-VALIDADA (ver `contrato-suporte-producao.md`).
 
-## 4. Residual a confirmar em host limpo (ÚNICO que trava um GO sem ressalva)
+## 4. Residual — ROOT-CAUSED (sistémico), 2/7 corrigidos; resto precisa de host limpo
 
-**Attach de rede custom de container pendura sem timeout.** Observado ao
-re-verificar o DEF-003: `run --net <custom>`/`compose up` pendura (um filho de
-rede — slirp-ready/lease/lock — não completa e não há timeout). Reproduz num
-root+rede ISOLADOS, com `load` baixo e `netns` nomeados = 0 — por isso **pode
-ser o estado do host** (36 procs kind+ceph+kubelet do dono + um `slirp4netns`
-vivo há 12 h), **ou** um defeito de produto. **Ação:** re-correr num host
-reiniciado/limpo com `strace`; se reproduzir limpo, é P2 (bound cada espera +
-falhar, nunca pendurar) a corrigir antes do GO para **container custom-net**. O
-DEF-003 original (compose não reconcilia serviço parado) não foi re-testável por
-causa deste hang.
+**Attach de rede custom de container pendura sem timeout.** Root-cause encontrado:
+o caminho serializa em **`flock(LOCK_EX)` BLOQUEANTES sem timeout**, e num host com
+um detentor preso/vazado (visto ao vivo: um `slirp4netns` do dono vivo há 12 h +
+36 procs kind/ceph/kubelet a reter recursos de rede rootless) qualquer um deles
+pendura para sempre, sem log nem exit. **É um padrão sistémico: ~7 sítios** —
+`delonix-sdn` ExclusiveLock + IpamLock, `delonix-state` Store/secret FileLock,
+`infra.rs`, `ippool`, `ingress_proxy`, `hosts_file`.
+
+- **CORRIGIDO + testado** (os 2 do caminho de alocação de IP custom):
+  `ExclusiveLock` e `IpamLock` passam a NB-com-tecto-30s → devolvem `None` →
+  erro claro «could not lock», em vez de pendurar (flock 3/3, ipam 25/25). Commit
+  na linha.
+- **POR FAZER (host limpo):** os restantes ~5 sítios, via um helper
+  bounded-flock partilhado. Com 2 limitados o `netns run` ainda bloqueou noutro
+  aos 37 s — provando que é sistémico. **Não** apliquei o helper aos 5 às cegas
+  neste host encravado: é um caminho de locking quente e não há forma de provar o
+  end-to-end enquanto a rede rootless do host está encravada.
+
+**Natureza:** num host SAUDÁVEL estes locks são instantâneos e o attach completa
+(é funcionalidade a correr há muito); o hang é patologia de **estado de host
+encravado**, agora convertida em falha-limpa em 2 dos 7 pontos. **Ação para GO
+sem ressalva:** host reiniciado/limpo → (a) confirmar que o attach volta a
+completar; (b) passar o helper bounded-flock aos 5 sítios restantes com validação
+end-to-end. O DEF-003 original (compose não reconcilia serviço parado) continua
+não-testável enquanto este hang persistir.
 
 ## 5. Breadth por fazer (não-bloqueadores)
 
