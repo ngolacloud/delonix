@@ -361,6 +361,33 @@ pub fn derive_ip_in(prefix: &str, id: &str) -> String {
     format!("{prefix}.{a}.{b}")
 }
 
+/// **Preferred** ULA IPv6 address (deterministic, pure) for a `(network, id)`
+/// pair — the IPv6 sibling of [`derive_ip_in`] (ADR-0082, dual-stack phase 2).
+///
+/// A Unique-Local Address under `fd00::/8` (RFC 4193): `fd` + a 40-bit global id
+/// derived from the NETWORK identifier (so each network lands on its own ULA
+/// prefix), subnet `0`, and a 64-bit interface id derived from the container id.
+/// Like [`derive_ip_in`] it is only the PREFERRED address — real uniqueness will
+/// come from a lease registry (phase 2 wires it; this is the pure hash it starts
+/// from). The interface id is clamped `>= 2`, mirroring the v4 host-octet clamp,
+/// so it never collides with the subnet-router anycast / gateway slot.
+///
+/// INERT until the dual-stack firewall (ADR-0082 phase 3) can filter v6: nothing
+/// in the engine consumes this yet, by design — v6 stays off until it is governed.
+pub fn derive_ula_in(network: &str, id: &str) -> String {
+    let g = u64::from(fnv32(network));
+    // `fd` (ULA) + the 40-bit global id spread across the first three hextets.
+    let seg0 = (0xfd00 | ((g >> 24) & 0xff)) as u16;
+    let seg1 = ((g >> 8) & 0xffff) as u16;
+    let seg2 = ((g & 0xff) << 8) as u16;
+    // Interface id from the container id (same FNV the v4 path uses), clamped.
+    let iface = {
+        let h = (fnv32(id) & 0xffff) as u16;
+        h.max(2)
+    };
+    std::net::Ipv6Addr::new(seg0, seg1, seg2, 0, 0, 0, 0, iface).to_string()
+}
+
 /// Validates that `ip` is a usable unicast address in `prefix`'s `/16` subnet
 /// (e.g.: prefix `10.88`): 4 octets, first two == prefix, not the gateway
 /// (`prefix.0.1`), the network (`prefix.0.0`) or the broadcast (`prefix.255.255`).
@@ -547,6 +574,36 @@ mod tests {
 
         // E ids diferentes não colidem trivialmente.
         assert_ne!(a, derive_ip_in("10.220", "cafebabe"));
+    }
+
+    /// ADR-0082 fase 2: a derivação ULA IPv6 é determinística, fica em `fd00::/8`,
+    /// cada rede tem o seu prefixo global, ids diferentes dão interface-ids
+    /// diferentes, e o interface-id nunca é < 2.
+    #[test]
+    fn ula_derivado_e_estavel_unico_local_e_por_rede() {
+        use std::net::Ipv6Addr;
+        let a = derive_ula_in("backend", "deadbeef");
+        // Determinístico.
+        assert_eq!(a, derive_ula_in("backend", "deadbeef"));
+        // É um ULA (fd00::/8): o primeiro octeto é 0xfd.
+        let parsed: Ipv6Addr = a.parse().expect("ULA válido");
+        assert_eq!(parsed.octets()[0], 0xfd, "{a} não é fd00::/8");
+        // Redes diferentes → prefixo global diferente (os 3 primeiros hextets).
+        let b = derive_ula_in("frontend", "deadbeef");
+        assert_ne!(
+            parsed.segments()[..3],
+            b.parse::<Ipv6Addr>().unwrap().segments()[..3]
+        );
+        // Ids diferentes na MESMA rede → interface-id diferente.
+        assert_ne!(a, derive_ula_in("backend", "cafebabe"));
+        // Interface-id (último hextet) nunca < 2 (nem gateway nem anycast).
+        assert!(
+            derive_ula_in("backend", "0")
+                .parse::<Ipv6Addr>()
+                .unwrap()
+                .segments()[7]
+                >= 2
+        );
     }
 
     #[test]
