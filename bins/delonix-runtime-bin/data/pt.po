@@ -2919,8 +2919,8 @@ msgstr "vulnerabilidades: {n}"
 msgid "database source: {label} ({n} advisories)"
 msgstr "fonte da base: {label} ({n} advisories)"
 
-msgid "EMBEDDED CVE database (placeholder, {n} entries) — NOT a real feed; a \"no vulnerabilities\" is not to be trusted. Sync: `delonix image scan --update --feed https://…/osv.json`"
-msgstr "base de CVE EMBEBIDA (placeholder, {n} entradas) — NÃO é um feed real; um \"sem vulnerabilidades\" não é de confiança. Sincroniza: `delonix image scan --update --feed https://…/osv.json`"
+msgid "EMBEDDED CVE database (placeholder, {n} entries) — NOT a real feed; a \"no vulnerabilities\" is not to be trusted. Sync: `delonix image scan --update --feed https://osv-vulnerabilities.storage.googleapis.com/Alpine:v3.12/all.zip`"
+msgstr "base de CVE EMBEBIDA (placeholder, {n} entradas) — NÃO é um feed real; um \"sem vulnerabilidades\" não é de confiança. Sincroniza: `delonix image scan --update --feed https://osv-vulnerabilities.storage.googleapis.com/Alpine:v3.12/all.zip`"
 
 msgid "stale advisories database (>14 days without sync) — run `delonix image scan --update`."
 msgstr "base de advisories obsoleta (>14 dias sem sync) — corre `delonix image scan --update`."
@@ -2942,6 +2942,9 @@ msgstr "feed inválido"
 
 msgid "→ OSV feed detected: {n} advisories converted (Alpine/Debian/Ubuntu)"
 msgstr "→ feed OSV detectado: {n} advisories convertidas (Alpine/Debian/Ubuntu)"
+
+msgid "→ OSV zip export detected: {n} advisories converted (Alpine/Debian/Ubuntu)"
+msgstr "→ exportação OSV em zip detectada: {n} advisories convertidas (Alpine/Debian/Ubuntu)"
 
 msgid "invalid native feed"
 msgstr "feed nativo inválido"
@@ -12051,6 +12054,15 @@ msgstr "Uma layer tem mais bytes descomprimidos ou mais entradas do que os limit
 
 msgid "Use a smaller image. If the image is trusted and really that large, raise DELONIX_LAYER_MAX_BYTES or DELONIX_LAYER_MAX_ENTRIES."
 msgstr "Usa uma imagem mais pequena. Se a imagem é de confiança e é mesmo tão grande, aumenta DELONIX_LAYER_MAX_BYTES ou DELONIX_LAYER_MAX_ENTRIES."
+
+msgid "OSV zip feed could not be opened"
+msgstr "não foi possível abrir o feed OSV em zip"
+
+msgid "The CVE feed given to `scan --update` is a ZIP (the OSV `<ecosystem>/all.zip` export) that the reader could not open: it is not a zip, is truncated, needs zip64, or uses a compression method other than store/deflate. The message says which."
+msgstr "O feed CVE dado ao `scan --update` é um ZIP (a exportação OSV `<ecosystem>/all.zip`) que o leitor não conseguiu abrir: não é um zip, está truncado, precisa de zip64, ou usa um método de compressão que não store/deflate. A mensagem diz qual."
+
+msgid "Point --feed at an OSV all.zip export (e.g. https://osv-vulnerabilities.storage.googleapis.com/Alpine:v3.12/all.zip), or at a plain OSV JSON export."
+msgstr "Aponta o --feed para uma exportação OSV all.zip (ex. https://osv-vulnerabilities.storage.googleapis.com/Alpine:v3.12/all.zip), ou para uma exportação OSV em JSON simples."
 
 msgid "no such image"
 msgstr "essa imagem não existe"
