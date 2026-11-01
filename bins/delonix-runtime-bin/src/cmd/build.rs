@@ -322,6 +322,25 @@ fn resolve_stage_base(
             chain_hash: prior.chain_hash.clone(),
             image: None,
         })
+    } else if from == "scratch" {
+        // `FROM scratch` (Docker): the EMPTY base, not an image to pull. Without
+        // this it fell through to `resolve_or_pull`, which has no local
+        // `scratch` and went to the registry for `library/scratch` — DX-4401.
+        // `Image::scratch` has no layers, so `export_rootfs` lays down an empty
+        // tree the `COPY`/`RUN` steps then fill.
+        let img = Image::scratch();
+        let rootfs = prepare_rootfs_flat(images, &img, new_id)?;
+        Ok(StageResult {
+            id: new_id.to_string(),
+            rootfs,
+            cmd: img.config.cmd.clone(),
+            entrypoint: img.config.entrypoint.clone(),
+            env: img.config.env.clone(),
+            workdir: "/".to_string(),
+            user: img.config.user.clone(),
+            chain_hash: img.id.clone(),
+            image: Some(img),
+        })
     } else {
         let img = resolve_or_pull_platform(images, from, platform)?;
         let rootfs = prepare_rootfs_flat(images, &img, new_id)?;
@@ -634,15 +653,16 @@ fn build_one_stage(
                             continue;
                         }
                     }
-                    ensure_container(
-                        images,
-                        store,
-                        &mut container,
-                        &cur_id,
-                        &cur_rootfs,
-                        from,
-                        rootless,
-                    )?;
+                    // COPY writes the rootfs directly (host-side
+                    // `copy_into_rootfs_here`, or a `reexec_mapped` child for
+                    // `--chown`) — it never execs into the build scaffold. So do
+                    // NOT start the scaffold here: on a `FROM scratch` base the
+                    // scaffold's keep-alive (`/bin/sh -c sleep infinity`) has no
+                    // shell to exec until a COPY has placed one, and starting it
+                    // eagerly failed the FIRST COPY with `exec /bin/sh: ENOENT`
+                    // (exit 127) before the file it would have provided was in
+                    // place. The scaffold is started lazily by the first `RUN`,
+                    // by which point any `COPY /bin/sh` has already landed.
                     copy_into_rootfs(
                         src_root,
                         &cur_rootfs,
