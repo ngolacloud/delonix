@@ -470,6 +470,53 @@ fn osv_first_fixed(affected: &serde_json::Value) -> Option<String> {
     None
 }
 
+/// Converts ONE OSV vuln object into advisories — one per affected package
+/// with a first-fixed version, for the ecosystems we cross-reference (the rest
+/// ignored) — appending to `out`. Shared by the array/`{vulns}` feed path and
+/// the per-file zip path, so the two feed shapes map a record identically.
+fn push_osv_vuln(vuln: &serde_json::Value, out: &mut Vec<Advisory>) {
+    let id = vuln.get("id").and_then(|x| x.as_str()).unwrap_or("");
+    if id.is_empty() {
+        return;
+    }
+    let summary = vuln
+        .get("summary")
+        .and_then(|x| x.as_str())
+        .or_else(|| vuln.get("details").and_then(|x| x.as_str()))
+        .unwrap_or("")
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let vuln_sev = osv_severity_label(vuln);
+    let Some(affected) = vuln.get("affected").and_then(|x| x.as_array()) else {
+        return;
+    };
+    for aff in affected {
+        let Some(pkg) = aff.get("package") else {
+            continue;
+        };
+        let name = pkg.get("name").and_then(|x| x.as_str()).unwrap_or("");
+        let eco = pkg.get("ecosystem").and_then(|x| x.as_str()).unwrap_or("");
+        let (Some(ecosystem), false) = (map_osv_ecosystem(eco), name.is_empty()) else {
+            continue;
+        };
+        let Some(fixed) = osv_first_fixed(aff) else {
+            continue;
+        };
+        let severity = osv_severity_label(aff)
+            .or(vuln_sev)
+            .unwrap_or(Severity::Medium);
+        out.push(Advisory {
+            id: id.to_string(),
+            package: name.to_string(),
+            ecosystem,
+            fixed,
+            severity,
+            summary: summary.clone(),
+        });
+    }
+}
+
 /// Converts an **OSV** feed (an array of vulns, or `{"vulns":[…]}`) into the
 /// internal advisory database. Best-effort: each vuln generates one advisory per
 /// (package, ecosystem, first-fixed-version) for the supported ecosystems
@@ -486,45 +533,112 @@ pub fn advisories_from_osv(json: &str) -> Result<Vec<Advisory>> {
     };
     let mut out = Vec::new();
     for vuln in &vulns {
-        let id = vuln.get("id").and_then(|x| x.as_str()).unwrap_or("");
-        if id.is_empty() {
+        push_osv_vuln(vuln, &mut out);
+    }
+    Ok(out)
+}
+
+/// Minimal reader for the ZIP container OSV distributes its per-ecosystem
+/// export as (`<ecosystem>/all.zip`: one JSON record per vuln). Only the two
+/// things that archive actually uses are handled — STORED (0) and DEFLATE (8)
+/// — read through the CENTRAL DIRECTORY, whose sizes and offsets are always
+/// correct (a local header may defer them to a trailing data descriptor).
+/// No zip64: OSV's exports are a few thousand small files, far under the
+/// u16/u32 limits the base format carries; a zip that needs zip64 is refused
+/// rather than mis-read. Returns the decompressed bytes of every `.json`
+/// member. Zero new dependencies — the deflate decoder is the `flate2` the
+/// crate already uses for layers. Pure (no network, no fs), so the whole
+/// OSV→advisory path stays testable without either.
+fn zip_json_members(data: &[u8]) -> Result<Vec<Vec<u8>>> {
+    fn u16le(b: &[u8], o: usize) -> Option<usize> {
+        Some(u16::from_le_bytes([*b.get(o)?, *b.get(o + 1)?]) as usize)
+    }
+    fn u32le(b: &[u8], o: usize) -> Option<usize> {
+        Some(
+            u32::from_le_bytes([*b.get(o)?, *b.get(o + 1)?, *b.get(o + 2)?, *b.get(o + 3)?])
+                as usize,
+        )
+    }
+    let bad = |m: &str| Error::OsvZip(m.to_string());
+
+    // End of Central Directory record (signature PK\x05\x06), 22 bytes plus an
+    // optional trailing comment — scan backwards for it over the last 64 KiB.
+    const EOCD: [u8; 4] = [0x50, 0x4b, 0x05, 0x06];
+    if data.len() < 22 {
+        return Err(bad("too small to be a zip"));
+    }
+    let scan_from = data.len().saturating_sub(22 + 0xffff);
+    let eocd = (scan_from..=data.len() - 22)
+        .rev()
+        .find(|&i| data[i..i + 4] == EOCD)
+        .ok_or_else(|| bad("no end-of-central-directory record (not a zip?)"))?;
+    let count = u16le(data, eocd + 10).ok_or_else(|| bad("truncated EOCD"))?;
+    let cd_off = u32le(data, eocd + 16).ok_or_else(|| bad("truncated EOCD"))?;
+    if count == 0xffff || cd_off == 0xffff_ffff {
+        return Err(bad("zip64 is not supported"));
+    }
+
+    let mut out = Vec::with_capacity(count);
+    let mut p = cd_off;
+    for _ in 0..count {
+        // Central-directory file header (signature PK\x01\x02), 46 bytes fixed.
+        if data.get(p..p + 4) != Some(&[0x50, 0x4b, 0x01, 0x02]) {
+            return Err(bad("bad central-directory header"));
+        }
+        let method = u16le(data, p + 10).ok_or_else(|| bad("truncated CD header"))?;
+        let comp_size = u32le(data, p + 20).ok_or_else(|| bad("truncated CD header"))?;
+        let name_len = u16le(data, p + 28).ok_or_else(|| bad("truncated CD header"))?;
+        let extra_len = u16le(data, p + 30).ok_or_else(|| bad("truncated CD header"))?;
+        let comment_len = u16le(data, p + 32).ok_or_else(|| bad("truncated CD header"))?;
+        let lho = u32le(data, p + 42).ok_or_else(|| bad("truncated CD header"))?;
+        let name = data
+            .get(p + 46..p + 46 + name_len)
+            .ok_or_else(|| bad("truncated file name"))?;
+        let is_json = name.ends_with(b".json");
+        p += 46 + name_len + extra_len + comment_len;
+        if !is_json {
             continue;
         }
-        let summary = vuln
-            .get("summary")
-            .and_then(|x| x.as_str())
-            .or_else(|| vuln.get("details").and_then(|x| x.as_str()))
-            .unwrap_or("")
-            .chars()
-            .take(200)
-            .collect::<String>();
-        let vuln_sev = osv_severity_label(vuln);
-        let Some(affected) = vuln.get("affected").and_then(|x| x.as_array()) else {
-            continue;
+
+        // Local file header (signature PK\x03\x04), 30 bytes fixed, then its
+        // OWN name+extra (the extra length can differ from the CD's), then the
+        // file data of `comp_size` bytes.
+        if data.get(lho..lho + 4) != Some(&[0x50, 0x4b, 0x03, 0x04]) {
+            return Err(bad("bad local file header"));
+        }
+        let lname = u16le(data, lho + 26).ok_or_else(|| bad("truncated local header"))?;
+        let lextra = u16le(data, lho + 28).ok_or_else(|| bad("truncated local header"))?;
+        let start = lho + 30 + lname + lextra;
+        let comp = data
+            .get(start..start + comp_size)
+            .ok_or_else(|| bad("truncated file data"))?;
+        let bytes = match method {
+            0 => comp.to_vec(),
+            8 => {
+                let mut buf = Vec::new();
+                flate2::read::DeflateDecoder::new(comp)
+                    .read_to_end(&mut buf)
+                    .map_err(|e| bad(&format!("deflate failed: {e}")))?;
+                buf
+            }
+            m => return Err(bad(&format!("unsupported compression method {m}"))),
         };
-        for aff in affected {
-            let Some(pkg) = aff.get("package") else {
-                continue;
-            };
-            let name = pkg.get("name").and_then(|x| x.as_str()).unwrap_or("");
-            let eco = pkg.get("ecosystem").and_then(|x| x.as_str()).unwrap_or("");
-            let (Some(ecosystem), false) = (map_osv_ecosystem(eco), name.is_empty()) else {
-                continue;
-            };
-            let Some(fixed) = osv_first_fixed(aff) else {
-                continue;
-            };
-            let severity = osv_severity_label(aff)
-                .or(vuln_sev)
-                .unwrap_or(Severity::Medium);
-            out.push(Advisory {
-                id: id.to_string(),
-                package: name.to_string(),
-                ecosystem,
-                fixed,
-                severity,
-                summary: summary.clone(),
-            });
+        out.push(bytes);
+    }
+    Ok(out)
+}
+
+/// Converts an **OSV ZIP export** (`<ecosystem>/all.zip`, one JSON record per
+/// `.json` member) into advisories. A member that is not valid JSON, or not an
+/// OSV record, is skipped — one bad file in a 1700-file export must not sink
+/// the whole sync; a wholly unreadable zip (not the files, the container) is
+/// the hard error [`Error::OsvZip`]. Pure function.
+pub fn advisories_from_osv_zip(zip: &[u8]) -> Result<Vec<Advisory>> {
+    let members = zip_json_members(zip)?;
+    let mut out = Vec::new();
+    for raw in &members {
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(raw) {
+            push_osv_vuln(&v, &mut out);
         }
     }
     Ok(out)
@@ -720,6 +834,116 @@ mod tests {
             "severity": match a.severity { Severity::Low=>"low", Severity::Medium=>"medium", Severity::High=>"high", Severity::Critical=>"critical" },
             "summary": a.summary,
         })).collect()
+    }
+
+    /// Builds a minimal ZIP of `(name, bytes)` members — STORED (`deflate =
+    /// false`) or DEFLATE (`true`, the method OSV's exports actually use) — so
+    /// the zip path is tested without the network and without a `zip`
+    /// dependency. CRCs are left zero: the reader does not check them.
+    fn build_zip(files: &[(&str, &[u8])], deflate: bool) -> Vec<u8> {
+        use std::io::Write;
+        let mut out = Vec::new();
+        let mut central = Vec::new();
+        let mut local_offsets = Vec::new();
+        let (method, flag): (u16, u16) = if deflate { (8, 1 << 3) } else { (0, 0) };
+        let _ = flag; // flags left 0 below; data-descriptor flag not used
+        for (name, data) in files {
+            local_offsets.push(out.len() as u32);
+            let stored: Vec<u8> = if deflate {
+                let mut e =
+                    flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+                e.write_all(data).unwrap();
+                e.finish().unwrap()
+            } else {
+                data.to_vec()
+            };
+            // local file header
+            out.extend_from_slice(&[0x50, 0x4b, 0x03, 0x04]);
+            out.extend_from_slice(&[20, 0, 0, 0]); // version needed + flags
+            out.extend_from_slice(&method.to_le_bytes());
+            out.extend_from_slice(&[0, 0, 0, 0]); // time + date
+            out.extend_from_slice(&[0, 0, 0, 0]); // crc32 (unchecked)
+            out.extend_from_slice(&(stored.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            out.extend_from_slice(&[0, 0]); // extra len
+            out.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(&stored);
+            // central-directory header, for the same member
+            central.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02]);
+            central.extend_from_slice(&[20, 0, 20, 0, 0, 0]); // made-by + needed + flags
+            central.extend_from_slice(&method.to_le_bytes());
+            central.extend_from_slice(&[0, 0, 0, 0]); // time + date
+            central.extend_from_slice(&[0, 0, 0, 0]); // crc32
+            central.extend_from_slice(&(stored.len() as u32).to_le_bytes());
+            central.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            central.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // extra + comment + disk
+            central.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // internal + external attrs
+            central.extend_from_slice(local_offsets.last().unwrap().to_le_bytes().as_ref());
+            central.extend_from_slice(name.as_bytes());
+        }
+        let cd_off = out.len() as u32;
+        let cd_size = central.len() as u32;
+        out.extend_from_slice(&central);
+        // end of central directory
+        out.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06]);
+        out.extend_from_slice(&[0, 0, 0, 0]); // this disk + cd-start disk
+        out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+        out.extend_from_slice(&cd_size.to_le_bytes());
+        out.extend_from_slice(&cd_off.to_le_bytes());
+        out.extend_from_slice(&[0, 0]); // comment len
+        out
+    }
+
+    const OSV_ALPINE: &str = r#"{"id":"CVE-2023-4567","summary":"busybox oops",
+      "database_specific":{"severity":"HIGH"},
+      "affected":[{"package":{"ecosystem":"Alpine:v3.18","name":"busybox"},
+        "ranges":[{"type":"ECOSYSTEM","events":[{"introduced":"0"},{"fixed":"1.36.1-r5"}]}]}]}"#;
+    const OSV_NPM: &str = r#"{"id":"GHSA-xxxx","summary":"left-pad",
+      "affected":[{"package":{"ecosystem":"npm","name":"left-pad"},
+        "ranges":[{"type":"SEMVER","events":[{"fixed":"1.3.0"}]}]}]}"#;
+
+    #[test]
+    fn osv_zip_stored_converte_membros_json_e_ignora_nao_json() {
+        let zip = build_zip(
+            &[
+                ("CVE-2023-4567.json", OSV_ALPINE.as_bytes()),
+                ("GHSA-xxxx.json", OSV_NPM.as_bytes()), // npm → ignored by the mapper
+                ("README.txt", b"not json, not a .json member"),
+            ],
+            false,
+        );
+        let advs = advisories_from_osv_zip(&zip).unwrap();
+        assert_eq!(advs.len(), 1); // only the Alpine one
+        assert_eq!(advs[0].id, "CVE-2023-4567");
+        assert_eq!(advs[0].package, "busybox");
+        assert_eq!(advs[0].ecosystem, Ecosystem::Apk);
+        assert_eq!(advs[0].fixed, "1.36.1-r5");
+        assert_eq!(advs[0].severity, Severity::High);
+    }
+
+    #[test]
+    fn osv_zip_deflate_le_o_metodo_que_o_osv_usa() {
+        // DEFLATE (method 8) is what the real `all.zip` uses; the stored test
+        // above would pass even if the inflate path were broken.
+        let zip = build_zip(&[("CVE-2023-4567.json", OSV_ALPINE.as_bytes())], true);
+        let advs = advisories_from_osv_zip(&zip).unwrap();
+        assert_eq!(advs.len(), 1);
+        assert_eq!(advs[0].fixed, "1.36.1-r5");
+    }
+
+    #[test]
+    fn osv_zip_recusa_o_que_nao_e_zip() {
+        // A JSON feed, an HTML error page, an empty body: none is a zip, and
+        // the reader says so (it does not silently return zero advisories).
+        for bad in [&b"not a zip at all"[..], b"<html>502</html>", b"", b"PK"] {
+            assert!(
+                matches!(advisories_from_osv_zip(bad), Err(Error::OsvZip(_))),
+                "{bad:?} should be OsvZip"
+            );
+        }
     }
 
     #[test]

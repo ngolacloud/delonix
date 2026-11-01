@@ -264,7 +264,7 @@ pub fn scan_image(images: &ImageStore, image: &Image) -> Result<Option<Severity>
     if prov.placeholder {
         output::warn(&super::po::tf(
             "EMBEDDED CVE database (placeholder, {n} entries) — NOT a real feed; a \"no vulnerabilities\" is not to be trusted. \
-             Sync: `delonix image scan --update --feed https://…/osv.json`",
+             Sync: `delonix image scan --update --feed https://osv-vulnerabilities.storage.googleapis.com/Alpine:v3.12/all.zip`",
             &[("n", &db.len().to_string())],
         ));
     } else if stale {
@@ -341,22 +341,22 @@ pub fn cmd_scan_update(feed: Option<String>) -> Result<()> {
         let path = source.strip_prefix("file://").unwrap_or(&source);
         std::fs::read(path)?
     };
-    let text = String::from_utf8_lossy(&raw);
-    let value: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| Error::Invalid(format!("{}: {e}", super::po::t("invalid feed"))))?;
-    // OSV: `{"vulns":…}` object or an array whose 1st element has `affected`.
-    let is_osv = value.get("vulns").is_some()
-        || value
-            .as_array()
-            .and_then(|a| a.first())
-            .map(|e| e.get("affected").is_some())
-            .unwrap_or(false);
-    let incoming: Vec<serde_json::Value> = if is_osv {
-        let advs = delonix_scanner::advisories_from_osv(&text)?;
+    // A ZIP export (OSV distributes `<ecosystem>/all.zip`: one JSON record per
+    // vuln, thousands of them — the only shape that gets the local database
+    // past the placeholder into real coverage). Detected by the local-file
+    // header magic, NOT the URL suffix, so a zip served without `.zip` still
+    // works and a JSON served as `.zip` is not fed to the unzipper.
+    let is_zip = raw.starts_with(&[0x50, 0x4b, 0x03, 0x04]);
+    // `"osv"` for the two OSV shapes (zip export, JSON feed), `"native"` for
+    // the internal advisory array — recorded in advisories.meta.json.
+    let mut feed_format = "native";
+    let incoming: Vec<serde_json::Value> = if is_zip {
+        feed_format = "osv";
+        let advs = delonix_scanner::advisories_from_osv_zip(&raw)?;
         eprintln!(
             "{}",
             super::po::tf(
-                "→ OSV feed detected: {n} advisories converted (Alpine/Debian/Ubuntu)",
+                "→ OSV zip export detected: {n} advisories converted (Alpine/Debian/Ubuntu)",
                 &[("n", &advs.len().to_string())],
             )
         );
@@ -364,39 +364,76 @@ pub fn cmd_scan_update(feed: Option<String>) -> Result<()> {
             .filter_map(|a| serde_json::to_value(a).ok())
             .collect()
     } else {
-        serde_json::from_value(value)
-            .map_err(|e| Error::Invalid(format!("{}: {e}", super::po::t("invalid native feed"))))?
+        let text = String::from_utf8_lossy(&raw);
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| Error::Invalid(format!("{}: {e}", super::po::t("invalid feed"))))?;
+        // OSV: `{"vulns":…}` object or an array whose 1st element has `affected`.
+        let is_osv = value.get("vulns").is_some()
+            || value
+                .as_array()
+                .and_then(|a| a.first())
+                .map(|e| e.get("affected").is_some())
+                .unwrap_or(false);
+        if is_osv {
+            feed_format = "osv";
+            let advs = delonix_scanner::advisories_from_osv(&text)?;
+            eprintln!(
+                "{}",
+                super::po::tf(
+                    "→ OSV feed detected: {n} advisories converted (Alpine/Debian/Ubuntu)",
+                    &[("n", &advs.len().to_string())],
+                )
+            );
+            advs.iter()
+                .filter_map(|a| serde_json::to_value(a).ok())
+                .collect()
+        } else {
+            serde_json::from_value(value).map_err(|e| {
+                Error::Invalid(format!("{}: {e}", super::po::t("invalid native feed")))
+            })?
+        }
     };
 
     let dst = images.root().join("advisories.json");
     let mut by_id: BTreeMap<String, serde_json::Value> = BTreeMap::new();
-    // Starts from the embedded + whatever already exists (to never lose advisories).
+    // Merge key is (id, package, ecosystem), not id alone: a single CVE lists
+    // several affected packages in OSV (one `affected` entry each), each its
+    // own advisory with its own `fixed` version. Keying by id would keep only
+    // the last and silently drop the rest — a real matching gap, since the
+    // scanner cross-references per (ecosystem, name). Starts from the embedded
+    // + whatever already exists, so a sync never loses advisories.
+    let key = |a: &serde_json::Value| -> Option<String> {
+        let id = a.get("id")?.as_str()?;
+        let pkg = a.get("package").and_then(|v| v.as_str()).unwrap_or("");
+        let eco = a.get("ecosystem").and_then(|v| v.as_str()).unwrap_or("");
+        Some(format!("{id}\u{1f}{pkg}\u{1f}{eco}"))
+    };
     for src in [
         EMBEDDED_ADVISORIES.to_string(),
         std::fs::read_to_string(&dst).unwrap_or_default(),
     ] {
         if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(&src) {
             for a in arr {
-                if let Some(id) = a.get("id").and_then(|v| v.as_str()) {
-                    by_id.insert(id.to_string(), a);
+                if let Some(k) = key(&a) {
+                    by_id.insert(k, a);
                 }
             }
         }
     }
     let mut added = 0usize;
     for a in incoming {
-        if let Some(id) = a.get("id").and_then(|v| v.as_str()).map(String::from) {
-            if !by_id.contains_key(&id) {
+        if let Some(k) = key(&a) {
+            if !by_id.contains_key(&k) {
                 added += 1;
             }
-            by_id.insert(id, a);
+            by_id.insert(k, a);
         }
     }
     let merged: Vec<serde_json::Value> = by_id.into_values().collect();
     let json = serde_json::to_string_pretty(&merged)?;
     AdvisoryDb::load(&json)?; // validates the schema before writing
     std::fs::write(&dst, &json)?;
-    let meta = serde_json::json!({ "source": source, "synced_unix": now_unix(), "count": merged.len(), "format": if is_osv { "osv" } else { "native" } });
+    let meta = serde_json::json!({ "source": source, "synced_unix": now_unix(), "count": merged.len(), "format": feed_format });
     let _ = std::fs::write(
         images.root().join("advisories.meta.json"),
         serde_json::to_string_pretty(&meta).unwrap_or_default(),
