@@ -140,9 +140,9 @@ pub fn report(host: &SdnHost) -> ProviderReport {
                 C::NetTunnelEgress => S::RequiresExternalComponent {
                     component: "a tunnel provider (pinggy, ngrok, cloudflared) and its binary/account",
                 },
-                C::NetIpv6 => S::UnsupportedByProvider {
-                    reason: "disabled in every container netns and dropped by `table ip6` in the holder; the firewall is now a dual-family `table inet` (ADR-0082 phase 3) but its v6 side is empty and governs nothing — `DELONIX_ENABLE_IPV6=1` is a noisy escape, not a feature",
-                },
+                C::NetIpv6 => filt(S::Supported {
+                    evidence: "e2e:dual-stack: container ULA (fd00:<o2>::<o3>:<o4>) GOVERNED east-west — same-namespace v6 ping passes, cross-namespace v6 dropped by the `inet` namespace rule (counter), v4 unchanged (ADR-0082 phase 4). v6→Internet additionally needs a host v6 uplink; `DELONIX_DISABLE_IPV6=1` turns the v6 SDN off",
+                }),
                 C::NetRateLimit => base(S::Supported {
                     evidence: "check:update: net-rate a quente",
                 }),

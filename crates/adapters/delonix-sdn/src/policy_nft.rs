@@ -89,9 +89,15 @@ pub fn chain_body(
 ) -> Result<String, String> {
     let mut body = String::new();
     for r in t.ingress.rules.iter().filter(|r| !r.guardrail) {
+        if skip_in_family(fam, r) {
+            continue;
+        }
         body.push_str(&user_line(fam, ip, Direction::Ingress, r)?);
     }
     for r in t.egress.rules.iter().filter(|r| !r.guardrail) {
+        if skip_in_family(fam, r) {
+            continue;
+        }
         body.push_str(&user_line(fam, ip, Direction::Egress, r)?);
     }
     if t.egress.rules.iter().any(|r| r.guardrail) {
@@ -109,6 +115,18 @@ pub fn chain_body(
     body.push_str(&default_line(fam, ip, &t.ingress));
     body.push_str(&default_line(fam, ip, &t.egress));
     Ok(body)
+}
+
+/// Whether a user rule is omitted from the body of family `fam`. ADR-0082 phase 4:
+/// a rule with an explicit CIDR peer names an IPv4 address (the policy language has
+/// no v6 peer — `from_container_fw` refuses one), so it governs v4 only; the v6
+/// body skips it and v6 traffic from/to that peer falls to the default policy and
+/// the namespace isolation. Safe under the common default-DENY posture, where this
+/// makes v6 strictly no more permissive than v4. (A v6 peer syntax, or auto-mapping
+/// a peer's v4 host to its ULA, is a follow-up.) `Peer::Any`, the namespace guard
+/// and the default policy carry over unchanged — those are what govern v6 here.
+fn skip_in_family(fam: Family, r: &Rule) -> bool {
+    fam == Family::V6 && matches!(r.peer, Peer::Cidr(_))
 }
 
 /// The rate cap on firewall logging (§10: a log without a limit lets a flood

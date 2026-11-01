@@ -17,6 +17,7 @@
 //! binary to the holder entry point (`netns holder`/`netns pin`, intercepted in
 //! the bin's `main()` before clap parses anything).
 
+use crate::policy_nft::Family;
 use crate::{run, run_ok, Error, Result, SLIRP_IP};
 use delonix_node::peer_cred::peer_uid;
 use std::path::{Path, PathBuf};
@@ -958,7 +959,7 @@ pub fn ingress_table_ruleset() -> String {
     //     and this costs one rule.
     //
     // IPv6 link-local (`fe80::/10`) is covered by the v6 refusal instead — there are no
-    // v6 addresses to filter, see `ipv6_sdn_enabled`.
+    // v6 addresses to filter, see `ipv6_enabled`.
     //
     // NOT covered here, and deliberately so: the management sockets. `serve api`,
     // `serve cri` and `serve docker-api` all default to UNIX sockets, not TCP
@@ -2481,21 +2482,27 @@ fn start_slirp(holder_pid: i32) -> Result<()> {
         });
     }
     let (rd, wr) = (fds[0], fds[1]);
+    // ADR-0082 phase 4: `--enable-ipv6` so `tap0` carries v6 and the `post`
+    // masquerade can translate container v6 egress onto the host. INERT until the
+    // HOST itself has a v6 default route — slirp masquerades onto a host with no v6
+    // uplink and the packet dies there, exactly as before; the leg lights up on its
+    // own the day the host gains v6 egress. Off entirely when v6 is disabled.
+    let mut args = vec![
+        "--configure".to_string(),
+        "--mtu=65520".to_string(),
+        "--disable-host-loopback".to_string(),
+        format!("--ready-fd={wr}"),
+        format!("--api-socket={}", sock.display()),
+    ];
+    if ipv6_enabled() {
+        args.push("--enable-ipv6".to_string());
+    }
+    args.push(holder_pid.to_string());
+    args.push("tap0".to_string());
     // Only the ready fd goes with it: this slirp lives for the whole life of
     // the infra, and whoever happens to be the invocation that starts it must
     // not have its descriptors held open that long (see `spawn_holding_only`).
-    let spawned = crate::spawn_holding_only(
-        Command::new("slirp4netns").args([
-            "--configure",
-            "--mtu=65520",
-            "--disable-host-loopback",
-            &format!("--ready-fd={wr}"),
-            &format!("--api-socket={}", sock.display()),
-            &holder_pid.to_string(),
-            "tap0",
-        ]),
-        wr,
-    );
+    let spawned = crate::spawn_holding_only(Command::new("slirp4netns").args(&args), wr);
     // SAFETY: the parent closes its write copy; only the slirp keeps it open.
     unsafe { libc::close(wr) };
     match spawned {
@@ -2624,7 +2631,7 @@ fn control_plane_threads() -> Vec<(&'static str, fn())> {
     // configuration the holder advertised a SLAAC `/64` on every ingress bridge —
     // one RA every 8s — for a dataplane it then refuses to govern. The firewall is a
     // dual-family `table inet` since ADR-0082 phase 3, but its v6 side is EMPTY (see
-    // the long note on `ipv6_sdn_enabled`); the only v6 rule that governs anything is
+    // the long note on `ipv6_enabled`); the only v6 rule that governs anything is
     // still the blanket `forward policy drop` of `ingress_v6_refusal_ruleset`.
     // Announcing a prefix and governing it with a
     // single drop is not a dual-stack dataplane, it is an invitation: anything that
@@ -2635,7 +2642,7 @@ fn control_plane_threads() -> Vec<(&'static str, fn())> {
     // whole fix: the holder is restartable and re-reads this on every start. The
     // build-once problem that forced a reconciler on `ingress_table_ruleset`
     // (single caller, no `flush` on reattach) does not reach here.
-    if ipv6_sdn_enabled() {
+    if ipv6_enabled() {
         threads.push(("ra", ra_sender_main));
     }
     threads
@@ -3710,18 +3717,29 @@ fn dhcp_opt(opts: &[u8], want: u8) -> Option<Vec<u8>> {
 // place — but all EMPTY, so no v6 packet is governed yet. Phase 4 fills the v6 sets
 // from the ULA IPAM and adds v6 egress; THIS refusal is what must exist until it does.
 
-/// Is the (unfiltered) IPv6 SDN explicitly opted back in?
-pub fn ipv6_sdn_enabled() -> bool {
-    let on = std::env::var("DELONIX_ENABLE_IPV6").ok().as_deref() == Some("1");
-    if on {
-        tracing::warn!(
-            "SECURITY WARNING — DELONIX_ENABLE_IPV6=1: containers get IPv6 addresses that \
-             NO firewall rule governs (ingress/egress, policy deny, namespace isolation and \
-             Dependency are all IPv4-only). Any container can reach any other over IPv6, \
-             bypassing every policy. For debugging only — do NOT use in production."
-        );
-    }
-    on
+/// Is the dual-stack IPv6 SDN on? ADR-0082 phase 4: v6 is GOVERNED and ON by
+/// default. Every container gets a ULA, and every firewall surface that governs v4
+/// now governs v6 too — ingress/egress, `policy deny`, namespace isolation and the
+/// anti-spoofing — because the firewall is one `inet` table whose emitters render
+/// both families (see `policy_nft::Family`). So there is no bypass to refuse any
+/// more, and the blanket `table ip6` refusal + per-netns `disable_ipv6` are NOT
+/// installed while v6 is on.
+///
+/// `DELONIX_DISABLE_IPV6=1` is the escape in the other direction: it turns v6 fully
+/// OFF again (no ULA, and the refusal reinstated), for a kernel or a site that wants
+/// no v6 at all. The old `DELONIX_ENABLE_IPV6=1` is accepted as a no-op alias so an
+/// operator who set it (when it was the opt-IN) is not surprised by v6 turning off.
+///
+/// NOTE: v6 EAST-WEST and v6→holder are governed and live. v6→Internet additionally
+/// needs the HOST to have a working v6 uplink (a default v6 route); `slirp4netns
+/// --enable-ipv6` carries v6 to `tap0` and `post` masquerades it, but on a host with
+/// no v6 route the packet dies there, exactly as it did before. That leg lights up
+/// on its own the moment the host gains v6 egress — no code change needed.
+pub fn ipv6_enabled() -> bool {
+    !matches!(
+        std::env::var("DELONIX_DISABLE_IPV6").ok().as_deref(),
+        Some("1")
+    )
 }
 
 /// The v6 refusal table: forwarding of IPv6 dies in the holder's netns. Second layer
@@ -3925,11 +3943,19 @@ fn do_cni_del(netns: &str, id: &str, ifname: &str, hex: &str) -> Result<()> {
 /// Removes `elem` from EVERY `@dlxns_*` set (the set name is the 2nd token of `set X {`).
 /// Shared by join (which moves an IP between namespaces) and leave (which takes it out for
 /// good) — two copies of this scan would drift the day the naming changes.
-fn drop_from_every_ns_set(elem: &str) {
+fn drop_from_every_ns_set(elem: &str, fam: Family) {
     let sets = crate::capture("nft", &["list", "sets", INGRESS_FAMILY, INGRESS_TABLE]).unwrap_or_default();
     for line in sets.lines() {
         if let Some(name) = line.split_whitespace().nth(1) {
-            if name.starts_with("dlxns") {
+            // `dlxns6…` starts with `dlxns` too, so the family is selected by the `6`:
+            // a v4 element deleted from an `ipv6_addr` set (or vice versa) would be a
+            // type error on every detach. ADR-0082 phase 4.
+            let is_v6_set = name.starts_with("dlxns6");
+            let belongs = match fam {
+                Family::V4 => name.starts_with("dlxns") && !is_v6_set,
+                Family::V6 => is_v6_set,
+            };
+            if belongs {
                 run_ok(
                     "nft",
                     &["delete", "element", INGRESS_FAMILY, INGRESS_TABLE, name, elem],
@@ -3957,7 +3983,18 @@ fn ns_set_leave(ip: &str) {
         "nft",
         &["delete", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL_SET, &elem],
     );
-    drop_from_every_ns_set(&elem);
+    drop_from_every_ns_set(&elem, Family::V4);
+    // The container's ULA leaves the v6 namespace sets too (ADR-0082 phase 4) —
+    // UNCONDITIONALLY, so toggling v6 off later does not strand v6 elements. `v6_of`
+    // is deterministic from the v4 address, so no state is needed to find it.
+    if let Some(ula) = v6_of(ip) {
+        let elem6 = format!("{{ {ula} }}");
+        run_ok(
+            "nft",
+            &["delete", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL6_SET, &elem6],
+        );
+        drop_from_every_ns_set(&elem6, Family::V6);
+    }
 }
 
 fn ns_set_join(ip: &str, ns: &str) {
@@ -3970,7 +4007,7 @@ fn ns_set_join(ip: &str, ns: &str) {
         &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL_SET, &elem],
     );
     // takes the IP out of any previous namespace (set name = 2nd token of "set X {").
-    drop_from_every_ns_set(&elem);
+    drop_from_every_ns_set(&elem, Family::V4);
     let nsset = dlxns_set(ns);
     run_ok(
         "nft",
@@ -3987,6 +4024,35 @@ fn ns_set_join(ip: &str, ns: &str) {
         "nft",
         &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, &nsset, &elem],
     );
+    // The container's ULA joins the matching v6 namespace sets, so namespace
+    // isolation governs v6 exactly as v4 (ADR-0082 phase 4). Only while v6 is on; the
+    // ULA address itself is assigned in `do_attach` under the same gate.
+    if ipv6_enabled() {
+        if let Some(ula) = v6_of(ip) {
+            let elem6 = format!("{{ {ula} }}");
+            run_ok(
+                "nft",
+                &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL6_SET, &elem6],
+            );
+            drop_from_every_ns_set(&elem6, Family::V6);
+            let nsset6 = dlxns6_set(ns);
+            run_ok(
+                "nft",
+                &[
+                    "add",
+                    "set",
+                    INGRESS_FAMILY,
+                    INGRESS_TABLE,
+                    &nsset6,
+                    "{ type ipv6_addr; }",
+                ],
+            );
+            run_ok(
+                "nft",
+                &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, &nsset6, &elem6],
+            );
+        }
+    }
 }
 
 fn do_attach(netns: &str, ip: &str, bridge: &str, gateway: &str, namespace: &str) -> Result<()> {
@@ -4018,14 +4084,35 @@ fn do_attach(netns: &str, ip: &str, bridge: &str, gateway: &str, namespace: &str
     ] {
         run("ip", &argv)?;
     }
-    // IPv6: REFUSED by default — see the long note on `ipv6_sdn_enabled`. Turning it
-    // off here, in the container's own netns, removes the ULA *and* the kernel's
-    // link-local, so there is no v6 address left to reach anything with. Opting back
-    // in restores the ULA + v6 default route exactly as before.
-    if ipv6_sdn_enabled() {
+    // IPv6: GOVERNED and ON by default (ADR-0082 phase 4). The container gets the
+    // DETERMINISTIC ULA (`v6_of`) statically, exactly as it gets its v4 address —
+    // which is what the firewall (`@fwmap6`, the per-container v6 chain), the
+    // namespace sets (`@dlxall6`/`@dlxns6…`) and the anti-spoof (`@src6`) are all
+    // keyed on. SLAAC is turned OFF on `eth0` (`accept_ra`/`autoconf` = 0): the RA
+    // emitter announces the `/64` for the VMs that need it, but if a container
+    // autoconfigured an EUI-64 address from that prefix it would use THAT as its
+    // source — an address nothing on the node knows — and both the anti-spoof and
+    // the policy chains, keyed on the static ULA, would miss it. Set BEFORE the ULA
+    // is added so no SLAAC address ever forms. `DELONIX_DISABLE_IPV6=1` takes the
+    // other branch and removes v6 entirely (the refusal returns).
+    if ipv6_enabled() {
         let p = prefix_of(gateway);
         let gw6 = v6_gw(&p);
         if let Some(v6) = v6_of(ip) {
+            for k in ["accept_ra", "autoconf"] {
+                run_ok(
+                    "ip",
+                    &[
+                        "netns",
+                        "exec",
+                        &netns,
+                        "sysctl",
+                        "-q",
+                        "-w",
+                        &format!("net.ipv6.conf.eth0.{k}=0"),
+                    ],
+                );
+            }
             let cidr6 = format!("{v6}/64");
             run_ok(
                 "ip",
@@ -4115,14 +4202,28 @@ fn do_attach_extra(
     ] {
         run("ip", &argv)?;
     }
-    // IPv6: REFUSED by default, same as the primary interface. An additional network
-    // is exactly where this mattered most — a multi-homed container carried a second
-    // unfiltered v6 address, on a second bridge, and the firewall governed neither.
-    // The `default` knob set on the primary attach covers an interface created later,
-    // but this is not left to that: `--net-connect` can land on a container that
-    // predates the fix.
-    if ipv6_sdn_enabled() {
+    // IPv6: GOVERNED, same as the primary interface (ADR-0082 phase 4). The second
+    // network's address is the deterministic ULA again, assigned statically, with
+    // SLAAC off on this interface so the container cannot pick an autoconfigured
+    // source the firewall/anti-spoof (keyed on the static ULA) would miss. An
+    // additional network is exactly where the v6 bypass mattered most — a multi-homed
+    // container used to carry a second UNFILTERED v6 address on a second bridge.
+    if ipv6_enabled() {
         if let Some(v6) = v6_of(ip) {
+            for k in ["accept_ra", "autoconf"] {
+                run_ok(
+                    "ip",
+                    &[
+                        "netns",
+                        "exec",
+                        &netns,
+                        "sysctl",
+                        "-q",
+                        "-w",
+                        &format!("net.ipv6.conf.{ifname}.{k}=0"),
+                    ],
+                );
+            }
             let cidr6 = format!("{v6}/64");
             run_ok(
                 "ip",
@@ -4251,6 +4352,8 @@ fn spoof_table_script() -> String {
   set macs {{ type ifname . ether_addr; }}
   set src {{ type ifname . ipv4_addr; }}
   set srcpfx {{ type ifname . ipv4_addr; flags interval; }}
+  set src6 {{ type ifname . ipv6_addr; }}
+  set srcpfx6 {{ type ifname . ipv6_addr; flags interval; }}
   chain pre {{
     type filter hook prerouting priority -300; policy accept;
     iifname @macports iifname . ether saddr != @macs counter drop
@@ -4264,6 +4367,11 @@ fn spoof_table_script() -> String {
     iifname @ports ether type arp iifname . arp saddr ip @src accept
     iifname @ports ether type arp iifname . arp saddr ip @srcpfx accept
     iifname @ports ether type arp counter drop
+    iifname @ports ether type ip6 ip6 saddr fe80::/10 icmpv6 type != nd-router-advert accept
+    iifname @ports ether type ip6 ip6 saddr :: accept
+    iifname @ports ether type ip6 iifname . ip6 saddr @src6 accept
+    iifname @ports ether type ip6 iifname . ip6 saddr @srcpfx6 accept
+    iifname @ports ether type ip6 counter drop
   }}
 }}
 "
@@ -4341,7 +4449,7 @@ fn spoof_elements_of(json: &str, port: &str) -> Vec<String> {
 /// restarts, a netns hash), and an element left behind would pin the NEXT
 /// workload on that name to the previous one's address.
 fn spoof_forget(port: &str) {
-    for set in ["ports", "macports", "macs", "src", "srcpfx"] {
+    for set in ["ports", "macports", "macs", "src", "srcpfx", "src6", "srcpfx6"] {
         let listed = crate::capture("nft", &["-j", "list", "set", "bridge", SPOOF_TABLE, set])
             .unwrap_or_default();
         for el in spoof_elements_of(&listed, port) {
@@ -4379,7 +4487,28 @@ fn spoof_bind(port: &str, ip: &str, mac: Option<&str>) -> Result<()> {
     }
     // One transaction: a port must never be in `ports` without its address,
     // which would drop all of its traffic.
-    apply_nft_stdin(&script)
+    apply_nft_stdin(&script)?;
+    // The container's ULA is pinned to the same port, so the v6 anti-spoof `drop`
+    // lets its own v6 source through and nothing else (ADR-0082 phase 4). A SEPARATE,
+    // best-effort transaction on purpose: a `dlxspoof` table built before phase 4 has
+    // no `src6`, and this must fail harmlessly there rather than abort the v4 bind
+    // above — such a holder has v6 off anyway, so nothing passes the v6 `drop`.
+    if ipv6_enabled() {
+        if let Some(ula) = v6_of(ip) {
+            run_ok(
+                "nft",
+                &[
+                    "add",
+                    "element",
+                    "bridge",
+                    SPOOF_TABLE,
+                    "src6",
+                    &format!("{{ \"{port}\" . {ula} }}"),
+                ],
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Replaces the authorised source PREFIXES of `port` (none = `-`). The exact
@@ -5672,8 +5801,10 @@ pub fn validate_container_fw(fw: &delonix_model::records::ContainerFw) -> Result
     }
     // The same total translation the chain is built from: what the checks above let
     // through and the IR or its nft lowering cannot hold is refused here too, so the
-    // host side refuses it before an older holder is asked (ADR-0059 F3b).
-    fw_chain_body("10.200.0.1", fw).map(|_| ())
+    // host side refuses it before an older holder is asked (ADR-0059 F3b). Rendering
+    // the v4 body is enough — the policy is family-agnostic, so if it lowers for v4 it
+    // lowers for v6; the family only picks the L3 keyword and set names.
+    fw_chain_body(Family::V4, "10.200.0.1", fw).map(|_| ())
 }
 
 /// The rule lines of one address's part of a workload chain: the record parsed
@@ -5693,7 +5824,11 @@ pub fn validate_container_fw(fw: &delonix_model::records::ContainerFw) -> Result
 /// an empty namespace is `default` on both sides. It used to hash `""` here — a set
 /// nobody joins — for the one record shape (`namespace: ""`, never what serde
 /// produces) where the two disagreed.
-pub fn fw_chain_body(ip: &str, fw: &delonix_model::records::ContainerFw) -> Result<String> {
+pub fn fw_chain_body(
+    fam: Family,
+    ip: &str,
+    fw: &delonix_model::records::ContainerFw,
+) -> Result<String> {
     let refuse = |why: String| {
         Error::FirewallJsonInvalid(format!(
             "firewall refused, nothing was applied (the previous rules stay in force): {why}"
@@ -5701,13 +5836,24 @@ pub fn fw_chain_body(ip: &str, fw: &delonix_model::records::ContainerFw) -> Resu
     };
     let policy =
         delonix_networking::policy::from_container_fw(fw).map_err(|e| refuse(e.to_string()))?;
-    // The holder's per-container chains govern IPv4: containers have no governed v6
-    // address in phase 3 (the ULA IPAM is inert and the v6 refusal drops v6), so the
-    // body is always rendered for the v4 family. Phase 4 will render a v6 body too.
-    crate::policy_nft::chain_body(crate::policy_nft::Family::V4, ip, &policy, &|ns| {
-        dlxns_set(&namespace_isolation_key(ns))
-    })
-    .map_err(|why| refuse(format!("{why} has no nft form in the holder chain")))
+    // ADR-0082 phase 4: the SAME policy is rendered for whichever family the address
+    // `ip` belongs to. The namespace-isolation set the guard references is the
+    // family's own (`dlxns…` for v4, `dlxns6…` for v6), matching what `ns_set_join`
+    // populates — a v6 guard that pointed at a v4 set would reference an `ipv4_addr`
+    // set that can hold no v6 address.
+    crate::policy_nft::chain_body(fam, ip, &policy, &|ns| ns_set_name(fam, ns))
+        .map_err(|why| refuse(format!("{why} has no nft form in the holder chain")))
+}
+
+/// The namespace-isolation set name for `ns` in `fam`: `dlxns<hash>` for v4,
+/// `dlxns6<hash>` for v6 — the same `namespace_isolation_key` feeds both, so the two
+/// families partition one namespace into two sets of the right element type.
+fn ns_set_name(fam: Family, ns: &str) -> String {
+    let key = namespace_isolation_key(ns);
+    match fam {
+        Family::V4 => dlxns_set(&key),
+        Family::V6 => dlxns6_set(&key),
+    }
 }
 
 /// nft set with ALL the SDN container IPs (so namespace isolation
@@ -5722,6 +5868,13 @@ pub const DLXALL6_SET: &str = "dlxall6";
 /// Name (short, ≤ nft's limit) of the IP set of a logical namespace.
 pub fn dlxns_set(ns: &str) -> String {
     format!("dlxns{:08x}", crate::fnv32(ns))
+}
+
+/// The IPv6 twin of [`dlxns_set`] — the `ipv6_addr` set of a namespace (ADR-0082
+/// phase 4). Distinct name (`dlxns6<hash>`, 14 chars, within nft's limit) so the two
+/// families never share a set: an `ipv4_addr` set cannot hold a ULA.
+pub fn dlxns6_set(ns: &str) -> String {
+    format!("dlxns6{:08x}", crate::fnv32(ns))
 }
 
 /// Parses `nft list map inet dlxing fwmap` into `(address, chain)` pairs. Text and
@@ -5898,6 +6051,10 @@ fn do_firewall(ips: &str, hex: &str) -> Result<()> {
     // leave an entry that the next apply removes (see `firewall_script`).
     let listing =
         crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP]).unwrap_or_default();
+    // The v6 dispatch map, read the same way — only consulted when v6 is on, but
+    // reading it unconditionally keeps the call site simple and costs one listing.
+    let listing6 =
+        crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP6]).unwrap_or_default();
     // The declared networks are only needed for an address outside the ingress space;
     // the common case does not pay a directory scan per firewall apply.
     let defs = if ips.iter().all(|ip| is_ingress_ip(ip)) {
@@ -5905,7 +6062,7 @@ fn do_firewall(ips: &str, hex: &str) -> Result<()> {
     } else {
         network_list()
     };
-    apply_nft_stdin(&firewall_script(&ips, &fw, &listing, &defs)?)
+    apply_nft_stdin(&firewall_script(&ips, &fw, &listing, &listing6, &defs)?)
 }
 
 /// The whole `nft -f` transaction [`do_firewall`] applies, or the refusal — PURE, so
@@ -5919,6 +6076,7 @@ fn firewall_script(
     ips: &[&str],
     fw: &delonix_model::records::ContainerFw,
     listing: &str,
+    listing6: &str,
     defs: &[NetDef],
 ) -> Result<String> {
     if ips.is_empty() {
@@ -5952,14 +6110,29 @@ fn firewall_script(
     stale.sort();
     stale.dedup();
 
+    // ADR-0082 phase 4: when v6 is on, the SAME chain also governs each IP's
+    // deterministic ULA (`v6_of`), so one container is governed identically on v4 and
+    // v6. The v6 lines match only v6 packets and the v4 lines only v4, so they share
+    // one chain without interfering; `@fwmap6` dispatches the ULA to it exactly as
+    // `@fwmap` dispatches the v4 address. With v6 off (`DELONIX_DISABLE_IPV6=1`) no v6
+    // body is rendered and `@fwmap6` is left alone — the refusal drops v6 regardless.
+    let v6_on = ipv6_enabled();
+    let ulas: Vec<String> = if v6_on {
+        ips.iter().filter_map(|ip| v6_of(ip)).collect()
+    } else {
+        Vec::new()
+    };
     // One body per IP: the rules, the namespace isolation and the default policy are
     // all anchored to a concrete address, so the container is governed identically on
     // every network it is attached to. The prologue (conntrack fast-path) is emitted
     // once for the whole chain — state belongs to the flow, not to an address.
-    let body: String = std::iter::once(fw_chain_prologue(fw))
-        .map(Ok)
-        .chain(ips.iter().map(|ip| fw_chain_body(ip, fw)))
-        .collect::<Result<String>>()?;
+    let mut body = fw_chain_prologue(fw);
+    for ip in ips {
+        body.push_str(&fw_chain_body(Family::V4, ip, fw)?);
+    }
+    for ula in &ulas {
+        body.push_str(&fw_chain_body(Family::V6, ula, fw)?);
+    }
     let mut script = String::new();
     // Idempotent re-declarations: they let a table created by an older holder grow
     // the map/chain instead of failing, and cost nothing when they already exist.
@@ -5978,6 +6151,29 @@ fn firewall_script(
             "add element {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP} {{ {ip} : jump {chain} }}\n"
         ));
     }
+    if v6_on {
+        // Same two stale groups as v4 (see above), over `@fwmap6`.
+        let mut stale6: Vec<String> = parse_fwmap_elements(listing6)
+            .into_iter()
+            .filter(|(addr, c)| c == &chain || ulas.iter().any(|u| u == addr))
+            .map(|(addr, _)| addr)
+            .collect();
+        stale6.sort();
+        stale6.dedup();
+        script.push_str(&format!(
+            "add map {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP6} {{ type ipv6_addr : verdict; }}\n"
+        ));
+        for addr in &stale6 {
+            script.push_str(&format!(
+                "delete element {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP6} {{ {addr} }}\n"
+            ));
+        }
+        for ula in &ulas {
+            script.push_str(&format!(
+                "add element {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP6} {{ {ula} : jump {chain} }}\n"
+            ));
+        }
+    }
     script.push_str(&format!(
         "table {INGRESS_FAMILY} {INGRESS_TABLE} {{\n\tchain {chain} {{\n{body}\t}}\n}}\n"
     ));
@@ -5992,11 +6188,23 @@ fn do_unfirewall(ip: &str) -> Result<()> {
     let chain = fw_chain_name(ip);
     let listing =
         crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP]).unwrap_or_default();
+    // Both dispatch maps point at this one chain (ADR-0082 phase 4), so both are
+    // swept before the chain is deleted — a leftover `@fwmap6` entry would make nft
+    // refuse to delete the chain it still references.
+    let listing6 =
+        crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP6]).unwrap_or_default();
     let mut script = String::new();
     for (addr, c) in parse_fwmap_elements(&listing) {
         if c == chain {
             script.push_str(&format!(
                 "delete element {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP} {{ {addr} }}\n"
+            ));
+        }
+    }
+    for (addr, c) in parse_fwmap_elements(&listing6) {
+        if c == chain {
+            script.push_str(&format!(
+                "delete element {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP6} {{ {addr} }}\n"
             ));
         }
     }
@@ -9008,6 +9216,25 @@ fn setup_infra_netns() -> Result<()> {
         context: "ip_forward",
         message: e.to_string(),
     })?;
+    // ADR-0082 phase 4: v6 governed-on by default, so the infra bridge gets its ULA
+    // gateway and the netns gets v6 forwarding — the per-user-network bridges get the
+    // same in `ensure_net_bridge`. Best-effort: a kernel without v6 just has no v6 SDN
+    // (and `do_attach`/the refusal degrade the same way). Skipped when v6 is disabled.
+    if ipv6_enabled() {
+        let _ = std::fs::write("/proc/sys/net/ipv6/conf/all/forwarding", "1");
+        let p = prefix_of(INFRA_CIDR);
+        run_ok(
+            "ip",
+            &[
+                "-6",
+                "addr",
+                "add",
+                &format!("{}/64", v6_gw(&p)),
+                "dev",
+                INFRA_BRIDGE,
+            ],
+        );
+    }
     // /run/netns for the containers' `ip netns` (Phase 3); best-effort.
     run_ok("mount", &["-t", "tmpfs", "none", "/run"]);
     let _ = std::fs::create_dir_all("/run/netns");
@@ -9018,7 +9245,7 @@ fn setup_infra_netns() -> Result<()> {
     // and on such a kernel there is no v6 forwarding to protect against anyway. When
     // v6 is explicitly opted back in, the refusal is not installed at all — the whole
     // point of the opt-in.
-    if !ipv6_sdn_enabled() {
+    if !ipv6_enabled() {
         if let Err(e) = apply_nft_stdin(&ingress_v6_refusal_ruleset()) {
             tracing::warn!(
                 error = %e,
@@ -10848,7 +11075,7 @@ Inter-|   Receive                                                |  Transmit
             namespace: ns.to_string(),
             ..Default::default()
         };
-        let body = fw_chain_body("10.1.0.5", &fw).unwrap();
+        let body = fw_chain_body(Family::V4, "10.1.0.5", &fw).unwrap();
         assert!(body.contains(&format!("@{}", dlxns_set(token))));
     }
 
@@ -10917,7 +11144,7 @@ Inter-|   Receive                                                |  Transmit
             ],
             namespace: "default".into(),
         };
-        let body = fw_chain_body("10.200.0.5", &fw).unwrap();
+        let body = fw_chain_body(Family::V4, "10.200.0.5", &fw).unwrap();
         // in rule: daddr==ip, peer saddr==src, tcp dport 8080 accept
         assert!(
             body.contains(
@@ -10947,7 +11174,7 @@ Inter-|   Receive                                                |  Transmit
             enabled: false,
             ..fw
         };
-        assert!(fw_chain_body("10.200.0.5", &off).unwrap().is_empty());
+        assert!(fw_chain_body(Family::V4, "10.200.0.5", &off).unwrap().is_empty());
     }
 
     /// Regression: a rule with `proto: any` AND a port used to drop the port from the
@@ -10973,7 +11200,7 @@ Inter-|   Receive                                                |  Transmit
             rules: vec![rule("9999", "allow"), rule("100-200", "deny")],
             namespace: "default".into(),
         };
-        let body = fw_chain_body("10.200.0.5", &fw).unwrap();
+        let body = fw_chain_body(Family::V4, "10.200.0.5", &fw).unwrap();
         assert!(
             body.contains(
                 "ip daddr 10.200.0.5 meta l4proto { tcp, udp } th dport 9999 counter accept"
@@ -11001,7 +11228,7 @@ Inter-|   Receive                                                |  Transmit
             namespace: "default".into(),
         };
         assert!(
-            fw_chain_body("10.200.0.5", &wide)
+            fw_chain_body(Family::V4, "10.200.0.5", &wide)
                 .unwrap()
                 .contains("ip daddr 10.200.0.5 counter accept"),
             "a portless `any` rule is still container-wide"
@@ -11016,7 +11243,7 @@ Inter-|   Receive                                                |  Transmit
             namespace: "web".into(),
             ..Default::default()
         };
-        let body = fw_chain_body("10.200.0.7", &fw).unwrap();
+        let body = fw_chain_body(Family::V4, "10.200.0.7", &fw).unwrap();
         let nsset = dlxns_set("web");
         // same-ns accept + cross-ns (container) NEW drop, com ct state new.
         assert!(
@@ -11108,7 +11335,7 @@ Inter-|   Receive                                                |  Transmit
             rules: vec![rule("deny", "22", ""), rule("allow", "5432", "10.201.0.9")],
             ..Default::default()
         };
-        let body = fw_chain_body("10.200.0.7", &fw).unwrap();
+        let body = fw_chain_body(Family::V4, "10.200.0.7", &fw).unwrap();
         let nsset = dlxns_set("teama");
         let guard = format!(
             "ip daddr 10.200.0.7 ip saddr @dlxall ip saddr != @{nsset} ct state new counter drop"
@@ -11153,7 +11380,7 @@ Inter-|   Receive                                                |  Transmit
         );
         assert!(head.contains("ct state invalid counter drop"), "{head}");
         // The fast-path has to come BEFORE the policy drops it exists to survive.
-        let full = format!("{head}{}", fw_chain_body("10.200.0.5", &fw).unwrap());
+        let full = format!("{head}{}", fw_chain_body(Family::V4, "10.200.0.5", &fw).unwrap());
         let accept = full.find("established,related").expect("prologue present");
         let deny = full
             .find("ip daddr 10.200.0.5 counter drop")
@@ -11303,12 +11530,14 @@ Inter-|   Receive                                                |  Transmit
         assert_eq!(parse_netpair_counters(sem)[0].1, (0, 0));
     }
 
-    /// RF-NET-11 — the IPv6 bypass, reproduced live before this fix: with the firewall
-    /// dropping on IPv4, the same container answered on port 80 over its ULA, because
-    /// every rule the engine wrote only ever matched v4. ADR-0082 phase 3 made the
-    /// table dual-family `inet`, but its v6 side is still EMPTY — so both layers of the
-    /// refusal remain, and both are asserted here; the live reproduction is in the
-    /// release notes.
+    /// RF-NET-11 — the IPv6 bypass that the refusal closed before v6 was governed:
+    /// with the firewall dropping on IPv4, the same container answered on port 80 over
+    /// its ULA, because every rule the engine wrote only ever matched v4. ADR-0082
+    /// phase 4 closed it the other way — by GOVERNING v6 (the `inet` firewall now
+    /// matches both families) — so the default no longer needs the refusal. But the
+    /// refusal MACHINERY stays intact for the `DELONIX_DISABLE_IPV6=1` escape (a kernel
+    /// or site that wants no v6 at all), and this asserts both of its layers still
+    /// exist for that path.
     #[test]
     fn ipv6_e_recusado_nas_duas_camadas() {
         // Layer 2 — forwarding of v6 dies in the holder, in its own table.
@@ -11336,46 +11565,47 @@ Inter-|   Receive                                                |  Transmit
     /// prefix either.
     ///
     /// The two layers above keep containers from using v6; neither stops the holder
-    /// from announcing it. `control_main` spawned the RA emitter unconditionally, so
-    /// the default configuration put a SLAAC `/64` on every ingress bridge every 8s
-    /// — a prefix whose only governing rule is a blanket `forward policy drop`.
+    /// from announcing it. ADR-0082 phase 4 turned v6 governed-ON by default, so the
+    /// RA emitter — the SLAAC `/64` that lets containers autoconfigure their ULA —
+    /// now runs by default, and `DELONIX_DISABLE_IPV6=1` is what stops it (together
+    /// with the whole v6 SDN). The prefix it announces is no longer ungoverned: the
+    /// `inet` firewall governs v6 east-west exactly as it does v4.
     ///
     /// Asserted on the roster rather than on the live thread on purpose: the
-    /// operator-facing proof is `tcpdump -ni delonix0 'icmp6 && ip6[40] == 134'`
-    /// reading 0 packets, and the absence of a thread is explicitly NOT that proof.
-    /// What is unit-testable is the decision, and that is what this pins.
+    /// operator-facing proof is `tcpdump -ni delonix0 'icmp6 && ip6[40] == 134'`,
+    /// and the presence/absence of a thread is explicitly NOT that proof. What is
+    /// unit-testable is the decision, and that is what this pins.
     #[test]
-    fn the_ra_emitter_only_runs_when_ipv6_is_opted_in() {
+    fn the_ra_emitter_runs_by_default_and_the_disable_escape_stops_it() {
         let mut env = crate::testenv::lock();
 
-        // Default — the variable absent entirely, which is the shipped configuration.
-        env.unset("DELONIX_ENABLE_IPV6");
-        let names: Vec<&str> = control_plane_threads().iter().map(|(n, _)| *n).collect();
-        assert!(
-            !names.contains(&"ra"),
-            "the RA emitter must not run with v6 off: {names:?}"
-        );
-        // DNS is not v6-gated and must survive the gate — the regression that would
-        // make this fix a node-wide outage instead of a security fix.
-        assert!(names.contains(&"dns"), "{names:?}");
-
-        // Anything that is not exactly `1` is still off, same as `ipv6_sdn_enabled`.
-        for off in ["0", "", "true", "yes"] {
-            env.set("DELONIX_ENABLE_IPV6", off);
-            let names: Vec<&str> = control_plane_threads().iter().map(|(n, _)| *n).collect();
-            assert!(
-                !names.contains(&"ra"),
-                "`DELONIX_ENABLE_IPV6={off}` is not the opt-in: {names:?}"
-            );
-        }
-
-        // The opt-in must not regress: whoever accepts the ungoverned v6 SDN still
-        // gets SLAAC.
-        env.set("DELONIX_ENABLE_IPV6", "1");
+        // Default — the variable absent, which is the shipped configuration: v6 on,
+        // so SLAAC runs.
+        env.unset("DELONIX_DISABLE_IPV6");
         let names: Vec<&str> = control_plane_threads().iter().map(|(n, _)| *n).collect();
         assert!(
             names.contains(&"ra"),
-            "the opt-in regressed — no RA emitter with DELONIX_ENABLE_IPV6=1: {names:?}"
+            "the RA emitter must run with v6 on by default: {names:?}"
+        );
+        assert!(names.contains(&"dns"), "{names:?}");
+
+        // Anything that is not exactly `1` leaves v6 on, same as `ipv6_enabled`.
+        for on in ["0", "", "true", "no"] {
+            env.set("DELONIX_DISABLE_IPV6", on);
+            let names: Vec<&str> = control_plane_threads().iter().map(|(n, _)| *n).collect();
+            assert!(
+                names.contains(&"ra"),
+                "`DELONIX_DISABLE_IPV6={on}` is not the off switch: {names:?}"
+            );
+        }
+
+        // The escape must turn the whole v6 SDN off — RA included; DNS (not v6-gated)
+        // must survive, or the escape becomes a node-wide outage instead of a toggle.
+        env.set("DELONIX_DISABLE_IPV6", "1");
+        let names: Vec<&str> = control_plane_threads().iter().map(|(n, _)| *n).collect();
+        assert!(
+            !names.contains(&"ra"),
+            "DELONIX_DISABLE_IPV6=1 must stop the RA emitter: {names:?}"
         );
         assert!(names.contains(&"dns"), "{names:?}");
     }
@@ -11762,7 +11992,7 @@ Inter-|   Receive                                                |  Transmit
     fn an_invalid_rule_refuses_the_whole_firewall_instead_of_being_skipped() {
         let ip = ["10.200.0.5"];
         let good = fw_rule("out", "tcp", "5432", "10.200.0.9", "deny");
-        let ok = firewall_script(&ip, &fw_with(vec![good.clone()]), "", &[]).expect("valid");
+        let ok = firewall_script(&ip, &fw_with(vec![good.clone()]), "", "", &[]).expect("valid");
         assert!(
             ok.contains("ip saddr 10.200.0.5 ip daddr 10.200.0.9 tcp dport 5432 counter drop"),
             "{ok}"
@@ -11779,7 +12009,7 @@ Inter-|   Receive                                                |  Transmit
         ];
         for bad in bad_cases {
             let fw = fw_with(vec![good.clone(), bad.clone()]);
-            match firewall_script(&ip, &fw, "", &[]) {
+            match firewall_script(&ip, &fw, "", "", &[]) {
                 Err(Error::FirewallJsonInvalid(m)) => {
                     assert!(m.contains("rule #2"), "names the rule: {m}")
                 }
@@ -11793,12 +12023,138 @@ Inter-|   Receive                                                |  Transmit
             fw.policy_out = pout.into();
             assert!(
                 matches!(
-                    firewall_script(&ip, &fw, "", &[]),
+                    firewall_script(&ip, &fw, "", "", &[]),
                     Err(Error::FirewallJsonInvalid(_))
                 ),
                 "{pin:?}/{pout:?}"
             );
         }
+    }
+
+    /// ADR-0082 phase 4: with v6 on (the shipped default), one container is governed
+    /// on BOTH families by ONE chain — its v4 address via `@fwmap`, its deterministic
+    /// ULA via `@fwmap6`, the same rules anchored on `ip`/`ip6` and the namespace
+    /// isolation on the family's own sets. A `policy deny` therefore denies v6 by
+    /// default exactly as it denies v4 — the bypass is closed by GOVERNING v6, not by
+    /// a blanket refusal.
+    #[test]
+    fn the_firewall_script_governs_both_families() {
+        let mut env = crate::testenv::lock();
+        env.unset("DELONIX_DISABLE_IPV6"); // v6 on — the shipped default
+        let mut fw = fw_with(vec![fw_rule("in", "tcp", "22", "", "allow")]);
+        fw.policy_in = "deny".into();
+        let s = firewall_script(&["10.200.0.5"], &fw, "", "", &[]).expect("valid");
+        // v4 — dispatch into the chain, the allow, and the default drop, as always.
+        assert!(
+            s.contains("add element inet dlxing fwmap { 10.200.0.5 : jump"),
+            "{s}"
+        );
+        assert!(
+            s.contains("ip daddr 10.200.0.5 tcp dport 22 counter accept"),
+            "{s}"
+        );
+        assert!(s.contains("ip daddr 10.200.0.5 counter drop"), "{s}");
+        // v6 — the SAME container's ULA (fd00:<o2>::<o3>:<o4>), the SAME rules.
+        assert!(
+            s.contains("add element inet dlxing fwmap6 { fd00:200::0:5 : jump"),
+            "{s}"
+        );
+        assert!(
+            s.contains("ip6 daddr fd00:200::0:5 tcp dport 22 counter accept"),
+            "{s}"
+        );
+        assert!(s.contains("ip6 daddr fd00:200::0:5 counter drop"), "{s}");
+        // The v6 namespace guard references the v6 sets, not the v4 ones: the
+        // all-set anchor `ip6 saddr @dlxall6` and the namespace set `@dlxns6…`.
+        assert!(s.contains("ip6 saddr @dlxall6"), "{s}");
+        assert!(
+            s.contains(&format!("@{}", dlxns6_set(&namespace_isolation_key("teamA")))),
+            "{s}"
+        );
+
+        // And with v6 OFF, the script is v4-only again — no `fwmap6`, no `ip6`.
+        env.set("DELONIX_DISABLE_IPV6", "1");
+        let off = firewall_script(&["10.200.0.5"], &fw, "", "", &[]).expect("valid");
+        assert!(!off.contains("fwmap6") && !off.contains("ip6"), "{off}");
+    }
+
+    /// `nft` accepts the dual-stack anti-spoof table — the v6 rules in particular,
+    /// where the syntax is subtle: ICMPv6 ND from link-local is allowed (a container
+    /// must do neighbour discovery) EXCEPT `nd-router-advert` (so it cannot pose as
+    /// the gateway), DAD from `::` is allowed, the container's own ULA via `@src6`,
+    /// and every other v6 source is dropped. Needs `nft` + `unshare -rn`; skips where
+    /// the runner blocks the user namespace.
+    #[test]
+    fn nft_accepts_the_dual_stack_spoof_table() {
+        let probe = std::process::Command::new("unshare")
+            .args(["-rn", "nft", "--version"])
+            .output();
+        if !matches!(probe, Ok(ref o) if o.status.success()) {
+            return;
+        }
+        let script = spoof_table_script();
+        let mut child = std::process::Command::new("unshare")
+            .args(["-rn", "nft", "--check", "-f", "-"])
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "nft refused the anti-spoof table\n{script}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// `nft` accepts a per-container v6 chain body — the namespace guard anchored on
+    /// `ip6`/`@dlxall6`/`@dlxns6…` and the default drop — loaded in an `inet` table
+    /// that declares the v6 sets it references. This is the v6 half of what
+    /// `firewall_script` writes; the v4 half is covered by `policy_nft`'s golden set.
+    #[test]
+    fn nft_accepts_a_v6_container_chain() {
+        let probe = std::process::Command::new("unshare")
+            .args(["-rn", "nft", "--version"])
+            .output();
+        if !matches!(probe, Ok(ref o) if o.status.success()) {
+            return;
+        }
+        let mut fw = fw_with(vec![fw_rule("in", "tcp", "22", "", "allow")]);
+        fw.policy_in = "deny".into();
+        let body = fw_chain_body(Family::V6, "fd00:200::0:5", &fw).unwrap();
+        let ns6 = dlxns6_set(&namespace_isolation_key("teamA"));
+        let script = format!(
+            "table inet t {{\n\
+             \tset {DLXALL6_SET} {{ type ipv6_addr; }}\n\
+             \tset {ns6} {{ type ipv6_addr; }}\n\
+             \tchain c {{\n{body}\t}}\n}}\n"
+        );
+        let mut child = std::process::Command::new("unshare")
+            .args(["-rn", "nft", "--check", "-f", "-"])
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "nft refused the v6 container chain\n{script}\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     /// NaaS audit P0-5. A network declared with its own CIDR was outside the holder's
@@ -11813,7 +12169,7 @@ Inter-|   Receive                                                |  Transmit
             NetDef::new("old", "10.201"),
         ];
         let fw = fw_with(vec![]);
-        let s = firewall_script(&["172.30.5.10"], &fw, "", &defs).expect("declared network");
+        let s = firewall_script(&["172.30.5.10"], &fw, "", "", &defs).expect("declared network");
         assert!(s.contains("172.30.5.10 : jump fw"), "{s}");
         assert!(
             s.contains("ip daddr 172.30.5.10 ip saddr @dlxall ct state new counter drop"),
@@ -11821,7 +12177,7 @@ Inter-|   Receive                                                |  Transmit
         );
         // Not declared → still refused.
         assert!(matches!(
-            firewall_script(&["172.30.6.10"], &fw, "", &defs),
+            firewall_script(&["172.30.6.10"], &fw, "", "", &defs),
             Err(Error::IpOutsideIngressSpace(_))
         ));
         assert!(!ip_in_declared_network("172.30.5.10", &[]));
