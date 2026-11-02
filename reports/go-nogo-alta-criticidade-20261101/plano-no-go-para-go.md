@@ -119,7 +119,13 @@ provado numa sessão anterior — ver [[delonix-kubeadm-ha-offline-findings]]).
 - **Via âmbito:** ADR explícito que exclui failover do produto, documenta o tecto single-node, e aponta a frota para `delonix-paas`/k8s externo — tornando "alta criticidade COM HA" um não-objetivo honesto em vez de uma lacuna.
 
 **Tarefas.**
-- `[dono]` **Decisão de âmbito primeiro:** o Delonix quer ser HA, ou ser o *nó* e delegar HA? Isto muda todo o resto do trabalho.
+- `[dono]` ✅ **DECIDIDO (2026-11-02): via PROVA — o Delonix quer SER HA.** Logo o
+  critério é o primeiro bullet acima (overlay inter-nó E2E + control-plane k8s HA).
+  Próximos passos: (1) correr `scripts/e2e_overlay_multinode.sh` contra 2 nós reais
+  (2 VMs delonix ou 2 hosts SSH); (2) retomar a cadeia kubeadm HA (≥3 CP, etcd
+  stacked, VIP), hoje bloqueada por [[delonix-cri-entrypoint-override-bug]] (fix em
+  `fix/cri-command-entrypoint-override`, por integrar). O caminho "via âmbito"
+  (ADR a excluir failover) fica DESCARTADO.
 - `[agente]` ✅ **FEITO (bancada):** `scripts/e2e_overlay_multinode.sh` — a bancada
   multi-nó do caminho "via prova", topologia-agnóstica (`--via ssh A B`). Assere:
   identidade WireGuard em cada nó, criar o MESMO overlay (`--driver overlay --vni`)
