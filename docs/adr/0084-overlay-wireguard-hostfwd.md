@@ -72,10 +72,18 @@ Três escolhas, e porquê:
 
 - O **transporte WireGuard+VXLAN** do overlay passa a funcionar entre nós (handshake
   completa, dados fluem, VXLAN viaja no túnel) — o bloqueio #1 do G4 fecha, provado
-  em 2 VMs reais. O ping container-a-container end-to-end AINDA não passa: resta o
-  bloqueio #2 (o driver overlay honrar `--subnet` e coordenar o /16 e o gateway
-  entre nós — hoje ambos escolhem `10.234.0.1` e a ARP não resolve através do
-  overlay), tratado à parte.
+  em 2 VMs reais. O ping container-a-container end-to-end AINDA não passa:
+  - **#2A (`--subnet` ignorado) — RESOLVIDO à parte** (`create_overlay` honra o
+    subnet; os dois nós passam a aterrar no mesmo `/16` e gateway). Necessário,
+    mas NÃO suficiente: com os dois nós já no mesmo `10.244.0.0/16`, a ARP continua
+    sem resolver.
+  - **#2B (decapsulação VXLAN no peer) — EM ABERTO.** Medido em 2 VMs: o frame
+    VXLAN chega DECIFRADO ao `wgN` do peer (a ARP é visível), mas o device VXLAN
+    não o decapsula (`RX=0`, `IpInDelivers` quase nulo). NÃO é firewall (policy
+    accept, sem drops), NÃO é o `--subnet`, e NÃO é a amarração ao underlay:
+    criar o VXLAN com `local <wg_ip> dev <wgN>` (tentado e revertido) deixa o
+    `RX=0` na mesma. A causa (entrega local do pacote interno sobre a WireGuard)
+    fica por identificar — ver `g4-overlay-forwarding.md`.
 - 51820/udp fica exposto em todas as interfaces do nó enquanto houver um overlay.
   É o contrato de um nó de overlay (como o `:51820` de qualquer WireGuard), e o
   túnel recusa quem não tenha a chave.

@@ -1200,7 +1200,7 @@ pub(crate) fn create_network(
                     super::po::t("--vni is required for driver overlay").into(),
                 )
             })?;
-            let net = store.create_overlay(name, vni, &peers, wg_ip.as_deref())?;
+            let net = store.create_overlay(name, vni, &peers, wg_ip.as_deref(), subnet.as_deref())?;
             // Rootless physical plane (holder netns): bridge + VXLAN uplink + WG (if
             // encrypted). Unlike macvlan/ipvlan, the overlay IS realizable without
             // host privilege — it lives entirely in the holder netns.
@@ -2044,7 +2044,7 @@ mod tests {
     fn o_nome_do_device_vxlan_e_o_do_motor() {
         let tmp = tempfile::tempdir().unwrap();
         let store = delonix_sdn::NetworkStore::open(tmp.path()).unwrap();
-        let net = store.create_overlay("m", 42, &[], None).unwrap();
+        let net = store.create_overlay("m", 42, &[], None, None).unwrap();
         assert_eq!(net.vxlan_dev().as_deref(), Some("dlxvx002a"));
         assert_ne!(net.vxlan_dev().as_deref(), Some("dlxvx42"));
     }
