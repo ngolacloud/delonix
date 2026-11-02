@@ -83,9 +83,26 @@ de estado; (c) procedimento escrito para corrigir um supervisor vivo (ou ADR que
 assuma o limite e o runbook de "recriar em janela").
 
 **Tarefas.**
-- `[agente]` Harness `e2e_upgrade_rollback.sh`: vN→vN+1→vN com containers, VM, stack e rede ativas; asserções de sobrevivência + reconciliação.
-- `[agente]` Medir e documentar o hot-reattach de supervisores (o que sobrevive a um upgrade do binário vs o que exige recriação).
-- `[agente]` Runbook de upgrade/rollback em `docs/` + o rollback-a-meio-de-apply (hoje "não há").
+- `[agente]` ✅ **FEITO (mecanismo):** `scripts/e2e_upgrade_rollback.sh` — vN→vN+1→vN
+  com container vivo + rede + marca de estado; 17 asserções VERDES (2026-11-02):
+  sobrevivência (container `Up`, MESMO id após a troca do binário), gestão pelo
+  motor novo (`exec`/`logs` sobre container nascido sob o antigo), reconciliação
+  (`stop`/`start` preserva a camada gravável), e rollback. Param. `--old`/`--new`.
+  **FALTA a compatibilidade CRUZADA de versões** (binário novo a ler estado de
+  versão antiga): precisa de uma tag anterior compilada para `--old` — o harness
+  já a mede sem mais mudanças. (O estado em disco entre versões fica em
+  `e2e_state_upgrade.sh`.)
+- `[agente]` ✅ **FEITO:** hot-reattach medido e documentado. Achados-chave:
+  **(1)** `cp` in-place do binário em uso → **ETXTBSY** (kernel recusa); upgrade
+  TEM de ser por **rename atómico** (dpkg/rpm/`install(1)` já o fazem).
+  **(2)** containers vivos **sobrevivem** à troca do binário (supervisor fica no
+  inode antigo, mapeado). **(3)** NÃO há hot-patch do supervisor vivo: ele corre
+  o código com que nasceu até ser recriado — um fix no caminho de supervisão só
+  chega a um container existente via recriação faseada.
+- `[agente]` ✅ **FEITO:** runbook `docs/operations/upgrade-rollback.md` (procedimento
+  rename-atómico, tabela do que sobrevive, rollback, validação, e a secção
+  Limites: compat-cruzada por provar, sem hot-patch, sem rollback-a-meio-de-apply
+  `47_IAC_REVISAO.md:400`).
 
 ---
 
@@ -103,7 +120,18 @@ provado numa sessão anterior — ver [[delonix-kubeadm-ha-offline-findings]]).
 
 **Tarefas.**
 - `[dono]` **Decisão de âmbito primeiro:** o Delonix quer ser HA, ou ser o *nó* e delegar HA? Isto muda todo o resto do trabalho.
-- `[agente]` (se via prova) Bancada multi-nó: 2+ VMs, overlay forwarding E2E com contadores; retomar a cadeia kubeadm HA bloqueada por [[delonix-cri-entrypoint-override-bug]].
+- `[agente]` ✅ **FEITO (bancada):** `scripts/e2e_overlay_multinode.sh` — a bancada
+  multi-nó do caminho "via prova", topologia-agnóstica (`--via ssh A B`). Assere:
+  identidade WireGuard em cada nó, criar o MESMO overlay (`--driver overlay --vni`)
+  com o outro como `--peer <ip>=<pub>=<wg_ip>`, um container em cada nó na rede,
+  **forwarding E2E** A→B e B→A pelos IPs-overlay, e **prova de caminho** (handshake
+  WireGuard + peer). **MEDIDO e provado que uma só caixa NÃO corre isto** (`node
+  init` ok, mas `network create --driver overlay` em rootful dá `DX-9301 timeout
+  waiting for the netns holder`; rootless está atrás de slirp, sem inbound) — por
+  isso o harness **recusa fingir** (exit 3) e imprime o runbook. Confere com a
+  razão que a própria matriz já dá para marcar o overlay `Partial`. **FALTA**:
+  correr contra 2 nós reais (SSH) — ou retomar a cadeia kubeadm HA bloqueada por
+  [[delonix-cri-entrypoint-override-bug]] para o control-plane HA.
 - `[agente]` (se via âmbito) Escrever o ADR + a secção "tecto single-node" no handbook.
 
 ---
@@ -120,8 +148,20 @@ attach < X ms e teardown estável"), medido num nó dedicado, com a curva de lat
 vs densidade (não um ponto em nó vazio) e as SLOs correspondentes.
 
 **Tarefas.**
-- `[agente]` Bench de densidade: rampa 1→50→200→… containers/namespaces, medir attach p50/p99 e os dois dumps `nft` em cada patamar, até degradar.
-- `[agente]` Otimizar o que a curva mostrar (ex. os dumps `nft` lineares — candidato a cache/índice) OU declarar o tecto honestamente.
+- `[agente]` ✅ **FEITO (arnês):** `scripts/bench_density.sh` — rampa de patamares
+  (`--tiers 1,10,25,50,100`), attach p50/p99 por patamar + tamanho dos dois dumps
+  `nft` (`list sets`, `-a list chain fwdeny`); emite a CURVA em JSON (contrato
+  `publishable` do `bench.sh`), herda o juízo de bancada do `bancada.sh` (recusa
+  acima do limiar), marca NÃO PUBLICÁVEL quando há containers alheios, e limpa
+  tudo o que cria (prefixo `benchdens-`). Provado ponta-a-ponta em rootless (curva
+  + cleanup + JSON). As colunas `nft` enchem em **rootful** (tabela `inet dlxing`
+  visível do host); em rootless ficam `null` por desenho (o holder não se
+  `nsenter`a de fora). **Falta correr num nó DEDICADO** (esta caixa tem as BDs do
+  dono → não publicável) para produzir a curva a sério.
+- `[agente]` Otimizar o que a curva mostrar. Alvo já localizado por inspeção:
+  `drop_from_every_ns_set` (`infra.rs:3947`) faz `nft list sets` a cada
+  attach/detach, e há 3 `nft -a list chain fwdeny` que varrem a cadeia inteira —
+  candidatos a O(N)→O(1). **NÃO otimizar antes da curva** (medir-primeiro).
 - `[agente]` SLOs escritas + a curva publicada no relatório.
 
 ---
@@ -137,9 +177,18 @@ capacidades **re-corridos na versão enviada**, com as datas e o commit a bater
 certo; os documentos de comparação actualizados a partir dessas corridas.
 
 **Tarefas.**
-- `[agente]` Re-correr as cinco suites na linha atual (nó ocioso/dedicado para o bench, como a própria bancada exige).
-- `[agente]` Actualizar `capability-matrix.md`, `cri-conformance.md`, `comparacao-medida.md` com os números novos + datas.
-- `[agente]` Marcar no `stale-evidence.md` o que passou a fresco.
+- `[agente]` ✅ **FEITO (matriz):** `capability-matrix.md` re-gerada do binário atual
+  (2026-11-02): **181/271 (66,8 %)**, engine 0.1.0 — era 180/270@5.1.1; `net.ipv6`
+  passou a `supported` (ADR-0082). Drift fechado: o teste `the_published_matrix_is_
+  the_generated_one` volta a VERDE. README deste relatório + `stale-evidence.md`
+  actualizados com data/commit.
+- `[agente]` **FALTA (nó dedicado/infra):** re-correr `bench.sh` (recusa-se em nó
+  carregado — por desenho), `bench_density.sh` (curva — nó ocioso), `critest`
+  (k8s/CRI) e `chaos.sh`/`e2e.sh` (criam VMs/kind). Esta caixa tem carga alheia
+  (BDs do dono) → não publicável. Actualizar `cri-conformance.md`/`comparacao-medida.md`
+  quando houver essas corridas.
+- `[agente]` ✅ **FEITO:** `stale-evidence.md` marca a matriz como FRESCA e lista o
+  que continua STALE (e porquê).
 
 ---
 
