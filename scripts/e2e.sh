@@ -1877,10 +1877,14 @@ if [ -n "$_bb" ] && file "$_bb" 2>/dev/null | grep -q "statically linked"; then
   _bscr="$OUT/build-scratch"; _bscrt="${PFX}-scratch:1"
   mkdir -p "$_bscr"; cp "$_bb" "$_bscr/busybox"
   printf 'FROM scratch\nCOPY busybox /bin/busybox\nCOPY busybox /bin/sh\nRUN echo build-run-ok\n' >"$_bscr/Dockerfile"
-  check "build FROM scratch: COPY a shell then RUN it (no pull, no mask ENOENT)" ok bash -c "
+  # O `save` no fim é o guarda da dívida do ADR-0083: a base scratch tem de ser
+  # empacotada com PELO MENOS uma camada, senão `image save`/`push` recusa com
+  # DX-1410 (`image has no layers`). Era exatamente o que o commit rootful fazia.
+  check "build FROM scratch: COPY a shell then RUN it (no pull, no mask ENOENT), e empacota" ok bash -c "
     out=\$('$BIN' build -t '$_bscrt' '$_bscr' 2>&1) || { echo \"build chumbou: \$(printf '%s' \"\$out\" | tail -2)\"; exit 1; }
     printf '%s' \"\$out\" | grep -q build-run-ok || { echo 'o RUN não correu'; printf '%s\n' \"\$out\"; exit 1; }
-    '$BIN' image ls 2>&1 | grep -qF '$_bscrt' || { echo 'a tag não aparece no image ls'; exit 1; }"
+    '$BIN' image ls 2>&1 | grep -qF '$_bscrt' || { echo 'a tag não aparece no image ls'; exit 1; }
+    '$BIN' image save '$_bscrt' -o '$_bscr/scratch.tar' >/dev/null 2>&1 || { echo 'image save recusou a imagem scratch (DX-1410?)'; exit 1; }"
   e2e_image_rm "$_bscrt" >/dev/null 2>&1 || true
   rm -rf "$_bscr"
 else
