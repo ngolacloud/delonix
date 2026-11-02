@@ -1,19 +1,15 @@
 # ADR-0084 — O overlay rootless encaminha a sua WireGuard para o holder (hostfwd)
 
-**Estado:** Proposto (2026-11-02) — fecha o bloqueio #1 do G4 (caminho "via prova")
-do plano NO-GO→GO. Implementado em `feat/ipv6-gonogo` e **provado em 2 nós reais**
-(2 VMs do golden k8s): **ANTES** do fix, nada escutava em 51820 e o handshake
-WireGuard NUNCA acontecia (0 bytes, 100 % de perda); **DEPOIS**, o `ss` mostra
-`slirp4netns` em `0.0.0.0:51820`, o handshake **completa** nos dois nós
-(`latest handshake: …`) e o túnel **transfere dados nos dois sentidos**
-(node-a 10,27 KiB rx / 7,23 KiB tx; node-b 7,99 KiB rx / 10,06 KiB tx), com o
-VXLAN a ser encapsulado e enviado pela WG (`10.42.0.1 ↔ 10.42.0.2:4789`). Ou
-seja: o **transporte WireGuard+VXLAN inter-nó** passa a funcionar — era o bloqueio
-que este ADR fecha. O ping container-a-container end-to-end AINDA falha numa
-camada ACIMA (ARP não resolve através do overlay), por causa do bloqueio #2 (o
-driver overlay ignora `--subnet` → os dois nós escolhem `10.234.0.0/16`
-independentemente e ambos os bridges ficam em `10.234.0.1`, sem coordenação do L2)
-— tratado à parte, não é o transporte. Aguarda GO do dono.
+**Estado:** Proposto (2026-11-02) — o caminho "via prova" do G4 (overlay inter-nó),
+**PROVADO end-to-end em 2 VMs reais do golden k8s**: container-a-container **0 %
+de perda nos dois sentidos** (~0,7 ms), com a VXLAN a decapsular no peer
+(`VXLAN RX > 0`). Tirou TRÊS fixes, cada um necessário e todos medidos: **#1** o
+hostfwd da WireGuard deste ADR (sem ele nada escutava em 51820, handshake nunca
+subia); **#2A** o `create_overlay` honrar `--subnet` (os dois nós no mesmo
+`/16`+gateway); **#2B** o firewall do holder (`dlxinput`) aceitar a VXLAN de
+entrada (`iifname "wgo*" udp dport 4789 accept`) — sem isso o frame chegava
+decifrado ao `wgN` mas o `ct state new drop` terminal comia-o (`VXLAN RX=0`).
+Implementado em `feat/ipv6-gonogo`. Aguarda GO do dono.
 **Relaciona:** `reports/go-nogo-alta-criticidade-20261101/g4-overlay-forwarding.md`
 (a medição que motivou), ADR-0013 (rotas entre redes), ADR-0082 (dual-stack IPv6).
 
@@ -70,20 +66,22 @@ Três escolhas, e porquê:
 
 ## Consequências
 
-- O **transporte WireGuard+VXLAN** do overlay passa a funcionar entre nós (handshake
-  completa, dados fluem, VXLAN viaja no túnel) — o bloqueio #1 do G4 fecha, provado
-  em 2 VMs reais. O ping container-a-container end-to-end AINDA não passa:
-  - **#2A (`--subnet` ignorado) — RESOLVIDO à parte** (`create_overlay` honra o
-    subnet; os dois nós passam a aterrar no mesmo `/16` e gateway). Necessário,
-    mas NÃO suficiente: com os dois nós já no mesmo `10.244.0.0/16`, a ARP continua
-    sem resolver.
-  - **#2B (decapsulação VXLAN no peer) — EM ABERTO.** Medido em 2 VMs: o frame
-    VXLAN chega DECIFRADO ao `wgN` do peer (a ARP é visível), mas o device VXLAN
-    não o decapsula (`RX=0`, `IpInDelivers` quase nulo). NÃO é firewall (policy
-    accept, sem drops), NÃO é o `--subnet`, e NÃO é a amarração ao underlay:
-    criar o VXLAN com `local <wg_ip> dev <wgN>` (tentado e revertido) deixa o
-    `RX=0` na mesma. A causa (entrega local do pacote interno sobre a WireGuard)
-    fica por identificar — ver `g4-overlay-forwarding.md`.
+- O overlay inter-nó passa a **encaminhar container-a-container end-to-end** — o
+  caminho "via prova" do G4 fica PROVADO em 2 VMs reais (ping 0% perda nos dois
+  sentidos, ~0,7 ms). Tirou TRÊS fixes, cada um necessário:
+  - **#1 — hostfwd da WireGuard (este ADR):** sem ele nada escutava em 51820 e o
+    túnel nunca subia.
+  - **#2A — `--subnet` honrado** (`create_overlay`, à parte): os dois nós aterram
+    no mesmo `/16`+gateway. Necessário mas não suficiente.
+  - **#2B — o firewall do holder aceita a VXLAN de entrada.** A causa-raiz, cravada
+    por conntrack+nstat: o frame VXLAN chegava DECIFRADO ao `wgN` do peer mas o
+    device não decapsulava (`RX=0`) porque a chain `dlxinput` tem um
+    `ct state new drop` terminal e a VXLAN de entrada (`iifname wgo*`, udp 4789) é
+    uma conexão NEW que caía lá. Fix: `dlxinput` passa a aceitar
+    `iifname "wgo*" udp dport 4789 accept` (a mesma disciplina de allowlist das
+    outras regras — o WireGuard já autenticou o peer). Depois do fix, `VXLAN RX`
+    sobe e o ping passa. NÃO era o `--subnet` nem a amarração `local/dev` (essa
+    foi tentada e revertida). Ver `g4-overlay-forwarding.md`.
 - 51820/udp fica exposto em todas as interfaces do nó enquanto houver um overlay.
   É o contrato de um nó de overlay (como o `:51820` de qualquer WireGuard), e o
   túnel recusa quem não tenha a chave.

@@ -786,6 +786,16 @@ fn dlxinput_rules_for(allow_holder_ingress: bool) -> Vec<String> {
         "ct state established,related accept",
         "iifname \"lo\" accept",
         "iifname \"tap0\" accept",
+        // The encrypted overlay's VXLAN uplink: packets ride IN over the WireGuard
+        // interface (`wgo<vni>`), decapsulate here, and land on the overlay bridge.
+        // They arrive as a NEW inbound flow, so without this they hit the
+        // `ct state new drop` below and the overlay silently never forwards —
+        // measured on two real nodes: the frame reached `wgN` but the VXLAN device
+        // decapped nothing (RX=0), and `dlxinput`'s `ct state new drop` counter was
+        // what moved. Scoped to the `wgo*` interfaces (only WireGuard delivers to
+        // them, and only a peer with the key can) and to the VXLAN port — the same
+        // allowlist discipline as the rest of this chain, not a blanket open. See ADR-0084.
+        "iifname \"wgo*\" udp dport 4789 accept",
         "udp dport { 53, 67, 68 } accept",
         "tcp dport 53 accept",
         "meta l4proto icmp accept",
@@ -11687,6 +11697,10 @@ Inter-|   Receive                                                |  Transmit
             "ct state established,related accept",
             "iifname \"lo\" accept",
             "iifname \"tap0\" accept",
+            // The encrypted overlay's VXLAN uplink, in over the WireGuard iface
+            // (ADR-0084 #2B): a NEW inbound flow that would otherwise hit the
+            // terminal drop and the overlay would never forward across nodes.
+            "iifname \"wgo*\" udp dport 4789 accept",
             "udp dport { 53, 67, 68 } accept",
             "tcp dport 53 accept",
             "meta l4proto icmp accept",
