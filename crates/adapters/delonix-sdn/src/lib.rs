@@ -1784,6 +1784,7 @@ impl NetworkStore {
         vni: u32,
         peers: &[String],
         wg_ip: Option<&str>,
+        subnet: Option<&str>,
     ) -> Result<Network> {
         if name.is_empty() || name == DEFAULT_NET {
             return Err(Error::ReservedNetworkName(
@@ -1818,7 +1819,20 @@ impl NetworkStore {
                 "an unsynchronised allocation can put two networks on the same /16",
             )
         })?;
-        let base = self.free_base(name)?;
+        // An explicit `--subnet` is HONOURED (the same silent-drop the bridge
+        // driver had until v0.47.0 — see `create_bridge`). For an overlay it is
+        // not a nicety but a CORRECTNESS requirement: the `/16` is a shared L2
+        // across nodes, so every node of the same overlay MUST land on the same
+        // `base` (hence the same gateway `10.<base>.0.1`) — the operator passes
+        // the same `--subnet` on each `network create`. Measured without this:
+        // two nodes auto-picked DIFFERENT (coincidentally equal, but uncoordinated)
+        // `/16`s, both bridges on `10.234.0.1`, and container-to-container ARP
+        // never resolved across the overlay. Omitting `--subnet` keeps the old
+        // auto-pick (fine for a single-node overlay or a throwaway).
+        let base = match subnet {
+            Some(s) => Self::base_from_subnet(s)?,
+            None => self.free_base(name)?,
+        };
         let wgip_line = wg_ip.map(|w| format!("wgip={w}\n")).unwrap_or_default();
         let body = format!(
             "driver=overlay\nbase={base}\nvni={vni}\npeers={}\n{wgip_line}",
@@ -3039,6 +3053,34 @@ mod tests {
     ///   so `"142"` truncated to `"14"` is still a perfectly valid octet. The network
     ///   silently moves to another /16 and every container on the old prefix goes dark.
     ///
+    /// `create_overlay` HONOURS an explicit `--subnet` — the correctness fix of
+    /// ADR-0084 blocker #2: for an overlay the `/16` is a shared L2 across nodes,
+    /// so passing the same subnet on each node is what lands them on the same
+    /// `base`/gateway. Two overlays with the same subnet get the same prefix; an
+    /// unsupported subnet is refused (not silently auto-picked); omitting it keeps
+    /// the auto-pick.
+    #[test]
+    fn create_overlay_honra_o_subnet_explicito() {
+        let tmp = tempfile::tempdir().unwrap();
+        let st = NetworkStore::open(tmp.path()).unwrap();
+
+        let a = st.create_overlay("a", 42, &[], None, Some("10.244.0.0/16")).unwrap();
+        assert_eq!(a.subnet, "10.244.0.0/16");
+        assert_eq!(a.gateway, "10.244.0.1");
+
+        // A second overlay with the SAME subnet lands on the SAME prefix (the
+        // cross-node coordination this exists for) — distinct name, same /16.
+        let b = st.create_overlay("b", 43, &[], None, Some("10.244.0.0/16")).unwrap();
+        assert_eq!(b.subnet, "10.244.0.0/16");
+
+        // Unsupported subnet is refused, never auto-picked behind the operator's back.
+        assert!(st.create_overlay("c", 44, &[], None, Some("192.168.1.0/24")).is_err());
+
+        // No subnet → the auto-pick still works (single-node / throwaway overlay).
+        let d = st.create_overlay("d", 45, &[], None, None).unwrap();
+        assert!(d.subnet.starts_with("10.") && d.subnet.ends_with(".0.0/16"));
+    }
+
     /// Same technique as `store.rs`'s `save_concorrente_nunca_publica_json_corrompido`:
     /// writers of DIFFERENT sizes so the interleaving is observable. Reverting
     /// `write_atomic` to `fs::write` makes this fail.
@@ -3047,7 +3089,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
         let st = NetworkStore::open(tmp).unwrap();
-        st.create_overlay("ov", 42, &[], None).unwrap();
+        st.create_overlay("ov", 42, &[], None, None).unwrap();
 
         std::thread::scope(|sc| {
             for i in 0..16 {
@@ -3078,7 +3120,7 @@ mod tests {
         let tmp = tmp.path();
         let store = NetworkStore::open(tmp).unwrap();
         store
-            .create_overlay("malha", 42, &["10.0.0.7".to_string()], Some("10.9.0.1"))
+            .create_overlay("malha", 42, &["10.0.0.7".to_string()], Some("10.9.0.1"), None)
             .unwrap();
         let after = store
             .set_metadata(
@@ -3116,6 +3158,7 @@ mod tests {
                     "10.0.0.8".to_string(),
                 ],
                 Some("10.9.0.1"),
+                None,
             )
             .unwrap();
         store
@@ -3491,7 +3534,7 @@ mod tests {
         let dir = dir.path();
         let store = NetworkStore::open(dir).unwrap();
         store
-            .create_overlay("ov", 7, &[], Some("10.250.0.1"))
+            .create_overlay("ov", 7, &[], Some("10.250.0.1"), None)
             .unwrap();
         // learns a peer
         let n = store
@@ -3518,7 +3561,7 @@ mod tests {
         let store = NetworkStore::open(dir).unwrap();
         let peers = vec!["10.0.0.2=PUB2=10.250.0.2".to_string()];
         let n = store
-            .create_overlay("ov", 42, &peers, Some("10.250.0.1"))
+            .create_overlay("ov", 42, &peers, Some("10.250.0.1"), None)
             .unwrap();
         assert_eq!(n.wg_ip.as_deref(), Some("10.250.0.1"));
         // reloads from disk → wg_ip persists

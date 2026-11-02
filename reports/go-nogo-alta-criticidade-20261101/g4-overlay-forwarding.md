@@ -91,11 +91,33 @@ que leva o fix:
 
 Ou seja: o **transporte WireGuard+VXLAN inter-nó funciona** — era exatamente o que
 não acontecia. O ping container-a-container end-to-end **ainda falha**: a ARP é
-encapsulada e viaja no túnel, mas não resolve através do overlay. Causa provável,
-o **bloqueio #2**: o `--subnet` ignorado faz os dois nós escolherem
-`10.234.0.0/16` independentemente e ambos os bridges ficam em `10.234.0.1`, sem
-coordenação do L2/gateway entre nós (IPAM por-nó, não por-overlay). É o próximo
-fix, à parte deste.
+encapsulada e viaja no túnel, mas não resolve através do overlay.
+
+## Bloqueio #2 — decomposto e medido (2026-11-02)
+
+**#2A — `--subnet` ignorado: RESOLVIDO.** `create_overlay` passa a honrar
+`--subnet` (via `base_from_subnet`, como o bridge), com teste unitário. Dois nós
+com o mesmo `--subnet` aterram no mesmo `/16` e gateway — confirmado live (ambos
+`10.244.0.0/16`, gw `10.244.0.1`). **Necessário mas NÃO suficiente:** com os dois
+nós já no mesmo `/16`, o forwarding continua 100 % perda.
+
+**#2B — decapsulação VXLAN no peer: EM ABERTO.** A causa real, agora cravada em 2
+VMs com captura cuidada:
+
+| Observação | Medição |
+|---|---|
+| frame VXLAN de ca chega ao `wgN` de node-b (decifrado) | `tcpdump wgN`: `10.42.0.1 > 10.42.0.2:4789 VXLAN vni 42 ARP who-has …` ✓ |
+| device VXLAN decapsula? | **`ip -s link` RX = 0** ✗ |
+| entregue à stack local? | **`IpInDelivers` ≈ 0** (só RAs) ✗ |
+| firewall dropa? | NÃO — `policy accept` no input, zero `UdpNoPorts`/`IpInDiscards`/drops |
+| socket 4789 existe? | sim (`0.0.0.0:4789`) |
+| amarrar o VXLAN ao underlay (`local <wg_ip> dev <wgN>`)? | **tentado e revertido** — `RX=0` na mesma |
+
+Ou seja: o pacote interno (dst `wg_ip:4789`) chega decifrado ao `wgN` mas **não é
+entregue ao socket VXLAN local**, e não é firewall nem a amarração `local/dev`. A
+causa (semântica de entrega-local do pacote injetado pela WireGuard / martian /
+caminho VXLAN-sobre-WG no kernel) fica **por identificar** — é o próximo passo do
+G4 via-prova, e precisa de investigação de kernel-path, não de mais um palpite.
 
 ## Reprodutível
 
