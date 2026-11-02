@@ -8071,6 +8071,42 @@ pub fn set_wg_peer(
     ))
 }
 
+/// The node-wide UDP port WireGuard listens on for every encrypted overlay (one
+/// WG interface per node — see `realize_overlay`). The VXLAN (4789) rides INSIDE
+/// this tunnel, so only this one port needs to cross the real network.
+pub const OVERLAY_WG_PORT: u16 = 51820;
+
+/// Forwards the node's UDP WireGuard port INTO the holder's slirp netns, so an
+/// overlay PEER on another node can reach this node's WireGuard endpoint — the
+/// fix for ADR-0084.
+///
+/// The encrypted overlay realizes WireGuard and the VXLAN uplink INSIDE the
+/// rootless holder, which reaches the outside only through slirp4netns (NAT out,
+/// no inbound). Without a hostfwd nothing on the node's real interface answers on
+/// 51820: measured on two real nodes (2 VMs, routable, keys exchanged), `ss`
+/// showed nothing on 51820 and the forwarding was 100% loss — the peer's WG
+/// handshake hit a closed port and the tunnel never came up. This forwards
+/// `<node>:51820/udp` to the holder's slirp address, where WireGuard listens.
+///
+/// Bound to `0.0.0.0` ON PURPOSE (unlike a published container port, which
+/// defaults to loopback): an overlay is cross-node by definition, and the tunnel
+/// is authenticated+encrypted by WireGuard — exposing the UDP port is the point.
+///
+/// Idempotent: one WG interface per node is SHARED by every overlay, so a second
+/// overlay finds 51820 already bound (the slirp refuses a duplicate on the same
+/// address) and skips. The busy-port guard turns that into success instead of the
+/// slirp's opaque `add_hostfwd failed`, which cannot tell a duplicate from a real
+/// failure. No teardown is wired: the hostfwd belongs to the slirp process and
+/// dies with it when the holder is torn down (`net netns down` / last network
+/// gone), so it never outlives the overlays it serves.
+pub fn set_overlay_wg_hostfwd() -> Result<()> {
+    if crate::host_port_busy("0.0.0.0", OVERLAY_WG_PORT, crate::Proto::Udp) {
+        return Ok(());
+    }
+    let port = OVERLAY_WG_PORT.to_string();
+    crate::slirp_add_hostfwd(&slirp_sock_path(), &port, &port, "udp", Some("0.0.0.0"))
+}
+
 /// **Realizes an overlay network's VXLAN uplink** in the infra netns: bridge +
 /// VXLAN device (`<dev>`/`<vni>`) + peers' FDB (`dsts` = `wg_ip` if encrypted,
 /// otherwise `node_ip`). The gateway aligns the subnet to the one decided by the `NetworkStore`.
