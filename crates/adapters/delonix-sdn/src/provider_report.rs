@@ -110,11 +110,11 @@ pub fn report(host: &SdnHost) -> ProviderReport {
                 C::NetVlan => S::Partial {
                     detail: "`network vlan` puts an 802.1Q VLAN on a physical NIC — root only, and it says so on every run",
                 },
-                C::NetOverlayVxlan => base(S::Partial {
-                    detail: "VXLAN uplink + FDB peers inside the holder; inter-node forwarding needs a second node the battery does not have",
+                C::NetOverlayVxlan => base(S::Supported {
+                    evidence: "live:reports/go-nogo-alta-criticidade-20261101/g4-overlay-forwarding.md",
                 }),
-                C::NetOverlayEncrypted => wg(S::Partial {
-                    detail: "WireGuard peer per overlay node; peer removal proven on one node, traffic across two nodes not measured",
+                C::NetOverlayEncrypted => wg(S::Supported {
+                    evidence: "live:reports/go-nogo-alta-criticidade-20261101/g4-overlay-forwarding.md",
                 }),
                 C::NetIpam => base(S::Supported {
                     evidence: "chaos:scen_concurrent_attach",

@@ -90,34 +90,51 @@ que leva o fix:
 | VXLAN no túnel | — | `10.42.0.1 ↔ 10.42.0.2:4789` (ARP do container encapsulada e enviada) |
 
 Ou seja: o **transporte WireGuard+VXLAN inter-nó funciona** — era exatamente o que
-não acontecia. O ping container-a-container end-to-end **ainda falha**: a ARP é
-encapsulada e viaja no túnel, mas não resolve através do overlay.
+não acontecia. Faltavam ainda dois fixes para o ping container-a-container passar.
 
-## Bloqueio #2 — decomposto e medido (2026-11-02)
+## Bloqueio #2 — decomposto, medido e RESOLVIDO (2026-11-02)
 
 **#2A — `--subnet` ignorado: RESOLVIDO.** `create_overlay` passa a honrar
 `--subnet` (via `base_from_subnet`, como o bridge), com teste unitário. Dois nós
 com o mesmo `--subnet` aterram no mesmo `/16` e gateway — confirmado live (ambos
 `10.244.0.0/16`, gw `10.244.0.1`). **Necessário mas NÃO suficiente:** com os dois
-nós já no mesmo `/16`, o forwarding continua 100 % perda.
+nós já no mesmo `/16`, o forwarding continuava 100 % perda.
 
-**#2B — decapsulação VXLAN no peer: EM ABERTO.** A causa real, agora cravada em 2
-VMs com captura cuidada:
+**#2B — decapsulação VXLAN no peer: RESOLVIDO.** A causa-raiz, cravada por
+`conntrack` + `nstat` + a chain nft:
 
 | Observação | Medição |
 |---|---|
 | frame VXLAN de ca chega ao `wgN` de node-b (decifrado) | `tcpdump wgN`: `10.42.0.1 > 10.42.0.2:4789 VXLAN vni 42 ARP who-has …` ✓ |
-| device VXLAN decapsula? | **`ip -s link` RX = 0** ✗ |
-| entregue à stack local? | **`IpInDelivers` ≈ 0** (só RAs) ✗ |
-| firewall dropa? | NÃO — `policy accept` no input, zero `UdpNoPorts`/`IpInDiscards`/drops |
-| socket 4789 existe? | sim (`0.0.0.0:4789`) |
-| amarrar o VXLAN ao underlay (`local <wg_ip> dev <wgN>`)? | **tentado e revertido** — `RX=0` na mesma |
+| device VXLAN decapsula (antes do fix)? | **`ip -s link` RX = 0** ✗ |
+| entregue à stack local? | **`IpInDelivers` ≈ 0** ✗ |
+| conntrack do fluxo de entrada | `src=10.42.0.1 … dport=4789` marcado **NEW** |
+| contador que MEXEU | **`dlxinput`: `ct state new counter … drop`** (+14…23 pacotes) |
+| NÃO era | `--subnet`, nem rp_filter (forcei 0), nem a amarração `local/dev` (tentada e revertida — `RX=0` na mesma) |
 
-Ou seja: o pacote interno (dst `wg_ip:4789`) chega decifrado ao `wgN` mas **não é
-entregue ao socket VXLAN local**, e não é firewall nem a amarração `local/dev`. A
-causa (semântica de entrega-local do pacote injetado pela WireGuard / martian /
-caminho VXLAN-sobre-WG no kernel) fica **por identificar** — é o próximo passo do
-G4 via-prova, e precisa de investigação de kernel-path, não de mais um palpite.
+A chain `dlxinput` (hook input do holder) é uma allowlist com um `ct state new
+drop` terminal; aceita `lo`, `tap0` (a WG entra por aí, via slirp — por isso o
+handshake passava), DNS/DHCP e ICMP. A VXLAN de entrada chega na interface WG
+(`wgo<vni>`) como UDP 4789, conexão **NEW**, não estava em nenhum accept → caía no
+drop. **Fix:** `dlxinput` passa a aceitar `iifname "wgo*" udp dport 4789 accept`
+(só a VXLAN, só nas ifaces WireGuard — que só entregam tráfego de peers
+autenticados; a mesma disciplina de allowlist das outras regras). Teste reforçado
+em `os_servicos_do_holder_nao_sao_alcancaveis_de_um_container`.
+
+## PROVA FINAL — end-to-end nas 2 VMs (depois dos três fixes)
+
+```
+### FORWARDING A->B
+64 bytes from 10.244.189.89: seq=0 ttl=64 time=0.736 ms
+4 packets transmitted, 4 packets received, 0% packet loss
+### FORWARDING B->A
+4 packets transmitted, 4 packets received, 0% packet loss
+### VXLAN device RX em node-b:  2684 bytes  31 packets   (era 0)
+```
+
+O overlay inter-nó **encaminha container-a-container entre dois nós reais**, 0 %
+de perda nos dois sentidos, ~0,7 ms. O caminho "via prova" do G4 (parte overlay)
+fica provado. (O control-plane k8s HA é a outra metade do G4 via-prova.)
 
 ## Reprodutível
 
