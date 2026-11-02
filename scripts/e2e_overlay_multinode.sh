@@ -26,10 +26,16 @@
 #   * ACHADO adicional: `--subnet 10.244.0.0/16` foi IGNORADO — o overlay ficou
 #     em `10.234.0.0/16` (auto), e cada nó escolheu independentemente → risco de
 #     colisão de IPs num L2 supostamente partilhado. Opção passada, engolida.
-# Conclusão: a prova de forwarding EXIGE nós onde a WG do holder receba inbound —
-# nós REAIS (VMs/hosts) onde delonix encaminhe WG/VXLAN do host para o holder, OU
-# o esclarecimento de como o overlay rootless atravessa o slirp. A sim numa caixa
-# não chega. Este harness recusa fingir (exit 3) e aponta para `--via ssh`.
+# CONFIRMADO EM 2 NÓS REAIS (2 VMs do golden k8s, virbr0, IPs roteáveis, pubkeys
+# WG trocadas, slirp presente) — ver `reports/go-nogo-.../g4-overlay-forwarding.md`:
+# o forwarding dá na mesma 100% de perda, e `ss -ulnp` no nó mostra NADA em UDP
+# 51820/4789 na interface real. CAUSA-RAIZ: o overlay faz `wg-up` (51820) e VXLAN
+# (4789) DENTRO do holder (infra.rs ~3274/~4710), mas o `slirp_add_hostfwd`
+# (lib.rs ~2101) só liga portas PUBLICADAS — nunca 51820/4789. Logo o `<ip-nó>:
+# 51820` do peer bate em porta fechada e o túnel nunca sobe. FIX (SDN-core, carece
+# de desenho): hostfwd do slirp para 51820/4789 quando há rede overlay, OU um modo
+# rootful com a WG numa interface real. Este harness continua a recusar fingir numa
+# só caixa (exit 3) e corre a prova real com `--via ssh`.
 #
 # ## Topologias (como dás os dois nós)
 #

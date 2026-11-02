@@ -126,15 +126,19 @@ provado numa sessão anterior — ver [[delonix-kubeadm-ha-offline-findings]]).
   stacked, VIP), hoje bloqueada por [[delonix-cri-entrypoint-override-bug]] (fix em
   `fix/cri-command-entrypoint-override`, por integrar). O caminho "via âmbito"
   (ADR a excluir failover) fica DESCARTADO.
-- `[agente]` **PRIMEIRA CORRIDA da bancada (2026-11-02, sim netns de 2 nós roteáveis):**
-  o overlay CRIA nos dois nós (rc0), containers arrancam, mas o **forwarding dá
-  100% de perda** — `net netns status` mostra o holder atrás de **slirp4netns**
-  (sem inbound), logo a WG não recebe os pacotes do peer. Além disso, **`--subnet`
-  foi ignorado** (overlay ficou em 10.234/16 auto, cada nó independente → risco de
-  colisão de IPs). **DOIS bloqueios reais a resolver antes de "via prova" fechar:**
-  (1) como o overlay rootless atravessa o slirp para a WG receber inbound (ou
-  testar em nós REAIS onde delonix encaminhe WG/VXLAN host→holder); (2) o overlay
-  honrar `--subnet` e coordenar o /16 entre nós. Até lá, G4 via-prova NÃO fecha.
+- `[agente]` **BANCADA CORRIDA EM 2 NÓS REAIS (2026-11-02) — ver
+  `g4-overlay-forwarding.md`:** 2 VMs do golden k8s (virbr0, IPs roteáveis, pubkeys
+  WG trocadas, binário 0.1.0 da linha atual). RESULTADO: **forwarding = 100% de
+  perda** nos dois sentidos. CAUSA-RAIZ cravada: `ss -ulnp` no nó mostra NADA em
+  UDP 51820/4789 — o overlay faz `wg-up`/VXLAN DENTRO do holder (slirp4netns), mas
+  o `slirp_add_hostfwd` só liga portas publicadas, nunca 51820/4789 → o handshake
+  WG do peer bate em porta fechada. Confirma (com dado) o `Partial` da matriz.
+  Achado 2º: **`--subnet` ignorado** (overlay em 10.234/16 auto, cada nó
+  independente), reproduzido em VMs reais. **DOIS bloqueios de SDN-core a fechar
+  antes de "via prova" passar:** (1) hostfwd do slirp p/ 51820(WG)+4789(VXLAN)
+  quando há overlay — ou um modo rootful com WG numa interface real; (2) honrar
+  `--subnet` + coordenar o /16 entre nós. São mudanças com implicações de
+  firewall/ADR → carecem de desenho do dono antes de implementar.
 - `[agente]` ✅ **FEITO (bancada):** `scripts/e2e_overlay_multinode.sh` — a bancada
   multi-nó do caminho "via prova", topologia-agnóstica (`--via ssh A B`). Assere:
   identidade WireGuard em cada nó, criar o MESMO overlay (`--driver overlay --vni`)
