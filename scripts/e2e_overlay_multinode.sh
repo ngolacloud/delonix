@@ -8,19 +8,28 @@
 # bancada é o que fecha isso: prova (ou refuta) que um container num nó alcança
 # um container noutro nó POR CIMA do overlay encriptado, com a prova ao lado.
 #
-# ## Porque NÃO corre numa só caixa (medido, 2026-11-02)
+# ## Porque NÃO corre numa só caixa (MEDIDO, 2026-11-02)
 #
 # O overlay é realizado no holder ROOTLESS, e a interface WireGuard vive no
-# infra-netns desse holder. Numa só máquina:
-#   * rootless: o holder está atrás de slirp4netns (NAT de saída, SEM inbound) —
-#     dois holders no mesmo host não se alcançam no endpoint WireGuard;
-#   * rootful (root isolado): `network create --driver overlay` dá
-#     `DX-9301 timeout waiting for the netns holder` — o holder não arranca neste
-#     modo. (Reproduzido: `node init` ok, `network create` falha.)
-# Logo o teste EXIGE dois nós com IPs roteáveis um para o outro. Este harness
-# recusa-se a fingir numa só caixa (exit 3), pela mesma razão que o `bancada.sh`
-# recusa medir latência num nó carregado: um verde que não mede o que diz é pior
-# do que nenhum.
+# infra-netns desse holder. Tentou-se uma simulação de 2 nós numa só caixa — um
+# par de netns (`g4a`/`g4b`) ligados por veth com IPs roteáveis (10.90.0.1/2,
+# ping 0% loss) — e correu-se o fluxo completo. RESULTADO:
+#   * o holder rootless SOBE num netns custom e `network create --driver overlay`
+#     dá rc0 nos DOIS nós (ao contrário do rootful, que dá
+#     `DX-9301 timeout waiting for the netns holder`);
+#   * containers arrancam nos dois (após `image load` local da imagem, pois o
+#     netns não tem saída à Internet para pull);
+#   * MAS o forwarding inter-nó dá **100% de perda** nos dois sentidos. Causa:
+#     `net netns status` mostra `ingress UP — … slirp <pid>` — o holder está
+#     atrás de **slirp4netns** (NAT de saída, SEM inbound), por isso a WG no
+#     infra-netns não recebe os pacotes do peer, mesmo com os netns roteáveis.
+#   * ACHADO adicional: `--subnet 10.244.0.0/16` foi IGNORADO — o overlay ficou
+#     em `10.234.0.0/16` (auto), e cada nó escolheu independentemente → risco de
+#     colisão de IPs num L2 supostamente partilhado. Opção passada, engolida.
+# Conclusão: a prova de forwarding EXIGE nós onde a WG do holder receba inbound —
+# nós REAIS (VMs/hosts) onde delonix encaminhe WG/VXLAN do host para o holder, OU
+# o esclarecimento de como o overlay rootless atravessa o slirp. A sim numa caixa
+# não chega. Este harness recusa fingir (exit 3) e aponta para `--via ssh`.
 #
 # ## Topologias (como dás os dois nós)
 #
