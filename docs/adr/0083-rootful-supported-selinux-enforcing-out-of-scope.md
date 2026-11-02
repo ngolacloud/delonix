@@ -27,15 +27,21 @@ O núcleo rootful é suportado e foi medido neste host (uid 0 real, `/dev` por
 `mknod` com nós reais, rede bridge, `run -d`/`exec`/`rm`, store próprio). Fica
 documentado como um modo suportado a par do rootless.
 
-Duas arestas ficam **registadas como dívida conhecida**, nenhuma bloqueadora do
-uso normal rootful:
+Duas arestas foram **registadas como dívida conhecida**, nenhuma bloqueadora do
+uso normal rootful — a primeira já **resolvida** (ver abaixo):
 
-- **`build FROM scratch` rootful falha no packaging** (`DX-1410 image has no
-  layers`). O COPY/RUN correm; o caminho de commit OCI rootful não empacota um
-  base de zero layers. O rootless empacota o mesmo Dockerfile. É distinto dos
+- ~~**`build FROM scratch` rootful falha no packaging** (`DX-1410 image has no
+  layers`).~~ **RESOLVIDO.** A causa real era anterior ao packaging: `FROM
+  scratch` em rootful caía no `mount_rootfs`, que recusa uma imagem de zero
+  camadas (overlay precisa de ≥1 lower), por isso o build abortava antes do
+  primeiro `COPY`. Passa a montar uma base vazia (`mount_scratch_rootfs`: um
+  lower vazio efémero + upper gravável); o `COPY`/`RUN` enchem o upper, que o
+  `commit_upper` empacota como a única camada da imagem (`build_image` sobre a
+  base scratch de zero camadas → 1 camada). `image save`/`push` deixam de
+  recusar. Guardado no e2e (`build FROM scratch … e empacota`). É distinto dos
   três bugs de `FROM scratch` corrigidos nesta linha (esses eram de
   arranque/rootless — resolução de `scratch`, `/dev` do userns, scaffold no
-  COPY); este é do commit rootful e fica por corrigir.
+  COPY); este era do commit rootful.
 - **Limite de memória rootful** não foi confirmado de forma conclusiva
   (`memory.max` não visível de dentro do container na bateria) — carece de um
   teste dedicado host-side.
@@ -72,9 +78,9 @@ primeira bind mount em enforcing desmente.
   relabel de volumes + `context=` por mount, e validar numa VM Fedora/RHEL
   enforcing (a bateria rootful deste relatório, repetida em enforcing, mais um
   caso com volume `:Z`). Entra como um ADR sucessor.
-- Dívida conhecida rootful (build FROM scratch, limite de memória) fica
-  rastreada aqui e no relatório; não altera o veredicto de «rootful suportado»
-  para o uso normal.
+- Dívida conhecida rootful: `build FROM scratch` **resolvido** (ver §1); o
+  limite de memória fica rastreado aqui e no relatório. Não altera o veredicto
+  de «rootful suportado» para o uso normal.
 
 ## Alternativas consideradas
 
