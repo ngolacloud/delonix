@@ -76,6 +76,27 @@ não atravessa os nós. Dois bloqueios a fechar antes de "via prova" poder passa
 Alternativa a (1): um modo de overlay ROOTFUL onde a WG/VXLAN vivem numa
 interface real do nó (sem slirp). Também decisão de desenho.
 
+## Fix do bloqueio #1 (ADR-0084) — medido DEPOIS, nas mesmas VMs
+
+`realize_overlay` passa a adicionar um hostfwd no slirp para UDP 51820 ligado a
+`0.0.0.0` (`infra::set_overlay_wg_hostfwd`). Re-corrido nas 2 VMs com o binário
+que leva o fix:
+
+| | ANTES | DEPOIS |
+|---|---|---|
+| `ss -ulnp` no nó, UDP 51820 | nada | `slirp4netns … 0.0.0.0:51820` (nos dois nós) |
+| handshake WireGuard | nunca | **completa** nos dois (`wg show`: `latest handshake: …`) |
+| transferência no túnel | 0 | node-a 10,27 KiB rx / 7,23 KiB tx; node-b 7,99 / 10,06 |
+| VXLAN no túnel | — | `10.42.0.1 ↔ 10.42.0.2:4789` (ARP do container encapsulada e enviada) |
+
+Ou seja: o **transporte WireGuard+VXLAN inter-nó funciona** — era exatamente o que
+não acontecia. O ping container-a-container end-to-end **ainda falha**: a ARP é
+encapsulada e viaja no túnel, mas não resolve através do overlay. Causa provável,
+o **bloqueio #2**: o `--subnet` ignorado faz os dois nós escolherem
+`10.234.0.0/16` independentemente e ambos os bridges ficam em `10.234.0.1`, sem
+coordenação do L2/gateway entre nós (IPAM por-nó, não por-overlay). É o próximo
+fix, à parte deste.
+
 ## Reprodutível
 
 `scripts/e2e_overlay_multinode.sh --via ssh <userA@nodeA> <userB@nodeB>` corre

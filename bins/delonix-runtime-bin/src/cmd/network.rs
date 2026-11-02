@@ -1297,6 +1297,12 @@ fn realize_overlay(net: &Network) -> Result<()> {
                 )?;
             }
         }
+        // Forward this node's WireGuard port INTO the holder, so the peer can
+        // reach our endpoint. The WG/VXLAN live in the rootless holder behind
+        // slirp4netns; without this the overlay realizes but never forwards
+        // (measured 100% loss between two real nodes — nothing answered on
+        // 51820). Idempotent + node-wide (one WG iface per node). ADR-0084.
+        infra::set_overlay_wg_hostfwd()?;
     }
     Ok(())
 }
