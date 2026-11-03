@@ -486,10 +486,7 @@ pub(crate) fn stamp(
     }
     p.labels
         .insert(super::reconcile::MANAGED_BY.into(), "delonix".into());
-    p.annotations.insert(
-        super::reconcile::LAST_APPLIED.into(),
-        super::reconcile::encode_last_applied(fields),
-    );
+    super::reconcile::stamp_annotations(&mut p.annotations, fields, k::IPPOOL);
     write_in(&d, &p)
 }
 

@@ -663,7 +663,6 @@ pub(crate) fn stamp(
 ) -> Result<()> {
     let (_, store) = open_stores()?;
     let c = find(&store, name)?;
-    let encoded = super::reconcile::encode_last_applied(fields);
     let created = created.map(super::reconcile::encode_last_applied);
     store.update(&c.id, |cur| {
         cur.labels
@@ -674,8 +673,7 @@ pub(crate) fn stamp(
         }
         cur.labels
             .insert(super::reconcile::MANAGED_BY.into(), "delonix".into());
-        cur.annotations
-            .insert(super::reconcile::LAST_APPLIED.into(), encoded.clone());
+        super::reconcile::stamp_annotations(&mut cur.annotations, fields, k::CONTAINER);
         if let Some(created) = &created {
             cur.annotations
                 .insert(super::conditions::CREATED_SPEC.into(), created.clone());

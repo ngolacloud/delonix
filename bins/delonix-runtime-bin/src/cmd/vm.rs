@@ -2804,7 +2804,6 @@ pub(crate) fn stamp(
 ) -> Result<()> {
     let st: delonix_state::JsonStore<delonix_compute::Vm> =
         delonix_state::JsonStore::open(state_root().join("vms"))?;
-    let encoded = super::reconcile::encode_last_applied(fields);
     let created = created.map(super::reconcile::encode_last_applied);
     // The document's own labels go on with the stamp: the one step every
     // applied VM passes through, created or adopted.
@@ -2824,8 +2823,7 @@ pub(crate) fn stamp(
         }
         vm.labels
             .insert(super::reconcile::MANAGED_BY.into(), "delonix".into());
-        vm.annotations
-            .insert(super::reconcile::LAST_APPLIED.into(), encoded.clone());
+        super::reconcile::stamp_annotations(&mut vm.annotations, fields, k::VM);
         if let Some(created) = &created {
             vm.annotations
                 .insert(super::conditions::CREATED_SPEC.into(), created.clone());
