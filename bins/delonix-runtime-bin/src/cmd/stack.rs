@@ -147,6 +147,9 @@ pub enum StackCmd {
         /// anything is written.
         #[arg(long = "plan-digest", value_name = "DIGEST")]
         plan_digest: Vec<String>,
+        /// Apply a saved plan from `stack plan -o json`: its change digests gate the apply exactly as `--plan-digest` (ADR-0088 A5). `-f` stays the input.
+        #[arg(long = "plan", value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+        plan: Option<PathBuf>,
     },
     /// Removes everything this stack owns (by the `delonix.io/stack` label).
     ///
@@ -363,7 +366,14 @@ pub fn run(action: StackCmd) -> Result<()> {
             reboot,
             prune,
             plan_digest,
-        } => apply(file, name, dry_run, replace, reboot, prune, plan_digest),
+            plan,
+        } => {
+            let mut digests = plan_digest;
+            if let Some(plan_file) = plan {
+                digests.extend(digests_from_plan_file(&plan_file)?);
+            }
+            apply(file, name, dry_run, replace, reboot, prune, digests)
+        }
         StackCmd::Plan {
             file,
             name,
@@ -2063,6 +2073,41 @@ fn network_plan_digest(doc: &manifest::ManifestDoc) -> Result<Option<String>> {
         k::NETWORK_ZONE => super::network_zone::plan_digest(doc),
         _ => Ok(None),
     }
+}
+
+/// The `planDigest` of every change in a saved `stack plan -o json` file
+/// (`stack apply --plan <file>`, ADR-0088 A5). These are exactly the values
+/// `--plan-digest` takes, so applying a saved plan reuses the staleness gate and
+/// adds no second notion of state. An empty result (a plan with nothing to
+/// change) gates nothing, the same as passing no `--plan-digest` — consistent
+/// with the existing flag. A file that is not a plan array is a clear error.
+fn digests_from_plan_file(path: &Path) -> Result<Vec<String>> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        delonix_model::Error::Invalid(super::po::tf(
+            "cannot read the plan file {path}: {err}",
+            &[
+                ("path", &path.display().to_string()),
+                ("err", &e.to_string()),
+            ],
+        ))
+    })?;
+    let changes: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|e| {
+        delonix_model::Error::Invalid(super::po::tf(
+            "{path} is not a `stack plan -o json` document: {err}",
+            &[
+                ("path", &path.display().to_string()),
+                ("err", &e.to_string()),
+            ],
+        ))
+    })?;
+    Ok(changes
+        .iter()
+        .filter_map(|c| {
+            c.get("planDigest")
+                .and_then(|d| d.as_str())
+                .map(String::from)
+        })
+        .collect())
 }
 
 /// `--plan-digest`: every network document's digest, recomputed now, has to
@@ -5698,6 +5743,37 @@ spec: {}
                 }
             }
         }
+    }
+
+    /// ADR-0088 A5: `stack apply --plan <file>` reads the `planDigest` of each
+    /// change from a saved `stack plan -o json`, feeding them to the SAME stale
+    /// gate `--plan-digest` uses. A file that is not a plan array is a clear
+    /// error; a plan with no digests gates nothing (like no `--plan-digest`).
+    #[test]
+    fn plan_file_digests_are_read_for_the_stale_gate() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("plan.json");
+        std::fs::write(
+            &good,
+            r#"[{"kind":"NetworkGateway","name":"gw","action":"update","planDigest":"abc123"},
+                {"kind":"Container","name":"web","action":"create"}]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            super::digests_from_plan_file(&good).unwrap(),
+            vec!["abc123".to_string()],
+            "only the changes that carry a planDigest are read"
+        );
+
+        // A plan with nothing to gate (no digests) is an empty list, not an error.
+        let empty = dir.path().join("empty.json");
+        std::fs::write(&empty, "[]").unwrap();
+        assert!(super::digests_from_plan_file(&empty).unwrap().is_empty());
+
+        // A file that is not a plan array is refused, not read as "gate nothing".
+        let bad = dir.path().join("bad.json");
+        std::fs::write(&bad, "not a plan").unwrap();
+        assert!(super::digests_from_plan_file(&bad).is_err());
     }
 
     /// Um Kind que o `apply` aplica tem de ter braço no `presence()`, senão cai
