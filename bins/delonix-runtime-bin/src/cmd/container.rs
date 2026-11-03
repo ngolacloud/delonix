@@ -659,6 +659,7 @@ pub(crate) fn stamp(
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
     created: Option<&std::collections::BTreeMap<String, String>>,
+    protected: bool,
 ) -> Result<()> {
     let (_, store) = open_stores()?;
     let c = find(&store, name)?;
@@ -667,6 +668,10 @@ pub(crate) fn stamp(
     store.update(&c.id, |cur| {
         cur.labels
             .insert(super::reconcile::STACK_LABEL.into(), stack.to_string());
+        if protected {
+            cur.labels
+                .insert(super::reconcile::PROTECT.into(), "true".into());
+        }
         cur.labels
             .insert(super::reconcile::MANAGED_BY.into(), "delonix".into());
         cur.annotations
@@ -723,6 +728,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                 .annotations
                 .get(super::reconcile::LAST_APPLIED)
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: c.labels.contains_key(super::reconcile::PROTECT),
         })
         .collect())
 }

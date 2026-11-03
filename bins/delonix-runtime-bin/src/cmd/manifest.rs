@@ -1552,6 +1552,7 @@ spec: {}
                 fields: Default::default(),
                 owner: Some("s".into()),
                 last_applied: None,
+                protect: false,
             })
             .collect();
         let plan = crate::cmd::reconcile::plan(&desired, &actual, "s");

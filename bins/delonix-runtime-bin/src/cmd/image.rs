@@ -126,6 +126,7 @@ pub(crate) fn actual(docs: &[ManifestDoc]) -> Result<Vec<super::reconcile::Actua
             fields: f,
             owner: None,
             last_applied: None,
+            protect: false,
         });
     }
     Ok(out)

@@ -478,6 +478,7 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     let (store, name) = store_for_plan_name(name)?;
     // The document's own labels go on with the stamp: this is the one step
@@ -498,6 +499,12 @@ pub(crate) fn stamp(
             Some("delonix".to_string()),
         ),
     ]);
+    if protected {
+        labels.push((
+            super::reconcile::PROTECT.to_string(),
+            Some("true".to_string()),
+        ));
+    }
     let name = name.as_str();
     store.set_metadata(
         name,
@@ -584,6 +591,7 @@ fn actual_of(name: String, v: &delonix_volume::Volume) -> super::reconcile::Actu
                 .annotations
                 .get(super::reconcile::LAST_APPLIED)
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: v.labels.contains_key(super::reconcile::PROTECT),
         }
     }
 }

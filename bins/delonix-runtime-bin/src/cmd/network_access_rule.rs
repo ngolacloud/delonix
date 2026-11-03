@@ -94,6 +94,12 @@ fn last_applied_key(name: &str) -> String {
 fn owner_key(name: &str) -> String {
     format!("delonix.io/networkaccessrule-owner/{name}")
 }
+/// Per-origin protection mark. Like `owner_key`, it is the rule's OWN annotation
+/// on the container holding it — never the container's shared `PROTECT` label,
+/// which decides the container's own prune fate (see `stamp`).
+fn protect_key(name: &str) -> String {
+    format!("delonix.io/networkaccessrule-protect/{name}")
+}
 
 /// `ingress`/`egress` → the internal `in`/`out` `FwRule.dir`, or a clear error
 /// naming the document — same mapping `firewall.rs::apply` already uses for
@@ -294,6 +300,7 @@ pub(crate) fn actual(_docs: &[ManifestDoc]) -> Result<Vec<super::reconcile::Actu
                     .annotations
                     .get(&last_applied_key(origin))
                     .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+                protect: c.annotations.contains_key(&protect_key(origin)),
             });
         }
     }
@@ -313,11 +320,13 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     let (_images, store) = open_stores()?;
     let encoded = super::reconcile::encode_last_applied(fields);
     let owner_k = owner_key(name);
     let last_applied_k = last_applied_key(name);
+    let protect_k = protect_key(name);
     for c in store.list()? {
         let owns = c
             .firewall
@@ -330,6 +339,10 @@ pub(crate) fn stamp(
             cur.annotations.insert(owner_k.clone(), stack.to_string());
             cur.annotations
                 .insert(last_applied_k.clone(), encoded.clone());
+            if protected {
+                cur.annotations
+                    .insert(protect_k.clone(), "true".to_string());
+            }
             true
         })?;
     }

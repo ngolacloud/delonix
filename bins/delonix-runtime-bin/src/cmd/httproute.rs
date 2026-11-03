@@ -1503,6 +1503,7 @@ pub(crate) fn actual(docs: &[ManifestDoc]) -> Result<Vec<super::reconcile::Actua
             owner: stamp.map(|s| s.stack.clone()),
             last_applied: stamp
                 .and_then(|s| super::reconcile::decode_last_applied(&s.last_applied)),
+            protect: stamp.is_some_and(|s| s.protect),
         });
     }
     Ok(out)
@@ -1515,6 +1516,7 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     use ingress_proxy::Where;
     for w in [Where::Holder, Where::Host] {
@@ -1527,6 +1529,7 @@ pub(crate) fn stamp(
                 kind: kind.to_string(),
                 stack: stack.to_string(),
                 last_applied: super::reconcile::encode_last_applied(fields),
+                protect: protected,
             };
             cfg.stamps.retain(|x| x.source != name);
             cfg.stamps.push(st);

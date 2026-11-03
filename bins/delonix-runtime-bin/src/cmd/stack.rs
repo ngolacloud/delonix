@@ -526,6 +526,7 @@ pub(crate) fn actual_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile:
                     fields: Default::default(),
                     owner: None,
                     last_applied: None,
+                    protect: false,
                 });
             }
         }
@@ -3105,33 +3106,53 @@ fn stamp_all(
                 continue;
             }
         }
+        // Whether the author marked this resource protected (`delonix.io/protect`
+        // annotation == "true"). It travels to each `stamp()` so the mark can be
+        // persisted on the record; absent ⇒ `false` ⇒ no mark is written.
+        let protected = manifest::of_kind(docs, &d.kind)
+            .into_iter()
+            .find(|doc| manifest::plan_name(doc) == d.name)
+            .map(|doc| {
+                doc.metadata
+                    .annotations
+                    .get(reconcile::PROTECT)
+                    .map(|v| v == "true")
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
         let r = match d.kind.as_str() {
             k::CONTAINER => {
                 let spec = created_doc(docs, created, &d.kind, &d.name)
                     .and_then(super::container::created_spec_of);
-                super::container::stamp(&d.name, stack, &d.fields, spec.as_ref())
+                super::container::stamp(&d.name, stack, &d.fields, spec.as_ref(), protected)
             }
-            k::VOLUME => super::volume::stamp(&d.name, stack, &d.fields),
-            k::OBJECT_STORAGE => super::objectstorage::stamp(&d.name, stack, &d.fields),
-            k::NETWORK => super::network::stamp(&d.name, stack, &d.fields),
-            k::NETWORK_ROUTE => super::netroute::stamp(&d.name, stack, &d.fields),
-            k::SERVICE => super::service::stamp(&d.name, stack, &d.fields),
-            k::GITOPS_SOURCE => super::gitops::stamp(&d.name, stack, &d.fields),
-            k::NETWORK_GATEWAY => super::network_gateway::stamp(&d.name, stack, &d.fields),
-            k::NETWORK_ZONE => super::network_zone::stamp(&d.name, stack, &d.fields),
-            k::SYSTEM_CONTAINER => super::system_container::stamp(&d.name, stack, &d.fields),
-            k::IPPOOL => super::ippool::stamp(&d.name, stack, &d.fields),
-            k::STORAGE_POOL => super::storage_pool::stamp(&d.name, stack, &d.fields),
+            k::VOLUME => super::volume::stamp(&d.name, stack, &d.fields, protected),
+            k::OBJECT_STORAGE => super::objectstorage::stamp(&d.name, stack, &d.fields, protected),
+            k::NETWORK => super::network::stamp(&d.name, stack, &d.fields, protected),
+            k::NETWORK_ROUTE => super::netroute::stamp(&d.name, stack, &d.fields, protected),
+            k::SERVICE => super::service::stamp(&d.name, stack, &d.fields, protected),
+            k::GITOPS_SOURCE => super::gitops::stamp(&d.name, stack, &d.fields, protected),
+            k::NETWORK_GATEWAY => {
+                super::network_gateway::stamp(&d.name, stack, &d.fields, protected)
+            }
+            k::NETWORK_ZONE => super::network_zone::stamp(&d.name, stack, &d.fields, protected),
+            k::SYSTEM_CONTAINER => {
+                super::system_container::stamp(&d.name, stack, &d.fields, protected)
+            }
+            k::IPPOOL => super::ippool::stamp(&d.name, stack, &d.fields, protected),
+            k::STORAGE_POOL => super::storage_pool::stamp(&d.name, stack, &d.fields, protected),
             k::HTTP_ROUTE | k::INGRESS => {
-                super::httproute::stamp(&d.kind, &d.name, stack, &d.fields)
+                super::httproute::stamp(&d.kind, &d.name, stack, &d.fields, protected)
             }
-            k::POD => super::pod::stamp(&d.name, stack, &d.fields),
+            k::POD => super::pod::stamp(&d.name, stack, &d.fields, protected),
             k::VM => {
                 let spec =
                     created_doc(docs, created, &d.kind, &d.name).map(super::vm::created_spec_of);
-                super::vm::stamp(&d.name, stack, &d.fields, spec.as_ref())
+                super::vm::stamp(&d.name, stack, &d.fields, spec.as_ref(), protected)
             }
-            k::NETWORK_ACCESS_RULE => super::network_access_rule::stamp(&d.name, stack, &d.fields),
+            k::NETWORK_ACCESS_RULE => {
+                super::network_access_rule::stamp(&d.name, stack, &d.fields, protected)
+            }
             // `Image` is shared content and deliberately not ownable — stamping
             // it for one stack would hand another stack's cache an owner.
             k::IMAGE => Ok(()),
