@@ -141,16 +141,13 @@ pub(crate) fn stamp(
             Some("true".to_string()),
         ));
     }
-    delonix_sdn::infra::route_set_metadata(
-        from,
-        to,
-        &labels,
-        &[(
-            super::reconcile::LAST_APPLIED.to_string(),
-            Some(super::reconcile::encode_last_applied(fields)),
-        )],
-    )
-    .map_err(Into::into)
+    // Previous annotations, so the generation counter sees the prior spec
+    // (ADR-0090) — `route_set_metadata` merges a delta without returning the old.
+    let prev = delonix_sdn::infra::route_get(from, to)
+        .map(|d| d.annotations)
+        .unwrap_or_default();
+    let annotations = super::reconcile::stamp_annotation_delta(&prev, fields, k::NETWORK_ROUTE);
+    delonix_sdn::infra::route_set_metadata(from, to, &labels, &annotations).map_err(Into::into)
 }
 
 /// Closes the path. This is what `--prune` and `stack destroy` call, and its

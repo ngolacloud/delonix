@@ -506,14 +506,15 @@ pub(crate) fn stamp(
         ));
     }
     let name = name.as_str();
-    store.set_metadata(
-        name,
-        &labels,
-        &[(
-            super::reconcile::LAST_APPLIED.to_string(),
-            Some(super::reconcile::encode_last_applied(fields)),
-        )],
-    )?;
+    // The record's CURRENT annotations, so the generation counter sees the
+    // previous spec (ADR-0090). `set_metadata` merges a delta and never hands the
+    // previous state back, so it is read here.
+    let prev = store
+        .inspect(name)
+        .map(|v| v.annotations)
+        .unwrap_or_default();
+    let annotations = super::reconcile::stamp_annotation_delta(&prev, fields, k::VOLUME);
+    store.set_metadata(name, &labels, &annotations)?;
     Ok(())
 }
 
