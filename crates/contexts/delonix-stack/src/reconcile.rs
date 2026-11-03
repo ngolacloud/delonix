@@ -1077,7 +1077,7 @@ mod tests {
         assert_eq!(ann.get(OBSERVED_GENERATION).map(String::as_str), Some("1"));
         assert_eq!(
             ann.get(STORED_VERSION).map(String::as_str),
-            Some("compute.delonix.io/v1alpha1")
+            Some("compute.delonix.io/v1beta1")
         );
         assert!(ann.contains_key(LAST_APPLIED));
 

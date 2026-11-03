@@ -34,14 +34,14 @@
 # ── 1. Backends — rede SDN + containers que o Ingress nomeia ─────────────────
 #      Backends — SDN network + containers the Ingress names
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: sdn-demo
 spec:
   driver: bridge              # PT: o proxy L7 só alcança backends na SDN | EN: the L7 proxy only reaches backends on the SDN
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: web
@@ -49,7 +49,7 @@ spec:
   image: "nginx:alpine"       # PT: nginx serve em :80 | EN: nginx serves on :80
   network: sdn-demo
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: api
@@ -57,7 +57,7 @@ spec:
   image: "caddy:alpine"       # PT: caddy:alpine serve em :80 | EN: caddy:alpine serves on :80
   network: sdn-demo
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: docs
@@ -72,7 +72,7 @@ spec:
 #     os placeholders por um par real antes de servir tráfego real.
 # EN: PEM pair under tls_crt / tls_key (tls.crt / tls.key also work). Replace the
 #     placeholders with a real pair before serving real traffic.
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: shop-tls
@@ -84,7 +84,7 @@ spec:
 # ── 3. Ingress completo — listeners, TLS, dois hosts, paths, defaultBackend ──
 #      Full Ingress — listeners, TLS, two hosts, paths, defaultBackend
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Ingress
 metadata:
   name: shop
@@ -134,7 +134,7 @@ spec:
 ---
 # PT: Sem `entrypoints`: default porta 80. Sem `tls`: só serve HTTP.
 # EN: No `entrypoints`: defaults to port 80. No `tls`: serves HTTP only.
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Ingress
 metadata:
   name: status

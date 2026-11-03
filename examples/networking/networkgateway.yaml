@@ -37,7 +37,7 @@
 # ── 1. edge — aliases, uma regra de filtro, NAT (SNAT+DNAT) e uma política ───
 #      edge — aliases, a filter rule, NAT (SNAT+DNAT) and a policy
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkGateway
 metadata: { name: edge }
 spec:

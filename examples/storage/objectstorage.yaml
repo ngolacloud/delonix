@@ -20,7 +20,7 @@
 # ── 1. cephRgw — provisionar no Ceph Object Gateway do nó ────────────────────
 #      cephRgw — provision on the node's Ceph Object Gateway
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: ObjectStorage
 metadata:
   name: media
@@ -40,7 +40,7 @@ spec:
 # ── 2. external — trazer o teu próprio S3 (AWS, MinIO, Backblaze, …) ─────────
 #      external — bring your own S3 (AWS, MinIO, Backblaze, …)
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: ObjectStorage
 metadata:
   name: backups

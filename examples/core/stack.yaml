@@ -69,7 +69,7 @@
 # ── 1. O Stack blog — um documento que nomeia todos os grupos ───────────────
 #      The blog Stack — one document naming every group
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Stack
 metadata:
   name: blog
