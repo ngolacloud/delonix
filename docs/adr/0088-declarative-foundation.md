@@ -145,3 +145,25 @@ engine as built, and the owner chose the fit over the letter:
   disjoint. 2b-ii adds the two gates and the schema `x-delonix-update` emission. The hand tables
   stay as `update_class`'s documented backing data (each entry carries its reasoning); they are
   no longer read directly by the diff.
+
+## Addendum (2026-11-03): A2 is a DERIVED status, reconciling the "no stored status" stance
+
+D2 added a `status` block with `conditions`/`observedGeneration`/`storedVersion`. The `stack wait`
+command (`cmd/stack.rs`) carries a written decision this tensions with: *"this engine persists no
+status — `reconcile_status`, `vm status` and `pod_ip` all derive it on read, so a stored field
+would be a copy that goes stale."* The two are reconciled, not overridden:
+
+- **`conditions` (incl. `Ready`) and `outputs` are DERIVED on read**, exactly as the engine
+  already derives status — never a stored, staleable field. `Ready` is the one condition that
+  means the same in every Kind; it is computed as the inverse of the internal `is_pending`
+  (`reconcile_status`/`presence`/`ready_status`), so the four-mode presence marker becomes
+  `Ready`'s internal computation, not a user-facing knob. `stack wait` blocks on exactly `Ready`
+  (`is_ready`), with identical behaviour to before. A top-level `status:` in an input manifest is
+  accepted and ignored, so a `get -o yaml` that prints the derived status round-trips through
+  `apply`. **This is phase 2c-i, and it holds the "no stored status" decision — status is still
+  derived.**
+- **`generation`/`observedGeneration`/`storedVersion` are the only genuinely PERSISTED parts** —
+  a spec-version counter and the version the record was written in, not derived status. They are
+  record metadata, akin to `last-applied`, and tie to the state-versioning of ADR-0090 D3. Built
+  in **phase 2c-ii**, where the persistence is per-resource and its migration is tested — the
+  part that genuinely extends what the record stores, as opposed to what is read back.

@@ -1045,6 +1045,28 @@ pub(crate) fn schema_field_names<T: schemars::JsonSchema>() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// ADR-0088 A2: a document that carries a top-level `status:` block loads and
+    /// the status is IGNORED — it is not spec, and nobody writes it. This is what
+    /// lets `delonix get -o yaml` (which may print a DERIVED status) round-trip
+    /// back through `apply` without the status being mistaken for desired state.
+    #[test]
+    fn a_top_level_status_is_accepted_and_ignored() {
+        let text = "apiVersion: compute.delonix.io/v1alpha1\n\
+                    kind: Container\n\
+                    metadata: {name: web}\n\
+                    spec: {image: nginx}\n\
+                    status:\n\
+                    \x20\x20conditions:\n\
+                    \x20\x20\x20\x20- {type: Ready, status: \"True\"}\n";
+        let docs = super::load_str(text, "test").expect("a document with status: must load");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].kind, "Container");
+        assert_eq!(docs[0].metadata.name, "web");
+        // The status did not leak into the spec the engine acts on.
+        assert!(docs[0].spec.get("status").is_none());
+        assert!(docs[0].spec.get("conditions").is_none());
+    }
+
     /// Every Kind this restructuring RENAMES keeps its old spelling working.
     ///
     /// The table is the point: each row is a promise made in

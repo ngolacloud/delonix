@@ -1271,7 +1271,10 @@ fn wait(file: Option<PathBuf>, timeout: u64) -> Result<()> {
         for kind in super::kinds::stack_kinds() {
             for doc in manifest::of_kind(&docs, kind) {
                 let (present, status) = presence(kind, doc, &containers);
-                if is_pending(&present, kind, &status) {
+                // `wait` blocks on exactly one condition — `Ready` — in every
+                // Kind (ADR-0088 A2). `is_ready` is the uniform inverse of the
+                // internal `is_pending`, so this is identical to what it did.
+                if !is_ready(&present, kind, &status) {
                     pending.push(format!(
                         "{kind}/{} ({})",
                         doc.metadata.name,
@@ -1345,6 +1348,16 @@ fn is_pending(present: &str, kind: &str, status: &str) -> bool {
         // "no" (absent) and "?" (unknown/unreadable) both keep waiting.
         _ => true,
     }
+}
+
+/// Whether a resource is READY — the one condition that means the same thing in
+/// every Kind (ADR-0088 A2). It is the inverse of [`is_pending`]: the four-mode
+/// presence marker and the per-Kind runtime `status` are its INTERNAL
+/// computation, not a user-facing knob, and `stack wait` waits on exactly this.
+/// DERIVED on read, never stored — the engine persists no status (see [`wait`]),
+/// so `Ready` is computed from what the machine reports, not from a stale field.
+pub(crate) fn is_ready(present: &str, kind: &str, status: &str) -> bool {
+    !is_pending(present, kind, status)
 }
 
 /// Whether a resource's reported status counts as ready.
@@ -5659,6 +5672,32 @@ spec: {}
             "Volume",
             "permission denied: /var/lib/delonix/volumes"
         ));
+    }
+
+    /// ADR-0088 A2: `Ready` is the uniform condition `wait` blocks on, and it is
+    /// the exact INVERSE of the internal `is_pending` — the proof that adding it
+    /// did not change what `wait` does. Covers the four presence markers and the
+    /// Kinds with and without a runtime status.
+    #[test]
+    fn ready_is_the_uniform_inverse_of_pending() {
+        assert!(super::is_ready("-", "HTTPRoute", "-")); // declarative: ready
+        assert!(!super::is_ready("no", "Container", "absent")); // absent
+        assert!(!super::is_ready("?", "Volume", "?")); // unreadable store
+        assert!(super::is_ready("yes", "Container", "Running"));
+        assert!(!super::is_ready("yes", "Container", "starting"));
+        assert!(super::is_ready("yes", "VirtualMachine", "running"));
+        assert!(super::is_ready("yes", "Volume", "anything")); // store-only: ready by existing
+        for p in ["yes", "no", "-", "?"] {
+            for kind in ["Container", "VirtualMachine", "Volume", "HTTPRoute"] {
+                for st in ["Running", "starting", "healthy", "-", "absent", "?"] {
+                    assert_eq!(
+                        super::is_ready(p, kind, st),
+                        !super::is_pending(p, kind, st),
+                        "{p}/{kind}/{st}"
+                    );
+                }
+            }
+        }
     }
 
     /// Um Kind que o `apply` aplica tem de ter braço no `presence()`, senão cai
