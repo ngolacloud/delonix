@@ -28,8 +28,8 @@ async fn watch_stream_delivers_an_event_emitted_after_it_opened() {
     // The watch opens with no `since`: only what happens AFTER it is sent. A
     // fast poll keeps the test brisk; the server runs the same loop at 200ms.
     let poll = std::time::Duration::from_millis(20);
-    let mut stream = events::watch(root.clone(), WatchEventsRequest::default(), poll)
-        .expect("the stream opens");
+    let mut stream =
+        events::watch(root.clone(), WatchEventsRequest::default(), poll).expect("the stream opens");
 
     // An EXTERNAL change: another writer appends to the file bus, exactly as a
     // concurrent `delonix container stop` would, with no daemon in between.
@@ -68,5 +68,8 @@ async fn watch_stream_delivers_an_event_emitted_after_it_opened() {
         .expect("an event within 10s")
         .expect("the stream ended")
         .expect("an error in the stream");
-    assert_eq!(ev.target, "Container/api", "the volume event was filtered: {ev:?}");
+    assert_eq!(
+        ev.target, "Container/api",
+        "the volume event was filtered: {ev:?}"
+    );
 }

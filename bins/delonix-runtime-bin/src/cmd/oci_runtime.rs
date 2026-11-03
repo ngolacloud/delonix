@@ -113,7 +113,9 @@ fn start(store: &Store, id: &str) -> Result<()> {
     let mut c = super::util::find(store, id)?;
     runtime::reconcile_status(&mut c);
     if matches!(c.status, Status::Running | Status::Paused) {
-        return Err(Error::Invalid(format!("oci-runtime: {id} is already running")));
+        return Err(Error::Invalid(format!(
+            "oci-runtime: {id} is already running"
+        )));
     }
     // Recover the bundle + re-derive the rootfs the init pivots into. A runc
     // bundle has no delonix network, so this is the host-net launch path.
@@ -388,7 +390,8 @@ pub fn spec_to_container(id: &str, bundle: &Path, spec: &Spec) -> Result<(Contai
                     rl.typ()
                 ))
             })?;
-            c.ulimits.push(format!("{name}={}:{}", rl.soft(), rl.hard()));
+            c.ulimits
+                .push(format!("{name}={}:{}", rl.soft(), rl.hard()));
         }
     }
 
@@ -557,8 +560,8 @@ fn oci_bind_mounts(spec: &Spec) -> Vec<Mount> {
     let mut out = Vec::new();
     for m in mounts {
         let opts = m.options().clone().unwrap_or_default();
-        let is_bind = m.typ().as_deref() == Some("bind")
-            || opts.iter().any(|o| o == "bind" || o == "rbind");
+        let is_bind =
+            m.typ().as_deref() == Some("bind") || opts.iter().any(|o| o == "bind" || o == "rbind");
         if !is_bind {
             continue;
         }
@@ -751,7 +754,11 @@ mod tests {
 
     #[test]
     fn root_user_leaves_run_ids_unset() {
-        let user = UserBuilder::default().uid(0u32).gid(0u32).build().expect("user");
+        let user = UserBuilder::default()
+            .uid(0u32)
+            .gid(0u32)
+            .build()
+            .expect("user");
         let process = ProcessBuilder::default()
             .args(vec!["/bin/true".to_string()])
             .cwd("/")
@@ -796,8 +803,14 @@ mod tests {
 
     #[test]
     fn cpu_cores_and_shares_conversions() {
-        assert_eq!(cpu_cores(Some(50_000), Some(100_000)).as_deref(), Some("0.5"));
-        assert_eq!(cpu_cores(Some(200_000), Some(100_000)).as_deref(), Some("2"));
+        assert_eq!(
+            cpu_cores(Some(50_000), Some(100_000)).as_deref(),
+            Some("0.5")
+        );
+        assert_eq!(
+            cpu_cores(Some(200_000), Some(100_000)).as_deref(),
+            Some("2")
+        );
         assert_eq!(cpu_cores(Some(150_000), None).as_deref(), Some("1.5"));
         assert_eq!(cpu_cores(Some(-1), Some(100_000)), None);
         assert_eq!(cpu_cores(None, Some(100_000)), None);
@@ -814,20 +827,34 @@ mod tests {
             .shares(2048u64)
             .build()
             .expect("cpu");
-        let res = LinuxResourcesBuilder::default().cpu(cpu).build().expect("res");
-        let linux = LinuxBuilder::default().resources(res).build().expect("linux");
-        let (c, _) =
-            spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
-                .expect("ok");
+        let res = LinuxResourcesBuilder::default()
+            .cpu(cpu)
+            .build()
+            .expect("res");
+        let linux = LinuxBuilder::default()
+            .resources(res)
+            .build()
+            .expect("linux");
+        let (c, _) = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
+            .expect("ok");
         assert_eq!(c.cpus, "0.5");
         assert_eq!(c.cpu_weight, Some(shares_to_weight(2048).to_string()));
     }
 
     #[test]
     fn refuses_per_container_pids_limit() {
-        let pids = LinuxPidsBuilder::default().limit(100i64).build().expect("pids");
-        let res = LinuxResourcesBuilder::default().pids(pids).build().expect("res");
-        let linux = LinuxBuilder::default().resources(res).build().expect("linux");
+        let pids = LinuxPidsBuilder::default()
+            .limit(100i64)
+            .build()
+            .expect("pids");
+        let res = LinuxResourcesBuilder::default()
+            .pids(pids)
+            .build()
+            .expect("res");
+        let linux = LinuxBuilder::default()
+            .resources(res)
+            .build()
+            .expect("linux");
         let err = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
             .expect_err("pids refused");
         assert!(err.to_string().contains("pids"), "{err}");
@@ -836,8 +863,14 @@ mod tests {
     #[test]
     fn refuses_cpuset_pinning() {
         let cpu = LinuxCpuBuilder::default().cpus("0-1").build().expect("cpu");
-        let res = LinuxResourcesBuilder::default().cpu(cpu).build().expect("res");
-        let linux = LinuxBuilder::default().resources(res).build().expect("linux");
+        let res = LinuxResourcesBuilder::default()
+            .cpu(cpu)
+            .build()
+            .expect("res");
+        let linux = LinuxBuilder::default()
+            .resources(res)
+            .build()
+            .expect("linux");
         let err = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
             .expect_err("cpuset refused");
         assert!(err.to_string().contains("cpuset"), "{err}");
@@ -850,7 +883,10 @@ mod tests {
             .path("/var/run/netns/x")
             .build()
             .expect("ns");
-        let linux = LinuxBuilder::default().namespaces(vec![ns]).build().expect("linux");
+        let linux = LinuxBuilder::default()
+            .namespaces(vec![ns])
+            .build()
+            .expect("linux");
         let err = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
             .expect_err("netns path refused");
         assert!(err.to_string().contains("network namespace"), "{err}");
@@ -862,10 +898,12 @@ mod tests {
             .typ(LinuxNamespaceType::Network)
             .build()
             .expect("ns");
-        let linux = LinuxBuilder::default().namespaces(vec![ns]).build().expect("linux");
-        let (c, _) =
-            spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
-                .expect("ok");
+        let linux = LinuxBuilder::default()
+            .namespaces(vec![ns])
+            .build()
+            .expect("linux");
+        let (c, _) = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
+            .expect("ok");
         assert_eq!(c.net_mode.as_deref(), Some("none"));
     }
 
@@ -956,10 +994,12 @@ mod tests {
         let mut sysctl = HashMap::new();
         sysctl.insert("net.ipv4.ip_forward".to_string(), "1".to_string());
         sysctl.insert("kernel.shmmax".to_string(), "65536".to_string());
-        let linux = LinuxBuilder::default().sysctl(sysctl).build().expect("linux");
-        let (c, _) =
-            spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
-                .expect("ok");
+        let linux = LinuxBuilder::default()
+            .sysctl(sysctl)
+            .build()
+            .expect("linux");
+        let (c, _) = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
+            .expect("ok");
         assert_eq!(
             c.sysctls,
             vec![
@@ -978,7 +1018,10 @@ mod tests {
             .minor(0i64)
             .build()
             .expect("device");
-        let linux = LinuxBuilder::default().devices(vec![dev]).build().expect("linux");
+        let linux = LinuxBuilder::default()
+            .devices(vec![dev])
+            .build()
+            .expect("linux");
         let err = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
             .expect_err("devices refused");
         assert!(err.to_string().contains("devices"), "{err}");
@@ -996,14 +1039,22 @@ mod tests {
     fn honours_simple_seccomp_profile() {
         let seccomp = LinuxSeccompBuilder::default()
             .default_action(LinuxSeccompAction::ScmpActErrno)
-            .syscalls(vec![seccomp_syscall("read", LinuxSeccompAction::ScmpActAllow)])
+            .syscalls(vec![seccomp_syscall(
+                "read",
+                LinuxSeccompAction::ScmpActAllow,
+            )])
             .build()
             .expect("seccomp");
-        let linux = LinuxBuilder::default().seccomp(seccomp).build().expect("linux");
-        let (c, _) =
-            spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
-                .expect("ok");
-        assert!(c.seccomp_profile.is_some(), "a 2-action profile is installed");
+        let linux = LinuxBuilder::default()
+            .seccomp(seccomp)
+            .build()
+            .expect("linux");
+        let (c, _) = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
+            .expect("ok");
+        assert!(
+            c.seccomp_profile.is_some(),
+            "a 2-action profile is installed"
+        );
     }
 
     #[test]
@@ -1016,7 +1067,10 @@ mod tests {
             ])
             .build()
             .expect("seccomp");
-        let linux = LinuxBuilder::default().seccomp(seccomp).build().expect("linux");
+        let linux = LinuxBuilder::default()
+            .seccomp(seccomp)
+            .build()
+            .expect("linux");
         let err = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
             .expect_err("complex seccomp refused");
         assert!(err.to_string().contains("seccomp"), "{err}");
@@ -1051,10 +1105,21 @@ mod tests {
         let (c, _) = spec_to_container("c1", Path::new("/b"), &spec_no_linux(process)).expect("ok");
         // NET_ADMIN is beyond the baseline → added; a baseline cap not wanted
         // (DAC_OVERRIDE=1) is dropped; a wanted baseline cap (CHOWN) is neither.
-        assert!(c.cap_add.contains(&"CAP_NET_ADMIN".to_string()), "add: {:?}", c.cap_add);
-        assert!(c.cap_drop.contains(&"CAP_DAC_OVERRIDE".to_string()), "drop: {:?}", c.cap_drop);
+        assert!(
+            c.cap_add.contains(&"CAP_NET_ADMIN".to_string()),
+            "add: {:?}",
+            c.cap_add
+        );
+        assert!(
+            c.cap_drop.contains(&"CAP_DAC_OVERRIDE".to_string()),
+            "drop: {:?}",
+            c.cap_drop
+        );
         assert!(!c.cap_drop.contains(&"CAP_CHOWN".to_string()), "CHOWN kept");
-        assert!(!c.cap_add.contains(&"CAP_CHOWN".to_string()), "CHOWN already baseline");
+        assert!(
+            !c.cap_add.contains(&"CAP_CHOWN".to_string()),
+            "CHOWN already baseline"
+        );
     }
 
     #[test]
@@ -1087,10 +1152,12 @@ mod tests {
             .minor(229i64)
             .build()
             .expect("device");
-        let linux = LinuxBuilder::default().devices(vec![dev]).build().expect("linux");
-        let (c, _) =
-            spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
-                .expect("ok");
+        let linux = LinuxBuilder::default()
+            .devices(vec![dev])
+            .build()
+            .expect("linux");
+        let (c, _) = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
+            .expect("ok");
         assert_eq!(c.devices, vec!["/dev/fuse".to_string()]);
     }
 }

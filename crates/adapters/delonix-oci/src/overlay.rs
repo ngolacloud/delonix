@@ -557,6 +557,37 @@ impl ImageStore {
         if lowers.is_empty() {
             return Err(Error::NoLayers);
         }
+        // Root mode unpacks layers without their owners too (ADR-0062).
+        let owners = self.image_owners(image)?;
+        self.mount_overlay_from_lowers(&lowers, &owners, container_id, volatile)
+    }
+
+    /// Mounts an EMPTY-base overlay for a `FROM scratch` BUILD work container: a
+    /// single empty lower and a writable upper. The normal [`Self::mount_rootfs`]
+    /// path refuses a zero-layer image (DX-1410, `NoLayers`) because `run` has no
+    /// use for one — but a scratch build needs a writable tree for `COPY`/`RUN` to
+    /// fill, and `commit_upper` then packs its upper as the image's one layer.
+    /// Without this the rootful commit path produced a layerless image that
+    /// `image save`/`push` refused (ADR-0083 debt). The empty lower lives in the
+    /// container's own base dir, so `unmount_rootfs` removes it with the rest of
+    /// the ephemeral work container.
+    pub fn mount_scratch_rootfs(&self, container_id: &str) -> Result<PathBuf> {
+        let empty = self.container_dir(container_id).join("scratch-lower");
+        std::fs::create_dir_all(&empty)?;
+        self.mount_overlay_from_lowers(&[empty], &[], container_id, false)
+    }
+
+    /// Lays down `upper`/`work`/`merged` and mounts an overlay with `lowers`
+    /// (highest first), recording `owners` for the init to apply (ADR-0062).
+    /// Shared by [`Self::mount_rootfs`] (image layers) and
+    /// [`Self::mount_scratch_rootfs`] (one empty lower).
+    fn mount_overlay_from_lowers(
+        &self,
+        lowers: &[PathBuf],
+        owners: &[Owner],
+        container_id: &str,
+        volatile: bool,
+    ) -> Result<PathBuf> {
         let base = self.container_dir(container_id);
         let upper = base.join("upper");
         let work = base.join("work");
@@ -567,8 +598,7 @@ impl ImageStore {
         for d in [&upper, &work, &merged] {
             std::fs::create_dir_all(d)?;
         }
-        // Root mode unpacks layers without their owners too (ADR-0062).
-        write_owners(&base.join(Self::OWNERS_FILE), &self.image_owners(image)?)?;
+        write_owners(&base.join(Self::OWNERS_FILE), owners)?;
 
         let lowerdir = lowers
             .iter()

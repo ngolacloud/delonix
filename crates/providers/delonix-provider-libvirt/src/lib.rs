@@ -4362,7 +4362,10 @@ mod tests {
     #[test]
     fn host_capacity_reports_the_local_host() {
         let cap = host_capacity(Path::new("."));
-        assert!(cap.cpus >= 1, "a libvirt host has at least one CPU: {cap:?}");
+        assert!(
+            cap.cpus >= 1,
+            "a libvirt host has at least one CPU: {cap:?}"
+        );
         assert!(cap.mem_total_bytes > 0, "it reports total RAM: {cap:?}");
         assert!(
             cap.mem_used_bytes <= cap.mem_total_bytes,

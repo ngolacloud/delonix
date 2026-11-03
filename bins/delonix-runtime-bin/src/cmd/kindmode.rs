@@ -59,7 +59,8 @@ pub(crate) struct KindCluster {
     pub k8s_version: Option<String>,
     /// How many workers to join to the control-plane (0 = control-plane only, no taint).
     pub workers: u32,
-    /// How many control-planes. >1 requires a stable endpoint in front of them.
+    /// How many control-planes. >1 is HA — delonix runs an HAProxy container as
+    /// the stable endpoint (VIP) in front of them.
     pub control_planes: u32,
 }
 
@@ -490,6 +491,428 @@ fn join_config_yaml(j: &JoinInfo) -> String {
     )
 }
 
+/// A control-plane's `JoinConfiguration` — the worker's, plus the `controlPlane`
+/// block that turns a `kubeadm join` into "join AS a control-plane": its own
+/// `localAPIEndpoint` (the apiserver this CP will advertise) and the
+/// `certificateKey` that decrypts the cluster certs `kubeadm init --upload-certs`
+/// stashed in a Secret. Same single-source-of-truth discipline as
+/// [`join_config_yaml`] — no KubeletConfiguration here either.
+fn cp_join_config_yaml(j: &JoinInfo, cp_ip: &str, cert_key: &str) -> String {
+    format!(
+        "{base}\
+         controlPlane:\n  localAPIEndpoint:\n    advertiseAddress: {ip}\n    bindPort: 6443\n  certificateKey: \"{key}\"\n",
+        base = join_config_yaml(j),
+        ip = cp_ip,
+        key = cert_key,
+    )
+}
+
+/// The image of the HA control-plane load balancer (a plain HAProxy container, not
+/// a `kindest/node`). Pinned; `haproxy.cfg` comes from [`super::lb::build_haproxy_cfg`].
+const LB_IMAGE: &str = "haproxy:lts-alpine";
+
+/// Boots the HA load balancer: an HAProxy CONTAINER on the cluster network,
+/// TCP-balancing `6443` across the control-planes' IPs, publishing `api_port` to
+/// the host (so `kubectl` reaches the cluster through the LB). Returns the running
+/// container and its IP on the cluster network — the `controlPlaneEndpoint`.
+///
+/// The config is written to the cluster's shared dir (the same bind mount the
+/// nodes use) and read from there; the entrypoint is overridden to `haproxy` so
+/// the image's own launcher is bypassed. `-db` keeps HAProxy in the foreground as
+/// the container's PID 1.
+fn boot_lb(
+    images: &ImageStore,
+    store: &Store,
+    cfg: &KindCluster,
+    cp_ips: &[String],
+    api_port: u16,
+) -> Result<(Container, String)> {
+    super::util::resolve_or_pull(images, LB_IMAGE)?;
+    let cfgfile = super::lb::build_haproxy_cfg(cp_ips);
+    std::fs::write(cluster_dir(&cfg.name).join("haproxy.cfg"), &cfgfile)?;
+    let node = format!("{}-external-load-balancer", cfg.name); // kind's name for it
+    container::cmd_run(
+        images,
+        store,
+        RunOpts {
+            detach: true,
+            name: Some(node.clone()),
+            net: cluster_net(&cfg.name),
+            volumes: vec![format!(
+                "{}:{NODE_SHARED}",
+                cluster_dir(&cfg.name).display()
+            )],
+            ports: vec![format!("{api_port}:6443")],
+            restart: "no".to_string(),
+            entrypoint: Some(vec!["haproxy".to_string()]),
+            command: vec![
+                "-f".to_string(),
+                format!("{NODE_SHARED}/haproxy.cfg"),
+                "-db".to_string(),
+            ],
+            labels: vec![
+                "io.x-k8s.kind.role=external-load-balancer".to_string(),
+                format!("io.x-k8s.kind.cluster={}", cfg.name),
+            ],
+            image: LB_IMAGE.to_string(),
+            quiet: true,
+            ..Default::default()
+        },
+    )?;
+    let c = store
+        .list()?
+        .into_iter()
+        .find(|c| c.name == node)
+        .ok_or_else(|| {
+            Error::Invalid(super::po::tf(
+                "load balancer '{node}' was not registered in the store",
+                &[("node", &node)],
+            ))
+        })?;
+    let ip = c.ip.clone().ok_or_else(|| {
+        Error::Invalid(super::po::tf(
+            "load balancer '{node}' got no IP on the cluster network",
+            &[("node", &node)],
+        ))
+    })?;
+    Ok((c, ip))
+}
+
+/// The 64-hex certificate key from `kubeadm init --upload-certs` /
+/// `kubeadm init phase upload-certs`: the last whitespace token that is 64 hex
+/// chars. PURE.
+fn extract_cert_key(output: &str) -> Option<String> {
+    output
+        .split_whitespace()
+        .rev()
+        .find(|t| t.len() == 64 && t.chars().all(|c| c.is_ascii_hexdigit()))
+        .map(|s| s.to_string())
+}
+
+/// HA path of [`create`]: N control-planes behind an HAProxy container. Mirrors
+/// the single-control-plane flow — same rootless kubeadm config, same kindnet
+/// CNI, same worker join — with a load balancer as the `controlPlaneEndpoint`,
+/// `kubeadm init --upload-certs`, and the other control-planes joining with
+/// [`cp_join_config_yaml`].
+fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()> {
+    super::output::info(&format!(
+        "{} \"{}\" (HA, {} control-planes)",
+        super::po::t("Creating cluster"),
+        cfg.name,
+        cfg.control_planes
+    ));
+    let mut p = super::output::Progress::new();
+
+    if !delonix_linux::cgroup_limits_apply() {
+        super::output::warn(super::po::t(
+            "rootless without cgroup delegation: the nodes' CPU/memory/PIDs limits are not enforced \
+             (namespace/seccomp isolation still holds). For limits, run under \
+             `systemd-run --user --scope -p Delegate=yes`.",
+        ));
+    }
+    // SAFETY: single-threaded here; read by the re-exec children.
+    unsafe {
+        std::env::set_var("DELONIX_NO_CGROUP_WARN", "1");
+    }
+
+    std::fs::create_dir_all(cluster_dir(&cfg.name))?;
+    let net = cluster_net(&cfg.name);
+    let nstore = delonix_sdn::NetworkStore::open(super::util::state_root())?;
+    if nstore.get(&net).is_err() {
+        super::network::create_network(
+            &nstore,
+            &net,
+            "bridge",
+            None,
+            None,
+            "",
+            None,
+            Vec::new(),
+            None,
+        )?;
+    }
+
+    let curta = cfg
+        .image
+        .split('@')
+        .next()
+        .unwrap_or(&cfg.image)
+        .to_string();
+    p.step(
+        &format!("{} ({curta})", super::po::t("Ensuring node image")),
+        "🖼",
+    );
+    super::util::resolve_or_pull(images, &cfg.image)?;
+    p.ok();
+
+    let api_port = pick_api_port(store, cfg.api_port, &cfg.name)?;
+
+    // --- boot the N control-plane node containers, leader first ---
+    let cp_names: Vec<String> = (1..=cfg.control_planes)
+        .map(|i| {
+            if i == 1 {
+                format!("{}-control-plane", cfg.name)
+            } else {
+                format!("{}-control-plane{i}", cfg.name)
+            }
+        })
+        .collect();
+    p.step(
+        &format!(
+            "{} {} control-plane(s)",
+            super::po::t("Preparing"),
+            cfg.control_planes
+        ),
+        "📦",
+    );
+    let mut cps: Vec<Container> = Vec::new();
+    for name in &cp_names {
+        // The CPs do NOT publish the api port — the LB does (and is the endpoint).
+        cps.push(boot_node(
+            images,
+            store,
+            cfg,
+            name,
+            "control-plane",
+            Vec::new(),
+        )?);
+    }
+    let cp_ips: Vec<String> = cps
+        .iter()
+        .map(|c| {
+            c.ip.clone().ok_or_else(|| {
+                Error::Invalid(super::po::tf(
+                    "node '{n}' got no IP on the cluster network",
+                    &[("n", &c.name)],
+                ))
+            })
+        })
+        .collect::<Result<_>>()?;
+    p.ok();
+
+    // --- the load balancer (the stable endpoint) ---
+    p.step(super::po::t("Provisioning the HAProxy load balancer"), "⚖️");
+    let (_lb, lb_ip) = boot_lb(images, store, cfg, &cp_ips, api_port)?;
+    let endpoint = format!("{lb_ip}:6443");
+    p.ok();
+
+    // --- kubeadm config on the leader: controlPlaneEndpoint = the LB ---
+    p.step(super::po::t("Writing configuration"), "📜");
+    let version = cfg
+        .k8s_version
+        .as_deref()
+        .map(|v| format!("kubernetesVersion: v{v}\n"))
+        .unwrap_or_default();
+    let kubeadm_conf = format!(
+        "apiVersion: kubeadm.k8s.io/v1beta4\n\
+         kind: InitConfiguration\n\
+         localAPIEndpoint:\n  advertiseAddress: {ip}\n  bindPort: 6443\n\
+         nodeRegistration:\n  criSocket: unix:///run/containerd/containerd.sock\n\
+         ---\n\
+         apiVersion: kubeadm.k8s.io/v1beta4\n\
+         kind: ClusterConfiguration\n{version}\
+         controlPlaneEndpoint: \"{endpoint}\"\n\
+         networking:\n  podSubnet: {pods}\n  serviceSubnet: {svcs}\n\
+         apiServer:\n  certSANs:\n  - \"127.0.0.1\"\n  - \"localhost\"\n  - \"{lb_ip}\"\n\
+         ---\n\
+         apiVersion: kubelet.config.k8s.io/v1beta1\n\
+         kind: KubeletConfiguration\n\
+         cgroupDriver: systemd\n\
+         failSwapOn: false\n\
+         featureGates:\n  KubeletInUserNamespace: true\n\
+         ---\n\
+         apiVersion: kubeproxy.config.k8s.io/v1alpha1\n\
+         kind: KubeProxyConfiguration\n\
+         conntrack:\n  maxPerCore: 0\n  min: 0\n",
+        ip = cp_ips[0],
+        pods = cfg.pod_subnet,
+        svcs = cfg.service_subnet,
+    );
+    std::fs::write(cluster_dir(&cfg.name).join("kubeadm.conf"), &kubeadm_conf)?;
+    p.ok();
+
+    // --- init the leader, uploading the certs so the other CPs can pull them ---
+    p.step(super::po::t("Starting control-plane (kubeadm init)"), "🕹️");
+    let leader = &cps[0];
+    node_must(
+        leader,
+        "kubeadm init",
+        &format!(
+            "kubeadm init --config {NODE_SHARED}/kubeadm.conf --upload-certs \
+             --ignore-preflight-errors=Swap,SystemVerification,FileContent--proc-sys-net-bridge-bridge-nf-call-iptables,Mem,NumCPU \
+             2>&1 | tail -3"
+        ),
+    )?;
+    let (_, up_out) = node_exec_capture(
+        leader,
+        "KUBECONFIG=/etc/kubernetes/admin.conf kubeadm init phase upload-certs --upload-certs 2>/dev/null",
+    )?;
+    let cert_key = extract_cert_key(&up_out).ok_or_else(|| {
+        Error::Invalid(
+            super::po::t(
+                "could not read the certificate key from `kubeadm init phase upload-certs`",
+            )
+            .into(),
+        )
+    })?;
+    p.ok();
+
+    // --- CNI (kindnet), once ---
+    if cfg.cni == "default" {
+        p.step(super::po::t("Installing CNI (kindnet)"), "🔌");
+        node_must(
+            leader,
+            "CNI",
+            &format!(
+                "sed 's|{{{{ .PodSubnet }}}}|{pods}|g; s|{{{{.PodSubnet}}}}|{pods}|g' /kind/manifests/default-cni.yaml \
+                 | KUBECONFIG=/etc/kubernetes/admin.conf kubectl apply -f - >/dev/null 2>&1",
+                pods = cfg.pod_subnet
+            ),
+        )?;
+        p.ok();
+    }
+
+    // --- the other control-planes join (sequential: etcd membership changes) ---
+    node_must(
+        leader,
+        super::po::t("generate the join command"),
+        &format!(
+            "KUBECONFIG=/etc/kubernetes/admin.conf kubeadm token create --print-join-command \
+             > {NODE_SHARED}/join.sh 2>/dev/null"
+        ),
+    )?;
+    let join_cmd =
+        std::fs::read_to_string(cluster_dir(&cfg.name).join("join.sh")).map_err(|e| {
+            Error::Invalid(format!("{}: {e}", super::po::t("reading the join command")))
+        })?;
+    let join = parse_join_command(&join_cmd)?;
+    p.step(
+        &format!(
+            "{} {} control-plane(s)",
+            super::po::t("Joining"),
+            cfg.control_planes - 1
+        ),
+        "🎮",
+    );
+    for i in 1..cps.len() {
+        let conf = format!("join-{}.conf", cp_names[i]);
+        std::fs::write(
+            cluster_dir(&cfg.name).join(&conf),
+            cp_join_config_yaml(&join, &cp_ips[i], &cert_key),
+        )?;
+        node_must(
+            &cps[i],
+            &super::po::tf("join of control-plane '{n}'", &[("n", &cp_names[i])]),
+            &format!(
+                "kubeadm join --config {NODE_SHARED}/{conf} \
+                 --ignore-preflight-errors=Swap,SystemVerification,FileContent--proc-sys-net-bridge-bridge-nf-call-iptables,Mem,NumCPU"
+            ),
+        )?;
+    }
+    p.ok();
+
+    // --- workers (parallel), exactly as the single-CP path ---
+    if cfg.workers > 0 {
+        let join_yaml = join_config_yaml(&join);
+        p.step(
+            &format!("{} {} worker(s)", super::po::t("Joining"), cfg.workers),
+            "🚜",
+        );
+        let errors: Vec<String> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (1..=cfg.workers)
+                .map(|i| {
+                    let wnode = worker_name(&cfg.name, i);
+                    let join_yaml = &join_yaml;
+                    scope.spawn(move || -> Result<()> {
+                        let conf = format!("join-{wnode}.conf");
+                        std::fs::write(cluster_dir(&cfg.name).join(&conf), join_yaml)?;
+                        let w = boot_node(images, store, cfg, &wnode, "worker", Vec::new())?;
+                        node_must(
+                            &w,
+                            &super::po::tf("join of worker '{wnode}'", &[("wnode", &wnode)]),
+                            &format!(
+                                "kubeadm join --config {NODE_SHARED}/{conf} \
+                                 --ignore-preflight-errors=Swap,SystemVerification,FileContent--proc-sys-net-bridge-bridge-nf-call-iptables,Mem,NumCPU"
+                            ),
+                        )
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .filter_map(|h| match h.join() {
+                    Ok(Ok(())) => None,
+                    Ok(Err(e)) => Some(e.to_string()),
+                    Err(_) => Some(super::po::t("a worker thread panicked").to_string()),
+                })
+                .collect()
+        });
+        if !errors.is_empty() {
+            return Err(Error::Invalid(super::po::tf(
+                "{n} worker(s) failed:\n  {list}",
+                &[
+                    ("n", &errors.len().to_string()),
+                    ("list", &errors.join("\n  ")),
+                ],
+            )));
+        }
+    } else {
+        // CP-only: untaint so workloads schedule (coredns, the user's pods).
+        let _ = node_exec(
+            leader,
+            "KUBECONFIG=/etc/kubernetes/admin.conf kubectl taint nodes --all \
+             node-role.kubernetes.io/control-plane- >/dev/null 2>&1",
+        );
+    }
+
+    // --- wait for every node Ready ---
+    let want = cfg.control_planes + cfg.workers;
+    p.step(
+        &super::po::tf(
+            "Waiting for all {n} node(s) to be Ready",
+            &[("n", &want.to_string())],
+        ),
+        "⏳",
+    );
+    wait_in_node(
+        leader,
+        &super::po::tf("the {n} node(s) to become Ready", &[("n", &want.to_string())]),
+        &format!(
+            "[ \"$(KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes --no-headers 2>/dev/null | grep -cw Ready)\" = \"{want}\" ]"
+        ),
+        Duration::from_secs(240 + 60 * u64::from(want)),
+    )?;
+    p.ok();
+
+    // Cross-node pod traffic leaves each node with the POD's address as source
+    // (kindnet routes the cluster CIDR without masquerade); the bridge
+    // anti-spoofing drops a source a port was not given. An HA cluster is
+    // multi-node by definition, so this is REQUIRED here (same reason the
+    // worker path does it) — each node's own PodCIDR is authorised on its port.
+    authorise_node_pod_cidrs(store, leader, &cfg.name, &cfg.pod_subnet)?;
+
+    // Export the kubeconfig (host → LB → apiservers) and merge it into ~/.kube/config.
+    write_kubeconfig(leader, &cfg.name, api_port)?;
+    if cfg.cni == "default" {
+        let _ = super::net_profiles_install::write_record(
+            &cfg.name,
+            &super::net_profiles_install::ProfileRecord {
+                cni: "default".to_string(),
+                version: "kindnet".to_string(),
+                kube_proxy: "iptables".to_string(),
+                pod_subnet: cfg.pod_subnet.clone(),
+                service_subnet: cfg.service_subnet.clone(),
+                ..Default::default()
+            },
+        );
+    }
+    super::output::info(&super::po::tf(
+        "cluster \"{name}\" ready (HA)",
+        &[("name", &cfg.name)],
+    ));
+    Ok(())
+}
+
 /// Invents a cluster name (king + place + suffix), avoiding the ones already used.
 ///
 /// Without this, `create` without `--name` always used "delonix" and collided on the second
@@ -732,27 +1155,12 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
     // was not.
     preflight_cgroup_controllers()?;
     if cfg.control_planes > 1 {
-        // Refuse instead of pretending: with N control-planes and the
-        // `controlPlaneEndpoint` pointing to the IP of the FIRST one, all the
-        // kubelets and the other CPs talk to that node — if it dies, the
-        // cluster dies. That is not HA, it is a single point of failure with 3 nodes and the
-        // appearance of HA, which is worse than not having it. Real HA needs a
-        // load-balancer in front (`kind` runs a haproxy), and that is not yet
-        // done here. `cluster kubeadm` refuses for the SAME reason.
-        let n = cfg.control_planes;
-        return Err(Error::Invalid(if super::output::is_pt() {
-            format!(
-                "--control-planes {n} ainda não é suportado: o kubeadm em HA precisa de um endpoint \
-                 estável (load-balancer/VIP) à frente dos control-planes, e o delonix ainda não o \
-                 provisiona. Usa `--control-planes 1` (e `--workers N` para capacidade)."
-            )
-        } else {
-            format!(
-                "--control-planes {n} is not supported yet: kubeadm HA needs a stable endpoint \
-                 (load-balancer/VIP) in front of the control-planes, which delonix does not provision \
-                 yet. Use `--control-planes 1` (and `--workers N` for capacity)."
-            )
-        }));
+        // HA: several control-planes behind a stable endpoint. Delonix now
+        // provisions that endpoint — an HAProxy CONTAINER on the cluster network,
+        // TCP-balancing 6443 across the control-planes (what `kind` does with
+        // `kindest/haproxy`) — so `controlPlaneEndpoint` points at the LB, not at
+        // one CP. See `create_ha`.
+        return create_ha(images, store, cfg);
     }
 
     super::output::info(&format!(
@@ -2721,6 +3129,42 @@ fn remove_kubecontext_at(dest: &std::path::Path, name: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// The certificate key is the last 64-hex token of `kubeadm init phase
+    /// upload-certs`'s output — the preceding prose ("Using certificate key:")
+    /// must not be mistaken for it, and a run that printed none yields `None`.
+    #[test]
+    fn extract_cert_key_takes_the_64_hex_token() {
+        let out = "[upload-certs] Storing the certificates in Secret \"kubeadm-certs\"\n\
+                   [upload-certs] Using certificate key:\n\
+                   abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\n";
+        assert_eq!(
+            extract_cert_key(out).as_deref(),
+            Some("abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789")
+        );
+        assert_eq!(extract_cert_key("no key here\n"), None);
+        // A 63-char (too short) or non-hex token is not a key.
+        assert_eq!(extract_cert_key("zzzz... not hex"), None);
+    }
+
+    /// A control-plane join carries the worker's discovery PLUS the `controlPlane`
+    /// block (its own apiserver endpoint + the certificate key) — that is what
+    /// makes the join a control-plane and not a worker.
+    #[test]
+    fn cp_join_config_carries_the_control_plane_block() {
+        let j = JoinInfo {
+            endpoint: "10.0.0.9:6443".to_string(),
+            token: "ab.cd".to_string(),
+            ca_hash: "sha256:ef".to_string(),
+        };
+        let y = cp_join_config_yaml(&j, "10.205.29.94", "deadbeef");
+        // the LB endpoint, not a CP IP, is the discovery endpoint
+        assert!(y.contains("apiServerEndpoint: \"10.0.0.9:6443\""), "{y}");
+        assert!(y.contains("kind: JoinConfiguration"), "{y}");
+        assert!(y.contains("controlPlane:"), "{y}");
+        assert!(y.contains("advertiseAddress: 10.205.29.94"), "{y}");
+        assert!(y.contains("certificateKey: \"deadbeef\""), "{y}");
+    }
+
     /// The API PORT column of a VM cluster is read from its kubeconfig's
     /// `server:` URL — the real endpoint, not a guess. A kubeconfig without one
     /// (or with a non-numeric tail) yields `None`, which the caller shows as `-`.
@@ -2731,7 +3175,10 @@ mod tests {
         // No server line → nothing to report.
         assert_eq!(api_port_from_kubeconfig("apiVersion: v1\n"), None);
         // A tail that is not a port is refused rather than shown.
-        assert_eq!(api_port_from_kubeconfig("    server: https://host/path"), None);
+        assert_eq!(
+            api_port_from_kubeconfig("    server: https://host/path"),
+            None
+        );
     }
 
     /// `cluster load` packs a full copy of the image next to the cluster. The

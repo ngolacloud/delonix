@@ -4810,9 +4810,7 @@ fn console_str(data: &serde_json::Value, key: &str, vmid: u32, route: &str) -> R
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .ok_or_else(|| {
-            Error::UnexpectedAnswer(format!(
-                "proxmox: {route} for VM {vmid} carried no `{key}`"
-            ))
+            Error::UnexpectedAnswer(format!("proxmox: {route} for VM {vmid} carried no `{key}`"))
         })
 }
 
@@ -8060,7 +8058,10 @@ mod tests {
         // A real Proxmox ticket is PVEVNC:<hex> and carries ':'; the query value
         // must escape it (and '/', '+', '=', space) so the node reads the whole
         // ticket, not a truncated one.
-        assert_eq!(url_encode("PVEVNC:63Ab/c+d=1 2"), "PVEVNC%3A63Ab%2Fc%2Bd%3D1%202");
+        assert_eq!(
+            url_encode("PVEVNC:63Ab/c+d=1 2"),
+            "PVEVNC%3A63Ab%2Fc%2Bd%3D1%202"
+        );
         // Unreserved characters are left as-is.
         assert_eq!(url_encode("aZ09-_.~"), "aZ09-_.~");
     }

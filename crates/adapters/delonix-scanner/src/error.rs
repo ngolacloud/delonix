@@ -28,6 +28,12 @@ pub enum Error {
     #[error("OSV feed: expected an array or a {{\"vulns\":[…]}} object")]
     OsvShape,
 
+    /// An OSV feed delivered as a ZIP (the `<ecosystem>/all.zip` export) that
+    /// the minimal reader could not open: not a zip, truncated, zip64, or an
+    /// unsupported compression method. The message says which.
+    #[error("OSV zip feed: {0}")]
+    OsvZip(String),
+
     /// A directory named as an Odoo module has no manifest.
     #[error("'{0}' is not an Odoo module (no __manifest__.py)")]
     NotAModule(String),
@@ -74,6 +80,7 @@ impl Error {
             Error::AdvisoryDb(_) => 1402,
             Error::OsvNotJson(_) => 1403,
             Error::OsvShape => 1404,
+            Error::OsvZip(_) => 1419,
             Error::NotAModule(_) => 1405,
             Error::NoModule => 1406,
             Error::ModuleScan(_) => 9402,
@@ -108,6 +115,7 @@ mod tests {
             Error::AdvisoryDb(bad_json()),
             Error::OsvNotJson(bad_json()),
             Error::OsvShape,
+            Error::OsvZip("truncated".into()),
             Error::NotAModule("m".into()),
             Error::NoModule,
             Error::ModuleScan(std::io::Error::other("x")),

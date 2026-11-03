@@ -17,11 +17,11 @@
 use std::time::Duration;
 
 use delonix_node_api::proto::v1::container_service_client::ContainerServiceClient;
+use delonix_node_api::proto::v1::{Container, ResourceMeta};
 use delonix_node_api::proto::v1::{
     ContainerPhase, ContainerSpec, CreateContainerRequest, DeleteContainerRequest,
     GetContainerRequest, Resources, UpdateContainerRequest,
 };
-use delonix_node_api::proto::v1::{Container, ResourceMeta};
 
 fn short_sock() -> (tempfile::TempDir, String) {
     let dir = tempfile::tempdir_in("/tmp").expect("a directory under /tmp");

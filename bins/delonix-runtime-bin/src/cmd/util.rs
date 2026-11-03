@@ -219,6 +219,16 @@ pub(crate) fn prepare_rootfs_flat(images: &ImageStore, img: &Image, id: &str) ->
         let rfs = images.root().join("containers").join(id).join("rootfs");
         images.export_rootfs(img, &rfs)?;
         Ok(rfs.to_string_lossy().into_owned())
+    } else if img.layers.is_empty() {
+        // `FROM scratch`: no image layer to serve as the overlay's lower, so the
+        // ordinary `mount_rootfs` refuses it (DX-1410). A scratch build mounts an
+        // empty base instead; `COPY`/`RUN` fill the upper, which `commit_upper`
+        // then packs as the image's one layer. Without this the rootful commit
+        // path committed a layerless image that `image save`/`push` rejected.
+        Ok(images
+            .mount_scratch_rootfs(id)?
+            .to_string_lossy()
+            .into_owned())
     } else {
         Ok(images.mount_rootfs(img, id)?.to_string_lossy().into_owned())
     }

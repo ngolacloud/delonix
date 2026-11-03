@@ -1160,10 +1160,17 @@ mod tests {
     #[test]
     fn every_addon_profile_is_supported_and_needs_no_opt_in() {
         for cni in ["cilium", "calico", "flannel"] {
-            assert_eq!(Profile::parse(cni).unwrap().support(), Support::Supported, "{cni}");
+            assert_eq!(
+                Profile::parse(cni).unwrap().support(),
+                Support::Supported,
+                "{cni}"
+            );
             let mut r = req(cni);
             r.experimental = false; // no opt-in
-            assert!(validate(&r).is_ok(), "{cni} must validate without --experimental-cni");
+            assert!(
+                validate(&r).is_ok(),
+                "{cni} must validate without --experimental-cni"
+            );
         }
         // `default`/`none` were never gated.
         let mut d = req("none");
@@ -1208,10 +1215,19 @@ mod tests {
     fn resolved_profile_maps_default_to_cilium_only_for_multi_node_kubeadm() {
         assert_eq!(resolved_profile("default", "ssh", 2), Some(Profile::Cilium));
         assert_eq!(resolved_profile("default", "vm", 5), Some(Profile::Cilium));
-        assert_eq!(resolved_profile("default", "ssh", 1), Some(Profile::Default));
-        assert_eq!(resolved_profile("default", "kind", 3), Some(Profile::Default));
+        assert_eq!(
+            resolved_profile("default", "ssh", 1),
+            Some(Profile::Default)
+        );
+        assert_eq!(
+            resolved_profile("default", "kind", 3),
+            Some(Profile::Default)
+        );
         assert_eq!(resolved_profile("none", "ssh", 3), Some(Profile::None));
-        assert_eq!(resolved_profile("flannel", "ssh", 3), Some(Profile::Flannel));
+        assert_eq!(
+            resolved_profile("flannel", "ssh", 3),
+            Some(Profile::Flannel)
+        );
         assert_eq!(resolved_profile("bogus", "ssh", 3), None);
     }
 
