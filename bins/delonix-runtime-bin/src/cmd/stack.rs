@@ -411,12 +411,23 @@ pub fn run(action: StackCmd) -> Result<()> {
 // row, so they cannot any more. The doc-comment on that module has the measured
 // symptoms.
 
-/// Everything the manifest asks for, in the reconciler's comparable form.
-pub(crate) fn desired_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile::Desired>> {
+/// Per-resource set of fields another actor owns, keyed exactly as the reconciler
+/// keys a resource — `(kind, name)` — so the diff can leave them alone (ADR-0088
+/// A5, `reconcile::IGNORE_FIELDS`). Sparse: a resource with no such annotation has
+/// no entry, which the planner reads as «ignore nothing», the pre-annotation case.
+pub(crate) type IgnoreFields =
+    std::collections::BTreeMap<(String, String), std::collections::BTreeSet<String>>;
+
+/// Everything the manifest asks for, in the reconciler's comparable form, plus the
+/// per-resource ignore-fields map derived from the same documents.
+pub(crate) fn desired_of(
+    docs: &[manifest::ManifestDoc],
+) -> Result<(Vec<reconcile::Desired>, IgnoreFields)> {
     let mut out = Vec::new();
+    let mut ignore = IgnoreFields::new();
     for kind in super::kinds::stack_kinds() {
         for doc in manifest::of_kind(docs, kind) {
-            out.push(match kind {
+            let d = match kind {
                 k::RUNTIME_POLICY => super::policy::desired(doc)?,
                 k::CONTAINER => super::container::desired(doc)?,
                 k::VOLUME => super::volume::desired(doc)?,
@@ -446,10 +457,28 @@ pub(crate) fn desired_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile
                     converges: false,
                     ownable: true,
                 },
-            });
+            };
+            // Keyed by the SAME (kind, name) the reconciler uses — `d` carries the
+            // Kind's own plan name, so the lookup cannot drift from the resource.
+            let fields: std::collections::BTreeSet<String> = doc
+                .metadata
+                .annotations
+                .get(reconcile::IGNORE_FIELDS)
+                .map(|v| {
+                    v.split(',')
+                        .map(str::trim)
+                        .filter(|f| !f.is_empty())
+                        .map(String::from)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !fields.is_empty() {
+                ignore.insert((d.kind.clone(), d.name.clone()), fields);
+            }
+            out.push(d);
         }
     }
-    Ok(out)
+    Ok((out, ignore))
 }
 
 /// Everything on the machine, in the same form.
@@ -567,11 +596,13 @@ fn reboot_for_converge(changes: &[Change]) -> Result<()> {
 /// Reads both sides and decides. The decision itself is
 /// [`reconcile::plan`] — pure, and tested as data.
 pub(crate) fn build_plan(docs: &[manifest::ManifestDoc], stack: &str) -> Result<Vec<Change>> {
+    let (desired, ignore) = desired_of(docs)?;
     let mut changes = reconcile::plan_with_facts(
-        &desired_of(docs)?,
+        &desired,
         &actual_of(docs)?,
         stack,
         &facts_of(docs)?,
+        &ignore,
     );
     // Attach the prerequisites the host does not meet — the difference between
     // «will exist» and «will work». They were already computed before this, but
@@ -3065,7 +3096,7 @@ fn stamp_all(
     only: Option<&std::collections::BTreeSet<(String, String)>>,
     created: &std::collections::BTreeSet<(String, String)>,
 ) -> Result<()> {
-    for d in desired_of(docs)? {
+    for d in desired_of(docs)?.0 {
         if !super::kinds::converges(&d.kind) {
             continue;
         }

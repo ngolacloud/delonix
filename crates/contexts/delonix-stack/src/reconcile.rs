@@ -61,6 +61,12 @@ pub const STACK_LABEL: &str = "delonix.io/stack";
 /// annotation and not a label: it is not identifying and it is large — a whole
 /// spec inside a label would wreck every listing that prints labels.
 pub const LAST_APPLIED: &str = "delonix.io/last-applied";
+/// Annotation naming manifest fields that another actor owns, so the diff leaves
+/// them alone (ADR-0088 A5) — e.g. `spec.replicas` when a control plane scales.
+/// A comma-separated list of field names as the diff sees them. Absent (the
+/// normal case) changes nothing: the ignore set is empty and every field is
+/// compared, exactly as before this annotation existed.
+pub const IGNORE_FIELDS: &str = "delonix.io/ignore-fields";
 /// Label marking a resource as created by a declarative apply.
 pub const MANAGED_BY: &str = "delonix.io/managed-by";
 
@@ -607,6 +613,7 @@ fn diff_fields(
     desired: &Desired,
     actual: &Actual,
     facts: Option<&Facts>,
+    ignore: &BTreeSet<String>,
 ) -> Vec<FieldDiff> {
     let empty = BTreeMap::new();
     let last = actual.last_applied.as_ref().unwrap_or(&empty);
@@ -618,6 +625,13 @@ fn diff_fields(
         .collect();
     let mut out = Vec::new();
     for key in keys {
+        // A field another actor owns (`delonix.io/ignore-fields`): it is neither
+        // converged towards nor reverted — the diff never sees it, so the whole
+        // decision (Update/Replace/NoOp) is taken as if the manifest and the
+        // machine agreed on it. An empty set (the default) skips nothing.
+        if ignore.contains(key) {
+            continue;
+        }
         let d = desired.fields.get(key);
         let a = actual.fields.get(key);
         match (d, a) {
@@ -646,7 +660,7 @@ fn diff_fields(
 /// `stack` is the name that owns this apply; it is what separates «mine, gone
 /// from the file, so remove it» from «someone else's, never touch it».
 pub fn plan(desired: &[Desired], actual: &[Actual], stack: &str) -> Vec<Change> {
-    plan_with_facts(desired, actual, stack, &BTreeMap::new())
+    plan_with_facts(desired, actual, stack, &BTreeMap::new(), &BTreeMap::new())
 }
 
 /// [`plan`], with what the owning modules read off the machine about each
@@ -656,7 +670,9 @@ pub fn plan_with_facts(
     actual: &[Actual],
     stack: &str,
     facts: &BTreeMap<(String, String), Facts>,
+    ignore: &BTreeMap<(String, String), BTreeSet<String>>,
 ) -> Vec<Change> {
+    let empty_ignore = BTreeSet::new();
     let mut out = Vec::new();
     for d in desired {
         let found = actual.iter().find(|a| a.kind == d.kind && a.name == d.name);
@@ -684,7 +700,10 @@ pub fn plan_with_facts(
             continue;
         }
         let f = facts.get(&(d.kind.clone(), d.name.clone()));
-        let diffs = diff_fields(&d.kind, d, a, f);
+        let ig = ignore
+            .get(&(d.kind.clone(), d.name.clone()))
+            .unwrap_or(&empty_ignore);
+        let diffs = diff_fields(&d.kind, d, a, f, ig);
         // A non-ownable resource is never «unowned and therefore to adopt»:
         // having no owner is its normal state, not something to fix.
         let unmanaged = d.ownable && a.owner.is_none();
@@ -893,6 +912,62 @@ mod tests {
             owner: owner.map(String::from),
             last_applied: None,
         }
+    }
+
+    /// An ignore map (`delonix.io/ignore-fields`) for one Container resource.
+    fn ignoring(name: &str, fields: &[&str]) -> BTreeMap<(String, String), BTreeSet<String>> {
+        let mut m = BTreeMap::new();
+        m.insert(
+            ("Container".to_string(), name.to_string()),
+            fields.iter().map(|s| s.to_string()).collect(),
+        );
+        m
+    }
+
+    /// ADR-0088 A5: a resource that differs only in an IGNORED hot field plans no
+    /// change — the field another actor owns is neither converged nor reverted.
+    #[test]
+    fn an_ignored_hot_field_that_differs_plans_no_change() {
+        let d = [desired("web", &[("image", "nginx"), ("memory", "512M")])];
+        let a = [actual(
+            "web",
+            &[("image", "nginx"), ("memory", "256M")],
+            Some("s"),
+        )];
+        // Without the annotation, the hot `memory` difference is an Update.
+        assert_eq!(plan(&d, &a, "s")[0].action, Action::Update);
+        // Ignoring `memory`, the only difference is gone: NoOp.
+        let p = plan_with_facts(&d, &a, "s", &BTreeMap::new(), &ignoring("web", &["memory"]));
+        assert_eq!(p[0].action, Action::NoOp);
+        assert!(p[0].diffs.is_empty());
+    }
+
+    /// A cold field normally forces a (refused) Replace; ignored, it drops out of
+    /// the diff entirely, so it never escalates the action.
+    #[test]
+    fn an_ignored_cold_field_does_not_force_a_replace() {
+        let d = [desired("web", &[("image", "nginx2")])];
+        let a = [actual("web", &[("image", "nginx1")], Some("s"))];
+        assert_eq!(plan(&d, &a, "s")[0].action, Action::Replace);
+        let p = plan_with_facts(&d, &a, "s", &BTreeMap::new(), &ignoring("web", &["image"]));
+        assert_eq!(p[0].action, Action::NoOp);
+        assert!(p[0].cold_fields.is_empty());
+    }
+
+    /// The zero-behaviour-change invariant of phase 2: an empty ignore map yields
+    /// exactly the plan the engine produced before the annotation existed.
+    #[test]
+    fn an_empty_ignore_map_is_the_pre_annotation_behaviour() {
+        let d = [desired("web", &[("image", "nginx"), ("memory", "512M")])];
+        let a = [actual(
+            "web",
+            &[("image", "nginx"), ("memory", "256M")],
+            Some("s"),
+        )];
+        let base = plan(&d, &a, "s");
+        let same = plan_with_facts(&d, &a, "s", &BTreeMap::new(), &BTreeMap::new());
+        assert_eq!(base[0].action, same[0].action);
+        assert_eq!(base[0].diffs, same[0].diffs);
     }
 
     /// A grow-only field converges live when it grows and plans a replace
@@ -1322,7 +1397,7 @@ mod tests {
         };
         let mut all = BTreeMap::new();
         all.insert((k::VM.to_string(), "db".to_string()), facts);
-        plan_with_facts(&[d], &[a], "s", &all).remove(0)
+        plan_with_facts(&[d], &[a], "s", &all, &BTreeMap::new()).remove(0)
     }
 
     fn vm_facts(running: Option<bool>) -> Facts {
