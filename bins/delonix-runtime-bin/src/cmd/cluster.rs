@@ -1172,8 +1172,9 @@ pub enum ClusterCmd {
         /// Worker nodes to join (0 = control-plane only, untainted — schedules everything).
         #[arg(long, default_value_t = 0)]
         workers: u32,
-        /// Cluster control-planes (default 1). More than 1 requires a stable
-        /// endpoint in front of them (LB) — see the error if you ask for >1.
+        /// Cluster control-planes (default 1). More than 1 is HA: delonix
+        /// provisions an HAProxy container as the stable endpoint (VIP) in front
+        /// of them, with stacked etcd — no manual load balancer needed.
         #[arg(long, default_value_t = 1)]
         control_planes: u32,
         /// Node image (default: `kindest/node` pinned by digest).
@@ -2459,16 +2460,9 @@ fn apply_one(
 }
 
 /// `mode: kind` — nodes in containers on this machine (see `cmd::kindmode`).
+/// HA (`spec.controlPlane.count > 1`) is supported: `kindmode::create` provisions
+/// an HAProxy container as the `controlPlaneEndpoint` (see `kindmode::create_ha`).
 fn apply_kind(name: &str, spec: &ClusterSpec) -> Result<()> {
-    if spec.control_plane.count() > 1 {
-        return Err(Error::Invalid(
-            super::po::t(
-                "`mode: kind` only supports 1 control-plane for now (HA needs a stable endpoint \
-                 in front of the nodes — see cluster-ssh.yaml)",
-            )
-            .into(),
-        ));
-    }
     let (images, store) = super::util::open_stores()?;
     super::kindmode::create(
         &images,

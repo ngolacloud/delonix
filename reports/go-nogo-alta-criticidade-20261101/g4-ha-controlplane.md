@@ -64,12 +64,15 @@ funcionar, quórum 2/3) + self-heal, com `delonix-cri` como CRI e Cilium como CN
 Com o overlay inter-nó (`g4-overlay-forwarding.md`), **as duas metades do G4
 "via prova" estão provadas**.
 
-## Nota de produto
+## Nota de produto — candidato FECHADO (2026-11-03, ADR-0085)
 
-A HA só se levanta pelo caminho **kubeadm-em-VMs** (`cluster kubeadm`, que
-provisiona o HAProxy). O turnkey `cluster create` (kind-mode, nós em containers)
-ainda **recusa `--control-planes > 1`** (`DX-1000`: não provisiona LB/VIP) — um
-candidato a fechar para HA kind-mode turnkey.
+À data desta prova, a HA só se levantava pelo caminho **kubeadm-em-VMs**
+(`cluster kubeadm`); o turnkey `cluster create` (kind-mode, containers) recusava
+`--control-planes > 1`. **Esse candidato foi fechado a seguir:** `cluster create`
+passa a provisionar um **container HAProxy** como endpoint e a fazer o bootstrap
+HA — `cluster create --control-planes 3` dá 3 CP + LB + etcd stacked **em
+containers, sem VMs**, e sobrevive à queda de um CP (API via o LB, escrita com
+quórum 2/3, scheduling). Ver ADR-0085.
 
 ## Reprodutível
 
