@@ -690,6 +690,20 @@ fn cmd_prune(all: bool, force: bool, auto: bool, threshold: u8, dry_run: bool) -
             )
         );
     }
+    // Per-container lock files (`.{id}.lock`) are never deleted on their own
+    // (the id is unique and never reused, so an orphan can be reclaimed safely —
+    // but only here, not mid-operation). They accumulate one per container ever
+    // created and every `list()` scans them, so prune is where they go.
+    let locks = store.gc_orphan_id_locks()?;
+    if locks > 0 {
+        println!(
+            "{}",
+            super::po::tf(
+                "state: {n} orphan container lock(s) reclaimed",
+                &[("n", &locks.to_string())]
+            )
+        );
+    }
     let i = super::prune::sweep_images(&images, &store, all)?;
     let rmn = super::prune::sweep_networks(&store)?;
     // The IPAM leak this repo measured (391 leases, 47 with a live container —

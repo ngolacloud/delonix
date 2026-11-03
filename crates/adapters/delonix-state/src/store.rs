@@ -64,16 +64,44 @@ impl FileLock {
                     path.display()
                 ))
             })?;
-        // SAFETY: valid, open fd; LOCK_EX blocks until the lock is ours.
-        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): a
+        // bare `flock(LOCK_EX)` waits forever if a holder is stuck, and this is
+        // the hot state lock — a stuck holder would hang every state op. Fail
+        // closed at the deadline instead, which the `Err` path already demands.
+        if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
             return Err(Error::Lock(format!(
-                "flock on {} failed: {} — refusing the read-modify-write \
-                     rather than doing it unlocked",
-                path.display(),
-                std::io::Error::last_os_error()
+                "could not lock {} within the deadline — refusing the \
+                 read-modify-write rather than hanging or doing it unlocked",
+                path.display()
             )));
         }
         Ok(FileLock(f))
+    }
+
+    /// Like [`Self::acquire`] but NON-BLOCKING: `Ok(None)` when another holder
+    /// has it right now, instead of waiting. Used by the orphan-lock GC, which
+    /// must never delete a lock a `remove` is still finishing with.
+    fn acquire_nb(path: &Path) -> Result<Option<FileLock>> {
+        let f = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|e| {
+                Error::Lock(format!("cannot open the lock file {}: {e}", path.display()))
+            })?;
+        // SAFETY: valid, open fd. LOCK_NB returns EWOULDBLOCK instead of blocking.
+        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            let err = std::io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::EWOULDBLOCK) {
+                return Ok(None);
+            }
+            return Err(Error::Lock(format!(
+                "flock(NB) on {} failed: {err}",
+                path.display()
+            )));
+        }
+        Ok(Some(FileLock(f)))
     }
 }
 
@@ -84,6 +112,20 @@ impl Drop for FileLock {
         unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
     }
 }
+
+/// An exclusive, cross-process claim on a container NAME, held across a
+/// check-then-create. The record store is keyed by **id** (`<id>.json`), so a
+/// name is not a unique path on its own: without this, two `run --name X` racing
+/// each generate a distinct id, each pass the name-uniqueness check, and each
+/// write a record — leaving two records that share one name, after which
+/// resolution by name is ambiguous. Dropping the guard releases the claim.
+pub struct NameClaim(#[allow(dead_code)] FileLock);
+
+/// Size of the fixed pool of name-claim lock files (see [`Store::claim_name`]).
+/// Bounds the name locks to this many 0-byte files for all time, instead of one
+/// per distinct name ever used. 256 keeps same-shard collisions between live
+/// names rare while the directory stays tiny.
+const NAME_LOCK_SHARDS: u64 = 256;
 
 /// Writes `bytes` to `path` so that a reader NEVER sees a half-written file and
 /// a **crash** never leaves one behind: temp in the same directory → `fsync` the
@@ -272,11 +314,111 @@ impl Store {
         self.root.join(format!("{}.json", safe_key(id)))
     }
 
+    /// Decodes a record and gates it against a NEWER on-disk format than this
+    /// build understands ([`delonix_compute::RECORD_FORMAT`]) — the fail-closed
+    /// DOWNGRADE guard. A binary rolled back over state a newer one wrote refuses
+    /// that record (as a conflict) instead of silently dropping or misreading the
+    /// fields it cannot represent, the same rule the backup archive applies on
+    /// restore. `list` stays lenient on purpose: a read-only enumeration must not
+    /// hide a container, only ACTING on one (every `load`) is gated.
+    fn decode(bytes: &[u8]) -> Result<Container> {
+        let c: Container = serde_json::from_slice(bytes)?;
+        if c.record_format > delonix_compute::RECORD_FORMAT {
+            return Err(Error::Engine(delonix_model::Error::Conflict(format!(
+                "container record '{}' was written in format {}, but this delonix handles up to \
+                 {} — operate it with the version that wrote it, or recreate the container",
+                c.id,
+                c.record_format,
+                delonix_compute::RECORD_FORMAT
+            ))));
+        }
+        Ok(c)
+    }
+
     /// Lock file of a container (see [`FileLock`]). It lives alongside the
     /// state and is NEVER deleted — deleting it would open a window in which two
     /// processes lock different inodes and both enter the critical section.
     fn lock_path(&self, id: &str) -> PathBuf {
         self.root.join(format!(".{}.lock", safe_key(id)))
+    }
+
+    /// Acquires the cross-process claim on a container `name` (see [`NameClaim`]),
+    /// blocking until it is ours. Hold it across a check-then-create so two
+    /// racing creates of the same name serialise: the first wins, the second
+    /// sees the name taken.
+    ///
+    /// The name is hashed into a FIXED pool of [`NAME_LOCK_SHARDS`] lock files
+    /// (`.names-<shard>.lock`) rather than one file per name. A per-name file
+    /// would accumulate one 0-byte entry per distinct name EVER used — unbounded
+    /// on a long-lived node, and a cost every `list()` pays (it `read_dir`s the
+    /// whole directory). The pool bounds the lock files for all time: the same
+    /// name always maps to the same shard, so the mutual exclusion a claim needs
+    /// holds; two different names share a shard only on a hash collision, which
+    /// merely serialises those two — never a correctness problem. Nothing is ever
+    /// deleted, so the lock-deletion race the per-id locks warn about never
+    /// arises here.
+    pub fn claim_name(&self, name: &str) -> Result<NameClaim> {
+        // FNV-1a over the raw name (deterministic, no RNG/clock): a stable shard
+        // for a given name across processes and runs.
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in name.bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        let shard = h % NAME_LOCK_SHARDS;
+        Ok(NameClaim(FileLock::acquire(
+            &self.root.join(format!(".names-{shard:03}.lock")),
+        )?))
+    }
+
+    /// Reclaims the per-container lock files (`.{id}.lock`) whose container no
+    /// longer has a record. A container id is a unique random 16-hex that is
+    /// NEVER reused, so once `<id>.json` is gone nothing can target that id and
+    /// its lock file is dead weight — but these accumulate forever (one per
+    /// container EVER created), bloating the directory every [`Self::list`]
+    /// scans. Returns how many it pruned.
+    ///
+    /// Deleting a lock file is otherwise the hazard the per-id locks are
+    /// documented to avoid, so this only removes one it can take with a
+    /// NON-BLOCKING lock: a held lock (a `remove` finishing between its record
+    /// delete and its own lock drop) is skipped this pass. The fixed name-claim
+    /// pool (`.names-*.lock`) is never pruned. Safe to call concurrently and
+    /// from any process; a natural fit for `system prune`.
+    pub fn gc_orphan_id_locks(&self) -> Result<usize> {
+        let mut pruned = 0usize;
+        let Ok(rd) = fs::read_dir(&self.root) else {
+            return Ok(0);
+        };
+        for entry in rd.flatten() {
+            let fname = entry.file_name();
+            let Some(fname) = fname.to_str() else {
+                continue;
+            };
+            // Exactly `.{16 hex}.lock` — the per-id container lock, nothing else
+            // (the `.names-NNN.lock` pool and any legacy `.name-*.lock` are not
+            // 16 hex, so they are left alone).
+            let Some(stem) = fname
+                .strip_prefix('.')
+                .and_then(|s| s.strip_suffix(".lock"))
+            else {
+                continue;
+            };
+            if stem.len() != 16 || !stem.bytes().all(|b| b.is_ascii_hexdigit()) {
+                continue;
+            }
+            if self.path(stem).exists() {
+                continue; // a live record still owns this lock
+            }
+            let path = entry.path();
+            // Only delete one no one holds right now; the dead id is never
+            // reused, so no opener will expect this inode after we unlink.
+            if let Ok(Some(_held)) = FileLock::acquire_nb(&path) {
+                if fs::remove_file(&path).is_ok() {
+                    pruned += 1;
+                }
+            }
+        }
+        Ok(pruned)
     }
 
     /// Persists a container (atomic write).
@@ -346,7 +488,7 @@ impl Store {
     pub fn load(&self, id_or_name: &str) -> Result<Container> {
         let exact = self.path(id_or_name);
         if exact.exists() {
-            return Ok(serde_json::from_slice(&fs::read(exact)?)?);
+            return Self::decode(&fs::read(exact)?);
         }
         let qualified = id_or_name.split_once('/');
         let mut hits: Vec<Ident> = Vec::new();
@@ -390,7 +532,7 @@ impl Store {
             });
         }
         if let Some(hit) = named.first() {
-            return Ok(serde_json::from_slice(&fs::read(self.path(&hit.id))?)?);
+            return Self::decode(&fs::read(self.path(&hit.id))?);
         }
         if qualified.is_some() {
             return Err(Error::NoSuchContainer(id_or_name.to_string()));
@@ -400,7 +542,7 @@ impl Store {
         // exactly the container it used to.
         hits.sort_by_key(|i| std::cmp::Reverse(i.created_unix));
         match hits.first() {
-            Some(hit) => Ok(serde_json::from_slice(&fs::read(self.path(&hit.id))?)?),
+            Some(hit) => Self::decode(&fs::read(self.path(&hit.id))?),
             None => Err(Error::NoSuchContainer(id_or_name.to_string())),
         }
     }
@@ -1180,6 +1322,165 @@ mod tests {
             .parse()
             .unwrap();
         assert_eq!(got, N, "perderam-se escritas: {got} de {N}");
+    }
+
+    /// REGRESSION (P2-1): `claim_name` gives mutual exclusion on a container
+    /// NAME across threads/processes. The record store is keyed by id, so two
+    /// `run --name X` racing would otherwise each pass the name check and write
+    /// a record sharing the name. With the claim held across the critical
+    /// section, at most ONE holder of a given name exists at a time.
+    #[test]
+    fn claim_name_serialises_same_name_across_threads() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (_tmp, root) = tmp_dir();
+        let inside = AtomicUsize::new(0);
+        let max_seen = AtomicUsize::new(0);
+        const N: usize = 16;
+        std::thread::scope(|sc| {
+            for _ in 0..N {
+                let (root, inside, max_seen) = (root.clone(), &inside, &max_seen);
+                sc.spawn(move || {
+                    let st = Store::open(&root).unwrap();
+                    let _claim = st.claim_name("web").unwrap();
+                    let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_seen.fetch_max(now, Ordering::SeqCst);
+                    // A window a competing holder of the SAME name would overlap.
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                    inside.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+        });
+        assert_eq!(
+            max_seen.load(Ordering::SeqCst),
+            1,
+            "two threads held the 'web' name claim at the same time"
+        );
+    }
+
+    /// REGRESSION (S15-1): the name claim uses a BOUNDED pool of lock files, not
+    /// one per name. Many distinct names produce at most [`NAME_LOCK_SHARDS`]
+    /// `.names-*.lock` files, and the same name always lands on the same shard.
+    #[test]
+    fn claim_name_lock_files_are_bounded_by_a_fixed_pool() {
+        let (_tmp, root) = tmp_dir();
+        let store = Store::open(&root).unwrap();
+        for i in 0..2000 {
+            let _c = store.claim_name(&format!("workload-{i}")).unwrap();
+        }
+        let files = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".names-"))
+            .count();
+        assert!(
+            files <= NAME_LOCK_SHARDS as usize,
+            "name-lock files must be bounded by the pool: {files} > {NAME_LOCK_SHARDS}"
+        );
+        // Same name -> same shard: a second claim adds no new file.
+        let before = files;
+        let _c = store.claim_name("workload-0").unwrap();
+        let after = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".names-"))
+            .count();
+        assert_eq!(
+            after, before,
+            "re-claiming a name must not create a new shard file"
+        );
+    }
+
+    /// REGRESSION (S15-1): `gc_orphan_id_locks` reclaims the `.{id}.lock` of a
+    /// container with no record (the id is never reused, so it is dead weight),
+    /// keeps the lock of a live container, and never touches the name-claim pool
+    /// or a legacy per-name lock.
+    #[test]
+    fn gc_orphan_id_locks_prunes_dead_and_keeps_the_rest() {
+        let (_tmp, root) = tmp_dir();
+        let store = Store::open(&root).unwrap();
+        // A live container and its lock.
+        let c = Container::new(
+            "aaaa1111aaaa1111".into(),
+            "live".into(),
+            "img".into(),
+            vec!["x".into()],
+            "64M".into(),
+        );
+        store.save(&c).unwrap();
+        std::fs::write(root.join(".aaaa1111aaaa1111.lock"), b"").unwrap();
+        // An orphan id-lock (no record), plus files the GC must NOT touch.
+        std::fs::write(root.join(".bbbb2222bbbb2222.lock"), b"").unwrap();
+        std::fs::write(root.join(".names-042.lock"), b"").unwrap();
+        std::fs::write(root.join(".name-web.lock"), b"").unwrap();
+
+        let pruned = store.gc_orphan_id_locks().unwrap();
+        assert_eq!(pruned, 1, "exactly the orphan id-lock");
+        assert!(
+            root.join(".aaaa1111aaaa1111.lock").exists(),
+            "a live container's lock is kept"
+        );
+        assert!(
+            !root.join(".bbbb2222bbbb2222.lock").exists(),
+            "the orphan id-lock is reclaimed"
+        );
+        assert!(
+            root.join(".names-042.lock").exists(),
+            "the name pool is untouched"
+        );
+        assert!(
+            root.join(".name-web.lock").exists(),
+            "a legacy name lock is untouched"
+        );
+    }
+
+    /// REGRESSION (P3): the DOWNGRADE guard. A record stamped with a format
+    /// NEWER than this build understands is REFUSED on load (by id and by name);
+    /// the current format loads; a legacy record with no stamp (format 0) is
+    /// still understood, so an upgrade never orphans existing containers.
+    #[test]
+    fn load_refuses_a_record_written_by_a_newer_format() {
+        use delonix_compute::RECORD_FORMAT;
+        let (_tmp, root) = tmp_dir();
+        let store = Store::open(&root).unwrap();
+
+        // Current format: stamped by `new`, loads fine.
+        let ok = Container::new(
+            "aaaa1111aaaa1111".into(),
+            "ok".into(),
+            "img".into(),
+            vec!["x".into()],
+            "64M".into(),
+        );
+        assert_eq!(ok.record_format, RECORD_FORMAT);
+        store.save(&ok).unwrap();
+        assert_eq!(store.load("ok").unwrap().id, "aaaa1111aaaa1111");
+
+        // A record from a NEWER engine: refused, by name and by id.
+        let mut future = ok.clone();
+        future.id = "bbbb2222bbbb2222".into();
+        future.name = "future".into();
+        future.record_format = RECORD_FORMAT + 1;
+        store.save(&future).unwrap();
+        let err = store.load("future").unwrap_err();
+        assert!(
+            err.to_string().contains("written in format"),
+            "the downgrade guard must name the mismatch: {err}"
+        );
+        assert!(store.load("bbbb2222bbbb2222").is_err(), "refused by id too");
+
+        // A LEGACY record with no stamp (an older engine wrote it) → 0, understood.
+        let raw = std::fs::read(root.join("aaaa1111aaaa1111.json")).unwrap();
+        let mut v: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("record_format");
+        obj.insert("id".into(), serde_json::json!("cccc3333cccc3333"));
+        obj.insert("name".into(), serde_json::json!("legacy"));
+        std::fs::write(
+            root.join("cccc3333cccc3333.json"),
+            serde_json::to_vec(&v).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(store.load("legacy").unwrap().record_format, 0);
     }
 
     /// A store with no lock at all, used only to prove (by reversion) that

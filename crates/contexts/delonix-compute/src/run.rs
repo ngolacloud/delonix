@@ -398,6 +398,15 @@ pub fn build_record(o: &RunOpts, r: ResolvedRun) -> Result<Container> {
     c.cpu_weight = o.cpu_weight.clone();
     c.cpuset = o.cpuset.clone();
     c.cgroup_parent = o.cgroup_parent.clone();
+    // Persist the restart policy so it reaches the supervisor. `cmd_start` (and
+    // every re-exec'd launch) reads `c.restart_policy` from the RECORD, not from
+    // the in-memory opts — so a policy left only in `o.restart` never reached
+    // `should_restart`, and `run --restart always` silently never restarted, on
+    // a crash OR a reboot. `"no"` (and the empty `RunOpts::default()`) stay
+    // `None` to keep the convention the display and boot paths already read
+    // (`unwrap_or("no")`); any real policy is kept verbatim
+    // (`always` | `unless-stopped` | `on-failure[:N]`).
+    c.restart_policy = (!matches!(o.restart.as_str(), "" | "no")).then(|| o.restart.clone());
     c.kube_cgroup = kube_cgroup;
     c.oom_score_adj = o.oom_score_adj;
     c.cpuset_mems = o.cpuset_mems.clone();
@@ -518,6 +527,26 @@ mod tests {
             default_masked_paths: vec!["/proc/kcore".into()],
             default_readonly_paths: vec!["/proc/sys".into()],
             ..Default::default()
+        }
+    }
+
+    /// REGRESSION: the restart policy is persisted onto the record, because
+    /// `cmd_start` reads it from there, not from the opts — without this
+    /// `run --restart always` left `restart_policy: null` and never restarted.
+    /// `no`/empty stay `None` (the convention display and boot read).
+    #[test]
+    fn the_restart_policy_reaches_the_record() {
+        for (restart, expect) in [
+            ("always", Some("always")),
+            ("unless-stopped", Some("unless-stopped")),
+            ("on-failure:3", Some("on-failure:3")),
+            ("no", None),
+            ("", None),
+        ] {
+            let mut o = opts();
+            o.restart = restart.into();
+            let c = build_record(&o, resolved()).unwrap();
+            assert_eq!(c.restart_policy.as_deref(), expect, "restart={restart:?}");
         }
     }
 

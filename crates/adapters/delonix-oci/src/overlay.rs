@@ -12,6 +12,30 @@ use std::path::{Path, PathBuf};
 /// many small writes; past a handful, they only contend for the same disk.
 const EXTRACT_WORKERS: usize = 4;
 
+/// Format epoch written into a layer's `.extracted` marker. A cached layer is
+/// reused only when its marker records the CURRENT epoch; a missing marker
+/// (never finished) or an OLDER token (laid down by an engine whose on-disk
+/// layout had a since-fixed defect) is not trusted, so the layer is re-extracted
+/// from its immutable CAS blob on next use. This is how upgrading the binary
+/// HEALS a poisoned store instead of reusing it verbatim — layer directories are
+/// content-addressed by digest, so without an epoch a bad extraction survives
+/// forever (the blob and digest never change).
+///
+/// Epoch history:
+/// * `ok` — pre-2026-10-22. OCI `.wh.<name>` whiteouts were unpacked as literal
+///   regular files, which the kernel overlay driver does NOT honour as a
+///   deletion: the lower-layer file stayed visible and a spurious `.wh.<name>`
+///   appeared (broke e.g. `rabbitmq`, `wordpress`/Apache two-MPM). Not trusted.
+/// * `2` — whiteouts written as overlay `0/0` character devices (see
+///   `owners.rs::write_overlay_whiteout`). The current layout.
+const LAYER_EPOCH: &[u8] = b"2";
+
+/// Whether a cached layer directory may be reused: its `.extracted` marker must
+/// exist AND record the current [`LAYER_EPOCH`]. See [`LAYER_EPOCH`].
+fn layer_is_current(dir: &Path) -> bool {
+    std::fs::read(dir.join(".extracted")).is_ok_and(|b| b == LAYER_EPOCH)
+}
+
 /// Recursive `chown` of a directory (for user namespace support).
 fn chown_recursive(path: &Path, uid: u32, gid: u32) -> Result<()> {
     use std::os::unix::fs::chown;
@@ -425,9 +449,7 @@ impl ImageStore {
             .collect();
         let mut missing: Vec<&str> = Vec::new();
         for (digest, dir) in image.layers.iter().zip(&dirs) {
-            if !dir.join(".extracted").exists()
-                && !missing.iter().any(|m| strip(m) == strip(digest))
-            {
+            if !layer_is_current(dir) && !missing.iter().any(|m| strip(m) == strip(digest)) {
                 missing.push(digest);
             }
         }
@@ -469,8 +491,7 @@ impl ImageStore {
     fn extract_one(&self, digest: &str, layers_dir: &Path) -> Result<()> {
         let hex = strip(digest);
         let dir = layers_dir.join(hex);
-        let marker = dir.join(".extracted");
-        if marker.exists() {
+        if layer_is_current(&dir) {
             return Ok(());
         }
         // temp exclusive to this process (pid + digest); `ensure_layers` hands
@@ -488,7 +509,9 @@ impl ImageStore {
             .and_then(|f| extract_layer_from(f, &tmp))
             .and_then(|owners| write_owners(&owners_path(layers_dir, hex), &owners))
             .and_then(|()| std::fs::write(modes_marker(layers_dir, hex), b"").map_err(Error::from))
-            .and_then(|()| std::fs::write(tmp.join(".extracted"), b"ok").map_err(Error::from));
+            .and_then(|()| {
+                std::fs::write(tmp.join(".extracted"), LAYER_EPOCH).map_err(Error::from)
+            });
         if let Err(e) = extracted {
             let _ = std::fs::remove_dir_all(&tmp);
             return Err(e);
@@ -497,10 +520,11 @@ impl ImageStore {
         // marker appeared while we were extracting our own copy), theirs
         // wins and we discard ours — same outcome either way, since both
         // are correct extractions of the same immutable digest. Otherwise
-        // `publish_layer_dir` REPLACES whatever is at `dir` (missing,
-        // or a stale/broken leftover with no marker) with our fresh copy —
-        // seeing `dir` merely EXIST here is not proof it is valid.
-        if marker.exists() {
+        // `publish_layer_dir` REPLACES whatever is at `dir` (missing, a
+        // stale/broken leftover with no marker, or a layer from an older
+        // [`LAYER_EPOCH`]) with our fresh copy — seeing `dir` merely EXIST
+        // here is not proof it is valid; only a CURRENT marker is.
+        if layer_is_current(&dir) {
             let _ = std::fs::remove_dir_all(&tmp);
         } else if let Err(e) = publish_layer_dir(&tmp, &dir) {
             let _ = std::fs::remove_dir_all(&tmp);
@@ -1319,6 +1343,49 @@ mod parallel_extract_tests {
         assert!(err.is_err());
         let bad_dir = root.join("layers").join(crate::cas::strip(&bad));
         assert!(!bad_dir.join(".extracted").exists());
+        assert!(scratch_left(root).is_empty(), "{:?}", scratch_left(root));
+    }
+
+    /// F-1 regression — whiteout cache poisoning across an upgrade. A layer
+    /// cached by an OLDER engine (its `.extracted` marker predates the current
+    /// [`LAYER_EPOCH`]) is NOT reused: `ensure_layers` re-extracts it from the
+    /// immutable blob, so a since-fixed on-disk defect — e.g. an OCI `.wh.`
+    /// whiteout left as a regular file — is healed on next use instead of
+    /// surviving the binary upgrade verbatim.
+    #[test]
+    fn a_layer_from_an_older_epoch_is_reextracted_not_reused() {
+        let (s, tmp) = store();
+        let root = tmp.path();
+        let d = s.cas().write(&layer("real.txt", b"real")).unwrap();
+        let dir = root.join("layers").join(crate::cas::strip(&d));
+        std::fs::create_dir_all(&dir).unwrap();
+        // The directory as an older, buggy engine left it: the OLD marker
+        // token, a `.wh.` whiteout leaked as a regular file, and a file that
+        // is not in the blob at all.
+        std::fs::write(dir.join(".extracted"), b"ok").unwrap();
+        std::fs::write(dir.join(".wh.poison"), b"leaked").unwrap();
+        std::fs::write(dir.join("stale.txt"), b"stale").unwrap();
+
+        let dirs = s.ensure_layers(&image(vec![d])).unwrap();
+        assert_eq!(dirs.len(), 1);
+        // Re-extracted from the blob: its file is present, the planted cruft is
+        // gone, and the marker now records the current epoch.
+        assert_eq!(
+            std::fs::read_to_string(dir.join("real.txt")).unwrap(),
+            "real"
+        );
+        assert!(
+            !dir.join(".wh.poison").exists(),
+            "a leaked whiteout survived the upgrade"
+        );
+        assert!(
+            !dir.join("stale.txt").exists(),
+            "stale content survived the upgrade"
+        );
+        assert_eq!(
+            std::fs::read(dir.join(".extracted")).unwrap(),
+            crate::overlay::LAYER_EPOCH
+        );
         assert!(scratch_left(root).is_empty(), "{:?}", scratch_left(root));
     }
 

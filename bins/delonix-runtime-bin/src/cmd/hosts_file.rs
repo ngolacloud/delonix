@@ -257,8 +257,13 @@ fn lock_beside(dir: &std::path::Path) -> Option<std::fs::File> {
         .write(true)
         .open(dir.join(".hosts.delonix.lock"))
         .ok()?;
-    // SAFETY: a valid fd we own; released when `f` drops.
-    unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) };
+    // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): a bare
+    // blocking `flock(LOCK_EX)` here (its result was even ignored) could hang
+    // forever on a stuck holder. Fail closed at the deadline — the caller
+    // already handles `None`.
+    if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
+        return None;
+    }
     Some(f)
 }
 

@@ -327,7 +327,10 @@ mod tests {
     fn host_capacity_reads_the_local_host() {
         let cap = super::capacity(Path::new("/"));
         assert!(cap.cpus >= 1, "the host has at least one CPU: {cap:?}");
-        assert!(cap.mem_total_bytes > 0, "the host reports total RAM: {cap:?}");
+        assert!(
+            cap.mem_total_bytes > 0,
+            "the host reports total RAM: {cap:?}"
+        );
         assert!(
             cap.mem_used_bytes <= cap.mem_total_bytes,
             "RAM in use never exceeds total: {cap:?}"
