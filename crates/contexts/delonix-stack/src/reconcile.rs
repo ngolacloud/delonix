@@ -67,6 +67,13 @@ pub const LAST_APPLIED: &str = "delonix.io/last-applied";
 /// normal case) changes nothing: the ignore set is empty and every field is
 /// compared, exactly as before this annotation existed.
 pub const IGNORE_FIELDS: &str = "delonix.io/ignore-fields";
+/// Annotation marking a resource as protected. The author writes it on the
+/// manifest; the engine persists it as a LABEL of the same name on the record
+/// (the uniform channel ownership already travels on), and reads it back into
+/// [`Actual::protect`]. A protected resource is never a `Delete` candidate —
+/// `destroy` and `--prune` leave it alone and SAY so (ADR-0088 A5). Absent (the
+/// normal case) leaves every removal path exactly as it was.
+pub const PROTECT: &str = "delonix.io/protect";
 /// Label marking a resource as created by a declarative apply.
 pub const MANAGED_BY: &str = "delonix.io/managed-by";
 
@@ -106,6 +113,11 @@ pub struct Actual {
     pub owner: Option<String>,
     /// Decoded [`LAST_APPLIED`], if any.
     pub last_applied: Option<BTreeMap<String, String>>,
+    /// Whether the record carries the [`PROTECT`] label. A protected resource is
+    /// never a `Delete` candidate — `--prune` and `destroy` leave it alone and SAY
+    /// so (ADR-0088 A5). `false` (the default for a resource with no such label)
+    /// changes nothing.
+    pub protect: bool,
 }
 
 /// What will happen to one resource.
@@ -765,6 +777,17 @@ pub fn plan_with_facts(
         if desired.iter().any(|d| d.kind == a.kind && d.name == a.name) {
             continue;
         }
+        // Protected (`delonix.io/protect`): gone from the manifest, but `--prune`
+        // and `destroy` must not remove it. It is NOT a `Delete` — it is a `NoOp`
+        // that NAMES why, so the plan shows the resource was kept on purpose
+        // rather than quietly dropping it from the output.
+        if a.protect {
+            out.push(
+                Change::new(&a.kind, &a.name, Action::NoOp)
+                    .with_reason("protected by delonix.io/protect — not pruned"),
+            );
+            continue;
+        }
         out.push(
             Change::new(&a.kind, &a.name, Action::Delete)
                 .with_reason("no longer declared in the manifest"),
@@ -911,6 +934,7 @@ mod tests {
             fields: map(fields),
             owner: owner.map(String::from),
             last_applied: None,
+            protect: false,
         }
     }
 
@@ -968,6 +992,22 @@ mod tests {
         let same = plan_with_facts(&d, &a, "s", &BTreeMap::new(), &BTreeMap::new());
         assert_eq!(base[0].action, same[0].action);
         assert_eq!(base[0].diffs, same[0].diffs);
+    }
+
+    /// ADR-0088 A5: a protected resource that left the manifest is NOT pruned —
+    /// it becomes a `NoOp` naming the protection, where an unprotected one is a
+    /// `Delete`. The unprotected path is unchanged.
+    #[test]
+    fn a_protected_resource_is_kept_not_pruned() {
+        let kept = Actual {
+            protect: true,
+            ..actual("keepme", &[("image", "nginx")], Some("s"))
+        };
+        let p = plan(&[], &[kept], "s");
+        assert_eq!(p[0].action, Action::NoOp);
+        assert!(p[0].reason.as_deref().unwrap().contains("protect"));
+        let unprotected = actual("keepme", &[("image", "nginx")], Some("s"));
+        assert_eq!(plan(&[], &[unprotected], "s")[0].action, Action::Delete);
     }
 
     /// A grow-only field converges live when it grows and plans a replace
@@ -1151,6 +1191,7 @@ mod tests {
             fields: map(&[("memory", "2G")]),
             owner: Some("s".into()),
             last_applied: None,
+            protect: false,
         };
         let p = plan(&[d], &[a], "s");
         assert_eq!(p[0].action, Action::NotConverged);
@@ -1215,6 +1256,7 @@ mod tests {
             fields: map(&[("ref", "alpine:latest")]),
             owner: None,
             last_applied: None,
+            protect: false,
         };
         let p = plan(&[d], std::slice::from_ref(&a), "s");
         assert_eq!(
@@ -1251,6 +1293,7 @@ mod tests {
             fields: map(&[("memory", "2G")]),
             owner: Some("s".into()),
             last_applied: None,
+            protect: false,
         };
         let p = plan(&[d], &[a], "s");
         assert_eq!(p[0].action, Action::Replace);
@@ -1288,6 +1331,7 @@ mod tests {
                 fields: map(&[(field, "false")]),
                 owner: None,
                 last_applied: None,
+                protect: false,
             };
             let p = plan(&[d], &[a], "s");
             assert_eq!(
@@ -1394,6 +1438,7 @@ mod tests {
             fields: map(actual_fields),
             owner: Some("s".into()),
             last_applied: None,
+            protect: false,
         };
         let mut all = BTreeMap::new();
         all.insert((k::VM.to_string(), "db".to_string()), facts);
@@ -1474,6 +1519,7 @@ mod tests {
                     fields: have,
                     owner: Some("s".into()),
                     last_applied: None,
+                    protect: false,
                 }],
                 "s",
             )

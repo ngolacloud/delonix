@@ -360,6 +360,7 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     let store = NetworkStore::open(state_root())?;
     // The document's own labels go on with the stamp: this is the one step
@@ -380,6 +381,12 @@ pub(crate) fn stamp(
             Some("delonix".to_string()),
         ),
     ]);
+    if protected {
+        labels.push((
+            super::reconcile::PROTECT.to_string(),
+            Some("true".to_string()),
+        ));
+    }
     store.set_metadata(
         name,
         &labels,
@@ -429,6 +436,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                 .annotations
                 .get(super::reconcile::LAST_APPLIED)
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: n.labels.contains_key(super::reconcile::PROTECT),
         })
         .collect())
 }

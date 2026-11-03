@@ -307,6 +307,7 @@ mod tests {
             fields: map(fields),
             owner: owner.map(str::to_string),
             last_applied: stamp.map(map),
+            protect: false,
         }
     }
 

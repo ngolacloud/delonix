@@ -102,6 +102,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                 .annotations
                 .get(super::reconcile::LAST_APPLIED)
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: r.labels.contains_key(super::reconcile::PROTECT),
         })
         .collect())
 }
@@ -121,21 +122,29 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     let (from, to) = split_route_name(name)?;
+    let mut labels = vec![
+        (
+            super::reconcile::STACK_LABEL.to_string(),
+            Some(stack.to_string()),
+        ),
+        (
+            super::reconcile::MANAGED_BY.to_string(),
+            Some("delonix".to_string()),
+        ),
+    ];
+    if protected {
+        labels.push((
+            super::reconcile::PROTECT.to_string(),
+            Some("true".to_string()),
+        ));
+    }
     delonix_sdn::infra::route_set_metadata(
         from,
         to,
-        &[
-            (
-                super::reconcile::STACK_LABEL.to_string(),
-                Some(stack.to_string()),
-            ),
-            (
-                super::reconcile::MANAGED_BY.to_string(),
-                Some("delonix".to_string()),
-            ),
-        ],
+        &labels,
         &[(
             super::reconcile::LAST_APPLIED.to_string(),
             Some(super::reconcile::encode_last_applied(fields)),
@@ -396,6 +405,7 @@ mod tests {
             fields: route_fields(from, to),
             owner: dono.map(String::from),
             last_applied: None,
+            protect: false,
         }
     }
 

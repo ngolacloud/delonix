@@ -243,6 +243,12 @@ struct ObjectStorageRecord {
     /// The field map last applied (reconcile three-way diff).
     #[serde(default)]
     last_applied: BTreeMap<String, String>,
+    /// Whether the author marked this store protected (`delonix.io/protect`).
+    /// A protected resource that leaves the manifest is kept, not pruned. The
+    /// record is this Kind's label store, so the mark lives here rather than in
+    /// a `labels` map it does not keep.
+    #[serde(default)]
+    protect: bool,
 }
 
 fn store() -> Result<JsonStore<ObjectStorageRecord>> {
@@ -542,17 +548,24 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
             owner: r.owner.clone(),
             last_applied: (!r.last_applied.is_empty()).then(|| r.last_applied.clone()),
             fields: record_fields(&r),
+            protect: r.protect,
         })
         .collect())
 }
 
 /// Records that this stack owns the resource, and what it last applied. The
 /// apply layer runs before this step, so the record is already there.
-pub(crate) fn stamp(name: &str, stack: &str, fields: &BTreeMap<String, String>) -> Result<()> {
+pub(crate) fn stamp(
+    name: &str,
+    stack: &str,
+    fields: &BTreeMap<String, String>,
+    protected: bool,
+) -> Result<()> {
     let store = store()?;
     store.update(name, |r| {
         r.owner = Some(stack.to_string());
         r.last_applied = fields.clone();
+        r.protect = protected;
         true
     })?;
     Ok(())
@@ -850,6 +863,7 @@ mod tests {
                 credentials_secret_out: "x-s3".into(),
                 owner: None,
                 last_applied: BTreeMap::new(),
+                protect: false,
             };
             assert_eq!(desired, record_fields(&rec), "drift for: {yaml}");
         }

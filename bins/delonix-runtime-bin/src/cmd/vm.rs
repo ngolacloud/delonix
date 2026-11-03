@@ -1936,6 +1936,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                     .annotations
                     .get(super::reconcile::LAST_APPLIED)
                     .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+                protect: vm.labels.contains_key(super::reconcile::PROTECT),
             }
         })
         .collect())
@@ -2799,6 +2800,7 @@ pub(crate) fn stamp(
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
     created: Option<&std::collections::BTreeMap<String, String>>,
+    protected: bool,
 ) -> Result<()> {
     let st: delonix_state::JsonStore<delonix_compute::Vm> =
         delonix_state::JsonStore::open(state_root().join("vms"))?;
@@ -2816,6 +2818,10 @@ pub(crate) fn stamp(
         set_labels(&mut vm.labels, &own);
         vm.labels
             .insert(super::reconcile::STACK_LABEL.into(), stack.to_string());
+        if protected {
+            vm.labels
+                .insert(super::reconcile::PROTECT.into(), "true".into());
+        }
         vm.labels
             .insert(super::reconcile::MANAGED_BY.into(), "delonix".into());
         vm.annotations
@@ -7483,6 +7489,7 @@ mod reboot_class_tests {
             fields: actual,
             owner: Some("s".into()),
             last_applied: None,
+            protect: false,
         };
         let mut facts = BTreeMap::new();
         facts.insert(

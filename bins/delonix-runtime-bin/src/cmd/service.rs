@@ -284,6 +284,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                     .annotations
                     .get(super::reconcile::LAST_APPLIED)
                     .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+                protect: def.labels.contains_key(super::reconcile::PROTECT),
             }
         })
         .collect())
@@ -294,21 +295,33 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
 /// registry entry (unlike `NetworkAccessRule`, a `Service` does not target a
 /// container it does not own — its record is entirely its own, so stamping it
 /// directly carries none of that Kind's risk).
-pub(crate) fn stamp(plan: &str, stack: &str, fields: &BTreeMap<String, String>) -> Result<()> {
+pub(crate) fn stamp(
+    plan: &str,
+    stack: &str,
+    fields: &BTreeMap<String, String>,
+    protected: bool,
+) -> Result<()> {
     let (namespace, name) = manifest::split_plan_name(plan);
+    let mut labels = vec![
+        (
+            super::reconcile::STACK_LABEL.to_string(),
+            Some(stack.to_string()),
+        ),
+        (
+            super::reconcile::MANAGED_BY.to_string(),
+            Some("delonix".to_string()),
+        ),
+    ];
+    if protected {
+        labels.push((
+            super::reconcile::PROTECT.to_string(),
+            Some("true".to_string()),
+        ));
+    }
     delonix_sdn::infra::service_set_metadata(
         namespace,
         name,
-        &[
-            (
-                super::reconcile::STACK_LABEL.to_string(),
-                Some(stack.to_string()),
-            ),
-            (
-                super::reconcile::MANAGED_BY.to_string(),
-                Some("delonix".to_string()),
-            ),
-        ],
+        &labels,
         &[(
             super::reconcile::LAST_APPLIED.to_string(),
             Some(super::reconcile::encode_last_applied(fields)),
@@ -842,6 +855,7 @@ mod tests {
             fields: f,
             owner: dono.map(String::from),
             last_applied: None,
+            protect: false,
         }
     }
 

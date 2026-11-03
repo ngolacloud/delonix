@@ -467,17 +467,27 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                 .annotations
                 .get(super::reconcile::LAST_APPLIED)
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: r.labels.contains_key(super::reconcile::PROTECT),
             name: r.name,
         })
         .collect())
 }
 
-pub(crate) fn stamp(name: &str, stack: &str, fields: &BTreeMap<String, String>) -> Result<()> {
+pub(crate) fn stamp(
+    name: &str,
+    stack: &str,
+    fields: &BTreeMap<String, String>,
+    protected: bool,
+) -> Result<()> {
     let d = dir();
     let mut r =
         read_in(&d, name)?.ok_or_else(|| Error::NotFound(format!("storagepool: {name}")))?;
     r.labels
         .insert(super::reconcile::STACK_LABEL.into(), stack.into());
+    if protected {
+        r.labels
+            .insert(super::reconcile::PROTECT.into(), "true".into());
+    }
     r.labels
         .insert(super::reconcile::MANAGED_BY.into(), "delonix".into());
     r.annotations.insert(
