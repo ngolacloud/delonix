@@ -197,6 +197,41 @@ fn a_spec_refuses_an_unknown_field_rather_than_ignoring_it() {
     .is_err());
 }
 
+/// `driftPolicy` (ADR-0088 A5) parses to its two values, is absent by default
+/// (the third "do nothing" state), and flows into the compared fields — so the
+/// timer and the plan read the same policy, and a change to it converges.
+#[test]
+fn drift_policy_parses_and_is_a_compared_field() {
+    // Absent: the default, which is how a stack keeps its pre-A5 behaviour.
+    let none = spec("source:\n  url: file:///r.git\n");
+    assert_eq!(none.drift_policy, None);
+    assert_eq!(gitops_fields(&none).get("driftPolicy").map(String::as_str), Some(""));
+
+    for (yaml, want, word) in [
+        ("report", DriftPolicy::Report, "report"),
+        ("correct", DriftPolicy::Correct, "correct"),
+    ] {
+        let s = spec(&format!("source:\n  url: file:///r.git\ndriftPolicy: {yaml}\n"));
+        assert_eq!(s.drift_policy, Some(want));
+        assert_eq!(
+            gitops_fields(&s).get("driftPolicy").map(String::as_str),
+            Some(word)
+        );
+    }
+    // A typo is refused, not silently ignored — the engine's rule everywhere.
+    assert!(serde_yaml::from_str::<GitOpsSourceSpec>(
+        "source:\n  url: file:///r.git\ndriftPolicy: sometimes\n"
+    )
+    .is_err());
+
+    // It is a COMPARED field (both the published list and the reconciler's hand
+    // table), so a change to it shows in the plan and converges — and the two
+    // lists cannot drift apart.
+    assert!(RECONCILED_GITOPS_SOURCE_FIELDS.contains(&"driftPolicy"));
+    assert!(GITOPS_SOURCE_SPEC_FIELDS.contains(&"driftPolicy"));
+    assert!(super::super::reconcile::hot_fields_for(k::GITOPS_SOURCE).contains(&"driftPolicy"));
+}
+
 // --- reading a commit -------------------------------------------------------
 
 fn entry(mode: &str, kind: &str, size: Option<u64>, path: &str) -> TreeEntry {

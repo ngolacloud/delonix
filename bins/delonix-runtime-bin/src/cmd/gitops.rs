@@ -58,6 +58,40 @@ pub struct GitOpsSourceSpec {
     /// plan everything the passes applied for deletion (refused, DX-1601).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stack: Option<String>,
+    /// What the timer does about DRIFT — a field someone changed on the node,
+    /// OUTSIDE the declarative path (ADR-0088 A5). Absent: the pass only syncs
+    /// the repository, exactly as before, and `delonix drift` stays a manual
+    /// verb. `report`: each pass also computes the drift of the target stack and
+    /// records it, so hand-tampering is visible in `gitops status`. `correct`:
+    /// the pass re-applies the manifest to reconcile the drift away. Opt-in and
+    /// still daemonless — the timer is systemd's (ADR-0021), not a process.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "driftPolicy")]
+    pub drift_policy: Option<DriftPolicy>,
+}
+
+/// A stack's drift policy under the GitOps timer (ADR-0088 A5). Absent (the
+/// `Option` is `None`) is a third state — "do nothing about drift" — and is the
+/// default, which is how the zero-behaviour-change constraint holds.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum DriftPolicy {
+    /// Compute the drift and record it; apply nothing extra.
+    Report,
+    /// Re-apply the manifest so the drift is reconciled away.
+    Correct,
+}
+
+impl DriftPolicy {
+    /// The lowercase spelling, as it is written in the manifest and stored on the
+    /// record — the one place the two must agree.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DriftPolicy::Report => "report",
+            DriftPolicy::Correct => "correct",
+        }
+    }
 }
 
 /// `spec.source`.
@@ -151,7 +185,8 @@ fn default_max_deletes() -> u32 {
 }
 
 /// Known fields of the `spec`.
-pub const GITOPS_SOURCE_SPEC_FIELDS: &[&str] = &["source", "sync", "safety", "stack"];
+pub const GITOPS_SOURCE_SPEC_FIELDS: &[&str] =
+    &["source", "sync", "safety", "stack", "driftPolicy"];
 
 /// The fields the reconciler compares — all hot (`reconcile::hot_fields`).
 pub const RECONCILED_GITOPS_SOURCE_FIELDS: &[&str] = &[
@@ -170,6 +205,7 @@ pub const RECONCILED_GITOPS_SOURCE_FIELDS: &[&str] = &[
     "protectedResources",
     "kinds",
     "stack",
+    "driftPolicy",
 ];
 
 /// The fields a source declared IN ITS OWN REPOSITORY may change. Everything
@@ -537,6 +573,10 @@ fn gitops_fields(spec: &GitOpsSourceSpec) -> BTreeMap<String, String> {
     );
     f.insert("kinds".into(), spec.safety.kinds.join(","));
     f.insert("stack".into(), opt(&spec.stack));
+    f.insert(
+        "driftPolicy".into(),
+        spec.drift_policy.map(DriftPolicy::as_str).unwrap_or("").into(),
+    );
     f
 }
 
@@ -2014,7 +2054,43 @@ fn pass(root: &Path, dir: &Path, rec: &SourceRecord) -> Outcome {
     for kept in &decision.kept {
         println!("  · {kept}");
     }
+    // Honor the stack's `driftPolicy` (ADR-0088 A5): compute what drifted on the
+    // node (last-applied stamp vs observed) BEFORE this pass touches anything, so
+    // a pass can surface it — and, under `correct`, reconcile it. Absent policy:
+    // this whole block is skipped and the pass behaves exactly as before.
+    let pre_drift = match rec.spec.drift_policy {
+        Some(_) => match stack_drift(&docs, &stack) {
+            Ok(r) => Some(r),
+            Err(e) => return refused(Some(commit), e, "failed"),
+        },
+        None => None,
+    };
     if !decision.changes {
+        if let (Some(policy), Some(report)) = (rec.spec.drift_policy, &pre_drift) {
+            surface_drift(root, &rec.namespace, &rec.name, report, policy);
+            // `correct` (the owner's choice: desired = the manifest): re-apply so
+            // the declared state wins. The repo plan saw no change, so there is no
+            // DECLARED drift to apply; the re-apply is idempotent and keeps
+            // undeclared hand-additions — which the report above named.
+            if policy == DriftPolicy::Correct && !report.drift.is_empty() {
+                return match super::stack::apply_docs(
+                    &docs,
+                    &manifest_path,
+                    Some(&stack),
+                    Vec::new(),
+                    Vec::new(),
+                    false,
+                    None,
+                    Applier::Pass,
+                ) {
+                    Ok(()) => Outcome::Synced {
+                        commit,
+                        changed: true,
+                    },
+                    Err(e) => refused(Some(commit), e, "failed"),
+                };
+            }
+        }
         return Outcome::Synced {
             commit,
             changed: false,
@@ -2041,12 +2117,73 @@ fn pass(root: &Path, dir: &Path, rec: &SourceRecord) -> Outcome {
         })
         .and_then(|()| super::stack::prune(&decision.prune));
     match applied {
-        Ok(()) => Outcome::Synced {
-            commit,
-            changed: true,
-        },
+        Ok(()) => {
+            // The sync reconciled the DECLARED drift just now; surface what had
+            // moved (pre-apply) so a `report`/`correct` pass leaves a record of it.
+            if let (Some(policy), Some(report)) = (rec.spec.drift_policy, &pre_drift) {
+                surface_drift(root, &rec.namespace, &rec.name, report, policy);
+            }
+            Outcome::Synced {
+                commit,
+                changed: true,
+            }
+        }
         Err(e) => refused(Some(commit), e, "failed"),
     }
+}
+
+/// The stamp-vs-observed drift of one stack — the pure `drift` report the verb
+/// uses, so a timer pass and `delonix drift` answer the SAME question.
+fn stack_drift(docs: &[ManifestDoc], stack: &str) -> Result<super::drift::Report> {
+    let actual = super::stack::actual_of(docs)?;
+    let facts = if actual.iter().any(|a| a.kind == k::VM) {
+        super::vm::facts()?
+    } else {
+        Default::default()
+    };
+    Ok(super::drift::report_for(&actual, Some(stack), true, &facts))
+}
+
+/// Print the drift a pass found and record it as an event (ADR-0088 A5) — the
+/// point of `report`, and the record of what `correct` reconciled.
+fn surface_drift(
+    root: &Path,
+    namespace: &str,
+    name: &str,
+    report: &super::drift::Report,
+    policy: DriftPolicy,
+) {
+    if report.drift.is_empty() {
+        return;
+    }
+    let who = format!("{namespace}/{name}");
+    for d in &report.drift {
+        println!(
+            "  {}",
+            super::po::tf(
+                "drift {kind}/{name} {field}: {was} -> {now}",
+                &[
+                    ("kind", &d.kind),
+                    ("name", &d.name),
+                    ("field", &d.field),
+                    ("was", &d.last_applied),
+                    ("now", &d.observed),
+                ],
+            )
+        );
+    }
+    delonix_node::events::emit(
+        root,
+        "gitops",
+        "drift",
+        &who,
+        &who,
+        Some(&format!(
+            "{} field(s) ({})",
+            report.drift.len(),
+            policy.as_str()
+        )),
+    );
 }
 
 /// The plan of a commit, weighed against the policy. A plan that fails, or

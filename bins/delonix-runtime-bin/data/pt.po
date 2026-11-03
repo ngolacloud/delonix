@@ -13962,6 +13962,9 @@ msgstr "Só os recursos desta stack (por omissão: todas as stacks deste nó)"
 msgid "Exit 2 when there IS drift (0 = none, 1 = error) — the `terraform plan -detailed-exitcode` contract, for a CI drift gate"
 msgstr "Sai com 2 quando HÁ deriva (0 = nenhuma, 1 = erro) — o contrato do `terraform plan -detailed-exitcode`, para um portão de deriva em CI"
 
+msgid "Re-apply the manifest to reconcile the drift away, instead of only reporting it (needs a manifest)."
+msgstr "Re-aplica o manifesto para reconciliar a deriva, em vez de só a reportar (precisa de um manifesto)."
+
 msgid "what the machine changed since the last apply, every stack"
 msgstr "o que a máquina mudou desde o último apply, em todas as stacks"
 

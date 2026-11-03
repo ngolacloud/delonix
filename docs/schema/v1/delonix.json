@@ -688,6 +688,21 @@
       ],
       "type": "object"
     },
+    "DriftPolicy": {
+      "description": "A stack's drift policy under the GitOps timer (ADR-0088 A5). Absent (the\n`Option` is `None`) is a third state — \"do nothing about drift\" — and is the\ndefault, which is how the zero-behaviour-change constraint holds.",
+      "oneOf": [
+        {
+          "const": "report",
+          "description": "Compute the drift and record it; apply nothing extra.",
+          "type": "string"
+        },
+        {
+          "const": "correct",
+          "description": "Re-apply the manifest so the drift is reconciled away.",
+          "type": "string"
+        }
+      ]
+    },
     "Entrypoint": {
       "description": "An entry point (proxy listen port).",
       "properties": {
@@ -1217,6 +1232,18 @@
       "additionalProperties": false,
       "description": "`spec` of `kind: GitOpsSource`.",
       "properties": {
+        "driftPolicy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DriftPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the timer does about DRIFT — a field someone changed on the node,\nOUTSIDE the declarative path (ADR-0088 A5). Absent: the pass only syncs\nthe repository, exactly as before, and `delonix drift` stays a manual\nverb. `report`: each pass also computes the drift of the target stack and\nrecords it, so hand-tampering is visible in `gitops status`. `correct`:\nthe pass re-applies the manifest to reconcile the drift away. Opt-in and\nstill daemonless — the timer is systemd's (ADR-0021), not a process.",
+          "x-delonix-update": "live"
+        },
         "safety": {
           "$ref": "#/$defs/SafetySpec",
           "default": {

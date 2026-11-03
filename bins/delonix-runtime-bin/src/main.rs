@@ -504,6 +504,9 @@ enum Cmd {
         /// `terraform plan -detailed-exitcode` contract, for a CI drift gate.
         #[arg(long)]
         detailed_exitcode: bool,
+        /// Re-apply the manifest to reconcile the drift away, instead of only reporting it (needs a manifest).
+        #[arg(long)]
+        correct: bool,
     },
     /// Score what you already have against what this engine serves.
     ///
@@ -1267,7 +1270,8 @@ fn run() -> Result<()> {
             stack,
             output,
             detailed_exitcode,
-        } => cmd::drift::cmd_drift(file, stack, output, detailed_exitcode),
+            correct,
+        } => cmd::drift::cmd_drift(file, stack, output, detailed_exitcode, correct),
         Cmd::Migrate { action } => cmd::migrate::run(action),
         Cmd::Config { action } => cmd::config::run(action),
         Cmd::Stack { action } => cmd::stack::run(action),

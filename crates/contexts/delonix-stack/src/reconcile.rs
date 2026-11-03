@@ -389,6 +389,7 @@ fn hot_fields(kind: &str) -> &'static [&'static str] {
             "protectedResources",
             "kinds",
             "stack",
+            "driftPolicy",
         ],
         // An apply that died mid-way is finished by applying again: the
         // record's ledger says where it stopped, and the provider adopts what
