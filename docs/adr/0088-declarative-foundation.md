@@ -119,3 +119,29 @@ constraint holds while the capability is added.
    destroy; cycle refusal with path; order-parity test vs FACTS for the shipped examples.
 5. **2e — A5 drift + plan-file:** `stack apply plano.json`; `stack drift` with per-stack
    `driftPolicy`, driven by the `GitOpsSource` timer.
+
+## Addendum (2026-11-03): how A1 is realised, measured against the code
+
+D1 said "every published-schema field carries `x-delonix-update`" and "a generic diff walks
+the schema". Measuring the reconciler (`docs/discovery/70_…`) showed this does not fit the
+engine as built, and the owner chose the fit over the letter:
+
+- The reconciler does **not** diff schema fields. It diffs a **flat, curated set of comparison
+  keys per Kind** (`reconcile::hot_fields`/`grow_only_fields`, the keys of `Desired.fields`),
+  which are flattened/renamed versions of the nested, camelCase schema fields
+  (`memory`/`cpus` live under `resources`, `netBps` under a `net` block). The two namespaces do
+  not align 1:1, so "annotate every schema field and walk the schema" would mean realigning the
+  diff's whole key space — a change that cannot hold the phase's zero-behaviour-change invariant.
+- **Decision (owner, 2026-11-03):** A1's class is a **declarative per-key classifier**,
+  `reconcile::update_class(kind, field) -> UpdateClass {Live, GrowOnly, Replace}`, the ONE place
+  the diff reads a field's static class (`is_hot`/`is_hot_change` route through it). The RESTART
+  class stays dynamic in `Facts` (a backend decides it per resource), so it is not a static
+  per-field class. `x-delonix-update` is still surfaced in the published schema for the
+  top-level spec fields whose name matches a comparison key (phase 2b-ii), and the two gates
+  (every reconciled field classified; a `live`/`restart` field has an applier) check the
+  classifier and the per-Kind `RECONCILED_*_FIELDS` invariant — not the raw JSON schema.
+- **Slice split:** 2b-i (this addendum) unifies the classifier with a parity test proving
+  `update_class` reproduces the hand tables for every Kind, and asserts Live/GrowOnly are
+  disjoint. 2b-ii adds the two gates and the schema `x-delonix-update` emission. The hand tables
+  stay as `update_class`'s documented backing data (each entry carries its reasoning); they are
+  no longer read directly by the diff.
