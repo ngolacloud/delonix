@@ -1,0 +1,30 @@
+# ============================================================================
+# kind: Job (ADR-0086 D3) — uma tarefa run-to-completion / a run-to-completion task.
+#
+# PT: Um Job baixa, no load, num único `kind: Pod` cujo `restartPolicy` é, por
+#     omissão, `OnFailure` — o contentor é retentado até sair com sucesso, a
+#     diferença face a um Pod normal (que não reinicia). Um motor sem daemon não
+#     tem controller para `completions`/`backoffLimit`/`parallelism`, por isso
+#     esses campos do Job do k8s estão ausentes de propósito; a retentativa é a
+#     política de reinício do runtime, não de um controller. Pôr `restartPolicy:
+#     Never` para falhar uma vez e parar.
+# EN: A Job lowers at load into a single `kind: Pod` whose `restartPolicy`
+#     defaults to `OnFailure` — the container is retried until it exits
+#     successfully, the difference from a bare Pod (which never restarts). A
+#     daemonless engine has no controller for `completions`/`backoffLimit`/
+#     `parallelism`, so those k8s-Job fields are absent on purpose; the retry is
+#     the runtime's restart policy, not a controller's. Set `restartPolicy: Never`
+#     to fail once and stop. Apply:  delonix stack apply -f examples/compute/job.yaml
+# ============================================================================
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: shop
+spec:
+  containers:
+    - name: migrate
+      image: migrate/migrate:v4.17.0
+      command: ["migrate", "-path", "/migrations", "-database", "$DATABASE_URL", "up"]
+  # restartPolicy: OnFailure    # PT: o default do Job | EN: the Job default (shown for clarity)

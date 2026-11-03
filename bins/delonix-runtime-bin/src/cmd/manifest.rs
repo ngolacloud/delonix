@@ -330,6 +330,7 @@ pub(crate) const KIND_ALIASES: &[(&str, &str)] = &[
     ("Pod", k::POD),
     ("Workload", k::WORKLOAD),
     ("Application", k::APPLICATION),
+    ("Job", k::JOB),
 ];
 
 pub fn canonical_kind(kind: &str) -> &str {
@@ -532,6 +533,9 @@ pub(crate) fn spec_fields_for(kind: &str) -> Option<&'static [&'static str]> {
         k::GATEWAY => Some(crate::cmd::tunnel::TUNNEL_SPEC_FIELDS),
         k::WORKLOAD => Some(crate::cmd::workload::WORKLOAD_SPEC_FIELDS),
         k::APPLICATION => Some(crate::cmd::application::APPLICATION_SPEC_FIELDS),
+        // A Job's spec IS a PodSpec (run-to-completion; the restartPolicy default
+        // is applied at lowering, not a new field).
+        k::JOB => Some(crate::cmd::container::POD_SPEC_FIELDS),
         k::STACK => Some(stack_spec_fields()),
         k::CLUSTER => Some(crate::cmd::cluster::CLUSTER_SPEC_FIELDS),
         _ => None,
@@ -903,6 +907,8 @@ pub fn load_str(text: &str, label: &str) -> Result<Vec<ManifestDoc>> {
                     // children never pass through it, so a `workloads:` group
                     // would otherwise leave a document no handler claims.
                     child = crate::cmd::workload::lower_workload(&child)?;
+                } else if child.kind == k::JOB {
+                    child = crate::cmd::job::lower_job(&child)?;
                 }
                 docs.push(child);
             }
@@ -916,6 +922,10 @@ pub fn load_str(text: &str, label: &str) -> Result<Vec<ManifestDoc>> {
             // (ADR-0086 D4), each flowing through the normal Pod apply. The
             // Application doc does not survive — the Pods it became are what run.
             docs.extend(crate::cmd::application::lower_application(&doc)?);
+        } else if doc.kind == k::JOB {
+            // A `kind: Job` lowers to one `kind: Pod` with `restartPolicy`
+            // defaulted to `OnFailure` (ADR-0086 D3) — run-to-completion with retry.
+            docs.push(crate::cmd::job::lower_job(&doc)?);
         } else {
             docs.push(doc);
         }
@@ -2163,6 +2173,8 @@ spec: { image: nginx }
                 "{ replicas: 2, containers: [{ name: a, image: nginx }] }",
                 "Pod",
             ),
+            // Lowers 1:1 to a `Pod` of the same name (restartPolicy defaulted).
+            "jobs" => ("{ containers: [{ name: a, image: nginx }] }", "Pod"),
             "services" => (
                 "{ selector: { matchLabels: { app: web } }, port: 80 }",
                 "Service",

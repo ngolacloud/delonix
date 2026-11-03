@@ -51,6 +51,7 @@ const TYPED_KINDS: &[&str] = &[
     k::CONTAINER,
     k::POD,
     k::APPLICATION,
+    k::JOB,
     k::VOLUME,
     k::OBJECT_STORAGE,
     k::NETWORK,
@@ -199,6 +200,11 @@ fn typed_spec_parts(
             generator.subschema_for::<super::application::ApplicationSpec>(),
             "ApplicationSpec",
             super::application::APPLICATION_SPEC_FIELDS,
+        ),
+        k::JOB => (
+            generator.subschema_for::<super::job::JobSpec>(),
+            "JobSpec",
+            super::container::POD_SPEC_FIELDS,
         ),
         k::VOLUME => (
             generator.subschema_for::<super::volume::VolumeSpec>(),
