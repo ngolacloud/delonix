@@ -455,8 +455,45 @@ fn hot_fields(kind: &str) -> &'static [&'static str] {
     }
 }
 
+/// The STATIC update class of one field of one Kind — the machine-readable
+/// classification ADR-0088 A1 adds, read by the diff (here) and emitted into the
+/// published schema as `x-delonix-update` (phase 2b-ii). "Static" because it is a
+/// property of the `(Kind, field)` pair alone; the RESTART class is per-resource
+/// and lives in [`Facts`] (a backend decides it), so it is not here.
+///
+/// This is the ONE place the diff consults for a field's static class;
+/// [`hot_fields`] and [`grow_only_fields`] are its documented backing data (each
+/// entry carries WHY it is what it is). A field named in neither is [`Replace`].
+///
+/// [`Replace`]: UpdateClass::Replace
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateClass {
+    /// Converges in place, same PID (ADR-0088 `live`). Backing: [`hot_fields`].
+    Live,
+    /// Converges live only when it GROWS up to a ceiling (ADR-0088 `live`,
+    /// grow-only); a shrink is a [`Replace`]. Backing: [`grow_only_fields`].
+    ///
+    /// [`Replace`]: UpdateClass::Replace
+    GrowOnly,
+    /// Does not converge in place — a change is a `Replace` (ADR-0088 `replace`),
+    /// refused unless authorised. The safe default for any unlisted field.
+    Replace,
+}
+
+/// The single static classifier (ADR-0088 A1). Every `(Kind, field)` maps to
+/// exactly one [`UpdateClass`]; an unlisted field is [`UpdateClass::Replace`].
+pub fn update_class(kind: &str, field: &str) -> UpdateClass {
+    if hot_fields(kind).contains(&field) {
+        UpdateClass::Live
+    } else if grow_only_fields(kind).contains(&field) {
+        UpdateClass::GrowOnly
+    } else {
+        UpdateClass::Replace
+    }
+}
+
 fn is_hot(kind: &str, field: &str) -> bool {
-    hot_fields(kind).contains(&field)
+    matches!(update_class(kind, field), UpdateClass::Live)
 }
 
 /// Fields that converge live only when they GROW, per Kind: a number the
@@ -476,18 +513,16 @@ fn grow_only_fields(kind: &str) -> &'static [&'static str] {
 /// Whether one field change converges live: a hot field always does, a
 /// grow-only field when both sides are numbers and it does not shrink.
 pub fn is_hot_change(kind: &str, field: &str, from: Option<&str>, to: Option<&str>) -> bool {
-    if is_hot(kind, field) {
-        return true;
-    }
-    if !grow_only_fields(kind).contains(&field) {
-        return false;
-    }
-    match (
-        from.and_then(|v| v.parse::<u64>().ok()),
-        to.and_then(|v| v.parse::<u64>().ok()),
-    ) {
-        (Some(f), Some(t)) => t >= f,
-        _ => false,
+    match update_class(kind, field) {
+        UpdateClass::Live => true,
+        UpdateClass::Replace => false,
+        UpdateClass::GrowOnly => matches!(
+            (
+                from.and_then(|v| v.parse::<u64>().ok()),
+                to.and_then(|v| v.parse::<u64>().ok()),
+            ),
+            (Some(f), Some(t)) if t >= f
+        ),
     }
 }
 
@@ -1008,6 +1043,31 @@ mod tests {
         assert!(p[0].reason.as_deref().unwrap().contains("protect"));
         let unprotected = actual("keepme", &[("image", "nginx")], Some("s"));
         assert_eq!(plan(&[], &[unprotected], "s")[0].action, Action::Delete);
+    }
+
+    /// ADR-0088 A1: `update_class` is the ONE static classifier the diff reads,
+    /// and it reproduces exactly the hand-written `hot_fields`/`grow_only_fields`
+    /// for every Kind — the parity that lets the class become the source of truth
+    /// with no plan changing. It also proves the two sets are DISJOINT (no field
+    /// is both Live and GrowOnly), the well-formedness the A1 gate rests on.
+    #[test]
+    fn update_class_matches_the_hand_tables_for_every_kind() {
+        for kind in k::stack_kinds() {
+            let hot: BTreeSet<_> = hot_fields(kind).iter().collect();
+            let grow: BTreeSet<_> = grow_only_fields(kind).iter().collect();
+            assert!(
+                hot.is_disjoint(&grow),
+                "{kind}: a field cannot be both Live and GrowOnly"
+            );
+            for f in hot_fields(kind) {
+                assert_eq!(update_class(kind, f), UpdateClass::Live, "{kind}/{f}");
+            }
+            for f in grow_only_fields(kind) {
+                assert_eq!(update_class(kind, f), UpdateClass::GrowOnly, "{kind}/{f}");
+            }
+            // A field named in neither table is Replace, the safe default.
+            assert_eq!(update_class(kind, "__absent__"), UpdateClass::Replace);
+        }
     }
 
     /// A grow-only field converges live when it grows and plans a replace
