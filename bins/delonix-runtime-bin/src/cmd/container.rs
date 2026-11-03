@@ -1019,6 +1019,9 @@ use delonix_compute::pod::{default_net, default_restart, default_true};
 /// uma escolha deliberada, e uma regressão aqui volta a torná-la invisível.
 pub(crate) fn net_mode_display(c: &delonix_compute::Container) -> String {
     match (c.net_mode.as_deref(), c.network.as_deref()) {
+        // Partilha a netns de outro container (`--net container:<nome>`): mostra a
+        // INTENÇÃO, nunca uma rede — não há `network` próprio a reportar aqui.
+        (Some(asked), _) if asked.starts_with("container:") => asked.to_string(),
         // Ligado à rede que pediu — o caso normal.
         (_, Some(net)) => net.to_string(),
         // Pediu explicitamente host/none: não há nada de errado.
@@ -1138,7 +1141,9 @@ pub struct RunArgs {
     #[arg(short = 'u', long)]
     user: Option<String>,
     /// Network: `host` (shares the host's, default), `none` (isolated netns with
-    /// no connectivity), or the NAME of a network created with `delonix network create`.
+    /// no connectivity), `container:<name>` (shares an already-running container's
+    /// netns — same IP and ports, Docker/Podman parity), or the NAME of a network
+    /// created with `delonix network create`.
     #[arg(long, default_value = "host", add = ArgValueCandidates::new(super::complete::networks))]
     net: String,
     /// Logical ISOLATION namespace (default `default`). Containers in different
@@ -3289,6 +3294,41 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
 
     let custom_net = custom_net_name(&net);
     let mut attached_ip = None;
+    // `--net container:<name>` (Docker/Podman parity): the new container joins an
+    // already-running container's NETWORK namespace — same IP, same published
+    // ports. It reuses the pod member's seam exactly — the re-exec enters the
+    // target's netns (`nsenter … ip netns exec`) and the 2nd pass runs there
+    // without creating a netns of its own. Only the NET namespace is shared, not
+    // IPC/UTS/PID (`pod_infra_pid` stays `None`) — the same subset Docker shares.
+    if let Some(target_name) = delonix_compute::preflight::net_container_target(&net) {
+        if reexec {
+            // 2nd pass: already inside the target's netns. Record the shared
+            // address (for `/etc/hosts` and the record), then fall through to the
+            // launch — `custom_net` is `None`, so nothing network-of-our-own runs,
+            // and `second_pass` keeps us from creating a netns of our own.
+            attached_ip = std::env::var("DELONIX_REEXEC_IP")
+                .ok()
+                .filter(|s| !s.is_empty());
+            c.ip = attached_ip.clone();
+        } else {
+            let target = find_net_join_target(store, target_name, &namespace)?;
+            match net_join_netns(&target)? {
+                NetJoin::Named { netns, ip } => {
+                    // The target OWNS the netns, so `detach_on_fail = false`: a
+                    // failed start of ours must never tear down its network — the
+                    // same contract a pod member's re-exec states.
+                    return reexec_into_netns(&id, &netns, &ip, &opts_copy, false);
+                }
+                NetJoin::Host => {
+                    // The target runs in the host (session) netns; so does this
+                    // container — directly here, no re-exec and no netns of its
+                    // own (the fall-through launch has `net_none = false` and no
+                    // slirp ports, so it inherits the session's netns as the
+                    // target did).
+                }
+            }
+        }
+    }
     if let Some(n) = &custom_net {
         if reexec {
             attached_ip = std::env::var("DELONIX_REEXEC_IP").ok();
@@ -4276,6 +4316,79 @@ pub(crate) use delonix_compute::launch::should_supervise;
 /// The `DELONIX_REEXEC_ID` distinguishes the two passes AND carries the id:
 /// without it the 2nd pass would generate a new id and the netns created in the
 /// 1st would be orphaned.
+/// How `--net container:<name>` reaches the target's network namespace.
+enum NetJoin {
+    /// The target has a NAMED SDN netns (`sanitize(id)`) — the one the pod/custom
+    /// re-exec enters. `netns` is the id to hand `join_argv` (it sanitizes), `ip`
+    /// the target's address, shared with the joiner.
+    Named { netns: String, ip: String },
+    /// The target runs in the host (session) netns; the joiner runs there too,
+    /// with no re-exec.
+    Host,
+}
+
+/// Resolves the target of a `--net container:<name>`: it must exist and be
+/// RUNNING (its netns only exists while it runs). Resolved in the joiner's
+/// namespace first — names are unique per namespace — then by a bare lookup for
+/// an id/prefix or a node without namespaces.
+fn find_net_join_target(store: &Store, name: &str, namespace: &str) -> Result<Container> {
+    let target = find(store, &format!("{namespace}/{name}"))
+        .or_else(|_| find(store, name))
+        .map_err(|_| {
+            Error::Invalid(format!(
+                "--net container:{name}: no container '{name}' — it must already exist and be running"
+            ))
+        })?;
+    if !target.is_live() {
+        return Err(Error::Invalid(format!(
+            "--net container:{name}: '{name}' is not running — start it first (its network \
+             namespace only exists while it runs)"
+        )));
+    }
+    Ok(target)
+}
+
+/// Which netns a `--net container:<name>` join enters, or the refusal for a
+/// target whose netns cannot be shared by name.
+fn net_join_netns(target: &Container) -> Result<NetJoin> {
+    // On a custom network the target has a NAMED netns (`sanitize(id)`), the very
+    // one the pod/custom re-exec enters — reuse it and the target's SDN address.
+    if target.network.is_some() {
+        return Ok(NetJoin::Named {
+            netns: target.id.clone(),
+            ip: target.ip.clone().unwrap_or_default(),
+        });
+    }
+    // A pod member's netns is the pod's, shared with its peers through the pod's
+    // own holder bookkeeping — join the pod, not one of its members.
+    if let Some(pod) = &target.pod {
+        return Err(Error::Invalid(format!(
+            "--net container:{} shares a pod member's netns — run this container in pod '{pod}' \
+             instead (the netns is the pod's, shared with its peers)",
+            target.name
+        )));
+    }
+    // `--net none`: an isolated netns with nothing to share.
+    if target.net_mode.as_deref() == Some("none") {
+        return Err(Error::Invalid(format!(
+            "--net container:{} has an isolated netns (`--net none`) — there is nothing to share",
+            target.name
+        )));
+    }
+    // A `-p` container owns an ANONYMOUS netns (its own slirp, never `ip netns
+    // add`ed), which the holder-based `ip netns exec` cannot enter. Honest
+    // boundary: put the target on a `delonix network` to share its netns by name.
+    if !target.ports.is_empty() {
+        return Err(Error::Invalid(format!(
+            "--net container:{0} has its own slirp netns (it published ports with -p) — put '{0}' \
+             on a `delonix network create`d network to share its netns by name",
+            target.name
+        )));
+    }
+    // Otherwise the target is in the host (session) netns; the joiner runs there too.
+    Ok(NetJoin::Host)
+}
+
 fn reexec_into_netns(
     id: &str,
     netns: &str,

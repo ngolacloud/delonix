@@ -7436,8 +7436,8 @@ msgstr "directo para um endereço, como outro utilizador"
 msgid "volume '{name}': the dataset {ds} already existed and was adopted — its quota now follows this manifest"
 msgstr "volume '{name}': o dataset {ds} já existia e foi adoptado — a quota dele passa a seguir este manifesto"
 
-msgid "Subnet. For `bridge`, `10.<200-254>.0.0/16` (only /16); required for macvlan/ipvlan, e.g. `192.168.1.0/24`. Omit it and a free one is picked."
-msgstr "Subrede. Para `bridge`, `10.<200-254>.0.0/16` (só /16); obrigatória para macvlan/ipvlan, ex.: `192.168.1.0/24`. Sem ela, é escolhida uma livre."
+msgid "Subnet (CIDR). For `bridge`, any private IPv4 range (RFC 1918) between /8 and /28 — e.g. `172.20.0.0/24`, `192.168.50.0/24` or `10.50.0.0/16`; required for macvlan/ipvlan, e.g. `192.168.1.0/24`. Omit it and a free one is picked from the default space."
+msgstr "Subrede (CIDR). Para `bridge`, qualquer intervalo IPv4 privado (RFC 1918) entre /8 e /28 — ex.: `172.20.0.0/24`, `192.168.50.0/24` ou `10.50.0.0/16`; obrigatória para macvlan/ipvlan, ex.: `192.168.1.0/24`. Sem ela, é escolhida uma livre do espaço predefinido."
 
 msgid "ALSO destroy the storage this volume was provisioned with on a remote NAS (`spec.provision`). Irreversible, and on another machine. Refused for a volume that only mounts a share someone else made"
 msgstr "Destrói TAMBÉM o armazenamento com que este volume foi provisionado numa NAS remota (`spec.provision`). Irreversível, e noutra máquina. Recusado para um volume que só monta uma partilha feita por outra pessoa"

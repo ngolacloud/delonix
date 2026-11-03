@@ -7428,7 +7428,51 @@ pub fn br_netfilter_active() -> Result<bool> {
     Ok(control_query("br-netfilter-check")?.trim() == "1")
 }
 
+/// The LAN-driver attach plan for `net`, or `None` when `net` is not a
+/// `macvlan`/`ipvlan` network (the ordinary bridge/overlay path handles those).
+///
+/// A LAN network lives in the `NetworkStore` (what `create_lan` writes), NOT in
+/// the ingress `NetDef` registry `resolve_net` reads — so a `None` here means
+/// "not a LAN record", which includes the default bridge and every ingress
+/// network, and the caller falls through to the holder path.
+fn lan_plan_for(net: &str, id: &str) -> Result<Option<crate::lan::LanPlan>> {
+    let store = match crate::NetworkStore::open(base_root()) {
+        Ok(s) => s,
+        Err(_) => return Ok(None),
+    };
+    let rec = match store.get(net) {
+        Ok(r) => r,
+        Err(_) => return Ok(None),
+    };
+    if !rec.is_lan_driver() {
+        return Ok(None);
+    }
+    Ok(Some(crate::lan::plan(&rec, id)?))
+}
+
+/// Realizes a `macvlan`/`ipvlan` attach: creates the sub-interface on the
+/// parent NIC and moves it into the container's named netns (rootful only; a
+/// clear `permission denied` otherwise). Returns `(netns, ip)` like the bridge
+/// path, so the caller's bookkeeping is identical — but no holder reference and
+/// no IPAM lease are taken, because a LAN container sits on the physical wire,
+/// outside both.
+fn attach_lan(id: &str, plan: &crate::lan::LanPlan) -> Result<(String, String)> {
+    let netns = sanitize(id);
+    crate::lan::realize_attach(&netns, plan)?;
+    let ip = plan.cidr.split('/').next().unwrap_or_default().to_string();
+    Ok((netns, ip))
+}
+
 pub fn attach_container(id: &str, net: &str, namespace: &str) -> Result<(String, String)> {
+    // macvlan/ipvlan is a WHOLLY different realization — a sub-interface
+    // enslaved to a physical NIC and moved into the container's netns — that
+    // bypasses the bridge/holder/IPAM path below entirely, and only works with
+    // CAP_NET_ADMIN in the init netns. Dispatched FIRST so the LAN record never
+    // reaches `resolve_net` (which looks the name up in the ingress `NetDef`
+    // registry, where a LAN network — written to the `NetworkStore` — is not).
+    if let Some(plan) = lan_plan_for(net, id)? {
+        return attach_lan(id, &plan);
+    }
     // `default_route` and NOT `bridge_addr`: this token becomes the container's
     // `ip route add default via`, which is the ONE thing a declared gateway is
     // meant to redirect.
@@ -7670,6 +7714,13 @@ pub fn detach_container_keep_lease(id: &str, ip: &str) {
     let _ = control_send(&format!("detach {netns}"));
     let _ = control_send(&format!("nsleave {ip}"));
     release(id); // removes the ref marker (teardown when it becomes empty)
+                 // macvlan/ipvlan containers never went through the holder (their netns
+                 // and sub-interface were realized directly), so the `detach` above does
+                 // not reach them. Tear that down here — idempotent, and confined to the
+                 // rootful host where a LAN container can exist at all.
+    if crate::lan::can_realize() {
+        let _ = crate::lan::realize_detach(&netns);
+    }
 }
 
 /// **Applies a container's parameterizable firewall AT THE INGRESS** (the only place,
