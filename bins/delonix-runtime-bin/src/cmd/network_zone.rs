@@ -1620,10 +1620,7 @@ pub(crate) fn stamp(
         super::reconcile::MANAGED_BY.to_string(),
         "delonix".to_string(),
     );
-    rec.annotations.insert(
-        super::reconcile::LAST_APPLIED.to_string(),
-        super::reconcile::encode_last_applied(fields),
-    );
+    super::reconcile::stamp_annotations(&mut rec.annotations, fields, k::NETWORK_ZONE);
     s.save(name, &rec).map_err(Into::into)
 }
 

@@ -77,6 +77,81 @@ pub const PROTECT: &str = "delonix.io/protect";
 /// Label marking a resource as created by a declarative apply.
 pub const MANAGED_BY: &str = "delonix.io/managed-by";
 
+/// Annotation: the spec-version counter (ADR-0090). A monotonic integer, bumped
+/// at stamp when the applied spec changed vs the one already on the record, kept
+/// otherwise; `1` on first apply. Record metadata, akin to [`LAST_APPLIED`] —
+/// not a user knob (a `metadata.generation` in an input manifest is ignored).
+pub const GENERATION: &str = "delonix.io/generation";
+/// Annotation: the generation the machine was last reconciled to (ADR-0090).
+/// Written at stamp, which is post-success, so it equals [`GENERATION`] on the
+/// happy path — persisted so a reader states it without recomputing.
+pub const OBSERVED_GENERATION: &str = "delonix.io/observed-generation";
+/// Annotation: the `apiVersion` the record was written under (ADR-0090). One
+/// version per Kind today; the field a future `manifest convert` (ADR-0086)
+/// reads to migrate a stored record on read.
+pub const STORED_VERSION: &str = "delonix.io/stored-version";
+
+/// The next generation for a stamp (ADR-0090): bump when the applied spec
+/// changed vs the one already stored, keep it otherwise. A record with no stored
+/// generation counts as `0` (unversioned), so its first stamped apply writes `1`.
+/// Pure — the one place the counter's rule lives.
+pub fn next_generation(
+    prev_last_applied: Option<&str>,
+    prev_generation: Option<&str>,
+    new_last_applied: &str,
+) -> u64 {
+    let prev_gen: u64 = prev_generation.and_then(|s| s.parse().ok()).unwrap_or(0);
+    if prev_last_applied != Some(new_last_applied) {
+        prev_gen + 1
+    } else {
+        prev_gen.max(1)
+    }
+}
+
+/// The three ADR-0090 version annotations to write at stamp time, as `(key,
+/// value)` pairs to insert into the record's annotations ALONGSIDE
+/// [`LAST_APPLIED`]. `prev` is the record's annotations BEFORE this stamp (where
+/// the previous generation and last-applied are read); `new_last_applied` is
+/// what this stamp writes; `api_version` the Kind's stored version. Absent-safe:
+/// a `prev` with none of them yields generation `1` and the given version.
+pub fn version_annotations(
+    prev: &BTreeMap<String, String>,
+    new_last_applied: &str,
+    api_version: &str,
+) -> [(String, String); 3] {
+    let gen = next_generation(
+        prev.get(LAST_APPLIED).map(String::as_str),
+        prev.get(GENERATION).map(String::as_str),
+        new_last_applied,
+    );
+    [
+        (GENERATION.to_string(), gen.to_string()),
+        (OBSERVED_GENERATION.to_string(), gen.to_string()),
+        (STORED_VERSION.to_string(), api_version.to_string()),
+    ]
+}
+
+/// Write the whole apply stamp into a record's annotations map in one call: the
+/// [`LAST_APPLIED`] fingerprint AND the ADR-0090 version counters, so a Kind's
+/// stamp cannot persist one without the other. The previous generation and
+/// last-applied are read from the SAME map before it is overwritten, so the map
+/// passed in must be the record's CURRENT annotations. `kind` resolves the
+/// `storedVersion` off the catalog, so the caller need not know its apiVersion.
+pub fn stamp_annotations(
+    annotations: &mut BTreeMap<String, String>,
+    fields: &BTreeMap<String, String>,
+    kind: &str,
+) {
+    let encoded = encode_last_applied(fields);
+    let version = crate::kinds::facts(kind).map(|f| f.api_version).unwrap_or("");
+    // Version first — it reads the PREVIOUS last-applied out of the map, which the
+    // next line overwrites.
+    for (k, v) in version_annotations(annotations, &encoded, version) {
+        annotations.insert(k, v);
+    }
+    annotations.insert(LAST_APPLIED.to_string(), encoded);
+}
+
 /// What a resource in the manifest asks for.
 #[derive(Debug, Clone)]
 pub struct Desired {
@@ -951,6 +1026,48 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    /// The generation counter (ADR-0090): `1` on first apply, bumped only when
+    /// the applied spec changed, kept when it did not — and an unversioned record
+    /// (no stored generation) starts at `0`, so its first stamp writes `1`.
+    #[test]
+    fn generation_bumps_only_when_the_applied_spec_changed() {
+        // First apply: no previous last-applied at all -> generation 1.
+        assert_eq!(next_generation(None, None, "la-v1"), 1);
+        // Re-apply of the SAME spec: kept.
+        assert_eq!(next_generation(Some("la-v1"), Some("1"), "la-v1"), 1);
+        // A changed spec: bumped.
+        assert_eq!(next_generation(Some("la-v1"), Some("1"), "la-v2"), 2);
+        assert_eq!(next_generation(Some("la-v2"), Some("2"), "la-v3"), 3);
+        // Unchanged spec but an unversioned record (migration): floor at 1.
+        assert_eq!(next_generation(Some("la-v1"), None, "la-v1"), 1);
+    }
+
+    /// The MIGRATION (ADR-0090): a record written before this slice carries none
+    /// of the three annotations. The first stamp reads it as unversioned and
+    /// writes generation `1`, observedGeneration `1`, and the Kind's version —
+    /// additively, nothing moved.
+    #[test]
+    fn an_unversioned_record_is_upgraded_by_the_next_stamp() {
+        let mut ann = map(&[("some.other/label", "x")]); // no delonix.io/* version keys
+        stamp_annotations(&mut ann, &map(&[("image", "nginx:1.27")]), crate::kinds::CONTAINER);
+        assert_eq!(ann.get(GENERATION).map(String::as_str), Some("1"));
+        assert_eq!(ann.get(OBSERVED_GENERATION).map(String::as_str), Some("1"));
+        assert_eq!(
+            ann.get(STORED_VERSION).map(String::as_str),
+            Some("compute.delonix.io/v1alpha1")
+        );
+        assert!(ann.contains_key(LAST_APPLIED));
+
+        // A second stamp with the SAME spec keeps generation 1 (ensure-present,
+        // not a new version); observedGeneration tracks it.
+        stamp_annotations(&mut ann, &map(&[("image", "nginx:1.27")]), crate::kinds::CONTAINER);
+        assert_eq!(ann.get(GENERATION).map(String::as_str), Some("1"));
+        // A changed spec bumps both.
+        stamp_annotations(&mut ann, &map(&[("image", "nginx:1.28")]), crate::kinds::CONTAINER);
+        assert_eq!(ann.get(GENERATION).map(String::as_str), Some("2"));
+        assert_eq!(ann.get(OBSERVED_GENERATION).map(String::as_str), Some("2"));
     }
 
     fn desired(name: &str, fields: &[(&str, &str)]) -> Desired {

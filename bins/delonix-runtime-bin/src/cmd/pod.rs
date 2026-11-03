@@ -660,7 +660,6 @@ pub(crate) fn stamp(
     protected: bool,
 ) -> Result<()> {
     let (_images, store) = open_stores()?;
-    let encoded = super::reconcile::encode_last_applied(fields);
     for c in members_of(&store, name)? {
         store.update(&c.id, |cur| {
             cur.labels
@@ -671,8 +670,7 @@ pub(crate) fn stamp(
             }
             cur.labels
                 .insert(super::reconcile::MANAGED_BY.into(), "delonix".into());
-            cur.annotations
-                .insert(super::reconcile::LAST_APPLIED.into(), encoded.clone());
+            super::reconcile::stamp_annotations(&mut cur.annotations, fields, k::POD);
             true
         })?;
     }
