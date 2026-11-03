@@ -156,20 +156,18 @@ provado numa sessão anterior — ver [[delonix-kubeadm-ha-offline-findings]]).
   entrada `iifname "wgo*" udp dport 4789`): ping container-a-container entre 2 VMs
   reais a **0% de perda** nos dois sentidos. `net.overlay.{vxlan,encrypted}`
   Partial→Supported na matriz (183/271). Ver `g4-overlay-forwarding.md`.
-- `[agente]` **CONTROL-PLANE k8s HA — estado (2026-11-03):** o blocker do CNI (bug
-  CRI de override de entrypoint) está **RESOLVIDO e verificado nesta árvore** —
-  o fix está em `delonix-cri` (`runtime_svc/lifecycle.rs`: `command`→`o.entrypoint`
-  quando não vazio), tem teste `cri_command_overrides_the_image_entrypoint`
-  (PASSA), e `cargo build -p delonix-cri` compila. A mecânica HA (3 CP + etcd
-  stacked + HAProxy) já tinha sido provada noutra sessão
-  ([[delonix-kubeadm-ha-offline-findings]]). **ACHADO:** o turnkey `delonix cluster
-  create` (kind-mode) **recusa `--control-planes > 1`** (DX-1000: "delonix does not
-  provision an LB/VIP yet") — logo a HA EXIGE o caminho kubeadm-em-VMs + um
-  LB/VIP externo (HAProxy/keepalived). **FALTA** o re-demo end-to-end (3 CP +
-  etcd + VIP + CNI + sobreviver à queda de um CP) — são 3-5 VMs k8s + LB, que
-  NÃO corri aqui: disco a 95% (46G) com as BDs vivas do dono = risco de
-  exaustão; precisa de um **nó dedicado**. Candidato de produto: o `cluster
-  create` provisionar o LB/VIP para desbloquear HA turnkey.
+- `[agente]` ✅ **CONTROL-PLANE k8s HA: PROVADO (2026-11-03) — ver
+  `g4-ha-controlplane.md`.** Depois de libertar disco (`cargo clean` do
+  DORM/target, 54.9 GiB → 99G livres), `delonix cluster kubeadm --control-plane 3
+  --workers 0 --cni default` provisionou 3 CP + **HAProxy LB (VIP)** + etcd
+  stacked + Cilium, **tudo sobre delonix** (`delonix-cri` como CRI de cada nó,
+  `CONTAINER-RUNTIME delonix://0.1.0`). `3/3 Ready`, kubectl via o VIP, um pod real
+  com IP Cilium (o CNI que o bug CRI bloqueava, agora vivo). **FAILOVER:**
+  `vm stop g4ha-cp1` → a API sobrevive via o VIP, **escrita no etcd OK** (configmap
+  `survived=yes`, quórum 2/3), **pod novo agendado** em cp3; cp1 vai a `NotReady`.
+  **Self-heal:** `vm start g4ha-cp1` → 3/3 Ready em ~20 s. Critério G4-HA fechado.
+  NOTA de produto: a HA só pelo caminho kubeadm-VMs; o `cluster create` kind-mode
+  ainda recusa `--control-planes>1` (DX-1000, sem LB/VIP) — candidato a fechar.
 - `[agente]` (se via âmbito) Escrever o ADR + a secção "tecto single-node" no handbook.
 
 ---
