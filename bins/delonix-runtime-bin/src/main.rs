@@ -377,6 +377,9 @@ enum Cmd {
         /// stale plan — refused before anything is written.
         #[arg(long = "plan-digest", value_name = "DIGEST")]
         plan_digest: Vec<String>,
+        /// Apply a saved plan from `stack plan -o json`: its change digests gate the apply exactly as `--plan-digest` (ADR-0088 A5). `-f` stays the input.
+        #[arg(long = "plan", value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+        plan: Option<std::path::PathBuf>,
     },
     /// Show what an apply would change, and change nothing.
     Plan {
@@ -1196,6 +1199,7 @@ fn run() -> Result<()> {
             reboot,
             prune,
             plan_digest,
+            plan,
         } => cmd::stack::run(cmd::stack::StackCmd::Apply {
             name,
             file,
@@ -1204,6 +1208,7 @@ fn run() -> Result<()> {
             reboot,
             prune,
             plan_digest,
+            plan,
         }),
         Cmd::Plan {
             file,

@@ -15679,6 +15679,9 @@ msgstr "Tamanho pedido ao pool (ex.: `10g`) — só com `--pool`"
 msgid "Apply only if this is still the plan: the `planDigest` of each change from `stack plan -o json` (repeatable). A change whose digest, recomputed now, is not among them is a stale plan — refused before anything is written."
 msgstr "Aplica só se o plano ainda for este: o `planDigest` de cada mudança do `stack plan -o json` (repetível). Uma mudança cujo digest, recalculado agora, não esteja entre eles é um plano obsoleto — recusada antes de se escrever seja o que for."
 
+msgid "Apply a saved plan from `stack plan -o json`: its change digests gate the apply exactly as `--plan-digest` (ADR-0088 A5). `-f` stays the input."
+msgstr "Aplica um plano guardado do `stack plan -o json`: os digests das suas mudanças validam o apply exactamente como `--plan-digest` (ADR-0088 A5). O `-f` continua a ser a entrada."
+
 msgid "--plan-digest was given, and the manifest has nothing to check it against"
 msgstr "--plan-digest foi dado, e o manifesto não tem nada contra que o verificar"
 
