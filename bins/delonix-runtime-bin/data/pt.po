@@ -13965,6 +13965,21 @@ msgstr "Sai com 2 quando HÁ deriva (0 = nenhuma, 1 = erro) — o contrato do `t
 msgid "Re-apply the manifest to reconcile the drift away, instead of only reporting it (needs a manifest)."
 msgstr "Re-aplica o manifesto para reconciliar a deriva, em vez de só a reportar (precisa de um manifesto)."
 
+msgid "Rewrite the file in place instead of printing the converted manifest."
+msgstr "Reescreve o ficheiro no lugar em vez de imprimir o manifesto convertido."
+
+msgid "rewrite an old manifest to the catalog-v1 apiVersions (ADR-0086)"
+msgstr "reescreve um manifesto antigo para as apiVersions do catálogo v1 (ADR-0086)"
+
+msgid "rewrite the file in place instead of printing it"
+msgstr "reescreve o ficheiro no lugar em vez de o imprimir"
+
+msgid "Rewrite an old manifest to the catalog-v1 apiVersions (ADR-0086)"
+msgstr "Reescreve um manifesto antigo para as apiVersions do catálogo v1 (ADR-0086)"
+
+msgid "Rewrite an old manifest to the catalog-v1 apiVersions (ADR-0086).\n\nThe nine `v1alpha1` groups fold into the six the catalog is born with at `v1beta1` (`security`→`policy`, `artifact`/`gitops`→`core`, `gateway`→`networking`, `infrastructure`→`cluster`). Only the `apiVersion` lines change — the specs are unchanged in this phase, and every comment and byte of layout is preserved. The old groups still load with a warning; this is how the warning is made to stop. Prints the result by default; `--write` rewrites the file in place."
+msgstr "Reescreve um manifesto antigo para as apiVersions do catálogo v1 (ADR-0086).\n\nOs nove grupos `v1alpha1` fundem-se nos seis com que o catálogo nasce em `v1beta1` (`security`→`policy`, `artifact`/`gitops`→`core`, `gateway`→`networking`, `infrastructure`→`cluster`). Só as linhas `apiVersion` mudam — os specs ficam inalterados nesta fase, e cada comentário e byte do layout é preservado. Os grupos antigos ainda carregam com um aviso; é assim que o aviso pára. Imprime o resultado por omissão; `--write` reescreve o ficheiro no lugar."
+
 msgid "what the machine changed since the last apply, every stack"
 msgstr "o que a máquina mudou desde o último apply, em todas as stacks"
 

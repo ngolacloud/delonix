@@ -30,13 +30,13 @@ scenarios as `---`-separated YAML documents under a numbered bilingual header
 
 | Grupo / Group | `apiVersion` | Kinds (ficheiros / files) |
 |---|---|---|
-| `compute/` | `compute.delonix.io/v1alpha1` | container, pod, virtualmachine, systemcontainer, workload |
-| `networking/` | `networking.delonix.io/v1alpha1` | network (inclui provider Proxmox/SDN), service, networkpolicy, networkroute, networkaccessrule, networkgateway, ippool, dependency |
-| `gateway/` | `gateway.delonix.io/v1alpha1` | httproute, ingress, gateway |
-| `storage/` | `storage.delonix.io/v1alpha1` | volume (local/raw/nfs/cifs/webdav/share/provision/pool), storagepool, objectstorage |
-| `artifact/` | `artifact.delonix.io/v1alpha1` | image, app |
-| `core/` | `core.delonix.io/v1alpha1` | secret, stack |
-| `security/` | `security.delonix.io/v1alpha1` | runtimepolicy |
-| `gitops/` | `gitops.delonix.io/v1alpha1` | gitopssource |
-| `cluster/` | `infrastructure.delonix.io/v1alpha1` | kubernetescluster (modos kind/ssh/vm + perfil CNI + etcd externo) |
+| `compute/` | `compute.delonix.io/v1beta1` | container, pod, virtualmachine, systemcontainer, workload |
+| `networking/` | `networking.delonix.io/v1beta1` | network (inclui provider Proxmox/SDN), service, networkpolicy, networkroute, networkaccessrule, networkgateway, ippool, dependency |
+| `gateway/` | `networking.delonix.io/v1beta1` | httproute, ingress, gateway |
+| `storage/` | `storage.delonix.io/v1beta1` | volume (local/raw/nfs/cifs/webdav/share/provision/pool), storagepool, objectstorage |
+| `artifact/` | `core.delonix.io/v1beta1` | image, app |
+| `core/` | `core.delonix.io/v1beta1` | secret, stack |
+| `security/` | `policy.delonix.io/v1beta1` | runtimepolicy |
+| `gitops/` | `core.delonix.io/v1beta1` | gitopssource |
+| `cluster/` | `cluster.delonix.io/v1beta1` | kubernetescluster (modos kind/ssh/vm + perfil CNI + etcd externo) |
 | `_labs/` | — | laboratórios e apps de apoio (lab-rede, compose-webapp, delonix-temp) — não são manifestos deste motor / lab & helper apps, not manifests of this engine |

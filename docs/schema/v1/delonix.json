@@ -5158,7 +5158,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "security.delonix.io/v1alpha1",
+              "policy.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5183,7 +5183,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "compute.delonix.io/v1alpha1",
+              "compute.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5215,7 +5215,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "compute.delonix.io/v1alpha1",
+              "compute.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5240,7 +5240,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "storage.delonix.io/v1alpha1",
+              "storage.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5265,7 +5265,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "storage.delonix.io/v1alpha1",
+              "storage.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5290,7 +5290,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "networking.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5315,7 +5315,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "compute.delonix.io/v1alpha1",
+              "compute.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5340,7 +5340,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "core.delonix.io/v1alpha1",
+              "core.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5365,7 +5365,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "artifact.delonix.io/v1alpha1",
+              "core.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5390,7 +5390,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "artifact.delonix.io/v1alpha1",
+              "core.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5415,7 +5415,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "gateway.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5440,7 +5440,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "networking.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5465,7 +5465,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "networking.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5490,7 +5490,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "gateway.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5515,7 +5515,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "gateway.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5540,7 +5540,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "networking.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5565,7 +5565,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "networking.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5590,7 +5590,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "networking.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5615,7 +5615,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "networking.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5640,7 +5640,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "compute.delonix.io/v1alpha1",
+              "compute.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5665,7 +5665,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "networking.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5690,7 +5690,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "networking.delonix.io/v1alpha1",
+              "networking.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5715,7 +5715,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "storage.delonix.io/v1alpha1",
+              "storage.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5740,7 +5740,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "gitops.delonix.io/v1alpha1",
+              "core.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5765,7 +5765,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "compute.delonix.io/v1alpha1",
+              "compute.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5790,7 +5790,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "infrastructure.delonix.io/v1alpha1",
+              "cluster.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5815,7 +5815,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "core.delonix.io/v1alpha1",
+              "core.delonix.io/v1beta1",
               "delonix.io/v1"
             ]
           },
@@ -5829,16 +5829,13 @@
   "properties": {
     "apiVersion": {
       "enum": [
-        "artifact.delonix.io/v1alpha1",
-        "compute.delonix.io/v1alpha1",
-        "core.delonix.io/v1alpha1",
+        "cluster.delonix.io/v1beta1",
+        "compute.delonix.io/v1beta1",
+        "core.delonix.io/v1beta1",
         "delonix.io/v1",
-        "gateway.delonix.io/v1alpha1",
-        "gitops.delonix.io/v1alpha1",
-        "infrastructure.delonix.io/v1alpha1",
-        "networking.delonix.io/v1alpha1",
-        "security.delonix.io/v1alpha1",
-        "storage.delonix.io/v1alpha1"
+        "networking.delonix.io/v1beta1",
+        "policy.delonix.io/v1beta1",
+        "storage.delonix.io/v1beta1"
       ]
     },
     "kind": {

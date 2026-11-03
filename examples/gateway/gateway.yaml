@@ -35,7 +35,7 @@
 # ── 1. Mínimo — pinggy free, sem conta e sem binário extra ───────────────────
 #      Minimal — pinggy free tier, no account and no extra binary
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-min
@@ -46,7 +46,7 @@ spec:
 # ── 2. pinggy com pro token literal (funciona, mas prefere tokenSecretRef) ───
 #      pinggy with a pro token given literally (works, but prefer tokenSecretRef)
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-pinggy-pro
@@ -62,7 +62,7 @@ spec:
 ---
 # PT: O provider lê a credencial da chave `token` deste Secret (valor placeholder).
 # EN: The provider reads the credential from this Secret's `token` key (placeholder value).
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: tunnel-token
@@ -73,7 +73,7 @@ spec:
 # ── 4. ngrok com hostname reservado e o token lido de um Secret ──────────────
 #      ngrok with a reserved hostname and the token read from a Secret
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-ngrok
@@ -96,7 +96,7 @@ spec:
 #     lives in the Cloudflare dashboard. `insecureSkipTlsVerify` skips verification of
 #     the LOCAL backend's self-signed cert (origin https://localhost:<localPort>); the
 #     public URL always has a real certificate.
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-cloudflare
@@ -112,7 +112,7 @@ spec:
 # ── 6. cloudflare quick tunnel — sem token (URL efémero trycloudflare.com) ───
 #      cloudflare quick tunnel — no token at all (an ephemeral trycloudflare.com URL)
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-cloudflare-quick

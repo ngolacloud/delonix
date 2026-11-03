@@ -878,6 +878,15 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["manifest validate", "explain", "api-resources"],
     },
     Entry {
+        path: "manifest convert",
+        group: "manifest",
+        examples: &[
+            ("rewrite an old manifest to the catalog-v1 apiVersions (ADR-0086)", "delonix manifest convert -f delonix-manifest.yaml"),
+            ("rewrite the file in place instead of printing it", "delonix manifest convert -f delonix-manifest.yaml --write"),
+        ],
+        see_also: &["manifest validate", "manifest render", "apply"],
+    },
+    Entry {
         path: "get",
         group: "Resources",
         examples: &[
