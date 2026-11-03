@@ -1627,16 +1627,16 @@ impl FileLock {
             .mode(0o600)
             .open(&path)
             .map_err(|e| lock_err(format!("cannot open the lock file: {e}")))?;
-        loop {
-            // SAFETY: `f` is an open file this function owns; `flock` takes its fd
-            // and an integer operation, and touches no memory of ours.
-            if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } == 0 {
-                return Ok(FileLock { _file: f });
-            }
-            let e = std::io::Error::last_os_error();
-            if e.kind() != std::io::ErrorKind::Interrupted {
-                return Err(lock_err(format!("flock failed: {e}")));
-            }
+        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`,
+        // which retries `EINTR` and caps the wait): a bare `flock(LOCK_EX)`
+        // here waited forever if a holder was stuck — one of the hangs behind
+        // the custom-network attach. Fail closed at the deadline.
+        match delonix_node::flock_exclusive(f.as_raw_fd()) {
+            Ok(true) => Ok(FileLock { _file: f }),
+            Ok(false) => Err(lock_err(
+                "could not take the ingress lock within the deadline (a holder is stuck) — refusing".into(),
+            )),
+            Err(e) => Err(lock_err(format!("flock failed: {e}"))),
         }
     }
 }
@@ -3853,7 +3853,13 @@ fn parse_cni_add<'a>(
     }
 }
 
-fn do_cni_add(netns: &str, id: &str, ifname: &str, hex: &str, cni_args: Option<&str>) -> Result<String> {
+fn do_cni_add(
+    netns: &str,
+    id: &str,
+    ifname: &str,
+    hex: &str,
+    cni_args: Option<&str>,
+) -> Result<String> {
     let netns = sanitize(netns);
     let bytes = hex_decode(hex).ok_or_else(|| Error::InvalidHex("invalid conflist hex".into()))?;
     let conf = crate::cni::parse_config(&String::from_utf8_lossy(&bytes))?;
@@ -8733,8 +8739,7 @@ pub fn vm_tap_net_bytes(tap: &str) -> Option<(u64, u64)> {
     if !out.status.success() {
         return None;
     }
-    let (tap_rx, tap_tx) =
-        parse_iface_proc_net_dev(&String::from_utf8_lossy(&out.stdout), tap)?;
+    let (tap_rx, tap_tx) = parse_iface_proc_net_dev(&String::from_utf8_lossy(&out.stdout), tap)?;
     // Swap: the tap is the host end of the guest's link (see the doc comment).
     Some((tap_tx, tap_rx))
 }
@@ -10132,8 +10137,15 @@ mod tests {
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         let (netns, id, ifname, hex, parsed) =
             parse_cni_add(&parts).expect("the five-token line must parse");
-        assert_eq!((netns, id, ifname, hex), ("cri-dead", "cri-dead", "eth0", "deadbeef"));
-        assert_eq!(parsed.as_deref(), Some(args), "args survive the hex round-trip");
+        assert_eq!(
+            (netns, id, ifname, hex),
+            ("cri-dead", "cri-dead", "eth0", "deadbeef")
+        );
+        assert_eq!(
+            parsed.as_deref(),
+            Some(args),
+            "args survive the hex round-trip"
+        );
 
         // No args → four tokens, and parses with None (older host / no identity).
         let cmd0 = build_cni_add_cmd("cri-x", "eth0", "ab12", None);

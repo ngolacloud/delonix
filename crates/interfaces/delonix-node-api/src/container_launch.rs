@@ -512,6 +512,18 @@ pub fn create_in(
     if let Some(found) = operations::replay(root, "create", &target, &req.request_id, &fp)? {
         return Ok(operations::message(&found));
     }
+    // Claim the NAME for the whole check-then-create. The record store is keyed
+    // by id, so without this two `run --name X` racing would each generate a
+    // distinct id, each pass `name_taken`, and each persist a record sharing the
+    // name — after which resolution by name is ambiguous. The claim serialises
+    // same-name creates across processes (delonix is daemonless); it is released
+    // when `_name_claim` drops at the end of this function.
+    let claim_ns = requested_namespace(&req.namespace);
+    let store =
+        delonix_state::Store::open(root.join("containers")).map_err(|e| status_of(&e.into()))?;
+    let _name_claim = store
+        .claim_name(&format!("{claim_ns}.{}", req.name))
+        .map_err(|e| status_of(&e.into()))?;
     if name_taken(root, &req.name)? {
         return Err(Status::already_exists(format!(
             "container '{}' already exists",

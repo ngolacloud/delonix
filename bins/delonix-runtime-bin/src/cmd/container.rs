@@ -3159,20 +3159,41 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
     // teams could not both own `db`/`web`/`api` — exactly the names everyone
     // uses — and had to hand-prefix what the namespace already said (ADR-0011
     // §3). The pair is the boundary the rest of the model already draws.
-    if let Some(dup) = store
-        .list()?
-        .iter()
-        .find(|c| c.name == cname && c.namespace == namespace)
-    {
-        return Err(Error::Conflict(super::po::tf(
-            "the name '{name}' is already in use in namespace '{ns}' by container {id} — pick another or remove it first",
-            &[
-                ("name", cname.as_str()),
-                ("ns", namespace.as_str()),
-                ("id", dup.short_id()),
-            ],
-        )));
-    }
+    // Hold an exclusive claim on the (namespace, name) pair across the
+    // uniqueness check AND the save below. The store is keyed by id, so without
+    // it two `run --name X` racing both pass this check and both persist a
+    // record sharing the name — proved live: 2x `loja-app`, 2x `loja-db`, and
+    // again here. Keyed the same way the node-api create path keys it, so a CLI
+    // create and a gRPC create of the same pair serialise too. Released when
+    // cmd_run returns.
+    //
+    // ONLY on the first pass. The custom-network path re-execs a SECOND
+    // `cmd_run` (reexec) that this one WAITS on while still holding the claim —
+    // so the child re-acquiring the same name lock would deadlock on its parent
+    // (seen as a 30s lock timeout on the custom-net attach). The first pass has
+    // already claimed the name and written the record; the re-exec must neither
+    // re-claim nor re-run the uniqueness check (which would now find the record
+    // the first pass just wrote and falsely report a self-conflict).
+    let _name_claim = if reexec {
+        None
+    } else {
+        let claim = store.claim_name(&format!("{namespace}.{cname}"))?;
+        if let Some(dup) = store
+            .list()?
+            .iter()
+            .find(|c| c.name == cname && c.namespace == namespace)
+        {
+            return Err(Error::Conflict(super::po::tf(
+                "the name '{name}' is already in use in namespace '{ns}' by container {id} — pick another or remove it first",
+                &[
+                    ("name", cname.as_str()),
+                    ("ns", namespace.as_str()),
+                    ("id", dup.short_id()),
+                ],
+            )));
+        }
+        Some(claim)
+    };
     // ---- what the record needs from files, the image and this node ----
     // `--env-file`: read here, parsed by the builder (each file before `-e`).
     // Volumes, devices, image, rootfs, `--env-file`, `--user` — resolved through the
@@ -3263,6 +3284,25 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
         c.firewall = Some(policy_hold_firewall(&c.namespace));
         c.annotations
             .insert(POLICY_HOLD_ANNOTATION.to_string(), "1".to_string());
+    }
+
+    // A restart policy that asks to be kept up is SILENTLY ineffective across a
+    // host reboot while boot persistence is off: this engine is daemonless, so
+    // nothing re-creates the container on boot unless `system boot enable`
+    // installed its systemd unit. Docker hides this because its daemon is always
+    // enabled; here it is a footgun the engine refuses to leave silent. Warn
+    // once, on the user's own invocation (never the re-exec child), and never
+    // block — it is a heads-up, not a failure.
+    if !reexec
+        && super::boot::wants_to_be_up(Some(opts_copy.restart.as_str()))
+        && !super::boot::persistence_installed()
+    {
+        eprintln!(
+            "warning: restart policy '{}' will NOT survive a host reboot until \
+             `delonix system boot enable` is run — this engine is daemonless, so nothing \
+             brings the container back on its own.",
+            opts_copy.restart
+        );
     }
 
     // `create` (the engine's `docker create`): persist the record in its born
@@ -4505,9 +4545,12 @@ impl StartLock {
             .mode(0o600)
             .open(dir.join("start.lock"))
             .map_err(|e| Error::Invalid(format!("start lock: {e}")))?;
-        // SAFETY: valid open fd; LOCK_EX blocks until the lock is ours.
-        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            return Err(Error::Invalid(format!("{id}: could not lock its start")));
+        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): a
+        // stuck holder refuses at the deadline rather than hanging the start.
+        if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
+            return Err(Error::Invalid(format!(
+                "{id}: could not lock its start within the deadline"
+            )));
         }
         Ok(StartLock(f))
     }

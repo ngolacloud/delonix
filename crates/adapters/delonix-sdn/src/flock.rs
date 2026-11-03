@@ -16,17 +16,33 @@
 
 use crate::Error;
 use std::path::Path;
+use std::time::{Duration, Instant};
+
+/// Quanto tempo esperar pela fechadura antes de RECUSAR. As secções críticas que
+/// ela serializa são read-modify-writes curtos (decidir um endereço, escrever um
+/// registo) — a contenção normal limpa-se em milissegundos. Se não limpar nisto,
+/// um detentor ficou preso/vazou (visto quando um setup de netns/slirp encravou
+/// e nunca largou a fechadura): o contrato de quem chama é RECUSAR, e recusar ao
+/// fim de um tecto é infinitamente melhor do que pendurar para sempre — era esse
+/// o hang do attach de rede custom que não dava timeout.
+const LOCK_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Fechadura exclusiva viva enquanto o valor existir. Larga no `Drop`.
 pub(crate) struct ExclusiveLock(i32);
 
 impl ExclusiveLock {
-    /// Toma a fechadura em `path`, bloqueando até a obter. `None` quando não foi
-    /// possível — quem chama TEM de desistir da operação.
+    /// Toma a fechadura em `path`, esperando no máximo [`LOCK_DEADLINE`]. `None`
+    /// quando não foi possível (open falhou, OU um detentor preso não largou a
+    /// tempo) — quem chama TEM de desistir da operação.
     ///
     /// O ficheiro é criado se não existir; o seu conteúdo é irrelevante (só o
     /// `flock` sobre o descritor conta).
     pub(crate) fn acquire(path: &Path) -> Option<ExclusiveLock> {
+        Self::acquire_until(path, LOCK_DEADLINE)
+    }
+
+    /// [`Self::acquire`] com um tecto explícito (para teste).
+    pub(crate) fn acquire_until(path: &Path, deadline: Duration) -> Option<ExclusiveLock> {
         if let Some(pai) = path.parent() {
             let _ = std::fs::create_dir_all(pai);
         }
@@ -37,13 +53,24 @@ impl ExclusiveLock {
         if fd < 0 {
             return None;
         }
-        // SAFETY: o fd é nosso e está aberto; LOCK_EX bloqueia até ser concedida.
-        if unsafe { libc::flock(fd, libc::LOCK_EX) } != 0 {
-            // SAFETY: fechamos o nosso próprio fd, que vamos deitar fora.
-            unsafe { libc::close(fd) };
-            return None;
+        // NÃO-bloqueante com retry até ao tecto: mantém a exclusão (só um a
+        // segurar de cada vez) mas falha FECHADA se um detentor estiver preso,
+        // em vez de ficar em `flock(LOCK_EX)` para sempre.
+        let start = Instant::now();
+        loop {
+            // SAFETY: o fd é nosso e está aberto.
+            if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                return Some(ExclusiveLock(fd));
+            }
+            let err = std::io::Error::last_os_error();
+            // Só `EWOULDBLOCK` é «outro detém-na»; qualquer outro erro é real.
+            if err.raw_os_error() != Some(libc::EWOULDBLOCK) || start.elapsed() >= deadline {
+                // SAFETY: fechamos o nosso próprio fd, que vamos deitar fora.
+                unsafe { libc::close(fd) };
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(25));
         }
-        Some(ExclusiveLock(fd))
     }
 
     /// O erro que quem chama reporta quando não conseguiu a fechadura.
@@ -105,6 +132,27 @@ mod tests {
             h.join().unwrap();
         }
         assert_eq!(max.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    /// REGRESSÃO: uma fechadura DETIDA por outro faz `acquire_until` RECUSAR ao
+    /// fim do tecto (devolve `None`), nunca pendurar para sempre — era o hang do
+    /// attach de rede custom sem timeout.
+    #[test]
+    fn fechadura_detida_recusa_ao_fim_do_tecto_em_vez_de_pendurar() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("f.lock");
+        let detida = ExclusiveLock::acquire(&p).expect("primeira toma");
+        let t0 = std::time::Instant::now();
+        let segunda = ExclusiveLock::acquire_until(&p, Duration::from_millis(200));
+        let decorrido = t0.elapsed();
+        assert!(segunda.is_none(), "não devia obter uma fechadura já detida");
+        assert!(
+            decorrido >= Duration::from_millis(200) && decorrido < Duration::from_secs(5),
+            "devia recusar perto do tecto (200ms), não pendurar: {decorrido:?}"
+        );
+        drop(detida);
+        // Largue e a próxima toma deve funcionar de imediato.
+        assert!(ExclusiveLock::acquire_until(&p, Duration::from_millis(200)).is_some());
     }
 
     #[test]
