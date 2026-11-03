@@ -163,7 +163,12 @@ pub fn plan_update(paths: &[String], resources: Option<&Resources>) -> Result<Pl
         let path = raw.trim();
         if path == "spec.resources" {
             // The parent: every supported leaf that carries a value.
-            for leaf in ["memory_limit_bytes", "cpu_limit_millis", "cpu_weight", "cpuset"] {
+            for leaf in [
+                "memory_limit_bytes",
+                "cpu_limit_millis",
+                "cpu_weight",
+                "cpuset",
+            ] {
                 apply_leaf(&mut plan, leaf, r, false)?;
             }
         } else if let Some(leaf) = path.strip_prefix("spec.resources.") {
@@ -185,7 +190,11 @@ pub fn plan_update(paths: &[String], resources: Option<&Resources>) -> Result<Pl
 
 /// Load a container by name under `root`, requiring its recorded namespace to
 /// match — the identity rule the whole service reads with.
-fn load(root: &Path, name: &str, namespace: &str) -> Result<(delonix_state::Store, Record), Status> {
+fn load(
+    root: &Path,
+    name: &str,
+    namespace: &str,
+) -> Result<(delonix_state::Store, Record), Status> {
     let wanted = requested_namespace(namespace);
     let missing = || Status::not_found(format!("container '{name}' in namespace '{wanted}'"));
     if wanted == "*" || !root.join("containers").is_dir() {
@@ -371,8 +380,7 @@ mod tests {
             memory_limit_bytes: 0,
             ..Default::default()
         };
-        let err =
-            plan_update(&mask(&["spec.resources.memory_limit_bytes"]), Some(&r)).unwrap_err();
+        let err = plan_update(&mask(&["spec.resources.memory_limit_bytes"]), Some(&r)).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
     }
 
@@ -394,7 +402,13 @@ mod tests {
 
     #[test]
     fn a_non_resource_path_is_refused_not_ignored() {
-        for path in ["spec.image", "spec.command", "meta.labels", "spec", "status"] {
+        for path in [
+            "spec.image",
+            "spec.command",
+            "meta.labels",
+            "spec",
+            "status",
+        ] {
             let err = plan_update(&mask(&[path]), Some(&res())).unwrap_err();
             assert_eq!(err.code(), tonic::Code::Unimplemented, "{path}");
         }

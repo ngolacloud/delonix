@@ -1123,7 +1123,9 @@ pub fn fw_dispatch_chains_v6() -> [(&'static str, i32, String); 2] {
 /// no dispatch), and it never touches the per-container chains or `@fwmap`, so every
 /// container keeps its firewall across the migration.
 pub fn fw_dispatch_migration_script() -> String {
-    let mut s = format!("add map {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP} {{ type ipv4_addr : verdict; }}\n");
+    let mut s = format!(
+        "add map {INGRESS_FAMILY} {INGRESS_TABLE} {FWMAP} {{ type ipv4_addr : verdict; }}\n"
+    );
     for (chain, prio, _) in fw_dispatch_chains() {
         s.push_str(&format!(
             "add chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain} {{ type filter hook forward priority {prio}; }}\n\
@@ -1131,7 +1133,9 @@ pub fn fw_dispatch_migration_script() -> String {
         ));
     }
     for (chain, _, rule) in fw_dispatch_chains() {
-        s.push_str(&format!("add rule {INGRESS_FAMILY} {INGRESS_TABLE} {chain} {rule}\n"));
+        s.push_str(&format!(
+            "add rule {INGRESS_FAMILY} {INGRESS_TABLE} {chain} {rule}\n"
+        ));
     }
     s
 }
@@ -1616,13 +1620,13 @@ pub fn attached_refs() -> Vec<String> {
     refs_in(&refs_dir())
 }
 
-/// Os mesmos ids, mas do root que o CHAMADOR nomeia.
+/// The same ids, but for the root the CALLER names.
 ///
-/// O [`attached_refs`] resolve o root do AMBIENTE (`DELONIX_ROOT`/`XDG_DATA_HOME`),
-/// o que obriga quem tem um root próprio — o servidor CRI tem-no em `self.base` —
-/// a comparar marcadores de um root com containers de outro. Num servidor normal
-/// coincidem; com um `--root` divergente são duas populações, e o resultado é uma
-/// contagem que não quer dizer nada.
+/// [`attached_refs`] resolves the root from the ENVIRONMENT (`DELONIX_ROOT`/`XDG_DATA_HOME`),
+/// which forces anyone with their own root — the CRI server keeps it in `self.base` —
+/// to compare markers from one root against containers from another. On a normal server
+/// they coincide; with a divergent `--root` they are two populations, and the result is a
+/// count that means nothing.
 pub fn attached_refs_in(root: &Path) -> Vec<String> {
     refs_in(&root.join("ingress").join("refs"))
 }
@@ -3099,25 +3103,37 @@ fn handle_control(line: &str) -> String {
         }
         let listing = crate::capture(
             "nft",
-            &["list", "chain", INGRESS_FAMILY, INGRESS_TABLE, &fw_chain_name(ip)],
+            &[
+                "list",
+                "chain",
+                INGRESS_FAMILY,
+                INGRESS_TABLE,
+                &fw_chain_name(ip),
+            ],
         )
         .unwrap_or_default();
         return format!("ok {}\n", hex_encode(listing.as_bytes()));
     }
-    // Query: as regras de DNAT e o conjunto de bloqueados, para o resumo de
-    // firewall do control-plane. Read-only, e no holder porque a tabela `dlxing`
-    // vive no netns dele.
+    // Query: the DNAT rules and the blocked set, for the control-plane firewall
+    // summary. Read-only, and on the holder because the `dlxing` table
+    // lives in its netns.
     //
-    // Devolve as DUAS listagens numa resposta, separadas por `|`: quem pergunta
-    // quer o retrato completo, e duas viagens ao holder dariam duas fotografias
-    // de instantes diferentes — com uma publicação a acontecer no meio, o
-    // resumo mostraria um porto que já não existe ao lado de um bloqueio que
-    // ainda não existia.
+    // Returns BOTH listings in one response, separated by `|`: the caller
+    // wants the full picture, and two round-trips to the holder would give two snapshots
+    // from different instants — with a publish happening in between, the
+    // summary would show a port that no longer exists next to a block that
+    // did not yet exist.
     if let ["fwsummary"] = parts.as_slice() {
-        let pre = crate::capture("nft", &["list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "pre"])
-            .unwrap_or_default();
-        let blocked = crate::capture("nft", &["list", "set", INGRESS_FAMILY, INGRESS_TABLE, "blocked"])
-            .unwrap_or_default();
+        let pre = crate::capture(
+            "nft",
+            &["list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "pre"],
+        )
+        .unwrap_or_default();
+        let blocked = crate::capture(
+            "nft",
+            &["list", "set", INGRESS_FAMILY, INGRESS_TABLE, "blocked"],
+        )
+        .unwrap_or_default();
         return format!(
             "ok {}|{}\n",
             hex_encode(pre.as_bytes()),
@@ -3128,8 +3144,11 @@ fn handle_control(line: &str) -> String {
     // and hex-encoded for the same reason as `fwstats` — an nft listing is not
     // one line.
     if let ["netroute-show"] = parts.as_slice() {
-        let listing = crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP])
-            .unwrap_or_default();
+        let listing = crate::capture(
+            "nft",
+            &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP],
+        )
+        .unwrap_or_default();
         return format!("ok {}\n", hex_encode(listing.as_bytes()));
     }
     // Query: the L4 DDoS guard's live rules (with counters), for `net l4guard
@@ -3137,8 +3156,11 @@ fn handle_control(line: &str) -> String {
     // `forward` chain also carries the base accept/drop policy and every
     // `NetworkRoute` exemption, and neither is this command's business.
     if let ["l4guard-show"] = parts.as_slice() {
-        let listing = crate::capture("nft", &["list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "forward"])
-            .unwrap_or_default();
+        let listing = crate::capture(
+            "nft",
+            &["list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "forward"],
+        )
+        .unwrap_or_default();
         let filtered: String = listing
             .lines()
             .filter(|l| l.contains("dlx_conn_rate") || l.contains("dlx_conn_count"))
@@ -3331,21 +3353,21 @@ fn ensure_net_bridge(bridge: &str, fallback_addr: &str) -> Result<()> {
     let exists = crate::capture("ip", &["link", "show", bridge])
         .map(|o| o.contains(bridge))
         .unwrap_or(false);
-    // O comprimento vem do PREFIXO da rede e já não é `/16` fixo. Com o
-    // fixo, uma rede `172.20.4.0/22` produzia `ip addr add
-    // 172.20.4.1/16` — uma bridge cujo endereço declara uma rede quatro
-    // mil vezes maior do que a que existe, a sobrepor-se a tudo o que
-    // estiver em 172.20.x. Medido a ligar a camada A: o `create` passava e
-    // o primeiro container falhava no attach.
-    // O prefixo vem do registo, pela bridge — a mesma via que esta função
-    // já usa mais abaixo para reaplicar o egress. Sem `NetDef` (a bridge de
-    // infra, que não é uma rede de utilizador) o /16 histórico é a resposta
-    // certa e não um palpite: é o que o `INFRA_CIDR` declara.
+    // The length comes from the network's PREFIX and is no longer a fixed `/16`. With the
+    // fixed one, a `172.20.4.0/22` network produced `ip addr add
+    // 172.20.4.1/16` — a bridge whose address declares a network four
+    // thousand times larger than the one that exists, overlapping everything
+    // in 172.20.x. Measured when wiring layer A: `create` passed and
+    // the first container failed on attach.
+    // The prefix comes from the registry, via the bridge — the same path this function
+    // already uses further down to re-apply egress. Without a `NetDef` (the infra
+    // bridge, which is not a user network) the historical /16 is the right
+    // answer and not a guess: it is what `INFRA_CIDR` declares.
     //
-    // Calculado FORA do `if !exists` porque o servidor de DHCP abaixo tem de
-    // partir exactamente do mesmo endereço: derivá-lo duas vezes é como o
-    // servidor acabaria a arrendar numa rede diferente daquela em que a bridge
-    // está endereçada.
+    // Computed OUTSIDE the `if !exists` because the DHCP server below has to
+    // start from exactly the same address: deriving it twice is how the
+    // server would end up leasing on a different network from the one the bridge
+    // is addressed on.
     let cidr = cidr_of_bridge(bridge);
     let gateway = cidr
         .and_then(|c| c.gateway())
@@ -3395,7 +3417,14 @@ fn ensure_net_bridge(bridge: &str, fallback_addr: &str) -> Result<()> {
     for (target, element) in isolation_elements(bridge) {
         run_ok(
             "nft",
-            &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, target, &element],
+            &[
+                "add",
+                "element",
+                INGRESS_FAMILY,
+                INGRESS_TABLE,
+                target,
+                &element,
+            ],
         );
     }
     // The network's DHCP server (for VMs/clients that request an IP), given the
@@ -3921,7 +3950,13 @@ fn parse_cni_add<'a>(
     }
 }
 
-fn do_cni_add(netns: &str, id: &str, ifname: &str, hex: &str, cni_args: Option<&str>) -> Result<String> {
+fn do_cni_add(
+    netns: &str,
+    id: &str,
+    ifname: &str,
+    hex: &str,
+    cni_args: Option<&str>,
+) -> Result<String> {
     let netns = sanitize(netns);
     let bytes = hex_decode(hex).ok_or_else(|| Error::InvalidHex("invalid conflist hex".into()))?;
     let conf = crate::cni::parse_config(&String::from_utf8_lossy(&bytes))?;
@@ -3954,7 +3989,8 @@ fn do_cni_del(netns: &str, id: &str, ifname: &str, hex: &str) -> Result<()> {
 /// Shared by join (which moves an IP between namespaces) and leave (which takes it out for
 /// good) — two copies of this scan would drift the day the naming changes.
 fn drop_from_every_ns_set(elem: &str, fam: Family) {
-    let sets = crate::capture("nft", &["list", "sets", INGRESS_FAMILY, INGRESS_TABLE]).unwrap_or_default();
+    let sets =
+        crate::capture("nft", &["list", "sets", INGRESS_FAMILY, INGRESS_TABLE]).unwrap_or_default();
     for line in sets.lines() {
         if let Some(name) = line.split_whitespace().nth(1) {
             // `dlxns6…` starts with `dlxns` too, so the family is selected by the `6`:
@@ -3968,7 +4004,14 @@ fn drop_from_every_ns_set(elem: &str, fam: Family) {
             if belongs {
                 run_ok(
                     "nft",
-                    &["delete", "element", INGRESS_FAMILY, INGRESS_TABLE, name, elem],
+                    &[
+                        "delete",
+                        "element",
+                        INGRESS_FAMILY,
+                        INGRESS_TABLE,
+                        name,
+                        elem,
+                    ],
                 );
             }
         }
@@ -3991,7 +4034,14 @@ fn ns_set_leave(ip: &str) {
     let elem = format!("{{ {ip} }}");
     run_ok(
         "nft",
-        &["delete", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL_SET, &elem],
+        &[
+            "delete",
+            "element",
+            INGRESS_FAMILY,
+            INGRESS_TABLE,
+            DLXALL_SET,
+            &elem,
+        ],
     );
     drop_from_every_ns_set(&elem, Family::V4);
     // The container's ULA leaves the v6 namespace sets too (ADR-0082 phase 4) —
@@ -4001,7 +4051,14 @@ fn ns_set_leave(ip: &str) {
         let elem6 = format!("{{ {ula} }}");
         run_ok(
             "nft",
-            &["delete", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL6_SET, &elem6],
+            &[
+                "delete",
+                "element",
+                INGRESS_FAMILY,
+                INGRESS_TABLE,
+                DLXALL6_SET,
+                &elem6,
+            ],
         );
         drop_from_every_ns_set(&elem6, Family::V6);
     }
@@ -4014,7 +4071,14 @@ fn ns_set_join(ip: &str, ns: &str) {
     let elem = format!("{{ {ip} }}");
     run_ok(
         "nft",
-        &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL_SET, &elem],
+        &[
+            "add",
+            "element",
+            INGRESS_FAMILY,
+            INGRESS_TABLE,
+            DLXALL_SET,
+            &elem,
+        ],
     );
     // takes the IP out of any previous namespace (set name = 2nd token of "set X {").
     drop_from_every_ns_set(&elem, Family::V4);
@@ -4032,7 +4096,14 @@ fn ns_set_join(ip: &str, ns: &str) {
     );
     run_ok(
         "nft",
-        &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, &nsset, &elem],
+        &[
+            "add",
+            "element",
+            INGRESS_FAMILY,
+            INGRESS_TABLE,
+            &nsset,
+            &elem,
+        ],
     );
     // The container's ULA joins the matching v6 namespace sets, so namespace
     // isolation governs v6 exactly as v4 (ADR-0082 phase 4). Only while v6 is on; the
@@ -4042,7 +4113,14 @@ fn ns_set_join(ip: &str, ns: &str) {
             let elem6 = format!("{{ {ula} }}");
             run_ok(
                 "nft",
-                &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, DLXALL6_SET, &elem6],
+                &[
+                    "add",
+                    "element",
+                    INGRESS_FAMILY,
+                    INGRESS_TABLE,
+                    DLXALL6_SET,
+                    &elem6,
+                ],
             );
             drop_from_every_ns_set(&elem6, Family::V6);
             let nsset6 = dlxns6_set(ns);
@@ -4059,7 +4137,14 @@ fn ns_set_join(ip: &str, ns: &str) {
             );
             run_ok(
                 "nft",
-                &["add", "element", INGRESS_FAMILY, INGRESS_TABLE, &nsset6, &elem6],
+                &[
+                    "add",
+                    "element",
+                    INGRESS_FAMILY,
+                    INGRESS_TABLE,
+                    &nsset6,
+                    &elem6,
+                ],
             );
         }
     }
@@ -4459,7 +4544,9 @@ fn spoof_elements_of(json: &str, port: &str) -> Vec<String> {
 /// restarts, a netns hash), and an element left behind would pin the NEXT
 /// workload on that name to the previous one's address.
 fn spoof_forget(port: &str) {
-    for set in ["ports", "macports", "macs", "src", "srcpfx", "src6", "srcpfx6"] {
+    for set in [
+        "ports", "macports", "macs", "src", "srcpfx", "src6", "srcpfx6",
+    ] {
         let listed = crate::capture("nft", &["-j", "list", "set", "bridge", SPOOF_TABLE, set])
             .unwrap_or_default();
         for el in spoof_elements_of(&listed, port) {
@@ -4593,7 +4680,14 @@ fn control_mac_ok(s: &str) -> bool {
 fn clear_antispoof(vh: &str) {
     let listed = crate::capture(
         "nft",
-        &["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "fwdeny"],
+        &[
+            "-a",
+            "list",
+            "chain",
+            INGRESS_FAMILY,
+            INGRESS_TABLE,
+            "fwdeny",
+        ],
     )
     .unwrap_or_default();
     let needle = format!("iifname \"{vh}\"");
@@ -4814,8 +4908,11 @@ fn do_netdel(bridge: &str) -> Result<()> {
         // disagree about what a rule of this bridge looks like.
         let _ = apply_egress_from_state(&bridge, &EgressState::default());
         fqdn_forget(&bridge);
-        let pairs = crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP])
-            .unwrap_or_default();
+        let pairs = crate::capture(
+            "nft",
+            &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP],
+        )
+        .unwrap_or_default();
         for spec in netdel_nft_deletes(&bridge, &pairs) {
             let args: Vec<&str> = spec.iter().map(String::as_str).collect();
             run_ok("nft", &args);
@@ -4907,8 +5004,11 @@ fn do_unpublish(host_port: &str, proto: Option<&str>) -> Result<()> {
         }
     }
     // lists the chain with handles and deletes the rule(s) matching the dport.
-    let listed = crate::capture("nft", &["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "pre"])
-        .unwrap_or_default();
+    let listed = crate::capture(
+        "nft",
+        &["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "pre"],
+    )
+    .unwrap_or_default();
     let needle = match proto {
         Some(p) => format!("{p} dport {host_port} "),
         None => format!("dport {host_port} "),
@@ -4966,7 +5066,14 @@ fn is_global_egress_drop_line(line: &str) -> bool {
 fn do_egress(policy: &str) -> Result<()> {
     let listed = crate::capture(
         "nft",
-        &["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "fwdeny"],
+        &[
+            "-a",
+            "list",
+            "chain",
+            INGRESS_FAMILY,
+            INGRESS_TABLE,
+            "fwdeny",
+        ],
     )
     .unwrap_or_default();
     for line in listed.lines() {
@@ -5238,7 +5345,14 @@ fn do_l4guard(conn_rate: u32, conn_max: u32) -> Result<()> {
 /// "l4guard: cleared", and the guard stayed up, dropping traffic with no
 /// documented way to turn it off.
 fn l4guard_scrub_argv() -> [&'static str; 6] {
-    ["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "forward"]
+    [
+        "-a",
+        "list",
+        "chain",
+        INGRESS_FAMILY,
+        INGRESS_TABLE,
+        "forward",
+    ]
 }
 
 fn clear_l4guard() {
@@ -5464,7 +5578,14 @@ fn do_netroute(op: &str, a: &str, b: &str) -> Result<()> {
     // reports success without being installed is precisely the class of lie this
     // engine keeps removing.
     let out = std::process::Command::new("nft")
-        .args([verb, "element", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP, &element])
+        .args([
+            verb,
+            "element",
+            INGRESS_FAMILY,
+            INGRESS_TABLE,
+            NETPAIR_MAP,
+            &element,
+        ])
         .output()
         .map_err(|e| Error::Command {
             context: "netroute",
@@ -5492,8 +5613,11 @@ fn netroute_delete_already_absent(verb: &str, stderr: &str) -> bool {
 /// What the route plan needs to know about the node, read ONCE per pass: the
 /// live route pairs and the networks with their bridge and gateway.
 fn workload_route_inputs() -> (Vec<(String, String)>, Vec<crate::route_plan::Net>) {
-    let listing = crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP])
-        .unwrap_or_default();
+    let listing = crate::capture(
+        "nft",
+        &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, NETPAIR_MAP],
+    )
+    .unwrap_or_default();
     let nets = network_list()
         .into_iter()
         .filter_map(|d| {
@@ -5942,7 +6066,7 @@ pub fn parse_netpair_elements(listing: &str) -> Vec<(String, String)> {
 
 /// A pair's traffic counter, as the kernel reports it.
 ///
-/// **«Esta rota passou tráfego?» had no answer at all** — the ADR that
+/// **"Did this route pass any traffic?" had no answer at all** — the ADR that
 /// introduced the exemptions said so, and it is the one question a route exists
 /// to be asked. Every other rule this engine emits carries a `counter`; the
 /// verdict map's elements did not, which is also why the ADR's own spike had to
@@ -6059,12 +6183,18 @@ fn do_firewall(ips: &str, hex: &str) -> Result<()> {
         .map_err(|e| Error::FirewallJsonInvalid(format!("firewall JSON: {e}")))?;
     // Reading is outside the transaction, which is harmless: a stale read can only
     // leave an entry that the next apply removes (see `firewall_script`).
-    let listing =
-        crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP]).unwrap_or_default();
+    let listing = crate::capture(
+        "nft",
+        &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP],
+    )
+    .unwrap_or_default();
     // The v6 dispatch map, read the same way — only consulted when v6 is on, but
     // reading it unconditionally keeps the call site simple and costs one listing.
-    let listing6 =
-        crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP6]).unwrap_or_default();
+    let listing6 = crate::capture(
+        "nft",
+        &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP6],
+    )
+    .unwrap_or_default();
     // The declared networks are only needed for an address outside the ingress space;
     // the common case does not pay a directory scan per firewall apply.
     let defs = if ips.iter().all(|ip| is_ingress_ip(ip)) {
@@ -6196,13 +6326,19 @@ fn firewall_script(
 /// the container's cleanup.
 fn do_unfirewall(ip: &str) -> Result<()> {
     let chain = fw_chain_name(ip);
-    let listing =
-        crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP]).unwrap_or_default();
+    let listing = crate::capture(
+        "nft",
+        &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP],
+    )
+    .unwrap_or_default();
     // Both dispatch maps point at this one chain (ADR-0082 phase 4), so both are
     // swept before the chain is deleted — a leftover `@fwmap6` entry would make nft
     // refuse to delete the chain it still references.
-    let listing6 =
-        crate::capture("nft", &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP6]).unwrap_or_default();
+    let listing6 = crate::capture(
+        "nft",
+        &["list", "map", INGRESS_FAMILY, INGRESS_TABLE, FWMAP6],
+    )
+    .unwrap_or_default();
     let mut script = String::new();
     for (addr, c) in parse_fwmap_elements(&listing) {
         if c == chain {
@@ -6218,7 +6354,9 @@ fn do_unfirewall(ip: &str) -> Result<()> {
             ));
         }
     }
-    script.push_str(&format!("delete chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n"));
+    script.push_str(&format!(
+        "delete chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n"
+    ));
     let _ = apply_nft_stdin(&script);
     Ok(())
 }
@@ -6308,13 +6446,13 @@ pub struct NetDef {
     /// `ensure_net_bridge` when the bridge is recreated.
     #[serde(default)]
     pub egress: EgressState,
-    /// Gateway DECLARADO, quando a rede tem um.
+    /// The DECLARED gateway, when the network has one.
     ///
-    /// `None` — que é o que todo o registo escrito até aqui significa — quer
-    /// dizer «o derivado», e por isso não há migração nenhuma. Quando existe, é
-    /// a rota default que os containers desta rede recebem; o endereço DA
-    /// BRIDGE continua a ser o derivado, porque o holder tem de continuar a
-    /// falar na rede que encaminha.
+    /// `None` — which is what every record written so far means — stands
+    /// for "the derived one", and so there is no migration at all. When present, it is
+    /// the default route the containers on this network receive; the BRIDGE's
+    /// address stays the derived one, because the holder has to keep
+    /// speaking on the network it routes.
     #[serde(default)]
     pub gateway: Option<String>,
 }
@@ -6367,8 +6505,8 @@ fn update_netdef_egress(
     for mut def in network_list() {
         if def.bridge == bridge {
             mutate(&mut def.egress);
-            // Pelo escritor único: escrever aqui à parte era como o registo
-            // legado ficava para trás depois de uma mudança de egress.
+            // Through the single writer: writing separately here is how the legacy
+            // record would get left behind after an egress change.
             write_netdef(&def.name, &def)?;
             return Ok(Some(def.egress));
         }
@@ -6388,7 +6526,14 @@ fn apply_egress_from_state(bridge: &str, state: &EgressState) -> Result<()> {
     let needle_if = format!("iifname \"{bridge}\"");
     let listed = crate::capture(
         "nft",
-        &["-a", "list", "chain", INGRESS_FAMILY, INGRESS_TABLE, "fwdeny"],
+        &[
+            "-a",
+            "list",
+            "chain",
+            INGRESS_FAMILY,
+            INGRESS_TABLE,
+            "fwdeny",
+        ],
     )
     .unwrap_or_default();
     for line in listed.lines() {
@@ -6497,8 +6642,8 @@ fn egress_specs(bridge: &str, state: &EgressState) -> Vec<Vec<String>> {
 /// Runs INSIDE the holder (the set lives in the infra netns). Extracts the IPv4s from the dump.
 fn egress_set_members(bridge: &str) -> Vec<String> {
     let set = fqdn_set(&sanitize(bridge));
-    let dump =
-        crate::capture("nft", &["list", "set", INGRESS_FAMILY, INGRESS_TABLE, &set]).unwrap_or_default();
+    let dump = crate::capture("nft", &["list", "set", INGRESS_FAMILY, INGRESS_TABLE, &set])
+        .unwrap_or_default();
     let mut ips = Vec::new();
     for tok in dump.split(|c: char| !(c.is_ascii_digit() || c == '.')) {
         if tok.split('.').filter(|o| !o.is_empty()).count() == 4
@@ -6512,18 +6657,18 @@ fn egress_set_members(bridge: &str) -> Vec<String> {
     ips
 }
 
-/// **Analisa** um `iptables-save` e devolve um relatório legível — sem tocar no
+/// **Parses** an `iptables-save` and returns a readable report — without touching the
 /// host.
 ///
-/// Reposto depois de o `Net` sair do motor. O nome tem «import» por herança, mas
-/// o que faz é um DRY-RUN: conta o que lá está e mostra a primeira regra
-/// traduzida para `nft`, para quem está a migrar poder ver a forma antes de
-/// decidir. Nunca aplicou nada, e continua a não aplicar.
+/// Reinstated after `Net` left the engine. The name carries "import" by inheritance, but
+/// what it does is a DRY-RUN: it counts what is there and shows the first rule
+/// translated to `nft`, so whoever is migrating can see the shape before
+/// deciding. It never applied anything, and it still does not.
 ///
-/// Não precisa do holder nem de privilégio: é ler um ficheiro e, se o
-/// `iptables-translate` existir na máquina, pedir-lhe uma tradução. Sem ele, o
-/// relatório sai na mesma — só sem o exemplo. Uma ferramenta em falta não é
-/// razão para recusar a contagem.
+/// It needs neither the holder nor privilege: it reads a file and, if
+/// `iptables-translate` exists on the machine, asks it for a translation. Without it, the
+/// report still comes out — only without the example. A missing tool is not a
+/// reason to refuse the count.
 pub fn import_iptables(path: &std::path::Path) -> Result<String> {
     let texto = std::fs::read_to_string(path).map_err(|e| Error::Command {
         context: "iptables-save",
@@ -6531,7 +6676,7 @@ pub fn import_iptables(path: &std::path::Path) -> Result<String> {
     })?;
     let s = delonix_net_rules::parse_iptables_save(&texto);
     let mut relatorio = format!(
-        "iptables-save: {} tabela(s), {} cadeia(s), {} regra(s) — intenção preservada",
+        "iptables-save: {} table(s), {} chain(s), {} rule(s) — intent preserved",
         s.tables, s.chains, s.rules
     );
     if let Some(regra) = s.sample {
@@ -6539,41 +6684,41 @@ pub fn import_iptables(path: &std::path::Path) -> Result<String> {
         if let Ok(nft) = crate::capture("iptables-translate", &args) {
             let nft = nft.trim();
             if !nft.is_empty() {
-                relatorio.push_str(&format!("\n  exemplo: {regra}\n     -> nft {nft}"));
+                relatorio.push_str(&format!("\n  example: {regra}\n     -> nft {nft}"));
             }
         }
     }
     Ok(relatorio)
 }
 
-/// Uma publicação de porto vista do lado do mecanismo: a regra de DNAT.
+/// A port publish seen from the mechanism's side: the DNAT rule.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct DnatRule {
     pub proto: String,
     pub host_port: String,
-    /// `ip:porta` do container que recebe.
+    /// `ip:port` of the receiving container.
     pub to: String,
 }
 
-/// O retrato da firewall de ingress de um nó.
+/// A node's ingress firewall snapshot.
 ///
-/// Reposto depois de o `Net` — o gestor anterior ao holder — ter sido apagado do
-/// motor. O control-plane usava o `Net::firewall_summary`, que lia o `nft` do
-/// netns do HOST; em rootless a tabela vive no netns do holder, e por isso a
-/// leitura passa a ser um verbo read-only do protocolo de controlo.
+/// Reinstated after `Net` — the manager that preceded the holder — was deleted from the
+/// engine. The control-plane used `Net::firewall_summary`, which read the `nft` from the
+/// HOST's netns; in rootless the table lives in the holder's netns, and so the
+/// read becomes a read-only verb of the control protocol.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct FirewallSummary {
-    /// Portos publicados (DNAT host → container).
+    /// Published ports (DNAT host → container).
     pub dnat: Vec<DnatRule>,
-    /// IPs de containers bloqueados.
+    /// IPs of blocked containers.
     pub blocked: Vec<String>,
 }
 
-/// Extrai as regras de DNAT de uma listagem `nft list chain`.
+/// Extracts the DNAT rules from an `nft list chain` listing.
 ///
-/// Separado do I/O de propósito: é a parte que erra, e assim erra num teste em
-/// vez de errar contra um holder a correr. A forma das linhas está fixada nos
-/// testes com listagens reais.
+/// Deliberately separated from the I/O: it is the part that can go wrong, so it fails in a test
+/// instead of failing against a running holder. The shape of the lines is pinned by the
+/// tests with real listings.
 pub fn parse_dnat(listagem: &str) -> Vec<DnatRule> {
     let mut fora = Vec::new();
     for linha in listagem.lines() {
@@ -6586,9 +6731,9 @@ pub fn parse_dnat(listagem: &str) -> Vec<DnatRule> {
             .next()
             .unwrap_or("")
             .to_string();
-        // O protocolo lê-se do MATCH da regra, não do início da linha: um
-        // `nft -a` prefixa o número da regra, e a versão anterior — que fazia
-        // `starts_with("udp")` — dava `tcp` para todas nesse formato.
+        // The protocol is read from the rule's MATCH, not from the start of the line: an
+        // `nft -a` prefixes the rule number, and the previous version — which did
+        // `starts_with("udp")` — gave `tcp` for all of them in that format.
         let proto = if l.contains("udp dport") {
             "udp"
         } else {
@@ -6612,7 +6757,7 @@ pub fn parse_dnat(listagem: &str) -> Vec<DnatRule> {
     fora
 }
 
-/// Extrai os elementos de um `nft list set`.
+/// Extracts the elements of an `nft list set`.
 pub fn parse_set_elements(listagem: &str) -> Vec<String> {
     let Some(i) = listagem.find("elements = {") else {
         return Vec::new();
@@ -6629,19 +6774,19 @@ pub fn parse_set_elements(listagem: &str) -> Vec<String> {
         .collect()
 }
 
-/// O resumo da firewall de ingress deste nó.
+/// The ingress firewall summary of this node.
 ///
-/// **Vazio quando o holder está em baixo**, e não um erro: um resumo de firewall
-/// tem de poder ser pedido com o dataplane desligado — a resposta certa é «não
-/// há regras a correr», não «não sei responder». É a mesma escolha do
+/// **Empty when the holder is down**, and not an error: a firewall summary
+/// has to be requestable with the dataplane off — the right answer is "there
+/// are no rules running", not "I cannot answer". It is the same choice as
 /// [`fw_counters`].
 pub fn firewall_summary() -> FirewallSummary {
     let mut s = FirewallSummary::default();
     let Ok(body) = control_query("fwsummary") else {
         return s;
     };
-    // `pre|blocked`, ambos em hex: uma listagem de nft não é uma linha, e o
-    // protocolo é de linhas.
+    // `pre|blocked`, both in hex: an nft listing is not a single line, and the
+    // protocol is line-based.
     let (pre_hex, blocked_hex) = match body.trim().split_once('|') {
         Some(p) => p,
         None => return s,
@@ -6730,25 +6875,31 @@ fn fqdn_forget(bridge: &str) {
     }
     run_ok(
         "nft",
-        &["delete", "set", INGRESS_FAMILY, INGRESS_TABLE, &fqdn_set(bridge)],
+        &[
+            "delete",
+            "set",
+            INGRESS_FAMILY,
+            INGRESS_TABLE,
+            &fqdn_set(bridge),
+        ],
     );
 }
 
 fn networks_dir() -> PathBuf {
     ingress_dir().join("networks")
 }
-/// A fechadura do registo de redes de ingress — IRMÃ da pasta, não dentro dela
-/// (`network_list` varre-a e não deve ter de saltar ficheiros que não são redes).
+/// The lock for the ingress networks registry — SIBLING of the folder, not inside it
+/// (`network_list` scans it and should not have to skip files that are not networks).
 fn networks_lock() -> PathBuf {
     ingress_dir().join("networks.lock")
 }
 
-/// O ficheiro de um `NetDef`. **Injetivo**, ao contrário do que aqui esteve.
+/// The file of a `NetDef`. **Injective**, unlike what used to be here.
 ///
-/// Era `sanitize(name).json`, e o `sanitize` corta a 12 caracteres — um limite
-/// que existe para nomes de DISPOSITIVO (o kernel tem `IFNAMSIZ`), não para
-/// nomes de ficheiro, onde é perda pura. Duas redes cujos nomes coincidissem
-/// nos primeiros 12 caracteres partilhavam registo:
+/// It was `sanitize(name).json`, and `sanitize` cuts at 12 characters — a limit
+/// that exists for DEVICE names (the kernel has `IFNAMSIZ`), not for
+/// file names, where it is pure loss. Two networks whose names coincided
+/// in the first 12 characters shared a registry entry:
 ///
 /// ```text
 /// producao-alpha  ─┐
@@ -6756,17 +6907,17 @@ fn networks_lock() -> PathBuf {
 /// producao-alpine ─┘
 /// ```
 ///
-/// E o que se lê num registo é a BRIDGE: os workloads da segunda rede iam parar
-/// à bridge da primeira, com as duas a aparecerem separadas no `network ls`. O
-/// `network rm` da segunda mandava `netdel` à bridge da primeira e apagava-lhe o
-/// registo.
+/// And what a registry entry reads out is the BRIDGE: the second network's workloads
+/// ended up on the first's bridge, with both appearing separately in `network ls`. The
+/// second's `network rm` sent `netdel` to the first's bridge and deleted its
+/// registry entry.
 ///
-/// O sufixo vem do nome COMPLETO, por isso o prefixo legível pode ser cortado à
-/// vontade sem juntar dois nomes distintos. `fnv32` é o mesmo orçamento de
-/// colisão que [`crate::bridge_name`] já aceita para o nome do dispositivo — e,
-/// ao contrário desse, aqui há uma segunda linha de defesa: `network_get`
-/// confirma o campo `name` do registo, portanto uma colisão dá «não existe» e
-/// não uma rede trocada por outra.
+/// The suffix comes from the FULL name, so the readable prefix can be truncated
+/// freely without merging two distinct names. `fnv32` is the same collision
+/// budget that [`crate::bridge_name`] already accepts for the device name — and,
+/// unlike that one, here there is a second line of defense: `network_get`
+/// confirms the record's `name` field, so a collision yields "does not exist" and
+/// not one network swapped for another.
 fn netdef_path(name: &str) -> PathBuf {
     let legivel: String = name
         .chars()
@@ -6776,21 +6927,21 @@ fn netdef_path(name: &str) -> PathBuf {
     networks_dir().join(format!("{legivel}-{:08x}.json", crate::fnv32(name)))
 }
 
-/// O caminho ANTIGO, truncado. Continua a ser LIDO — um registo em disco é a
-/// bridge e o `/16` de uma rede que pode ter workloads ligados, e mudar a
-/// fórmula sem ler o que já lá está seria perdê-los em silêncio, que é o mesmo
-/// género de dano que esta correção existe para fechar.
+/// The OLD path, truncated. It is still READ — a record on disk is the
+/// bridge and the `/16` of a network that may have workloads attached, and changing the
+/// formula without reading what is already there would lose them silently, which is the same
+/// kind of damage this fix exists to close.
 ///
-/// Só é aceite depois de confirmado o campo `name`, e desaparece à primeira
-/// escrita ou remoção da rede.
+/// It is only accepted after the `name` field is confirmed, and it disappears at the first
+/// write or removal of the network.
 fn netdef_path_legado(name: &str) -> PathBuf {
     networks_dir().join(format!("{}.json", sanitize(name)))
 }
 
-/// Lê um `NetDef` de um caminho, aceitando-o só se for MESMO o da rede pedida.
+/// Reads a `NetDef` from a path, accepting it only if it really is the requested network's.
 ///
-/// A verificação é o que torna a colisão inofensiva em vez de silenciosa: um
-/// registo de outra rede é recusado em vez de devolvido como se fosse este.
+/// The check is what makes the collision harmless rather than silent: a
+/// record from another network is refused instead of returned as if it were this one.
 fn ler_netdef(caminho: &PathBuf, name: &str) -> Option<NetDef> {
     let def: NetDef = serde_json::from_slice(&std::fs::read(caminho).ok()?).ok()?;
     (def.name == name).then_some(def)
@@ -7211,26 +7362,26 @@ struct ServiceDnsEntry {
     ns: String,
 }
 
-/// O comprimento do prefixo da rede a que uma bridge pertence.
+/// The prefix length of the network a bridge belongs to.
 ///
-/// **Quarto sítio onde o `/16` estava assado**, e o mais discreto: o endereço do
-/// CONTAINER era `{ip}/16`, o que numa rede `/24` lhe dá uma rota de link para
-/// `172.20.0.0/16` — 256 vezes maior do que a rede onde está. O sintoma não é um
-/// erro: é o container a julgar-se vizinho de endereços que estão noutra rede,
-/// a resolvê-los por ARP na sua bridge e a não obter resposta, enquanto a rota
-/// default (que os alcançaria) nunca chega a ser consultada.
+/// **Fourth place where the `/16` was baked in**, and the most discreet: the CONTAINER's
+/// address was `{ip}/16`, which on a `/24` network gives it a link route to
+/// `172.20.0.0/16` — 256 times larger than the network it is on. The symptom is not an
+/// error: it is the container believing itself a neighbor of addresses that are on another network,
+/// resolving them by ARP on its bridge and getting no answer, while the
+/// default route (which would reach them) is never consulted.
 fn plen_of_bridge(bridge: &str) -> u8 {
     cidr_of_bridge(bridge).map(|c| c.len).unwrap_or(16)
 }
 
-/// O prefixo da rede a que uma bridge pertence, lido do registo.
+/// The prefix of the network a bridge belongs to, read from the registry.
 ///
-/// Existe porque a MESMA travessia (`network_list` → casar a bridge → parsear o
-/// prefixo) estava escrita em três sítios, e é essa a forma como a aritmética do
-/// `dhcp_lease_ip` chegou a viver em três cópias: no dia em que uma delas
-/// mudasse, o sintoma seria uma bridge com um comprimento e os containers com
-/// outro. `None` = bridge sem `NetDef` (a de infra), e cada chamador diz o que
-/// isso significa para ele em vez de o adivinhar aqui.
+/// It exists because the SAME traversal (`network_list` → match the bridge → parse the
+/// prefix) was written in three places, and that is how the arithmetic of
+/// `dhcp_lease_ip` came to live in three copies: the day one of them
+/// changed, the symptom would be a bridge with one length and the containers with
+/// another. `None` = bridge without a `NetDef` (the infra one), and each caller states what
+/// that means for it instead of guessing here.
 fn cidr_of_bridge(bridge: &str) -> Option<crate::Cidr> {
     network_list()
         .into_iter()
@@ -7238,13 +7389,13 @@ fn cidr_of_bridge(bridge: &str) -> Option<crate::Cidr> {
         .and_then(|d| crate::Cidr::parse(&d.prefix))
 }
 
-/// Gateway (= ingress) de um prefixo — o PRIMEIRO endereço utilizável.
+/// Gateway (= ingress) of a prefix — the FIRST usable address.
 ///
-/// Era `{prefix}.0.1`, o que só é o primeiro utilizável num /16: para um
-/// `172.20.4.0/22` produzia a string `172.20.4.0/22.0.1`, que nem endereço é. O
-/// `Cidr::gateway` responde para qualquer prefixo, e a forma legada de dois
-/// octetos continua a dar exactamente `10.210.0.1` — é o mesmo resultado dito de
-/// uma forma que também serve o resto.
+/// It was `{prefix}.0.1`, which is only the first usable one in a /16: for a
+/// `172.20.4.0/22` it produced the string `172.20.4.0/22.0.1`, which is not even an address.
+/// `Cidr::gateway` answers for any prefix, and the legacy two-octet
+/// form still yields exactly `10.210.0.1` — it is the same result stated in
+/// a way that also serves the rest.
 fn gateway_of(prefix: &str) -> String {
     crate::Cidr::parse(prefix)
         .and_then(|c| c.gateway())
@@ -7294,9 +7445,9 @@ pub fn resolve_net(name: &str) -> Result<NetPlan> {
         ))
     })?;
     let bridge_addr = gateway_of(&def.prefix);
-    // O DECLARADO ganha ao derivado APENAS na rota default — é ele que vira o
-    // `ip route add default via` dos containers desta rede. Sem declaração, o
-    // derivado, que é o que sempre foi.
+    // The DECLARED one beats the derived one ONLY on the default route — it is the one that becomes the
+    // `ip route add default via` of this network's containers. Without a declaration, the
+    // derived one, which is what it always was.
     let default_route = def.gateway.clone().unwrap_or_else(|| bridge_addr.clone());
     Ok(NetPlan {
         bridge: def.bridge,
@@ -7337,9 +7488,9 @@ pub fn network_list_in(root: &std::path::Path) -> Vec<NetDef> {
             if let Ok(def) =
                 serde_json::from_slice::<NetDef>(&std::fs::read(e.path()).unwrap_or_default())
             {
-                // Uma rede com registo legado E novo (a meio da migração) é UMA
-                // rede. Sem isto, apareceria duas vezes no `network ls` e — pior
-                // — duas vezes no conjunto de prefixos usados que a alocação lê.
+                // A network with both a legacy AND a new record (mid-migration) is ONE
+                // network. Without this, it would appear twice in `network ls` and — worse
+                // — twice in the set of used prefixes that the allocator reads.
                 let novo = e.file_name() == netdef_path(&def.name).file_name().unwrap_or_default();
                 match v.iter_mut().find(|d| d.name == def.name) {
                     Some(ja) if novo => *ja = def,
@@ -7518,9 +7669,9 @@ fn write_netdef(name: &str, def: &NetDef) -> Result<()> {
             message: e.to_string(),
         }
     })?;
-    // O registo antigo desta MESMA rede desaparece agora que há um novo, para o
-    // `network_list` não a ver duas vezes. Só o desta rede: um ficheiro legado
-    // com outro `name` pertence a outra e fica onde está.
+    // The old record of this SAME network disappears now that a new one exists, so
+    // `network_list` does not see it twice. Only this network's: a legacy file
+    // with a different `name` belongs to another and stays where it is.
     let legado = netdef_path_legado(name);
     if legado != netdef_path(name) && ler_netdef(&legado, name).is_some() {
         let _ = std::fs::remove_file(&legado);
@@ -7537,10 +7688,10 @@ pub fn network_remove(name: &str) {
     // behind would do on the next create.
     routes_forget_network(name);
     let Some(def) = network_get(name) else {
-        // Sem registo desta rede não há nada a desfazer. Antes, a leitura do
-        // registo truncado podia devolver o de OUTRA rede — e então isto mandava
-        // `netdel` à bridge dela e apagava-lhe o ficheiro. Agora `network_get`
-        // confirma o `name`, e sem correspondência não se toca em nada.
+        // With no record of this network there is nothing to undo. Before, reading the
+        // truncated record could return ANOTHER network's — and then this would send
+        // `netdel` to its bridge and delete its file. Now `network_get`
+        // confirms the `name`, and with no match nothing is touched.
         return;
     };
     // `control_send` fails right away if the holder is down (network with no workloads) —
@@ -7555,8 +7706,8 @@ pub fn network_remove(name: &str) {
         }
     };
     let _ = std::fs::remove_file(netdef_path(name));
-    // E o legado, se for MESMO desta rede — senão a rede reapareceria no
-    // próximo `ls`, com a bridge que se acabou de apagar.
+    // And the legacy one, if it really is this network's — otherwise the network would reappear in the
+    // next `ls`, with the bridge that was just deleted.
     let legado = netdef_path_legado(name);
     if legado != netdef_path(name) && ler_netdef(&legado, name).is_some() {
         let _ = std::fs::remove_file(&legado);
@@ -7772,20 +7923,20 @@ fn restore_lease(prefix: &str, id: &str, previous: Option<String>) {
     }
 }
 
-/// Como [`attach_container`], mas com o **IP escolhido por quem chama**.
+/// Like [`attach_container`], but with the **IP chosen by the caller**.
 ///
-/// Reposto depois de o `Net::attach_on_ip` sair do motor. Serve o caso em que o
-/// endereço não é do motor para decidir: um VIP de serviço, um endereço fixo que
-/// já está num DNS ou numa regra escrita à mão.
+/// Reinstated after `Net::attach_on_ip` left the engine. It serves the case where the
+/// address is not the engine's to decide: a service VIP, a fixed address that
+/// is already in a DNS or a hand-written rule.
 ///
-/// **RESERVA o IP no IPAM em vez de o alocar.** Sem isso o registo não saberia
-/// que o endereço está tomado e entregá-lo-ia a outro container mais tarde —
-/// dois workloads no mesmo IP, e o segundo a roubar o tráfego do primeiro sem
-/// nada a assinalá-lo.
+/// **RESERVES the IP in the IPAM instead of allocating it.** Without that the registry would not know
+/// the address is taken and would hand it to another container later —
+/// two workloads on the same IP, and the second stealing the first's traffic with
+/// nothing to flag it.
 ///
-/// O IP é validado contra o prefixo da rede: um endereço de fora não é um pedido
-/// exótico, é um engano, e aplicá-lo daria um container inalcançável com um
-/// attach bem-sucedido.
+/// The IP is validated against the network's prefix: an outside address is not an exotic
+/// request, it is a mistake, and applying it would give an unreachable container with a
+/// successful attach.
 pub fn attach_container_on_ip(
     id: &str,
     net: &str,
@@ -8991,8 +9142,7 @@ pub fn vm_tap_net_bytes(tap: &str) -> Option<(u64, u64)> {
     if !out.status.success() {
         return None;
     }
-    let (tap_rx, tap_tx) =
-        parse_iface_proc_net_dev(&String::from_utf8_lossy(&out.stdout), tap)?;
+    let (tap_rx, tap_tx) = parse_iface_proc_net_dev(&String::from_utf8_lossy(&out.stdout), tap)?;
     // Swap: the tap is the host end of the guest's link (see the doc comment).
     Some((tap_tx, tap_rx))
 }
@@ -10409,8 +10559,15 @@ mod tests {
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         let (netns, id, ifname, hex, parsed) =
             parse_cni_add(&parts).expect("the five-token line must parse");
-        assert_eq!((netns, id, ifname, hex), ("cri-dead", "cri-dead", "eth0", "deadbeef"));
-        assert_eq!(parsed.as_deref(), Some(args), "args survive the hex round-trip");
+        assert_eq!(
+            (netns, id, ifname, hex),
+            ("cri-dead", "cri-dead", "eth0", "deadbeef")
+        );
+        assert_eq!(
+            parsed.as_deref(),
+            Some(args),
+            "args survive the hex round-trip"
+        );
 
         // No args → four tokens, and parses with None (older host / no identity).
         let cmd0 = build_cni_add_cmd("cri-x", "eth0", "ab12", None);
@@ -10482,15 +10639,15 @@ mod tests {
         tmp.close();
     }
 
-    /// **Um `accept` NÃO é terminal entre base chains**, e esquecê-lo partiu o
-    /// tráfego dentro da própria rede.
+    /// **An `accept` is NOT terminal between base chains**, and forgetting it broke
+    /// traffic within the network itself.
     ///
-    /// A isenção no `fwdeny` (prioridade -10) impede o drop DALI, mas o pacote
-    /// segue para a `forward` (prioridade 0), que tem `policy drop` — e a malha
-    /// antiga tratava disso com um `accept` por bridge NESSA chain. Ao mover a
-    /// isenção só para o `fwdeny`, dois containers da MESMA rede deixaram de se
-    /// alcançar: medido ao vivo, 100% de perda. O mesmo mapa tem de ser
-    /// consultado nas DUAS chains, e é essa a asserção aqui.
+    /// The exemption in `fwdeny` (priority -10) prevents the drop THERE, but the packet
+    /// continues to `forward` (priority 0), which has `policy drop` — and the old
+    /// mesh handled that with an `accept` per bridge IN THAT chain. By moving the
+    /// exemption only to `fwdeny`, two containers on the SAME network could no longer
+    /// reach each other: measured live, 100% loss. The same map has to be
+    /// consulted in BOTH chains, and that is the assertion here.
     #[test]
     fn a_isencao_e_consultada_nas_duas_chains_porque_accept_nao_e_terminal() {
         let rs = ingress_table_ruleset();
@@ -10499,33 +10656,33 @@ mod tests {
             2,
             "a isenção tem de ser consultada no fwdeny E na forward: {rs}"
         );
-        // E a da `forward` tem de vir depois do accept do delonix0, que é o
-        // caso equivalente já tratado à mão para a bridge de infra.
-        let fwd = rs.find("chain forward").expect("sem chain forward");
+        // And the `forward` one has to come after the delonix0 accept, which is the
+        // equivalent case already handled by hand for the infra bridge.
+        let fwd = rs.find("chain forward").expect("no forward chain");
         assert!(
             rs[fwd..].contains("vmap @netpair"),
             "a forward não consulta a isenção: {rs}"
         );
     }
 
-    /// O isolamento passa a custar DOIS elementos por rede, e nada por PAR.
+    /// Isolation now costs TWO elements per network, and nothing per PAIR.
     ///
-    /// A malha que isto substitui emitia `2(n-1)` regras ao criar a n-ésima
-    /// rede — medido num host vivo: 8 bridges, 73 regras, todas percorridas
-    /// linearmente por cada pacote encaminhado. E não era testável: nascia de um
-    /// ciclo de `run_ok` dentro do `network_create_with`, por isso a única
-    /// pergunta que interessa (uma rede nova fica isolada das outras?) só se
-    /// respondia levantando um holder.
+    /// The mesh this replaces emitted `2(n-1)` rules when creating the n-th
+    /// network — measured on a live host: 8 bridges, 73 rules, all traversed
+    /// linearly for each forwarded packet. And it was not testable: it was born of a
+    /// loop of `run_ok` inside `network_create_with`, so the only
+    /// question that matters (does a new network end up isolated from the others?) could only be
+    /// answered by bringing up a holder.
     #[test]
     fn uma_rede_entra_no_isolamento_com_dois_elementos_e_zero_por_par() {
         let e = isolation_elements("dlxnabc123");
         assert_eq!(e.len(), 2, "{e:?}");
-        // Ela própria no conjunto das bridges — é o que a faz cair no drop
-        // contra QUALQUER outra, sem uma regra por par.
+        // Itself in the set of bridges — this is what makes it fall into the drop
+        // against ANY other, without a rule per pair.
         assert_eq!(e[0].0, DLXBR_SET);
         assert!(e[0].1.contains("dlxnabc123"), "{:?}", e[0]);
-        // E o par consigo mesma isento — o tráfego intra-rede, que a malha
-        // exprimia com um `accept` por bridge.
+        // And the pair with itself exempted — the intra-network traffic, which the mesh
+        // expressed with an `accept` per bridge.
         assert_eq!(e[1].0, NETPAIR_MAP);
         assert!(e[1].1.contains("accept"), "{:?}", e[1]);
         assert!(
@@ -10533,38 +10690,38 @@ mod tests {
             "o par tem de ser (ela, ela): {:?}",
             e[1]
         );
-        // O custo NÃO depende de quantas redes já existem.
+        // The cost does NOT depend on how many networks already exist.
         assert_eq!(isolation_elements("dlxnzzz999").len(), 2);
     }
 
-    /// As duas regras fixas do `fwdeny`, e a ordem entre elas.
+    /// The two fixed rules of `fwdeny`, and the order between them.
     ///
-    /// A isenção tem de ser consultada ANTES do drop, senão o tráfego dentro da
-    /// própria rede era cortado — foi exactamente o que a malha teve de resolver
-    /// com um `accept` por bridge. E o drop leva `counter`, que a malha não
-    /// tinha: sem ele «este par alguma vez tentou falar?» não tem resposta.
+    /// The exemption has to be consulted BEFORE the drop, otherwise the traffic within the
+    /// network itself was cut — which is exactly what the mesh had to solve
+    /// with an `accept` per bridge. And the drop carries a `counter`, which the mesh did not
+    /// have: without it "has this pair ever tried to talk?" has no answer.
     #[test]
     fn o_fwdeny_consulta_a_isencao_antes_de_dropar_e_o_drop_conta() {
         let rs = ingress_table_ruleset();
         let isencao = rs
             .find("vmap @netpair")
-            .expect("falta a consulta de isenção");
+            .expect("missing the exemption lookup");
         let drop = rs
             .find("iifname @dlxbr oifname @dlxbr counter drop")
-            .expect("falta o drop com contador");
+            .expect("missing the drop with counter");
         assert!(isencao < drop, "a isenção tem de vir antes do drop");
-        // E o par set/map tem de estar DECLARADO, senão a chain não carrega.
+        // And the set/map pair has to be DECLARED, otherwise the chain does not load.
         assert!(rs.contains("set dlxbr"), "{rs}");
         assert!(rs.contains("map netpair"), "{rs}");
     }
 
-    /// Os verbos read-only são o que mantém o nó OBSERVÁVEL enquanto uma
-    /// mutação está presa: podem ser servidos fora do worker serializado porque
-    /// não tocam na fábrica de netns/veth/nft.
+    /// The read-only verbs are what keep the node OBSERVABLE while a
+    /// mutation is stuck: they can be served outside the serialized worker because
+    /// they do not touch the netns/veth/nft factory.
     ///
-    /// Fail-closed de propósito: um verbo acrescentado amanhã é tratado como
-    /// mutante até alguém decidir o contrário, em vez de correr em paralelo com
-    /// a fábrica por omissão.
+    /// Fail-closed on purpose: a verb added tomorrow is treated as
+    /// mutating until someone decides otherwise, instead of running in parallel with
+    /// the factory by default.
     #[test]
     fn so_os_verbos_de_leitura_saem_do_worker_serializado() {
         for ro in [
@@ -10575,7 +10732,7 @@ mod tests {
         ] {
             assert!(super::is_readonly_verb(ro), "{ro:?} devia ser read-only");
         }
-        // Tudo o que muda estado TEM de passar pelo worker.
+        // Everything that changes state MUST go through the worker.
         for mutating in [
             "attach ns 10.0.0.5 br gw",
             "attach-extra ns eth1 10.0.0.6 br gw",
@@ -10591,10 +10748,10 @@ mod tests {
                 "{mutating:?} NÃO pode escapar à serialização"
             );
         }
-        // Um verbo desconhecido (futuro) é serializado por omissão.
+        // An unknown verb (future) is serialized by default.
         assert!(!super::is_readonly_verb("verbo-novo-qualquer x y"));
         assert!(!super::is_readonly_verb(""));
-        // Um prefixo parecido não engana o matcher.
+        // A similar prefix does not fool the matcher.
         assert!(!super::is_readonly_verb("pingx"));
         assert!(!super::is_readonly_verb("has-netns-evil"));
     }
@@ -10637,8 +10794,8 @@ mod tests {
 
         let grace = super::CONTROL_IO_TIMEOUT * 3;
         let (got, elapsed) = rx.recv_timeout(grace).expect(
-            "read_control_line NUNCA devolveu — o holder fica preso para sempre \
-             num par que não escreve (é este o bug)",
+            "read_control_line NEVER returned — the holder stays stuck forever \
+             on a peer that does not write (this is the bug)",
         );
         assert!(
             got.is_none(),
@@ -10649,7 +10806,7 @@ mod tests {
             "devolveu, mas só depois de {elapsed:?} — o prazo não está a ser aplicado"
         );
 
-        // Não regride o caminho feliz: um comando completo continua a ser lido.
+        // Does not regress the happy path: a complete command is still read.
         let mut client = UnixStream::connect(&sock).unwrap();
         let (server_side2, _) = listener.accept().unwrap();
         client.write_all(b"ping\n").unwrap();
@@ -10728,7 +10885,7 @@ Inter-|   Receive                                                |  Transmit
   eth0: 13058207  101175    0    0    0     0          0         0  3728721   31476    0   31    0     0       0          0
   eth1:  5000000   40000    0    0    0     0          0         0  1000000   10000    0    0    0     0       0          0
 ";
-        let (rx, tx) = super::parse_proc_net_dev(dump).expect("dump válido tem de medir");
+        let (rx, tx) = super::parse_proc_net_dev(dump).expect("a valid dump has to measure");
         assert_eq!(
             rx,
             13_058_207 + 5_000_000,
@@ -10736,20 +10893,20 @@ Inter-|   Receive                                                |  Transmit
         );
         assert_eq!(tx, 3_728_721 + 1_000_000, "idem para o tx");
 
-        // `lo` fica de fora: tráfego de loopback não é uso de rede, e neste
-        // host mede 487 GB contra 13 GB da interface real — somá-lo tornaria
-        // a métrica inútil.
+        // `lo` is left out: loopback traffic is not network usage, and on this
+        // host it measures 487 GB against 13 GB of the real interface — summing it would make
+        // the metric useless.
         assert!(rx < 487_295_143, "o loopback não pode entrar na soma");
 
-        // Uma leitura sem interfaces nenhumas é DESCONHECIDA, não "zero
-        // bytes" — a mesma distinção que `network_unmeasured_containers` faz.
+        // A reading with no interfaces at all is UNKNOWN, not "zero
+        // bytes" — the same distinction `network_unmeasured_containers` makes.
         assert_eq!(super::parse_proc_net_dev(""), None);
         assert_eq!(
             super::parse_proc_net_dev("Inter-|   Receive\n face |bytes\n"),
             None,
             "só cabeçalhos não é uma medição"
         );
-        // Um container só com loopback também não tem tráfego de rede medível.
+        // A container with only loopback also has no measurable network traffic.
         assert_eq!(
             super::parse_proc_net_dev("    lo: 100 1 0 0 0 0 0 0 100 1 0 0 0 0 0 0\n"),
             None
@@ -10961,7 +11118,10 @@ Inter-|   Receive                                                |  Transmit
         // EMPTY: the base ruleset declares every set by TYPE and never writes an
         // element (elements arrive later, via `add element`). So no `elements` block
         // anywhere is the proof that the v6 sets — and the v4 ones — start empty.
-        assert!(!rs.contains("elements"), "the base ruleset seeds no set: {rs}");
+        assert!(
+            !rs.contains("elements"),
+            "the base ruleset seeds no set: {rs}"
+        );
         assert!(
             !rs.contains("fd00:") && !rs.contains("::"),
             "no v6 address is written into the ruleset: {rs}"
@@ -11220,7 +11380,9 @@ Inter-|   Receive                                                |  Transmit
             enabled: false,
             ..fw
         };
-        assert!(fw_chain_body(Family::V4, "10.200.0.5", &off).unwrap().is_empty());
+        assert!(fw_chain_body(Family::V4, "10.200.0.5", &off)
+            .unwrap()
+            .is_empty());
     }
 
     /// Regression: a rule with `proto: any` AND a port used to drop the port from the
@@ -11426,7 +11588,10 @@ Inter-|   Receive                                                |  Transmit
         );
         assert!(head.contains("ct state invalid counter drop"), "{head}");
         // The fast-path has to come BEFORE the policy drops it exists to survive.
-        let full = format!("{head}{}", fw_chain_body(Family::V4, "10.200.0.5", &fw).unwrap());
+        let full = format!(
+            "{head}{}",
+            fw_chain_body(Family::V4, "10.200.0.5", &fw).unwrap()
+        );
         let accept = full.find("established,related").expect("prologue present");
         let deny = full
             .find("ip daddr 10.200.0.5 counter drop")
@@ -11514,14 +11679,14 @@ Inter-|   Receive                                                |  Transmit
         assert!(parse_fwmap_elements("map fwmap { type ipv4_addr : verdict }").is_empty());
     }
 
-    /// Uma rede sempre tem um par consigo própria — `isolation_elements` instala
-    /// `<b> . <b> : accept` para manter o tráfego intra-rede aberto.
+    /// A network always has a pair with itself — `isolation_elements` installs
+    /// `<b> . <b> : accept` to keep intra-network traffic open.
     ///
-    /// Se o parser os contasse, um nó com três redes e ZERO rotas declaradas
-    /// reportaria três rotas, e cada rede apareceria com um caminho para si
-    /// mesma. Pior do que ruído: o reconciliador leria essas «rotas» como
-    /// existentes e o plano proporia removê-las — um `--prune` a fechar o
-    /// tráfego dentro de cada rede.
+    /// If the parser counted them, a node with three networks and ZERO declared routes
+    /// would report three routes, and each network would appear with a path to
+    /// itself. Worse than noise: the reconciler would read those "routes" as
+    /// existing and the plan would propose removing them — a `--prune` closing
+    /// the traffic within each network.
     #[test]
     fn parse_netpair_ignora_os_auto_pares() {
         let listing = "table inet dlxing {\n\tmap netpair {\n\t\ttype ifname . ifname : verdict\n\
@@ -11534,44 +11699,44 @@ Inter-|   Receive                                                |  Transmit
             1,
             "só o par entre redes distintas é rota: {els:?}"
         );
-        // E é o ÚLTIMO elemento, o que não tem vírgula à frente — o mesmo que um
-        // split ingénuo perderia.
+        // And it is the LAST element, the one with no comma in front — the same one a
+        // naive split would lose.
         assert_eq!(els[0], ("dlxnaaaa".to_string(), "dlxnbbbb".to_string()));
-        // A direcção importa: a rota é dirigida, logo o par invertido não está lá.
+        // Direction matters: the route is directed, so the inverted pair is not there.
         assert!(!els.contains(&("dlxnbbbb".into(), "dlxnaaaa".into())));
-        // Um mapa sem elementos não é um mapa por ler.
+        // A map with no elements is not an unread map.
         assert!(
             parse_netpair_elements("map netpair { type ifname . ifname : verdict }").is_empty()
         );
     }
 
-    /// **«Esta rota passou tráfego?» não tinha resposta**, e era a única família
-    /// de regras deste motor sem `counter` — o ADR-0013 deixou-o assinalado, e foi
-    /// por isso que o próprio spike teve de provar um par bloqueado comparando
-    /// dois destinos em vez de ler um número.
+    /// **"Did this route pass any traffic?" had no answer**, and it was the only family
+    /// of rules in this engine without a `counter` — ADR-0013 flagged it, and that is
+    /// why the spike itself had to prove a blocked pair by comparing
+    /// two destinations instead of reading a number.
     ///
-    /// O formato deste fixture foi CAPTURADO ao vivo (`nft` 1.0.9, netns
-    /// descartável, com tráfego real a passar) e não inventado: com a flag
-    /// `counter` no map, o contador entra ENTRE a chave e o verdict, que é onde
-    /// um parser escrito para o formato antigo se parte.
+    /// The format of this fixture was CAPTURED live (`nft` 1.0.9, a disposable
+    /// netns, with real traffic passing) and not invented: with the
+    /// `counter` flag on the map, the counter goes BETWEEN the key and the verdict, which is where
+    /// a parser written for the old format breaks.
     #[test]
     fn parse_netpair_le_os_contadores_e_o_nome_apesar_deles() {
         let listing = "table inet dlxing {\n\tmap netpair {\n\t\ttype ifname . ifname : verdict\n\
                        \t\tcounter\n\
                        \t\telements = { \"dlxnaaaa\" . \"dlxnaaaa\" counter packets 9 bytes 900 : accept,\n\
                        \t\t             \"dlxnaaaa\" . \"dlxnbbbb\" counter packets 2 bytes 168 : accept }\n\t}\n}\n";
-        // O nome continua a sair limpo — o contador não pode colar-se-lhe.
+        // The name still comes out clean — the counter cannot stick to it.
         let els = parse_netpair_elements(listing);
         assert_eq!(
             els,
             vec![("dlxnaaaa".to_string(), "dlxnbbbb".to_string())],
             "{els:?}"
         );
-        // E os números chegam, com os auto-pares fora como sempre.
+        // And the numbers arrive, with the self-pairs left out as always.
         let c = parse_netpair_counters(listing);
         assert_eq!(c.len(), 1, "{c:?}");
         assert_eq!(c[0].1, (2, 168));
-        // Um mapa SEM contadores (holder antigo) lê-se como zero, não parte.
+        // A map WITHOUT counters (old holder) reads as zero, does not break.
         let sem = "elements = { \"a\" . \"b\" : accept }";
         assert_eq!(parse_netpair_counters(sem)[0].1, (0, 0));
     }
@@ -11784,10 +11949,14 @@ Inter-|   Receive                                                |  Transmit
         let strong = unconditional_guards_script_for(false, false);
         for chain in [FWGUARD_CHAIN, DLXINPUT_CHAIN] {
             let add = strong
-                .find(&format!("add chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain} "))
+                .find(&format!(
+                    "add chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain} "
+                ))
                 .unwrap_or_else(|| panic!("`{chain}` has to be created: {strong}"));
             let flush = strong
-                .find(&format!("flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n"))
+                .find(&format!(
+                    "flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n"
+                ))
                 .unwrap_or_else(|| panic!("`{chain}` has to be flushed: {strong}"));
             assert!(
                 add < flush,
@@ -11796,7 +11965,9 @@ Inter-|   Receive                                                |  Transmit
             );
             // Every rule of that chain comes AFTER its flush, else the flush erases it.
             let first_rule = strong
-                .find(&format!("add rule {INGRESS_FAMILY} {INGRESS_TABLE} {chain} "))
+                .find(&format!(
+                    "add rule {INGRESS_FAMILY} {INGRESS_TABLE} {chain} "
+                ))
                 .unwrap_or_else(|| panic!("`{chain}` has to be refilled: {strong}"));
             assert!(
                 flush < first_rule,
@@ -11844,7 +12015,9 @@ Inter-|   Receive                                                |  Transmit
         for weakened in [&no_link_local, &no_holder_input] {
             for chain in [FWGUARD_CHAIN, DLXINPUT_CHAIN] {
                 assert!(
-                    weakened.contains(&format!("flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n")),
+                    weakened.contains(&format!(
+                        "flush chain {INGRESS_FAMILY} {INGRESS_TABLE} {chain}\n"
+                    )),
                     "`{chain}` must still be flushed: {weakened}"
                 );
             }
@@ -11998,7 +12171,9 @@ Inter-|   Receive                                                |  Transmit
             assert_eq!((*p, body.clone()), (prio, vec![rule.clone()]));
         }
         // The old `fwcont` carried BOTH lookups; only a flush removes the second one.
-        assert!(script.contains(&format!("flush chain {INGRESS_FAMILY} {INGRESS_TABLE} fwcont")));
+        assert!(script.contains(&format!(
+            "flush chain {INGRESS_FAMILY} {INGRESS_TABLE} fwcont"
+        )));
         assert!(
             !script.contains("delete"),
             "must not touch per-container state: {script}"
@@ -12118,7 +12293,10 @@ Inter-|   Receive                                                |  Transmit
         // all-set anchor `ip6 saddr @dlxall6` and the namespace set `@dlxns6…`.
         assert!(s.contains("ip6 saddr @dlxall6"), "{s}");
         assert!(
-            s.contains(&format!("@{}", dlxns6_set(&namespace_isolation_key("teamA")))),
+            s.contains(&format!(
+                "@{}",
+                dlxns6_set(&namespace_isolation_key("teamA"))
+            )),
             "{s}"
         );
 
@@ -12694,10 +12872,10 @@ Inter-|   Receive                                                |  Transmit
             "um root alternativo NÃO pode partilhar a pasta do root por omissão"
         );
 
-        // O invariante que esta secção sempre existiu para proteger, e que a
-        // separação por root não pode sacrificar: o caminho não cresce com o
-        // comprimento do `DELONIX_ROOT` (AF_UNIX `sun_path` = 108 bytes). O root
-        // acima é deliberadamente fundo; o sufixo é de largura fixa.
+        // The invariant this section has always existed to protect, and that the
+        // per-root separation cannot sacrifice: the path does not grow with the
+        // length of `DELONIX_ROOT` (AF_UNIX `sun_path` = 108 bytes). The root
+        // above is deliberately deep; the suffix is fixed-width.
         assert!(
             control_sock_path().as_os_str().len() < 108,
             "socket de {} bytes — passaria o SUN_LEN: {}",
@@ -12705,9 +12883,9 @@ Inter-|   Receive                                                |  Transmit
             control_sock_path().display()
         );
 
-        // E o root POR OMISSÃO mantém o nome nu, byte a byte — é o que torna
-        // esta mudança segura de publicar: um holder já a correr de um binário
-        // anterior resolve exactamente o caminho de sempre.
+        // And the DEFAULT root keeps the bare name, byte for byte — this is what makes
+        // this change safe to publish: a holder already running from an earlier
+        // binary resolves exactly the same path as always.
         env.unset("DELONIX_ROOT");
         assert_eq!(
             runtime_dir(),
@@ -12943,13 +13121,13 @@ Inter-|   Receive                                                |  Transmit
         ));
     }
 
-    /// Dois `DELONIX_ROOT` no mesmo uid: o pidfile é por-ROOT, o socket é
-    /// por-USER, e antes desta correcção o segundo apagava a infra do primeiro.
+    /// Two `DELONIX_ROOT` under the same uid: the pidfile is per-ROOT, the socket is
+    /// per-USER, and before this fix the second deleted the first's infra.
     ///
-    /// A mensagem é o valor todo do ramo — o ramo em si não se exercita sem dois
-    /// holders vivos —, por isso é ela que leva o teste: tem de nomear os DOIS
-    /// caminhos (senão quem a lê não sabe qual dos roots é o dono) e tem de
-    /// oferecer as duas saídas reais, usar aquele root ou pará-lo de propósito.
+    /// The message is the whole value of the branch — the branch itself is not exercised without two
+    /// live holders —, so it is what carries the test: it has to name BOTH
+    /// paths (otherwise the reader does not know which of the roots is the owner) and it has to
+    /// offer the two real exits, use that root or stop it on purpose.
     #[test]
     fn a_mensagem_de_root_alheio_nomeia_os_dois_caminhos_e_as_duas_saidas() {
         let m = super::foreign_holder_message(
@@ -12960,7 +13138,7 @@ Inter-|   Receive                                                |  Transmit
         assert!(m.contains("/home/w/cri/state/ingress"));
         assert!(m.contains("DELONIX_ROOT"));
         assert!(m.contains("delonix net netns down"));
-        // Nunca sugerir a reconstrução: é isso que destrói a infra alheia.
+        // Never suggest the rebuild: that is what destroys someone else's infra.
         assert!(!m.contains("rebuild it"));
     }
 
@@ -12994,7 +13172,7 @@ Inter-|   Receive                                                |  Transmit
     }
 }
 
-/// Identidade do PID antes de o matar — a guarda que falta a um pidfile obsoleto.
+/// PID identity before killing it — the guard a stale pidfile lacks.
 #[cfg(test)]
 mod tests_identidade_do_pidfile {
     use super::*;
@@ -13019,7 +13197,7 @@ mod tests_identidade_do_pidfile {
         ));
     }
 
-    /// O achado: pidfile obsoleto + PID reciclado = SIGTERM num processo alheio.
+    /// The finding: stale pidfile + recycled PID = SIGTERM on someone else's process.
     #[test]
     fn um_pid_reciclado_nao_e_nosso() {
         let alheio = argv(&["/usr/lib/firefox/firefox", "-contentproc"]);
@@ -13028,8 +13206,8 @@ mod tests_identidade_do_pidfile {
         assert!(!argv_matches(PidKind::Slirp, &alheio));
     }
 
-    /// O caminho de RECUPERAÇÃO tem de continuar a funcionar: o processo vivo
-    /// num upgrade in-place é de um binário pré-split e chama-se `holder`.
+    /// The RECOVERY path has to keep working: the live process
+    /// in an in-place upgrade is from a pre-split binary and is called `holder`.
     #[test]
     fn o_holder_pre_split_continua_a_ser_morto() {
         assert!(argv_matches(
@@ -13038,8 +13216,8 @@ mod tests_identidade_do_pidfile {
         ));
     }
 
-    /// Os papéis não se confundem entre si — matar o pin julgando-o control
-    /// derruba a netns de todos os workloads do nó.
+    /// The roles are not confused with one another — killing the pin thinking it is control
+    /// brings down the netns of every workload on the node.
     #[test]
     fn os_papeis_nao_se_trocam() {
         let pin = argv(&["delonix", "netns", "pin"]);
@@ -13049,8 +13227,8 @@ mod tests_identidade_do_pidfile {
         assert!(!argv_matches(PidKind::Pin, &control));
     }
 
-    /// `slirp4netns` só no argv[0]: o pid do alvo vai na cauda do argv, logo um
-    /// processo qualquer não se pode fazer passar por um pelo que traz atrás.
+    /// `slirp4netns` only in argv[0]: the target's pid goes at the tail of the argv, so an
+    /// arbitrary process cannot pass itself off as one by what it drags behind it.
     #[test]
     fn slirp_so_conta_no_argv0() {
         assert!(!argv_matches(
@@ -13488,8 +13666,8 @@ mod tests_pin_ownership_proof {
     }
 }
 
-/// A decisão do `kill_pidfile`, isolada — é este módulo que falha se alguém
-/// voltar a matar por presença de PID em vez de por identidade.
+/// The `kill_pidfile` decision, isolated — this module is the one that fails if someone
+/// goes back to killing by PID presence instead of by identity.
 #[cfg(test)]
 mod tests_decisao_de_matar {
     use super::*;
@@ -13545,8 +13723,8 @@ mod tests_decisao_de_matar {
         assert!(!should_signal(PidKind::Pin, None, true));
     }
 
-    /// O outro lado: o teardown continua a matar o que é mesmo nosso — senão a
-    /// guarda teria trocado um bug por infra que ninguém consegue derrubar.
+    /// The other side: the teardown still kills what really is ours — otherwise the
+    /// guard would have traded a bug for infra that no one can bring down.
     #[test]
     fn o_nosso_continua_a_ser_morto() {
         assert!(should_signal(

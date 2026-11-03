@@ -972,13 +972,13 @@ impl Network {
 
     /// Builds a user network from an ARBITRARY prefix.
     ///
-    /// O nome da bridge usa o hash do NOME e não o octeto — que é exactamente a
-    /// fórmula autoritativa do plano físico (`dlxn{:08x}` no registo do holder).
-    /// Uma rede com CIDR livre não tem octeto para pôr no nome, e usar o hash
-    /// fecha de caminho a divergência que este repo já documentou: o
-    /// `NetworkStore` a imprimir um dispositivo que não existe no host. As redes
-    /// LEGADAS mantêm a fórmula antiga, para o nome delas não mudar debaixo dos
-    /// pés de quem já as tem.
+    /// The bridge name uses the hash of the NAME and not the octet — which is
+    /// exactly the authoritative formula of the physical plane (`dlxn{:08x}` in the
+    /// holder's registry). A network with a free CIDR has no octet to put in the
+    /// name, and using the hash heads off the divergence this repo has already
+    /// documented: the `NetworkStore` printing a device that does not exist on the
+    /// host. LEGACY networks keep the old formula, so their name does not change
+    /// out from under those who already have them.
     fn user_with_cidr(name: &str, cidr: Cidr) -> Self {
         Network {
             name: name.to_string(),
@@ -1208,18 +1208,18 @@ impl NetworkStore {
         }
         // New format: key=value.
         let mut kv = std::collections::HashMap::new();
-        // `cidr=` é a forma nova e ganha ao `base=`: uma rede escrita com prefixo
-        // livre não tem octeto que a descreva.
+        // `cidr=` is the new form and wins over `base=`: a network written with a
+        // free prefix has no octet to describe it.
         //
-        // **Guardado, e NÃO devolvido aqui.** Este ramo fazia `return` a meio do
-        // ciclo, e o que ficava por correr era a passagem que lê os `label.`/
-        // `annotation.` — ou seja, uma rede com `cidr=` voltava SEM POSSE. O
-        // efeito é deriva eterna no caso mais comum que existe: o `stack apply`
-        // carimba `delonix.io/stack`, o `get` seguinte deita-o fora, o plano diz
-        // «exists and belongs to no stack — will be taken over», e o
-        // `--detailed-exitcode` responde 2 num manifesto que ninguém tocou. Um
-        // gate de deriva em CI fica vermelho todos os dias, que é precisamente
-        // aquilo de que o gate serve para avisar.
+        // **Stored, and NOT returned here.** This branch used to `return` in the
+        // middle of the loop, and what was left unrun was the pass that reads the
+        // `label.`/`annotation.` keys — that is, a network with `cidr=` came back
+        // WITHOUT OWNERSHIP. The effect is eternal drift in the most common case
+        // there is: `stack apply` stamps `delonix.io/stack`, the next `get` throws
+        // it away, the plan says «exists and belongs to no stack — will be taken
+        // over», and `--detailed-exitcode` answers 2 on a manifest nobody touched.
+        // A drift gate in CI goes red every single day, which is precisely what the
+        // gate exists to warn about.
         let mut cidr = None;
         for line in trimmed.lines() {
             if let Some((k, v)) = line.split_once('=') {
@@ -1357,16 +1357,16 @@ impl NetworkStore {
                 "invalid network name: '{name}'"
             )));
         }
-        // Serializado: escolher um octeto livre é ler o registo INTEIRO, decidir,
-        // e escrever. Sem fechadura, duas criações concorrentes cujos nomes
-        // caem no mesmo candidato lêem ambas o mesmo `used` e escrevem ambas o
-        // mesmo octeto.
+        // Serialised: picking a free octet means reading the ENTIRE registry,
+        // deciding, and writing. Without a lock, two concurrent creations whose
+        // names fall on the same candidate both read the same `used` and both write
+        // the same octet.
         //
-        // Medido antes desta correção, com 8 nomes que colidem no mesmo
-        // candidato: em série dão 8 `/16` distintos; em paralelo dão 3 a 5, com
-        // até CINCO redes em `10.220.0.0/16`. As bridges diferem (o nome deriva
-        // do da rede), por isso as redes parecem separadas no `network ls` — e
-        // os workloads tiram endereços do mesmo espaço.
+        // Measured before this fix, with 8 names that collide on the same
+        // candidate: in series they yield 8 distinct `/16`s; in parallel they yield
+        // 3 to 5, with up to FIVE networks on `10.220.0.0/16`. The bridges differ
+        // (the name derives from the network's), so the networks look separate in
+        // `network ls` — and the workloads draw addresses from the same space.
         let trinco = self.lock_path();
         let _lock = flock::ExclusiveLock::acquire(&trinco).ok_or_else(|| {
             flock::ExclusiveLock::unavailable(
@@ -1374,8 +1374,8 @@ impl NetworkStore {
                 "an unsynchronised allocation can put two networks on the same /16",
             )
         })?;
-        // Re-verificado DEBAIXO da fechadura: entre o teste acima e o trinco,
-        // outra criação com este nome pode ter passado.
+        // Re-checked UNDER the lock: between the test above and the lock, another
+        // creation with this name may have gone through.
         if self.path(name).exists() {
             return Err(Error::NetworkAlreadyExists(format!(
                 "network '{name}' already exists"
@@ -1415,8 +1415,8 @@ impl NetworkStore {
         root.join("networks.lock")
     }
 
-    /// A fechadura do registo, IRMÃ da pasta e não dentro dela — `list()` varre
-    /// a pasta e não deve ter de saltar ficheiros que não são redes.
+    /// The registry's lock, a SIBLING of the folder and not inside it — `list()`
+    /// scans the folder and should not have to skip files that are not networks.
     fn lock_path(&self) -> std::path::PathBuf {
         Self::lock_path_in(&self.root())
     }
@@ -1472,21 +1472,21 @@ impl NetworkStore {
         Ok(parsed[1])
     }
 
-    /// Valida um `--subnet` ARBITRÁRIO e devolve-o como prefixo.
+    /// Validates an ARBITRARY `--subnet` and returns it as a prefix.
     ///
-    /// Três perguntas, e cada uma recusa por uma razão diferente porque os
-    /// enganos são diferentes:
+    /// Three questions, and each one refuses for a different reason because the
+    /// mistakes are different:
     ///
-    /// 1. **é um prefixo?** — o `Cidr::parse` responde;
-    /// 2. **é privado?** — só 10/8, 172.16/12 e 192.168/16. Uma rede de
-    ///    workloads num espaço público faria este motor entregar endereços de
-    ///    outra pessoa aos containers, e o sintoma seria tráfego a desaparecer
-    ///    para um destino que existe mesmo na internet;
-    /// 3. **cabe lá uma rede?** — o `usable_for_network` (/8–/28).
+    /// 1. **is it a prefix?** — `Cidr::parse` answers;
+    /// 2. **is it private?** — only 10/8, 172.16/12 and 192.168/16. A workload
+    ///    network in public space would make this engine hand out someone else's
+    ///    addresses to the containers, and the symptom would be traffic vanishing
+    ///    toward a destination that really exists on the internet;
+    /// 3. **does a network fit there?** — `usable_for_network` (/8–/28).
     ///
-    /// A sobreposição com redes existentes é verificada por quem tem a lista, no
-    /// `create` — aqui não há acesso ao store, e ir buscá-lo tornaria esta
-    /// função impossível de testar sem um.
+    /// Overlap with existing networks is checked by whoever holds the list, in
+    /// `create` — there is no access to the store here, and fetching it would make
+    /// this function impossible to test without one.
     pub fn validate_subnet(subnet: &str) -> Result<Cidr> {
         let porque = |why: &str| {
             Error::SubnetInvalid(format!(
@@ -1513,17 +1513,17 @@ impl NetworkStore {
         Ok(c)
     }
 
-    /// Valida um gateway DECLARADO contra o prefixo da rede.
+    /// Validates a DECLARED gateway against the network's prefix.
     ///
-    /// «Gateway externo» numa SDN rootless quer dizer uma coisa concreta e vale
-    /// a pena dizê-la: o holder continua a ser dono da bridge e a encaminhar; o
-    /// que muda é a ROTA DEFAULT que os containers recebem, que passa a apontar
-    /// para o endereço declarado — tipicamente um appliance de fronteira NESSA
-    /// rede. Não é «a rede passa a ser de outro».
+    /// «External gateway» in a rootless SDN means something concrete and worth
+    /// spelling out: the holder still owns the bridge and does the routing; what
+    /// changes is the DEFAULT ROUTE the containers receive, which now points to the
+    /// declared address — typically a border appliance ON THAT network. It is not
+    /// «the network now belongs to someone else».
     ///
-    /// Por isso tem de estar DENTRO do prefixo (um endereço fora não é
-    /// alcançável por link, e a rota nem se instala), e não pode ser a rede nem
-    /// o broadcast.
+    /// So it has to be INSIDE the prefix (an address outside is not reachable over
+    /// the link, and the route does not even install), and it cannot be the network
+    /// or the broadcast address.
     pub fn validate_gateway(cidr: &Cidr, gw: &str) -> Result<()> {
         let porque = |why: &str| {
             Error::InvalidGateway(format!(
@@ -1543,12 +1543,13 @@ impl NetworkStore {
         Ok(())
     }
 
-    /// Cria uma rede com um prefixo ARBITRÁRIO, recusando sobreposições.
+    /// Creates a network with an ARBITRARY prefix, refusing overlaps.
     ///
-    /// A sobreposição é verificada AQUI e não no `validate_subnet` porque é a
-    /// única pergunta que precisa de saber o que mais existe — e entregar duas
-    /// redes que partilham endereços é a falha que não dá erro nenhum: dá dois
-    /// containers com o mesmo IP e uma rede que funciona para um deles.
+    /// The overlap is checked HERE and not in `validate_subnet` because it is the
+    /// only question that needs to know what else exists — and handing out two
+    /// networks that share addresses is the failure that raises no error at all: it
+    /// gives two containers with the same IP and a network that works for one of
+    /// them.
     pub fn create_with_cidr(&self, name: &str, cidr: Cidr) -> Result<Network> {
         // The name is a file name under the store. `create` checked its
         // alphabet and this did not: measured on v4.4.0, `network create
@@ -1558,11 +1559,10 @@ impl NetworkStore {
         if let Ok(existente) = self.get(name) {
             return Ok(existente);
         }
-        // Mesma fechadura do `create`, pela mesma razão: verificar sobreposição
-        // contra o registo e só depois escrever é ler-depois-escrever. Duas
-        // criações concorrentes de CIDRs que se sobrepõem passavam ambas a
-        // verificação — e o conflito que esta função existe para recusar
-        // acabava gravado.
+        // Same lock as `create`, for the same reason: checking overlap against the
+        // registry and only then writing is read-then-write. Two concurrent
+        // creations of overlapping CIDRs both used to pass the check — and the
+        // conflict this function exists to refuse ended up written.
         let trinco = self.lock_path();
         let _lock = flock::ExclusiveLock::acquire(&trinco).ok_or_else(|| {
             flock::ExclusiveLock::unavailable(
@@ -2698,13 +2698,13 @@ pub fn list_connections(ip2name: &std::collections::HashMap<String, String>) -> 
 #[cfg(test)]
 mod tests {
 
-    /// **A base instalada não pode mexer-se.** Toda a rede que existe hoje tem
-    /// leases derivados da fórmula do /16, e a generalização não tem nada a
-    /// ganhar em mudá-la. Este teste fixa a fórmula ANTIGA, valor a valor, para
-    /// que uma generalização futura não a "arrume" sem dar por isso.
+    /// **The installed base must not move.** Every network that exists today has
+    /// leases derived from the /16 formula, and the generalisation has nothing to
+    /// gain by changing it. This test pins the OLD formula, value by value, so that
+    /// a future generalisation does not "tidy it away" without noticing.
     #[test]
     fn o_16_continua_byte_a_byte_como_estava() {
-        // ids escolhidos para tocar os três ramos do clamp: b<2, b normal, b=255.
+        // ids chosen to touch the three branches of the clamp: b<2, b normal, b=255.
         for (id, esperado) in [
             ("00000000", "10.210.0.2"),   // b=0 -> 2
             ("00000001", "10.210.0.2"),   // b=1 -> 2
@@ -2716,16 +2716,16 @@ mod tests {
         }
     }
 
-    /// E os prefixos que não são /16 passam a funcionar — com as MESMAS
-    /// exclusões (rede, gateway, broadcast), que é o que torna a regra geral a
-    /// mesma regra e não outra.
+    /// And prefixes that are not /16 now work too — with the SAME exclusions
+    /// (network, gateway, broadcast), which is what makes the general rule the same
+    /// rule and not a different one.
     #[test]
     fn um_prefixo_arbitrario_aloca_dentro_de_si_e_respeita_as_exclusoes() {
         for cidr in ["172.20.4.0/22", "192.168.1.0/28", "10.0.0.0/8"] {
             let net = Cidr::parse(cidr).unwrap();
             for id in ["00000000", "deadbeef", "0000000a", "ffffffff"] {
                 let ip = derive_ip_in(cidr, id);
-                let a = Cidr::parse_addr(&ip).unwrap_or_else(|| panic!("{ip} não parseia"));
+                let a = Cidr::parse_addr(&ip).unwrap_or_else(|| panic!("{ip} does not parse"));
                 assert!(net.contains(a), "{cidr}: {ip} fora do prefixo");
                 assert_ne!(a, net.base, "{cidr}: {ip} é o endereço de rede");
                 assert_ne!(a, net.base + 1, "{cidr}: {ip} é o gateway");
@@ -2735,13 +2735,12 @@ mod tests {
         }
     }
 
-    /// As exclusões continuam a ser as três, e nem uma a mais — um teste que só
-    /// verificasse «está dentro» deixaria passar o gateway a ser entregue a um
-    /// container, que é uma colisão que só aparece quando a rede deixa de
-    /// funcionar para todos.
+    /// The exclusions remain the three, and not one more — a test that only checked
+    /// «is inside» would let the gateway be handed to a container, a collision that
+    /// only shows up when the network stops working for everyone.
     #[test]
     fn a_rede_o_gateway_e_o_broadcast_sao_os_unicos_excluidos() {
-        let cidr = "192.168.1.0/28"; // 16 endereços: fácil de enumerar por inteiro
+        let cidr = "192.168.1.0/28"; // 16 addresses: easy to enumerate in full
         let net = Cidr::parse(cidr).unwrap();
         let mut aceites = 0;
         for a in net.base..=net.last() {
@@ -2752,16 +2751,16 @@ mod tests {
             aceites += ok as u32;
         }
         assert_eq!(aceites, 13, "um /28 tem 16 endereços menos os 3 reservados");
-        // E um endereço de FORA nunca é aceite, por muito parecido que seja.
+        // And an address from OUTSIDE is never accepted, however similar it looks.
         assert!(!valid_ip_in_subnet(cidr, "192.168.2.5"));
         assert!(!valid_ip_in_subnet(cidr, "192.168.1.16"));
     }
 
-    /// **Exaustivo sobre TODOS os prefixos**, que é a única forma de garantir que
-    /// a aritmética de máscara não tem um buraco algures no meio: um erro de
-    /// shift não aparece no /16 que toda a gente testa, aparece no /31.
+    /// **Exhaustive over ALL prefixes**, which is the only way to guarantee the
+    /// mask arithmetic has no hole somewhere in the middle: a shift bug does not
+    /// show up in the /16 everyone tests, it shows up in the /31.
     ///
-    /// Cinco invariantes que um prefixo tem SEMPRE de respeitar:
+    /// Five invariants a prefix must ALWAYS respect:
     #[test]
     fn invariantes_de_todos_os_prefixos_de_0_a_32() {
         for len in 0u8..=32 {
@@ -2772,51 +2771,52 @@ mod tests {
                 "192.168.1.0",
                 "255.255.255.255",
             ] {
-                let c = Cidr::parse(&format!("{base_s}/{len}")).expect("prefixo válido");
+                let c = Cidr::parse(&format!("{base_s}/{len}")).expect("valid prefix");
 
-                // 1. contém a sua própria base e o seu próprio último endereço.
+                // 1. contains its own base and its own last address.
                 assert!(c.contains(c.base), "{c:?} não contém a base");
                 assert!(c.contains(c.last()), "{c:?} não contém o último");
 
-                // 2. o último nunca é menor que a base.
+                // 2. the last is never smaller than the base.
                 assert!(c.last() >= c.base, "{c:?} last < base");
 
-                // 3. sobrepõe-se consigo próprio, sempre (reflexivo).
+                // 3. overlaps with itself, always (reflexive).
                 assert!(c.overlaps(&c), "{c:?} não se sobrepõe a si mesmo");
 
-                // 4. o gateway, quando existe, está DENTRO do prefixo — foi
-                //    exactamente isto que falhou no /31 e no /32.
+                // 4. the gateway, when it exists, is INSIDE the prefix — this is
+                //    exactly what failed on /31 and /32.
                 if let Some(gw) = c.gateway() {
-                    let g = Cidr::parse_addr(&gw).expect("gateway parseável");
+                    let g = Cidr::parse_addr(&gw).expect("parseable gateway");
                     assert!(c.contains(g), "{c:?} gateway {gw} fora do prefixo");
                     assert!(c.len <= 30, "{c:?} não devia ter gateway");
                 }
 
-                // 5. round-trip: o texto que imprime volta a dar o mesmo prefixo.
+                // 5. round-trip: the text it prints parses back to the same prefix.
                 let volta = Cidr::parse(&c.to_string_cidr()).expect("round-trip");
                 assert_eq!(volta, c, "round-trip mudou {c:?}");
             }
         }
     }
 
-    /// O caso que rebentou a implementação anterior, isolado para não voltar:
-    /// no topo do espaço de endereços, `base + 1` transborda. Em debug era
-    /// pânico; em RELEASE era um wrap silencioso para `0.0.0.0` — uma rede com
-    /// o endereço nulo por gateway, configurada sem uma palavra.
+    /// The case that broke the previous implementation, isolated so it does not
+    /// come back: at the top of the address space, `base + 1` overflows. In debug it
+    /// was a panic; in RELEASE it was a silent wrap to `0.0.0.0` — a network with
+    /// the null address as its gateway, configured without a word.
     #[test]
     fn o_topo_do_espaco_de_enderecos_nao_transborda() {
         let topo = Cidr::parse("255.255.255.255/32").unwrap();
         assert_eq!(topo.gateway(), None, "um /32 não tem gateway");
         assert_eq!(topo.last(), u32::MAX);
-        // E um /30 lá no topo, onde ainda há gateway mas o +1 anda perto do fim.
+        // And a /30 right at the top, where there is still a gateway but the +1 is
+        // close to the end.
         let quase = Cidr::parse("255.255.255.252/30").unwrap();
         assert_eq!(quase.gateway().as_deref(), Some("255.255.255.253"));
     }
 
-    /// `/31` (RFC 3021, ponto-a-ponto) e `/32` são prefixos VÁLIDOS — o `parse`
-    /// tem de os aceitar, porque servem para ler o endereço de um par ou uma
-    /// rota — mas não são redes de workloads. As duas perguntas são separadas
-    /// de propósito, e juntá-las tornaria o tipo inútil para o resto.
+    /// `/31` (RFC 3021, point-to-point) and `/32` are VALID prefixes — `parse` has
+    /// to accept them, because they serve to read a peer's address or a route — but
+    /// they are not workload networks. The two questions are separated on purpose,
+    /// and merging them would make the type useless for everything else.
     #[test]
     fn parse_aceita_o_que_nao_serve_como_rede_e_a_validacao_e_que_recusa() {
         for s in ["10.0.0.1/32", "10.0.0.0/31", "10.0.0.0/30", "10.0.0.0/0"] {
@@ -2839,10 +2839,10 @@ mod tests {
         }
     }
 
-    /// Sobreposição, exaustiva num espaço pequeno: um /24 partido em dois /25
-    /// não se sobrepõe entre si, mas cada um sobrepõe-se ao pai — e a relação é
-    /// simétrica em TODOS os casos. É o erro de fencepost com todas as
-    /// combinações, não com a que calhou escrever.
+    /// Overlap, exhaustive over a small space: a /24 split into two /25 does not
+    /// overlap between the halves, but each overlaps the parent — and the relation
+    /// is symmetric in ALL cases. It is the fencepost bug across every combination,
+    /// not just the one that happened to get written.
     #[test]
     fn sobreposicao_e_simetrica_e_hierarquica_em_todo_o_espaco() {
         let pai = Cidr::parse("192.168.0.0/24").unwrap();
@@ -2858,29 +2858,29 @@ mod tests {
                 assert_eq!(a.overlaps(b), b.overlaps(a), "assimétrico: {a:?} {b:?}");
             }
         }
-        // E um vizinho de outro espaço nunca se sobrepõe.
+        // And a neighbour from another space never overlaps.
         let outro = Cidr::parse("192.168.1.0/24").unwrap();
         assert!(!pai.overlaps(&outro) && !outro.overlaps(&pai));
     }
 
-    /// A forma LEGADA continua a querer dizer o que sempre quis.
+    /// The LEGACY form still means what it always meant.
     ///
-    /// Todo o registo escrito antes disto guarda um octeto (`210`) ou dois
-    /// (`10.210`), e significava `10.210.0.0/16`. Se esta leitura mudasse, cada
-    /// rede existente passava a apontar para outro espaço de endereços — a pior
-    /// migração possível, e silenciosa.
+    /// Every record written before this stores one octet (`210`) or two (`10.210`),
+    /// and it meant `10.210.0.0/16`. If this reading changed, each existing network
+    /// would start pointing to a different address space — the worst migration
+    /// possible, and a silent one.
     #[test]
     fn a_forma_legada_de_dois_octetos_e_um_slash_16() {
-        let legado = Cidr::parse("10.210").expect("dois octetos");
+        let legado = Cidr::parse("10.210").expect("two octets");
         assert_eq!(legado.len, 16);
         assert_eq!(legado.to_string_cidr(), "10.210.0.0/16");
         assert_eq!(legado, Cidr::parse("10.210.0.0/16").unwrap());
-        // E o gateway continua a ser o `.0.1` que sempre foi.
+        // And the gateway is still the `.0.1` it always was.
         assert_eq!(legado.gateway().as_deref(), Some("10.210.0.1"));
     }
 
-    /// Os bits de host são LIMPOS, não recusados: `10.210.5.7/16` é como se
-    /// escreve «o /16 onde este endereço está», e recusá-lo era pedantismo.
+    /// Host bits are CLEARED, not refused: `10.210.5.7/16` is how you write «the
+    /// /16 this address sits in», and refusing it would be pedantry.
     #[test]
     fn os_bits_de_host_sao_limpos_em_vez_de_recusados() {
         assert_eq!(
@@ -2893,12 +2893,12 @@ mod tests {
         );
     }
 
-    /// A pergunta que o `network create` tem de responder antes de entregar uma
-    /// segunda rede: partilham algum endereço?
+    /// The question `network create` has to answer before handing out a second
+    /// network: do they share any address?
     ///
-    /// O caso que engana é o de prefixos de tamanho DIFERENTE — um `/24` dentro
-    /// de um `/16` não tem a mesma base e sobrepõe-se na mesma. Comparar as
-    /// bases só funciona depois de as mascarar pelo prefixo mais CURTO.
+    /// The tricky case is prefixes of DIFFERENT size — a `/24` inside a `/16` does
+    /// not have the same base and overlaps all the same. Comparing the bases only
+    /// works after masking them by the SHORTER prefix.
     #[test]
     fn sobreposicao_apanha_um_prefixo_dentro_de_outro() {
         let dezasseis = Cidr::parse("10.210.0.0/16").unwrap();
@@ -2908,7 +2908,7 @@ mod tests {
 
         let fora = Cidr::parse("10.211.0.0/16").unwrap();
         assert!(!dezasseis.overlaps(&fora));
-        // Adjacentes não se sobrepõem, que é o erro de fencepost clássico.
+        // Adjacent ones do not overlap, which is the classic fencepost bug.
         let a = Cidr::parse("192.168.0.0/25").unwrap();
         let b = Cidr::parse("192.168.0.128/25").unwrap();
         assert!(!a.overlaps(&b), "adjacentes não se sobrepõem");
@@ -2921,7 +2921,7 @@ mod tests {
         assert_eq!(c.gateway().as_deref(), Some("172.20.4.1"));
         assert!(c.contains(Cidr::parse_addr("172.20.5.9").unwrap()));
         assert!(!c.contains(Cidr::parse_addr("172.20.8.1").unwrap()));
-        // Um /32 é um endereço só, e não deve rebentar no shift.
+        // A /32 is a single address, and must not blow up on the shift.
         assert_eq!(Cidr::parse("10.0.0.1/32").unwrap().size(), 1);
     }
 
@@ -2939,25 +2939,25 @@ mod tests {
         }
     }
 
-    /// **Uma rede com `cidr=` perdia a posse a cada leitura.** O ramo do `cidr`
-    /// devolvia de dentro do ciclo das linhas, antes da passagem que recolhe os
-    /// `label.`/`annotation.` — por isso o `stack apply` carimbava
-    /// `delonix.io/stack`, o `get` seguinte deitava-o fora, e o plano voltava a
-    /// propor a adopção do que acabara de possuir. Deriva ETERNA, no caso mais
-    /// comum que há: um `kind: Network` com `subnet:`.
+    /// **A network with `cidr=` lost its ownership on every read.** The `cidr`
+    /// branch returned from inside the line loop, before the pass that collects the
+    /// `label.`/`annotation.` keys — so `stack apply` stamped `delonix.io/stack`,
+    /// the next `get` threw it away, and the plan proposed adopting again what it
+    /// had just owned. ETERNAL drift, in the most common case there is: a
+    /// `kind: Network` with `subnet:`.
     ///
-    /// Medido antes da correcção com a bateria E2E: `stack plan
-    /// --detailed-exitcode` respondia **2** sobre um manifesto inalterado — um
-    /// gate de deriva em CI vermelho todos os dias.
+    /// Measured before the fix with the E2E battery: `stack plan
+    /// --detailed-exitcode` answered **2** on an unchanged manifest — a drift gate
+    /// in CI red every single day.
     #[test]
     fn uma_rede_com_cidr_nao_perde_a_posse() {
         use super::NetworkStore;
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
         let store = NetworkStore::open(tmp).unwrap();
-        let c = super::Cidr::parse("10.251.0.0/16").expect("cidr valido");
+        let c = super::Cidr::parse("10.251.0.0/16").expect("valid cidr");
         store.create_with_cidr("comcidr", c).unwrap();
-        // Pré-condição: o registo é MESMO da forma que perdia os labels.
+        // Precondition: the record is EXACTLY the form that lost the labels.
         let raw = std::fs::read_to_string(tmp.join("networks/comcidr")).unwrap();
         assert!(raw.contains("cidr="), "raw={raw:?}");
 
@@ -2981,15 +2981,12 @@ mod tests {
                 .map(String::as_str),
             Some("{\"a\":1}")
         );
-        // E o `cidr` continua a ganhar: a rede é a que foi pedida, não uma
-        // reconstruída a partir de um `base=` que este registo nem tem.
+        // And `cidr` still wins: the network is the one that was requested, not one
+        // rebuilt from a `base=` this record does not even have.
         assert_eq!(n.subnet, "10.251.0.0/16");
-        // O `list` é o que o reconciliador usa, e passa pelo MESMO `get`.
+        // `list` is what the reconciler uses, and it goes through the SAME `get`.
         let listed = store.list().unwrap();
-        let found = listed
-            .iter()
-            .find(|x| x.name == "comcidr")
-            .expect("listada");
+        let found = listed.iter().find(|x| x.name == "comcidr").expect("listed");
         assert_eq!(
             found.labels.get("delonix.io/stack").map(String::as_str),
             Some("loja")
@@ -3064,17 +3061,23 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let st = NetworkStore::open(tmp.path()).unwrap();
 
-        let a = st.create_overlay("a", 42, &[], None, Some("10.244.0.0/16")).unwrap();
+        let a = st
+            .create_overlay("a", 42, &[], None, Some("10.244.0.0/16"))
+            .unwrap();
         assert_eq!(a.subnet, "10.244.0.0/16");
         assert_eq!(a.gateway, "10.244.0.1");
 
         // A second overlay with the SAME subnet lands on the SAME prefix (the
         // cross-node coordination this exists for) — distinct name, same /16.
-        let b = st.create_overlay("b", 43, &[], None, Some("10.244.0.0/16")).unwrap();
+        let b = st
+            .create_overlay("b", 43, &[], None, Some("10.244.0.0/16"))
+            .unwrap();
         assert_eq!(b.subnet, "10.244.0.0/16");
 
         // Unsupported subnet is refused, never auto-picked behind the operator's back.
-        assert!(st.create_overlay("c", 44, &[], None, Some("192.168.1.0/24")).is_err());
+        assert!(st
+            .create_overlay("c", 44, &[], None, Some("192.168.1.0/24"))
+            .is_err());
 
         // No subnet → the auto-pick still works (single-node / throwaway overlay).
         let d = st.create_overlay("d", 45, &[], None, None).unwrap();
@@ -3099,16 +3102,14 @@ mod tests {
                     let peer = format!("10.0.0.{}={}", i + 1, "k".repeat(i * 9));
                     let _ = st.add_overlay_peer("ov", &peer);
                     // Whatever the interleaving, a reader sees a COMPLETE record.
-                    let n = st
-                        .get("ov")
-                        .expect("registo parcial publicado pela escrita");
+                    let n = st.get("ov").expect("partial record published by the write");
                     assert_eq!(n.driver, "overlay", "driver perdido num corpo truncado");
                     assert_eq!(n.vni, Some(42), "vni perdido num corpo truncado");
                 });
             }
         });
 
-        let n = st.get("ov").expect("estado final tem de ser legivel");
+        let n = st.get("ov").expect("the final state must be readable");
         assert_eq!(n.driver, "overlay");
         assert_eq!(n.vni, Some(42));
     }
@@ -3120,7 +3121,13 @@ mod tests {
         let tmp = tmp.path();
         let store = NetworkStore::open(tmp).unwrap();
         store
-            .create_overlay("malha", 42, &["10.0.0.7".to_string()], Some("10.9.0.1"), None)
+            .create_overlay(
+                "malha",
+                42,
+                &["10.0.0.7".to_string()],
+                Some("10.9.0.1"),
+                None,
+            )
             .unwrap();
         let after = store
             .set_metadata(
@@ -3136,13 +3143,14 @@ mod tests {
         assert_eq!(after.labels.get("delonix.io/stack").unwrap(), "infra");
     }
 
-    /// O inverso do `add_overlay_peer`, que durante muito tempo não existiu: um
-    /// peer tirado do manifesto ficava no registo e o `converge` só sabia avisar.
+    /// The inverse of `add_overlay_peer`, which for a long time did not exist: a
+    /// peer removed from the manifest stayed in the registry and `converge` could
+    /// only warn about it.
     ///
-    /// Exige as três coisas que a reescrita LINHA A LINHA existe para garantir —
-    /// o `vni`, o `wgIp` e as labels sobrevivem à remoção. Reescrever o ficheiro
-    /// inteiro perderia-os, e o sintoma seria um overlay que deixa de saber o seu
-    /// próprio VNI depois de perder um par.
+    /// Requires the three things the LINE-BY-LINE rewrite exists to guarantee — the
+    /// `vni`, the `wgIp` and the labels survive the removal. Rewriting the whole
+    /// file would lose them, and the symptom would be an overlay that stops knowing
+    /// its own VNI after losing a peer.
     #[test]
     fn remove_overlay_peer_tira_o_peer_e_preserva_vni_wgip_e_labels() {
         use super::NetworkStore;
@@ -3169,8 +3177,8 @@ mod tests {
             )
             .unwrap();
 
-        // Casa pelo `node_ip` SOZINHO — quem remove tem o endereço, não
-        // necessariamente o triplo inteiro que foi escrito.
+        // Matches on `node_ip` ALONE — whoever removes has the address, not
+        // necessarily the whole triple that was written.
         let after = store.remove_overlay_peer("malha", "10.0.0.7").unwrap();
         assert_eq!(
             after.peers,
@@ -3183,18 +3191,18 @@ mod tests {
         assert_eq!(after.driver, super::DRIVER_OVERLAY);
         assert_eq!(after.labels.get("delonix.io/stack").unwrap(), "infra");
 
-        // Idempotente: remover o que já não lá está é `Ok`, simétrico com um add
-        // que substitui em vez de duplicar. Um erro aqui transformaria um no-op
-        // num apply falhado.
+        // Idempotent: removing what is no longer there is `Ok`, symmetric with an
+        // add that replaces instead of duplicating. An error here would turn a no-op
+        // into a failed apply.
         let de_novo = store.remove_overlay_peer("malha", "10.0.0.7").unwrap();
         assert_eq!(de_novo.peers, vec!["10.0.0.8".to_string()]);
 
-        // E o último peer deixa a linha presente e vazia, não ausente.
+        // And the last peer leaves the line present and empty, not absent.
         let vazio = store.remove_overlay_peer("malha", "10.0.0.8").unwrap();
         assert!(vazio.peers.is_empty(), "{:?}", vazio.peers);
         assert_eq!(vazio.vni, Some(42));
 
-        // Não é overlay → recusa, como o add.
+        // Not an overlay → refuse, like the add.
         store.create("simples").unwrap();
         assert!(store.remove_overlay_peer("simples", "10.0.0.7").is_err());
     }
@@ -4088,13 +4096,12 @@ mod tests_detached_helper {
     }
 }
 
-/// Regressão da alocação do `/16` no `NetworkStore` — o caminho que
-/// `delonix network create` percorre de facto.
+/// Regression of the `/16` allocation in `NetworkStore` — the path that
+/// `delonix network create` actually walks.
 ///
-/// Os nomes que colidem são DERIVADOS aqui a partir de `Network::base_for`, e
-/// não escritos à mão: uma lista fixa deixaria de exercitar colisão nenhuma no
-/// dia em que a função de dispersão mudasse, e o teste continuaria verde a não
-/// testar nada.
+/// The colliding names are DERIVED here from `Network::base_for`, and not written
+/// by hand: a fixed list would stop exercising any collision the day the hashing
+/// function changed, and the test would stay green while testing nothing.
 #[cfg(test)]
 mod tests_network_name {
     use super::*;
@@ -4121,7 +4128,7 @@ mod tests_alocacao_16 {
     use super::*;
     use std::collections::HashSet;
 
-    /// `n` nomes que caem TODOS no mesmo candidato inicial.
+    /// `n` names that ALL fall on the same initial candidate.
     fn nomes_que_colidem(n: usize) -> Vec<String> {
         let mut por_base: std::collections::HashMap<u8, Vec<String>> = Default::default();
         for i in 0..20_000 {
@@ -4132,7 +4139,7 @@ mod tests_alocacao_16 {
                 return e.clone();
             }
         }
-        panic!("não foi possível encontrar {n} nomes a colidir");
+        panic!("could not find {n} colliding names");
     }
 
     #[test]
@@ -4148,10 +4155,10 @@ mod tests_alocacao_16 {
             .map(|n| {
                 let (s, b, n) = (store.clone(), barreira.clone(), n.clone());
                 std::thread::spawn(move || {
-                    // Largam todas ao mesmo tempo — arrancarem em fila esconde
-                    // exactamente a corrida que este teste existe para apanhar.
+                    // They all start at the same time — starting in line hides
+                    // exactly the race this test exists to catch.
                     b.wait();
-                    s.create(&n).expect("create falhou")
+                    s.create(&n).expect("create failed")
                 })
             })
             .collect();
@@ -4168,8 +4175,8 @@ mod tests_alocacao_16 {
                 .collect::<Vec<_>>()
         );
 
-        // E o disco tem de concordar com o devolvido: uma escrita a pisar outra
-        // dá prefixos únicos em memória e duplicados no registo.
+        // And the disk has to agree with what was returned: one write stepping on
+        // another gives unique prefixes in memory and duplicates in the registry.
         let em_disco: HashSet<String> = store
             .list()
             .unwrap()
@@ -4194,7 +4201,7 @@ mod tests_alocacao_16 {
         for i in 0..capacidade {
             store
                 .create(&format!("r{i}"))
-                .unwrap_or_else(|e| panic!("a rede {i} devia caber ({capacidade} lugares): {e}"));
+                .unwrap_or_else(|e| panic!("network {i} should fit ({capacidade} slots): {e}"));
         }
         assert_eq!(
             store.list().unwrap().len(),
@@ -4202,10 +4209,10 @@ mod tests_alocacao_16 {
             "o espaço de workloads tem {capacidade} /16"
         );
 
-        // A que passa do tecto: até aqui o ciclo esgotava-se, saía com o último
-        // candidato tentado e escrevia-o à mesma — a rede ficava, em silêncio,
-        // no /16 de outra.
-        let erro = store.create("a-mais").expect_err("devia recusar");
+        // The one past the ceiling: until now the loop ran out, left with the last
+        // candidate tried and wrote it anyway — the network silently landed on
+        // another one's /16.
+        let erro = store.create("a-mais").expect_err("should refuse");
         let t = erro.to_string();
         assert!(t.contains("no free /16"), "erro pouco claro: {t}");
         assert!(t.contains("a-mais"), "o erro devia nomear a rede: {t}");
@@ -4214,7 +4221,7 @@ mod tests_alocacao_16 {
             "recusou mas escreveu o registo à mesma"
         );
 
-        // E nenhum /16 ficou partilhado.
+        // And no /16 ended up shared.
         let prefixos: HashSet<String> = store
             .list()
             .unwrap()
@@ -4278,19 +4285,19 @@ mod tests_posse_do_slirp {
         assert!(parse(&argv).unwrap().is_ours());
     }
 
-    /// O achado. Mesmo binário, mesma forma de argv, socket noutro sítio.
+    /// The finding. Same binary, same argv shape, socket somewhere else.
     #[test]
     fn um_slirp_estranho_nao_e_nosso_e_nao_e_ceifado() {
         let argv = vec![
             "slirp4netns".to_string(),
             "--disable-host-loopback".into(),
             "--mtu=65520".into(),
-            "--api-socket".into(), // forma de argumento separado
+            "--api-socket".into(), // separate-argument form
             "/run/user/1000/libpod/tmp/slirp4netns.sock".into(),
             "1234".into(),
             "tap0".into(),
         ];
-        let s = parse(&argv).expect("continua a ser um slirp4netns");
+        let s = parse(&argv).expect("still a slirp4netns");
         assert_eq!(
             s.target, 1234,
             "a forma separada tem de ser parseada na mesma"
@@ -4302,7 +4309,8 @@ mod tests_posse_do_slirp {
         );
     }
 
-    /// Sem o token de posse não há como provar que é nosso — e não se destrói.
+    /// Without the ownership token there is no way to prove it is ours — so it is
+    /// not destroyed.
     #[test]
     fn sem_api_socket_nao_ha_posse_provavel() {
         let argv = vec![
@@ -4316,8 +4324,8 @@ mod tests_posse_do_slirp {
         assert!(!should_reap_orphan(&s, false));
     }
 
-    /// O outro lado: um órfão NOSSO continua a ser ceifado — senão a correcção
-    /// teria trocado um bug por outro (a porta publicada ficava presa).
+    /// The other side: an orphan that is OURS is still reaped — otherwise the fix
+    /// would have traded one bug for another (the published port stayed stuck).
     #[test]
     fn um_orfao_nosso_continua_a_ser_ceifado() {
         let s = parse(&nosso_de_container(1234)).unwrap();

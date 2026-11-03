@@ -437,8 +437,7 @@ pub fn collect_workload_series(root: &Path) -> Vec<WorkloadSeries> {
                 delonix_linux::reconcile_status(&mut c);
                 if c.status == Status::Running {
                     let dir = std::path::PathBuf::from(delonix_linux::live_cgroup(&c));
-                    let mut ws =
-                        workload_series(WorkloadKind::Container, &c.id, &c.name, Ok(dir));
+                    let mut ws = workload_series(WorkloadKind::Container, &c.id, &c.name, Ok(dir));
                     if let Some((rx, tx)) = container_net_from_cache(&c.id) {
                         ws.net_rx_bytes = Some(rx);
                         ws.net_tx_bytes = Some(tx);

@@ -131,7 +131,10 @@ pub fn register_drivers() {
                 run.clone(),
                 mounts.clone(),
             )),
-            Arc::new(delonix_provider_lvm::LvmThinDriver::new(run.clone(), mounts.clone())),
+            Arc::new(delonix_provider_lvm::LvmThinDriver::new(
+                run.clone(),
+                mounts.clone(),
+            )),
         ];
         for d in drivers {
             // An id that is a literal cannot be empty, and the four differ;

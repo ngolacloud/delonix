@@ -3515,11 +3515,16 @@ fn a_running_vm_gets_a_disk_and_a_nic_hotplugged() {
     );
     let pending = client.pending(vmid).expect("pending after disk hotplug");
     assert!(
-        !pending.iter().any(|e| e.get("key").and_then(|k| k.as_str()) == Some("scsi1")
-            && (e.get("pending").is_some() || e.get("delete").is_some())),
+        !pending
+            .iter()
+            .any(|e| e.get("key").and_then(|k| k.as_str()) == Some("scsi1")
+                && (e.get("pending").is_some() || e.get("delete").is_some())),
         "the disk hotplug was parked as PENDING for scsi1: {pending:?}"
     );
-    assert!(b.is_running(&vm), "the VM must still be running after the disk hotplug");
+    assert!(
+        b.is_running(&vm),
+        "the VM must still be running after the disk hotplug"
+    );
 
     // A NIC into `net1`, live, same discipline.
     let net1 = client
@@ -3536,11 +3541,16 @@ fn a_running_vm_gets_a_disk_and_a_nic_hotplugged() {
     );
     let pending = client.pending(vmid).expect("pending after NIC hotplug");
     assert!(
-        !pending.iter().any(|e| e.get("key").and_then(|k| k.as_str()) == Some("net1")
-            && (e.get("pending").is_some() || e.get("delete").is_some())),
+        !pending
+            .iter()
+            .any(|e| e.get("key").and_then(|k| k.as_str()) == Some("net1")
+                && (e.get("pending").is_some() || e.get("delete").is_some())),
         "the NIC hotplug was parked as PENDING for net1: {pending:?}"
     );
-    assert!(b.is_running(&vm), "the VM must still be running after the NIC hotplug");
+    assert!(
+        b.is_running(&vm),
+        "the VM must still be running after the NIC hotplug"
+    );
 
     // Clean up: the destroy takes the VM and the hot-added disk's volume with
     // it, leaving nothing on the node or its storage.
@@ -3601,22 +3611,39 @@ fn a_running_vm_opens_a_serial_and_a_vnc_console_and_the_websocket_connects() {
     let client = b.client();
 
     // A console is a property of a RUNNING QEMU; the VM is up and stays up.
-    assert!(b.is_running(&vm), "the VM must be running to have a console");
+    assert!(
+        b.is_running(&vm),
+        "the VM must be running to have a console"
+    );
 
     // SERIAL (`vm.console.serial`): the node forks `termproxy` and answers the
     // ticket/port/user inline. The port is a listener the node opened in its
     // console range (> 1024); the user is the account the session is recorded
     // against. The ticket is a credential, so it is only checked non-empty.
     let serial = client.termproxy(vmid).expect("open a serial console");
-    assert!(!serial.ticket.is_empty(), "the serial console carried no ticket");
-    assert!(serial.port > 1024, "the serial console port is not a listener: {}", serial.port);
-    assert!(!serial.user.is_empty(), "the serial console carried no user");
+    assert!(
+        !serial.ticket.is_empty(),
+        "the serial console carried no ticket"
+    );
+    assert!(
+        serial.port > 1024,
+        "the serial console port is not a listener: {}",
+        serial.port
+    );
+    assert!(
+        !serial.user.is_empty(),
+        "the serial console carried no user"
+    );
 
     // VNC (`vm.console.vnc`): like the serial plus the node's own PEM cert for
     // the websocket's TLS.
     let vnc = client.vncproxy(vmid).expect("open a VNC console");
     assert!(!vnc.ticket.is_empty(), "the VNC console carried no ticket");
-    assert!(vnc.port > 1024, "the VNC console port is not a listener: {}", vnc.port);
+    assert!(
+        vnc.port > 1024,
+        "the VNC console port is not a listener: {}",
+        vnc.port
+    );
     assert!(!vnc.user.is_empty(), "the VNC console carried no user");
     assert!(
         vnc.cert.contains("BEGIN CERTIFICATE"),
@@ -3655,7 +3682,10 @@ fn a_running_vm_opens_a_serial_and_a_vnc_console_and_the_websocket_connects() {
         "the VM is still defined on the node after destroy — an orphan"
     );
     let left = client.list_images(&storage, vmid).expect("storage content");
-    assert!(left.is_empty(), "a destroy left disks on the storage: {left:?}");
+    assert!(
+        left.is_empty(),
+        "a destroy left disks on the storage: {left:?}"
+    );
 }
 
 /// The fixed `Sec-WebSocket-Key` [`open_console_websocket`] sends, and the
@@ -3680,9 +3710,7 @@ fn open_console_websocket(url: &str, auth: (&str, &str)) -> Result<String, Strin
     let rest = url.strip_prefix("https://").ok_or("url is not https")?;
     let (authority, path_query) = rest.split_once('/').ok_or("url has no path")?;
     let path_query = format!("/{path_query}");
-    let (host, port) = authority
-        .rsplit_once(':')
-        .ok_or("authority has no port")?;
+    let (host, port) = authority.rsplit_once(':').ok_or("authority has no port")?;
     let port: u16 = port.parse().map_err(|_| "port is not a number")?;
 
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -3723,7 +3751,9 @@ fn open_console_websocket(url: &str, auth: (&str, &str)) -> Result<String, Strin
     let mut buf = Vec::new();
     let mut chunk = [0u8; 1024];
     loop {
-        let n = tls.read(&mut chunk).map_err(|e| format!("read response: {e}"))?;
+        let n = tls
+            .read(&mut chunk)
+            .map_err(|e| format!("read response: {e}"))?;
         if n == 0 {
             break;
         }

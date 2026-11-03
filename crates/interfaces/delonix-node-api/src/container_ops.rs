@@ -43,7 +43,11 @@ fn store(root: &Path) -> Result<delonix_state::Store, Status> {
 /// Load a container by name under `root`, requiring its recorded namespace to
 /// match what was asked — the same identity rule [`crate::containers`] reads
 /// with.
-fn load(root: &Path, name: &str, namespace: &str) -> Result<(delonix_state::Store, Record), Status> {
+fn load(
+    root: &Path,
+    name: &str,
+    namespace: &str,
+) -> Result<(delonix_state::Store, Record), Status> {
     let wanted = requested_namespace(namespace);
     let missing = || Status::not_found(format!("container '{name}' in namespace '{wanted}'"));
     if wanted == "*" || !root.join("containers").is_dir() {
@@ -146,7 +150,9 @@ pub fn delete_in(root: &Path, req: &DeleteContainerRequest) -> Result<Operation,
     let outcome = delonix_linux::remove(&s, &c, req.force)
         .map(|()| String::new())
         .map_err(|e| e.into());
-    Ok(operations::message(&operations::finish(root, rec, outcome)?))
+    Ok(operations::message(&operations::finish(
+        root, rec, outcome,
+    )?))
 }
 
 /// `Stats`: the container's live cgroup counters as the contract's

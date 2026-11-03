@@ -98,7 +98,8 @@ fn ns_mode(host: bool) -> i32 {
 /// `CONTAINER` (per-container isolation) and `NODE` (host PID, carried by
 /// `host_pid`) are both `false`, as is an absent `namespace_options`. PURE.
 fn wants_shared_pid(ns: Option<&NamespaceOption>) -> bool {
-    ns.map(|n| n.pid == NamespaceMode::Pod as i32).unwrap_or(false)
+    ns.map(|n| n.pid == NamespaceMode::Pod as i32)
+        .unwrap_or(false)
 }
 
 fn sandbox_state(r: &SandboxRec) -> i32 {
@@ -1868,7 +1869,13 @@ fn sandbox_shared_pid_anchor(base: &Path, sandbox_id: &str, self_id: &str) -> Op
         .into_iter()
         .filter(|c| c.sandbox_id == sandbox_id && c.id != self_id && c.started)
         .collect();
-    members.sort_by_key(|c| if c.started_at > 0 { c.started_at } else { c.created_at });
+    members.sort_by_key(|c| {
+        if c.started_at > 0 {
+            c.started_at
+        } else {
+            c.created_at
+        }
+    });
     members.into_iter().find_map(|c| {
         load_reconciled(base, &c.id)
             .filter(delonix_compute::Container::is_live)
@@ -2113,7 +2120,9 @@ pub fn start_container(
             let head = sandbox_shared_pid_anchor(base, &rec.sandbox_id, &id);
             apply_shared_pid(&mut opts, true, head);
         } else {
-            return Err(Status::failed_precondition(shared_pid_host_cni_refusal(&id)));
+            return Err(Status::failed_precondition(shared_pid_host_cni_refusal(
+                &id,
+            )));
         }
     }
     // The run specification goes to the engine as data, not argv — one translation
@@ -3887,7 +3896,10 @@ mod tests {
         };
         let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "x", Vec::new());
         // The override is carried as the entrypoint; the args are the command.
-        assert_eq!(o.entrypoint.as_deref(), Some(["echo".to_string()].as_slice()));
+        assert_eq!(
+            o.entrypoint.as_deref(),
+            Some(["echo".to_string()].as_slice())
+        );
         assert_eq!(o.command, ["X"]);
 
         // Fed to the record builder against an image whose ENTRYPOINT is flannel's:
@@ -3921,7 +3933,10 @@ mod tests {
             ..Default::default()
         };
         let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "x", Vec::new());
-        assert!(o.entrypoint.is_none(), "an empty command is not an override");
+        assert!(
+            o.entrypoint.is_none(),
+            "an empty command is not an override"
+        );
         assert_eq!(o.command, ["--ip-masq"]);
     }
 
@@ -5115,7 +5130,9 @@ mod tests {
             })
         };
         assert!(wants_shared_pid(mk(NamespaceMode::Pod as i32).as_ref()));
-        assert!(!wants_shared_pid(mk(NamespaceMode::Container as i32).as_ref()));
+        assert!(!wants_shared_pid(
+            mk(NamespaceMode::Container as i32).as_ref()
+        ));
         assert!(!wants_shared_pid(mk(NamespaceMode::Node as i32).as_ref()));
         assert!(!wants_shared_pid(None), "no namespace_options → isolated");
     }

@@ -2083,8 +2083,10 @@ mod tests {
             );
             c.labels
                 .insert(crate::cmd::pod::POD_LABEL.to_string(), pod.to_string());
-            c.labels
-                .insert(crate::cmd::pod::POD_IP_LABEL.to_string(), pod_ip.to_string());
+            c.labels.insert(
+                crate::cmd::pod::POD_IP_LABEL.to_string(),
+                pod_ip.to_string(),
+            );
             c
         };
 

@@ -14,27 +14,27 @@
 //! engine creates), and two implementations that must agree are two
 //! implementations that one day will not.
 //!
-//! Por isso não é uma API: é um crate partilhado, SEM DEPENDÊNCIAS, que os dois
-//! lados compilam. O `delonix-sdn` re-exporta tudo o que está aqui, portanto
-//! nenhum consumidor existente teve de mudar.
+//! That is why it is not an API: it is a shared crate, with NO DEPENDENCIES, that
+//! both sides compile. `delonix-sdn` re-exports everything that lives here, so no
+//! existing consumer had to change.
 //!
-//! O `Cidr` vive aqui, e é ele que faz este crate valer a pena. Foi desenhado
-//! desde o início sem dependências — sem o crate `ipnet`, sem IPv6 (desligado
-//! por decisão de segurança neste motor), aritmética à mão — e por isso
-//! atravessa a fronteira sem arrastar nada. Com ele vieram as duas funções que
-//! dele dependiam.
+//! `Cidr` lives here, and it is what makes this crate worth it. It was designed
+//! from the start without dependencies — no `ipnet` crate, no IPv6 (disabled by a
+//! security decision in this engine), arithmetic by hand — and so it crosses the
+//! boundary without dragging anything along. The two functions that depended on it
+//! came with it.
 //!
-//! FICA DE FORA o que não é puro, e a lista é o resultado de uma classificação
-//! que eu próprio errei à primeira (procurei I/O no CORPO de cada função e não
-//! no que elas chamam):
+//! WHAT STAYS OUT is anything that is not pure, and the list is the result of a
+//! classification I got wrong myself the first time (I looked for I/O in the BODY
+//! of each function and not in what they call):
 //!
-//!   `alloc_ip_in`/`alloc_ip`   delegam no `ipam::lookup`, que LÊ o registo
-//!   `parse_net_rate`           devolve o `Error` do `delonix-model`
+//!   `alloc_ip_in`/`alloc_ip`   delegate to `ipam::lookup`, which READS the registry
+//!   `parse_net_rate`           returns `delonix-model`'s `Error`
 //!
-//! O primeiro par é mecanismo a sério — atribuir um endereço exige ver quais já
-//! estão atribuídos, e isso é estado partilhado, não aritmética. Esse pertence à
-//! API. O `parse_net_rate` é puro, e só espera por um tipo de erro que este
-//! crate possa devolver sem depender do delonix-model.
+//! The first pair is real mechanism — assigning an address requires seeing which
+//! are already assigned, and that is shared state, not arithmetic. That one belongs
+//! in the API. `parse_net_rate` is pure, and only waits for an error type this
+//! crate can return without depending on delonix-model.
 
 pub mod policy;
 
@@ -63,9 +63,9 @@ pub fn parse_overlay_peer(s: &str) -> (String, Option<(String, String)>) {
 }
 
 /// 32-bit FNV-1a hash (to derive a network's subnet/bridge from its name).
-/// Público porque o `delonix-sdn` o re-exporta internamente. Não faz parte da
-/// superfície que interessa a quem consome este crate — é o detalhe de que o
-/// [`bridge_name`] depende.
+/// Public because `delonix-sdn` re-exports it internally. It is not part of the
+/// surface that matters to consumers of this crate — it is the detail that
+/// [`bridge_name`] depends on.
 pub fn fnv32(s: &str) -> u32 {
     let mut h: u32 = 0x811c_9dc5;
     for byte in s.bytes() {
@@ -234,13 +234,12 @@ impl Cidr {
         format!("{}/{}", Self::fmt_u32(self.base), self.len)
     }
 
-    /// Formata um `u32` como endereço com pontos.
+    /// Formats a `u32` as a dotted address.
     ///
-    /// Pública porque o `ipam` do `delonix-sdn` a usa para escrever o candidato
-    /// que acabou de calcular — era `pub(crate)` quando o `Cidr` vivia lá, e a
-    /// mudança de crate transformou isso num erro de compilação, não numa
-    /// decisão. Fica exposta com o mesmo âmbito de sempre: um detalhe de
-    /// formatação do próprio tipo.
+    /// Public because `delonix-sdn`'s `ipam` uses it to write the candidate it has
+    /// just computed — it was `pub(crate)` when `Cidr` lived there, and the move to
+    /// another crate turned that into a compile error, not a decision. It stays
+    /// exposed with the same scope as always: a formatting detail of the type itself.
     pub fn fmt_u32(v: u32) -> String {
         let b = v.to_be_bytes();
         format!("{}.{}.{}.{}", b[0], b[1], b[2], b[3])
@@ -339,12 +338,12 @@ pub fn derive_ip_in(prefix: &str, id: &str) -> String {
         .unwrap_or(0);
     let hex = &id[..end];
     let n = u32::from_str_radix(hex, 16).unwrap_or(2);
-    // O caminho do /16 fica BYTE A BYTE como estava, e isso é deliberado: toda a
-    // rede que existe hoje tem leases derivados desta fórmula exacta, e a
-    // generalização não tem nada a ganhar em mexer na base instalada. A fórmula
-    // geral abaixo NÃO é equivalente a esta (o clamp do último octeto não é o
-    // mesmo que o resto da divisão sobre o espaço todo) — por isso as duas
-    // coexistem em vez de uma fingir ser a outra.
+    // The /16 path stays BYTE FOR BYTE as it was, and that is deliberate: every
+    // network that exists today has leases derived from this exact formula, and the
+    // generalization has nothing to gain by touching the installed base. The general
+    // formula below is NOT equivalent to this one (the last-octet clamp is not the
+    // same as the remainder of the division over the whole space) — so the two
+    // coexist instead of one pretending to be the other.
     if let Some(net) = Cidr::parse(prefix) {
         if net.len != 16 {
             return derive_ip_general(&net, n);
@@ -392,10 +391,10 @@ pub fn derive_ula_in(network: &str, id: &str) -> String {
 /// (e.g.: prefix `10.88`): 4 octets, first two == prefix, not the gateway
 /// (`prefix.0.1`), the network (`prefix.0.0`) or the broadcast (`prefix.255.255`).
 pub fn valid_ip_in_subnet(prefix: &str, ip: &str) -> bool {
-    // `prefix` chega aqui em DUAS formas e ambas têm de continuar a valer: a
-    // legada de dois octetos (`10.210`, que sempre quis dizer `10.210.0.0/16`) e
-    // um CIDR a sério. O `Cidr::parse` resolve as duas, por isso não há aqui um
-    // caminho novo — há o mesmo caminho a saber mais.
+    // `prefix` arrives here in TWO forms and both must keep working: the legacy
+    // two-octet one (`10.210`, which always meant `10.210.0.0/16`) and a real CIDR.
+    // `Cidr::parse` handles both, so there is no new path here — there is the same
+    // path knowing more.
     let Some(net) = Cidr::parse(prefix) else {
         return false;
     };
@@ -405,22 +404,22 @@ pub fn valid_ip_in_subnet(prefix: &str, ip: &str) -> bool {
     if !net.contains(addr) {
         return false;
     }
-    // Exclui a rede, o gateway e o broadcast. No `/16` isto é exactamente o que
-    // a versão anterior excluía à mão (`.0.0`, `.0.1`, `.255.255`) — a regra
-    // geral não é uma mudança de comportamento, é a mesma regra dita de uma
-    // forma que também serve um /22.
+    // Excludes the network, the gateway and the broadcast. On a `/16` this is
+    // exactly what the previous version excluded by hand (`.0.0`, `.0.1`,
+    // `.255.255`) — the general rule is not a change in behaviour, it is the same
+    // rule said in a way that also serves a /22.
     addr != net.base && addr != net.base.wrapping_add(1) && addr != net.last()
 }
 
-/// O preferido para um prefixo de tamanho arbitrário.
+/// The preferred address for a prefix of arbitrary size.
 ///
-/// Salta a rede e o gateway (os dois primeiros) e o broadcast (o último), e
-/// distribui o resto pelo espaço utilizável. Num prefixo pequeno de mais para
-/// ter hosts devolve o próprio gateway — o `valid_ip_in_subnet` recusa-o a
-/// seguir e o `probe_free` também não encontra nada, que é a resposta correcta:
-/// não há endereço para dar, e é o `allocate` que o diz com um erro.
+/// Skips the network and the gateway (the first two) and the broadcast (the last),
+/// and spreads the rest across the usable space. On a prefix too small to hold
+/// hosts it returns the gateway itself — `valid_ip_in_subnet` then rejects it and
+/// `probe_free` finds nothing either, which is the correct answer: there is no
+/// address to hand out, and it is `allocate` that says so with an error.
 fn derive_ip_general(net: &Cidr, n: u32) -> String {
-    let uteis = net.size().saturating_sub(3); // rede + gateway + broadcast
+    let uteis = net.size().saturating_sub(3); // network + gateway + broadcast
     if uteis == 0 {
         return Cidr::fmt_u32(net.base.wrapping_add(1));
     }
@@ -428,25 +427,25 @@ fn derive_ip_general(net: &Cidr, n: u32) -> String {
     Cidr::fmt_u32(net.base + 2 + off)
 }
 
-/// O que um ficheiro `iptables-save` contém, contado sem o interpretar.
+/// What an `iptables-save` file contains, counted without interpreting it.
 ///
-/// Existe para o `network import-iptables`, que ANALISA e não aplica: diz quanta
-/// coisa há e mostra um exemplo traduzido, para quem está a migrar poder ver a
-/// forma antes de decidir. Nada aqui toca no host.
+/// Exists for `network import-iptables`, which ANALYZES and does not apply: it says
+/// how much there is and shows a translated example, so whoever is migrating can
+/// see the shape before deciding. Nothing here touches the host.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct IptablesSummary {
     pub tables: usize,
     pub chains: usize,
     pub rules: usize,
-    /// A primeira regra encontrada, para servir de exemplo na tradução.
+    /// The first rule found, to serve as an example in the translation.
     pub sample: Option<String>,
 }
 
-/// Conta o que há num `iptables-save`.
+/// Counts what is in an `iptables-save`.
 ///
-/// Puro: é leitura de texto, e por isso vive aqui e não no mecanismo. A forma do
-/// ficheiro é estável há décadas — `*tabela`, `:CADEIA`, `-A regra` — e é toda a
-/// gramática de que isto precisa.
+/// Pure: it is reading text, and so it lives here and not in the mechanism. The
+/// file's shape has been stable for decades — `*table`, `:CHAIN`, `-A rule` — and
+/// it is the whole grammar this needs.
 pub fn parse_iptables_save(texto: &str) -> IptablesSummary {
     let mut s = IptablesSummary::default();
     for linha in texto.lines() {
@@ -493,65 +492,65 @@ pub fn matches_labels(
 mod tests {
     use super::*;
 
-    /// O nome da bridge é um CONTRATO entre o motor e quem o consome: o
-    /// dispositivo que um cliente espera tem de ser o que o motor cria. Estes valores
-    /// estão aqui fixados de propósito — mudá-los é mudar o contrato, e o teste
-    /// obriga a que isso seja uma decisão e não um acidente de refactor.
+    /// The bridge name is a CONTRACT between the engine and its consumers: the
+    /// device a client expects has to be the one the engine creates. These values
+    /// are pinned here on purpose — changing them is changing the contract, and the
+    /// test forces that to be a decision and not a refactor accident.
     #[test]
     fn bridge_name_e_determinista_e_estavel() {
         assert_eq!(bridge_name("app"), bridge_name("app"));
         assert_ne!(bridge_name("app"), bridge_name("backend"));
-        // 4 + 8 hex: cabe no IFNAMSIZ do kernel (15 chars úteis) com folga.
+        // 4 + 8 hex: fits in the kernel's IFNAMSIZ (15 usable chars) with room to spare.
         let n = bridge_name("qualquer-nome-muito-comprido-mesmo");
-        assert!(n.starts_with("dlxn"), "prefixo inesperado: {n}");
-        assert_eq!(n.len(), 12, "o nome tem de caber no IFNAMSIZ: {n}");
+        assert!(n.starts_with("dlxn"), "unexpected prefix: {n}");
+        assert_eq!(n.len(), 12, "the name must fit in IFNAMSIZ: {n}");
     }
 
     #[test]
     fn peer_plano_e_peer_cifrado() {
-        // VXLAN em claro: só o IP do nó.
+        // Plain VXLAN: just the node's IP.
         assert_eq!(parse_overlay_peer("10.0.0.7"), ("10.0.0.7".into(), None));
 
-        // Cifrado: a chave pública é base64 e ACABA em `=`, que colide com o
-        // delimitador. Delimitar pelo primeiro e pelo último `=` é o que mantém o
-        // padding intacto — partir pelo `=` daria uma chave truncada e um túnel
-        // que nunca sobe.
+        // Encrypted: the public key is base64 and ENDS in `=`, which collides with
+        // the delimiter. Delimiting by the first and the last `=` is what keeps the
+        // padding intact — splitting on `=` would give a truncated key and a tunnel
+        // that never comes up.
         let (no, wg) =
             parse_overlay_peer("10.0.0.7=Xp5e/U8A8nQLNqhr0CbrW2YInV12wZM+z0H4qNHOoUQ==10.42.0.2");
         assert_eq!(no, "10.0.0.7");
-        let (chave, ip) = wg.expect("devia ter identidade wireguard");
+        let (chave, ip) = wg.expect("should have a wireguard identity");
         assert_eq!(chave, "Xp5e/U8A8nQLNqhr0CbrW2YInV12wZM+z0H4qNHOoUQ=");
         assert_eq!(ip, "10.42.0.2");
     }
 
     #[test]
     fn fnv32_bate_certo_com_a_referencia() {
-        // Vector conhecido do FNV-1a de 32 bits. Sem isto, uma "optimização" que
-        // mude a dispersão renomeia TODAS as bridges de uma instalação viva.
+        // Known 32-bit FNV-1a vector. Without this, an "optimization" that changes
+        // the dispersion renames EVERY bridge of a live installation.
         assert_eq!(fnv32(""), 0x811c_9dc5);
         assert_eq!(fnv32("a"), 0xe40c_292c);
         assert_eq!(fnv32("foobar"), 0xbf9c_f968);
     }
-    /// O `Cidr` atravessa a fronteira, e por isso as suas garantias passam a ser
-    /// contrato entre os dois lados — não detalhe interno de um crate.
+    /// `Cidr` crosses the boundary, and so its guarantees become a contract between
+    /// the two sides — not an internal detail of a crate.
     #[test]
     fn cidr_le_as_duas_formas_que_existem_em_disco() {
-        // A forma completa.
+        // The complete form.
         let c = Cidr::parse("10.220.0.0/16").expect("cidr");
         assert_eq!(c.len, 16);
         assert_eq!(c.to_string_cidr(), "10.220.0.0/16");
 
-        // E a LEGADA de dois octetos, que todo o registo escrito antes do /16
-        // explícito significava como `10.210.0.0/16`. Recusá-la aqui seria
-        // perder as redes de quem já corre isto.
-        let l = Cidr::parse("10.210").expect("forma legada");
+        // And the LEGACY two-octet one, which every record written before the
+        // explicit /16 meant as `10.210.0.0/16`. Refusing it here would lose the
+        // networks of those already running this.
+        let l = Cidr::parse("10.210").expect("legacy form");
         assert_eq!((l.len, l.to_string_cidr().as_str()), (16, "10.210.0.0/16"));
     }
 
     #[test]
     fn cidr_limpa_os_bits_de_host() {
-        // `10.220.5.9/16` é a MESMA rede que `10.220.0.0/16`. Guardar a base sem
-        // limpar faria duas redes iguais compararem diferente.
+        // `10.220.5.9/16` is the SAME network as `10.220.0.0/16`. Storing the base
+        // without clearing would make two equal networks compare as different.
         let c = Cidr::parse("10.220.5.9/16").expect("cidr");
         assert_eq!(c.to_string_cidr(), "10.220.0.0/16");
         assert_eq!(c, Cidr::parse("10.220.0.0/16").unwrap());
@@ -560,43 +559,43 @@ mod tests {
     #[test]
     fn cidr_recusa_o_que_nao_e_endereco() {
         for mau in ["", "10.220.0.0/33", "999.1.1.1/16", "10.220.0.0/", "abc"] {
-            assert!(Cidr::parse(mau).is_none(), "aceitou {mau:?}");
+            assert!(Cidr::parse(mau).is_none(), "accepted {mau:?}");
         }
     }
 
     #[test]
     fn ip_derivado_cai_dentro_da_rede_e_e_estavel() {
-        // Determinístico: o mesmo id dá sempre o mesmo IP — é o que permite ao
-        // cliente prever o endereço sem perguntar ao motor.
+        // Deterministic: the same id always gives the same IP — that is what lets
+        // the client predict the address without asking the engine.
         let a = derive_ip_in("10.220", "deadbeef");
         assert_eq!(a, derive_ip_in("10.220", "deadbeef"));
-        assert!(valid_ip_in_subnet("10.220", &a), "{a} fora de 10.220/16");
+        assert!(valid_ip_in_subnet("10.220", &a), "{a} outside 10.220/16");
 
-        // E ids diferentes não colidem trivialmente.
+        // And different ids do not collide trivially.
         assert_ne!(a, derive_ip_in("10.220", "cafebabe"));
     }
 
-    /// ADR-0082 fase 2: a derivação ULA IPv6 é determinística, fica em `fd00::/8`,
-    /// cada rede tem o seu prefixo global, ids diferentes dão interface-ids
-    /// diferentes, e o interface-id nunca é < 2.
+    /// ADR-0082 phase 2: the IPv6 ULA derivation is deterministic, lands in
+    /// `fd00::/8`, each network has its own global prefix, different ids give
+    /// different interface-ids, and the interface-id is never < 2.
     #[test]
     fn ula_derivado_e_estavel_unico_local_e_por_rede() {
         use std::net::Ipv6Addr;
         let a = derive_ula_in("backend", "deadbeef");
-        // Determinístico.
+        // Deterministic.
         assert_eq!(a, derive_ula_in("backend", "deadbeef"));
-        // É um ULA (fd00::/8): o primeiro octeto é 0xfd.
-        let parsed: Ipv6Addr = a.parse().expect("ULA válido");
-        assert_eq!(parsed.octets()[0], 0xfd, "{a} não é fd00::/8");
-        // Redes diferentes → prefixo global diferente (os 3 primeiros hextets).
+        // It is a ULA (fd00::/8): the first octet is 0xfd.
+        let parsed: Ipv6Addr = a.parse().expect("valid ULA");
+        assert_eq!(parsed.octets()[0], 0xfd, "{a} is not fd00::/8");
+        // Different networks → different global prefix (the first 3 hextets).
         let b = derive_ula_in("frontend", "deadbeef");
         assert_ne!(
             parsed.segments()[..3],
             b.parse::<Ipv6Addr>().unwrap().segments()[..3]
         );
-        // Ids diferentes na MESMA rede → interface-id diferente.
+        // Different ids on the SAME network → different interface-id.
         assert_ne!(a, derive_ula_in("backend", "cafebabe"));
-        // Interface-id (último hextet) nunca < 2 (nem gateway nem anycast).
+        // Interface-id (last hextet) never < 2 (neither gateway nor anycast).
         assert!(
             derive_ula_in("backend", "0")
                 .parse::<Ipv6Addr>()
@@ -610,10 +609,10 @@ mod tests {
     fn valid_ip_in_subnet_separa_dentro_de_fora() {
         assert!(valid_ip_in_subnet("10.220", "10.220.5.9"));
         assert!(!valid_ip_in_subnet("10.220", "10.221.5.9"));
-        assert!(!valid_ip_in_subnet("10.220", "nao-e-um-ip"));
+        assert!(!valid_ip_in_subnet("10.220", "not-an-ip"));
     }
-    /// Um `iptables-save` de verdade, encurtado. A gramática é `*tabela`,
-    /// `:CADEIA politica [contadores]`, `-A regra`.
+    /// A real `iptables-save`, shortened. The grammar is `*table`,
+    /// `:CHAIN policy [counters]`, `-A rule`.
     const SAVE: &str = r#"# Generated by iptables-save
 *filter
 :INPUT ACCEPT [0:0]
@@ -632,20 +631,20 @@ COMMIT
     #[test]
     fn conta_tabelas_cadeias_e_regras() {
         let s = parse_iptables_save(SAVE);
-        assert_eq!(s.tables, 2, "*filter e *nat");
-        assert_eq!(s.chains, 4, "três do filter e uma do nat");
+        assert_eq!(s.tables, 2, "*filter and *nat");
+        assert_eq!(s.chains, 4, "three from filter and one from nat");
         assert_eq!(s.rules, 4);
-        // A primeira regra serve de exemplo para a tradução — e tem de ser a
-        // PRIMEIRA, não uma qualquer: quem lê o relatório compara-a com o
-        // ficheiro que lhe deu.
+        // The first rule serves as an example for the translation — and it has to be
+        // the FIRST, not just any one: whoever reads the report compares it with the
+        // file they gave it.
         assert_eq!(s.sample.as_deref(), Some("-A INPUT -i lo -j ACCEPT"));
     }
 
     #[test]
     fn comentarios_e_commit_nao_contam() {
-        // `# Generated by` e `COMMIT` não são nem tabela, nem cadeia, nem regra.
-        // Contá-los inflacionaria o relatório de quem está a decidir se migra.
-        let s = parse_iptables_save("# comentário\nCOMMIT\n\n");
+        // `# Generated by` and `COMMIT` are neither table, nor chain, nor rule.
+        // Counting them would inflate the report of whoever is deciding whether to migrate.
+        let s = parse_iptables_save("# comment\nCOMMIT\n\n");
         assert_eq!((s.tables, s.chains, s.rules), (0, 0, 0));
         assert!(s.sample.is_none());
     }
@@ -675,12 +674,12 @@ COMMIT
             &container,
             &labels(&[("app", "web"), ("tier", "frontend")])
         ));
-        // Uma chave a mais no selector que o container não tem: falha.
+        // An extra key in the selector that the container does not have: fails.
         assert!(!matches_labels(
             &container,
             &labels(&[("app", "web"), ("env", "prod")])
         ));
-        // Mesma chave, valor diferente: falha.
+        // Same key, different value: fails.
         assert!(!matches_labels(&container, &labels(&[("app", "worker")])));
     }
 

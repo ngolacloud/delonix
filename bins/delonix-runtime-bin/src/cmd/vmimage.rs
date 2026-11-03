@@ -4795,8 +4795,7 @@ fn download_cri_bin() -> Result<PathBuf> {
         return Ok(cached);
     }
     std::fs::create_dir_all(&cache_dir)?;
-    let base_url =
-        format!("https://github.com/ngolacloud/delonix/releases/download/v{version}");
+    let base_url = format!("https://github.com/ngolacloud/delonix/releases/download/v{version}");
     let tmp = cache_dir.join("delonix-cri.download");
     let variant = if cpu_has_x86_64_v3() { "-v3" } else { "" };
     let mut asset = format!("delonix-cri-x86_64{variant}-linux");
@@ -4921,8 +4920,7 @@ fn download_delonix_bin() -> Result<PathBuf> {
         return Ok(cached);
     }
     std::fs::create_dir_all(&cache_dir)?;
-    let base_url =
-        format!("https://github.com/ngolacloud/delonix/releases/download/v{version}");
+    let base_url = format!("https://github.com/ngolacloud/delonix/releases/download/v{version}");
     let tmp = cache_dir.join("delonix.download");
     let variant = if cpu_has_x86_64_v3() { "-v3" } else { "" };
     let mut asset = format!("delonix-x86_64{variant}-linux");

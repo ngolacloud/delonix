@@ -137,7 +137,9 @@ pub fn rule_of(r: &FwRule) -> Result<Rule, String> {
     let icmp_type = match r.icmp_type.as_str() {
         "" => None,
         s if proto != Proto::Icmp => {
-            return Err(format!("ICMP type {s:?} is set on a {proto:?} rule, not an ICMP one"));
+            return Err(format!(
+                "ICMP type {s:?} is set on a {proto:?} rule, not an ICMP one"
+            ));
         }
         s => Some(
             s.parse::<u8>()
