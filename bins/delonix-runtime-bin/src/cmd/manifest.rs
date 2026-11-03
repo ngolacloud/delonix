@@ -203,12 +203,43 @@ pub(crate) fn convert_api_version(old: &str) -> Option<String> {
     if version != "v1alpha1" {
         return None;
     }
+    // Only the NINE original domain groups convert. A provider group (`proxmox`,
+    // ADR-0086 D6) carries its own `v1alpha1` on its own cadence and must NOT be
+    // bumped to `v1beta1`; anything else is left as written too.
+    const OLD_DOMAIN_GROUPS: &[&str] = &[
+        "security",
+        "artifact",
+        "gitops",
+        "gateway",
+        "infrastructure",
+        "compute",
+        "networking",
+        "storage",
+        "core",
+    ];
+    if !OLD_DOMAIN_GROUPS.contains(&group) {
+        return None;
+    }
     let new_group = GROUP_COLLAPSE
         .iter()
         .find(|(o, _)| *o == group)
         .map(|(_, n)| *n)
         .unwrap_or(group);
     Some(format!("{new_group}.delonix.io/v1beta1"))
+}
+
+/// [`convert_api_version`] with the one Kind-dependent case (ADR-0086 D6):
+/// `SystemContainer` is a PROVIDER-specific Kind, so a `compute` apiVersion of
+/// any version converts to the `proxmox` provider group — not to the `compute`
+/// domain group the string-only rule would give. Every other Kind is a pure
+/// group/version rewrite, so the `kind` is ignored. `None` means «already
+/// canonical / nothing to convert», as in the string form.
+pub(crate) fn convert_api_version_for(kind: &str, old: &str) -> Option<String> {
+    if kind == super::kinds::SYSTEM_CONTAINER {
+        let (group, _) = old.split_once(".delonix.io/")?;
+        return (group == "compute").then(|| "proxmox.delonix.io/v1alpha1".to_string());
+    }
+    convert_api_version(old)
 }
 
 /// Rewrites a manifest's `apiVersion` lines to the catalog-v1 canonical
@@ -219,10 +250,31 @@ pub(crate) fn convert_api_version(old: &str) -> Option<String> {
 /// is also why `convert` of an already-`v1beta1` file is a no-op. Indentation is
 /// preserved; a value already at `v1beta1` or the legacy spelling is untouched.
 pub(crate) fn convert_manifest_text(text: &str) -> (String, Vec<(String, String)>) {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    // Which document each line belongs to — a line that is a bare `---` starts
+    // the next one. Needed because `SystemContainer`'s conversion depends on its
+    // Kind (ADR-0086 D6), and the `kind:` line is a sibling of the `apiVersion:`.
+    let mut doc_of = vec![0usize; lines.len()];
+    let mut doc = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim_end() == "---" {
+            doc += 1;
+        }
+        doc_of[i] = doc;
+    }
+    let mut kind_of: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(v) = line.trim_start().strip_prefix("kind:") {
+            kind_of
+                .entry(doc_of[i])
+                .or_insert_with(|| canonical_kind(v.trim()).to_string());
+        }
+    }
     let mut changes = Vec::new();
-    let out = text
-        .split_inclusive('\n')
-        .map(|line| {
+    let out = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
             let (indent, rest) = line.split_at(line.len() - line.trim_start().len());
             let Some(value) = rest.strip_prefix("apiVersion:") else {
                 return line.to_string();
@@ -230,7 +282,8 @@ pub(crate) fn convert_manifest_text(text: &str) -> (String, Vec<(String, String)
             // The trailing newline (if any) rides on `value`; keep it on the new line.
             let newline = if value.ends_with('\n') { "\n" } else { "" };
             let raw = value.trim();
-            let Some(canonical) = convert_api_version(raw) else {
+            let kind = kind_of.get(&doc_of[i]).map(String::as_str).unwrap_or("");
+            let Some(canonical) = convert_api_version_for(kind, raw) else {
                 return line.to_string();
             };
             changes.push((raw.to_string(), canonical.clone()));
@@ -736,7 +789,7 @@ pub fn load_str(text: &str, label: &str) -> Result<Vec<ManifestDoc>> {
         // group/version rewrite only — the specs are unchanged in this phase — so
         // the document goes on exactly as its v1beta1 equivalent would. A file
         // keeps working; `manifest convert` rewrites it so the warning stops.
-        if let Some(canonical) = convert_api_version(&doc.api_version) {
+        if let Some(canonical) = convert_api_version_for(&doc.kind, &doc.api_version) {
             eprintln!(
                 "{}",
                 super::po::tf(
@@ -1316,10 +1369,45 @@ mod tests {
         // Nothing to convert: the shared legacy and an already-converted value.
         assert_eq!(convert_api_version(LEGACY_API_VERSION), None);
         assert_eq!(convert_api_version("core.delonix.io/v1beta1"), None);
-        // Every Kind's CURRENT (v1beta1) apiVersion is a conversion fixed point.
+        // A provider group (ADR-0086 D6) is NOT a domain group: it is left as
+        // written, never bumped to v1beta1.
+        assert_eq!(convert_api_version("proxmox.delonix.io/v1alpha1"), None);
+        // Every Kind's CURRENT apiVersion is a conversion fixed point (the
+        // string rule for domain Kinds, and proxmox for `SystemContainer`).
         for f in super::super::kinds::all() {
             assert_eq!(convert_api_version(f.api_version), None, "{}", f.kind);
+            assert_eq!(
+                convert_api_version_for(f.kind, f.api_version),
+                None,
+                "{}",
+                f.kind
+            );
         }
+    }
+
+    /// `SystemContainer` is the provider-Kind exception (ADR-0086 D6): a `compute`
+    /// apiVersion of ANY version converts to the `proxmox` group, where the
+    /// string-only rule would keep it in `compute`.
+    #[test]
+    fn system_container_converts_to_the_provider_group() {
+        use super::super::kinds::SYSTEM_CONTAINER;
+        for old in ["compute.delonix.io/v1alpha1", "compute.delonix.io/v1beta1"] {
+            assert_eq!(
+                convert_api_version_for(SYSTEM_CONTAINER, old).as_deref(),
+                Some("proxmox.delonix.io/v1alpha1"),
+                "{old}"
+            );
+        }
+        // Already there: idempotent.
+        assert_eq!(
+            convert_api_version_for(SYSTEM_CONTAINER, "proxmox.delonix.io/v1alpha1"),
+            None
+        );
+        // The same compute apiVersion on a DOMAIN Kind stays in compute.
+        assert_eq!(
+            convert_api_version_for("Container", "compute.delonix.io/v1alpha1").as_deref(),
+            Some("compute.delonix.io/v1beta1")
+        );
     }
 
     /// `manifest convert` rewrites ONLY the apiVersion lines, preserves comments
@@ -1348,17 +1436,21 @@ mod tests {
         assert_eq!(again, converted);
     }
 
-    /// Every group is `<name>.delonix.io/v1beta1` — one shape, so a reader can
-    /// predict the next one. The catalog is born at `v1beta1` (ADR-0086 D2); the
-    /// old `v1alpha1` groups no longer appear in the table (they load CONVERTED,
-    /// `convert_api_version`). The legacy `delonix.io/v1` is the exception.
+    /// Every DOMAIN group is `<name>.delonix.io/v1beta1` — one shape, so a reader
+    /// can predict the next one. The catalog is born at `v1beta1` (ADR-0086 D2);
+    /// the old `v1alpha1` groups no longer appear in the table (they load
+    /// CONVERTED, `convert_api_version_for`). A PROVIDER group (ADR-0086 D6, the
+    /// `proxmox` group `SystemContainer` moved to) carries its OWN version and is
+    /// the deliberate exception, alongside the legacy `delonix.io/v1`.
     #[test]
     fn every_group_follows_one_shape() {
         for f in super::super::kinds::all() {
             let v = f.api_version;
-            assert!(
-                v.ends_with(".delonix.io/v1beta1") && !v.starts_with('.'),
-                "{}: {v:?} is not <group>.delonix.io/v1beta1",
+            assert!(v.ends_with(".delonix.io/v1beta1") && !v.starts_with('.')
+                // The provider group moves on its own cadence (D6).
+                || f.kind == super::super::kinds::SYSTEM_CONTAINER
+                    && v == "proxmox.delonix.io/v1alpha1",
+                "{}: {v:?} is not a domain <group>.delonix.io/v1beta1 nor the provider exception",
                 f.kind
             );
         }

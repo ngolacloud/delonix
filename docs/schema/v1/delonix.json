@@ -5640,7 +5640,7 @@
         "properties": {
           "apiVersion": {
             "enum": [
-              "compute.delonix.io/v1beta1",
+              "proxmox.delonix.io/v1alpha1",
               "delonix.io/v1"
             ]
           },
@@ -5835,6 +5835,7 @@
         "delonix.io/v1",
         "networking.delonix.io/v1beta1",
         "policy.delonix.io/v1beta1",
+        "proxmox.delonix.io/v1alpha1",
         "storage.delonix.io/v1beta1"
       ]
     },
