@@ -194,13 +194,19 @@ fn user_line(fam: Family, ip: &str, dir: Direction, r: &Rule) -> Result<String, 
             m.push(' ');
         }
         (Proto::Any, Some(p)) => {
-            m.push_str(&format!("meta l4proto {{ tcp, udp }} th dport {} ", ports(p)));
+            m.push_str(&format!(
+                "meta l4proto {{ tcp, udp }} th dport {} ",
+                ports(p)
+            ));
         }
         (Proto::Any, None) => {}
         (Proto::Icmp, icmp_ports) => {
             // ICMP has no transport ports; a port on an ICMP rule is refused at
             // the parse (`rule_of`), so reaching here with one is a bug.
-            debug_assert!(icmp_ports.is_none(), "an ICMP rule reached the lowering with a port");
+            debug_assert!(
+                icmp_ports.is_none(),
+                "an ICMP rule reached the lowering with a port"
+            );
             // `icmp`/`icmpv6` are distinct protocols; the family picks both the
             // `meta l4proto` value and the `type` keyword.
             let icmp = fam.icmp_proto();
@@ -527,7 +533,10 @@ mod tests {
         records.push(off);
         for fw in records {
             let t = from_container_fw(&fw).unwrap();
-            let (new, old) = (chain_body(Family::V4, IP, &t, &ns_set).unwrap(), legacy_body(IP, &fw));
+            let (new, old) = (
+                chain_body(Family::V4, IP, &t, &ns_set).unwrap(),
+                legacy_body(IP, &fw),
+            );
             for anchor in [format!("\t\tip daddr {IP} "), format!("\t\tip saddr {IP} ")] {
                 let side = |b: &str| -> Vec<String> {
                     b.lines()
@@ -593,7 +602,10 @@ mod tests {
             log.contains("limit rate"),
             "the log must be rate-limited: {log}"
         );
-        assert!(log.contains("tcp dport 22"), "the log shares the match: {log}");
+        assert!(
+            log.contains("tcp dport 22"),
+            "the log shares the match: {log}"
+        );
         assert!(
             !log.contains("accept") && !log.contains("drop"),
             "the log line carries no verdict: {log}"
@@ -695,8 +707,14 @@ mod tests {
         );
 
         // The pure family helpers that drive it all.
-        assert_eq!((Family::V4.l3(), Family::V4.addr_type()), ("ip", "ipv4_addr"));
-        assert_eq!((Family::V6.l3(), Family::V6.addr_type()), ("ip6", "ipv6_addr"));
+        assert_eq!(
+            (Family::V4.l3(), Family::V4.addr_type()),
+            ("ip", "ipv4_addr")
+        );
+        assert_eq!(
+            (Family::V6.l3(), Family::V6.addr_type()),
+            ("ip6", "ipv6_addr")
+        );
         assert_eq!(
             (Family::V4.host_suffix(), Family::V6.host_suffix()),
             ("/32", "/128")

@@ -2196,7 +2196,7 @@ mod tests {
     /// `/usr/local/bin` from `PATH` entirely — `pip install` failed with
     /// "pip: not found" on an image where pip was right there.
     #[test]
-    fn expand_env_value_substitui_path_pelo_valor_da_imagem_base() {
+    fn expand_env_value_substitutes_path_with_base_image_value() {
         let base_env = vec!["PATH=/usr/local/bin:/usr/bin:/bin".to_string()];
         assert_eq!(
             expand_env_value(&base_env, "/app/.venv/bin:$PATH").unwrap(),
@@ -2208,7 +2208,7 @@ mod tests {
     /// Dockerfile, not just what the base image shipped — the chain has to
     /// keep expanding forward, not just once against the base.
     #[test]
-    fn expand_env_value_ve_um_env_anterior_no_mesmo_ficheiro() {
+    fn expand_env_value_sees_an_earlier_env_in_the_same_file() {
         let cur_env = vec!["APP_HOME=/app".to_string()];
         assert_eq!(
             expand_env_value(&cur_env, "${APP_HOME}/.venv/bin").unwrap(),
@@ -2219,7 +2219,7 @@ mod tests {
     /// A reference to a variable that was never set stays untouched — same
     /// "leave unknown alone" rule `substitute_vars` already has for `ARG`.
     #[test]
-    fn expand_env_value_deixa_variavel_desconhecida_intocada() {
+    fn expand_env_value_leaves_unknown_variable_untouched() {
         assert_eq!(
             expand_env_value(&[], "$UNKNOWN/bin").unwrap(),
             "$UNKNOWN/bin"
@@ -2250,7 +2250,7 @@ mod tests {
     }
 
     #[test]
-    fn valid_secret_id_aceita_charset_e_recusa_o_resto() {
+    fn valid_secret_id_accepts_charset_and_rejects_the_rest() {
         assert!(valid_secret_id("npm_token-1.x"));
         assert!(!valid_secret_id(""));
         assert!(!valid_secret_id("../etc/passwd"));
@@ -2271,7 +2271,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_build_secrets_le_id_e_src_e_recusa_ficheiro_inexistente() {
+    fn parse_build_secrets_reads_id_and_src_and_rejects_missing_file() {
         let tmp = tempfile::tempdir().unwrap();
         let secret = tmp.path().join("secret");
         std::fs::write(&secret, b"hunter2").unwrap();
@@ -2285,7 +2285,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_platform_aceita_linux_e_recusa_outro_so() {
+    fn parse_platform_accepts_linux_and_rejects_other_os() {
         assert_eq!(parse_platform("linux/arm64").unwrap(), "arm64");
         assert!(parse_platform("windows/amd64").is_err());
         assert!(parse_platform("linux").is_err()); // no '/'
@@ -2293,7 +2293,7 @@ mod tests {
     }
 
     #[test]
-    fn sh_export_cita_valor_com_espacos() {
+    fn sh_export_quotes_value_with_spaces() {
         // Regression: `PHPIZE_DEPS` (php/frankenphp image) has spaces — without quotes
         // the shell treated `dpkg-dev` as a name to export and the WHOLE RUN failed
         // ("export: dpkg-dev: bad variable name").
@@ -2310,7 +2310,7 @@ mod tests {
     }
 
     #[test]
-    fn safe_join_aceita_caminho_normal() {
+    fn safe_join_accepts_normal_path() {
         let base = Path::new("/tmp/context");
         assert_eq!(
             safe_join(base, "src/app.txt").unwrap(),
@@ -2345,14 +2345,14 @@ mod tests {
     }
 
     #[test]
-    fn safe_join_recusa_dot_dot() {
+    fn safe_join_rejects_dot_dot() {
         let base = Path::new("/tmp/rootfs");
         assert!(safe_join(base, "../../../etc/passwd").is_err());
         assert!(safe_join(base, "a/../../b").is_err());
     }
 
     #[test]
-    fn safe_join_recusa_absoluto() {
+    fn safe_join_rejects_absolute() {
         // an absolute `dst` must NOT replace `base` (that was the risk before the fix:
         // `Path::join` with an absolute component ignores `base` entirely).
         let base = Path::new("/tmp/rootfs");
@@ -2360,7 +2360,7 @@ mod tests {
     }
 
     #[test]
-    fn confine_to_recusa_symlink_que_escapa_da_base() {
+    fn confine_to_rejects_symlink_escaping_the_base() {
         // Regression for the audit finding: `safe_join` only rejects lexical `..` in
         // the REQUESTED path — a symlink already on disk (planted by an earlier
         // build-context entry or a malicious `FROM` image layer) could still walk
@@ -2387,7 +2387,7 @@ mod tests {
     }
 
     #[test]
-    fn prefere_delonixfile_quando_existe() {
+    fn prefers_delonixfile_when_it_exists() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         std::fs::write(dir.join("Dockerfile"), "FROM alpine\n").unwrap();
@@ -2396,7 +2396,7 @@ mod tests {
     }
 
     #[test]
-    fn recorre_a_dockerfile_sem_delonixfile() {
+    fn falls_back_to_dockerfile_without_delonixfile() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         std::fs::write(dir.join("Dockerfile"), "FROM alpine\n").unwrap();
@@ -2412,7 +2412,7 @@ mod progresso_tests {
     /// memória não. Um passo por `ENV` seria um lampejo de cromagem sobre
     /// trabalho instantâneo — o mesmo argumento que deu origem ao `step_after`.
     #[test]
-    fn so_as_instrucoes_com_trabalho_abrem_passo() {
+    fn only_instructions_with_work_open_a_step() {
         assert!(step_title(&Step::Env {
             key: "A".into(),
             val: "1".into()
@@ -2451,12 +2451,12 @@ mod progresso_tests {
     /// encontrou no resumo de respostas HTTP do cliente TrueNAS, e a razão de
     /// este teste usar um título que só tem acentos.
     #[test]
-    fn um_titulo_longo_com_acentos_corta_sem_entrar_em_panico() {
-        let longo = "ção".repeat(40); // 120 chars, 200 bytes
-        let t = step_title(&Step::Workdir(longo.clone()));
+    fn a_long_title_with_accents_truncates_without_panicking() {
+        let long_title = "ção".repeat(40); // 120 chars, 200 bytes
+        let t = step_title(&Step::Workdir(long_title.clone()));
         assert!(t.is_none(), "WORKDIR não abre passo");
         let t = step_title(&Step::Copy {
-            src: longo.clone(),
+            src: long_title.clone(),
             dst: "/x".into(),
             from: None,
             chmod: None,

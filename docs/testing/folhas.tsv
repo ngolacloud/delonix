@@ -178,6 +178,11 @@ cli	network vip-pool clear	A	scripts/cli_exec_trace.tsv (2026-10-21, 6dc31582, P
 cli	network vip-pool set	A	scripts/cli_exec_trace.tsv (2026-10-21, 6dc31582, PASS=1537 FAIL=0)
 cli	network vip-pool show	A	scripts/cli_exec_trace.tsv (2026-10-21, 6dc31582, PASS=1537 FAIL=0)
 cli	network vlan	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)
+cli	oci-runtime create	B	implementada (RT-4 oci-runtime runc-compativel, ADR-0080); nenhum teste a exercita neste ramo — o harness feat/rt4-runtime-tools-harness corre-la-ia; ainda nao em scripts/cli_exec_trace.tsv
+cli	oci-runtime delete	B	implementada (RT-4 oci-runtime runc-compativel, ADR-0080); nenhum teste a exercita neste ramo — o harness feat/rt4-runtime-tools-harness corre-la-ia; ainda nao em scripts/cli_exec_trace.tsv
+cli	oci-runtime kill	B	implementada (RT-4 oci-runtime runc-compativel, ADR-0080); nenhum teste a exercita neste ramo — o harness feat/rt4-runtime-tools-harness corre-la-ia; ainda nao em scripts/cli_exec_trace.tsv
+cli	oci-runtime start	B	implementada (RT-4 oci-runtime runc-compativel, ADR-0080); nenhum teste a exercita neste ramo — o harness feat/rt4-runtime-tools-harness corre-la-ia; ainda nao em scripts/cli_exec_trace.tsv
+cli	oci-runtime state	B	implementada (RT-4 oci-runtime runc-compativel, ADR-0080); nenhum teste a exercita neste ramo — o harness feat/rt4-runtime-tools-harness corre-la-ia; ainda nao em scripts/cli_exec_trace.tsv
 cli	plan	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)
 cli	pod attach	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)
 cli	pod cp	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)

@@ -185,7 +185,14 @@ pub(crate) struct BuildSpec {
 /// whole, the same gap `Volume`/`ObjectStorage` close with their own nested
 /// guards. The ordering mirrors `BuildSpec`'s declaration.
 pub(crate) const BUILD_FIELDS: &[&str] = &[
-    "context", "file", "tag", "buildArgs", "noCache", "secrets", "platform", "target",
+    "context",
+    "file",
+    "tag",
+    "buildArgs",
+    "noCache",
+    "secrets",
+    "platform",
+    "target",
 ];
 
 /// Warns about unknown keys INSIDE the `build:` block — the top-level guard only

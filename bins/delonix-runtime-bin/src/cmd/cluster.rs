@@ -5599,7 +5599,7 @@ mod tests {
     /// one SSH round-trip at a time. Unlike the old fail-fast loop, ALL hosts are
     /// attempted and ALL failures are reported together — locks in that aggregation.
     #[test]
-    fn combine_host_prep_errors_agrega_todas_as_falhas() {
+    fn combine_host_prep_errors_aggregates_all_failures() {
         assert!(combine_host_prep_errors(vec![]).is_ok());
         let err = combine_host_prep_errors(vec!["[cp1] falhou".into(), "[w1] falhou".into()])
             .unwrap_err();
@@ -5609,7 +5609,7 @@ mod tests {
     }
 
     #[test]
-    fn vm_names_gera_nomes_deterministicos() {
+    fn vm_names_generates_deterministic_names() {
         assert_eq!(vm_names("prod", "cp", 2), vec!["prod-cp1", "prod-cp2"]);
         assert_eq!(
             vm_names("prod", "w", 3),
@@ -5670,7 +5670,7 @@ users:
     }
 
     #[test]
-    fn merge_kubeconfig_recusa_exec_e_insecure_skip_de_um_admin_conf_malicioso() {
+    fn merge_kubeconfig_rejects_exec_and_insecure_skip_from_a_malicious_admin_conf() {
         // HIGH fixed here: a compromised control-plane host's admin.conf can
         // legally carry an `exec:` auth-provider (arbitrary LOCAL command
         // execution the next time `kubectl` uses this context) or
@@ -5731,7 +5731,7 @@ users:
     }
 
     #[test]
-    fn merge_kubeconfig_renomeia_e_cria_de_novo() {
+    fn merge_kubeconfig_renames_and_creates_anew() {
         let tmp = tempfile::tempdir().unwrap();
         let source = tmp.path().join("admin.conf");
         std::fs::write(&source, fake_admin_conf()).unwrap();
@@ -5751,7 +5751,7 @@ users:
     }
 
     #[test]
-    fn merge_kubeconfig_acumula_varios_clusters_sem_colidir() {
+    fn merge_kubeconfig_accumulates_several_clusters_without_colliding() {
         let tmp = tempfile::tempdir().unwrap();
         let source = tmp.path().join("admin.conf");
         let dest = tmp.path().join("config");
@@ -6028,7 +6028,7 @@ users:
     }
 
     #[test]
-    fn resolve_vm_image_usa_a_explicita_sem_tocar_no_store() {
+    fn resolve_vm_image_uses_the_explicit_one_without_touching_the_store() {
         let tmp = tempfile::tempdir().unwrap();
         let store = VmImageStore::open(tmp.path()).unwrap();
         assert_eq!(
@@ -6038,7 +6038,7 @@ users:
     }
 
     #[test]
-    fn resolve_vm_image_explicita_prefere_a_convencao_local_ja_puxada() {
+    fn resolve_vm_image_explicit_prefers_the_already_pulled_local_convention() {
         // Bug found live: `delonix vm image pull` (no --name) saves under the
         // convention name `delonix-vm-k8s:1.34`, but a user naturally types
         // `--vm-image 1.34` — the short form. Before this fix that returned
@@ -6099,7 +6099,7 @@ users:
     }
 
     #[test]
-    fn resolve_vm_image_falha_claro_sem_imagens_locais() {
+    fn resolve_vm_image_fails_clearly_without_local_images() {
         let tmp = tempfile::tempdir().unwrap();
         let store = VmImageStore::open(tmp.path()).unwrap();
         let err = resolve_vm_image(&store, None, None).unwrap_err();
@@ -6107,7 +6107,7 @@ users:
     }
 
     #[test]
-    fn resolve_vm_image_usa_a_unica_existente() {
+    fn resolve_vm_image_uses_the_only_one() {
         let tmp = tempfile::tempdir().unwrap();
         let store = VmImageStore::open(tmp.path()).unwrap();
         store
@@ -6135,7 +6135,7 @@ users:
     }
 
     #[test]
-    fn resolve_vm_image_falha_claro_com_multiplas_imagens() {
+    fn resolve_vm_image_fails_clearly_with_multiple_images() {
         let tmp = tempfile::tempdir().unwrap();
         let store = VmImageStore::open(tmp.path()).unwrap();
         for tag in ["a", "b"] {
@@ -6163,7 +6163,7 @@ users:
     }
 
     #[test]
-    fn resolve_vm_image_k8s_version_escolhe_a_convencao_de_nome() {
+    fn resolve_vm_image_k8s_version_picks_the_name_convention() {
         let tmp = tempfile::tempdir().unwrap();
         let store = VmImageStore::open(tmp.path()).unwrap();
         for tag in ["delonix-vm-k8s:1.34", "delonix-vm-k8s:1.35"] {
@@ -6359,7 +6359,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn parse_join_info_extrai_token_hash_e_certificate_key() {
+    fn parse_join_info_extracts_token_hash_and_certificate_key() {
         let info = parse_join_info(SAMPLE_KUBEADM_INIT_OUTPUT).unwrap();
         assert_eq!(info.token, "abcdef.0123456789abcdef");
         assert_eq!(

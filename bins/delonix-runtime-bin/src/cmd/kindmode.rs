@@ -538,7 +538,10 @@ fn boot_lb(
             detach: true,
             name: Some(node.clone()),
             net: cluster_net(&cfg.name),
-            volumes: vec![format!("{}:{NODE_SHARED}", cluster_dir(&cfg.name).display())],
+            volumes: vec![format!(
+                "{}:{NODE_SHARED}",
+                cluster_dir(&cfg.name).display()
+            )],
             ports: vec![format!("{api_port}:6443")],
             restart: "no".to_string(),
             entrypoint: Some(vec!["haproxy".to_string()]),
@@ -556,12 +559,16 @@ fn boot_lb(
             ..Default::default()
         },
     )?;
-    let c = store.list()?.into_iter().find(|c| c.name == node).ok_or_else(|| {
-        Error::Invalid(super::po::tf(
-            "load balancer '{node}' was not registered in the store",
-            &[("node", &node)],
-        ))
-    })?;
+    let c = store
+        .list()?
+        .into_iter()
+        .find(|c| c.name == node)
+        .ok_or_else(|| {
+            Error::Invalid(super::po::tf(
+                "load balancer '{node}' was not registered in the store",
+                &[("node", &node)],
+            ))
+        })?;
     let ip = c.ip.clone().ok_or_else(|| {
         Error::Invalid(super::po::tf(
             "load balancer '{node}' got no IP on the cluster network",
@@ -613,12 +620,28 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
     let nstore = delonix_sdn::NetworkStore::open(super::util::state_root())?;
     if nstore.get(&net).is_err() {
         super::network::create_network(
-            &nstore, &net, "bridge", None, None, "", None, Vec::new(), None,
+            &nstore,
+            &net,
+            "bridge",
+            None,
+            None,
+            "",
+            None,
+            Vec::new(),
+            None,
         )?;
     }
 
-    let curta = cfg.image.split('@').next().unwrap_or(&cfg.image).to_string();
-    p.step(&format!("{} ({curta})", super::po::t("Ensuring node image")), "🖼");
+    let curta = cfg
+        .image
+        .split('@')
+        .next()
+        .unwrap_or(&cfg.image)
+        .to_string();
+    p.step(
+        &format!("{} ({curta})", super::po::t("Ensuring node image")),
+        "🖼",
+    );
     super::util::resolve_or_pull(images, &cfg.image)?;
     p.ok();
 
@@ -634,11 +657,25 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
             }
         })
         .collect();
-    p.step(&format!("{} {} control-plane(s)", super::po::t("Preparing"), cfg.control_planes), "📦");
+    p.step(
+        &format!(
+            "{} {} control-plane(s)",
+            super::po::t("Preparing"),
+            cfg.control_planes
+        ),
+        "📦",
+    );
     let mut cps: Vec<Container> = Vec::new();
     for name in &cp_names {
         // The CPs do NOT publish the api port — the LB does (and is the endpoint).
-        cps.push(boot_node(images, store, cfg, name, "control-plane", Vec::new())?);
+        cps.push(boot_node(
+            images,
+            store,
+            cfg,
+            name,
+            "control-plane",
+            Vec::new(),
+        )?);
     }
     let cp_ips: Vec<String> = cps
         .iter()
@@ -711,7 +748,12 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
         "KUBECONFIG=/etc/kubernetes/admin.conf kubeadm init phase upload-certs --upload-certs 2>/dev/null",
     )?;
     let cert_key = extract_cert_key(&up_out).ok_or_else(|| {
-        Error::Invalid(super::po::t("could not read the certificate key from `kubeadm init phase upload-certs`").into())
+        Error::Invalid(
+            super::po::t(
+                "could not read the certificate key from `kubeadm init phase upload-certs`",
+            )
+            .into(),
+        )
     })?;
     p.ok();
 
@@ -739,10 +781,19 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
              > {NODE_SHARED}/join.sh 2>/dev/null"
         ),
     )?;
-    let join_cmd = std::fs::read_to_string(cluster_dir(&cfg.name).join("join.sh"))
-        .map_err(|e| Error::Invalid(format!("{}: {e}", super::po::t("reading the join command"))))?;
+    let join_cmd =
+        std::fs::read_to_string(cluster_dir(&cfg.name).join("join.sh")).map_err(|e| {
+            Error::Invalid(format!("{}: {e}", super::po::t("reading the join command")))
+        })?;
     let join = parse_join_command(&join_cmd)?;
-    p.step(&format!("{} {} control-plane(s)", super::po::t("Joining"), cfg.control_planes - 1), "🎮");
+    p.step(
+        &format!(
+            "{} {} control-plane(s)",
+            super::po::t("Joining"),
+            cfg.control_planes - 1
+        ),
+        "🎮",
+    );
     for i in 1..cps.len() {
         let conf = format!("join-{}.conf", cp_names[i]);
         std::fs::write(
@@ -763,7 +814,10 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
     // --- workers (parallel), exactly as the single-CP path ---
     if cfg.workers > 0 {
         let join_yaml = join_config_yaml(&join);
-        p.step(&format!("{} {} worker(s)", super::po::t("Joining"), cfg.workers), "🚜");
+        p.step(
+            &format!("{} {} worker(s)", super::po::t("Joining"), cfg.workers),
+            "🚜",
+        );
         let errors: Vec<String> = std::thread::scope(|scope| {
             let handles: Vec<_> = (1..=cfg.workers)
                 .map(|i| {
@@ -796,7 +850,10 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
         if !errors.is_empty() {
             return Err(Error::Invalid(super::po::tf(
                 "{n} worker(s) failed:\n  {list}",
-                &[("n", &errors.len().to_string()), ("list", &errors.join("\n  "))],
+                &[
+                    ("n", &errors.len().to_string()),
+                    ("list", &errors.join("\n  ")),
+                ],
             )));
         }
     } else {
@@ -810,7 +867,13 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
 
     // --- wait for every node Ready ---
     let want = cfg.control_planes + cfg.workers;
-    p.step(&super::po::tf("Waiting for all {n} node(s) to be Ready", &[("n", &want.to_string())]), "⏳");
+    p.step(
+        &super::po::tf(
+            "Waiting for all {n} node(s) to be Ready",
+            &[("n", &want.to_string())],
+        ),
+        "⏳",
+    );
     wait_in_node(
         leader,
         &super::po::tf("the {n} node(s) to become Ready", &[("n", &want.to_string())]),
@@ -843,7 +906,10 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
             },
         );
     }
-    super::output::info(&super::po::tf("cluster \"{name}\" ready (HA)", &[("name", &cfg.name)]));
+    super::output::info(&super::po::tf(
+        "cluster \"{name}\" ready (HA)",
+        &[("name", &cfg.name)],
+    ));
     Ok(())
 }
 
@@ -3109,7 +3175,10 @@ mod tests {
         // No server line → nothing to report.
         assert_eq!(api_port_from_kubeconfig("apiVersion: v1\n"), None);
         // A tail that is not a port is refused rather than shown.
-        assert_eq!(api_port_from_kubeconfig("    server: https://host/path"), None);
+        assert_eq!(
+            api_port_from_kubeconfig("    server: https://host/path"),
+            None
+        );
     }
 
     /// `cluster load` packs a full copy of the image next to the cluster. The
