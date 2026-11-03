@@ -2224,6 +2224,13 @@ pub(crate) fn apply_docs(
     by: super::gitops::Applier,
 ) -> Result<()> {
     let stack = stack_name(path, stack_override);
+    // One apply of a stack at a time (ADR-0088 A5). Two concurrent applies of the
+    // same stack would race the per-resource stores and lose updates the same way
+    // the record `update` methods guard against; held (RAII) until this returns.
+    let _apply_lock = delonix_state::PathLock::acquire(&super::revision::apply_lock_path(
+        &super::util::state_root(),
+        &stack,
+    ))?;
     let changes = decide(docs, &stack, &replace, &reboot, by)?;
     // A resource that has to be recreated is destroyed FIRST, so the normal
     // creation pass below builds it fresh. Doing it in this order means there is
@@ -2750,6 +2757,12 @@ fn prune_cmd(file: Option<PathBuf>, name: Option<String>, dry_run: bool) -> Resu
         }
         return Ok(());
     }
+    // Serialise against a concurrent apply/destroy of the same stack (ADR-0088
+    // A5); held until prune returns.
+    let _prune_lock = delonix_state::PathLock::acquire(&super::revision::apply_lock_path(
+        &super::util::state_root(),
+        &stack,
+    ))?;
     prune(&changes)
 }
 
@@ -2794,6 +2807,12 @@ fn destroy(file: Option<PathBuf>, name: Option<String>, dry_run: bool) -> Result
         }
         return Ok(());
     }
+    // Serialise against a concurrent apply/prune of the same stack (ADR-0088 A5);
+    // held until the teardown finishes.
+    let _destroy_lock = delonix_state::PathLock::acquire(&super::revision::apply_lock_path(
+        &super::util::state_root(),
+        &stack,
+    ))?;
     for c in ordered {
         println!(
             "{}",

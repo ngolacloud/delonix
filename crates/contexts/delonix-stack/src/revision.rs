@@ -77,10 +77,11 @@ pub struct Revision {
 
 /// `<root>/stacks/<stack>/revisions`.
 ///
-/// The stack name reaches this from a manifest, so it is sanitised the way the
-/// stores sanitise a key — a `metadata.name` is untrusted input, and this repo
-/// has already paid for a name flowing raw into a path.
-fn dir(root: &Path, stack: &str) -> PathBuf {
+/// The per-stack directory. The stack name reaches this from a manifest, so it
+/// is sanitised the way the stores sanitise a key — a `metadata.name` is
+/// untrusted input, and this repo has already paid for a name flowing raw into a
+/// path.
+fn stack_dir(root: &Path, stack: &str) -> PathBuf {
     let safe: String = stack
         .chars()
         .map(|c| {
@@ -96,7 +97,19 @@ fn dir(root: &Path, stack: &str) -> PathBuf {
     } else {
         safe
     };
-    root.join("stacks").join(safe).join("revisions")
+    root.join("stacks").join(safe)
+}
+
+fn dir(root: &Path, stack: &str) -> PathBuf {
+    stack_dir(root, stack).join("revisions")
+}
+
+/// The per-stack apply lock path (ADR-0088 A5). An `apply`, `destroy` or `prune`
+/// of this stack holds it exclusively, so two of them cannot race the
+/// per-resource stores and lose an update. Lives beside the revisions, under the
+/// same sanitised per-stack directory.
+pub fn apply_lock_path(root: &Path, stack: &str) -> PathBuf {
+    stack_dir(root, stack).join("apply.lock")
 }
 
 fn now() -> u64 {

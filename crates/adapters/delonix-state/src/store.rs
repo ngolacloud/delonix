@@ -121,6 +121,31 @@ impl Drop for FileLock {
 /// resolution by name is ambiguous. Dropping the guard releases the claim.
 pub struct NameClaim(#[allow(dead_code)] FileLock);
 
+/// An exclusive, cross-process lock on an arbitrary path, held for as long as the
+/// guard lives (released on drop). The stack apply path uses it to serialise two
+/// applies of the SAME stack, which would otherwise race on the per-resource
+/// stores and lose updates the same way the record `update` methods guard against
+/// (ADR-0088 A5). Backed by the same bounded `flock` the record stores use, so a
+/// stuck holder fails at the deadline instead of hanging forever. The parent
+/// directory is created if missing; an absent lock (no caller) changes nothing.
+pub struct PathLock(#[allow(dead_code)] FileLock);
+
+impl PathLock {
+    /// Acquires an exclusive lock on `path` (creating the file and its parent
+    /// directory), blocking up to the shared `flock` deadline, or failing closed.
+    pub fn acquire(path: &Path) -> Result<PathLock> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                Error::Lock(format!(
+                    "cannot create the lock directory {}: {e}",
+                    parent.display()
+                ))
+            })?;
+        }
+        Ok(PathLock(FileLock::acquire(path)?))
+    }
+}
+
 /// Size of the fixed pool of name-claim lock files (see [`Store::claim_name`]).
 /// Bounds the name locks to this many 0-byte files for all time, instead of one
 /// per distinct name ever used. 256 keeps same-shard collisions between live
@@ -779,6 +804,40 @@ impl<T: Serialize + DeserializeOwned> delonix_model::ports::StateRepository<T> f
 mod tests {
     use super::*;
     use delonix_compute::Container;
+
+    /// `PathLock` creates its parent directory, is exclusive while held (a second
+    /// non-blocking lock on the same path cannot be taken), and releases on drop
+    /// so the next acquire succeeds. This is the serialisation `stack apply`
+    /// relies on (ADR-0088 A5).
+    #[test]
+    fn path_lock_is_exclusive_while_held_and_frees_on_drop() {
+        let tmp = tempfile::tempdir().unwrap();
+        // A nested path whose parent does not exist yet — acquire must create it.
+        let path = tmp.path().join("stacks").join("loja").join("apply.lock");
+        let guard = PathLock::acquire(&path).unwrap();
+        assert!(
+            path.exists(),
+            "the lock file (and its parent) must be created"
+        );
+
+        // While held, a second non-blocking exclusive flock on the same file
+        // must be refused.
+        let f = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let rc = unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        assert_eq!(
+            rc, -1,
+            "a second lock must not be grantable while one is held"
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EWOULDBLOCK)
+        );
+        drop(f);
+
+        // After the guard drops, the path is free to lock again.
+        drop(guard);
+        let _again = PathLock::acquire(&path).unwrap();
+    }
 
     #[test]
     fn store_round_trip_and_lookup() {
