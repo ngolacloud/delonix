@@ -221,6 +221,19 @@ spec:
             image: alpine:3.20
             command: ["sleep", "infinity"]
 
+  # PT: Application (ADR-0086 D4) — o Kind de serviço. Baixa nas suas `replicas`
+  #     instâncias Pod (`frontend-0`/`frontend-1`); o Pod é a instância, não se
+  #     escreve à mão. | EN: Application (ADR-0086 D4) — the service Kind. Lowers
+  #     into its `replicas` Pod instances (`frontend-0`/`frontend-1`); the Pod is
+  #     the instance, not written by hand.
+  applications:
+    - name: frontend
+      spec:
+        replicas: 2
+        containers:
+          - name: frontend
+            image: nginx:1.27-alpine
+
   # PT: DNS round-robin sobre cada contentor que o selector casa, sob
   #     web.<ns>.delonix.internal. Sem VIP, sem daemon.
   # EN: Round-robin DNS over every container the selector matches, under

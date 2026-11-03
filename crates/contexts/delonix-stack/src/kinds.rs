@@ -522,7 +522,11 @@ const FACTS: &[KindFacts] = &[
         short: &[],
         api_version: "compute.delonix.io/v1beta1",
         domain: Domain::Compute,
-        form: Form::Sunset(POD),
+        // ADR-0086 D4: the sunset successor is `Application` (not `Pod`) — the
+        // service Kind a single container becomes with `replicas: 1`. Announced,
+        // not rewritten (`Sunset`), so a `kind: Container` still applies as a
+        // Container; the announcement points at `Application`.
+        form: Form::Sunset(APPLICATION),
         in_stack: true,
         stack_group: "containers",
         converges: true,
@@ -705,7 +709,7 @@ const FACTS: &[KindFacts] = &[
         domain: Domain::Compute,
         form: Form::Sugar(POD),
         in_stack: false,
-        stack_group: "",
+        stack_group: "applications",
         converges: false,
         teardown: false,
         namespaced: Namespaced::Always,
@@ -855,11 +859,6 @@ pub fn stack_group_absent_reason(kind: &str) -> Option<&'static str> {
         return None;
     }
     Some(match kind {
-        APPLICATION => {
-            "an Application lowers to its Pod INSTANCES at load (ADR-0086 D4); a Stack holds \
-             those Pods, so there is nothing to group the Application itself under — wiring \
-             it as a Stack group is a later Phase-4 slice"
-        }
         STACK => {
             "a Stack does not nest: the children would need a namespace and an owner of \
              their own, and the reconciler identifies a resource by (kind, name) — two \

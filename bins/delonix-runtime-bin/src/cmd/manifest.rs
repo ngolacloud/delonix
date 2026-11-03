@@ -891,6 +891,13 @@ pub fn load_str(text: &str, label: &str) -> Result<Vec<ManifestDoc>> {
                 // top-level guard runs on the document as written.
                 refused_by_name(&child)?;
                 check_unknown_fields(&child);
+                if child.kind == k::APPLICATION {
+                    // An `applications:` group lowers to its Pod instances here,
+                    // the same 1:N reduction the top-level loop applies — a Stack
+                    // child never passes through that loop.
+                    docs.extend(crate::cmd::application::lower_application(&child)?);
+                    continue;
+                }
                 if child.kind == k::WORKLOAD {
                     // Same reduction the top-level loop applies below: a Stack's
                     // children never pass through it, so a `workloads:` group
@@ -2151,6 +2158,11 @@ spec: { image: nginx }
             "systemContainers" => ("{ image: alpine:3.20 }", "SystemContainer"),
             "containers" => ("{ image: nginx }", "Container"),
             "pods" => ("{ containers: [{ name: a, image: nginx }] }", "Pod"),
+            // Lowers to its Pod instances, so a `Pod` is what survives the load.
+            "applications" => (
+                "{ replicas: 2, containers: [{ name: a, image: nginx }] }",
+                "Pod",
+            ),
             "services" => (
                 "{ selector: { matchLabels: { app: web } }, port: 80 }",
                 "Service",
@@ -2209,12 +2221,13 @@ spec: { image: nginx }
             // By NAME as well as by Kind: `workloads` lands as a Container and so
             // does `containers`, and a check on the Kind alone passed with the
             // Workload lowering removed. (A Dependency is folded by target into a
-            // policy of its own name, so it can only be checked by Kind.)
+            // policy of its own name, and an Application lowers to `<name>-<i>`
+            // Pod INSTANCES, so those two can only be checked by Kind.)
             let name = format!("x-{group}");
+            let renamed = group == "dependencies" || group == "applications";
             assert!(
                 docs.iter()
-                    .any(|d| d.kind == lands_as
-                        && (group == "dependencies" || d.metadata.name == name)),
+                    .any(|d| d.kind == lands_as && (renamed || d.metadata.name == name)),
                 "group '{group}' produced no {lands_as}: {:?}",
                 docs.iter().map(|d| d.kind.as_str()).collect::<Vec<_>>()
             );
