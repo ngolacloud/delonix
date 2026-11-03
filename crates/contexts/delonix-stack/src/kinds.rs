@@ -493,7 +493,12 @@ const FACTS: &[KindFacts] = &[
         kind: SYSTEM_CONTAINER,
         plural: "systemcontainers",
         short: &["sc"],
-        api_version: "compute.delonix.io/v1beta1",
+        // A provider-specific Kind (ADR-0086 D6): it lives in the `proxmox`
+        // provider group with its own version, NOT a domain group — which keeps
+        // the six domain groups free of provider specifics (ADR-0070/0071). The
+        // first provider-group Kind; `v1alpha1` because the provider track moves
+        // on its own cadence, independent of the domain groups' `v1beta1`.
+        api_version: "proxmox.delonix.io/v1alpha1",
         domain: Domain::Compute,
         form: Form::Primary,
         in_stack: true,

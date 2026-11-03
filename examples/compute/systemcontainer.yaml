@@ -22,7 +22,7 @@
 # ── 1. bloco provider — o Proxmox, com swap + bridge/DHCP inline ─────────────
 #      provider block — Proxmox, with swap + bridge/DHCP inline
 ---
-apiVersion: compute.delonix.io/v1beta1
+apiVersion: proxmox.delonix.io/v1alpha1
 kind: SystemContainer
 metadata: { name: edge-dns }
 spec:
@@ -39,7 +39,7 @@ spec:
 # ── 2. grafia antiga (swap/network no topo) + entrypoint/env e VLAN ──────────
 #      old spelling (swap/network at the top) + entrypoint/env and a VLAN
 ---
-apiVersion: compute.delonix.io/v1beta1
+apiVersion: proxmox.delonix.io/v1alpha1
 kind: SystemContainer
 metadata: { name: edge-proxy }
 spec:
