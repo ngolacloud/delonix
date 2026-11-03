@@ -28,8 +28,11 @@ pub struct Metadata {
     /// the runtime is single-tenant, there are no namespaces; this is just organization.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub labels: BTreeMap<String, String>,
-    /// Free annotations (notes, prereqs, references) — never interpreted by the
-    /// runtime, only carried through to the `describe`.
+    /// Free annotations (notes, prereqs, references) — carried through to the
+    /// `describe`. Mostly uninterpreted, with named exceptions the engine acts on:
+    /// `delonix.io/ignore-fields` drops the listed fields from the diff (ADR-0088
+    /// A5, `reconcile::IGNORE_FIELDS`); the `delonix.io/*` reconcile annotations
+    /// (`stack`, `last-applied`) are set by the engine, not the author.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub annotations: BTreeMap<String, String>,
 }

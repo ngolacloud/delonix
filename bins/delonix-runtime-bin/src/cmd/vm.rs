@@ -7489,7 +7489,7 @@ mod reboot_class_tests {
             ("VirtualMachine".into(), "db".into()),
             super::facts_of_vm(v),
         );
-        reconcile::plan_with_facts(&[d], &[a], "s", &facts)
+        reconcile::plan_with_facts(&[d], &[a], "s", &facts, &BTreeMap::new())
             .into_iter()
             .next()
             .unwrap()
