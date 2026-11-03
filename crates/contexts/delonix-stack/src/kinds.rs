@@ -78,6 +78,10 @@ pub const VM: &str = "VirtualMachine";
 pub const SYSTEM_CONTAINER: &str = "SystemContainer";
 pub const CONTAINER: &str = "Container";
 pub const POD: &str = "Pod";
+/// The Kind written for a container service (ADR-0086 D4). Lowers at load into
+/// its `replicas` `Pod` INSTANCES — the Pod is the instance it creates, not a
+/// thing written by hand — so it has no apply of its own (see `cmd::application`).
+pub const APPLICATION: &str = "Application";
 pub const INGRESS: &str = "Ingress";
 pub const FIREWALL_POLICY: &str = "NetworkPolicy";
 pub const NETWORK_ACCESS_RULE: &str = "NetworkAccessRule";
@@ -691,6 +695,23 @@ const FACTS: &[KindFacts] = &[
     // --- Not resources of the stack: they become one of the above, or are not
     // local resources at all. ---
     KindFacts {
+        // ADR-0086 D4: the service Kind. Lowers at load into its `replicas` `Pod`
+        // INSTANCES (`cmd::application`), so like `Workload` it is out of the stack
+        // cycle and not observable — the Pods it becomes are.
+        kind: APPLICATION,
+        plural: "applications",
+        short: &[],
+        api_version: "compute.delonix.io/v1beta1",
+        domain: Domain::Compute,
+        form: Form::Sugar(POD),
+        in_stack: false,
+        stack_group: "",
+        converges: false,
+        teardown: false,
+        namespaced: Namespaced::Always,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
         kind: WORKLOAD,
         plural: "workloads",
         short: &["wl"],
@@ -834,6 +855,11 @@ pub fn stack_group_absent_reason(kind: &str) -> Option<&'static str> {
         return None;
     }
     Some(match kind {
+        APPLICATION => {
+            "an Application lowers to its Pod INSTANCES at load (ADR-0086 D4); a Stack holds \
+             those Pods, so there is nothing to group the Application itself under — wiring \
+             it as a Stack group is a later Phase-4 slice"
+        }
         STACK => {
             "a Stack does not nest: the children would need a namespace and an owner of \
              their own, and the reconciler identifies a resource by (kind, name) — two \

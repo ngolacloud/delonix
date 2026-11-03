@@ -329,6 +329,10 @@ const NAMESPACE_SOURCES: &[(&str, NsSource)] = &[
         NsSource::Via("Container/VirtualMachine — it lowers to one of them and the namespace goes with it"),
     ),
     (
+        k::APPLICATION,
+        NsSource::Via("Container — it lowers to Pod instances whose members stamp the namespace, exactly as Pod does"),
+    ),
+    (
         k::STACK,
         NsSource::Via(
             "Container/VirtualMachine — `manifest::load` propagates the namespace onto every child it expands",

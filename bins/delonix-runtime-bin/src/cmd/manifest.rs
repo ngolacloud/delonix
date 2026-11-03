@@ -329,6 +329,7 @@ pub(crate) const KIND_ALIASES: &[(&str, &str)] = &[
     ("Stack", k::STACK),
     ("Pod", k::POD),
     ("Workload", k::WORKLOAD),
+    ("Application", k::APPLICATION),
 ];
 
 pub fn canonical_kind(kind: &str) -> &str {
@@ -530,6 +531,7 @@ pub(crate) fn spec_fields_for(kind: &str) -> Option<&'static [&'static str]> {
         k::STORAGE_POOL => Some(crate::cmd::storage_pool::STORAGE_POOL_SPEC_FIELDS),
         k::GATEWAY => Some(crate::cmd::tunnel::TUNNEL_SPEC_FIELDS),
         k::WORKLOAD => Some(crate::cmd::workload::WORKLOAD_SPEC_FIELDS),
+        k::APPLICATION => Some(crate::cmd::application::APPLICATION_SPEC_FIELDS),
         k::STACK => Some(stack_spec_fields()),
         k::CLUSTER => Some(crate::cmd::cluster::CLUSTER_SPEC_FIELDS),
         _ => None,
@@ -902,6 +904,11 @@ pub fn load_str(text: &str, label: &str) -> Result<Vec<ManifestDoc>> {
             // doc (ADR-0001), which then flows through the normal per-Kind apply —
             // exactly like a Stack child. The Workload doc does not survive.
             docs.push(crate::cmd::workload::lower_workload(&doc)?);
+        } else if doc.kind == k::APPLICATION {
+            // A `kind: Application` lowers to its `replicas` `kind: Pod` INSTANCES
+            // (ADR-0086 D4), each flowing through the normal Pod apply. The
+            // Application doc does not survive — the Pods it became are what run.
+            docs.extend(crate::cmd::application::lower_application(&doc)?);
         } else {
             docs.push(doc);
         }

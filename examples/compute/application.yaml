@@ -1,0 +1,28 @@
+# ============================================================================
+# kind: Application (ADR-0086 D4) — o Kind que se ESCREVE para um serviço de
+# contentores / the Kind you WRITE for a container service.
+#
+# PT: Um Application baixa, no load, nas suas `replicas` INSTÂNCIAS `kind: Pod`
+#     (`<nome>-0`, `<nome>-1`, …). O Pod é a instância que o Application cria —
+#     aparece em `delonix get pods`, não se escreve à mão. Escalar é um re-apply
+#     com outro `replicas`: as instâncias a mais são `Delete`s que o `--prune`
+#     remove — sem caminho de reconciliação novo. O resto do spec é um PodSpec.
+# EN: An Application lowers at load into its `replicas` `kind: Pod` INSTANCES
+#     (`<name>-0`, `<name>-1`, …). The Pod is the instance an Application creates —
+#     it shows in `delonix get pods`, it is not written by hand. Scaling is a
+#     re-apply with a different `replicas`: the extra instances are `Delete`s the
+#     `--prune` removes, with no new reconcile path. The rest of the spec is a
+#     PodSpec. Apply:  delonix stack apply -f examples/compute/application.yaml
+# ============================================================================
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Application
+metadata:
+  name: web
+  namespace: shop
+spec:
+  replicas: 3                       # PT: três instâncias web-0/1/2 | EN: three instances web-0/1/2
+  containers:
+    - name: web
+      image: nginx:1.27-alpine
+  network: shop-net                 # PT: a rede partilhada do netns do pod | EN: the pod netns' shared network
