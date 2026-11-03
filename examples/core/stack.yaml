@@ -234,6 +234,18 @@ spec:
           - name: frontend
             image: nginx:1.27-alpine
 
+  # PT: Job (ADR-0086 D3) — run-to-completion. Baixa para um Pod com
+  #     restartPolicy OnFailure por omissão (retenta até ter sucesso).
+  # EN: Job (ADR-0086 D3) — run-to-completion. Lowers to a Pod whose restartPolicy
+  #     defaults to OnFailure (retried until it succeeds).
+  jobs:
+    - name: db-migrate
+      spec:
+        containers:
+          - name: migrate
+            image: migrate/migrate:v4.17.0
+            command: ["migrate", "-path", "/m", "-database", "$DB", "up"]
+
   # PT: DNS round-robin sobre cada contentor que o selector casa, sob
   #     web.<ns>.delonix.internal. Sem VIP, sem daemon.
   # EN: Round-robin DNS over every container the selector matches, under

@@ -82,6 +82,10 @@ pub const POD: &str = "Pod";
 /// its `replicas` `Pod` INSTANCES — the Pod is the instance it creates, not a
 /// thing written by hand — so it has no apply of its own (see `cmd::application`).
 pub const APPLICATION: &str = "Application";
+/// A run-to-completion workload (ADR-0086 D3). Lowers to one `Pod` whose
+/// `restartPolicy` defaults to `OnFailure` — retried until it succeeds (see
+/// `cmd::job`).
+pub const JOB: &str = "Job";
 pub const INGRESS: &str = "Ingress";
 pub const FIREWALL_POLICY: &str = "NetworkPolicy";
 pub const NETWORK_ACCESS_RULE: &str = "NetworkAccessRule";
@@ -710,6 +714,23 @@ const FACTS: &[KindFacts] = &[
         form: Form::Sugar(POD),
         in_stack: false,
         stack_group: "applications",
+        converges: false,
+        teardown: false,
+        namespaced: Namespaced::Always,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
+        // ADR-0086 D3: run-to-completion. Lowers to one `Pod` (`cmd::job`), so
+        // like `Application`/`Workload` it is out of the stack cycle and not
+        // observable — the Pod it becomes is.
+        kind: JOB,
+        plural: "jobs",
+        short: &[],
+        api_version: "compute.delonix.io/v1beta1",
+        domain: Domain::Compute,
+        form: Form::Sugar(POD),
+        in_stack: false,
+        stack_group: "jobs",
         converges: false,
         teardown: false,
         namespaced: Namespaced::Always,
