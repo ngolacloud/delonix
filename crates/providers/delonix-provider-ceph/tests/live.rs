@@ -106,7 +106,10 @@ fn rbd_block_volume_full_lifecycle() {
     let again = driver
         .allocate(&pool, &req, &owner())
         .expect("re-allocate adopts");
-    assert!(again.adopted, "the second allocate adopts the stamped image");
+    assert!(
+        again.adopted,
+        "the second allocate adopts the stamped image"
+    );
     assert_eq!(again.path, a.path);
 
     driver.release(&pool, "dlxlive", &owner()).expect("release");
@@ -126,7 +129,11 @@ fn cephfs_pool_probes_available() {
         name: "shared",
         entry: &entry,
     };
-    assert_eq!(driver.probe(&pool), PoolProbe::Available, "delonixfs probes");
+    assert_eq!(
+        driver.probe(&pool),
+        PoolProbe::Available,
+        "delonixfs probes"
+    );
 
     // An unstamped subvolume (one the engine did not make) is never released
     // by its name — the stamp boundary, exercised live.
@@ -139,7 +146,13 @@ fn cephfs_pool_probes_available() {
         "dlxlive-unstamped",
     ]));
     let err = driver.release(&pool, "dlxlive-unstamped", &owner());
-    let _ = run.run(&svc(&["fs", "subvolume", "rm", "delonixfs", "dlxlive-unstamped"]));
+    let _ = run.run(&svc(&[
+        "fs",
+        "subvolume",
+        "rm",
+        "delonixfs",
+        "dlxlive-unstamped",
+    ]));
     assert!(err.is_err(), "release refuses an unstamped subvolume");
     println!("[CephFS] probe Available; unstamped subvolume refused by release");
 }

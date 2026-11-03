@@ -9,9 +9,9 @@ use crate::proto::v1::container_service_server::{ContainerService, ContainerServ
 use crate::proto::v1::image_service_server::{ImageService, ImageServiceServer};
 use crate::proto::v1::network_service_server::{NetworkService, NetworkServiceServer};
 use crate::proto::v1::node_service_server::{NodeService, NodeServiceServer};
+use crate::proto::v1::operation_service_server::{OperationService, OperationServiceServer};
 use crate::proto::v1::pod_service_server::{PodService, PodServiceServer};
 use crate::proto::v1::stack_service_server::{StackService, StackServiceServer};
-use crate::proto::v1::operation_service_server::{OperationService, OperationServiceServer};
 use crate::proto::v1::storage_service_server::{StorageService, StorageServiceServer};
 use crate::proto::v1::virtual_machine_service_server::{
     VirtualMachineService, VirtualMachineServiceServer,
@@ -21,6 +21,11 @@ use crate::proto::v1::{
     ApiRoot, Capacity, Event, GetApiRootRequest, GetCapacityRequest, GetHealthRequest,
     GetNodeInfoRequest, Health, ListProvidersRequest, ListProvidersResponse, NodeInfo,
     WatchEventsRequest,
+};
+use crate::proto::v1::{ApplyStackRequest, DestroyStackRequest, PlanStackRequest, StackPlan};
+use crate::proto::v1::{
+    BuildImageRequest, DeleteImageRequest, GetImageRequest, Image, ListImagesRequest,
+    ListImagesResponse, PullImageRequest, PushImageRequest, ScanImageRequest,
 };
 use crate::proto::v1::{
     CancelOperationRequest, GetOperationRequest, ListOperationsRequest, ListOperationsResponse,
@@ -46,24 +51,17 @@ use crate::proto::v1::{
     VirtualMachine,
 };
 use crate::proto::v1::{
-    CreateVolumeRequest, DeleteVolumeRequest, GetVolumeRequest, ListVolumesRequest,
-    ListVolumesResponse, Volume,
-};
-use crate::proto::v1::{
-    BuildImageRequest, DeleteImageRequest, GetImageRequest, Image, ListImagesRequest,
-    ListImagesResponse, PullImageRequest, PushImageRequest, ScanImageRequest,
+    ContainerStats, CreateContainerRequest, DeleteContainerRequest, ExecRequest, ExecResponse,
+    GetContainerRequest, KillContainerRequest, ListContainersRequest, ListContainersResponse,
+    LogChunk, LogsRequest, StartContainerRequest, StatsRequest, StopContainerRequest,
+    UpdateContainerRequest, WaitContainerRequest, WaitContainerResponse,
 };
 use crate::proto::v1::{
     CreatePodRequest, DeletePodRequest, GetPodRequest, ListPodsRequest, ListPodsResponse, Pod,
 };
 use crate::proto::v1::{
-    ApplyStackRequest, DestroyStackRequest, PlanStackRequest, StackPlan,
-};
-use crate::proto::v1::{
-    ContainerStats, CreateContainerRequest, DeleteContainerRequest, ExecRequest, ExecResponse,
-    GetContainerRequest, KillContainerRequest, ListContainersRequest, ListContainersResponse,
-    LogChunk, LogsRequest, StartContainerRequest, StatsRequest, StopContainerRequest,
-    UpdateContainerRequest, WaitContainerRequest, WaitContainerResponse,
+    CreateVolumeRequest, DeleteVolumeRequest, GetVolumeRequest, ListVolumesRequest,
+    ListVolumesResponse, Volume,
 };
 use crate::{node, providers};
 
@@ -476,9 +474,11 @@ impl PodService for NodeApi {
     // Read half derived from the container records (a pod is its members).
     async fn get_pod(&self, req: Request<GetPodRequest>) -> Result<Response<Pod>, Status> {
         let req = req.into_inner();
-        blocking("pod", move || crate::pods::get_in(&node::state_root(), &req))
-            .await?
-            .map(Response::new)
+        blocking("pod", move || {
+            crate::pods::get_in(&node::state_root(), &req)
+        })
+        .await?
+        .map(Response::new)
     }
 
     async fn list_pods(
@@ -486,9 +486,11 @@ impl PodService for NodeApi {
         req: Request<ListPodsRequest>,
     ) -> Result<Response<ListPodsResponse>, Status> {
         let req = req.into_inner();
-        blocking("pods", move || crate::pods::list_in(&node::state_root(), &req))
-            .await?
-            .map(Response::new)
+        blocking("pods", move || {
+            crate::pods::list_in(&node::state_root(), &req)
+        })
+        .await?
+        .map(Response::new)
     }
 
     // Create (from a `kind: Pod` manifest) and Delete (removing every member)
@@ -893,10 +895,7 @@ impl ContainerService for NodeApi {
         .map(Response::new)
     }
 
-    async fn stats(
-        &self,
-        req: Request<StatsRequest>,
-    ) -> Result<Response<ContainerStats>, Status> {
+    async fn stats(&self, req: Request<StatsRequest>) -> Result<Response<ContainerStats>, Status> {
         let req = req.into_inner();
         blocking("container stats", move || {
             crate::container_ops::stats_in(&node::state_root(), &req)

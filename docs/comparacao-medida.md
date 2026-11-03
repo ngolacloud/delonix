@@ -228,3 +228,62 @@ máquina ociosa e dedicada. Fica **por fazer**, e não convertido num número.
 - Se estes números mudam com a DENSIDADE do nó. Duas chamadas do caminho de attach
   (`nft -a list chain fwdeny`, `nft list sets`) são dumps de texto que crescem com o número de
   containers e namespaces — medir num nó vazio subestima-as, e este nó estava vazio.
+
+---
+
+## IPv6 — recontagem de 2026-11-01
+
+> **Porquê agora.** As tabelas acima nunca mediram IPv6 — nenhuma das três colunas tinha
+> sequer uma linha de v6. O Delonix passou a governar dual-stack (ADR-0082), por isso a
+> lacuna ficou a pesar, e mediu-se. Os três na **mesma máquina, no mesmo dia**, como manda
+> este documento.
+
+| Campo | Valor |
+|---|---|
+| Data | **2026-11-01** |
+| Onde | host de desenvolvimento — AMD Ryzen 9 8940HX (32 threads), kernel 7.0.0-38-generic |
+| Docker | **29.9.2** — ROOTFUL (daemon `systemd`, `runtime nvidia`). Não é rootless; o eixo rootless-contra-rootless honesto é Podman × Delonix |
+| Podman | **4.9.3** rootless |
+| Delonix | **ramo `feat/ipv6-phase1` (Fase 4), rootless** — binário de debug do ramo, NÃO a release. **A `0.1.0` publicada tem v6 OFF e reprovaria estas linhas** |
+| Host sem uplink v6 | `ip -6 route show default` vazio → `v6 → Internet` **não é medível para NENHUM dos três** aqui; a célula fica `não verificado` para os três |
+
+| # | Capacidade v6 | Docker 29.9.2 (rootful) | Podman 4.9.3 (rootless) | Delonix Fase 4 (rootless) | Como foi medido |
+|---|---|---|---|---|---|
+| v1 | Container recebe endereço v6 | **Não por omissão** (`bridge` com `EnableIPv6=false`); com `--ipv6 --subnet <v6>`: Sim (`fd00:dddd::2`) | **Não por omissão**; com `--subnet <v6>`: Sim (`fd00:9999::2`) | **Sim, por omissão** — ULA determinística `fd00:<o2>::<o3>:<o4>` (`fd00:254::143:123`) | `<eng> run … ; ip -6 addr show scope global` |
+| v2 | v6 east-west, MESMA rede | **Sim** — 0% perda | **Sim** — 0% perda | **Sim** — 0% perda | `ping -6 -c2` entre dois containers da mesma rede |
+| v3 | Isolamento v6 entre redes DIFERENTES | **Sim, por omissão** — 100% perda | **Não por omissão** — 0% perda (passa!); **só** com `--opt isolate=true` bloqueia (100% perda) | **Sim, por omissão** — 100% perda | dois containers em duas redes, `ping -6` cruzado |
+| v4 | Política v6 por-workload DENTRO de uma rede | **Não** — sem conceito; containers da mesma rede falam sempre | **Não** — idem | **Sim** — namespaces lógicos: na MESMA rede, cross-namespace v6 é **dropado** pela regra de isolamento (`ip6 … ip6 saddr @dlxall6 ct state new … drop`, contador +2) | dois containers mesma rede, namespaces diferentes, `ping -6` + contador no holder |
+| v5 | Rootless | **Não** (daemon root) | **Sim** | **Sim** | `docker info` / `podman info` / userns |
+| v6 | v6 → Internet | `não verificado` (host sem rota v6) | `não verificado` | `não verificado` — código pronto (`slirp4netns --enable-ipv6` + masquerade), **pende de uplink v6 no host** | `ping -6` a `2606:4700:4700::1111` falha nos três |
+
+### Onde o Delonix ganha, e porquê
+
+**v6 vem ligado e governado por omissão** (v1, v3, v4). O Docker precisa de uma rede
+`--ipv6` explícita e o Podman de uma `--subnet` v6; o Delonix dá a ULA sozinho. E a linha
+que os outros dois **não têm como preencher** é a v4: política por-workload DENTRO de uma
+rede. No Docker e no Podman, dois containers na mesma rede falam sempre — não existe o
+conceito; no Delonix, dois na mesma rede mas em namespaces diferentes não se alcançam sobre
+v6, pela mesma regra de isolamento que já governava v4 (o contador no holder prova-o).
+
+**Um achado medido do Podman, não do Delonix:** redes diferentes **não** estão isoladas por
+omissão (v3) — `pm_a` numa rede alcançou `pm_c` noutra, sobre v6 e v4. Fecha-se com
+`--opt isolate=true`, mas o default surpreende e vale registar.
+
+### Onde o Delonix perde, ou ainda não prova
+
+- **Não está numa release.** Isto foi medido num binário de ramo. A `0.1.0` publicada tem v6
+  OFF e reprovaria v1–v4. Até haver release, a coluna do Delonix é uma promessa com data, não
+  um produto que alguém possa instalar.
+- **v6 → Internet não foi provado** (v6). O código existe, mas o host não tem uplink v6 — e
+  nesse ponto o Docker rootful, num host COM rota v6, sai à frente hoje. Empate em `não
+  verificado` só porque a bancada não tem v6 de saída; não é mérito do Delonix.
+- **Regras de firewall com peer v6 explícito ainda não existem.** Uma regra que nomeia um
+  endereço (`ingress from 10.x`) governa só v4; o v6 desse peer cai no default + isolamento.
+  Docker/Podman não têm firewall por-container de todo, portanto a comparação não se aplica —
+  mas é um limite real do Delonix contra si próprio em v4.
+
+### O que ficou por medir (v6)
+
+- Desempenho (latência de attach) com v6 ligado vs a bancada v4 acima — não remedido aqui.
+- `--opt isolate=true` do Podman sob carga / com muitas redes.
+- v6 → Internet em qualquer um dos três: precisa de um host com uplink v6.

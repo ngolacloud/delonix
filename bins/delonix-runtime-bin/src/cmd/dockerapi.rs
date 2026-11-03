@@ -1089,9 +1089,7 @@ async fn handle(
                 ("POST", ["containers", id, "rename"]) => handle_rename(&state, id, &params).await,
                 ("DELETE", ["containers", id]) => handle_remove(&state, id, &params).await,
                 ("GET", ["containers", id, "json"]) => handle_inspect(&state, id),
-                ("POST", ["containers", id, "exec"]) => {
-                    handle_exec_create(&state, id, &body_bytes)
-                }
+                ("POST", ["containers", id, "exec"]) => handle_exec_create(&state, id, &body_bytes),
                 ("GET", ["exec", execid, "json"]) => handle_exec_json(execid),
                 ("GET", ["containers", id, "stats"]) => handle_stats(&state, id).await,
                 _ => (
@@ -1279,18 +1277,29 @@ async fn handle_logs(
         .filter(|t| t.as_str() != "all")
         .and_then(|t| t.parse::<usize>().ok());
     let since = params.get("since").and_then(|s| s.parse::<u64>().ok());
-    let log_path = c.log_path.clone().map(std::path::PathBuf::from).unwrap_or_else(|| {
-        state.images.root().join("containers").join(&c.id).join("log")
-    });
+    let log_path = c
+        .log_path
+        .clone()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            state
+                .images
+                .root()
+                .join("containers")
+                .join(&c.id)
+                .join("log")
+        });
     let log_cri = c.log_cri;
     let state = Arc::clone(state);
     let cid = c.id.clone();
 
-    let (tx, rx) =
-        tokio::sync::mpsc::channel::<std::result::Result<Frame<Bytes>, Infallible>>(64);
+    let (tx, rx) = tokio::sync::mpsc::channel::<std::result::Result<Frame<Bytes>, Infallible>>(64);
     tokio::task::spawn_blocking(move || {
         use std::io::{Read, Seek};
-        let send = |bytes: Vec<u8>| tx.blocking_send(Ok(Frame::data(Bytes::from(bytes)))).is_ok();
+        let send = |bytes: Vec<u8>| {
+            tx.blocking_send(Ok(Frame::data(Bytes::from(bytes))))
+                .is_ok()
+        };
         let frame_line = |stream: &str, ts: &str, body: &str| -> Option<Vec<u8>> {
             let sid = if stream == "stderr" { 2u8 } else { 1u8 };
             if (sid == 1 && !want_stdout) || (sid == 2 && !want_stderr) {
@@ -1436,7 +1445,11 @@ fn handle_exec_create(state: &Arc<AppState>, id: &str, body: &[u8]) -> (StatusCo
     let cmd: Vec<String> = cfg
         .get("Cmd")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     if cmd.is_empty() {
         return (
@@ -1447,13 +1460,26 @@ fn handle_exec_create(state: &Arc<AppState>, id: &str, body: &[u8]) -> (StatusCo
         );
     }
     let tty = cfg.get("Tty").and_then(|v| v.as_bool()).unwrap_or(false);
-    let attach_stdin = cfg.get("AttachStdin").and_then(|v| v.as_bool()).unwrap_or(false);
+    let attach_stdin = cfg
+        .get("AttachStdin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let execid = delonix_node::host::generate_id();
     EXEC_REGISTRY.lock().unwrap().insert(
         execid.clone(),
-        ExecRecord { container_id: c.id, cmd, tty, attach_stdin, running: false, exit_code: None },
+        ExecRecord {
+            container_id: c.id,
+            cmd,
+            tty,
+            attach_stdin,
+            running: false,
+            exit_code: None,
+        },
     );
-    (StatusCode::CREATED, json!({ "Id": execid }).to_string().into_bytes())
+    (
+        StatusCode::CREATED,
+        json!({ "Id": execid }).to_string().into_bytes(),
+    )
 }
 
 /// `GET /exec/{id}/json` — the exec's state. `ExitCode` is null while it runs and
@@ -1476,7 +1502,9 @@ fn handle_exec_json(execid: &str) -> (StatusCode, Vec<u8>) {
         })),
         None => (
             StatusCode::NOT_FOUND,
-            json!({"message": format!("no such exec: {execid}")}).to_string().into_bytes(),
+            json!({"message": format!("no such exec: {execid}")})
+                .to_string()
+                .into_bytes(),
         ),
     }
 }
@@ -1567,7 +1595,11 @@ async fn run_exec_detached(rec: &ExecRecord) -> i32 {
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    cmd.status().await.ok().and_then(|s| s.code()).unwrap_or(126)
+    cmd.status()
+        .await
+        .ok()
+        .and_then(|s| s.code())
+        .unwrap_or(126)
 }
 
 /// Bridges the hijacked socket to a re-exec'd `container exec`: socket→stdin
@@ -1740,7 +1772,11 @@ fn system_cpu_ns() -> u64 {
     let Some(line) = stat.lines().next().filter(|l| l.starts_with("cpu ")) else {
         return 0;
     };
-    let jiffies: u64 = line.split_whitespace().skip(1).filter_map(|f| f.parse::<u64>().ok()).sum();
+    let jiffies: u64 = line
+        .split_whitespace()
+        .skip(1)
+        .filter_map(|f| f.parse::<u64>().ok())
+        .sum();
     // USER_HZ is 100 on every Linux this runs on; jiffies → ns.
     jiffies.saturating_mul(1_000_000_000 / 100)
 }
@@ -2041,7 +2077,13 @@ fn fnv1a32(s: &str) -> u32 {
 /// A container name reduced to the characters a volume name allows.
 fn sanitize_vol_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -2049,7 +2091,11 @@ fn sanitize_vol_name(name: &str) -> String {
 /// the mount target — so `handle_remove` finds and deletes it by prefix without
 /// persisting any mapping.
 fn anon_volume_name(container: &str, target: &str) -> String {
-    format!("dlxanon-{}-{:08x}", sanitize_vol_name(container), fnv1a32(target))
+    format!(
+        "dlxanon-{}-{:08x}",
+        sanitize_vol_name(container),
+        fnv1a32(target)
+    )
 }
 
 /// Removes every anonymous volume a container owns (named `dlxanon-<name>-…`).
@@ -2893,21 +2939,87 @@ mod matrix_tests {
         .collect();
         let j = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
         // Label present by key, and by key=value — the reaping filter.
-        assert!(super::filters_match(&labels, "running", "web", "deadbeef", &j(r#"{"label":["org.testcontainers"]}"#)));
-        assert!(super::filters_match(&labels, "running", "web", "deadbeef", &j(r#"{"label":["org.testcontainers=true"]}"#)));
+        assert!(super::filters_match(
+            &labels,
+            "running",
+            "web",
+            "deadbeef",
+            &j(r#"{"label":["org.testcontainers"]}"#)
+        ));
+        assert!(super::filters_match(
+            &labels,
+            "running",
+            "web",
+            "deadbeef",
+            &j(r#"{"label":["org.testcontainers=true"]}"#)
+        ));
         // Wrong value, or missing label → no match.
-        assert!(!super::filters_match(&labels, "running", "web", "deadbeef", &j(r#"{"label":["org.testcontainers=false"]}"#)));
-        assert!(!super::filters_match(&labels, "running", "web", "deadbeef", &j(r#"{"label":["absent"]}"#)));
+        assert!(!super::filters_match(
+            &labels,
+            "running",
+            "web",
+            "deadbeef",
+            &j(r#"{"label":["org.testcontainers=false"]}"#)
+        ));
+        assert!(!super::filters_match(
+            &labels,
+            "running",
+            "web",
+            "deadbeef",
+            &j(r#"{"label":["absent"]}"#)
+        ));
         // Multiple labels are ANDed.
-        assert!(super::filters_match(&labels, "running", "web", "deadbeef", &j(r#"{"label":["org.testcontainers","session=abc"]}"#)));
-        assert!(!super::filters_match(&labels, "running", "web", "deadbeef", &j(r#"{"label":["org.testcontainers","session=zzz"]}"#)));
+        assert!(super::filters_match(
+            &labels,
+            "running",
+            "web",
+            "deadbeef",
+            &j(r#"{"label":["org.testcontainers","session=abc"]}"#)
+        ));
+        assert!(!super::filters_match(
+            &labels,
+            "running",
+            "web",
+            "deadbeef",
+            &j(r#"{"label":["org.testcontainers","session=zzz"]}"#)
+        ));
         // status/name are ORed within the key; an unknown key is ignored.
-        assert!(super::filters_match(&labels, "exited", "web", "deadbeef", &j(r#"{"status":["created","exited"]}"#)));
-        assert!(!super::filters_match(&labels, "running", "web", "deadbeef", &j(r#"{"status":["exited"]}"#)));
-        assert!(super::filters_match(&labels, "running", "my-web-1", "deadbeef", &j(r#"{"name":["web"]}"#)));
-        assert!(super::filters_match(&labels, "running", "web", "deadbeef", &j(r#"{"bogus":["x"]}"#)));
+        assert!(super::filters_match(
+            &labels,
+            "exited",
+            "web",
+            "deadbeef",
+            &j(r#"{"status":["created","exited"]}"#)
+        ));
+        assert!(!super::filters_match(
+            &labels,
+            "running",
+            "web",
+            "deadbeef",
+            &j(r#"{"status":["exited"]}"#)
+        ));
+        assert!(super::filters_match(
+            &labels,
+            "running",
+            "my-web-1",
+            "deadbeef",
+            &j(r#"{"name":["web"]}"#)
+        ));
+        assert!(super::filters_match(
+            &labels,
+            "running",
+            "web",
+            "deadbeef",
+            &j(r#"{"bogus":["x"]}"#)
+        ));
         // No filters → everything matches (Null and empty object).
-        assert!(super::filters_match(&labels, "running", "web", "deadbeef", &serde_json::Value::Null));
+        assert!(super::filters_match(
+            &labels,
+            "running",
+            "web",
+            "deadbeef",
+            &serde_json::Value::Null
+        ));
     }
 
     #[test]
@@ -2956,7 +3068,10 @@ mod matrix_tests {
             .collect();
         // `-i` because attach_stdin, no `-t`; then the id, then the argv whole —
         // `-c` and `exit 7` ride through the trailing var-arg, no `--` needed.
-        assert_eq!(args, ["container", "exec", "-i", "abc", "sh", "-c", "exit 7"]);
+        assert_eq!(
+            args,
+            ["container", "exec", "-i", "abc", "sh", "-c", "exit 7"]
+        );
     }
 
     #[test]
@@ -2977,7 +3092,10 @@ mod matrix_tests {
         let (_, body) = super::handle_exec_json(eid);
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["Running"], true);
-        assert!(v["ExitCode"].is_null(), "running exec has a null ExitCode: {v}");
+        assert!(
+            v["ExitCode"].is_null(),
+            "running exec has a null ExitCode: {v}"
+        );
         assert_eq!(v["ProcessConfig"]["entrypoint"], "echo");
         // Finished: Running false, ExitCode the integer the client reads.
         super::finish_exec(eid, 7);

@@ -124,11 +124,11 @@ pub fn report(host: &SdnHost) -> ProviderReport {
                 C::NetVlan => S::Partial {
                     detail: "`network vlan` puts an 802.1Q VLAN on a physical NIC — root only, and it says so on every run",
                 },
-                C::NetOverlayVxlan => base(S::Partial {
-                    detail: "VXLAN uplink + FDB peers inside the holder; inter-node forwarding needs a second node the battery does not have",
+                C::NetOverlayVxlan => base(S::Supported {
+                    evidence: "live:reports/go-nogo-alta-criticidade-20261101/g4-overlay-forwarding.md",
                 }),
-                C::NetOverlayEncrypted => wg(S::Partial {
-                    detail: "WireGuard peer per overlay node; peer removal proven on one node, traffic across two nodes not measured",
+                C::NetOverlayEncrypted => wg(S::Supported {
+                    evidence: "live:reports/go-nogo-alta-criticidade-20261101/g4-overlay-forwarding.md",
                 }),
                 C::NetIpam => base(S::Supported {
                     evidence: "chaos:scen_concurrent_attach",
@@ -154,9 +154,9 @@ pub fn report(host: &SdnHost) -> ProviderReport {
                 C::NetTunnelEgress => S::RequiresExternalComponent {
                     component: "a tunnel provider (pinggy, ngrok, cloudflared) and its binary/account",
                 },
-                C::NetIpv6 => S::UnsupportedByProvider {
-                    reason: "disabled in every container netns and dropped by `table ip6` in the holder: the firewall is `table ip` (v0.37.1); `DELONIX_ENABLE_IPV6=1` is a noisy escape, not a feature",
-                },
+                C::NetIpv6 => filt(S::Supported {
+                    evidence: "e2e:dual-stack: container ULA (fd00:<o2>::<o3>:<o4>) GOVERNED east-west — same-namespace v6 ping passes, cross-namespace v6 dropped by the `inet` namespace rule (counter), v4 unchanged (ADR-0082 phase 4). v6→Internet additionally needs a host v6 uplink; `DELONIX_DISABLE_IPV6=1` turns the v6 SDN off",
+                }),
                 C::NetRateLimit => base(S::Supported {
                     evidence: "check:update: net-rate a quente",
                 }),

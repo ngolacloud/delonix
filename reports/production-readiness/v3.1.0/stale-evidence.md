@@ -52,6 +52,14 @@ notas da v3.1.0.
 | CURRENT | 19 Kinds, 15 crates, 245 folhas | — | 3.1.0 |
 | DOC ONLY | «múltiplas rondas de revisão de segurança» | — | `SECURITY.md:59` |
 
+## Re-medições no commit atual (G6 do plano NO-GO→GO)
+
+| Estado | Evidência | Valor novo | Commit / data |
+|---|---|---|---|
+| FRESCO | Matriz de capacidades (`docs/providers/capability-matrix.md`) | **181/271 (66,8 %)**, engine 0.1.0 — era 180/270@5.1.1; `net.ipv6` passou a `supported` (ADR-0082 phase 4). Regenerada do binário atual; o teste `the_published_matrix_is_the_generated_one` volta a VERDE (drift fechado) | feat/ipv6-phase1, 2026-11-02 |
+
+**Ainda STALE, por exigirem nó dedicado/infra (não re-corríveis nesta caixa com carga alheia):** latência (`bench.sh` recusa-se em nó carregado — por desenho), densidade (`bench_density.sh`, novo — precisa de nó ocioso), CRI (`critest`, precisa de k8s/CRI), caos+E2E (`chaos.sh`/`e2e.sh`, criam VMs/kind). Ver o G5/G6 do plano.
+
 ## Evidência regenerável e quem a corre
 
 | Evidência | Script | CI? |

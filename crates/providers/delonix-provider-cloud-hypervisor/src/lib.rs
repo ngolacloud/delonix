@@ -1300,15 +1300,17 @@ impl VmBackend for CloudHypervisorBackend {
             Duration::from_secs(10),
         )?;
         if !http_status_is_2xx(&status) {
-            return Err(delonix_model::Error::from(Error::CloudHypervisorApi(format!(
-                "cloud-hypervisor vm.add-disk for VM '{}': {}",
-                vm.name,
-                if status.is_empty() {
-                    "no response"
-                } else {
-                    &status
-                }
-            ))));
+            return Err(delonix_model::Error::from(Error::CloudHypervisorApi(
+                format!(
+                    "cloud-hypervisor vm.add-disk for VM '{}': {}",
+                    vm.name,
+                    if status.is_empty() {
+                        "no response"
+                    } else {
+                        &status
+                    }
+                ),
+            )));
         }
         // Recorded now (D6), before we settle: the VMM has the disk, so a
         // command killed from here on must not leave the domain with a device
@@ -1392,15 +1394,17 @@ impl VmBackend for CloudHypervisorBackend {
         };
         if !http_status_is_2xx(&status) {
             net.detach_tap(&owner, lease.as_deref());
-            return Err(delonix_model::Error::from(Error::CloudHypervisorApi(format!(
-                "cloud-hypervisor vm.add-net for VM '{}': {}",
-                vm.name,
-                if status.is_empty() {
-                    "no response"
-                } else {
-                    &status
-                }
-            ))));
+            return Err(delonix_model::Error::from(Error::CloudHypervisorApi(
+                format!(
+                    "cloud-hypervisor vm.add-net for VM '{}': {}",
+                    vm.name,
+                    if status.is_empty() {
+                        "no response"
+                    } else {
+                        &status
+                    }
+                ),
+            )));
         }
         let mut pinned = nic.clone();
         pinned.mac = Some(mac);
@@ -1436,14 +1440,24 @@ impl VmBackend for CloudHypervisorBackend {
         removed: &mut dyn FnMut() -> delonix_model::Result<()>,
     ) -> delonix_model::Result<HotplugOutcome> {
         let carried = || -> delonix_model::Result<Option<String>> {
-            let (status, body) =
-                ch_api_call(&vm.api_socket, "GET", "/api/v1/vm.info", Duration::from_secs(10))?;
+            let (status, body) = ch_api_call(
+                &vm.api_socket,
+                "GET",
+                "/api/v1/vm.info",
+                Duration::from_secs(10),
+            )?;
             if !http_status_is_2xx(&status) {
-                return Err(delonix_model::Error::from(Error::CloudHypervisorApi(format!(
-                    "cloud-hypervisor vm.info for VM '{}': {}",
-                    vm.name,
-                    if status.is_empty() { "no response" } else { &status }
-                ))));
+                return Err(delonix_model::Error::from(Error::CloudHypervisorApi(
+                    format!(
+                        "cloud-hypervisor vm.info for VM '{}': {}",
+                        vm.name,
+                        if status.is_empty() {
+                            "no response"
+                        } else {
+                            &status
+                        }
+                    ),
+                )));
             }
             Ok(ch_vm_info_device_id(&body, "disks", "path", &disk.source))
         };
@@ -1493,14 +1507,24 @@ impl VmBackend for CloudHypervisorBackend {
             )))
         })?;
         let carried = || -> delonix_model::Result<Option<String>> {
-            let (status, body) =
-                ch_api_call(&vm.api_socket, "GET", "/api/v1/vm.info", Duration::from_secs(10))?;
+            let (status, body) = ch_api_call(
+                &vm.api_socket,
+                "GET",
+                "/api/v1/vm.info",
+                Duration::from_secs(10),
+            )?;
             if !http_status_is_2xx(&status) {
-                return Err(delonix_model::Error::from(Error::CloudHypervisorApi(format!(
-                    "cloud-hypervisor vm.info for VM '{}': {}",
-                    vm.name,
-                    if status.is_empty() { "no response" } else { &status }
-                ))));
+                return Err(delonix_model::Error::from(Error::CloudHypervisorApi(
+                    format!(
+                        "cloud-hypervisor vm.info for VM '{}': {}",
+                        vm.name,
+                        if status.is_empty() {
+                            "no response"
+                        } else {
+                            &status
+                        }
+                    ),
+                )));
             }
             Ok(ch_vm_info_device_id(&body, "net", "mac", &mac))
         };
@@ -1794,7 +1818,11 @@ fn ch_remove_device(sock: &str, vm_name: &str, id: &str) -> Result<()> {
     } else {
         Err(Error::CloudHypervisorApi(format!(
             "cloud-hypervisor vm.remove-device '{id}' for VM '{vm_name}': {}",
-            if status.is_empty() { "no response" } else { &status }
+            if status.is_empty() {
+                "no response"
+            } else {
+                &status
+            }
         )))
     }
 }

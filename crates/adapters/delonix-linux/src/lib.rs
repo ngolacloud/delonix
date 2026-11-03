@@ -86,10 +86,10 @@ fn syserr(context: &'static str) -> impl Fn(nix::Error) -> Error {
     }
 }
 
-// `is_alive`, `proc_starttime` e `safe_to_signal` vivem agora no
-// `delonix-node`, junto das perguntas ao host, com o `pid_starttime` que existem para
-// guardar — e para o `delonix-vm` os poder usar sem uma SEGUNDA cópia da regra
-// de reciclagem de PID. Re-exportadas: nenhum chamador deste crate muda.
+// `is_alive`, `proc_starttime` and `safe_to_signal` now live in
+// `delonix-node`, alongside the host queries, with the `pid_starttime` they exist to
+// hold — and so `delonix-vm` can use them without a SECOND copy of the
+// PID-recycling rule. Re-exported: no caller of this crate changes.
 pub use delonix_node::{is_alive, proc_starttime, safe_to_signal};
 
 /// Short, stable reason code for WHY `safe_to_signal` failed — the two cases it
@@ -1887,6 +1887,14 @@ fn mount_devpts(dev: &str, with_gid: bool) {
 /// accessible under `old_root` (the old root preserved by `pivot_root`, still to
 /// be unmounted). The caller unmounts `old_root` right after.
 fn setup_dev_userns(old_root: &str, devices: &[String]) {
+    // Create `/dev` FIRST, or the tmpfs below has no mount point. A `FROM
+    // scratch` (or distroless) rootfs ships no `/dev`, so this mount — and every
+    // node under it, including `/dev/null` — silently no-op'd (`let _ =`), and
+    // the container then died LATER with "could not mask '/proc/sysrq-trigger':
+    // ENOENT" when `mask_proc_paths` reached for the missing `/dev/null` as its
+    // bind SOURCE. `setup_dev` (the non-userns twin) always did this; the
+    // userns path did not.
+    let _ = std::fs::create_dir_all("/dev");
     let _ = mount(
         Some("tmpfs"),
         "/dev",
@@ -6650,41 +6658,41 @@ fn apply_aggregate_ceiling(base: &str) {
         format!("{} 100000", ncpu * 100_000 / 100 * pct),
     );
     let _ = std::fs::write(format!("{base}/pids.max"), (ncpu * 4096).to_string());
-    // BUG FIXED HERE — o tecto agregado tinha TRÊS das quatro dimensões.
+    // BUG FIXED HERE — the aggregate ceiling had THREE of the four dimensions.
     //
-    // `ensure_delonix_slice()` (o caminho ROOT) escreve memory/cpu/pids **e**
-    // `io.max`; este, o caminho ROOTLESS — o modo de bandeira do motor —
-    // escrevia só os três primeiros. O disco ficava sem tecto agregado, e o
-    // raciocínio que justifica os outros três aplica-se-lhe igual: N containers
-    // sem `--device-write-bps` somam escrita sem limite nenhum, e um só a
-    // escrever a fundo satura o disco e leva o host à frente — journald, store
-    // e swap incluídos — com memória e CPU já limitados.
+    // `ensure_delonix_slice()` (the ROOT path) writes memory/cpu/pids **and**
+    // `io.max`; this one, the ROOTLESS path — the engine's flagship mode —
+    // wrote only the first three. The disk was left with no aggregate ceiling, and the
+    // reasoning that justifies the other three applies to it just the same: N containers
+    // with no `--device-write-bps` add up to unbounded writes, and a single one
+    // writing flat out saturates the disk and takes the host down with it — journald, store
+    // and swap included — with memory and CPU already capped.
     //
-    // Medido ao vivo a 2026-08-19, numa VM com `io` já delegado ao
-    // `user@.service` ANTES de a base existir:
+    // Measured live on 2026-08-19, on a VM with `io` already delegated to
+    // `user@.service` BEFORE the base existed:
     //
-    //     dlx-containers  memory.max  856956928     <- aplicado
-    //     dlx-containers  cpu.max     85000 100000  <- aplicado
-    //     dlx-containers  io.max      (vazio)       <- NUNCA escrito
+    //     dlx-containers  memory.max  856956928     <- applied
+    //     dlx-containers  cpu.max     85000 100000  <- applied
+    //     dlx-containers  io.max      (empty)       <- NEVER written
     //
-    // E o ficheiro aceitava a escrita à mão, com o valor exacto que esta função
-    // passa a escrever — portanto não era o kernel a recusar nem delegação em
-    // falta: era esta linha a não existir.
+    // And the file accepted a manual write, with the exact value this function
+    // now writes — so it was not the kernel refusing nor delegation
+    // missing: it was this line simply not existing.
     if let Some(v) = aggregate_io_max_value() {
         let _ = std::fs::write(format!("{base}/io.max"), v);
     }
 }
 
-/// A linha `io.max` do tecto AGREGADO — `MAJ:MIN rbps=N wbps=N` — ou `None`
-/// quando não há tecto a aplicar (`DELONIX_IO_MAX_BPS=0`) ou o dispositivo da
-/// store não é utilizável (overlay/tmpfs, `maj == 0`).
+/// The `io.max` line of the AGGREGATE ceiling — `MAJ:MIN rbps=N wbps=N` — or `None`
+/// when there is no ceiling to apply (`DELONIX_IO_MAX_BPS=0`) or the store's
+/// device is not usable (overlay/tmpfs, `maj == 0`).
 ///
-/// Separada da escrita para ser testável sem cgroupfs: o que se pode enganar
-/// aqui é a FORMA do valor, e essa não precisa de um kernel para ser verificada.
+/// Kept separate from the write so it is testable without cgroupfs: what can be
+/// fooled here is the SHAPE of the value, and that does not need a kernel to be verified.
 fn aggregate_io_max_value() -> Option<String> {
     let cap_bps = host_io_max_bps();
     if cap_bps == 0 {
-        return None; // tecto desligado por ambiente
+        return None; // ceiling disabled by environment
     }
     let dev = slice_io_device()?;
     Some(format!("{dev} rbps={cap_bps} wbps={cap_bps}"))
@@ -7205,18 +7213,18 @@ fn write_etc_files(
          ff02::1\tip6-allnodes\n\
          ff02::2\tip6-allrouters\n",
     );
-    // `--add-host name:ip`. As entradas chegam JÁ VALIDADAS e normalizadas por
-    // `cmd::container::parse_add_host` (nome LDH, endereço parseado como
-    // `IpAddr`) — aqui não há saneamento a fazer, e é deliberado que não haja:
-    // duas validações em sítios diferentes divergem, e a que fica para trás é
-    // a que passa a mentir. Uma entrada sem `:` só pode vir de um registo
-    // corrompido à mão; salta-se.
+    // `--add-host name:ip`. The entries arrive ALREADY VALIDATED and normalized by
+    // `cmd::container::parse_add_host` (LDH name, address parsed as
+    // `IpAddr`) — there is no sanitizing to do here, and that is deliberate:
+    // two validations in different places drift apart, and the one left behind is
+    // the one that starts lying. An entry without a `:` can only come from a
+    // hand-corrupted record; it is skipped.
     //
-    // Escritas ANTES da linha canónica `<ip> <hostname>`: o resolvedor da libc
-    // devolve a PRIMEIRA correspondência, portanto é esta a ordem que faz o
-    // override do utilizador ganhar — é o que Docker e Podman fazem, e a
-    // versão anterior tinha-a ao contrário (a entrada era aceite e não tinha
-    // efeito nenhum).
+    // Written BEFORE the canonical `<ip> <hostname>` line: the libc resolver
+    // returns the FIRST match, so this is the order that makes the
+    // user's override win — it is what Docker and Podman do, and the
+    // previous version had it the other way round (the entry was accepted and had
+    // no effect at all).
     for entry in extra_hosts {
         if let Some((name, addr)) = entry.split_once(':') {
             hosts.push_str(&format!("{addr}\t{name}\n"));
@@ -7228,27 +7236,27 @@ fn write_etc_files(
     write_inside_rootfs(rootfs, "etc/hosts", &hosts);
 }
 
-/// `close_range(2)` pelo número da chamada, e não pelo wrapper do `libc`.
+/// `close_range(2)` by the syscall number, not through the `libc` wrapper.
 ///
-/// O wrapper `libc::close_range` só existe para `target_env = "gnu"`: a crate
-/// `libc` não o expõe em musl, e o build estático do binário Free morria aqui
-/// com `cannot find function `close_range` in crate `libc`` — dois erros, um
-/// por chamada. O número da chamada (`SYS_close_range`) está definido para
-/// Linux em qualquer libc, e este ficheiro já o usa no perfil de seccomp.
+/// The `libc::close_range` wrapper only exists for `target_env = "gnu"`: the
+/// `libc` crate does not expose it on musl, and the static build of the Free binary died here
+/// with `cannot find function `close_range` in crate `libc`` — two errors, one
+/// per call. The syscall number (`SYS_close_range`) is defined for
+/// Linux on any libc, and this file already uses it in the seccomp profile.
 ///
-/// Continua a ser exactamente o que o sítio de chamada precisa: `syscall(2)` é
-/// um invólucro fino sem alocação, e isto corre depois de um `fork` num
-/// processo que pode ter outras threads — onde alocar é o que não se pode
-/// fazer.
+/// It stays exactly what the call site needs: `syscall(2)` is
+/// a thin wrapper with no allocation, and this runs after a `fork` in a
+/// process that may have other threads — where allocating is the one thing you
+/// cannot do.
 ///
-/// Falhas são ignoradas de propósito, como eram antes: num kernel sem
-/// `close_range` (< 5.9) devolve `ENOSYS`, e o shim segue com descritores a
-/// mais em vez de não arrancar.
+/// Failures are ignored on purpose, as they were before: on a kernel without
+/// `close_range` (< 5.9) it returns `ENOSYS`, and the shim carries on with extra
+/// descriptors instead of failing to start.
 ///
 /// # Safety
 ///
-/// Chama directamente o kernel. O chamador garante que os descritores em
-/// `[first, last]` não são usados depois disto.
+/// Calls the kernel directly. The caller guarantees that the descriptors in
+/// `[first, last]` are not used after this.
 unsafe fn close_range_raw(first: u32, last: u32) {
     libc::syscall(
         libc::SYS_close_range,
@@ -7574,8 +7582,8 @@ fn spawn(
         &hostname,
         spec.hosts_ip.as_deref(),
         spec.dns.as_deref(),
-        // Do REGISTO, não da invocação: é isso que faz as entradas
-        // sobreviverem a `stop`/`start` e `restart`, que reconstroem a spec.
+        // From the RECORD, not the invocation: that is what makes the entries
+        // survive `stop`/`start` and `restart`, which rebuild the spec.
         spec.dns_config.as_ref(),
         &container.extra_hosts,
     );
@@ -11071,9 +11079,9 @@ pub enum LimitUpdate {
 
 /// Rewrites, LIVE, a container's cgroup limits (`docker update`).
 ///
-/// Devolve qual dos três casos ocorreu — ver `LimitUpdate`. Quem chama TEM de
-/// distinguir: dizer «updated» sobre um `NotEnforced` é exactamente o relato
-/// desonesto que este motor persegue nos outros.
+/// Returns which of the three cases happened — see `LimitUpdate`. The caller MUST
+/// distinguish them: saying "updated" about a `NotEnforced` is exactly the
+/// dishonest reporting this engine hunts down everywhere else.
 pub fn update_limits(
     container: &Container,
     memory: Option<&str>,
@@ -11081,9 +11089,9 @@ pub fn update_limits(
 ) -> Result<LimitUpdate> {
     let cg = live_cgroup(container);
     if !std::path::Path::new(&cg).exists() {
-        // A pergunta que separa os dois casos é «este container está VIVO?», e a
-        // resposta honesta usa o mesmo `safe_to_signal` do resto do motor (o par
-        // pid+starttime, para um PID reciclado não passar por vivo).
+        // The question that separates the two cases is "is this container ALIVE?", and the
+        // honest answer uses the same `safe_to_signal` as the rest of the engine (the
+        // pid+starttime pair, so a recycled PID is not mistaken for alive).
         let vivo = container
             .pid
             .is_some_and(|p| safe_to_signal(p, container.pid_starttime));
@@ -11792,13 +11800,13 @@ mod limit_update_tests {
         )
     }
 
-    /// **Um container PARADO sem cgroup não é uma falha — é o caso normal.**
+    /// **A STOPPED container with no cgroup is not a failure — it is the normal case.**
     ///
-    /// Este é o lado do `update_limits` que sempre esteve certo e que a correcção
-    /// não podia estragar: sem processo não há cgroup onde escrever, o registo
-    /// muda, e o próximo `start` reconstrói o cgroup a partir dele. O que estava
-    /// errado era fundir ISTO com o caso oposto (container VIVO e sem cgroup, onde
-    /// a escrita não aconteceu nem vai acontecer) e chamar «updated» aos dois.
+    /// This is the side of `update_limits` that was always right and that the fix
+    /// could not break: with no process there is no cgroup to write to, the record
+    /// changes, and the next `start` rebuilds the cgroup from it. What was
+    /// wrong was merging THIS with the opposite case (container ALIVE and with no cgroup, where
+    /// the write did not happen and never will) and calling both "updated".
     #[test]
     fn um_container_parado_adia_em_vez_de_mentir() {
         let c = parado();
@@ -11810,14 +11818,14 @@ mod limit_update_tests {
         );
     }
 
-    /// Um PID que já não existe conta como parado, e não como vivo-sem-cgroup.
+    /// A PID that no longer exists counts as stopped, not as alive-without-cgroup.
     ///
-    /// A diferença importa porque as duas mensagens são opostas: uma diz «aplica
-    /// no próximo start» e a outra diz «não está em vigor, e o remédio é do
-    /// ambiente». Um registo com um PID obsoleto — o que sobra de um container
-    /// morto abruptamente — tem de cair na primeira. Usa o mesmo `safe_to_signal`
-    /// (par pid+starttime) do resto do motor, para um PID RECICLADO por outro
-    /// processo qualquer não passar por vivo.
+    /// The difference matters because the two messages are opposites: one says "applies
+    /// on the next start" and the other says "not in force, and the remedy is the
+    /// environment's". A record with a stale PID — what is left of a container
+    /// killed abruptly — must fall into the first. It uses the same `safe_to_signal`
+    /// (pid+starttime pair) as the rest of the engine, so a PID RECYCLED by some other
+    /// process is not mistaken for alive.
     #[test]
     fn um_pid_obsoleto_nao_conta_como_vivo() {
         let mut c = parado();
@@ -12175,14 +12183,14 @@ mod tests {
         assert_eq!(super::workload_pct_from(Some("40")), 40);
     }
 
-    /// Achado de auditoria (MÉDIO): a lista default de masked/readonly paths era
-    /// mais curta que a do runc — o motor mascarava só `sysrq-trigger`/`kcore`
-    /// (controlo do host) e deixava passar os que vazam INFORMAÇÃO do host.
-    /// Medido ao vivo antes da correcção: `/proc/interrupts` com 109 linhas e
-    /// `/sys/firmware` com 4 entradas visíveis de dentro do container.
+    /// Audit finding (MEDIUM): the default list of masked/readonly paths was
+    /// shorter than runc's — the engine masked only `sysrq-trigger`/`kcore`
+    /// (host control) and let through the ones that leak host INFORMATION.
+    /// Measured live before the fix: `/proc/interrupts` with 109 lines and
+    /// `/sys/firmware` with 4 entries visible from inside the container.
     #[test]
     fn os_defaults_de_masked_paths_cobrem_a_lista_do_runc() {
-        // Os que vazam ponteiros do kernel (KASLR) e side-channels de temporização.
+        // The ones that leak kernel pointers (KASLR) and timing side-channels.
         for p in [
             "/proc/timer_list",
             "/proc/sched_debug",
@@ -12196,7 +12204,7 @@ mod tests {
                 "{p} tem de estar mascarado por omissão (o runc mascara-o)"
             );
         }
-        // Escrita nestes é efeito ao nível do host (afinidade de IRQ, config PCI).
+        // Writing to these takes effect at the host level (IRQ affinity, PCI config).
         for p in ["/proc/irq", "/proc/bus", "/proc/sys"] {
             assert!(
                 super::DEFAULT_READONLY_PATHS.contains(&p),
@@ -12438,24 +12446,24 @@ mod tests {
         assert!(mount_point_should_be_dir(&dir.join("nao-existe")));
     }
 
-    /// Achado de auditoria (MÉDIO): `bind_devices` construía o destino por
-    /// concatenação crua e criava o mountpoint com `File::create` (que TRUNCA).
-    /// Um `spec.devices` de um manifesto não-confiado — `/dev/null:/../../x` —
-    /// escapava o rootfs e truncava um ficheiro real do host. Este teste replica
-    /// o exploit: um ficheiro "do host" com conteúdo, fora do rootfs, tem de
-    /// ficar INTACTO. Sem a correcção, ficaria com 0 bytes.
+    /// Audit finding (MEDIUM): `bind_devices` built the destination by
+    /// raw concatenation and created the mountpoint with `File::create` (which TRUNCATES).
+    /// A `spec.devices` from an untrusted manifest — `/dev/null:/../../x` —
+    /// escaped the rootfs and truncated a real host file. This test replicates
+    /// the exploit: a "host" file with content, outside the rootfs, must
+    /// stay INTACT. Without the fix, it would end up with 0 bytes.
     #[test]
     fn bind_devices_recusa_destino_que_escapa_o_rootfs() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         let rootfs = dir.join("rootfs");
         std::fs::create_dir_all(&rootfs).unwrap();
-        // O "ficheiro do host" que o atacante quer destruir (fora do rootfs).
+        // The "host file" the attacker wants to destroy (outside the rootfs).
         let victim = dir.join("etc_crontab_do_host");
         std::fs::write(&victim, b"* * * * * root /usr/bin/legitimo\n").unwrap();
         let before = std::fs::read(&victim).unwrap();
 
-        // `/dev/null:/../etc_crontab_do_host` → sai do rootfs para o ficheiro acima.
+        // `/dev/null:/../etc_crontab_do_host` → leaves the rootfs for the file above.
         super::bind_devices(
             "",
             rootfs.to_str().unwrap(),
@@ -12473,9 +12481,9 @@ mod tests {
         );
     }
 
-    /// Os device nodes de memória/porta crua nunca são entregues a um container.
-    /// São CHAR devices, logo passam o filtro de block-device — em modo root
-    /// (o caminho CRI/kubelet) qualquer um deles é compromisso total do host.
+    /// The raw memory/port device nodes are never handed to a container.
+    /// They are CHAR devices, so they pass the block-device filter — in root mode
+    /// (the CRI/kubelet path) any one of them is a total compromise of the host.
     #[test]
     fn bind_devices_recusa_dev_mem_kmem_e_port() {
         for d in ["/dev/mem", "/dev/kmem", "/dev/port"] {
@@ -12484,16 +12492,16 @@ mod tests {
                 "{d} tinha de ser recusado explicitamente"
             );
         }
-        // Um char device legítimo continua permitido (não é um denylist cego).
+        // A legitimate char device stays allowed (this is not a blind denylist).
         assert!(!super::is_forbidden_device("/dev/null"));
         assert!(!super::is_forbidden_device("/dev/nvidia0"));
         assert!(!super::is_forbidden_device("/dev/dri/renderD128"));
     }
 
-    /// `--add-host` tem de aparecer no `/etc/hosts` do rootfs, DEPOIS das
-    /// entradas canónicas, e sem partir o ficheiro quando a entrada é
-    /// malformada (um `/etc/hosts` inválido quebra a resolução TODA dentro do
-    /// contentor — é preferível perder uma entrada a perder o ficheiro).
+    /// `--add-host` must appear in the rootfs's `/etc/hosts`, AFTER the
+    /// canonical entries, and without breaking the file when the entry is
+    /// malformed (an invalid `/etc/hosts` breaks resolution ENTIRELY inside the
+    /// container — losing one entry is preferable to losing the file).
     #[test]
     fn write_etc_files_escreve_as_entradas_de_add_host() {
         let tmp = tempfile::tempdir().unwrap();
@@ -12507,7 +12515,7 @@ mod tests {
             Some("10.0.0.5"),
             None,
             None,
-            // Chegam já validadas por `parse_add_host` (ver os testes lá).
+            // They arrive already validated by `parse_add_host` (see the tests there).
             &[
                 "meet.kaeso.local:10.0.0.9".to_string(),
                 "erp.local:10.0.0.10".to_string(),
@@ -12518,10 +12526,10 @@ mod tests {
         assert!(hosts.contains("10.0.0.9\tmeet.kaeso.local\n"));
         assert!(hosts.contains("10.0.0.10\terp.local\n"));
         assert!(hosts.starts_with("127.0.0.1\tlocalhost\n"));
-        // ORDEM: as do utilizador vêm ANTES da canónica `<ip> <hostname>`.
-        // A libc devolve a primeira correspondência, portanto é esta a ordem
-        // que faz o override ganhar — como no Docker e no Podman. A versão
-        // anterior tinha-a ao contrário e a entrada não tinha efeito nenhum.
+        // ORDER: the user's entries come BEFORE the canonical `<ip> <hostname>`.
+        // libc returns the first match, so this is the order
+        // that makes the override win — as in Docker and Podman. The previous
+        // version had it the other way round and the entry had no effect at all.
         let pos_extra = hosts.find("meet.kaeso.local").unwrap();
         let pos_canonica = hosts.find("10.0.0.5\tapp").unwrap();
         assert!(
@@ -12808,13 +12816,13 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// only does plain `fs::write`/`fs::create_dir_all` against whatever
     /// `base` string it's given — no real cgroupfs needed to exercise it, a
     /// plain temp directory stands in fine.
-    /// O default de `-m` é `max` (paridade com o Docker) e assim FICA — o que o
-    /// tornava perigoso era não haver tecto agregado por baixo. Com esse tecto
-    /// no lugar, o que resta é tornar VISÍVEIS as configurações em que
-    /// continua a não haver protecção nenhuma, em vez de fingir que estão bem.
+    /// The default for `-m` is `max` (parity with Docker) and STAYS that way — what
+    /// made it dangerous was the absence of an aggregate ceiling underneath. With that ceiling
+    /// in place, what remains is to make VISIBLE the configurations where
+    /// there is still no protection at all, instead of pretending they are fine.
     #[test]
     fn so_avisa_quando_nao_ha_tecto_a_nivel_nenhum() {
-        // Sem limite próprio E sem tecto agregado → é o caso perigoso.
+        // No own limit AND no aggregate ceiling → this is the dangerous case.
         assert!(unprotected_memory("max", Some("max")));
         assert!(
             unprotected_memory("max", None),
@@ -12823,34 +12831,34 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         assert!(unprotected_memory("", Some("max")));
         assert!(unprotected_memory("MAX", Some("max")), "case-insensitive");
 
-        // Limite PRÓPRIO → protegido, independentemente do pai.
+        // OWN limit → protected, regardless of the parent.
         assert!(!unprotected_memory("512M", Some("max")));
         assert!(!unprotected_memory("512M", None));
-        // Sem limite próprio mas COM tecto agregado → protegido (é o efeito da
-        // correcção do ponto 2; era este o caso que antes passava despercebido).
+        // No own limit but WITH an aggregate ceiling → protected (this is the effect of
+        // the fix in point 2; this was the case that previously slipped by unnoticed).
         assert!(!unprotected_memory("max", Some("8589934592")));
-        // Espaços/newline do `read_to_string` do cgroupfs não podem enganar.
+        // Spaces/newline from the cgroupfs `read_to_string` must not fool it.
         assert!(unprotected_memory(" max \n", Some(" max \n")));
         assert!(!unprotected_memory("max", Some(" 1073741824 \n")));
     }
 
-    /// Cria uma base de cgroup falsa (só ficheiros — não é preciso cgroupfs real).
+    /// Creates a fake cgroup base (files only — no real cgroupfs needed).
     fn fake_base() -> tempfile::TempDir {
         let base = tempfile::tempdir().unwrap();
         std::fs::write(base.path().join("cgroup.subtree_control"), "").unwrap();
         base
     }
 
-    /// REGRESSION: `memory.max` sozinho NÃO limita a pressão de memória num host
-    /// com swap — o container passa a fazer swap no limite em vez de ser
-    /// reclamado/morto, e o tecto que o operador pediu vale só para a memória
-    /// residente. E com `memory.oom.group = 0` (o default do kernel) o OOM mata
-    /// UM processo do cgroup, deixando um container meio-morto que continua a
-    /// reportar-se Running.
+    /// REGRESSION: `memory.max` alone does NOT limit memory pressure on a host
+    /// with swap — the container starts swapping at the limit instead of being
+    /// reclaimed/killed, and the ceiling the operator asked for covers only the resident
+    /// memory. And with `memory.oom.group = 0` (the kernel default) the OOM kills
+    /// ONE process of the cgroup, leaving a half-dead container that keeps
+    /// reporting itself Running.
     ///
-    /// Medido ao vivo antes da correcção: `memory.swap.max = max` numa leaf de
-    /// um container arrancado com `-m 256M`. Tirar qualquer uma das duas
-    /// escritas de `try_delegated_base` faz este teste falhar.
+    /// Measured live before the fix: `memory.swap.max = max` on a leaf of
+    /// a container started with `-m 256M`. Removing either of the two
+    /// writes in `try_delegated_base` makes this test fail.
     #[test]
     fn leaf_delegada_fecha_o_swap_e_mata_o_cgroup_inteiro_no_oom() {
         let tmp = fake_base();
@@ -12882,22 +12890,22 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         );
     }
 
-    /// REGRESSION: uma leaf criada e NÃO usada tem de ser removida.
+    /// REGRESSION: a leaf that is created and NOT used must be removed.
     ///
-    /// `try_delegated_base` cria `<base>/dlx-<id>` antes de saber se a base é
-    /// delegável, e todos os `return false` depois disso deixavam o cgroup vazio
-    /// para trás — para sempre. Medido ao vivo: seis directórios `dlx-*` órfãos
-    /// sob um scope do systemd onde a delegação tinha falhado, um por cada
-    /// container alguma vez tentado ali.
+    /// `try_delegated_base` creates `<base>/dlx-<id>` before knowing whether the base is
+    /// delegable, and every `return false` after that left the empty cgroup
+    /// behind — forever. Measured live: six orphaned `dlx-*` directories
+    /// under a systemd scope where delegation had failed, one for each
+    /// container ever attempted there.
     #[test]
     fn base_nao_delegavel_nao_deixa_leaf_orfa() {
-        // Base SEM `cgroup.subtree_control` gravável de verdade: o
-        // `create_dir_all` da leaf passa, mas a activação de controladores
-        // falha — exactamente o caso do scope populado (no-internal-processes).
+        // A base with NO truly writable `cgroup.subtree_control`: the
+        // leaf's `create_dir_all` succeeds, but enabling controllers
+        // fails — exactly the case of a populated scope (no-internal-processes).
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
-        // `subtree_control` existe (passa o gate inicial) mas é só-leitura, por
-        // isso os `+ctrl` falham todos e `any` fica false.
+        // `subtree_control` exists (passes the initial gate) but is read-only, so
+        // the `+ctrl` writes all fail and `any` stays false.
         std::fs::write(base.join("cgroup.subtree_control"), "").unwrap();
         let mut perm = std::fs::metadata(base.join("cgroup.subtree_control"))
             .unwrap()
@@ -12922,14 +12930,14 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         );
         let leaf = base.join(format!("dlx-{}", c.id));
         if ok {
-            // Root ignora os bits de permissão — declara-o em vez de passar por
-            // acaso.
+            // Root ignores the permission bits — declare it rather than pass by
+            // accident.
             assert!(
                 // SAFETY: `geteuid` takes no arguments and has no preconditions.
                 unsafe { libc::geteuid() } == 0,
                 "a delegação devia ter falhado numa base só-leitura"
             );
-            eprintln!("aviso: a correr como root — asserção da leaf órfã saltada");
+            eprintln!("warning: running as root — orphan-leaf assertion skipped");
         } else {
             assert!(
                 !leaf.exists(),
@@ -12938,13 +12946,13 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         }
     }
 
-    /// REGRESSION (protecção do host): a base que o Delonix cria para si tem de
-    /// levar um tecto AGREGADO. Sem ele, N containers — que por omissão não
-    /// levam `-m` nenhum — somam sem limite e um leak leva o host, que é
-    /// exactamente o que a delegação existe para impedir.
+    /// REGRESSION (host protection): the base that Delonix creates for itself must
+    /// carry an AGGREGATE ceiling. Without it, N containers — which by default carry
+    /// no `-m` at all — add up without limit and one leak takes the host, which is
+    /// exactly what delegation exists to prevent.
     ///
-    /// Medido ao vivo antes da correcção: `dlx-containers`, o pai de todos os
-    /// containers rootless deste host, tinha `memory.max=max`, `pids.max=max`,
+    /// Measured live before the fix: `dlx-containers`, the parent of all the
+    /// rootless containers on this host, had `memory.max=max`, `pids.max=max`,
     /// `cpu.max=max`.
     #[test]
     fn a_base_propria_leva_tecto_agregado_dimensionado_ao_host() {
@@ -12954,10 +12962,10 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         apply_aggregate_ceiling(bs);
 
         let mem: u64 = std::fs::read_to_string(base.join("memory.max"))
-            .expect("memory.max tem de ser escrito")
+            .expect("memory.max must be written")
             .trim()
             .parse()
-            .expect("memory.max tem de ser um número, não `max`");
+            .expect("memory.max must be a number, not `max`");
         assert!(mem > 0, "o tecto agregado não pode ser zero");
         assert!(
             mem < host_mem_bytes(),
@@ -12983,18 +12991,18 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
                 .trim(),
             "0"
         );
-        // O TECTO TINHA TRÊS DAS QUATRO DIMENSÕES, e este teste era cúmplice:
-        // verificava memória, CPU e pids e não perguntava pelo disco. Medido ao
-        // vivo a 2026-08-19, `dlx-containers` ficava com `io.max` vazio enquanto
-        // os outros três estavam aplicados.
+        // THE CEILING HAD THREE OF THE FOUR DIMENSIONS, and this test was complicit:
+        // it checked memory, CPU and pids and never asked about the disk. Measured
+        // live on 2026-08-19, `dlx-containers` was left with an empty `io.max` while
+        // the other three were applied.
         //
-        // `slice_io_device()` devolve `None` em máquinas onde a store assenta em
-        // overlay/tmpfs (`maj == 0`), e aí não escrever é o comportamento certo —
-        // por isso a asserção só aperta quando há dispositivo.
+        // `slice_io_device()` returns `None` on machines where the store sits on
+        // overlay/tmpfs (`maj == 0`), and there not writing is the correct behavior —
+        // so the assertion only tightens when there is a device.
         match aggregate_io_max_value() {
             Some(esperado) => {
                 let escrito = std::fs::read_to_string(base.join("io.max"))
-                    .expect("io.max tem de ser escrito quando há dispositivo");
+                    .expect("io.max must be written when there is a device");
                 assert_eq!(escrito, esperado);
                 let campos: Vec<&str> = escrito.split_whitespace().collect();
                 assert_eq!(campos.len(), 3, "forma `MAJ:MIN rbps=N wbps=N`: {escrito}");
@@ -13013,14 +13021,14 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         }
     }
 
-    /// A FORMA do valor, que é o que se pode enganar sem um kernel por perto.
-    /// Uma linha mal formada é recusada pelo cgroupfs com `EINVAL` e o `let _ =`
-    /// da escrita engole-a — voltaria a dar um tecto que não existe.
+    /// The SHAPE of the value, which is what can be fooled with no kernel around.
+    /// A malformed line is rejected by cgroupfs with `EINVAL` and the write's
+    /// `let _ =` swallows it — it would give back a ceiling that does not exist.
     #[test]
     fn o_valor_do_tecto_agregado_de_io_tem_a_forma_que_o_cgroupfs_aceita() {
-        // `if let` e não `match`: numa máquina sem dispositivo utilizável não há
-        // nada a verificar — e é justamente por isso que a função devolve
-        // `Option` em vez de fabricar um valor.
+        // `if let` and not `match`: on a machine with no usable device there is
+        // nothing to check — and that is exactly why the function returns
+        // `Option` instead of fabricating a value.
         if let Some(v) = aggregate_io_max_value() {
             {
                 let campos: Vec<&str> = v.split_whitespace().collect();
@@ -13038,26 +13046,26 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             }
         }
     }
-    /// A sonda de delegação tem de separar os DOIS casos que este projecto já
-    /// mediu em hosts reais: um scope `Delegate=yes` (systemd faz chown dos
-    /// ficheiros de controlo para o utilizador) e um `session-N.scope` de SSH,
-    /// cujos ficheiros ficam `root:root`. Criar um filho é possível nos dois —
-    /// só a escrita no `cgroup.subtree_control` os distingue.
+    /// The delegation probe must separate the TWO cases this project has already
+    /// measured on real hosts: a `Delegate=yes` scope (systemd chowns the
+    /// control files to the user) and an SSH `session-N.scope`,
+    /// whose files stay `root:root`. Creating a child is possible in both —
+    /// only the write to `cgroup.subtree_control` tells them apart.
     #[test]
     fn delegated_base_usable_exige_subtree_control_gravavel() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
 
-        // Sem `cgroup.subtree_control` nenhum: não é uma base delegável.
+        // No `cgroup.subtree_control` at all: not a delegable base.
         assert!(!delegated_base_usable(base));
 
-        // Com um gravável (o scope delegado): serve.
+        // With a writable one (the delegated scope): it works.
         let sc = base.join("cgroup.subtree_control");
         std::fs::write(&sc, "").unwrap();
         assert!(delegated_base_usable(base));
 
-        // Só de leitura (o `session-N.scope` do SSH, dono root): NÃO serve.
+        // Read-only (SSH's `session-N.scope`, owned by root): does NOT work.
         std::fs::set_permissions(&sc, std::fs::Permissions::from_mode(0o444)).unwrap();
         let readonly_rejected = !delegated_base_usable(base);
         std::fs::set_permissions(&sc, std::fs::Permissions::from_mode(0o644)).unwrap();
@@ -13464,21 +13472,21 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     #[test]
     fn confinement_ok_so_exige_no_new_privs_quando_foi_pedido() {
         let keep = (1u64 << 1) | (1u64 << 3);
-        // Pedido e ausente → aborta.
+        // Requested and absent → abort.
         assert!(
             confinement_ok(Some(0), Some(2), Some(keep), Some(keep), true, keep, true).is_err()
         );
-        // NÃO pedido e ausente → é a política, não uma falha.
+        // NOT requested and absent → this is the policy, not a failure.
         assert!(
             confinement_ok(Some(0), Some(2), Some(keep), Some(keep), true, keep, false).is_ok()
         );
-        // Não pedido mas activo na mesma → também não é problema (mais apertado
-        // do que o pedido nunca é motivo para recusar).
+        // Not requested but active anyway → also not a problem (stricter
+        // than requested is never a reason to refuse).
         assert!(
             confinement_ok(Some(1), Some(2), Some(keep), Some(keep), true, keep, false).is_ok()
         );
-        // E o resto do fail-closed continua a valer com nnp desligado: uma cap
-        // fora da allowlist aborta na mesma.
+        // And the rest of the fail-closed still holds with nnp off: a cap
+        // outside the allowlist aborts all the same.
         let leaked = keep | (1u64 << 21);
         assert!(confinement_ok(
             Some(0),
@@ -13590,11 +13598,11 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             "sem `seccomp` na allowlist, nenhum payload se pode auto-sandboxar \
              (Elasticsearch, Chrome, systemd-nspawn) — e falha de forma fatal"
         );
-        // O `prctl` acompanha-o: é por ele que o payload põe `no_new_privs`, que é
-        // a condição para o `seccomp` sem CAP_SYS_ADMIN.
+        // `prctl` goes with it: it is through `prctl` that the payload sets `no_new_privs`, which is
+        // the condition for `seccomp` without CAP_SYS_ADMIN.
         assert!(allowed.contains(&libc::SYS_prctl));
-        // E as escotilhas de fuga continuam FORA — permitir o `seccomp` não pode
-        // arrastar nada consigo.
+        // And the escape hatches stay OUT — allowing `seccomp` must not
+        // drag anything along with it.
         for nr in [libc::SYS_setns, libc::SYS_unshare, libc::SYS_bpf] {
             assert!(!allowed.contains(&nr));
         }
@@ -13747,35 +13755,35 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     #[test]
     fn initial_uid_map_reconhece_so_a_namespace_inicial() {
         use delonix_node as super_;
-        // A namespace inicial: mapa identidade sobre o intervalo inteiro.
+        // The initial namespace: identity map over the whole range.
         assert!(super_::initial_uid_map(
             "         0          0 4294967295\n"
         ));
-        // Um userns aninhado com `--map-root-user`: um só uid mapeado.
+        // A nested userns with `--map-root-user`: only one uid mapped.
         assert!(!super_::initial_uid_map(
             "         0       1000          1\n"
         ));
-        // Um userns com intervalo de subuid: várias linhas.
+        // A userns with a subuid range: several lines.
         assert!(!super_::initial_uid_map(
             "         0       1000          1\n         1     100000      65536\n"
         ));
-        // Identidade mas com alcance limitado — NÃO é a inicial.
+        // Identity but with a limited range — NOT the initial one.
         assert!(!super_::initial_uid_map(
             "         0          0      65536\n"
         ));
-        // Ilegível/vazio: mantém a resposta histórica, para um ambiente
-        // inesperado não trocar de modo de execução em silêncio.
+        // Unreadable/empty: keep the historical answer, so that an unexpected
+        // environment does not silently switch the execution mode.
         assert!(super_::initial_uid_map(""));
     }
 
     #[test]
     fn uma_origem_de_bind_que_desapareceu_e_nomeada() {
-        // Reproduz o caso que apareceu num host real: um container com varios
-        // bind mounts deixou de arrancar e o motor disse apenas
-        // `failed to prepare the rootfs: ENOENT` — para uma condicao que ele
-        // sabe. A logica e a mesma do preflight de `setup_rootfs`.
+        // Reproduces the case that showed up on a real host: a container with several
+        // bind mounts stopped starting and the engine said only
+        // `failed to prepare the rootfs: ENOENT` — for a condition it
+        // knows. The logic is the same as the `setup_rootfs` preflight.
         let existe = std::env::temp_dir();
-        let ausente = existe.join(format!("dlx-nao-existe-{}", std::process::id()));
+        let ausente = existe.join(format!("dlx-does-not-exist-{}", std::process::id()));
         assert!(!ausente.exists(), "a premissa do teste");
 
         let mounts = [
@@ -13812,10 +13820,10 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             .map(|m| m.source.as_str())
             .collect();
         assert_eq!(missing.len(), 1, "so o ausente NAO opcional conta");
-        assert!(missing[0].contains("dlx-nao-existe"));
+        assert!(missing[0].contains("dlx-does-not-exist"));
 
-        // Uma origem VAZIA nao e um caminho em falta — ha mounts sintetizados
-        // sem source, e trata-los como ausentes recusaria containers validos.
+        // An EMPTY source is not a missing path — there are synthesized mounts
+        // with no source, and treating them as absent would refuse valid containers.
         let vazio = [Mount {
             source: String::new(),
             target: "/c".into(),
@@ -14612,7 +14620,9 @@ mod spawn_step_tests {
             pod_shared_pid: true,
             ..Default::default()
         };
-        assert!(clone_flags(&orphan_shared).0.contains(CloneFlags::CLONE_NEWPID));
+        assert!(clone_flags(&orphan_shared)
+            .0
+            .contains(CloneFlags::CLONE_NEWPID));
 
         let host = RunSpec {
             host_pid: true,

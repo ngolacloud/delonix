@@ -1202,8 +1202,10 @@ mod tui {
         // action it represents so its `outcome_of` can be applied on completion.
         // `None` means no action is running off-loop. While it is `Some`, new
         // action keys are swallowed so a second `stop` can't race the first.
-        let mut pending: Option<(std::sync::mpsc::Receiver<std::result::Result<(), String>>, Action)> =
-            None;
+        let mut pending: Option<(
+            std::sync::mpsc::Receiver<std::result::Result<(), String>>,
+            Action,
+        )> = None;
         // A monotonic frame counter (one per loop iteration, ~5/s at the poll
         // timeout) driving the in-flight spinner — a wall-clock-independent
         // animation that keeps changing every redraw, which is exactly what
@@ -1719,9 +1721,9 @@ mod tui {
             // `virsh console` for libvirt), so the overlay and the CLI behave
             // identically — escape key, stale-session takeover, the boot-log
             // nudge, all of it. VM-only by construction (`action_for`).
-            Action::Console => with_suspended(term, || {
-                super::super::vm::cmd_console(root, id, None)
-            }),
+            Action::Console => {
+                with_suspended(term, || super::super::vm::cmd_console(root, id, None))
+            }
             // `Stop` is dispatched off-loop (`spawn_stop`), never here — but the
             // body lives in `do_stop` so the arm stays exhaustive and the two
             // callers share one implementation.

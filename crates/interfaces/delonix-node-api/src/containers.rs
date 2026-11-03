@@ -56,7 +56,9 @@ fn env_map(env: &[String]) -> std::collections::HashMap<String, String> {
 /// The phase, plus the exit code and reason that only mean something once the
 /// container has stopped. `Failed(code)` carries the observed code; a clean
 /// `Stopped` is exit 0; `Crashed` has no code to show (killed/OOM/vanished).
-fn phase_of(status: &delonix_model::records::Status) -> (ContainerPhase, Option<i32>, &'static str) {
+fn phase_of(
+    status: &delonix_model::records::Status,
+) -> (ContainerPhase, Option<i32>, &'static str) {
     use delonix_model::records::Status as S;
     match status {
         S::Created => (ContainerPhase::Created, None, ""),
@@ -184,7 +186,10 @@ pub fn list_in(root: &Path, req: &ListContainersRequest) -> Result<ListContainer
     let containers: Vec<Container> = matching.by_ref().take(size).map(message).collect();
     let next = match (matching.next(), containers.last()) {
         (Some(_), Some(last)) => crate::page::encode_token(
-            last.meta.as_ref().map(|m| m.name.as_str()).unwrap_or_default(),
+            last.meta
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or_default(),
         ),
         _ => String::new(),
     };

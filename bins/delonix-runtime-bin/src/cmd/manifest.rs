@@ -2040,8 +2040,8 @@ spec:
     /// example fails here.
     #[test]
     fn the_stack_example_names_every_group() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/core/stack.yaml");
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/core/stack.yaml");
         let text = std::fs::read_to_string(&path).unwrap();
         for (group, _) in super::super::kinds::stack_groups() {
             assert!(
