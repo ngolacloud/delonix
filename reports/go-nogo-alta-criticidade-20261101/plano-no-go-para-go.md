@@ -151,6 +151,25 @@ provado numa sessão anterior — ver [[delonix-kubeadm-ha-offline-findings]]).
   razão que a própria matriz já dá para marcar o overlay `Partial`. **FALTA**:
   correr contra 2 nós reais (SSH) — ou retomar a cadeia kubeadm HA bloqueada por
   [[delonix-cri-entrypoint-override-bug]] para o control-plane HA.
+- `[agente]` ✅ **OVERLAY INTER-NÓ: PROVADO E2E (2026-11-02).** Três fixes (WG
+  hostfwd ADR-0084 + `--subnet` honrado + firewall `dlxinput` aceita a VXLAN de
+  entrada `iifname "wgo*" udp dport 4789`): ping container-a-container entre 2 VMs
+  reais a **0% de perda** nos dois sentidos. `net.overlay.{vxlan,encrypted}`
+  Partial→Supported na matriz (183/271). Ver `g4-overlay-forwarding.md`.
+- `[agente]` **CONTROL-PLANE k8s HA — estado (2026-11-03):** o blocker do CNI (bug
+  CRI de override de entrypoint) está **RESOLVIDO e verificado nesta árvore** —
+  o fix está em `delonix-cri` (`runtime_svc/lifecycle.rs`: `command`→`o.entrypoint`
+  quando não vazio), tem teste `cri_command_overrides_the_image_entrypoint`
+  (PASSA), e `cargo build -p delonix-cri` compila. A mecânica HA (3 CP + etcd
+  stacked + HAProxy) já tinha sido provada noutra sessão
+  ([[delonix-kubeadm-ha-offline-findings]]). **ACHADO:** o turnkey `delonix cluster
+  create` (kind-mode) **recusa `--control-planes > 1`** (DX-1000: "delonix does not
+  provision an LB/VIP yet") — logo a HA EXIGE o caminho kubeadm-em-VMs + um
+  LB/VIP externo (HAProxy/keepalived). **FALTA** o re-demo end-to-end (3 CP +
+  etcd + VIP + CNI + sobreviver à queda de um CP) — são 3-5 VMs k8s + LB, que
+  NÃO corri aqui: disco a 95% (46G) com as BDs vivas do dono = risco de
+  exaustão; precisa de um **nó dedicado**. Candidato de produto: o `cluster
+  create` provisionar o LB/VIP para desbloquear HA turnkey.
 - `[agente]` (se via âmbito) Escrever o ADR + a secção "tecto single-node" no handbook.
 
 ---
