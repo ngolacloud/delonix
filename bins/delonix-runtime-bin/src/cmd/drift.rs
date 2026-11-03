@@ -153,6 +153,18 @@ fn report_of(actual: &[Actual], stack: Option<&str>, saw_manifest: bool) -> Repo
     report_of_with(actual, stack, saw_manifest, &Default::default())
 }
 
+/// The drift report for callers outside this module — the GitOps pass runs it to
+/// honor a stack's `driftPolicy` (ADR-0088 A5). Same pure core the verb uses, so
+/// the timer and `delonix drift` cannot disagree about what drift IS.
+pub(crate) fn report_for(
+    actual: &[Actual],
+    stack: Option<&str>,
+    saw_manifest: bool,
+    facts: &std::collections::BTreeMap<(String, String), super::reconcile::Facts>,
+) -> Report {
+    report_of_with(actual, stack, saw_manifest, facts)
+}
+
 fn report_of_with(
     actual: &[Actual],
     stack: Option<&str>,
@@ -186,27 +198,37 @@ fn report_of_with(
     r
 }
 
-/// `delonix drift [-f <manifest>] [--stack <name>] [-o json] [--detailed-exitcode]`.
+/// `delonix drift [-f <manifest>] [--stack <name>] [-o json] [--detailed-exitcode] [--correct]`.
 pub(crate) fn cmd_drift(
     file: Option<PathBuf>,
     stack: Option<String>,
     output: OutputFormat,
     detailed_exitcode: bool,
+    correct: bool,
 ) -> Result<()> {
     // The manifest is OPTIONAL here, unlike every other verb in this family.
     // Without it the doc-scoped Kinds above cannot be enumerated — and the
     // report says so out loud instead of printing a shorter table that reads
     // like a clean node. `-f` given explicitly and missing is still an error:
     // that is a typo, not a node without a repo.
-    let (docs, saw_manifest) = match &file {
-        Some(_) => (
-            manifest::load(&manifest::resolve_path(file.clone())?)?,
-            true,
-        ),
-        None => match manifest::resolve_path(None) {
-            Ok(p) => (manifest::load(&p)?, true),
-            Err(_) => (Vec::new(), false),
-        },
+    let path = match &file {
+        Some(_) => Some(manifest::resolve_path(file.clone())?),
+        None => manifest::resolve_path(None).ok(),
+    };
+    // `--correct` RE-APPLIES the declared state (ADR-0088 A5, the owner's choice:
+    // desired = the manifest), so a node without the repository has nothing to
+    // restore TO — refuse it, rather than report drift and silently fix nothing.
+    if correct && path.is_none() {
+        return Err(delonix_model::Error::Invalid(
+            super::po::t(
+                "drift --correct needs a manifest (`-f`): it re-applies the DECLARED state, and a node without the repository has nothing to restore to",
+            )
+            .into(),
+        ));
+    }
+    let (docs, saw_manifest) = match &path {
+        Some(p) => (manifest::load(p)?, true),
+        None => (Vec::new(), false),
     };
 
     let actual = super::stack::actual_of(&docs)?;
@@ -226,6 +248,45 @@ pub(crate) fn cmd_drift(
             println!("{s}");
         }
         OutputFormat::Table => print_table(&r),
+    }
+
+    if correct {
+        // The report already printed WHAT drifted; now reconcile it by re-applying
+        // the manifest. A clean node is a no-op, said out loud — never a silent
+        // apply nobody asked for.
+        if r.drift.is_empty() {
+            println!(
+                "{}",
+                super::po::t("no drift to correct: nothing was re-applied")
+            );
+            return Ok(());
+        }
+        let path = path.expect("checked above that --correct has a manifest");
+        println!(
+            "{}",
+            super::po::tf(
+                "correcting {n} drifted field(s) by re-applying {manifest} — the declared state wins",
+                &[
+                    ("n", &r.drift.len().to_string()),
+                    ("manifest", &path.display().to_string()),
+                ],
+            )
+        );
+        // The same apply path `stack apply` takes (one stack, the one this report
+        // named): the hand-changed declared fields are overwritten back to the
+        // manifest. Undeclared hand-additions stay — a re-apply keeps what the
+        // manifest never claimed, exactly as any apply does; the report named them.
+        super::stack::apply_docs(
+            &docs,
+            &path,
+            stack.as_deref(),
+            Vec::new(),
+            Vec::new(),
+            false,
+            None,
+            super::gitops::Applier::Operator,
+        )?;
+        return Ok(());
     }
 
     if detailed_exitcode && !r.drift.is_empty() {
