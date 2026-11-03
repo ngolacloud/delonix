@@ -50,6 +50,7 @@ const TYPED_KINDS: &[&str] = &[
     k::RUNTIME_POLICY,
     k::CONTAINER,
     k::POD,
+    k::APPLICATION,
     k::VOLUME,
     k::OBJECT_STORAGE,
     k::NETWORK,
@@ -193,6 +194,11 @@ fn typed_spec_parts(
             generator.subschema_for::<super::container::PodSpec>(),
             "PodSpec",
             super::container::POD_SPEC_FIELDS,
+        ),
+        k::APPLICATION => (
+            generator.subschema_for::<super::application::ApplicationSpec>(),
+            "ApplicationSpec",
+            super::application::APPLICATION_SPEC_FIELDS,
         ),
         k::VOLUME => (
             generator.subschema_for::<super::volume::VolumeSpec>(),

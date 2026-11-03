@@ -1,4 +1,5 @@
 pub mod app;
+pub mod application;
 pub mod backup;
 pub mod boot;
 pub mod build;

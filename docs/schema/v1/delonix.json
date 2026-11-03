@@ -30,6 +30,81 @@
       ],
       "type": "object"
     },
+    "ApplicationSpec": {
+      "additionalProperties": false,
+      "description": "`spec` of `kind: Application`: a [`super::container::PodSpec`] (`containers[]`,\n`network`, …) plus `replicas`. Each instance is one `kind: Pod` whose spec is\nthis one with `replicas` removed.",
+      "properties": {
+        "containers": {
+          "items": {
+            "$ref": "#/$defs/PodContainer"
+          },
+          "type": "array"
+        },
+        "detach": {
+          "default": true,
+          "type": "boolean"
+        },
+        "expose": {
+          "default": null,
+          "description": "delonix extension: auto-register an HTTP port in the L7 proxy.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "hostAliases": {
+          "default": [],
+          "description": "k8s `hostAliases`: extra `/etc/hosts` entries, in the k8s shape\n(`{ip, hostnames[]}`) rather than docker's `name:ip`. Same effect as\n`--add-host`; normalized below.\n\nWired on purpose: without it, the SAME `kind: Container` gained or lost\nthe feature depending on which shape of spec was used — flat had it,\nk8s silently did not.",
+          "items": {
+            "$ref": "#/$defs/HostAlias"
+          },
+          "type": "array"
+        },
+        "hostname": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "network": {
+          "default": "host",
+          "description": "delonix extension: the SDN network the POD's shared netns attaches to.\n\nA `<custom>` name selects that network's bridge. `host`/`none` (the default) mean\n\"the pod's own netns on the default bridge\" — a pod IS a shared netns, so it never\ngets the host's. They are kept as the default because every existing manifest relies\non it; only a custom name changes anything.\n\nWas parsed and **entirely ignored** until v0.47.0: `create_pod` hardcoded `ingress`,\nso a pod declared on a custom network landed on the default bridge in silence.",
+          "type": "string"
+        },
+        "replicas": {
+          "default": 1,
+          "description": "How many Pod instances to run (default 1). Each is a `<name>-<i>` Pod.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "restartPolicy": {
+          "default": "no",
+          "description": "k8s `restartPolicy`: `Always`|`OnFailure`|`Never` (delonix values also accepted).",
+          "type": "string"
+        },
+        "shareProcessNamespace": {
+          "default": false,
+          "description": "k8s `shareProcessNamespace`: the pod's containers see each other's\nprocesses (shared PID namespace). Default `false`, like k8s. Honored by\n`kind: Pod` (see `cmd::pod`); ignored for a single `kind: Container`.",
+          "type": "boolean"
+        },
+        "volumes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PodVolume"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "containers"
+      ],
+      "type": "object"
+    },
     "Backend": {
       "description": "The destination of a path: a container (by name) and the port it listens on.",
       "properties": {
@@ -5229,6 +5304,31 @@
       "if": {
         "properties": {
           "kind": {
+            "const": "Application"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "apiVersion": {
+            "enum": [
+              "compute.delonix.io/v1beta1",
+              "delonix.io/v1"
+            ]
+          },
+          "spec": {
+            "$ref": "#/$defs/ApplicationSpec"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
             "const": "Volume"
           }
         },
@@ -5842,6 +5942,7 @@
     "kind": {
       "enum": [
         "App",
+        "Application",
         "Cluster",
         "Container",
         "Dependency",
