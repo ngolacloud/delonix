@@ -190,26 +190,26 @@ pub fn run(parent: &str, id: u16, rm: bool, apply: bool) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// O plano é PURO para isto poder ser afirmado sem correr nada como root: o
-    /// que corre com privilégio é exactamente o que está aqui, e nada mais.
+    /// The plan is PURE so this can be asserted without running anything as root:
+    /// what runs with privilege is exactly what is here, and nothing more.
     #[test]
-    fn o_plano_e_o_nome_do_device_seguem_a_convencao_do_kernel() {
+    fn the_plan_and_device_name_follow_kernel_convention() {
         let p = vlan_plan("eth0", 100, true);
         assert_eq!(p.len(), 2, "{p:?}");
         assert!(p[0].argv.join(" ").contains("type vlan id 100"), "{p:?}");
-        // `<parent>.<id>` — o que um operador espera ver num `ip link`.
+        // `<parent>.<id>` — what an operator expects to see in an `ip link`.
         assert!(p[0].argv.contains(&"eth0.100".to_string()), "{p:?}");
         assert!(p[1].argv.join(" ").ends_with("eth0.100 up"), "{p:?}");
-        // A remoção é UM passo e nomeia o mesmo device.
+        // Removal is ONE step and names the same device.
         let d = vlan_plan("eth0", 100, false);
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].argv, vec!["ip", "link", "del", "eth0.100"]);
     }
 
-    /// 0 e 4095 são reservados pelo próprio 802.1Q — recusá-los aqui é mais
-    /// claro que deixar o kernel responder com um EINVAL sem sujeito.
+    /// 0 and 4095 are reserved by 802.1Q itself — refusing them here is clearer
+    /// than letting the kernel reply with a subjectless EINVAL.
     #[test]
-    fn os_ids_reservados_do_802_1q_sao_recusados() {
+    fn reserved_802_1q_ids_are_refused() {
         assert!(valid_vlan_id(0).is_err());
         assert!(valid_vlan_id(4095).is_err());
         assert!(valid_vlan_id(1).is_ok());
@@ -217,9 +217,9 @@ mod tests {
     }
 
     #[test]
-    fn um_parent_que_viraria_opcao_e_recusado() {
-        for mau in ["", "-x", "a b", "umnomedemasiadolongoparaumanic"] {
-            assert!(valid_parent(mau).is_err(), "aceitou {mau:?}");
+    fn a_parent_that_would_become_an_option_is_refused() {
+        for bad in ["", "-x", "a b", "umnomedemasiadolongoparaumanic"] {
+            assert!(valid_parent(bad).is_err(), "accepted {bad:?}");
         }
         assert!(valid_parent("wlp4s0").is_ok());
         assert!(valid_parent("eth0.10").is_ok());
