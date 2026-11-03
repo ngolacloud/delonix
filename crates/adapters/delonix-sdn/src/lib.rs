@@ -48,6 +48,8 @@ pub mod gc;
 pub use delonix_networking::{gateway, ownership, segment};
 pub mod infra;
 pub mod ipam;
+/// Rootful realization of the `macvlan`/`ipvlan` LAN drivers (see the module).
+pub mod lan;
 pub mod netops;
 mod pin_userns;
 pub mod policy_nft;
@@ -1916,6 +1918,14 @@ impl NetworkStore {
     /// Creates a `macvlan`/`ipvlan` network: the container sits directly on the
     /// `parent`'s physical LAN (e.g.: `eno1`), with that LAN's `subnet`/`gateway`. Validates
     /// the name, the driver, the parent NIC's existence and the subnet format (CIDR).
+    ///
+    /// Create RECORDS the network; it does not touch the host — the same as
+    /// Docker, where a macvlan network creates no link until a container
+    /// attaches. The link is REALIZED at attach ([`crate::lan::realize_attach`]):
+    /// a sub-interface enslaved to `parent`, addressed from `subnet`, and moved
+    /// into the container's netns. That enslave needs `CAP_NET_ADMIN` in the
+    /// host's initial netns, so it succeeds only on a rootful node and is
+    /// refused — clearly — when rootless (see the [`crate::lan`] module).
     pub fn create_lan(
         &self,
         name: &str,
@@ -4326,6 +4336,97 @@ mod tests_single_allocator {
         }
         NetworkStore::validate_subnet("10.201.0.0/16").unwrap();
         NetworkStore::validate_subnet("10.0.3.0/24").unwrap();
+    }
+
+    /// A bridge network is no longer confined to `10.<200-254>.0.0/16`: ANY
+    /// private IPv4 prefix (RFC 1918) of a usable length is accepted, the way
+    /// Docker/Podman let an operator bring their own address plan. These are the
+    /// exact shapes a `--subnet 172.20.0.0/24` / `192.168.50.0/24` reaches, and
+    /// the public/typo/overlap ones it must still refuse — each with its own
+    /// reason, so the message tells the operator which mistake they made.
+    #[test]
+    fn validate_subnet_accepts_arbitrary_private_cidrs_and_refuses_the_rest() {
+        // Accepted: the full private space, in all three RFC 1918 blocks and a
+        // spread of prefix lengths from the /8 ceiling to the /28 floor.
+        for s in [
+            "172.20.0.0/24",
+            "192.168.50.0/24",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "10.50.0.0/16",
+            "172.31.255.0/28",
+            "192.168.100.128/28",
+        ] {
+            let c = NetworkStore::validate_subnet(s)
+                .unwrap_or_else(|e| panic!("{s} should be accepted: {e}"));
+            assert_eq!(c.to_string_cidr(), s, "{s} came back renumbered");
+        }
+        // A public prefix: refused for being outside RFC 1918, and the message
+        // says so (a workload network on someone else's space would hand the
+        // internet's addresses to containers).
+        for s in ["8.8.8.0/24", "1.1.1.0/24", "172.32.0.0/16", "11.0.0.0/8"] {
+            let e = NetworkStore::validate_subnet(s).unwrap_err();
+            assert!(e.is_invalid_argument(), "{s}: {e}");
+            assert!(
+                format!("{e}").contains("private"),
+                "{s} must be refused for not being private: {e}"
+            );
+        }
+        // Not a CIDR at all, or a prefix too small/large to hold a network.
+        for s in [
+            "not-a-cidr",
+            "172.20.0.0",
+            "10.0.0.1/32",
+            "10.0.0.0/30",
+            "10.0.0.0/0",
+        ] {
+            assert!(
+                NetworkStore::validate_subnet(s).is_err(),
+                "{s} should be refused"
+            );
+        }
+    }
+
+    /// The overlap check is the ONE question `validate_subnet` cannot answer on
+    /// its own (it has no store), so `create_with_cidr` owns it: two bridge
+    /// networks sharing addresses is the failure that returns no error on its
+    /// own — it hands two containers one IP. And auto-pick (omitted `--subnet`)
+    /// keeps working beside the arbitrary ones, drawing from the default space.
+    #[test]
+    fn create_with_cidr_refuses_overlap_and_auto_pick_still_works() {
+        with_root(|root| {
+            let store = NetworkStore::open(root).unwrap();
+
+            // An arbitrary private subnet is realized verbatim.
+            let a = store
+                .create_with_cidr("corp-a", Cidr::parse("172.20.0.0/24").unwrap())
+                .unwrap();
+            assert_eq!(a.subnet, "172.20.0.0/24");
+
+            // A second one that overlaps it (a wider prefix covering it) is
+            // refused as a conflict, naming the network it collides with.
+            let e = store
+                .create_with_cidr("corp-b", Cidr::parse("172.20.0.0/16").unwrap())
+                .unwrap_err();
+            assert!(e.is_conflict(), "{e}");
+            assert!(format!("{e}").contains("corp-a"), "{e}");
+
+            // A non-overlapping one in another block is fine.
+            store
+                .create_with_cidr("corp-c", Cidr::parse("192.168.50.0/24").unwrap())
+                .unwrap();
+
+            // Auto-pick (no subnet) still lands in the default workload space
+            // (10.<first..=last>) and never on top of the arbitrary ones.
+            let picked = store.create("corp-auto").unwrap();
+            let base: u8 = picked.prefix.rsplit('.').next().unwrap().parse().unwrap();
+            assert_eq!(picked.prefix, format!("10.{base}"));
+            assert!(
+                (first_user_base()..=last_user_base()).contains(&base),
+                "auto-pick landed on {} outside the default space",
+                picked.prefix
+            );
+        });
     }
 
     /// Measured before: the 53rd network of an empty root landed on `10.200` —
