@@ -1,71 +1,71 @@
-//! Fechadura exclusiva de ficheiro (`flock`), para serializar as
-//! leituras-modificações-escritas que decidem endereços.
+//! Exclusive file lock (`flock`), to serialize the
+//! read-modify-writes that decide addresses.
 //!
-//! Existe porque este crate tem MAIS DO QUE UM registo com essa forma — o IPAM,
-//! o registo de redes de ingress e o `NetworkStore` — e cada cópia do mesmo
-//! `open`+`flock` é mais uma oportunidade de uma delas divergir. O
-//! [`crate::ipam`] tem a sua própria (`IpamLock`), anterior a esta e deixada
-//! como está de propósito: mexer-lhe é mudar o caminho que entrega endereços a
-//! containers vivos, e o comentário dela é a única memória escrita de um bug já
-//! corrigido — vale mais lido do que reescrito.
+//! It exists because this crate has MORE THAN ONE registry of that shape — the IPAM,
+//! the ingress-network registry and the `NetworkStore` — and every copy of the same
+//! `open`+`flock` is one more chance for one of them to drift. The
+//! [`crate::ipam`] has its own (`IpamLock`), older than this one and left
+//! as is on purpose: touching it means changing the path that hands addresses to
+//! live containers, and its comment is the only written memory of an already
+//! fixed bug — worth more read than rewritten.
 //!
-//! **Falível de propósito.** Uma fechadura que guarda unicidade e falha ABERTA é
-//! pior do que fechadura nenhuma: quem chama julga-se serializado e não está. Por
-//! isso `acquire` devolve `Option` e quem chama tem de RECUSAR a operação —
-//! nunca continuar sem ela.
+//! **Fallible on purpose.** A lock that guards uniqueness and fails OPEN is
+//! worse than no lock at all: the caller believes itself serialized and is not. So
+//! `acquire` returns `Option` and the caller must REFUSE the operation —
+//! never continue without it.
 
 use crate::Error;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-/// Quanto tempo esperar pela fechadura antes de RECUSAR. As secções críticas que
-/// ela serializa são read-modify-writes curtos (decidir um endereço, escrever um
-/// registo) — a contenção normal limpa-se em milissegundos. Se não limpar nisto,
-/// um detentor ficou preso/vazou (visto quando um setup de netns/slirp encravou
-/// e nunca largou a fechadura): o contrato de quem chama é RECUSAR, e recusar ao
-/// fim de um tecto é infinitamente melhor do que pendurar para sempre — era esse
-/// o hang do attach de rede custom que não dava timeout.
+/// How long to wait for the lock before REFUSING. The critical sections it
+/// serializes are short read-modify-writes (decide an address, write a
+/// registry) — normal contention clears in milliseconds. If it does not clear in
+/// this, a holder got stuck/leaked (seen when a netns/slirp setup wedged
+/// and never released the lock): the caller's contract is to REFUSE, and refusing at
+/// a deadline is infinitely better than hanging forever — that was
+/// the hang of the custom-network attach that had no timeout.
 const LOCK_DEADLINE: Duration = Duration::from_secs(30);
 
-/// Fechadura exclusiva viva enquanto o valor existir. Larga no `Drop`.
+/// Exclusive lock alive while the value exists. Released on `Drop`.
 pub(crate) struct ExclusiveLock(i32);
 
 impl ExclusiveLock {
-    /// Toma a fechadura em `path`, esperando no máximo [`LOCK_DEADLINE`]. `None`
-    /// quando não foi possível (open falhou, OU um detentor preso não largou a
-    /// tempo) — quem chama TEM de desistir da operação.
+    /// Takes the lock at `path`, waiting at most [`LOCK_DEADLINE`]. `None`
+    /// when it was not possible (open failed, OR a stuck holder did not release in
+    /// time) — the caller MUST give up the operation.
     ///
-    /// O ficheiro é criado se não existir; o seu conteúdo é irrelevante (só o
-    /// `flock` sobre o descritor conta).
+    /// The file is created if it does not exist; its content is irrelevant (only
+    /// the `flock` on the descriptor counts).
     pub(crate) fn acquire(path: &Path) -> Option<ExclusiveLock> {
         Self::acquire_until(path, LOCK_DEADLINE)
     }
 
-    /// [`Self::acquire`] com um tecto explícito (para teste).
+    /// [`Self::acquire`] with an explicit deadline (for testing).
     pub(crate) fn acquire_until(path: &Path, deadline: Duration) -> Option<ExclusiveLock> {
-        if let Some(pai) = path.parent() {
-            let _ = std::fs::create_dir_all(pai);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
         let c =
             std::ffi::CString::new(path.as_os_str().to_string_lossy().as_bytes().to_vec()).ok()?;
-        // SAFETY: open com um caminho válido terminado em NUL; -1 é tratado.
+        // SAFETY: open with a valid NUL-terminated path; -1 is handled.
         let fd = unsafe { libc::open(c.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
         if fd < 0 {
             return None;
         }
-        // NÃO-bloqueante com retry até ao tecto: mantém a exclusão (só um a
-        // segurar de cada vez) mas falha FECHADA se um detentor estiver preso,
-        // em vez de ficar em `flock(LOCK_EX)` para sempre.
+        // NON-blocking with retry up to the deadline: keeps exclusion (only one
+        // holding at a time) but fails CLOSED if a holder is stuck,
+        // instead of sitting in `flock(LOCK_EX)` forever.
         let start = Instant::now();
         loop {
-            // SAFETY: o fd é nosso e está aberto.
+            // SAFETY: the fd is ours and is open.
             if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } == 0 {
                 return Some(ExclusiveLock(fd));
             }
             let err = std::io::Error::last_os_error();
-            // Só `EWOULDBLOCK` é «outro detém-na»; qualquer outro erro é real.
+            // Only `EWOULDBLOCK` means "another holds it"; any other error is real.
             if err.raw_os_error() != Some(libc::EWOULDBLOCK) || start.elapsed() >= deadline {
-                // SAFETY: fechamos o nosso próprio fd, que vamos deitar fora.
+                // SAFETY: we close our own fd, which we are going to discard.
                 unsafe { libc::close(fd) };
                 return None;
             }
@@ -73,16 +73,16 @@ impl ExclusiveLock {
         }
     }
 
-    /// O erro que quem chama reporta quando não conseguiu a fechadura.
+    /// The error the caller reports when it could not get the lock.
     ///
-    /// `consequencia` é o que teria acontecido sem ela, em texto. Nomear a
-    /// consequência importa: «não consegui trancar» lê-se como um aborrecimento
-    /// passageiro, quando o que evita é duas redes no mesmo `/16`.
-    pub(crate) fn unavailable(path: &Path, consequencia: &str) -> Error {
+    /// `consequence` is what would have happened without it, in text. Naming the
+    /// consequence matters: "could not lock" reads as a passing annoyance,
+    /// when what it prevents is two networks in the same `/16`.
+    pub(crate) fn unavailable(path: &Path, consequence: &str) -> Error {
         Error::Command {
             context: "lock",
             message: format!(
-                "could not lock {} — refusing to continue, since {consequencia}",
+                "could not lock {} — refusing to continue, since {consequence}",
                 path.display()
             ),
         }
@@ -92,7 +92,7 @@ impl ExclusiveLock {
 impl Drop for ExclusiveLock {
     fn drop(&mut self) {
         if self.0 >= 0 {
-            // SAFETY: fd próprio, aberto em `acquire`.
+            // SAFETY: own fd, opened in `acquire`.
             unsafe {
                 libc::flock(self.0, libc::LOCK_UN);
                 libc::close(self.0);
@@ -106,21 +106,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_fechadura_exclui_de_facto() {
+    fn the_lock_actually_excludes() {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("f.lock");
 
-        let contador = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let max = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let barreira = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
         let hs: Vec<_> = (0..8)
             .map(|_| {
-                let (p, c, m, b) = (p.clone(), contador.clone(), max.clone(), barreira.clone());
+                let (p, c, m, b) = (p.clone(), counter.clone(), max.clone(), barrier.clone());
                 std::thread::spawn(move || {
                     b.wait();
-                    let _l = ExclusiveLock::acquire(&p).expect("fechadura");
-                    // Dentro da secção crítica só pode estar UMA thread: se o
-                    // `flock` não excluísse, o contador passaria de 1.
+                    let _l = ExclusiveLock::acquire(&p).expect("lock");
+                    // Inside the critical section only ONE thread may be: if
+                    // `flock` did not exclude, the counter would go past 1.
                     let n = c.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
                     m.fetch_max(n, std::sync::atomic::Ordering::SeqCst);
                     std::thread::sleep(std::time::Duration::from_millis(5));
@@ -134,34 +134,34 @@ mod tests {
         assert_eq!(max.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
-    /// REGRESSÃO: uma fechadura DETIDA por outro faz `acquire_until` RECUSAR ao
-    /// fim do tecto (devolve `None`), nunca pendurar para sempre — era o hang do
-    /// attach de rede custom sem timeout.
+    /// REGRESSION: a lock HELD by another makes `acquire_until` REFUSE at
+    /// the deadline (returns `None`), never hang forever — this was the
+    /// hang of the custom-network attach without a timeout.
     #[test]
-    fn fechadura_detida_recusa_ao_fim_do_tecto_em_vez_de_pendurar() {
+    fn held_lock_refuses_at_deadline_instead_of_hanging() {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("f.lock");
-        let detida = ExclusiveLock::acquire(&p).expect("primeira toma");
+        let held = ExclusiveLock::acquire(&p).expect("first take");
         let t0 = std::time::Instant::now();
-        let segunda = ExclusiveLock::acquire_until(&p, Duration::from_millis(200));
-        let decorrido = t0.elapsed();
-        assert!(segunda.is_none(), "não devia obter uma fechadura já detida");
+        let second = ExclusiveLock::acquire_until(&p, Duration::from_millis(200));
+        let elapsed = t0.elapsed();
+        assert!(second.is_none(), "should not obtain an already-held lock");
         assert!(
-            decorrido >= Duration::from_millis(200) && decorrido < Duration::from_secs(5),
-            "devia recusar perto do tecto (200ms), não pendurar: {decorrido:?}"
+            elapsed >= Duration::from_millis(200) && elapsed < Duration::from_secs(5),
+            "should refuse near the deadline (200ms), not hang: {elapsed:?}"
         );
-        drop(detida);
-        // Largue e a próxima toma deve funcionar de imediato.
+        drop(held);
+        // Release it and the next take should work immediately.
         assert!(ExclusiveLock::acquire_until(&p, Duration::from_millis(200)).is_some());
     }
 
     #[test]
-    fn caminho_impossivel_devolve_none_e_nao_falha_aberta() {
-        // Um diretório onde o `open` não pode criar nada: a fechadura NÃO se
-        // inventa, devolve `None`, e quem chama recusa a operação.
+    fn impossible_path_returns_none_and_does_not_fail_open() {
+        // A directory where `open` cannot create anything: the lock does NOT
+        // invent itself, it returns `None`, and the caller refuses the operation.
         let p = std::path::Path::new("/proc/1/impossivel/f.lock");
         assert!(ExclusiveLock::acquire(p).is_none());
-        let e = ExclusiveLock::unavailable(p, "duas redes podiam ficar no mesmo /16");
+        let e = ExclusiveLock::unavailable(p, "two networks could end up in the same /16");
         assert!(e.to_string().contains("refusing to continue"));
     }
 }
