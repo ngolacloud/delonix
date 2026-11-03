@@ -369,7 +369,7 @@
       "type": "object"
     }
   },
-  "$id": "https://angolardevops.github.io/delonix-runtime/schema/v1/providers.json",
+  "$id": "https://ngolacloud.github.io/delonix/schema/v1/providers.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "The parsed file.",

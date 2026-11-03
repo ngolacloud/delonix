@@ -5036,8 +5036,11 @@ msgstr "Monta um tmpfs (`/caminho[:opções]`). Repetível"
 msgid "Mount a volume hot, `name:/target[:ro]` or `/host:/target[:ro]`. Repeatable"
 msgstr "Monta um volume a quente, `nome:/destino[:ro]` ou `/host:/destino[:ro]`. Repetível"
 
-msgid "Network: `host` (shares the host's, default), `none` (isolated netns with no connectivity), or the NAME of a network created with `delonix network create`"
-msgstr "Rede: `host` (partilha a do host, por omissão), `none` (netns isolada, sem ligação), ou o NOME de uma rede criada com `delonix network create`"
+msgid "Network: `host` (shares the host's, default), `none` (isolated netns with no connectivity), `container:<name>` (shares an already-running container's netns — same IP and ports, Docker/Podman parity), or the NAME of a network created with `delonix network create`"
+msgstr "Rede: `host` (partilha a do host, por omissão), `none` (netns isolada, sem ligação), `container:<name>` (partilha a netns de um container já em execução — mesmo IP e portos, paridade com Docker/Podman), ou o NOME de uma rede criada com `delonix network create`"
+
+msgid "Cluster control-planes (default 1). More than 1 is HA: delonix provisions an HAProxy container as the stable endpoint (VIP) in front of them, with stacked etcd — no manual load balancer needed"
+msgstr "Control-planes do cluster (por omissão 1). Mais de 1 é HA: o delonix provisiona um container HAProxy como endpoint estável (VIP) à frente deles, com etcd empilhado — sem balanceador de carga manual"
 
 msgid "New CPU quota hot (number of cores, e.g. `0.5`, `2`)"
 msgstr "Nova quota de CPU a quente (número de cores, ex.: `0.5`, `2`)"

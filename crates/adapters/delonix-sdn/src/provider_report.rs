@@ -155,7 +155,7 @@ pub fn report(host: &SdnHost) -> ProviderReport {
                     component: "a tunnel provider (pinggy, ngrok, cloudflared) and its binary/account",
                 },
                 C::NetIpv6 => filt(S::Supported {
-                    evidence: "e2e:dual-stack: container ULA (fd00:<o2>::<o3>:<o4>) GOVERNED east-west — same-namespace v6 ping passes, cross-namespace v6 dropped by the `inet` namespace rule (counter), v4 unchanged (ADR-0082 phase 4). v6→Internet additionally needs a host v6 uplink; `DELONIX_DISABLE_IPV6=1` turns the v6 SDN off",
+                    evidence: "live:docs/comparacao-medida.md",
                 }),
                 C::NetRateLimit => base(S::Supported {
                     evidence: "check:update: net-rate a quente",
