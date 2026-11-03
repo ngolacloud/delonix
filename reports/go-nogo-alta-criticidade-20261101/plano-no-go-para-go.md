@@ -166,8 +166,9 @@ provado numa sessão anterior — ver [[delonix-kubeadm-ha-offline-findings]]).
   `vm stop g4ha-cp1` → a API sobrevive via o VIP, **escrita no etcd OK** (configmap
   `survived=yes`, quórum 2/3), **pod novo agendado** em cp3; cp1 vai a `NotReady`.
   **Self-heal:** `vm start g4ha-cp1` → 3/3 Ready em ~20 s. Critério G4-HA fechado.
-  NOTA de produto: a HA só pelo caminho kubeadm-VMs; o `cluster create` kind-mode
-  ainda recusa `--control-planes>1` (DX-1000, sem LB/VIP) — candidato a fechar.
+  Candidato de produto que esta prova revelou — **FECHADO (ADR-0085):** o
+  `cluster create` kind-mode passou a provisionar um **container HAProxy** e a fazer
+  HA em containers (`--control-planes 3` → 3 CP + LB, failover provado, sem VMs).
 - `[agente]` (se via âmbito) Escrever o ADR + a secção "tecto single-node" no handbook.
 
 ---
@@ -194,11 +195,17 @@ vs densidade (não um ponto em nó vazio) e as SLOs correspondentes.
   visível do host); em rootless ficam `null` por desenho (o holder não se
   `nsenter`a de fora). **Falta correr num nó DEDICADO** (esta caixa tem as BDs do
   dono → não publicável) para produzir a curva a sério.
-- `[agente]` Otimizar o que a curva mostrar. Alvo já localizado por inspeção:
-  `drop_from_every_ns_set` (`infra.rs:3947`) faz `nft list sets` a cada
-  attach/detach, e há 3 `nft -a list chain fwdeny` que varrem a cadeia inteira —
-  candidatos a O(N)→O(1). **NÃO otimizar antes da curva** (medir-primeiro).
-- `[agente]` SLOs escritas + a curva publicada no relatório.
+- `[agente]` ✅ **CURVA MEDIDA (2026-11-03) — ver `g5-density.md`.** Rampa 1→100
+  containers (`bench_density.sh`, não publicável: caixa partilhada + 1 container
+  do dono): **attach p50 PLANA** (193→215 ms, ~11 % = ruído); p99 ruidosa mas sem
+  tendência. **A latência de attach NÃO cresce com a densidade até 100.** A
+  suspeita O(N) (`drop_from_every_ns_set` `nft list sets`, `fwdeny` scans) **NÃO
+  se confirma na prática**: o `list sets` conta NAMESPACES, não containers (os 100
+  estavam em `default` → ~1 ns-set). **DECISÃO: não otimizar** — seria resolver um
+  não-problema no datapath de segurança; o alvo fica documentado se um dia um
+  workload com muitos namespaces mostrar a curva a subir.
+- `[agente]` SLOs + a curva PUBLICÁVEL ficam para um **nó dedicado** (a forma já é
+  conhecida e tranquilizadora).
 
 ---
 
