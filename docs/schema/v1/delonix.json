@@ -274,7 +274,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "cpuset": {
           "default": null,
@@ -292,7 +293,8 @@
               "type": "null"
             }
           ],
-          "description": "The service's login (ADR-0048 D4): a user and a REFERENCE to a\n`kind: Secret` key, never the value. Shown by `container ls\n--credentials`; the value only under `--reveal`."
+          "description": "The service's login (ADR-0048 D4): a user and a REFERENCE to a\n`kind: Secret` key, never the value. Shown by `container ls\n--credentials`; the value only under `--reveal`.",
+          "x-delonix-update": "live"
         },
         "detach": {
           "default": true,
@@ -368,10 +370,12 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "image": {
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "ioWeight": {
           "default": null,
@@ -407,21 +411,24 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "netBps": {
           "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "netBurst": {
           "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "network": {
           "anyOf": [
@@ -432,7 +439,8 @@
             {
               "type": "object"
             }
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "networkAlias": {
           "default": [],
@@ -446,11 +454,13 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "privileged": {
           "default": false,
-          "type": "boolean"
+          "type": "boolean",
+          "x-delonix-update": "replace"
         },
         "readOnly": {
           "default": false,
@@ -461,7 +471,8 @@
         "restartPolicy": {
           "default": "no",
           "description": "`no` (default) | `on-failure[:max]` | `always` | `unless-stopped` —\na detached supervisor becomes the container's parent and restarts it (see\n`run_supervised`). This is what makes a manifest resilient. Canonical\nfield name is `restartPolicy` (uniform with `kind: VirtualMachine`); the legacy\n`restart` stays accepted so existing manifests don't break.",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "secret": {
           "default": [],
@@ -527,7 +538,8 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         }
       },
       "required": [
@@ -933,14 +945,16 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "direction": {
           "description": "`ingress`|`egress` — only for `kind: NetworkPolicy` (the direction comes\nfrom the Kind for the legacy `Egress`). Captured so the dry-run round-trip\npreserves it; `apply` reads it directly from `doc.spec`.",
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "fqdnAllowlist": {
           "default": [],
@@ -967,7 +981,8 @@
           "items": {
             "$ref": "#/$defs/FwDocRule"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "scope": {
           "default": null,
@@ -975,11 +990,13 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "target": {
           "description": "`container` (default): container name. `network`: network name. `vm`: VM name.",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         }
       },
       "required": [
@@ -1223,7 +1240,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "sync": {
           "$ref": "#/$defs/SyncSpec",
@@ -1299,21 +1317,24 @@
           "items": {
             "$ref": "#/$defs/Entrypoint"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "hosts": {
           "description": "Where to publish this route's host names, so they RESOLVE without editing\nany `hosts` file by hand (ADR-0046). Only `host` exists so far: each rule\n`host` gets `127.0.0.1` in a delimited block of the operator host's\n`/etc/hosts` (needs root, refused otherwise). `containers` and `guest` are\nplanned (ADR-0047 for the first). The PORT is the route's entrypoint, which\na hosts file cannot carry.",
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "pool": {
           "description": "`kind: IPPool` this route takes its address from (ADR-0046 D3). The route holds\nONE address of the pool for as long as it is declared, and every listener of it\nis reachable there instead of on loopback; `hosts: [host]` then points the name\nat that address. The address must already be on an interface of this host\n(`announce: local`) — the apply says so and stops when it is not.",
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "rules": {
           "default": [],
@@ -1321,7 +1342,8 @@
           "items": {
             "$ref": "#/$defs/RouteRule"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "tls": {
           "anyOf": [
@@ -1333,7 +1355,8 @@
             }
           ],
           "default": null,
-          "description": "TLS configuration (optional). Without it, the proxy only serves HTTP."
+          "description": "TLS configuration (optional). Without it, the proxy only serves HTTP.",
+          "x-delonix-update": "live"
         }
       },
       "type": "object"
@@ -1496,7 +1519,8 @@
           "items": {
             "$ref": "#/$defs/Entrypoint"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "ingressClassName": {
           "default": null,
@@ -1511,7 +1535,8 @@
           "items": {
             "$ref": "#/$defs/IngressRule"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "tls": {
           "default": [],
@@ -1519,7 +1544,8 @@
           "items": {
             "$ref": "#/$defs/IngressTls"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         }
       },
       "type": "object"
@@ -1554,7 +1580,8 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "announce": {
           "default": null,
@@ -1562,7 +1589,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "interface": {
           "default": null,
@@ -1570,7 +1598,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         }
       },
       "type": "object"
@@ -1654,11 +1683,13 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "direction": {
           "description": "`ingress` (traffic TO the container) or `egress` (FROM it).",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "from": {
           "default": null,
@@ -1666,11 +1697,13 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "port": {
           "description": "Port, a range `n-m`, or `*` (any).",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "proto": {
           "default": null,
@@ -1678,11 +1711,13 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "target": {
           "description": "Container this rule applies to. Must be on the SDN — a `--net\nhost`/`none` container has no firewall to govern.",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         }
       },
       "required": [
@@ -1779,21 +1814,24 @@
           "items": {
             "$ref": "#/$defs/GatewayAliasSpec"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "replace"
         },
         "nat": {
           "description": "Address translation on the appliance (ADR-0059 F5): source NAT for a\nnetwork leaving through an interface, destination NAT forwarding a\nport of an interface to a host. Served by the document's provider,\nwhich has to be registered for the NAT role too.",
           "items": {
             "$ref": "#/$defs/GatewayNatSpec"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "replace"
         },
         "policies": {
           "description": "Policies for a target behind the gateway, in the same shape a\n`NetworkPolicy` has, lowered to the appliance's filter rules through\nthe policy IR (ADR-0059 F3d/F3e).",
           "items": {
             "$ref": "#/$defs/GatewayPolicySpec"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "replace"
         },
         "provider": {
           "anyOf": [
@@ -1807,14 +1845,16 @@
             {
               "type": "object"
             }
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "rules": {
           "default": [],
           "items": {
             "$ref": "#/$defs/GatewayRuleSpec"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "replace"
         }
       },
       "type": "object"
@@ -1825,11 +1865,13 @@
       "properties": {
         "from": {
           "description": "Network that may INITIATE. Its workloads reach `to`.",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "to": {
           "description": "Network reached. Its workloads do NOT get to reach `from` back — the\nreturn traffic of a conversation `from` started flows (established), a\nnew one from this side does not. Same asymmetry `kind: Dependency` gives\nbetween containers.",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         }
       },
       "required": [
@@ -1844,31 +1886,36 @@
       "properties": {
         "driver": {
           "default": "bridge",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "gateway": {
           "default": "",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "parent": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "peers": {
           "default": [],
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "provider": {},
         "subnet": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "vni": {
           "format": "uint32",
@@ -1876,7 +1923,8 @@
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "wgIp": {
           "description": "Canonical `wgIp` (camelCase, uniform with the rest of the schema); `wg_ip`\nis still accepted (backward compat).",
@@ -1902,21 +1950,24 @@
               "type": "null"
             }
           ],
-          "description": "The DNS server the provider registers the zone's guests in (ADR-0059\nF5c). Hot: a change converges live; the records the provider already\nwrote stay as they are."
+          "description": "The DNS server the provider registers the zone's guests in (ADR-0059\nF5c). Hot: a change converges live; the records the provider already\nwrote stay as they are.",
+          "x-delonix-update": "live"
         },
         "ipam": {
           "description": "The IPAM controller (its id on the provider) the zone's subnets\nallocate from (ADR-0063 D1); `pve`, the provider's built-in one, when\nomitted. The controller is the provider administrator's — the engine\nnever creates one — and one the provider does not have, or cannot\nserve a zone from, is refused before any write. Cold: the provider\nrefuses to change it once the zone holds a subnet.",
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "vnets": {
           "default": [],
           "items": {
             "$ref": "#/$defs/VNetSpecInput"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "replace"
         }
       },
       "type": "object"
@@ -1948,11 +1999,13 @@
       "properties": {
         "backend": {
           "description": "Which store backs this: `cephRgw` (the engine provisions an S3 identity\non the node's Ceph gateway) or `external` (bring your own S3).",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "live"
         },
         "bucket": {
           "description": "The bucket name. For `cephRgw` the tenant creates it over S3 with the\nkeys handed back; for `external` it names the bucket on the foreign store.",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "live"
         },
         "cephRgw": {
           "anyOf": [
@@ -2325,7 +2378,8 @@
           "items": {
             "$ref": "#/$defs/PodContainer"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "replace"
         },
         "detach": {
           "default": true,
@@ -2360,12 +2414,14 @@
         "network": {
           "default": "host",
           "description": "delonix extension: the SDN network the POD's shared netns attaches to.\n\nA `<custom>` name selects that network's bridge. `host`/`none` (the default) mean\n\"the pod's own netns on the default bridge\" — a pod IS a shared netns, so it never\ngets the host's. They are kept as the default because every existing manifest relies\non it; only a custom name changes anything.\n\nWas parsed and **entirely ignored** until v0.47.0: `create_pod` hardcoded `ingress`,\nso a pod declared on a custom network landed on the default bridge in silence.",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "restartPolicy": {
           "default": "no",
           "description": "k8s `restartPolicy`: `Always`|`OnFailure`|`Never` (delonix values also accepted).",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "shareProcessNamespace": {
           "default": false,
@@ -2568,7 +2624,8 @@
         "allowSourceCheckOptOut": {
           "default": false,
           "description": "Lets a container switch the source check off (`--no-source-check`). A\nGRANT: absent = refused.",
-          "type": "boolean"
+          "type": "boolean",
+          "x-delonix-update": "live"
         },
         "allowedEgressPrefixes": {
           "default": [],
@@ -2576,7 +2633,8 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "allowedImageUrlHosts": {
           "default": [],
@@ -2584,7 +2642,8 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "allowedRegistries": {
           "default": [],
@@ -2592,7 +2651,8 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "allowedSourcePrefixes": {
           "default": [],
@@ -2600,37 +2660,44 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "live"
         },
         "denyDevicePassthrough": {
           "default": false,
           "description": "Refuse `vm create --device` (VFIO PCI passthrough).",
-          "type": "boolean"
+          "type": "boolean",
+          "x-delonix-update": "live"
         },
         "denyHostNetwork": {
           "default": false,
           "description": "Refuse `--net host`, this engine's default network mode.",
-          "type": "boolean"
+          "type": "boolean",
+          "x-delonix-update": "live"
         },
         "denyLatestTag": {
           "default": false,
           "description": "Refuse a container image reference with no tag or with `:latest`.",
-          "type": "boolean"
+          "type": "boolean",
+          "x-delonix-update": "live"
         },
         "denyLatestVmImage": {
           "default": false,
           "description": "Refuse a VM disk image reference with no tag or with `:latest`.",
-          "type": "boolean"
+          "type": "boolean",
+          "x-delonix-update": "live"
         },
         "denyPrivateEgress": {
           "default": false,
           "description": "Refuse new connections from a workload on an engine network to private\naddress space (10/8, 172.16/12, 192.168/16, 100.64/10) through the\nnode's uplink. Its own and routed networks are never matched.",
-          "type": "boolean"
+          "type": "boolean",
+          "x-delonix-update": "live"
         },
         "denyPrivileged": {
           "default": false,
           "description": "Refuse `--privileged`.",
-          "type": "boolean"
+          "type": "boolean",
+          "x-delonix-update": "live"
         },
         "mode": {
           "default": null,
@@ -2638,7 +2705,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "workloadSecurity": {
           "anyOf": [
@@ -2649,7 +2717,8 @@
               "type": "null"
             }
           ],
-          "description": "`baseline`: refuse what `--privileged` is made of — capabilities beyond\nthe Pod Security baseline set, the host's PID/IPC namespace,\n`seccomp`/`apparmor=unconfined`, host-path bind mounts, host devices\nand a custom masked/read-only path list that drops the defaults.\nOmitted = no opinion."
+          "description": "`baseline`: refuse what `--privileged` is made of — capabilities beyond\nthe Pod Security baseline set, the host's PID/IPC namespace,\n`seccomp`/`apparmor=unconfined`, host-path bind mounts, host devices\nand a custom masked/read-only path list that drops the defaults.\nOmitted = no opinion.",
+          "x-delonix-update": "live"
         }
       },
       "type": "object"
@@ -2791,7 +2860,8 @@
           "format": "uint16",
           "maximum": 65535,
           "minimum": 0,
-          "type": "integer"
+          "type": "integer",
+          "x-delonix-update": "live"
         },
         "publish": {
           "description": "`type: VirtualIP` only: host ports that lead to the VIP's backends\n(ADR-0066 D6), bound like a container's `-p` (`127.0.0.1` unless\n`DELONIX_PUBLISH_ADDR` widens it).",
@@ -2804,7 +2874,8 @@
           "type": [
             "array",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "readiness": {
           "anyOf": [
@@ -2815,7 +2886,8 @@
               "type": "null"
             }
           ],
-          "description": "`type: VirtualIP` only: the knobs of the TCP readiness check that\nalways runs for each backend."
+          "description": "`type: VirtualIP` only: the knobs of the TCP readiness check that\nalways runs for each backend.",
+          "x-delonix-update": "live"
         },
         "selector": {
           "$ref": "#/$defs/ServiceSelector"
@@ -2829,14 +2901,16 @@
               "type": "null"
             }
           ],
-          "description": "`DNS` (default, ADR-0032) or `VirtualIP` (ADR-0066)."
+          "description": "`DNS` (default, ADR-0032) or `VirtualIP` (ADR-0066).",
+          "x-delonix-update": "live"
         },
         "vip": {
           "description": "`type: VirtualIP` only: the address to hold, inside the node's VIP\npool. Without it the IPAM picks one.",
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         }
       },
       "required": [
@@ -3923,7 +3997,8 @@
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "overcommit": {
           "anyOf": [
@@ -4065,7 +4140,8 @@
           "default": 1,
           "format": "uint32",
           "minimum": 0,
-          "type": "integer"
+          "type": "integer",
+          "x-delonix-update": "live"
         },
         "entrypoint": {
           "default": [],
@@ -4073,7 +4149,8 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "x-delonix-update": "replace"
         },
         "env": {
           "additionalProperties": {
@@ -4081,16 +4158,19 @@
           },
           "default": {},
           "description": "The runtime environment. Empty keeps the image's; non-empty replaces\nit whole.",
-          "type": "object"
+          "type": "object",
+          "x-delonix-update": "replace"
         },
         "image": {
           "description": "The OCI image, as `image pull` takes it (`alpine:3.20`,\n`registry/repo@sha256:…`). Pulled by the engine.",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "memory": {
           "default": "512M",
           "description": "`256M`, `1G`, `2Gi`.",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "live"
         },
         "network": {
           "anyOf": [
@@ -4102,7 +4182,8 @@
             }
           ],
           "default": null,
-          "description": "A network interface on a bridge of the node. Absent: none."
+          "description": "A network interface on a bridge of the node. Absent: none.",
+          "x-delonix-update": "replace"
         },
         "provider": {
           "anyOf": [
@@ -4121,11 +4202,14 @@
           "description": "Size of the root filesystem, in GiB.",
           "format": "uint32",
           "minimum": 0,
-          "type": "integer"
+          "type": "integer",
+          "x-delonix-grow-only": true,
+          "x-delonix-update": "live"
         },
         "swap": {
           "default": "0",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "live"
         }
       },
       "required": [
@@ -4281,18 +4365,21 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "insecureSkipTlsVerify": {
           "default": false,
           "description": "Skip TLS verification when the tunnel connects to the LOCAL backend\n(a self-signed cert on `localhost:<localPort>`) — never affects the\npublic tunnel URL, which every provider here always serves over a\nreal, provider-issued TLS cert. No-op for `pinggy` (it forwards raw\nTCP and never inspects what is behind it).",
-          "type": "boolean"
+          "type": "boolean",
+          "x-delonix-update": "live"
         },
         "localPort": {
           "format": "uint16",
           "maximum": 65535,
           "minimum": 0,
-          "type": "integer"
+          "type": "integer",
+          "x-delonix-update": "live"
         },
         "provider": {
           "anyOf": [
@@ -4303,7 +4390,8 @@
             {
               "type": "object"
             }
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "token": {
           "default": null,
@@ -4506,7 +4594,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "boot": {},
         "bootOrder": {
@@ -4580,7 +4669,8 @@
               "type": "null"
             }
           ],
-          "description": "The guest's login (ADR-0048 D4): a user and a REFERENCE to a\n`kind: Secret` key, never the value. Shown by `vm ls --credentials`."
+          "description": "The guest's login (ADR-0048 D4): a user and a REFERENCE to a\n`kind: Secret` key, never the value. Shown by `vm ls --credentials`.",
+          "x-delonix-update": "live"
         },
         "devices": {
           "default": [],
@@ -4592,7 +4682,8 @@
         "disk": {
           "default": "",
           "description": "The base disk: a VM image name in the store, or a path.\n\nOptional ONLY because [`build`](Self::build) can produce it. Exactly one\nof the two — a `kind: VirtualMachine` with neither has no disk to boot, and one with\nboth is two answers to the same question (see [`VmSpec::resolve_disk`]).",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "expose": {
           "description": "HTTP/S services listening inside the guest, published by name (ADR-0046).\nLowered at load into a synthetic `kind: HTTPRoute` named `<vm>-expose`; the\nkey never reaches the VM apply. See [`super::vm_expose`].",
@@ -4687,7 +4778,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "memoryMax": {
           "default": null,
@@ -4695,7 +4787,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "memory_max": {},
         "netMode": {
@@ -4715,7 +4808,8 @@
             {
               "type": "object"
             }
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "provider": {},
         "requiredCapabilities": {
@@ -4773,7 +4867,8 @@
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "vcpusMax": {
           "default": null,
@@ -4783,7 +4878,8 @@
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "vcpus_max": {},
         "video": {
@@ -4844,7 +4940,8 @@
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "cifs": {
           "anyOf": [
@@ -4862,18 +4959,21 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "driver": {
           "default": "local",
-          "type": "string"
+          "type": "string",
+          "x-delonix-update": "replace"
         },
         "mountOptions": {
           "description": "Canonical `mountOptions` (uniform with `kind: Storage`); `options`\nis still accepted (backward-compat).",
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "nfs": {
           "anyOf": [
@@ -4893,7 +4993,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "replace"
         },
         "provision": {
           "anyOf": [
@@ -4910,7 +5011,8 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-delonix-update": "live"
         },
         "share": {
           "anyOf": [
