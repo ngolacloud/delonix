@@ -100,6 +100,23 @@ fn owner_key(name: &str) -> String {
 fn protect_key(name: &str) -> String {
     format!("delonix.io/networkaccessrule-protect/{name}")
 }
+/// ADR-0090 version keys, per-origin like the pair above — the rule's own
+/// generation on each container that holds it, never a shared container field.
+fn generation_key(name: &str) -> String {
+    format!("{}/networkaccessrule/{name}", super::reconcile::GENERATION)
+}
+fn observed_generation_key(name: &str) -> String {
+    format!(
+        "{}/networkaccessrule/{name}",
+        super::reconcile::OBSERVED_GENERATION
+    )
+}
+fn stored_version_key(name: &str) -> String {
+    format!(
+        "{}/networkaccessrule/{name}",
+        super::reconcile::STORED_VERSION
+    )
+}
 
 /// `ingress`/`egress` → the internal `in`/`out` `FwRule.dir`, or a clear error
 /// naming the document — same mapping `firewall.rs::apply` already uses for
@@ -324,9 +341,15 @@ pub(crate) fn stamp(
 ) -> Result<()> {
     let (_images, store) = open_stores()?;
     let encoded = super::reconcile::encode_last_applied(fields);
+    let version = super::kinds::facts(k::NETWORK_ACCESS_RULE)
+        .map(|f| f.api_version.to_string())
+        .unwrap_or_default();
     let owner_k = owner_key(name);
     let last_applied_k = last_applied_key(name);
     let protect_k = protect_key(name);
+    let generation_k = generation_key(name);
+    let observed_k = observed_generation_key(name);
+    let stored_version_k = stored_version_key(name);
     for c in store.list()? {
         let owns = c
             .firewall
@@ -336,9 +359,22 @@ pub(crate) fn stamp(
             continue;
         }
         store.update(&c.id, |cur| {
+            // ADR-0090, per-origin: bump when THIS rule's applied spec changed on
+            // THIS container, read from the rule's own keys before overwriting.
+            let gen = super::reconcile::next_generation(
+                cur.annotations.get(&last_applied_k).map(String::as_str),
+                cur.annotations.get(&generation_k).map(String::as_str),
+                &encoded,
+            );
             cur.annotations.insert(owner_k.clone(), stack.to_string());
             cur.annotations
                 .insert(last_applied_k.clone(), encoded.clone());
+            cur.annotations
+                .insert(generation_k.clone(), gen.to_string());
+            cur.annotations
+                .insert(observed_k.clone(), gen.to_string());
+            cur.annotations
+                .insert(stored_version_k.clone(), version.clone());
             if protected {
                 cur.annotations
                     .insert(protect_k.clone(), "true".to_string());

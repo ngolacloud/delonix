@@ -387,14 +387,11 @@ pub(crate) fn stamp(
             Some("true".to_string()),
         ));
     }
-    store.set_metadata(
-        name,
-        &labels,
-        &[(
-            super::reconcile::LAST_APPLIED.to_string(),
-            Some(super::reconcile::encode_last_applied(fields)),
-        )],
-    )?;
+    // Previous annotations, so the generation counter sees the prior spec
+    // (ADR-0090) — `set_metadata` merges a delta without returning the old state.
+    let prev = store.get(name).map(|n| n.annotations).unwrap_or_default();
+    let annotations = super::reconcile::stamp_annotation_delta(&prev, fields, k::NETWORK);
+    store.set_metadata(name, &labels, &annotations)?;
     Ok(())
 }
 

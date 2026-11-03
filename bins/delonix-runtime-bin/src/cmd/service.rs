@@ -318,16 +318,14 @@ pub(crate) fn stamp(
             Some("true".to_string()),
         ));
     }
-    delonix_sdn::infra::service_set_metadata(
-        namespace,
-        name,
-        &labels,
-        &[(
-            super::reconcile::LAST_APPLIED.to_string(),
-            Some(super::reconcile::encode_last_applied(fields)),
-        )],
-    )
-    .map_err(Into::into)
+    // Previous annotations, so the generation counter sees the prior spec
+    // (ADR-0090) — `service_set_metadata` merges a delta without returning the old.
+    let prev = delonix_sdn::infra::service_get(namespace, name)
+        .map(|d| d.annotations)
+        .unwrap_or_default();
+    let annotations = super::reconcile::stamp_annotation_delta(&prev, fields, k::SERVICE);
+    delonix_sdn::infra::service_set_metadata(namespace, name, &labels, &annotations)
+        .map_err(Into::into)
 }
 
 /// `--prune`/`stack destroy`'s teardown.

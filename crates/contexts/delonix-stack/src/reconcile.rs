@@ -152,6 +152,27 @@ pub fn stamp_annotations(
     annotations.insert(LAST_APPLIED.to_string(), encoded);
 }
 
+/// [`stamp_annotations`] for a record written through an annotation DELTA — the
+/// `&[(key, Option<value>)]` shape `*Store::set_metadata` takes. `prev` is the
+/// record's CURRENT annotations, which the caller loads (the stores merge a
+/// delta and never hand the previous state back), so the generation can be read
+/// from it. Returns the four entries to apply: the three ADR-0090 version
+/// annotations and [`LAST_APPLIED`].
+pub fn stamp_annotation_delta(
+    prev: &BTreeMap<String, String>,
+    fields: &BTreeMap<String, String>,
+    kind: &str,
+) -> Vec<(String, Option<String>)> {
+    let encoded = encode_last_applied(fields);
+    let version = crate::kinds::facts(kind).map(|f| f.api_version).unwrap_or("");
+    let mut out: Vec<(String, Option<String>)> = version_annotations(prev, &encoded, version)
+        .into_iter()
+        .map(|(k, v)| (k, Some(v)))
+        .collect();
+    out.push((LAST_APPLIED.to_string(), Some(encoded)));
+    out
+}
+
 /// What a resource in the manifest asks for.
 #[derive(Debug, Clone)]
 pub struct Desired {
