@@ -123,8 +123,9 @@ pub struct Dockerfile {
     pub memory: Option<String>,
     /// `SECURITY <option>...` — default security posture (e.g. `userns`).
     pub security: Vec<String>,
-    /// `HEALTHCHECK ... CMD <cmd>` — health command (the part after `CMD`).
-    pub healthcheck: Option<String>,
+    /// `HEALTHCHECK ... CMD <cmd>` as the OCI `Test` array, form preserved:
+    /// `["CMD", prog, args…]` (exec, no shell) or `["CMD-SHELL", script]`.
+    pub healthcheck: Option<Vec<String>>,
 }
 
 /// Parses a Dockerfile. **Docker-compatible** (FROM/RUN/CMD/ENTRYPOINT/
@@ -432,7 +433,18 @@ pub fn parse_dockerfile_with_args(text: &str, cli_args: &[(String, String)]) -> 
                 if r.eq_ignore_ascii_case("NONE") {
                     df.healthcheck = None;
                 } else if let Some(idx) = r.find("CMD ").or_else(|| r.find("cmd ")) {
-                    df.healthcheck = Some(r[idx + 4..].trim().to_string());
+                    let after = r[idx + 4..].trim();
+                    // Preserve the form (review 2026-11-04): `CMD ["a","b"]` is EXEC
+                    // → `["CMD", "a", "b"]` (runs with NO shell); `CMD a b` is shell
+                    // → `["CMD-SHELL", "a b"]` (needs `/bin/sh`).
+                    let test = if after.starts_with('[') {
+                        let mut t = vec!["CMD".to_string()];
+                        t.extend(parse_cmd(after));
+                        t
+                    } else {
+                        vec!["CMD-SHELL".to_string(), after.to_string()]
+                    };
+                    df.healthcheck = Some(test);
                 }
             }
             // compatibility: accepted but with no build effect (metadata)
@@ -1026,7 +1038,7 @@ impl ImageStore {
         user: String,
         tag: &str,
         arch: &str,
-        healthcheck: Option<String>,
+        healthcheck: Option<Vec<String>>,
         ids: &dyn Fn(u32, u32) -> (u32, u32),
     ) -> Result<Image> {
         let buf = Self::pack_rootfs_tar(rootfs, ids)?;
@@ -1071,7 +1083,7 @@ impl ImageStore {
         // `depends_on: service_healthy` fails with "declares no healthcheck"
         // against an image whose source clearly declares one. Found while
         // wiring `container run --wait`.
-        healthcheck: Option<String>,
+        healthcheck: Option<Vec<String>>,
     ) -> Result<Image> {
         let layer = self.cas().write(&tar_bytes)?; // uncompressed tar → diff_id = digest
         let diff_ids = vec![format!("sha256:{}", strip(&layer))];
@@ -1079,7 +1091,7 @@ impl ImageStore {
         let config_json = serde_json::json!({
             "architecture": arch,
             "os": "linux",
-            "config": { "Cmd": cmd, "Entrypoint": entrypoint, "Env": env, "User": user, "WorkingDir": workdir, "Healthcheck": healthcheck },
+            "config": { "Cmd": cmd, "Entrypoint": entrypoint, "Env": env, "User": user, "WorkingDir": workdir, "Healthcheck": healthcheck.as_ref().map(|t| serde_json::json!({ "Test": t })) },
             "rootfs": { "type": "layers", "diff_ids": diff_ids },
             "created_unix": created,
         });

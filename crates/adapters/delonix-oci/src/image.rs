@@ -30,9 +30,15 @@ pub struct ImageConfig {
     /// Embedded security posture (`SECURITY`): e.g. `["userns","apparmor"]`.
     #[serde(default)]
     pub security: Vec<String>,
-    /// Dockerfile `HEALTHCHECK` command (the part after `CMD`), if any.
+    /// The image's `HEALTHCHECK` as the OCI `Test` array, PRESERVING its form
+    /// (review 2026-11-04): `["CMD", prog, args…]` (exec — runs with NO shell, the
+    /// distroless case), `["CMD-SHELL", script]` (needs `/bin/sh`), or `["NONE"]`.
+    /// Was `Option<String>`, which flattened every probe to a shell command and
+    /// dropped the exec form — the distroless blocker. A record that stored the old
+    /// bare string deserializes as `None` here (type changed), and the next
+    /// pull/build repopulates it.
     #[serde(default)]
-    pub healthcheck: Option<String>,
+    pub healthcheck: Option<Vec<String>>,
     /// The default user (Docker/OCI: `User`), e.g. `"elasticsearch"`,
     /// `"1000"` or `"1000:1000"`. Empty = root (uid 0). Images such as
     /// Elasticsearch refuse to run as root, so the runtime switches to this
@@ -69,6 +75,28 @@ pub(crate) fn host_arch_default() -> String {
         other => other,
     }
     .to_string()
+}
+
+/// The `HEALTHCHECK` `Test` array out of a raw OCI/Docker config blob, form
+/// preserved (`["CMD", …]`/`["CMD-SHELL", …]`/`["NONE"]`). `Healthcheck` is a
+/// Docker extension the `oci_spec` `Config` type does not model, so it is dug
+/// out of the JSON by hand — the same way the loaders read `architecture`.
+/// `None` when the image declares no healthcheck (or an empty `Test`).
+pub(crate) fn healthcheck_test(config_bytes: &[u8]) -> Option<Vec<String>> {
+    serde_json::from_slice::<serde_json::Value>(config_bytes)
+        .ok()
+        .and_then(|v| {
+            v.get("config")
+                .and_then(|c| c.get("Healthcheck"))
+                .and_then(|h| h.get("Test"))
+                .and_then(|t| t.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect::<Vec<_>>()
+                })
+        })
+        .filter(|t: &Vec<String>| !t.is_empty())
 }
 
 /// A locally registered image.
