@@ -5513,7 +5513,7 @@
       "if": {
         "properties": {
           "kind": {
-            "const": "ObjectStorage"
+            "const": "Bucket"
           }
         },
         "required": [
@@ -5838,7 +5838,7 @@
       "if": {
         "properties": {
           "kind": {
-            "const": "NetworkGateway"
+            "const": "Router"
           }
         },
         "required": [
@@ -6102,13 +6102,16 @@
       "enum": [
         "App",
         "Application",
+        "Bucket",
         "Cluster",
+        "Config",
         "Container",
         "Dependency",
         "FirewallPolicy",
         "Gateway",
         "GitOpsSource",
         "HTTPRoute",
+        "IPAddress",
         "IPPool",
         "Image",
         "Ingress",
@@ -6121,11 +6124,14 @@
         "NetworkPolicy",
         "NetworkRoute",
         "NetworkZone",
+        "Node",
         "ObjectStorage",
         "Pod",
+        "Router",
         "RuntimePolicy",
         "Secret",
         "Service",
+        "Snapshot",
         "Stack",
         "StoragePool",
         "SystemContainer",

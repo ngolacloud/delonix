@@ -845,6 +845,7 @@ fn form_label(form: super::kinds::Form) -> String {
         Form::Sugar(_) => "sugar",
         Form::Compat(_) => "compat",
         Form::Sunset(_) => "sunset",
+        Form::Reserved => "reserved",
     });
     // The target comes from `successor` and not from this `match`, so the two
     // cannot disagree about which forms have one. `successor` and not

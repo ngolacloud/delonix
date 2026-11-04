@@ -69,7 +69,15 @@ pub const STORAGE_POOL: &str = "StoragePool";
 pub const VOLUME: &str = "Volume";
 /// An S3-compatible object store (ADR-0081): either provisioned on the node's
 /// Ceph Object Gateway, or a reference to a foreign S3 store.
-pub const OBJECT_STORAGE: &str = "ObjectStorage";
+///
+/// Renamed to **`Bucket`** by the catalog v1 (ADR-0086 D3; the remeasurement's
+/// `ObjectStorage → Bucket` conversion). The identifier stays `OBJECT_STORAGE`
+/// on purpose: a rename here is "one line + one alias arm + one test row, not a
+/// sweep" (see the module header), so the dozens of `k::OBJECT_STORAGE` call
+/// sites and the `objectstorage` module keep their handle while the *spelling a
+/// user writes* becomes `Bucket`. `ObjectStorage` keeps loading as a silent
+/// alias (`KIND_ALIASES`).
+pub const OBJECT_STORAGE: &str = "Bucket";
 pub const IMAGE: &str = "Image";
 pub const APP: &str = "App";
 pub const VM: &str = "VirtualMachine";
@@ -89,7 +97,39 @@ pub const JOB: &str = "Job";
 pub const INGRESS: &str = "Ingress";
 pub const FIREWALL_POLICY: &str = "NetworkPolicy";
 pub const NETWORK_ACCESS_RULE: &str = "NetworkAccessRule";
-pub const NETWORK_GATEWAY: &str = "NetworkGateway";
+/// The networking edge a `GatewayProvider` realizes (ADR-0051/0059).
+///
+/// Renamed to **`Router`** by the catalog v1 (ADR-0086 D3; the remeasurement's
+/// `NetworkGateway → Router` conversion — `Router` is the catalog's name for
+/// the connectivity edge, leaving `Gateway` for the Gateway-API entry point of
+/// D4). As with `OBJECT_STORAGE`, the identifier stays `NETWORK_GATEWAY` so the
+/// `network_gateway` module and every `k::NETWORK_GATEWAY` call site keep their
+/// handle; only the spelling becomes `Router`, and `NetworkGateway` keeps
+/// loading as a silent alias (`KIND_ALIASES`).
+pub const NETWORK_GATEWAY: &str = "Router";
+/// A single address claimed from an `IPPool` (ADR-0086 D3, D4c). **Reserved**:
+/// declared at `v1beta1` with no apply of its own yet — the ledger today is the
+/// `IPPool`; the claim-as-a-Kind lands in a later phase under ADR-0090.
+pub const IP_ADDRESS: &str = "IPAddress";
+/// A point-in-time copy of a `Volume` or `VirtualMachine` (ADR-0086 D3, D5d).
+/// **Reserved**: declared at `v1beta1` with no apply of its own yet — snapshots
+/// today are imperative (`vm snapshot`); the declarative Kind, its retention and
+/// its `Bucket` destination land in a later phase under ADR-0090.
+pub const SNAPSHOT: &str = "Snapshot";
+/// Non-secret configuration data a workload consumes — the ConfigMap-shaped
+/// sibling of `Secret` (ADR-0086 D3). **Reserved**: declared at `v1beta1` with
+/// no apply of its own yet. Today non-secret data rides on `Secret`; the
+/// cleartext store and its mount/env projection land in a later phase under
+/// ADR-0090 (it is NOT lowered into `Secret` — that would encrypt data the
+/// writer chose to keep in the clear).
+pub const CONFIG: &str = "Config";
+/// This node, as a resource one can read back (ADR-0086 D3, D7). **Reserved**:
+/// declared at `v1beta1` with no apply of its own yet — the capacity is already
+/// served by `NodeService.GetCapacity`, but what a declarative `kind: Node`
+/// writes (labels, taints, schedulability) is deliberately left for the phase
+/// that builds the uniform read-back surface (ResourceService, ADR-0087/0090).
+/// Node-scoped, like the other node resources of D7.
+pub const NODE: &str = "Node";
 pub const HTTP_ROUTE: &str = "HTTPRoute";
 pub const GATEWAY: &str = "Gateway";
 pub const SERVICE: &str = "Service";
@@ -192,6 +232,21 @@ pub enum Form {
     /// not. So it is announced, not rewritten, and a future major removes it
     /// once manifests have moved.
     Sunset(&'static str),
+    /// Declared in the catalog but with no apply of its own yet. The name,
+    /// group and version are reserved at `v1beta1` — a group born beta is
+    /// *expected* to hold Kinds that are not live yet (ADR-0086 D2: `v1`
+    /// requires every Kind of the group proven live over two releases, which is
+    /// precisely what a `Reserved` Kind is not). It survives nothing and lowers
+    /// to nothing: it is out of the stack cycle, never applied, never observable,
+    /// and its typed schema is deliberately absent (an `untyped_hint` says so).
+    ///
+    /// Distinct from `Sunset` (which HAS an apply and is on its way out) and from
+    /// `Sugar` (which is rewritten into a target that does the work): a
+    /// `Reserved` Kind has no target and no work — the work is a later campaign
+    /// phase. `IPAddress` and `Snapshot` are the first two (ADR-0086 D3, built in
+    /// phases 7–11 under ADR-0090); promoting their group to `v1` is refused by
+    /// the gate until they are live.
+    Reserved,
 }
 
 impl Form {
@@ -211,8 +266,9 @@ impl Form {
             Form::Sugar(k) | Form::Compat(k) => Some(k),
             // `Sunset` is deliberately not here: it does not lower, it is
             // merely announced. Its successor is checked by the same test,
-            // through `successor`.
-            Form::Primary | Form::Aggregate | Form::Sunset(_) => None,
+            // through `successor`. `Reserved` lowers to nothing — it has no
+            // target at all, which is what separates it from `Sunset`.
+            Form::Primary | Form::Aggregate | Form::Sunset(_) | Form::Reserved => None,
         }
     }
 }
@@ -435,8 +491,8 @@ const FACTS: &[KindFacts] = &[
     },
     KindFacts {
         kind: OBJECT_STORAGE,
-        plural: "objectstorages",
-        short: &[],
+        plural: "buckets",
+        short: &["bkt"],
         api_version: "storage.delonix.io/v1beta1",
         domain: Domain::Storage,
         form: Form::Primary,
@@ -618,10 +674,10 @@ const FACTS: &[KindFacts] = &[
     },
     KindFacts {
         kind: NETWORK_GATEWAY,
-        plural: "networkgateways",
-        short: &["ngw"],
+        plural: "routers",
+        short: &["rtr"],
         api_version: "networking.delonix.io/v1beta1",
-        domain: Domain::NetPolicy,
+        domain: Domain::NetConnectivity,
         form: Form::Primary,
         in_stack: true,
         stack_group: "networkGateways",
@@ -769,6 +825,89 @@ const FACTS: &[KindFacts] = &[
         presence: Presence::Declarative,
     },
     KindFacts {
+        // ADR-0086 D3/D4c. RESERVED: the name, group and version are reserved at
+        // `v1beta1`; there is no apply yet (the `IPPool` is the live ledger). So
+        // it is out of the stack cycle, has no group, and is not observable — the
+        // claim-as-a-Kind lands in a later phase under ADR-0090.
+        kind: IP_ADDRESS,
+        plural: "ipaddresses",
+        short: &["ip"],
+        api_version: "networking.delonix.io/v1beta1",
+        domain: Domain::NetExposure,
+        form: Form::Reserved,
+        in_stack: false,
+        stack_group: "",
+        converges: false,
+        teardown: false,
+        // Provisional: a reserved Kind has no apply to honor the field. Settled
+        // when the apply lands (ADR-0090). `Never` keeps it out of the
+        // namespaced-Kinds message until then, rather than advertising a scope it
+        // does not yet enforce.
+        namespaced: Namespaced::Never,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
+        // ADR-0086 D3/D5d. RESERVED: declared at `v1beta1` with no apply yet —
+        // snapshots today are imperative (`vm snapshot`). The declarative Kind,
+        // its retention and its `Bucket` destination land in a later phase under
+        // ADR-0090. Out of the stack cycle, no group, not observable.
+        kind: SNAPSHOT,
+        plural: "snapshots",
+        short: &["snap"],
+        api_version: "storage.delonix.io/v1beta1",
+        domain: Domain::Storage,
+        form: Form::Reserved,
+        in_stack: false,
+        stack_group: "",
+        converges: false,
+        teardown: false,
+        // Provisional, as for `IPAddress` above: `Never` until the apply exists.
+        namespaced: Namespaced::Never,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
+        // ADR-0086 D3. RESERVED: the ConfigMap-shaped sibling of `Secret`,
+        // declared at `v1beta1` with no apply yet — non-secret data rides on
+        // `Secret` today. Out of the stack cycle, no group, not observable; the
+        // cleartext store lands in a later phase under ADR-0090.
+        kind: CONFIG,
+        plural: "configs",
+        short: &["cfg"],
+        api_version: "core.delonix.io/v1beta1",
+        // Consumed by a workload, like `Secret` and `Image` beside it.
+        domain: Domain::Artifact,
+        form: Form::Reserved,
+        in_stack: false,
+        stack_group: "",
+        converges: false,
+        teardown: false,
+        // Will be namespaced like `Secret` when it has an apply; `Never` until
+        // then keeps it out of the namespaced-Kinds message (see `IPAddress`).
+        namespaced: Namespaced::Never,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
+        // ADR-0086 D3/D7. RESERVED: this node as a readable resource, declared at
+        // `v1beta1` with no apply yet — `NodeService.GetCapacity` already serves
+        // the capacity, but the declarative Kind's read-back/labels/taints land
+        // with the ResourceService (ADR-0087/0090). Node-scoped (D7), out of the
+        // stack cycle, no group, not observable.
+        kind: NODE,
+        plural: "nodes",
+        short: &[],
+        api_version: "core.delonix.io/v1beta1",
+        // The compute host itself — the substrate the compute Kinds run on.
+        domain: Domain::Compute,
+        form: Form::Reserved,
+        in_stack: false,
+        stack_group: "",
+        converges: false,
+        teardown: false,
+        // Genuinely node-scoped (D7), not merely provisional like the others.
+        namespaced: Namespaced::Never,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
         kind: STACK,
         plural: "stacks",
         short: &[],
@@ -889,6 +1028,11 @@ pub fn stack_group_absent_reason(kind: &str) -> Option<&'static str> {
             "a KubernetesCluster is a remote procedure over SSH against hosts that already \
              exist, not a resource of this node, so `stack apply` never runs it — grouping \
              it would promise an apply that does not happen"
+        }
+        IP_ADDRESS | SNAPSHOT | CONFIG | NODE => {
+            "a Reserved Kind has no apply yet (ADR-0086 D3, built under ADR-0090), so \
+             `stack apply` never runs it — grouping it would promise an apply that does \
+             not happen"
         }
         _ => return None,
     })
@@ -1046,6 +1190,13 @@ mod tests {
             (INGRESS, "ingress"),
             (VM, "vms"),
             (FIREWALL_POLICY, "firewallPolicies"),
+            // Renamed by the catalog v1 (ADR-0086 D3): the Kind is now `Bucket`/
+            // `Router`, but the Stack group keeps its published key so existing
+            // Stacks keep loading — the same treatment the three above got, where
+            // the group key (`vms`, `ingress`, `firewallPolicies`) stays put
+            // while the Kind's own plural moved on.
+            (OBJECT_STORAGE, "objectStorages"),
+            (NETWORK_GATEWAY, "networkGateways"),
         ];
         for f in all().filter(|f| !f.stack_group.is_empty()) {
             if KEPT.contains(&(f.kind, f.stack_group)) {

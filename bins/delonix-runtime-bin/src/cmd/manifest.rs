@@ -331,6 +331,13 @@ pub(crate) const KIND_ALIASES: &[(&str, &str)] = &[
     ("Workload", k::WORKLOAD),
     ("Application", k::APPLICATION),
     ("Job", k::JOB),
+    // Catalog v1 renames (ADR-0086 D3): the canonical spelling is now `Bucket`/
+    // `Router` (the const VALUE), and the old spelling keeps loading as a silent
+    // alias — a rename, nothing to migrate (`docs/cli-stability.md`).
+    ("ObjectStorage", k::OBJECT_STORAGE),
+    ("Bucket", k::OBJECT_STORAGE),
+    ("NetworkGateway", k::NETWORK_GATEWAY),
+    ("Router", k::NETWORK_GATEWAY),
 ];
 
 pub fn canonical_kind(kind: &str) -> &str {
@@ -2161,7 +2168,10 @@ spec: { image: nginx }
             "networkZones" => ("{ vnets: [{ name: prod }] }", "NetworkZone"),
             "storagePools" => ("{ alertPct: 85 }", "StoragePool"),
             "volumes" => ("{}", "Volume"),
-            "objectStorages" => ("{ backend: cephRgw, bucket: media }", "ObjectStorage"),
+            // Renamed to `Bucket` by the catalog v1 (ADR-0086 D3); the group key
+            // stays `objectStorages` but the Kind that survives the load is the
+            // new canonical spelling.
+            "objectStorages" => ("{ backend: cephRgw, bucket: media }", "Bucket"),
             "images" => ("{ pull: alpine }", "Image"),
             "apps" => ("{ source: ., image: shop }", "App"),
             "vms" => ("{ disk: base }", "VirtualMachine"),
@@ -2186,7 +2196,8 @@ spec: { image: nginx }
                 "{ target: c, direction: ingress, port: '80' }",
                 "NetworkAccessRule",
             ),
-            "networkGateways" => ("{ provider: opnsense }", "NetworkGateway"),
+            // Renamed to `Router` by the catalog v1 (ADR-0086 D3); group key kept.
+            "networkGateways" => ("{ provider: opnsense }", "Router"),
             "httpRoutes" => ("{ rules: [] }", "HTTPRoute"),
             "gateways" => ("{ provider: pinggy, localPort: 80 }", "Gateway"),
             "gitopsSources" => (
