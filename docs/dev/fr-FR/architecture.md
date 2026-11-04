@@ -88,7 +88,7 @@ Ce ne sont pas des conventions ; `scripts/arch_fitness.py` impose la moitié str
 | Des ratchets qui ne peuvent que baisser (listés ci-dessous) — par ex. des crates de bibliothèque qui ré-exécutent le binaire du moteur lui-même, des `println!` dans des bibliothèques, des écritures dans l’environnement du processus, des adapters qui importent l’`Error` partagé comme s’il était le leur, un crate de context qui exécute un programme externe (`Command::new` sous `crates/contexts/`, base de référence 0) | les motifs de ratchet (`SELF_EXEC`, `PRINTS`, `ENV_WRITES`, `SHARED_ERROR`, `CONTEXT_SPAWNS`, …), base de référence dans `scripts/arch_baseline.json` |
 
 <!-- dev-docs:begin ratchets -->
-`scripts/arch_fitness.py` keeps **6 debt ratchets** (baseline in `scripts/arch_baseline.json`):
+`scripts/arch_fitness.py` maintient **12 cliquets de dette** (référence dans `scripts/arch_baseline.json`) :
 
 - `self_exec_sites`
 - `library_prints`
@@ -96,6 +96,12 @@ Ce ne sont pas des conventions ; `scripts/arch_fitness.py` impose la moitié str
 - `shared_error_imports`
 - `raw_error_variant_matches`
 - `context_spawns`
+- `cli_context_lines`
+- `interface_mechanism_deps`
+- `provider_namers`
+- `bin_crates`
+- `inter_context_violations`
+- `domain_app_refs`
 <!-- dev-docs:end ratchets -->
 
 `python3 scripts/arch_fitness.py --list` montre ce que compte chaque ratchet aujourd’hui, fichier
@@ -443,26 +449,27 @@ classDef store fill:#2390c8,stroke:#17618a,color:#ffffff
 La couche à laquelle appartient chaque crate, et la direction dans laquelle il peut dépendre :
 
 <!-- dev-docs:begin layers -->
-| Layer | May depend on |
+| Couche | Peut dépendre de |
 |---|---|
 | Foundation | foundation |
 | Contexts | foundation, contexts |
 | Adapters | foundation, contexts |
 | Providers | foundation, contexts |
 | Interfaces | foundation, contexts, adapters, providers |
-| Binaries | foundation, contexts, adapters, providers, interfaces |
+| Assembly | foundation, contexts, adapters, providers |
+| Binaries | foundation, contexts, adapters, providers, interfaces, assembly |
 
-Declared exceptions (each one names the ADR-0040 phase that removes it):
+Exceptions déclarées (chacune nomme la phase de l'ADR-0040 qui la supprime) :
 
-- `delonix-linux` → `delonix-state` — removed in **P4a**
-- `delonix-mcp` → `delonix-mgmt` — removed in **P5**
-- `delonix-oci` → `delonix-state` — removed in **P4**
-- `delonix-scanner` → `delonix-oci` — removed in **P4**
-- `delonix-sdn` → `delonix-state` — removed in **P4**
-- `delonix-vm` → `delonix-provider-cloud-hypervisor` — removed in **P5**
-- `delonix-vm` → `delonix-provider-libvirt` — removed in **P5**
-- `delonix-vm` → `delonix-state` — removed in **P5**
-- `delonix-volume` → `delonix-state` — removed in **P4**
+- `delonix-linux` → `delonix-state` — supprimée en **P4a**
+- `delonix-mcp` → `delonix-mgmt` — supprimée en **P5**
+- `delonix-oci` → `delonix-state` — supprimée en **P4**
+- `delonix-scanner` → `delonix-oci` — supprimée en **P4**
+- `delonix-sdn` → `delonix-state` — supprimée en **P4**
+- `delonix-vm` → `delonix-provider-cloud-hypervisor` — supprimée en **P5**
+- `delonix-vm` → `delonix-provider-libvirt` — supprimée en **P5**
+- `delonix-vm` → `delonix-state` — supprimée en **P5**
+- `delonix-volume` → `delonix-state` — supprimée en **P4**
 <!-- dev-docs:end layers -->
 
 ### Où en est la restructuration
@@ -692,7 +699,7 @@ pour répondre « est-ce que A dépend de B », et lisez les figures par couche 
 comprendre pourquoi.
 
 <!-- dev-docs:begin crates-graph -->
-**Legend** — one box per crate, grouped by layer; an arrow `A --> B` means *A depends on B*. Red: binaries · white with red border: interfaces · white: contexts and adapters · grey: providers · blue: foundation.
+**Légende** — une boîte par crate, regroupées par couche ; une flèche `A --> B` signifie *A dépend de B*. Rouge : binaires · blanc à bordure rouge : interfaces · blanc : contextes et adaptateurs · gris : providers · bleu : fondation.
 
 ```mermaid
 flowchart TB
@@ -704,13 +711,15 @@ flowchart TB
     delonix_compute["delonix-compute"]
     delonix_networking["delonix-networking"]
     delonix_node["delonix-node"]
-    delonix_security_runtime["delonix-security-runtime"]
+    delonix_security["delonix-security"]
     delonix_stack["delonix-stack"]
     delonix_storage["delonix-storage"]
   end
   subgraph adapter["Adapters"]
+    delonix_host["delonix-host"]
     delonix_linux["delonix-linux"]
     delonix_oci["delonix-oci"]
+    delonix_pool_helper["delonix-pool-helper"]
     delonix_scanner["delonix-scanner"]
     delonix_sdn["delonix-sdn"]
     delonix_state["delonix-state"]
@@ -719,16 +728,16 @@ flowchart TB
     delonix_volume["delonix-volume"]
   end
   subgraph provider["Providers"]
-    delonix_opnsense["delonix-opnsense"]
-    delonix_powerdns["delonix-powerdns"]
     delonix_provider_btrfs["delonix-provider-btrfs"]
     delonix_provider_ceph["delonix-provider-ceph"]
     delonix_provider_cloud_hypervisor["delonix-provider-cloud-hypervisor"]
     delonix_provider_libvirt["delonix-provider-libvirt"]
     delonix_provider_lvm["delonix-provider-lvm"]
+    delonix_provider_opnsense["delonix-provider-opnsense"]
+    delonix_provider_powerdns["delonix-provider-powerdns"]
+    delonix_provider_proxmox["delonix-provider-proxmox"]
+    delonix_provider_truenas["delonix-provider-truenas"]
     delonix_provider_zfs["delonix-provider-zfs"]
-    delonix_proxmox["delonix-proxmox"]
-    delonix_truenas["delonix-truenas"]
   end
   subgraph interface["Interfaces"]
     delonix_cri["delonix-cri"]
@@ -736,42 +745,83 @@ flowchart TB
     delonix_mgmt["delonix-mgmt"]
     delonix_node_api["delonix-node-api"]
   end
+  subgraph assembly["Assembly"]
+    delonix_engine["delonix-engine"]
+  end
   subgraph bin["Binaries"]
+    delonix_bin["delonix-bin"]
     delonix_mcp_bin["delonix-mcp-bin"]
     delonix_mgmt_bin["delonix-mgmt-bin"]
     delonix_node_api_bin["delonix-node-api-bin"]
-    delonix_runtime_bin["delonix-runtime-bin"]
     delonix_storage_helper["delonix-storage-helper"]
   end
+  delonix_bin --> delonix_compute
+  delonix_bin --> delonix_engine
+  delonix_bin --> delonix_host
+  delonix_bin --> delonix_linux
+  delonix_bin --> delonix_mgmt
+  delonix_bin --> delonix_model
+  delonix_bin --> delonix_net_rules
+  delonix_bin --> delonix_networking
+  delonix_bin --> delonix_node
+  delonix_bin --> delonix_oci
+  delonix_bin --> delonix_pool_helper
+  delonix_bin --> delonix_provider_btrfs
+  delonix_bin --> delonix_provider_ceph
+  delonix_bin --> delonix_provider_lvm
+  delonix_bin --> delonix_provider_opnsense
+  delonix_bin --> delonix_provider_powerdns
+  delonix_bin --> delonix_provider_proxmox
+  delonix_bin --> delonix_provider_truenas
+  delonix_bin --> delonix_provider_zfs
+  delonix_bin --> delonix_scanner
+  delonix_bin --> delonix_sdn
+  delonix_bin --> delonix_security
+  delonix_bin --> delonix_stack
+  delonix_bin --> delonix_state
+  delonix_bin --> delonix_storage
+  delonix_bin --> delonix_telemetry
+  delonix_bin --> delonix_vm
+  delonix_bin --> delonix_volume
   delonix_compute --> delonix_model
   delonix_compute --> delonix_net_rules
   delonix_compute --> delonix_node
   delonix_cri --> delonix_compute
+  delonix_cri --> delonix_host
   delonix_cri --> delonix_linux
   delonix_cri --> delonix_model
   delonix_cri --> delonix_node
   delonix_cri --> delonix_oci
   delonix_cri --> delonix_sdn
-  delonix_cri --> delonix_security_runtime
+  delonix_cri --> delonix_security
   delonix_cri --> delonix_state
   delonix_cri --> delonix_telemetry
+  delonix_engine --> delonix_compute
+  delonix_engine --> delonix_model
+  delonix_engine --> delonix_vm
+  delonix_host --> delonix_model
   delonix_linux --> delonix_compute
   delonix_linux --> delonix_model
   delonix_linux --> delonix_node
   delonix_linux --> delonix_state
   delonix_mcp --> delonix_compute
+  delonix_mcp --> delonix_host
   delonix_mcp --> delonix_linux
   delonix_mcp --> delonix_mgmt
   delonix_mcp --> delonix_model
   delonix_mcp --> delonix_node
   delonix_mcp --> delonix_sdn
   delonix_mcp --> delonix_state
-  delonix_mcp --> delonix_vm
   delonix_mcp --> delonix_volume
+  delonix_mcp_bin --> delonix_compute
+  delonix_mcp_bin --> delonix_engine
+  delonix_mcp_bin --> delonix_host
   delonix_mcp_bin --> delonix_mcp
+  delonix_mcp_bin --> delonix_model
   delonix_mcp_bin --> delonix_node
   delonix_mcp_bin --> delonix_telemetry
   delonix_mgmt --> delonix_compute
+  delonix_mgmt --> delonix_host
   delonix_mgmt --> delonix_linux
   delonix_mgmt --> delonix_model
   delonix_mgmt --> delonix_node
@@ -780,101 +830,88 @@ flowchart TB
   delonix_mgmt --> delonix_sdn
   delonix_mgmt --> delonix_state
   delonix_mgmt --> delonix_telemetry
-  delonix_mgmt --> delonix_vm
   delonix_mgmt --> delonix_volume
+  delonix_mgmt_bin --> delonix_compute
+  delonix_mgmt_bin --> delonix_engine
+  delonix_mgmt_bin --> delonix_host
   delonix_mgmt_bin --> delonix_mgmt
+  delonix_mgmt_bin --> delonix_model
   delonix_mgmt_bin --> delonix_node
   delonix_mgmt_bin --> delonix_telemetry
-  delonix_networking --> delonix_compute
   delonix_networking --> delonix_model
   delonix_networking --> delonix_net_rules
   delonix_node --> delonix_model
   delonix_node_api --> delonix_compute
+  delonix_node_api --> delonix_host
   delonix_node_api --> delonix_linux
   delonix_node_api --> delonix_model
   delonix_node_api --> delonix_node
   delonix_node_api --> delonix_oci
-  delonix_node_api --> delonix_opnsense
+  delonix_node_api --> delonix_pool_helper
   delonix_node_api --> delonix_provider_ceph
-  delonix_node_api --> delonix_proxmox
+  delonix_node_api --> delonix_provider_opnsense
+  delonix_node_api --> delonix_provider_proxmox
   delonix_node_api --> delonix_sdn
   delonix_node_api --> delonix_state
   delonix_node_api --> delonix_storage
   delonix_node_api --> delonix_vm
   delonix_node_api --> delonix_volume
+  delonix_node_api_bin --> delonix_host
   delonix_node_api_bin --> delonix_model
   delonix_node_api_bin --> delonix_node
   delonix_node_api_bin --> delonix_node_api
   delonix_node_api_bin --> delonix_telemetry
   delonix_oci --> delonix_compute
+  delonix_oci --> delonix_host
   delonix_oci --> delonix_model
   delonix_oci --> delonix_node
   delonix_oci --> delonix_state
-  delonix_opnsense --> delonix_compute
-  delonix_opnsense --> delonix_model
-  delonix_opnsense --> delonix_networking
-  delonix_powerdns --> delonix_model
+  delonix_pool_helper --> delonix_model
+  delonix_pool_helper --> delonix_storage
   delonix_provider_btrfs --> delonix_storage
   delonix_provider_ceph --> delonix_storage
   delonix_provider_cloud_hypervisor --> delonix_compute
   delonix_provider_cloud_hypervisor --> delonix_model
   delonix_provider_cloud_hypervisor --> delonix_node
   delonix_provider_libvirt --> delonix_compute
+  delonix_provider_libvirt --> delonix_host
   delonix_provider_libvirt --> delonix_model
   delonix_provider_libvirt --> delonix_node
   delonix_provider_lvm --> delonix_storage
+  delonix_provider_opnsense --> delonix_compute
+  delonix_provider_opnsense --> delonix_model
+  delonix_provider_opnsense --> delonix_networking
+  delonix_provider_powerdns --> delonix_model
+  delonix_provider_proxmox --> delonix_compute
+  delonix_provider_proxmox --> delonix_model
+  delonix_provider_proxmox --> delonix_networking
+  delonix_provider_truenas --> delonix_model
   delonix_provider_zfs --> delonix_storage
-  delonix_proxmox --> delonix_compute
-  delonix_proxmox --> delonix_model
-  delonix_proxmox --> delonix_networking
-  delonix_runtime_bin --> delonix_compute
-  delonix_runtime_bin --> delonix_linux
-  delonix_runtime_bin --> delonix_mgmt
-  delonix_runtime_bin --> delonix_model
-  delonix_runtime_bin --> delonix_net_rules
-  delonix_runtime_bin --> delonix_networking
-  delonix_runtime_bin --> delonix_node
-  delonix_runtime_bin --> delonix_oci
-  delonix_runtime_bin --> delonix_opnsense
-  delonix_runtime_bin --> delonix_powerdns
-  delonix_runtime_bin --> delonix_provider_btrfs
-  delonix_runtime_bin --> delonix_provider_ceph
-  delonix_runtime_bin --> delonix_provider_lvm
-  delonix_runtime_bin --> delonix_provider_zfs
-  delonix_runtime_bin --> delonix_proxmox
-  delonix_runtime_bin --> delonix_scanner
-  delonix_runtime_bin --> delonix_sdn
-  delonix_runtime_bin --> delonix_security_runtime
-  delonix_runtime_bin --> delonix_stack
-  delonix_runtime_bin --> delonix_state
-  delonix_runtime_bin --> delonix_storage
-  delonix_runtime_bin --> delonix_telemetry
-  delonix_runtime_bin --> delonix_truenas
-  delonix_runtime_bin --> delonix_vm
-  delonix_runtime_bin --> delonix_volume
   delonix_scanner --> delonix_model
   delonix_scanner --> delonix_oci
   delonix_sdn --> delonix_compute
+  delonix_sdn --> delonix_host
   delonix_sdn --> delonix_model
   delonix_sdn --> delonix_net_rules
   delonix_sdn --> delonix_networking
   delonix_sdn --> delonix_node
   delonix_sdn --> delonix_state
-  delonix_security_runtime --> delonix_model
-  delonix_security_runtime --> delonix_node
+  delonix_security --> delonix_model
+  delonix_security --> delonix_node
   delonix_stack --> delonix_model
   delonix_state --> delonix_compute
+  delonix_state --> delonix_host
   delonix_state --> delonix_model
   delonix_state --> delonix_node
   delonix_storage --> delonix_model
   delonix_storage_helper --> delonix_model
+  delonix_storage_helper --> delonix_pool_helper
   delonix_storage_helper --> delonix_provider_btrfs
   delonix_storage_helper --> delonix_provider_ceph
   delonix_storage_helper --> delonix_provider_lvm
   delonix_storage_helper --> delonix_provider_zfs
   delonix_storage_helper --> delonix_storage
   delonix_storage_helper --> delonix_volume
-  delonix_truenas --> delonix_model
   delonix_vm --> delonix_compute
   delonix_vm --> delonix_model
   delonix_vm --> delonix_node
@@ -886,8 +923,11 @@ flowchart TB
   delonix_volume --> delonix_node
   delonix_volume --> delonix_state
   delonix_volume --> delonix_storage
+  class delonix_bin engine
   class delonix_compute block
   class delonix_cri iface
+  class delonix_engine assembly
+  class delonix_host block
   class delonix_linux block
   class delonix_mcp iface
   class delonix_mcp_bin engine
@@ -900,25 +940,25 @@ flowchart TB
   class delonix_node_api iface
   class delonix_node_api_bin engine
   class delonix_oci block
-  class delonix_opnsense external
-  class delonix_powerdns external
+  class delonix_pool_helper block
   class delonix_provider_btrfs external
   class delonix_provider_ceph external
   class delonix_provider_cloud_hypervisor external
   class delonix_provider_libvirt external
   class delonix_provider_lvm external
+  class delonix_provider_opnsense external
+  class delonix_provider_powerdns external
+  class delonix_provider_proxmox external
+  class delonix_provider_truenas external
   class delonix_provider_zfs external
-  class delonix_proxmox external
-  class delonix_runtime_bin engine
   class delonix_scanner block
   class delonix_sdn block
-  class delonix_security_runtime block
+  class delonix_security block
   class delonix_stack block
   class delonix_state block
   class delonix_storage block
   class delonix_storage_helper engine
   class delonix_telemetry block
-  class delonix_truenas external
   class delonix_vm block
   class delonix_volume block
   classDef engine fill:#cc2823,stroke:#8f1b17,color:#ffffff
@@ -926,6 +966,7 @@ flowchart TB
   classDef block fill:#ffffff,stroke:#8a817c,color:#191513
   classDef external fill:#e1ddda,stroke:#8a817c,color:#191513
   classDef store fill:#2390c8,stroke:#17618a,color:#ffffff
+  classDef assembly fill:#e0f7fa,stroke:#00acc1,color:#191513
 ```
 <!-- dev-docs:end crates-graph -->
 

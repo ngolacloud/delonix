@@ -327,6 +327,7 @@ cgroups, the network holder or VM boot works — that needs a live run (see
 | `test` | test |
 | `test-arm64` | test (arm64) |
 | `deny` | cargo-deny |
+| `actions-pinned` | actions-pinned |
 | `fuzz` | fuzz (60s smoke, per target) |
 | `script-tests` | script tests (Python gates) |
 | `perf-probe` | perf probe (environment and bench) |

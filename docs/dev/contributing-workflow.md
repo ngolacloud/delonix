@@ -141,7 +141,7 @@ a change:
   crate error that converts into it). The current list is generated:
 
 <!-- dev-docs:begin ratchets -->
-`scripts/arch_fitness.py` keeps **6 debt ratchets** (baseline in `scripts/arch_baseline.json`):
+`scripts/arch_fitness.py` keeps **12 debt ratchets** (baseline in `scripts/arch_baseline.json`):
 
 - `self_exec_sites`
 - `library_prints`
@@ -149,6 +149,12 @@ a change:
 - `shared_error_imports`
 - `raw_error_variant_matches`
 - `context_spawns`
+- `cli_context_lines`
+- `interface_mechanism_deps`
+- `provider_namers`
+- `bin_crates`
+- `inter_context_violations`
+- `domain_app_refs`
 <!-- dev-docs:end ratchets -->
 Same semantics as the language ratchet (`--list`, `--update`).
 

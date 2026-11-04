@@ -290,6 +290,7 @@ cargo test -p <crate> -- --ignored <test-name>
 | `test` | test |
 | `test-arm64` | test (arm64) |
 | `deny` | cargo-deny |
+| `actions-pinned` | actions-pinned |
 | `fuzz` | fuzz (60s smoke, per target) |
 | `script-tests` | script tests (Python gates) |
 | `perf-probe` | perf probe (environment and bench) |
