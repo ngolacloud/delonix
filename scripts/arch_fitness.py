@@ -63,6 +63,7 @@ LAYERS = {
     "delonix-net-rules": FOUNDATION,  # → delonix-networking/domain (P2)
     "delonix-security": CONTEXT,  # → delonix-security (P2)
     "delonix-host": ADAPTER,  # the host adapter: the delonix-node split's process/fs mechanism (R2)
+    "delonix-pool-helper": ADAPTER,  # the storage pool helper protocol, lifted out of the storage context (R2c)
     "delonix-linux": ADAPTER,
     "delonix-sdn": ADAPTER,
     "delonix-oci": ADAPTER,
@@ -94,6 +95,15 @@ LAYERS = {
 # A1): the shared host mechanism of the delonix-node split. Everything above the
 # adapter layer already reaches any adapter.
 HOST_ADAPTER = {"delonix-host"}
+
+# The adapters R2 lifted OUT of a context (the node split's host mechanism, the
+# storage context's pool-helper protocol). An interface that depends on one was
+# already coupled to that mechanism when it lived in the context — which the
+# interface_mechanism_deps ratchet never counted — so counting it now would read
+# a corrected classification as new coupling. R3 composes both away via the
+# Engine; until then they do not count against the ratchet (every OTHER
+# interface→adapter/provider edge still does).
+R2_LIFTED_ADAPTERS = {"delonix-host", "delonix-pool-helper"}
 
 # Which layers each layer may depend on. The direction, in one place.
 ALLOWED = {
@@ -440,7 +450,7 @@ def interface_mechanism_deps(pkgs: dict[str, dict]) -> tuple[int, list[str]]:
         if LAYERS.get(name) != INTERFACE:
             continue
         for dep in pkg["dependencies"]:
-            if dep["name"] in HOST_ADAPTER:
+            if dep["name"] in R2_LIFTED_ADAPTERS:
                 continue
             if dep["kind"] is None and LAYERS.get(dep["name"]) in (ADAPTER, PROVIDER):
                 where.append(f"{name} -> {dep['name']} ({LAYERS[dep['name']]})")
