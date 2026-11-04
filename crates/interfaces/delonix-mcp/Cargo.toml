@@ -15,7 +15,6 @@ delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-model = { workspace = true }
 delonix-state = { workspace = true }
-delonix-vm = { workspace = true }
 delonix-volume = { workspace = true }
 delonix-sdn = { workspace = true }
 # Reused for its Prometheus-shaped runtime summary (`dashstats::collect`) so

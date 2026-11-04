@@ -132,8 +132,22 @@ fn list_containers(base: &Path) -> Result<Vec<Container>, ErrorData> {
         .map_err(|e| from_engine_error(e.into()))
 }
 
-fn list_vms(base: &Path) -> Result<Vec<delonix_compute::Vm>, ErrorData> {
-    delonix_vm::list(base).map_err(|e| from_engine_error(e.into()))
+/// The composed engine's VM queries, as this server needs them (ADR-0040 A5). The
+/// bin mounts a `delonix_engine::Engine` and hands the server an implementor; the
+/// interface receives the engine already composed and never names the assembly
+/// crate (an interface→assembly dependency is forbidden by the arch gate — the
+/// VM backend reaches this crate as this port, not as a `delonix-vm` dependency).
+/// Errors arrive already mapped to the shared [`EngineError`], the foundation
+/// type this crate turns into an MCP [`ErrorData`] via [`from_engine_error`].
+pub trait VmView: Send + Sync {
+    /// Every VM the node has.
+    fn list(&self) -> Result<Vec<delonix_compute::Vm>, EngineError>;
+    /// One VM's full record by name.
+    fn status(&self, name: &str) -> Result<delonix_compute::Vm, EngineError>;
+}
+
+fn list_vms(vms: &dyn VmView) -> Result<Vec<delonix_compute::Vm>, ErrorData> {
+    vms.list().map_err(from_engine_error)
 }
 
 fn list_volumes(base: &Path) -> Result<Vec<delonix_volume::Volume>, ErrorData> {
@@ -142,24 +156,34 @@ fn list_volumes(base: &Path) -> Result<Vec<delonix_volume::Volume>, ErrorData> {
         .map_err(|e| from_engine_error(e.into()))
 }
 
-fn list_kind(base: &Path, kind: ResourceKind) -> Result<serde_json::Value, ErrorData> {
+fn list_kind(
+    base: &Path,
+    vms: &dyn VmView,
+    kind: ResourceKind,
+) -> Result<serde_json::Value, ErrorData> {
     Ok(match kind {
         ResourceKind::Container => serde_json::to_value(list_containers(base)?),
-        ResourceKind::Vm => serde_json::to_value(list_vms(base)?),
+        ResourceKind::Vm => serde_json::to_value(list_vms(vms)?),
         ResourceKind::Volume => serde_json::to_value(list_volumes(base)?),
     }
     .unwrap_or(serde_json::Value::Null))
 }
 
-fn get_kind(base: &Path, kind: ResourceKind, name: &str) -> Result<serde_json::Value, ErrorData> {
+fn get_kind(
+    base: &Path,
+    vms: &dyn VmView,
+    kind: ResourceKind,
+    name: &str,
+) -> Result<serde_json::Value, ErrorData> {
     match kind {
         ResourceKind::Container => Store::open(base.join("containers"))
             .and_then(|s| s.load(name))
             .map(|c| serde_json::to_value(c).unwrap_or(serde_json::Value::Null))
             .map_err(|e| from_engine_error(e.into())),
-        ResourceKind::Vm => delonix_vm::status(base, name)
+        ResourceKind::Vm => vms
+            .status(name)
             .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
-            .map_err(|e| from_engine_error(e.into())),
+            .map_err(from_engine_error),
         ResourceKind::Volume => list_volumes(base)?
             .into_iter()
             .find(|v| v.name == name)
@@ -245,16 +269,18 @@ struct AuditQueryParams {
 #[derive(Clone)]
 pub struct DelonixMcp {
     base: PathBuf,
+    vms: Arc<dyn VmView>,
     principal: String,
     tasks: TaskRegistry,
     audit: Arc<AuditLog>,
 }
 
 impl DelonixMcp {
-    pub fn new(base: PathBuf) -> std::io::Result<Self> {
+    pub fn new(base: PathBuf, vms: Arc<dyn VmView>) -> std::io::Result<Self> {
         let audit = AuditLog::open(&base)?;
         Ok(Self {
             base,
+            vms,
             principal: principal(),
             tasks: TaskRegistry::default(),
             audit: Arc::new(audit),
@@ -421,7 +447,7 @@ impl DelonixMcp {
     ) -> Result<String, ErrorData> {
         let k = ResourceKind::parse(&kind)?;
         let args = json!({ "kind": kind });
-        match list_kind(&self.base, k) {
+        match list_kind(&self.base, self.vms.as_ref(), k) {
             Ok(v) => {
                 self.log(
                     "resource.list",
@@ -458,7 +484,7 @@ impl DelonixMcp {
     ) -> Result<String, ErrorData> {
         let k = ResourceKind::parse(&kind)?;
         let args = json!({ "kind": kind, "name": name });
-        match get_kind(&self.base, k, &name) {
+        match get_kind(&self.base, self.vms.as_ref(), k, &name) {
             Ok(v) => {
                 self.log("resource.get", "ok", &args, Some(name.clone()), None, None);
                 Ok(pretty(v))
@@ -487,7 +513,7 @@ impl DelonixMcp {
         Parameters(ResourceGetParams { kind, name }): Parameters<ResourceGetParams>,
     ) -> Result<String, ErrorData> {
         let k = ResourceKind::parse(&kind)?;
-        let record = get_kind(&self.base, k, &name)?;
+        let record = get_kind(&self.base, self.vms.as_ref(), k, &name)?;
         let status = record
             .get("status")
             .cloned()
@@ -561,7 +587,7 @@ impl DelonixMcp {
             }
         }
         if want_vms {
-            for vm in list_vms(&self.base)? {
+            for vm in list_vms(self.vms.as_ref())? {
                 if name.as_deref().is_some_and(|n| n != vm.name) {
                     continue;
                 }
@@ -867,11 +893,11 @@ impl DelonixMcp {
             ["runtime", "capabilities"] => Ok(pretty(capabilities_table())),
             ["resources", kind] => {
                 let k = ResourceKind::parse(kind)?;
-                Ok(pretty(list_kind(&self.base, k)?))
+                Ok(pretty(list_kind(&self.base, self.vms.as_ref(), k)?))
             }
             ["resources", kind, name] => {
                 let k = ResourceKind::parse(kind)?;
-                Ok(pretty(get_kind(&self.base, k, name)?))
+                Ok(pretty(get_kind(&self.base, self.vms.as_ref(), k, name)?))
             }
             ["schema", _kind] => Err(typed_err(
                 "NOT_IMPLEMENTED",
@@ -1088,8 +1114,8 @@ fn run_cli(base: &Path, args: Vec<String>) -> Result<(bool, String), ErrorData> 
 }
 
 /// Starts the MCP server on stdio and runs until the peer disconnects.
-pub async fn serve_stdio(base: PathBuf) -> Result<(), String> {
-    let server = DelonixMcp::new(base).map_err(|e| e.to_string())?;
+pub async fn serve_stdio(base: PathBuf, vms: Arc<dyn VmView>) -> Result<(), String> {
+    let server = DelonixMcp::new(base, vms).map_err(|e| e.to_string())?;
     let running = server.serve(stdio()).await.map_err(|e| e.to_string())?;
     running.waiting().await.map_err(|e| e.to_string())?;
     Ok(())
@@ -1156,6 +1182,32 @@ mod tests {
                 "schema has no properties: {value}"
             );
         }
+    }
+
+    /// A [`VmView`] standing in for the composed engine: the server is handed one
+    /// of these the same way the bin hands it an `Engine`. `named` returns a VM
+    /// whose name matches `status`'s argument (so `resource.get vm` resolves); an
+    /// unknown name is the shared NOT_FOUND error, exactly as the engine's would
+    /// be.
+    struct FakeVms(Vec<delonix_compute::Vm>);
+
+    impl VmView for FakeVms {
+        fn list(&self) -> Result<Vec<delonix_compute::Vm>, EngineError> {
+            Ok(self.0.clone())
+        }
+        fn status(&self, name: &str) -> Result<delonix_compute::Vm, EngineError> {
+            self.0
+                .iter()
+                .find(|v| v.name == name)
+                .cloned()
+                .ok_or_else(|| EngineError::VmNotFound(format!("no such vm: {name}")))
+        }
+    }
+
+    /// The constructor used by tests that do not exercise the VM path: an engine
+    /// with no VMs.
+    fn server_at(base: PathBuf) -> DelonixMcp {
+        DelonixMcp::new(base, Arc::new(FakeVms(vec![]))).unwrap()
     }
 
     fn vm(
@@ -1258,6 +1310,45 @@ mod tests {
     }
 
     #[test]
+    fn resource_vm_tools_read_through_the_engine_port_not_the_adapter() {
+        use delonix_model::records::Status;
+        // The server is handed a `VmView` exactly as the bin hands it an `Engine`:
+        // no `delonix-vm` reaches this crate. `resource.list`/`resource.get vm`
+        // must resolve through that port.
+        let dir = tempfile::tempdir().unwrap();
+        let server = DelonixMcp::new(
+            dir.path().to_path_buf(),
+            Arc::new(FakeVms(vec![vm("cloud-hypervisor", Status::Running, None)])),
+        )
+        .unwrap();
+
+        let listed = server
+            .resource_list(Parameters(ResourceListParams {
+                kind: "vm".into(),
+            }))
+            .expect("list vm");
+        assert!(listed.contains("\"v1\""), "the engine's VM is listed: {listed}");
+
+        let got = server
+            .resource_get(Parameters(ResourceGetParams {
+                kind: "vm".into(),
+                name: "v1".into(),
+            }))
+            .expect("get vm v1");
+        assert!(got.contains("\"v1\""), "the engine's VM is fetched: {got}");
+
+        // An unknown name is the shared NOT_FOUND surfaced as an MCP error, the
+        // same mapping the adapter path produced.
+        let err = server
+            .resource_get(Parameters(ResourceGetParams {
+                kind: "vm".into(),
+                name: "nope".into(),
+            }))
+            .expect_err("unknown vm is not found");
+        assert_eq!(err.code, ErrorCode::RESOURCE_NOT_FOUND);
+    }
+
+    #[test]
     fn capabilities_table_matches_the_risk_table_length() {
         assert_eq!(capabilities_table().len(), risk::TOOL_RISK.len());
     }
@@ -1271,7 +1362,7 @@ mod tests {
         // promises "one JSON line per tool call", with no exception named for
         // this one.
         let dir = tempfile::tempdir().unwrap();
-        let server = DelonixMcp::new(dir.path().to_path_buf()).unwrap();
+        let server = server_at(dir.path().to_path_buf());
         assert_eq!(server.audit.tail(10).len(), 0, "starts with an empty log");
         // The returned text reads the log BEFORE appending this call's own
         // line (so a query never sees itself in its own answer), but the
@@ -1294,7 +1385,7 @@ mod tests {
     #[test]
     fn container_restart_refuses_an_unsafe_name_before_spawning() {
         let dir = tempfile::tempdir().unwrap();
-        let server = DelonixMcp::new(dir.path().to_path_buf()).unwrap();
+        let server = server_at(dir.path().to_path_buf());
         for bad in ["--root", "-rf", "../escape", "a/b", "", ".."] {
             let err = server
                 .container_restart(Parameters(ContainerRestartParams {
@@ -1319,7 +1410,7 @@ mod tests {
     #[test]
     fn logs_query_refuses_an_unsafe_name() {
         let dir = tempfile::tempdir().unwrap();
-        let server = DelonixMcp::new(dir.path().to_path_buf()).unwrap();
+        let server = server_at(dir.path().to_path_buf());
         for bad in ["--tail", "-n", "../../etc/passwd", "a/b", ""] {
             let err = server
                 .logs_query(Parameters(LogsQueryParams {

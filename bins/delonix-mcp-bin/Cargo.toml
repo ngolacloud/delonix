@@ -15,6 +15,12 @@ path = "src/main.rs"
 delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-mcp = { workspace = true }
+# The bin is the one place that names the assembly: it mounts the `Engine` and
+# hands the MCP server a `VmView` over it (ADR-0040 A5, R3b). `delonix-compute`/
+# `delonix-model` name the VM record and the shared error the port speaks in.
+delonix-engine = { workspace = true }
+delonix-compute = { workspace = true }
+delonix-model = { workspace = true }
 delonix-telemetry = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 serde_json = { workspace = true }
