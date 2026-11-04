@@ -157,6 +157,7 @@ pub fn build_network_config(vm_name: &str) -> String {
 /// files on behalf of a caller that may not have meant to.
 pub fn generate_seed_iso(
     base: &Path,
+    namespace: &str,
     vm_name: &str,
     hostname: Option<&str>,
     ci_user: Option<&str>,
@@ -175,7 +176,7 @@ pub fn generate_seed_iso(
     }
     let hostname = hostname.unwrap_or(vm_name).to_string();
     let ci_user = ci_user.unwrap_or(DEFAULT_CI_USER);
-    let work_dir = base.join("vms").join(vm_name);
+    let work_dir = delonix_compute::vm::vms_root(base, namespace).join(vm_name);
     std::fs::create_dir_all(&work_dir)?;
 
     let user_data_path = work_dir.join("user-data");
@@ -198,7 +199,14 @@ pub fn generate_seed_iso(
 
     // network-config (NoCloud v2): DHCP on the primary NIC, matched by MAC.
     let net_cfg_path = work_dir.join("network-config");
-    std::fs::write(&net_cfg_path, build_network_config(vm_name))?;
+    // The guest matches its NIC by the MAC the backend stamped, which is derived
+    // from the VM's node-wide identity (`<ns>/<name>`, bare in `default`) — not
+    // the bare name — so the network-config of a namespaced VM matches its own
+    // NIC and not a homonym's (ADR-0086 D7).
+    std::fs::write(
+        &net_cfg_path,
+        build_network_config(&delonix_compute::vm::scoped_vm_name(namespace, vm_name)),
+    )?;
 
     let iso_path = work_dir.join("seed.iso");
     let status = Command::new("cloud-localds")
@@ -356,7 +364,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         let mau = "../../../etc/delonix-teste";
-        assert!(generate_seed_iso(base, mau, None, None, &[], None, &[]).is_err());
+        assert!(generate_seed_iso(base, "default", mau, None, None, &[], None, &[]).is_err());
         assert!(!base.join("vms").join(mau).exists());
     }
 }

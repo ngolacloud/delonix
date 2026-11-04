@@ -53,6 +53,16 @@ fn namespace_of(namespace: &str) -> Option<String> {
     (!namespace.is_empty() && namespace != "default").then(|| namespace.to_string())
 }
 
+/// The reference `[<namespace>/]<name>` the per-namespace VM store is keyed by —
+/// bare in `default` (ADR-0086 D7). `delonix_vm`'s name-taking calls split this
+/// back into `(namespace, name)` to find the record under `vms/<ns>/`.
+fn scoped_ref(namespace: &str, name: &str) -> String {
+    match namespace {
+        "" | "default" => name.to_string(),
+        ns => format!("{ns}/{name}"),
+    }
+}
+
 fn target_href(namespace: &str, name: &str) -> String {
     let ns = if namespace.is_empty() {
         "default"
@@ -300,6 +310,7 @@ fn create_fingerprint(
 /// (a VM's labels are only ever written by the declarative reconciler).
 fn stamp_metadata(
     root: &Path,
+    namespace: &str,
     name: &str,
     labels: &std::collections::HashMap<String, String>,
     annotations: &std::collections::HashMap<String, String>,
@@ -307,7 +318,9 @@ fn stamp_metadata(
     if labels.is_empty() && annotations.is_empty() {
         return Ok(());
     }
-    let store = delonix_state::JsonStore::<delonix_compute::Vm>::open(root.join("vms"))?;
+    let store = delonix_state::JsonStore::<delonix_compute::Vm>::open(
+        delonix_compute::vm::vms_root(root, namespace),
+    )?;
     let labels = labels.clone();
     let annotations = annotations.clone();
     store.update(name, move |vm| {
@@ -431,7 +444,8 @@ pub fn create_with_fn(
     if let Some(found) = operations::replay(root, "create", &target, &req.request_id, &fp)? {
         return Ok(operations::message(&found));
     }
-    if delonix_vm::exists(root, &req.name) {
+    let reference = scoped_ref(&req.namespace, &req.name);
+    if delonix_vm::exists(root, &reference) {
         return Err(Status::already_exists(format!(
             "virtual machine '{}' already exists",
             req.name
@@ -445,13 +459,14 @@ pub fn create_with_fn(
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let name = req.name.clone();
     let labels = req.labels.clone();
     let annotations = req.annotations.clone();
     let wait = req.wait_until_reachable;
-    let outcome = work(root, &name, &cfg, wait).and_then(|()| {
-        stamp_metadata(root, &name, &labels, &annotations).inspect_err(|_| {
-            let _ = delonix_vm::destroy(root, &name, true, true);
+    let bare = req.name.clone();
+    let ns = req.namespace.clone();
+    let outcome = work(root, &reference, &cfg, wait).and_then(|()| {
+        stamp_metadata(root, &ns, &bare, &labels, &annotations).inspect_err(|_| {
+            let _ = delonix_vm::destroy(root, &reference, true, true);
         })
     });
     let outcome = outcome.map(|()| target_href(&req.namespace, &req.name));
@@ -486,10 +501,11 @@ pub fn delete_with_fn(
             }
         ))
     };
-    if req.name.is_empty() || !delonix_vm::exists(root, &req.name) {
+    let reference = scoped_ref(&req.namespace, &req.name);
+    if req.name.is_empty() || !delonix_vm::exists(root, &reference) {
         return Err(missing());
     }
-    let vm = delonix_vm::status(root, &req.name).map_err(|e| status_of(&e.into()))?;
+    let vm = delonix_vm::status(root, &reference).map_err(|e| status_of(&e.into()))?;
     let wanted = if req.namespace.is_empty() {
         "default"
     } else {
@@ -514,7 +530,7 @@ pub fn delete_with_fn(
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = work(root, &req.name, req.force).map(|()| String::new());
+    let outcome = work(root, &reference, req.force).map(|()| String::new());
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
     )?))

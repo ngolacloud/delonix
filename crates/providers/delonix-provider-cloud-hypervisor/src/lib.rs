@@ -807,16 +807,22 @@ fn boot_on_network(
     // The MAC is needed BEFORE the attach now, not after: it is what makes
     // the guest's future DHCP address computable, and that address is what
     // the attach registers in the namespace sets.
-    let mac = mac_for(&cfg.name);
+    //
+    // The SDN identity is the node-wide `scoped_vm_name` — `<ns>/<name>`, bare in
+    // `default` — not the bare name: two namespaces may each own a `web`, and
+    // keying the MAC/tap/owner by the bare name alone would hand them one tap and
+    // one MAC (ADR-0086 D7). `default`→bare keeps every existing tap/MAC/lease.
     let ns = vm_namespace_of(cfg);
+    let id = delonix_compute::vm::scoped_vm_name(&ns, &cfg.name);
+    let mac = mac_for(&id);
     let net = delonix_compute::vm_registry::network()?;
-    let tap = net.attach_tap(&cfg.name, &cfg.network, &mac, &ns)?;
+    let tap = net.attach_tap(&id, &cfg.network, &mac, &ns)?;
     let lease = net.lease_ip(&cfg.network, &mac);
     on(CreateStage::Start);
     let pid = match boot_ch(vmdir, cfg, overlay, &tap, &mac, leaf) {
         Ok(p) => p,
         Err(e) => {
-            net.detach_tap(&cfg.name, lease.as_deref());
+            net.detach_tap(&id, lease.as_deref());
             return Err(e.into());
         }
     };
@@ -1021,14 +1027,18 @@ impl VmBackend for CloudHypervisorBackend {
         // maps to — so a VM stopped before it ever DHCP'd still gives up its chain.
         let net = delonix_compute::vm_registry::network()?;
         let ip = vm.ip.clone().or_else(|| net.lease_ip(&vm.network, &vm.mac));
-        net.detach_tap(&vm.name, ip.as_deref());
+        // Same node-wide identity the attach used (`<ns>/<name>`, bare in
+        // `default`) — detaching by the bare name would miss a namespaced VM's
+        // tap/owner/lease and leak it (ADR-0086 D7).
+        let id = delonix_compute::vm::scoped_vm_name(&vm.namespace, &vm.name);
+        net.detach_tap(&id, ip.as_deref());
         // Each hot-added NIC laid its own tap under a per-NIC owner
         // (`hotplug_add_nic`); tear exactly those down too, recomputed from the
         // recorded MAC — a tap nobody detaches would outlive the VM.
         for nic in &vm.boot.extra_nics {
             if let Some(mac) = &nic.mac {
                 let network = nic.source.as_deref().unwrap_or(&vm.network);
-                let owner = ch_extra_nic_owner(&vm.name, mac);
+                let owner = ch_extra_nic_owner(&id, mac);
                 let lease = net.lease_ip(network, mac);
                 net.detach_tap(&owner, lease.as_deref());
             }
@@ -1371,7 +1381,10 @@ impl VmBackend for CloudHypervisorBackend {
         // distinct from the primary NIC's `vm-<name>`, so two NICs of one VM are
         // not one owner's two attaches. `stop` recomputes it from the recorded
         // MAC to detach.
-        let owner = ch_extra_nic_owner(&vm.name, &mac);
+        let owner = ch_extra_nic_owner(
+            &delonix_compute::vm::scoped_vm_name(&vm.namespace, &vm.name),
+            &mac,
+        );
         let tap = net.attach_tap(&owner, &network, &mac, &vm.namespace)?;
         let lease = net.lease_ip(&network, &mac);
         let body = format!(
@@ -1952,8 +1965,12 @@ fn ch_extra_nic_mac(vm: &Vm) -> String {
                 .iter()
                 .any(|n| n.mac.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(m)))
     };
+    // Derived from the VM's node-wide identity (`<ns>/<name>`, bare in
+    // `default`), like the primary MAC — so a `web` in two namespaces does not
+    // get the same extra-NIC MACs (ADR-0086 D7).
+    let id = delonix_compute::vm::scoped_vm_name(&vm.namespace, &vm.name);
     (1..)
-        .map(|i| mac_for(&format!("{}#nic{i}", vm.name)))
+        .map(|i| mac_for(&format!("{id}#nic{i}")))
         .find(|m| !taken(m))
         .unwrap_or_default()
 }
@@ -1998,7 +2015,7 @@ fn boot_ch(
             message: "the ingress (rootless infra) is not up".into(),
         })?;
     let sock = vmdir.join(format!("{}.sock", cfg.name));
-    let serial = serial_log_path(vmdir.parent().unwrap_or(vmdir), &cfg.name);
+    let serial = serial_log_path(vmdir, &cfg.name);
     let log = vmdir.join(format!("{}.log", cfg.name));
     let pidfile = vmdir.join(format!("{}.pid", cfg.name));
     let _ = std::fs::remove_file(&sock);
@@ -2061,7 +2078,7 @@ fn boot_ch(
     ch.push(format!("tap={tap},mac={mac}"));
     // Serial: EITHER an interactive socket OR a capture file — see
     // `ch_serial_dest` for why there is no "both".
-    let console = console_socket(vmdir.parent().unwrap_or(vmdir), &cfg.name);
+    let console = console_socket(vmdir, &cfg.name);
     // Drop the stale endpoint of the mode we are entering. For capture this is
     // not tidying: readers take the LAST marker they find, so a log left from a
     // previous boot would serve a join token that expired with it.
@@ -2375,7 +2392,7 @@ const SUN_PATH_MAX: usize = 107;
 fn ch_socket_paths_fit(vmdir: &Path, cfg: &VmConfig) -> Result<()> {
     let mut socks = vec![vmdir.join(format!("{}.sock", cfg.name))];
     if !cfg.serial_capture {
-        socks.push(console_socket(vmdir.parent().unwrap_or(vmdir), &cfg.name));
+        socks.push(console_socket(vmdir, &cfg.name));
     }
     for s in socks {
         let len = s.as_os_str().len();
@@ -3287,9 +3304,7 @@ mod tests_boot_confirms_the_vmm {
         };
         let vmdir = std::path::PathBuf::from(format!("/{}/vms", "p".repeat(91)));
         assert_eq!(
-            console_socket(vmdir.parent().unwrap(), "vmx")
-                .as_os_str()
-                .len(),
+            console_socket(&vmdir, "vmx").as_os_str().len(),
             108
         );
         assert!(ch_socket_paths_fit(&vmdir, &cfg).is_err());
