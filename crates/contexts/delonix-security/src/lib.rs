@@ -53,12 +53,15 @@
 //! - [`redact`] — the one module whose input is genuinely hostile.
 //! - [`severity`] — the three axes that must not collapse into one.
 
-pub mod admission;
-pub mod event;
-pub mod policy;
-pub mod redact;
-pub mod score;
-pub mod severity;
+pub mod app;
+pub mod domain;
+
+// The R2 domain/app split keeps the public API: the modules are re-exported at
+// the crate root, so `delonix_security::admission::evaluate`, `::SecurityEvent`
+// and the internal `crate::admission::…` references all resolve unchanged. The
+// pure decisions are in `domain`; the one impurity (appending the finding) in `app`.
+pub use app::event;
+pub use domain::{admission, policy, redact, score, severity};
 
 pub use admission::{evaluate, Decision, Request, Rule, Violation, Workload};
 pub use event::SecurityEvent;
@@ -74,12 +77,22 @@ mod boundary_tests {
     #[test]
     fn no_file_in_this_crate_speaks_of_a_tenant() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut offenders = Vec::new();
-        for entry in std::fs::read_dir(&dir).expect("src/") {
-            let path = entry.expect("entry").path();
-            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
-                continue;
+        // Recurse: since the R2 split the sources live under src/domain and
+        // src/app, so a non-recursive read_dir would check nothing and read green.
+        fn rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("src/") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    rs_files(&path, out);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                    out.push(path);
+                }
             }
+        }
+        let mut files = Vec::new();
+        rs_files(&dir, &mut files);
+        let mut offenders = Vec::new();
+        for path in files {
             let text = std::fs::read_to_string(&path).expect("read");
             for (n, line) in text.lines().enumerate() {
                 let l = line.to_ascii_lowercase();
