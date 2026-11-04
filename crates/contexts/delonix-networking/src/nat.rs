@@ -220,7 +220,7 @@ pub fn nat_drift(declared: &[NatRule], observed: &NatObserved) -> Vec<String> {
 /// A backend that holds NAT rules as objects of its own. Extends the
 /// provider skeleton (ADR-0059 D1 rule 4). Every method is required
 /// (rule 1).
-pub trait NatProvider: delonix_compute::vm_provider::Provider {
+pub trait NatProvider: delonix_model::provider::Provider {
     /// `true` if this backend can be used right now. Never a network round
     /// trip.
     fn available(&self) -> bool;

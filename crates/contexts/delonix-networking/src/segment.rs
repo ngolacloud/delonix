@@ -126,7 +126,7 @@ pub fn segment_drift(zone: &str, vnets: &[VNetSpec], observed: &SegmentObserved)
 /// A backend that can realize cluster-native SDN zones and vnets.
 /// Extends the provider skeleton (ADR-0059 D1 rule 4): `id`, `capabilities()`
 /// — the ADR-0050 report — and `health`.
-pub trait SegmentProvider: delonix_compute::vm_provider::Provider {
+pub trait SegmentProvider: delonix_model::provider::Provider {
     /// `true` if this backend can be used right now. Never a network round
     /// trip — same contract as `gateway::GatewayProvider::available`.
     fn available(&self) -> bool;
@@ -293,12 +293,12 @@ mod tests {
     use super::*;
 
     struct Fake(&'static str);
-    impl delonix_compute::vm_provider::Provider for Fake {
-        fn id(&self) -> delonix_compute::vm_provider::ProviderId {
-            delonix_compute::vm_provider::ProviderId(self.0)
+    impl delonix_model::provider::Provider for Fake {
+        fn id(&self) -> delonix_model::provider::ProviderId {
+            delonix_model::provider::ProviderId(self.0)
         }
-        fn capabilities(&self) -> delonix_compute::capability::ProviderReport {
-            use delonix_compute::capability::{
+        fn capabilities(&self) -> delonix_model::provider::capability::ProviderReport {
+            use delonix_model::provider::capability::{
                 CapabilityState, HealthStatus, ProviderHealth, ProviderKind, ProviderReport,
             };
             ProviderReport::build(

@@ -172,10 +172,10 @@ pub fn context(
 /// the report is the provider's own, already in hand.
 pub fn require_capabilities(
     document: &str,
-    report: &delonix_compute::capability::ProviderReport,
-    required: &[delonix_compute::capability::Capability],
+    report: &delonix_model::provider::capability::ProviderReport,
+    required: &[delonix_model::provider::capability::Capability],
 ) -> std::result::Result<(), crate::Error> {
-    let missing = delonix_compute::vm_registry::unmet(report, required);
+    let missing = delonix_model::provider::unmet(report, required);
     if missing.is_empty() {
         return Ok(());
     }
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn a_document_is_refused_with_every_unmet_row_and_its_state() {
-        use delonix_compute::capability::{
+        use delonix_model::provider::capability::{
             Capability as C, CapabilityState as S, HealthStatus, ProviderHealth, ProviderKind,
             ProviderReport,
         };

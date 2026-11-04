@@ -588,7 +588,7 @@ pub fn ipam_drift(
 
 /// A backend that owns the addressing of the segments it serves.
 /// Extends the provider skeleton (ADR-0059 D1 rule 4).
-pub trait IpamProvider: delonix_compute::vm_provider::Provider {
+pub trait IpamProvider: delonix_model::provider::Provider {
     /// `true` if this backend can be used right now. Never a round trip.
     fn available(&self) -> bool;
 

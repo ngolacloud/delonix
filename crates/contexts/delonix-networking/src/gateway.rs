@@ -267,7 +267,7 @@ pub enum EnsureOutcome {
 /// A backend that can enforce node-egress / perimeter gateway policy.
 /// Extends the provider skeleton (ADR-0059 D1 rule 4): `id`, `capabilities()`
 /// — the ADR-0050 report, declared for a remote appliance — and `health`.
-pub trait GatewayProvider: delonix_compute::vm_provider::Provider {
+pub trait GatewayProvider: delonix_model::provider::Provider {
     /// `true` if this backend can be used right now.
     ///
     /// Never a network round trip — the same contract
@@ -365,7 +365,7 @@ pub type GatewayProviderFactory = Box<dyn Fn() -> Result<Box<dyn GatewayProvider
 /// accepted on input, and how to build one.
 pub struct GatewayProviderRegistration {
     /// Canonical id. Must equal what the built provider's
-    /// [`Provider::id`](delonix_compute::vm_provider::Provider::id) returns.
+    /// [`Provider::id`](delonix_model::provider::Provider::id) returns.
     pub id: &'static str,
     /// Extra spellings accepted from a caller; never repeats `id`.
     pub aliases: &'static [&'static str],
@@ -479,12 +479,12 @@ mod tests {
 
     fn fake(id: &'static str, aliases: &'static [&'static str]) -> GatewayProviderRegistration {
         struct Fake(&'static str);
-        impl delonix_compute::vm_provider::Provider for Fake {
-            fn id(&self) -> delonix_compute::vm_provider::ProviderId {
-                delonix_compute::vm_provider::ProviderId(self.0)
+        impl delonix_model::provider::Provider for Fake {
+            fn id(&self) -> delonix_model::provider::ProviderId {
+                delonix_model::provider::ProviderId(self.0)
             }
-            fn capabilities(&self) -> delonix_compute::capability::ProviderReport {
-                use delonix_compute::capability::{
+            fn capabilities(&self) -> delonix_model::provider::capability::ProviderReport {
+                use delonix_model::provider::capability::{
                     CapabilityState, HealthStatus, ProviderHealth, ProviderKind, ProviderReport,
                 };
                 ProviderReport::build(

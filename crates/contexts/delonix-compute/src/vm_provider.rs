@@ -31,7 +31,6 @@
 //! the provider refuses by name — never a default method that quietly does
 //! nothing (ADR-0044 D3).
 
-use crate::capability::{ProviderHealth, ProviderReport};
 use crate::{CpuTopology, ExtraDisk, ExtraNic, VmVolume};
 use delonix_model::Result;
 use std::path::Path;
@@ -134,35 +133,13 @@ pub struct LibvirtExt {
     pub devices: Vec<String>,
 }
 
-/// A provider's stable id — the value persisted in a VM record's `backend`
-/// and the key of the registry. Fixed once, at construction; never re-derived
-/// by comparing it against a literal inside a lifecycle method (ADR-0044 D3
-/// rule 3: no provider-name matching outside a composition root).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ProviderId(pub &'static str);
-
-impl std::fmt::Display for ProviderId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-/// ADR-0040 D3's skeleton: identity, capabilities, health.
-pub trait Provider: Send + Sync {
-    fn id(&self) -> ProviderId;
-
-    /// The provider's answer to every catalog entry, on THIS host when the
-    /// provider is local (it probes) and as declared when it is remote (it
-    /// never connects to answer this). ADR-0050's report, verbatim: a caller
-    /// that needs `vm.snapshot.memory` finds it here and refuses before any
-    /// effect when it is not usable — the provider never has to guess.
-    fn capabilities(&self) -> ProviderReport;
-
-    /// The report's health, for a caller that asks only "can I select you".
-    fn health(&self) -> ProviderHealth {
-        self.capabilities().health
-    }
-}
+// The provider skeleton (`ProviderId` and the base `Provider` trait: identity,
+// capabilities, health) moved to the foundation (`delonix_model::provider`,
+// ADR-0040 R2 / D3) so any context can name a provider port without depending on
+// compute. Re-exported so `delonix_compute::vm_provider::{Provider, ProviderId}`
+// still resolves and the VM-shaped subtraits below keep extending it — those
+// stay here because they speak compute's domain.
+pub use delonix_model::provider::{Provider, ProviderId};
 
 /// How much to trust `VmObservation::ip`. Was `VmBackend::ip_is_predicted()`;
 /// a three-state enum because a caller has to tell "not running yet" from
@@ -209,7 +186,9 @@ pub trait VmProvider: Provider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capability::{Capability, CapabilityState, HealthStatus, ProviderKind};
+    use crate::capability::{
+        Capability, CapabilityState, HealthStatus, ProviderHealth, ProviderKind, ProviderReport,
+    };
 
     struct Declaring;
 
