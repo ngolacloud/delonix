@@ -3,28 +3,18 @@
 //! entry points translate into; the use cases that execute it follow in later P2
 //! slices.
 
-pub mod capability;
-pub mod capability_host;
-pub mod cgroup_leaf;
-pub mod credentials;
-pub mod launch;
-pub mod network;
-mod notice;
-pub mod owners;
-pub mod pod;
-pub mod ports;
-pub mod preflight;
-mod record;
-pub mod run;
-mod run_opts;
-pub mod system_container;
-pub mod vm;
-pub mod vm_backend;
-pub mod vm_error;
-pub mod vm_firewall;
-pub mod vm_provider;
-pub mod vm_registry;
-pub mod workload_net;
+pub mod app;
+pub mod domain;
+
+// The R2 domain/app split keeps the public API and the internal `crate::<module>`
+// paths: every module is re-exported at the crate root. `domain` is the pure
+// Container/Pod/VM model, the provider port contracts and the rules; `app` is
+// the run/vm use cases, the read ports and the host/registry/record mechanism.
+pub use app::{capability_host, cgroup_leaf, network, owners, ports, record, run, vm, vm_registry};
+pub use domain::{
+    capability, credentials, launch, notice, pod, preflight, run_opts, system_container,
+    vm_backend, vm_error, vm_firewall, vm_provider, workload_net,
+};
 
 pub use notice::Notice;
 pub use record::*;
