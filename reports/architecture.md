@@ -12,9 +12,9 @@
 | adapter | 10 | 80,643 | 22.9% |
 | provider | 10 | 54,557 | 15.5% |
 | interface | 4 | 31,717 | 9.0% |
-| assembly | 0 | 0 | 0.0% |
-| bin | 5 | 150,715 | 42.9% |
-| **total** | **37** | **351,675** | 100% |
+| assembly | 1 | 109 | 0.0% |
+| bin | 5 | 150,715 | 42.8% |
+| **total** | **38** | **351,784** | 100% |
 
 ## Lines per crate
 
@@ -74,6 +74,12 @@
 | delonix-cri | 9,784 |
 | delonix-mgmt | 3,291 |
 | delonix-mcp | 1,758 |
+
+### assembly
+
+| Crate | Lines |
+| --- | ---: |
+| delonix-engine | 109 |
 
 ### bin
 
@@ -193,6 +199,7 @@ graph LR
   delonix_bin[delonix-bin]
   delonix_compute[delonix-compute]
   delonix_cri[delonix-cri]
+  delonix_engine[delonix-engine]
   delonix_host[delonix-host]
   delonix_linux[delonix-linux]
   delonix_mcp[delonix-mcp]
@@ -267,6 +274,9 @@ graph LR
   delonix_cri --> delonix_security
   delonix_cri --> delonix_state
   delonix_cri --> delonix_telemetry
+  delonix_engine --> delonix_compute
+  delonix_engine --> delonix_model
+  delonix_engine --> delonix_vm
   delonix_host --> delonix_model
   delonix_linux --> delonix_compute
   delonix_linux --> delonix_model
@@ -390,6 +400,7 @@ graph LR
   class delonix_bin bin;
   class delonix_compute context;
   class delonix_cri interface;
+  class delonix_engine assembly;
   class delonix_host adapter;
   class delonix_linux adapter;
   class delonix_mcp interface;

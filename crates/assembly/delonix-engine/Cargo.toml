@@ -1,0 +1,10 @@
+[package]
+name = "delonix-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+delonix-model = { workspace = true }
+delonix-compute = { workspace = true }
+delonix-vm = { workspace = true }
