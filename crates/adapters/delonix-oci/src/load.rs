@@ -1,7 +1,7 @@
 //! Loading images from a `docker save` archive (OCI/legacy format).
 
 use crate::cas::sha256_hex;
-use crate::image::{now_unix, Image, ImageConfig, ImageStore};
+use crate::image::{healthcheck_test, now_unix, Image, ImageConfig, ImageStore};
 use crate::{Error, Result};
 use oci_spec::image::ImageConfiguration;
 use serde::Deserialize;
@@ -106,7 +106,13 @@ pub fn load_docker_archive(store: &ImageStore, tar_path: &Path) -> Result<Image>
             cpus: None,
             memory: None,
             security: Vec::new(),
-            healthcheck: None,
+            // `Healthcheck` is a Docker extension the OCI `Config` type does not
+            // model, so it is dug out of the raw config JSON (like `architecture`
+            // above) rather than via `oci_spec`. Was hard-coded `None`, which
+            // DROPPED the probe of every loaded image — a pulled distroless image
+            // with an exec `HEALTHCHECK` had no probe at all (review 2026-11-04).
+            // Kept as the OCI `Test` array so the exec-vs-shell form survives.
+            healthcheck: healthcheck_test(&config_bytes),
             architecture,
         },
         created_unix: now_unix(),

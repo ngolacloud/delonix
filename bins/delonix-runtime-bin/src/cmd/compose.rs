@@ -3232,6 +3232,26 @@ pub(crate) fn image_health_argv(images: &ImageStore, image_ref: &str) -> Option<
     resolve_test_argv(&None, images, image_ref)
 }
 
+/// Turns an OCI `Test` array into the argv to run, PRESERVING the form: `CMD`
+/// is EXEC (no shell — the distroless case), `CMD-SHELL` wraps in `/bin/sh -c`,
+/// `NONE`/empty is «no probe». The one place the resolution lives, shared by the
+/// compose `test:` list and the image's own `HEALTHCHECK` (now the same shape).
+fn test_argv_from_test(test: &[String]) -> Option<Vec<String>> {
+    if test.is_empty() {
+        return None;
+    }
+    match test[0].as_str() {
+        "NONE" => None,
+        "CMD-SHELL" => Some(vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            test.get(1).cloned().unwrap_or_default(),
+        ]),
+        "CMD" => Some(test[1..].to_vec()),
+        _ => Some(test.to_vec()),
+    }
+}
+
 fn resolve_test_argv(
     hc: &Option<ComposeHealthcheck>,
     images: &ImageStore,
@@ -3239,26 +3259,15 @@ fn resolve_test_argv(
 ) -> Option<Vec<String>> {
     match hc.as_ref().and_then(|h| h.test.clone()) {
         Some(ComposeHealthTest::Shell(s)) => Some(vec!["/bin/sh".into(), "-c".into(), s]),
-        Some(ComposeHealthTest::List(v)) => {
-            if v.is_empty() {
-                return None;
-            }
-            match v[0].as_str() {
-                "NONE" => None,
-                "CMD-SHELL" => Some(vec![
-                    "/bin/sh".into(),
-                    "-c".into(),
-                    v.get(1).cloned().unwrap_or_default(),
-                ]),
-                "CMD" => Some(v[1..].to_vec()),
-                _ => Some(v),
-            }
-        }
+        Some(ComposeHealthTest::List(v)) => test_argv_from_test(&v),
+        // The image's own `HEALTHCHECK`, now kept as the OCI `Test` array — so an
+        // EXEC-form `HEALTHCHECK` (`["CMD", prog]`) resolves to `[prog]` and runs
+        // with NO shell, the distroless case. Was flattened to `/bin/sh -c`.
         None => images
             .resolve(image_ref)
             .ok()
             .and_then(|i| i.config.healthcheck.clone())
-            .map(|cmd| vec!["/bin/sh".into(), "-c".into(), cmd]),
+            .and_then(|test| test_argv_from_test(&test)),
     }
 }
 

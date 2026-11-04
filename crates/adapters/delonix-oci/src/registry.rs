@@ -2082,7 +2082,11 @@ pub fn pull_from_registry_with_creds_full(
             cpus: None,
             memory: None,
             security: Vec::new(),
-            healthcheck: None,
+            // Parse the Docker-extension `Healthcheck.Test` off the raw config
+            // (review 2026-11-04): a PULLED distroless image with an exec
+            // `HEALTHCHECK` used to arrive with no probe (hard-coded `None`), so
+            // `--wait`/compose `service_healthy` could never pass on it.
+            healthcheck: crate::image::healthcheck_test(&config_bytes),
             architecture: requested_arch
                 .map(str::to_string)
                 .unwrap_or_else(|| target_arch().to_string()),
