@@ -313,7 +313,7 @@ des cgroups, du holder réseau ou du démarrage des VM fonctionne — cela exige
 ## Les gates exécutés par la CI
 
 <!-- dev-docs:begin ci-gates -->
-| CI job | What it checks |
+| Job CI | Ce qu'il vérifie |
 |---|---|
 | `fmt` | rustfmt |
 | `lang` | lang ratchet |
@@ -328,6 +328,7 @@ des cgroups, du holder réseau ou du démarrage des VM fonctionne — cela exige
 | `test` | test |
 | `test-arm64` | test (arm64) |
 | `deny` | cargo-deny |
+| `actions-pinned` | actions-pinned |
 | `fuzz` | fuzz (60s smoke, per target) |
 | `script-tests` | script tests (Python gates) |
 | `perf-probe` | perf probe (environment and bench) |

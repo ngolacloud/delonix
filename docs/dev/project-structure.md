@@ -19,7 +19,7 @@ Start at the root and follow the dependencies inward:
 
 1. **`Cargo.toml`** — the workspace: every member crate, and every dependency version (members
    only write `{ workspace = true }`).
-2. **`bins/delonix-runtime-bin/src/main.rs`** — the `delonix` CLI. Each command group is one
+2. **`bins/delonix/src/main.rs`** — the `delonix` CLI. Each command group is one
    module under `src/cmd/`; follow the group you care about.
 3. **`crates/<layer>/<crate>/src/lib.rs`** — the engine. The directory *is* the layer
    (foundation → contexts → adapters / providers → interfaces), and every `lib.rs` opens with a
@@ -51,9 +51,10 @@ Start at the root and follow the dependencies inward:
 │   ├── contexts/                 Compute, Stack, security decisions
 │   ├── adapters/                 Linux, OCI, SDN, VM, volumes, state, scanner, telemetry
 │   ├── providers/                remote systems behind ports (Proxmox VE, OPNsense, TrueNAS)
-│   └── interfaces/               CRI, local management API, node API, MCP server
+│   ├── interfaces/               CRI, local management API, node API, MCP server
+│   └── assembly/                 the composition root (`delonix-engine`)
 ├── bins/
-│   ├── delonix-runtime-bin/      the `delonix` CLI (+ templates, pt.po catalogue)
+│   ├── delonix/                  the `delonix` CLI (+ templates, pt.po catalogue)
 │   ├── delonix-mgmt-bin/         the `delonix-mgmt` binary
 │   ├── delonix-node-api-bin/     the `delonix-node-api` binary
 │   ├── delonix-storage-helper/   the `delonix-storage-helper` binary (root, per connection)
@@ -124,8 +125,9 @@ The crate list, each crate's layer and who depends on whom are generated facts i
 | `crates/adapters/` | Mechanisms on this node: Linux namespaces/cgroups (`delonix-linux`), OCI images (`delonix-oci`), networking and firewall (`delonix-sdn`), microVMs (`delonix-vm`), volumes (`delonix-volume`), persisted state and the secret vault (`delonix-state`), vulnerability scanning (`delonix-scanner`), logging/metrics/tracing (`delonix-telemetry`). | Features that touch the kernel, disk or a local tool. | [The crates](crates.md), [Cloud native primer](cloud-native-primer.md) |
 | `crates/providers/` | Remote systems behind a port: a Proxmox VE node as a `VmBackend` and a `SystemContainerProvider`, its own per-guest firewall and SDN (`delonix-proxmox`), an OPNsense appliance as a `GatewayProvider` (`delonix-opnsense`), and TrueNAS provisioning (`delonix-truenas`). | Changes to a provider integration; a new provider enters here as a port implementation. | `docs/adr/0008-proxmox-vm-backend.md` |
 | `crates/interfaces/` | Servers that expose the engine: the Kubernetes CRI (`delonix-cri`, which also ships the `delonix-cri` binary), the local management API (`delonix-mgmt`), the node contract server (`delonix-node-api`) and the MCP server (`delonix-mcp`). | Changes to one of those protocols. | [Cloud native standards](cloud-native-standards.md) |
+| `crates/assembly/` | The single composition root (`delonix-engine`, ADR-0040 D1/A5): it mounts one `Engine` that chooses which adapter and provider serve each port, so an interface receives the engine already composed and never names an adapter. | A context's backend selection moves onto the `Engine`. | [Architecture](architecture.md) |
 | `bins/` | Binary crates. Each composes one interface (enforced by `arch_fitness.py`). | Every CLI-visible feature. | [Architecture](architecture.md) |
-| `bins/delonix-runtime-bin/` | The `delonix` CLI: `src/main.rs`, one module per command group in `src/cmd/`, the Portuguese message catalogue `data/pt.po`, the `init` project templates in `templates/`, `build.rs`, and `tests/architecture.rs`. | Every feature with a command, flag or message. | [Coding conventions](coding-conventions.md) |
+| `bins/delonix/` | The `delonix` CLI: `src/main.rs`, one module per command group in `src/cmd/`, the Portuguese message catalogue `data/pt.po`, the `init` project templates in `templates/`, `build.rs`, and `tests/architecture.rs`. | Every feature with a command, flag or message. | [Coding conventions](coding-conventions.md) |
 | `bins/delonix-mgmt-bin/` | The `delonix-mgmt` binary: a thin `main.rs` over `delonix-mgmt`. | Rarely; the logic lives in the interface crate. | [The crates](crates.md) |
 | `bins/delonix-node-api-bin/` | The `delonix-node-api` binary: a thin `main.rs` over `delonix-node-api` (the node contract on a unix socket, ADR-0040 P5). | Rarely; the logic lives in the interface crate. | `docs/adr/0050-libvirt-linux-providers-capability-catalog.md` |
 | `bins/delonix-mcp-bin/` | The `delonix-mcp` binary: a thin `main.rs` over `delonix-mcp`. | Rarely; the logic lives in the interface crate. | `docs/adr/0025-mcp-local-ai-control-surface.md` |
@@ -151,7 +153,7 @@ The crate list, each crate's layer and who depends on whom are generated facts i
 | `docs/api/` | `openapi.yaml`, **generated** from `proto/` by `protoc-gen-openapi`. Never edit it. | `python3 scripts/contract_gate.py --update` after a `proto/` change. | `proto/README.md` |
 | `docs/comandos/` | One HTML page per CLI command group, **generated** by `docs/gen.py` from the release binary's real `--help` plus editorial text in the generator. | Never by hand: edit `docs/gen.py`, rebuild the binary, regenerate. | [Publishing the documentation](publishing-docs.md) |
 | `docs/dev/` | This contributor handbook: English Markdown source, with `pt-AO/` and `fr-FR/` translations that carry a `translated-from` hash. Regions between `dev-docs:begin`/`dev-docs:end` markers are **generated** by `scripts/dev_docs.py`; the rest is hand-written. | Handbook maintainers; generated regions follow the code and are refreshed at release time. | [Publishing the documentation](publishing-docs.md) |
-| `docs/providers/` | `capability-matrix.md`, the DECLARED provider capability matrix (ADR-0050), **generated** by `delonix provider matrix`; a test in `delonix-runtime-bin` fails when it differs from the output. | `delonix provider matrix > docs/providers/capability-matrix.md` after a declaration changes. | `docs/adr/0050-libvirt-linux-providers-capability-catalog.md` |
+| `docs/providers/` | `capability-matrix.md`, the DECLARED provider capability matrix (ADR-0050), **generated** by `delonix provider matrix`; a test in `delonix-bin` fails when it differs from the output. | `delonix provider matrix > docs/providers/capability-matrix.md` after a declaration changes. | `docs/adr/0050-libvirt-linux-providers-capability-catalog.md` |
 | `docs/discovery/` | Numbered, dated investigations and plans (inventories, spikes with their raw result files). Historical records — do not rewrite; write a new one. | Whoever runs an investigation before a structural change. | `docs/adr/` |
 | `docs/launch/` | The launch narrative (`why-delonix.md`): the product positioning and one-sentence pitch, every number measured on a real host and every ceiling named. Source for the introduction and landing copy. | Whoever revises the positioning for a launch or release. | [Publishing the documentation](publishing-docs.md) |
 | `docs/handbook/` | This handbook as a website (`en/`, `pt-AO/`, `fr-FR/`, `zh-CN/`, `index.html`), **generated** by `scripts/dev_docs_site.py` from `docs/dev/`. Never edit the HTML. | Regenerated with `python3 scripts/dev_docs_site.py` after a `docs/dev/` change, and at release time. | [Publishing the documentation](publishing-docs.md) |
@@ -185,10 +187,10 @@ expect CI to fail if you edit the output by hand.
 | Path | Generated file(s) | Generator command | CI gate that checks it |
 |---|---|---|---|
 | `docs/api/` | `openapi.yaml` | `python3 scripts/contract_gate.py --update` | `contract gate` job (`scripts/contract_gate.py`) |
-| `docs/schema/` | `v1/delonix.json` | `delonix manifest schema > docs/schema/v1/delonix.json` | `test` job, test `o_schema_publicado_esta_em_dia_com_o_codigo` in `bins/delonix-runtime-bin/src/cmd/schema.rs` |
-| `docs/schema/` | `v1/providers.json` | `delonix provider config schema > docs/schema/v1/providers.json` | `test` job, test `the_published_providers_schema_is_the_generated_one` in `bins/delonix-runtime-bin/src/cmd/providers_config.rs` |
-| `docs/providers/` | `capability-matrix.md` | `delonix provider matrix > docs/providers/capability-matrix.md` | `test` job, test `the_published_matrix_is_the_generated_one` in `bins/delonix-runtime-bin/src/cmd/provider.rs` |
-| `docs/comandos/` | every page | `python3 docs/gen.py` (needs `cargo build --release -p delonix-runtime-bin`) | `generated docs and valid examples` job, step "O site publicado tem de ser o gerado" (`git diff` on `docs/`) |
+| `docs/schema/` | `v1/delonix.json` | `delonix manifest schema > docs/schema/v1/delonix.json` | `test` job, test `o_schema_publicado_esta_em_dia_com_o_codigo` in `bins/delonix/src/cmd/schema.rs` |
+| `docs/schema/` | `v1/providers.json` | `delonix provider config schema > docs/schema/v1/providers.json` | `test` job, test `the_published_providers_schema_is_the_generated_one` in `bins/delonix/src/cmd/providers_config.rs` |
+| `docs/providers/` | `capability-matrix.md` | `delonix provider matrix > docs/providers/capability-matrix.md` | `test` job, test `the_published_matrix_is_the_generated_one` in `bins/delonix/src/cmd/provider.rs` |
+| `docs/comandos/` | every page | `python3 docs/gen.py` (needs `cargo build --release -p delonix-bin`) | `generated docs and valid examples` job, step "O site publicado tem de ser o gerado" (`git diff` on `docs/`) |
 | `docs/` | top-level `*.html`, `.nojekyll` | `python3 docs/gen.py` | same step as above |
 | `docs/` | `RELEASES.md` | `bash scripts/gen-releases.sh` | none in CI: `release.yml` regenerates and commits it after each release |
 | `docs/dev/` | the `dev-docs` regions only | `python3 scripts/dev_docs.py` | `arch fitness` job, step `python3 scripts/dev_docs.py --check`; also refreshed by `release.yml` |
@@ -209,7 +211,7 @@ Not committed at all: the manpages (`delonix man --dir`, checked with `groff` in
 - **An integration with a remote system** → a new port implementation in `crates/providers/`,
   never an `if provider == …` in existing code.
 - **A new protocol server** → `crates/interfaces/`, composed by exactly one binary in `bins/`.
-- **A CLI command or flag** → a module in `bins/delonix-runtime-bin/src/cmd/`, with its
+- **A CLI command or flag** → a module in `bins/delonix/src/cmd/`, with its
   Portuguese translation in `data/pt.po`.
 - **A new crate** → the directory of its layer **and** the `LAYERS` table in
   `scripts/arch_fitness.py` and `[workspace.dependencies]` in `Cargo.toml`, in the same commit.

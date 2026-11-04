@@ -91,13 +91,14 @@ PROSE = {
         "ratchets": "`scripts/arch_fitness.py` 维护 **{n} 个债务棘轮（ratchet）**（基线在 `scripts/arch_baseline.json`）：",
     },}
 
-LAYER_ORDER = ["foundation", "context", "adapter", "provider", "interface", "bin"]
+LAYER_ORDER = ["foundation", "context", "adapter", "provider", "interface", "assembly", "bin"]
 LAYER_TITLE = {
     "foundation": "Foundation",
     "context": "Contexts",
     "adapter": "Adapters",
     "provider": "Providers",
     "interface": "Interfaces",
+    "assembly": "Assembly",
     "bin": "Binaries",
 }
 
@@ -203,7 +204,7 @@ GRAPH_LEGEND = {
     "zh-CN": "**图例** —— 每个 crate 一个方框，按层分组；箭头 `A --> B` 表示 *A 依赖 B*。"
              "红色：二进制 · 红边白底：接口 · 白色：上下文与适配器 · 灰色：provider · 蓝色：基础层。",
 }
-LAYER_CLASS = {"bin": "engine", "interface": "iface", "context": "block", "adapter": "block", "provider": "external", "foundation": "store"}
+LAYER_CLASS = {"bin": "engine", "interface": "iface", "context": "block", "adapter": "block", "provider": "external", "foundation": "store", "assembly": "assembly"}
 
 
 def render_crates_graph(arch, crates: list[dict], lang: str = "en") -> str:
@@ -229,6 +230,7 @@ def render_crates_graph(arch, crates: list[dict], lang: str = "en") -> str:
         "  classDef block fill:#ffffff,stroke:#8a817c,color:#191513",
         "  classDef external fill:#e1ddda,stroke:#8a817c,color:#191513",
         "  classDef store fill:#2390c8,stroke:#17618a,color:#ffffff",
+        "  classDef assembly fill:#e0f7fa,stroke:#00acc1,color:#191513",
     ]
     lines.append("```")
     return "\n".join(lines) + "\n"
