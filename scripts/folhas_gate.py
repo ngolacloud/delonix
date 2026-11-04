@@ -30,7 +30,7 @@ this module reads the leaf names out of the source of truth:
   mgmt-api  `delonix-mgmt/src/lib.rs`           (`.route("<path>"`)
   mcp       `delonix-mcp/src/lib.rs`            (`#[tool(` → `name = "<tool>"`)
   cri       `delonix-cri/proto/api.proto`       (`rpc <Name>`)
-  kinds     `delonix-stack/src/kinds.rs`        (`KindFacts {` → `plural: "<name>"`)
+  kinds     `delonix-stack/src/domain/kinds.rs` (`KindFacts {` → `plural: "<name>"`)
 
 A name the code has and `docs/testing/folhas.tsv` does not is a FAILURE that
 names it. So is the reverse: a row for a leaf that no longer exists. A table
@@ -94,7 +94,7 @@ NODE_PROTO_DIR = REPO / "proto" / "delonix" / "node" / "v1"
 MGMT_SRC = REPO / "crates" / "interfaces" / "delonix-mgmt" / "src" / "lib.rs"
 MCP_SRC = REPO / "crates" / "interfaces" / "delonix-mcp" / "src" / "lib.rs"
 CRI_PROTO = REPO / "crates" / "interfaces" / "delonix-cri" / "proto" / "api.proto"
-KINDS_SRC = REPO / "crates" / "contexts" / "delonix-stack" / "src" / "kinds.rs"
+KINDS_SRC = REPO / "crates" / "contexts" / "delonix-stack" / "src" / "domain" / "kinds.rs"
 INVENTORY = REPO / "docs" / "testing" / "folhas-inventario.md"
 
 CLASSES = ("A", "B", "C", "D", "E")
