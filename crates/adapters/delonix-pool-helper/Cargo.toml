@@ -1,0 +1,11 @@
+[package]
+name = "delonix-pool-helper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+delonix-model = { workspace = true }
+delonix-storage = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

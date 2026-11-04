@@ -24,6 +24,7 @@ delonix-linux = { workspace = true }
 delonix-sdn = { workspace = true }
 delonix-volume = { workspace = true }
 delonix-storage = { workspace = true }
+delonix-pool-helper = { workspace = true }
 delonix-provider-ceph = { workspace = true }
 delonix-state = { workspace = true }
 delonix-provider-opnsense = { workspace = true }

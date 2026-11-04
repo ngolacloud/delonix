@@ -1,12 +1,12 @@
 //! The helper's own plumbing over a real socket pair: the caller's uid comes
 //! from the kernel, a request is bounded, and every connection gets a reply.
-//! The request grammar and its refusals are proven in `delonix_storage::helper`.
+//! The request grammar and its refusals are proven in `delonix_pool_helper`.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use delonix_storage::allowlist::Entry;
-use delonix_storage::helper::Request;
+use delonix_pool_helper::Request;
 use delonix_storage::ownership::Owner;
 use delonix_storage::pool::{
     Allocation, PoolOp, PoolProbe, PoolUsage, Privilege, VolumeRequest, VolumeShape,

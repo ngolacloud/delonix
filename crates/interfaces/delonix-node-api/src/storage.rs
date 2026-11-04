@@ -15,7 +15,8 @@ use delonix_storage::allowlist::{self, Allowlist, Entry};
 use delonix_storage::exec::Run;
 use delonix_storage::ownership::Owner;
 use delonix_storage::pool::{Allocation, PoolRef, StoragePoolDriver, VolumeRequest, VolumeShape};
-use delonix_storage::{helper, registry};
+use delonix_pool_helper as helper;
+use delonix_storage::registry;
 use tonic::Status;
 
 use crate::proto::v1::{

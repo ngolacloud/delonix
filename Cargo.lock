@@ -752,6 +752,7 @@ dependencies = [
  "delonix-networking",
  "delonix-node",
  "delonix-oci",
+ "delonix-pool-helper",
  "delonix-provider-btrfs",
  "delonix-provider-ceph",
  "delonix-provider-lvm",
@@ -986,6 +987,7 @@ dependencies = [
  "delonix-model",
  "delonix-node",
  "delonix-oci",
+ "delonix-pool-helper",
  "delonix-provider-ceph",
  "delonix-provider-opnsense",
  "delonix-provider-proxmox",
@@ -1053,6 +1055,16 @@ dependencies = [
  "thiserror 2.0.19",
  "tracing",
  "zstd",
+]
+
+[[package]]
+name = "delonix-pool-helper"
+version = "0.1.0"
+dependencies = [
+ "delonix-model",
+ "delonix-storage",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1272,6 +1284,7 @@ name = "delonix-storage-helper"
 version = "0.1.0"
 dependencies = [
  "delonix-model",
+ "delonix-pool-helper",
  "delonix-provider-btrfs",
  "delonix-provider-ceph",
  "delonix-provider-lvm",

@@ -115,7 +115,7 @@ pub fn register_drivers() {
             delonix_volume::pool_dir::DirPoolDriver::new(Some(delonix_linux::remove_tree_mapped));
         let run: Arc<dyn delonix_storage::exec::Run> =
             Arc::new(delonix_volume::pool_exec::SystemRun);
-        let mounts = std::path::PathBuf::from(delonix_storage::helper::MOUNT_ROOT);
+        let mounts = std::path::PathBuf::from(delonix_pool_helper::MOUNT_ROOT);
         // SAFETY: `geteuid` has no preconditions and cannot fail.
         let root = unsafe { libc::geteuid() } == 0;
         let drivers: [Arc<dyn StoragePoolDriver>; 4] = [
@@ -151,11 +151,11 @@ pub fn register_drivers() {
 
 /// The privileged helper's client, when its socket is on this node. Nothing
 /// is dialled here: the first operation that needs it connects.
-fn helper_client() -> Option<Arc<dyn delonix_storage::helper::HelperCall>> {
-    let path = delonix_storage::helper::socket_path();
+fn helper_client() -> Option<Arc<dyn delonix_pool_helper::HelperCall>> {
+    let path = delonix_pool_helper::socket_path();
     path.exists().then(|| {
-        Arc::new(delonix_storage::helper::SocketClient::new(path))
-            as Arc<dyn delonix_storage::helper::HelperCall>
+        Arc::new(delonix_pool_helper::SocketClient::new(path))
+            as Arc<dyn delonix_pool_helper::HelperCall>
     })
 }
 
@@ -239,7 +239,7 @@ fn resolve(name: &str) -> Result<Resolved> {
             &[("name", name)],
         ))));
     }
-    let driver = delonix_storage::helper::route(driver, &list, helper_client());
+    let driver = delonix_pool_helper::route(driver, &list, helper_client());
     Ok(Resolved {
         name: name.to_string(),
         entry,

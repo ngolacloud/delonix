@@ -10,7 +10,7 @@
 //!   replies. It never listens, never stays, and never takes a uid, a device,
 //!   a path or a command from the request: the uid is the kernel's, the pool
 //!   comes from `/etc/delonix/storage-pools.yaml`, and the request's fields are
-//!   refused one by one before any tool runs (`delonix_storage::helper`).
+//!   refused one by one before any tool runs (`delonix_pool_helper`).
 //! - **`create-pool <name> [--wipe-devices]` / `destroy-pool <name>`**: the
 //!   administrator, at a terminal, as root. They are never served over the
 //!   socket.
@@ -29,7 +29,7 @@ use delonix_provider_zfs::ZfsDriver;
 use delonix_storage::admin::{self, PoolAdmin};
 use delonix_storage::allowlist::{self, Allowlist};
 use delonix_storage::exec::Run;
-use delonix_storage::helper::{self, Outcome, Reply, ServeContext, MAX_REQUEST_BYTES};
+use delonix_pool_helper::{self as helper, Outcome, Reply, ServeContext, MAX_REQUEST_BYTES};
 use delonix_storage::pool::{PoolRef, StoragePoolDriver};
 use delonix_storage::{Error, Result};
 use delonix_volume::pool_exec::SystemRun;
