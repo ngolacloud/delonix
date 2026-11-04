@@ -1,6 +1,9 @@
 # ============================================================================
-# kind: ObjectStorage — armazenamento de objectos S3 (ADR-0081)
-# kind: ObjectStorage — S3-compatible object storage (ADR-0081)
+# kind: Bucket — armazenamento de objectos S3 (ADR-0081; renomeado de ObjectStorage, ADR-0086 D3)
+# kind: Bucket — S3-compatible object storage (ADR-0081; renamed from ObjectStorage, ADR-0086 D3)
+#
+# PT: `ObjectStorage` continua a carregar como alias silencioso; `Bucket` é o nome canónico.
+# EN: `ObjectStorage` still loads as a silent alias; `Bucket` is the canonical name.
 #
 # PT: Dois backends. `cephRgw` provisiona uma identidade S3 de tenant no Ceph
 #     Object Gateway do nó e escreve as chaves num Secret gerado (<nome>-s3).
@@ -21,7 +24,7 @@
 #      cephRgw — provision on the node's Ceph Object Gateway
 ---
 apiVersion: storage.delonix.io/v1beta1
-kind: ObjectStorage
+kind: Bucket
 metadata:
   name: media
 spec:
@@ -41,7 +44,7 @@ spec:
 #      external — bring your own S3 (AWS, MinIO, Backblaze, …)
 ---
 apiVersion: storage.delonix.io/v1beta1
-kind: ObjectStorage
+kind: Bucket
 metadata:
   name: backups
 spec:
