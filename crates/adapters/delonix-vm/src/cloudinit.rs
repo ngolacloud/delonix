@@ -42,24 +42,37 @@ pub fn build_user_data(
     out.push_str(&format!("hostname: {hostname}\n"));
     out.push_str("package_update: false\n");
     out.push_str("package_upgrade: false\n");
+    // Cloud-init CREATES the `ci_user` (`delonix`) account outright, so the
+    // golden image no longer has to bake it in. We emit the `users:` block
+    // ALWAYS — with or without SSH keys — because everything downstream depends
+    // on this account existing: the autologin config right below
+    // (`agetty --autologin {ci_user}`) and `cluster kubeadm`'s SSH user, both
+    // hardcoded to `delonix`. Emitting it unconditionally means serial autologin
+    // works even on a keyless VM, which is what finally closes the dependency on
+    // the baked-in account.
+    //
+    // `sudo: "ALL=(ALL) NOPASSWD:ALL"` grants passwordless sudo WITHOUT relying
+    // on a distro-specific admin group (`sudo` on Debian/Ubuntu vs `wheel` on
+    // Rocky/Fedora) — mirroring what the baked account used to get.
+    // `lock_passwd: true` keeps it password-less (key/autologin only). The
+    // operation is idempotent: cloud-init creates the user if absent and
+    // reconciles it if present, so this is safe both for images that still bake
+    // the account and for images that no longer do.
+    //
+    // `- default` stays so the distro's own account (`ubuntu` here) still gets
+    // created too. The SSH key MUST land on `ci_user` (`delonix`), not on that
+    // default user — scoping it under this entry targets the right account. This
+    // was a live bug: a bare top-level `ssh_authorized_keys:` reached only the
+    // default distro user, so `delonix cluster kubeadm` failed "SSH did not
+    // respond within --boot-timeout" even though the VM was up and the key
+    // installed — just onto `ubuntu`, not `delonix`.
+    out.push_str("users:\n");
+    out.push_str("  - default\n");
+    out.push_str(&format!("  - name: {ci_user}\n"));
+    out.push_str("    sudo: \"ALL=(ALL) NOPASSWD:ALL\"\n");
+    out.push_str("    shell: /bin/bash\n");
+    out.push_str("    lock_passwd: true\n");
     if !ssh_keys.is_empty() {
-        // BUG FIXED HERE: a bare top-level `ssh_authorized_keys:` only reaches
-        // cloud-init's DEFAULT distro user (`ubuntu` on this Ubuntu-based golden
-        // image) — NOT the `delonix` user the golden image itself creates at
-        // build time (`vmimage.rs`, `sudo` NOPASSWD) and that everything else
-        // here assumes is the login target: the autologin config right below
-        // (`agetty --autologin`), and `cluster kubeadm`'s SSH user, hardcoded to
-        // `delonix` (the account "the golden image already creates"). Found
-        // live: `delonix cluster kubeadm` consistently failed "SSH did not
-        // respond within --boot-timeout" — the VM WAS reachable and the key WAS
-        // installed, just onto `ubuntu`, not `delonix`.
-        // Scoping the key under `users:` (keeping `- default` so the `ubuntu`
-        // account nothing else here relies on still gets created too) targets
-        // the EXISTING account directly — cloud-init adds keys to an
-        // already-existing user without trying to recreate it.
-        out.push_str("users:\n");
-        out.push_str("  - default\n");
-        out.push_str(&format!("  - name: {ci_user}\n"));
         out.push_str("    ssh_authorized_keys:\n");
         for k in ssh_keys {
             out.push_str(&format!("      - {k}\n"));
@@ -229,6 +242,11 @@ mod tests {
         // chave é que tem de aterrar na conta que o `cluster kubeadm` usa.
         assert!(ud.contains("  - default\n"), "{ud}");
         assert!(ud.contains("  - name: delonix\n"), "{ud}");
+        // A conta `delonix` é CRIADA de raiz pelo cloud-init, com sudo sem
+        // password (sem depender de grupo distro), shell e sem senha.
+        assert!(ud.contains("    sudo: \"ALL=(ALL) NOPASSWD:ALL\"\n"), "{ud}");
+        assert!(ud.contains("    shell: /bin/bash\n"), "{ud}");
+        assert!(ud.contains("    lock_passwd: true\n"), "{ud}");
         let keys_at = ud.find("ssh_authorized_keys").unwrap();
         let user_at = ud.find("  - name: delonix").unwrap();
         assert!(user_at < keys_at, "a chave saiu de baixo da conta:\n{ud}");
@@ -245,13 +263,40 @@ mod tests {
         assert!(!ud.contains("delonix"), "sobrou a conta antiga:\n{ud}");
     }
 
-    /// Sem chaves não há bloco `users:` nenhum — mas o autologin fica, porque é
-    /// o que faz o `vm console` entrar sem password.
+    /// Mesmo SEM chaves o bloco `users:` existe e CRIA a conta `delonix`
+    /// (sudo/shell/lock_passwd) — é isto que permite à imagem deixar de cozer a
+    /// conta e ao autologin da consola entrar sem password numa VM sem chave.
     #[test]
-    fn sem_chaves_nao_ha_bloco_de_utilizadores() {
+    fn sem_chaves_a_conta_delonix_ainda_e_criada() {
         let ud = build_user_data("no1", DEFAULT_CI_USER, &[], &[]);
-        assert!(!ud.contains("users:"), "{ud}");
+        assert!(ud.contains("users:\n"), "{ud}");
+        assert!(ud.contains("  - name: delonix\n"), "{ud}");
+        assert!(ud.contains("    sudo: \"ALL=(ALL) NOPASSWD:ALL\"\n"), "{ud}");
+        assert!(ud.contains("    shell: /bin/bash\n"), "{ud}");
+        assert!(ud.contains("    lock_passwd: true\n"), "{ud}");
+        // Sem chaves não há `ssh_authorized_keys`, mas a conta continua criada.
+        assert!(!ud.contains("ssh_authorized_keys"), "{ud}");
         assert!(ud.contains("--autologin delonix "), "{ud}");
+    }
+
+    /// O bloco `users:` gerado não parte linhas: a entrada de lista vem com 2
+    /// espaços e os campos do mapa (`sudo`/`shell`/`lock_passwd`/chaves) com 4,
+    /// consecutivos. Uma linha partida (de um `format!` enrolado) quebraria esta
+    /// indentação e tornaria o YAML inválido para o cloud-init.
+    #[test]
+    fn o_bloco_de_utilizadores_tem_indentacao_consistente() {
+        let ud = build_user_data("no1", DEFAULT_CI_USER, &["ssh-ed25519 AAAA".into()], &[]);
+        let lines: Vec<&str> = ud.lines().collect();
+        let users_at = lines.iter().position(|l| *l == "users:").unwrap();
+        assert_eq!(lines[users_at + 1], "  - default");
+        assert_eq!(lines[users_at + 2], "  - name: delonix");
+        assert_eq!(lines[users_at + 3], "    sudo: \"ALL=(ALL) NOPASSWD:ALL\"");
+        assert_eq!(lines[users_at + 4], "    shell: /bin/bash");
+        assert_eq!(lines[users_at + 5], "    lock_passwd: true");
+        assert_eq!(lines[users_at + 6], "    ssh_authorized_keys:");
+        assert_eq!(lines[users_at + 7], "      - ssh-ed25519 AAAA");
+        // O documento termina sempre com newline (nenhuma linha fica pendurada).
+        assert!(ud.ends_with('\n'), "{ud}");
     }
 
     /// O `network-config` casa por MAC e NUNCA por nome — é o que faz o mesmo
