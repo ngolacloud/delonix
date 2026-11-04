@@ -214,6 +214,287 @@ RAW_VARIANT_MATCH = re.compile(
 )
 RAW_VARIANT_SKIP = ("crates/foundation/delonix-model/",)
 
+# ---------------------------------------------------------------------------
+# ADR-0040 R5 restructuring (owner amendment, R0 2026-11-04). The C1 fitness
+# functions of the restructuring prompt, each with today's value as its baseline,
+# descending only. The data below is the ONE place each fact is declared:
+# `arch_report.py` imports it, so the report and the gate never disagree.
+# ---------------------------------------------------------------------------
+
+# The Part D map: which crate each CLI command module's BUSINESS RULE belongs to
+# (`docs/discovery/52_CLI_PLANO_MIGRACAO.md` / the restructuring prompt, Part D).
+# The destination is a CONTEXT crate when the module carries application logic to
+# extract in R4; otherwise it names where the module ends up (presentation in
+# delonix-cli, the composition root, an adapter, or a local surface). The six
+# names Part D lists that are NOT cmd modules (`names`, `kinds`, `reconcile`,
+# `revision`, `cdi`, `exitcode`) are already in their destination crate and do
+# not appear here. A cmd module missing from this map fails `cli_destination_map`.
+CLI_DESTINATION = {
+    # delonix-compute
+    "container": "delonix-compute", "pod": "delonix-compute", "workload": "delonix-compute",
+    "vm": "delonix-compute", "vmspec": "delonix-compute", "system_container": "delonix-compute",
+    "oci_runtime": "delonix-compute",
+    # delonix-networking
+    "network": "delonix-networking", "netroute": "delonix-networking", "firewall": "delonix-networking",
+    "network_access_rule": "delonix-networking", "service": "delonix-networking", "svc": "delonix-networking",
+    "dependency": "delonix-networking", "namespace": "delonix-networking", "vlan": "delonix-networking",
+    "netns": "delonix-networking", "flow": "delonix-networking", "capture": "delonix-networking",
+    "vmbridge": "delonix-networking", "network_zone": "delonix-networking",
+    "network_zone_providers": "delonix-networking", "network_gateway": "delonix-networking",
+    "gatewayproviders": "delonix-networking", "net_profiles": "delonix-networking",
+    "net_profiles_install": "delonix-networking", "network_provider": "delonix-networking",
+    "ippool": "delonix-networking", "hosts": "delonix-networking", "hosts_file": "delonix-networking",
+    "dns_cleanup": "delonix-networking", "vm_expose": "delonix-networking",
+    # delonix-gateway (created in R4)
+    "httproute": "delonix-gateway", "tunnel": "delonix-gateway",
+    # delonix-storage
+    "volume": "delonix-storage", "storage": "delonix-storage", "storage_pool": "delonix-storage",
+    "sharevolume": "delonix-storage", "provision": "delonix-storage", "backup": "delonix-storage",
+    "rbackup": "delonix-storage", "objectstorage": "delonix-storage",
+    # delonix-artifact (created in R4; vmimage's guestfs half goes to delonix-guestfs)
+    "image": "delonix-artifact", "build": "delonix-artifact", "scan": "delonix-artifact",
+    "app": "delonix-artifact", "vmfile": "delonix-artifact", "vmimage": "delonix-artifact",
+    # delonix-cluster (created in R4)
+    "cluster": "delonix-cluster", "kindmode": "delonix-cluster", "kindconfig": "delonix-cluster",
+    "kubeadm_config": "delonix-cluster", "k8s_recipes": "delonix-cluster", "etcd": "delonix-cluster",
+    "etcd_backup": "delonix-cluster", "pki": "delonix-cluster", "lb": "delonix-cluster",
+    "kube": "delonix-cluster",
+    # delonix-stack
+    "manifest": "delonix-stack", "stack": "delonix-stack", "compose": "delonix-stack",
+    "schema": "delonix-stack", "diff": "delonix-stack", "drift": "delonix-stack",
+    "resource": "delonix-stack", "verbs": "delonix-stack", "conditions": "delonix-stack",
+    "gitops": "delonix-stack",
+    # delonix-security (renamed from delonix-security-runtime in R1)
+    "secret": "delonix-security", "policy": "delonix-security", "credentials": "delonix-security",
+    # delonix-node (the context half of the R2 split)
+    "boot": "delonix-node", "prune": "delonix-node", "system": "delonix-node", "migrate": "delonix-node",
+    # delonix-cli (presentation; `serve` becomes the mode dispatcher, R5)
+    "output": "delonix-cli", "po": "delonix-cli", "man": "delonix-cli", "manual": "delonix-cli",
+    "manual_entries": "delonix-cli", "complete": "delonix-cli", "dash": "delonix-cli",
+    "codes": "delonix-cli", "init": "delonix-cli", "scaffold": "delonix-cli",
+    "compatibility": "delonix-cli", "features": "delonix-cli", "config": "delonix-cli",
+    "net": "delonix-cli", "manifestcmd": "delonix-cli", "mod": "delonix-cli", "serve": "delonix-cli",
+    # delonix-engine (composition root, R3)
+    "vmbackends": "delonix-engine", "providers_config": "delonix-engine", "provider": "delonix-engine",
+    "util": "delonix-engine",
+    # adapters
+    "mapped": "delonix-linux", "ingress_proxy": "delonix-l7proxy", "remote": "delonix-ssh",
+    "gitops_git": "delonix-git", "cni_plugins": "delonix-sdn",
+    # local surfaces
+    "dockerapi": "delonix-docker-api", "mcp": "delonix-mcp",
+    # tests
+    "fuzz_smoke": "tests",
+}
+
+# The context crates a CLI module may belong to (current + future names). A
+# module whose destination is one of these is application logic the R4 extraction
+# removes from the CLI — that is what the `cli_context_lines` ratchet counts down.
+CONTEXT_DESTINATIONS = {
+    "delonix-compute", "delonix-networking", "delonix-gateway", "delonix-storage",
+    "delonix-artifact", "delonix-cluster", "delonix-stack", "delonix-security", "delonix-node",
+}
+
+# A3's inter-context dependency graph, declared in ONE place. A context may depend
+# on foundation and on the contexts listed here, and on no other context. Keys use
+# the target crate names; `delonix-security-runtime` is read as `delonix-security`
+# (its R1 name) so the rule works before and after the rename.
+A3_ALLOWED = {
+    "delonix-stack": {
+        "delonix-compute", "delonix-networking", "delonix-storage",
+        "delonix-gateway", "delonix-artifact", "delonix-cluster", "delonix-security",
+    },
+    "delonix-cluster": {"delonix-compute", "delonix-networking", "delonix-storage"},
+    "delonix-gateway": {"delonix-networking"},
+}
+_CTX_RENAME = {"delonix-security-runtime": "delonix-security"}
+
+# A crate above this many lines of Rust needs an ADR or a registered split plan
+# (C1 #6). The allowlist is that register: each oversize crate names the phase or
+# ADR that divides it. An oversize crate NOT here fails; an entry that is no longer
+# oversize also fails, so the register cannot rot.
+SIZE_LIMIT = 20_000
+OVERSIZE_ALLOWLIST = {
+    "delonix-runtime-bin": "R4 extracts its use cases into the contexts; the residue becomes delonix-cli",
+    "delonix-proxmox": "R5 split plan for delonix-provider-proxmox (ADR pending)",
+    "delonix-sdn": "R5 split plan for the SDN adapter (ADR pending)",
+    "delonix-linux": "R5 split plan for the container runtime adapter (ADR pending)",
+}
+
+# Imports that make a `domain/` module impure (C1 #2). A pure domain is types and
+# rules: no filesystem, no process, no syscalls, no async runtime.
+DOMAIN_IMPURE = re.compile(
+    r"\bstd::fs\b|\bstd::process\b|\bnix::|\blibc::|\btokio\b|\buse\s+nix\b|\buse\s+libc\b"
+)
+PUB_TRAIT = re.compile(r"\bpub\s+trait\s+(\w+)")
+
+PROVIDER_PREFIXES = ("delonix-provider-",)
+# The provider crates by name today (the four unprefixed ones rename in R1).
+PROVIDER_NAMES = {
+    "delonix-opnsense", "delonix-powerdns", "delonix-proxmox", "delonix-truenas",
+    "delonix-provider-btrfs", "delonix-provider-ceph", "delonix-provider-cloud-hypervisor",
+    "delonix-provider-libvirt", "delonix-provider-lvm", "delonix-provider-zfs",
+}
+
+
+def crate_rs_lines() -> dict[str, int]:
+    """Lines of Rust per crate/bin, by its directory under crates/ or bins/."""
+    lines: dict[str, int] = {}
+    for top in ("crates", "bins"):
+        for manifest in sorted((ROOT / top).rglob("Cargo.toml")):
+            d = manifest.parent
+            if "target" in d.parts:
+                continue
+            total = sum(
+                len(f.read_text(encoding="utf-8", errors="replace").splitlines())
+                for f in d.rglob("*.rs")
+                if "target" not in f.parts
+            )
+            lines[d.name] = total
+    return lines
+
+
+def cmd_module_lines() -> dict[str, int]:
+    """Lines of each `bins/delonix-runtime-bin/src/cmd/<module>`.
+
+    A module is a `<name>.rs` file, a `<name>/` directory, or BOTH: `gitops.rs`
+    declares `mod tests;` which lives in `gitops/tests.rs`, so the module's lines
+    are the file PLUS its directory, added — not one overwriting the other.
+    """
+    base = ROOT / "bins/delonix-runtime-bin/src/cmd"
+    out: dict[str, int] = {}
+
+    def add(name: str, n: int) -> None:
+        out[name] = out.get(name, 0) + n
+
+    if not base.is_dir():
+        return out
+    for f in base.glob("*.rs"):
+        add(f.stem, len(f.read_text(encoding="utf-8", errors="replace").splitlines()))
+    for d in base.iterdir():
+        if d.is_dir():
+            add(d.name, sum(
+                len(f.read_text(encoding="utf-8", errors="replace").splitlines())
+                for f in d.rglob("*.rs")
+            ))
+    return out
+
+
+def cli_destination_map() -> tuple[int, list[str]]:
+    """Lines of the CLI whose destination is a context (C1 #1 ratchet), and the
+    coverage failures: a cmd module with no Part D destination, or a destination
+    for a module that no longer exists."""
+    mods = cmd_module_lines()
+    bad: list[str] = []
+    for m in sorted(mods):
+        if m not in CLI_DESTINATION:
+            bad.append(f"cmd/{m}: no Part D destination — add it to CLI_DESTINATION (scripts/arch_fitness.py)")
+    for m in sorted(CLI_DESTINATION):
+        if m not in mods and CLI_DESTINATION[m] != "tests":
+            bad.append(f"CLI_DESTINATION names cmd/{m}, which is not a module — remove it or it is already placed")
+    context_lines = sum(
+        n for m, n in mods.items()
+        if CLI_DESTINATION.get(m) in CONTEXT_DESTINATIONS
+    )
+    return context_lines, bad
+
+
+def interface_mechanism_deps(pkgs: dict[str, dict]) -> tuple[int, list[str]]:
+    """Interface crates depending on an adapter or a provider (C1 #3 ratchet).
+    An interface sees contexts (app); mechanism arrives already composed."""
+    where: list[str] = []
+    for name, pkg in sorted(pkgs.items()):
+        if LAYERS.get(name) != INTERFACE:
+            continue
+        for dep in pkg["dependencies"]:
+            if dep["kind"] is None and LAYERS.get(dep["name"]) in (ADAPTER, PROVIDER):
+                where.append(f"{name} -> {dep['name']} ({LAYERS[dep['name']]})")
+    return len(where), where
+
+
+def provider_namers(pkgs: dict[str, dict]) -> tuple[int, list[str]]:
+    """Crates other than the assembly root that name a provider crate as a normal
+    dependency (C1 #4 ratchet). Only `delonix-engine` composes providers."""
+    where: list[str] = []
+    for name, pkg in sorted(pkgs.items()):
+        if name in ("delonix-engine",):
+            continue
+        for dep in pkg["dependencies"]:
+            if dep["kind"] is None and dep["name"] in PROVIDER_NAMES:
+                where.append(f"{name} -> {dep['name']}")
+    return len(where), where
+
+
+def bin_crates(pkgs: dict[str, dict]) -> tuple[int, list[str]]:
+    """Packages that live under bins/ (C1 #5 ratchet). The target is ONE,
+    `delonix-bin`; everything else is a multicall symlink or a subcommand."""
+    names = sorted(n for n, p in pkgs.items()
+                   if Path(p["manifest_path"]).parent.relative_to(ROOT).parts[:1] == ("bins",))
+    return len(names), names
+
+
+def inter_context_violations(pkgs: dict[str, dict]) -> tuple[int, list[str]]:
+    """Inter-context dependency edges not permitted by A3 (C1 #8 ratchet)."""
+    where: list[str] = []
+    for name, pkg in sorted(pkgs.items()):
+        if LAYERS.get(name) != CONTEXT:
+            continue
+        src = _CTX_RENAME.get(name, name)
+        allowed = A3_ALLOWED.get(src, set())
+        for dep in pkg["dependencies"]:
+            if dep["kind"] is not None or LAYERS.get(dep["name"]) != CONTEXT:
+                continue
+            tgt = _CTX_RENAME.get(dep["name"], dep["name"])
+            if tgt not in allowed:
+                where.append(f"{name} -> {dep['name']} (not in A3)")
+    return len(where), where
+
+
+def domain_impurities() -> list[str]:
+    """A `domain/` module that touches the filesystem, a process, a syscall or a
+    runtime (C1 #2, hard rule). No `domain/` exists yet, so this is 0 today and
+    starts biting the moment R2 creates the first one."""
+    bad: list[str] = []
+    for d in sorted((ROOT / "crates/contexts").glob("*/src/domain")):
+        for f in sorted(d.rglob("*.rs")):
+            code = rust_code_only(f.read_text(encoding="utf-8", errors="replace"))
+            if DOMAIN_IMPURE.search(code):
+                rel = f.relative_to(ROOT).as_posix()
+                hit = DOMAIN_IMPURE.search(code).group(0)
+                bad.append(f"{rel}: domain/ is not pure — it uses {hit!r}")
+    return bad
+
+
+def duplicate_context_traits() -> list[str]:
+    """The same `pub trait` name declared in two different contexts (C1 #7, hard
+    rule): a port carries the consumer's name (VmNetwork, WorkloadVolumes), so two
+    contexts never declare the same one."""
+    seen: dict[str, str] = {}
+    bad: list[str] = []
+    for d in sorted((ROOT / "crates/contexts").glob("*")):
+        if not d.is_dir():
+            continue
+        for f in sorted((d / "src").rglob("*.rs")):
+            for m in PUB_TRAIT.finditer(rust_code_only(f.read_text(encoding="utf-8", errors="replace"))):
+                tname = m.group(1)
+                if tname in seen and seen[tname] != d.name:
+                    bad.append(f"pub trait {tname}: in both {seen[tname]} and {d.name} — ports name their consumer")
+                else:
+                    seen.setdefault(tname, d.name)
+    return bad
+
+
+def oversize_crates(lines: dict[str, int]) -> list[str]:
+    """A crate over SIZE_LIMIT lines with no ADR/split plan, or a stale allowlist
+    entry no longer oversize (C1 #6, hard rule)."""
+    bad: list[str] = []
+    for name, n in sorted(lines.items()):
+        if n > SIZE_LIMIT and name not in OVERSIZE_ALLOWLIST:
+            bad.append(f"{name}: {n} lines (> {SIZE_LIMIT}) with no ADR/split plan — register it in OVERSIZE_ALLOWLIST")
+    for name in sorted(OVERSIZE_ALLOWLIST):
+        if lines.get(name, 0) <= SIZE_LIMIT:
+            bad.append(f"{name}: in OVERSIZE_ALLOWLIST but is {lines.get(name, 0)} lines (<= {SIZE_LIMIT}) — remove it")
+    return bad
+
 
 def crates() -> dict[str, Path]:
     out = subprocess.run(
@@ -619,6 +900,20 @@ def main() -> int:
     env_writes, env_where = count(ENV_WRITES, skip_bin=False)
     shared_err, shared_err_where = count(SHARED_ERROR, only=SHARED_ERROR_DIRS)
     spawns, spawn_where = count(CONTEXT_SPAWNS, only=CONTEXT_DIRS)
+
+    # C1 restructuring ratchets (ADR-0040 R0 amendment, 2026-11-04).
+    cli_ctx_lines, cli_map_bad = cli_destination_map()
+    iface_mech, iface_mech_where = interface_mechanism_deps(pkgs)
+    prov_namers, prov_namers_where = provider_namers(pkgs)
+    n_bins, bin_where = bin_crates(pkgs)
+    ctx_viol, ctx_viol_where = inter_context_violations(pkgs)
+    crate_lines = crate_rs_lines()
+    # C1 hard rules (no ratchet: a violation fails, full stop).
+    bad += cli_map_bad
+    bad += domain_impurities()
+    bad += duplicate_context_traits()
+    bad += oversize_crates(crate_lines)
+
     current = {
         "self_exec_sites": self_exec,
         "library_prints": prints,
@@ -626,6 +921,11 @@ def main() -> int:
         "shared_error_imports": shared_err,
         "raw_error_variant_matches": count(RAW_VARIANT_MATCH, skip_bin=False)[0],
         "context_spawns": spawns,
+        "cli_context_lines": cli_ctx_lines,
+        "interface_mechanism_deps": iface_mech,
+        "provider_namers": prov_namers,
+        "bin_crates": n_bins,
+        "inter_context_violations": ctx_viol,
     }
 
     if args.list:
@@ -649,6 +949,22 @@ def main() -> int:
         print("\nexceptions still standing:")
         for (kind, a, b), (phase, reason) in sorted(EXCEPTIONS.items()):
             print(f"  [{phase}] {kind} {a} → {b}: {reason}")
+        print(f"\nCLI lines with a context destination (C1 #1): {cli_ctx_lines}")
+        print("interface → adapter/provider (C1 #3):")
+        for w in iface_mech_where:
+            print(f"  {w}")
+        print("provider namers outside delonix-engine (C1 #4):")
+        for w in prov_namers_where:
+            print(f"  {w}")
+        print(f"crates under bins/ (C1 #5): {', '.join(bin_where)}")
+        print("inter-context edges outside A3 (C1 #8):")
+        for w in ctx_viol_where:
+            print(f"  {w}")
+        print("crates over the size budget (C1 #6):")
+        for name, n in sorted(crate_lines.items()):
+            if n > SIZE_LIMIT:
+                tag = OVERSIZE_ALLOWLIST.get(name, "NO PLAN")
+                print(f"  {name}: {n} — {tag}")
         return 0
 
     if args.update:
