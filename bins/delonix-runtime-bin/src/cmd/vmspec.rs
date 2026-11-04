@@ -546,86 +546,136 @@ fn parse_baseline(s: &str) -> Result<Baseline> {
     }
 }
 
-/// The extra packages and build steps a baseline folds into an apt recipe.
+/// The extra packages and build steps a baseline folds into a recipe.
 pub(crate) struct BaselinePlan {
     /// Packages added to the install list (so they go through the same verified
-    /// apt path, and the same `network: true` requirement, as `packages`).
+    /// package path, and the same `network: true` requirement, as `packages`).
     pub(crate) packages: Vec<String>,
     /// Steps spliced in after the recipe's own `run:` and before removal.
     pub(crate) steps: Vec<Step>,
 }
 
-/// Builds the hardening baseline for an apt base (Debian/Ubuntu).
+/// The sshd hardening drop-in, identical across package managers: no root
+/// login, no passwords, no keyboard-interactive, no X11 forwarding.
+const BASELINE_SSHD: &str = "PermitRootLogin no\n\
+                             PasswordAuthentication no\n\
+                             KbdInteractiveAuthentication no\n\
+                             X11Forwarding no\n";
+
+/// The sysctl hardening drop-in, identical across package managers: rp_filter,
+/// syncookies, no redirects/source-routing, restricted kptr/dmesg.
+const BASELINE_SYSCTL: &str = "net.ipv4.conf.all.rp_filter=1\n\
+                               net.ipv4.conf.default.rp_filter=1\n\
+                               net.ipv4.tcp_syncookies=1\n\
+                               net.ipv4.conf.all.accept_redirects=0\n\
+                               net.ipv6.conf.all.accept_redirects=0\n\
+                               net.ipv4.conf.all.accept_source_route=0\n\
+                               kernel.kptr_restrict=2\n\
+                               kernel.dmesg_restrict=1\n";
+
+/// The two hardening drop-ins (sshd, sysctl) both families share. Written with
+/// `printf` so the recipe stays a sequence of RUN steps (no extra build-context
+/// files to stage). The `%s` + single-quoted arg keeps each line as data, so a
+/// stray metacharacter in one line cannot run as part of another.
+fn baseline_dropins() -> Vec<Step> {
+    vec![
+        Step::Run(format!(
+            "mkdir -p /etc/ssh/sshd_config.d && printf '%s' '{BASELINE_SSHD}' > /etc/ssh/sshd_config.d/90-delonix-cloud.conf"
+        )),
+        Step::Run(format!(
+            "mkdir -p /etc/sysctl.d && printf '%s' '{BASELINE_SYSCTL}' > /etc/sysctl.d/90-delonix-cloud.conf"
+        )),
+    ]
+}
+
+/// Builds the `cloud-v1` hardening baseline for a given package manager.
 ///
 /// Everything here is either a package the engine needs to talk to the guest
 /// (`qemu-guest-agent` — "real compute": the engine shuts down, freezes and
 /// queries a VM through it) or a conservative drop-in that an operator would
 /// otherwise have to remember on every image:
 ///
-/// - serial console on `ttyS0` so `vm console` reaches a login prompt (a grub
-///   drop-in for the kernel cmdline, plus `serial-getty@ttyS0`);
+/// - serial console on `ttyS0` so `vm console` reaches a login prompt (the
+///   kernel cmdline plus `serial-getty@ttyS0`);
 /// - `sshd` drop-in: no root login, no passwords, no X11 forwarding;
 /// - `sysctl` drop-in: rp_filter, syncookies, no redirects/source-routing,
 ///   restricted kptr/dmesg;
-/// - `chrony` for time sync, `auditd` for an audit trail, `fstrim.timer` to
-///   keep the thin-provisioned disk from growing without bound.
+/// - time sync, an audit trail, and `fstrim.timer` to keep the
+///   thin-provisioned disk from growing without bound.
 ///
-/// Pure and deterministic — tested at the recipe level. Only the `apt` package
-/// manager is supported today; `dnf` returns `None` so the caller can refuse
-/// it with a clear message rather than ship a half-baseline.
+/// `cloud-v1` is one concept; the package manager is implementation. The apt
+/// (Debian/Ubuntu) and dnf (Rocky/Fedora) families differ only in package and
+/// service names and in how the serial console reaches the kernel cmdline:
+///
+/// - apt: audit daemon package `auditd`, service `chrony`, a grub drop-in in
+///   `/etc/default/grub.d` applied with `update-grub`;
+/// - dnf: audit daemon package `audit`, service `chronyd`, and `grubby` editing
+///   the BLS entries of the cloud image in place.
+///
+/// Both grub steps are tolerated-failing (`|| true`) so a base without the tool
+/// (none of ours, but a `from:` qcow2 might) does not break the build.
+///
+/// Pure and deterministic — tested at the recipe level. Any other package
+/// manager returns `None` so the caller can refuse it with a clear message
+/// rather than ship a half-baseline.
 pub(crate) fn baseline_steps(baseline: Baseline, pm: &str) -> Option<BaselinePlan> {
-    if pm != "apt" {
-        return None;
-    }
     let Baseline::CloudV1 = baseline;
 
-    // sshd/sysctl drop-ins are written with `printf` so the recipe stays a
-    // sequence of RUN steps (no extra build-context files to stage). The
-    // `%s\n` + repeated args keep each line a separate argument, so a stray
-    // metacharacter in one line cannot run as part of another.
-    let sshd = "PermitRootLogin no\n\
-                PasswordAuthentication no\n\
-                KbdInteractiveAuthentication no\n\
-                X11Forwarding no\n";
-    let sysctl = "net.ipv4.conf.all.rp_filter=1\n\
-                  net.ipv4.conf.default.rp_filter=1\n\
-                  net.ipv4.tcp_syncookies=1\n\
-                  net.ipv4.conf.all.accept_redirects=0\n\
-                  net.ipv6.conf.all.accept_redirects=0\n\
-                  net.ipv4.conf.all.accept_source_route=0\n\
-                  kernel.kptr_restrict=2\n\
-                  kernel.dmesg_restrict=1\n";
-    // The serial console: the generic cloud images already put `console=ttyS0`
-    // on the kernel cmdline, but the login getty is what `vm console` needs, so
-    // the grub drop-in is belt-and-braces and the getty enable is the operative
-    // step. `update-grub` is tolerated-failing so a base without grub (none of
-    // ours, but a `from:` qcow2 might) does not break the build.
-    let grub = "GRUB_CMDLINE_LINUX=\\\"\\$GRUB_CMDLINE_LINUX console=tty1 console=ttyS0,115200n8\\\"\n";
-
-    let steps = vec![
-        Step::Run(format!(
-            "mkdir -p /etc/ssh/sshd_config.d && printf '%s' '{sshd}' > /etc/ssh/sshd_config.d/90-delonix-cloud.conf"
-        )),
-        Step::Run(format!(
-            "mkdir -p /etc/sysctl.d && printf '%s' '{sysctl}' > /etc/sysctl.d/90-delonix-cloud.conf"
-        )),
-        Step::Run(format!(
-            "mkdir -p /etc/default/grub.d && printf '%s' '{grub}' > /etc/default/grub.d/90-delonix-serial.cfg && update-grub || true"
-        )),
-        Step::Run("systemctl enable serial-getty@ttyS0.service".into()),
-        Step::Run("systemctl enable qemu-guest-agent".into()),
-        Step::Run("systemctl enable chrony".into()),
-        Step::Run("systemctl enable auditd".into()),
-        Step::Run("systemctl enable fstrim.timer".into()),
-    ];
-    Some(BaselinePlan {
-        packages: vec![
-            "qemu-guest-agent".into(),
-            "chrony".into(),
-            "auditd".into(),
-        ],
-        steps,
-    })
+    match pm {
+        "apt" => {
+            // The generic cloud images already put `console=ttyS0` on the
+            // kernel cmdline, but the login getty is what `vm console` needs, so
+            // the grub drop-in is belt-and-braces and the getty enable is the
+            // operative step.
+            let grub = "GRUB_CMDLINE_LINUX=\\\"\\$GRUB_CMDLINE_LINUX console=tty1 console=ttyS0,115200n8\\\"\n";
+            let mut steps = baseline_dropins();
+            steps.extend([
+                Step::Run(format!(
+                    "mkdir -p /etc/default/grub.d && printf '%s' '{grub}' > /etc/default/grub.d/90-delonix-serial.cfg && update-grub || true"
+                )),
+                Step::Run("systemctl enable serial-getty@ttyS0.service".into()),
+                Step::Run("systemctl enable qemu-guest-agent".into()),
+                Step::Run("systemctl enable chrony".into()),
+                Step::Run("systemctl enable auditd".into()),
+                Step::Run("systemctl enable fstrim.timer".into()),
+            ]);
+            Some(BaselinePlan {
+                packages: vec![
+                    "qemu-guest-agent".into(),
+                    "chrony".into(),
+                    "auditd".into(),
+                ],
+                steps,
+            })
+        }
+        "dnf" => {
+            // RHEL/Fedora cloud images carry grub2 with Boot Loader Spec
+            // entries, so `grubby` is the robust way to set the kernel cmdline
+            // (it edits every BLS entry in place) rather than a grub drop-in.
+            let mut steps = baseline_dropins();
+            steps.extend([
+                Step::Run(
+                    "grubby --update-kernel=ALL --args=\"console=tty1 console=ttyS0,115200n8\" || true".into(),
+                ),
+                Step::Run("systemctl enable serial-getty@ttyS0.service".into()),
+                Step::Run("systemctl enable qemu-guest-agent".into()),
+                // On RHEL/Fedora the time-sync service is `chronyd`, not `chrony`.
+                Step::Run("systemctl enable chronyd".into()),
+                Step::Run("systemctl enable auditd".into()),
+                Step::Run("systemctl enable fstrim.timer".into()),
+            ]);
+            Some(BaselinePlan {
+                packages: vec![
+                    "qemu-guest-agent".into(),
+                    "chrony".into(),
+                    // The audit daemon package is `audit` in dnf (`auditd` in apt).
+                    "audit".into(),
+                ],
+                steps,
+            })
+        }
+        _ => None,
+    }
 }
 
 /// Validates one image and decides how it is built. `dir` is the folder of the
@@ -759,20 +809,20 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
     };
 
     let pm = pkg_manager(img);
-    // Resolve the baseline now that the package manager is known: it is apt-only
-    // today, so it needs an apt base, and its packages flow through the same
-    // verified apt path (and the same `network: true` requirement) as `packages`.
+    // Resolve the baseline now that the package manager is known: it needs a
+    // known base (apt or dnf), and its packages flow through the same verified
+    // package path (and the same `network: true` requirement) as `packages`.
     let baseline_plan = match baseline {
         Some(b) => {
             let Some(pm) = pm else {
                 return Err(ctx(super::po::t(
-                    "`baseline:` needs an apt base — set `distro: debian|ubuntu` or `package_manager: apt`",
+                    "`baseline:` needs a known base — set `distro: debian|ubuntu|rocky|fedora` or `package_manager: apt|dnf`",
                 )
                 .into()));
             };
             Some(baseline_steps(b, pm).ok_or_else(|| {
                 ctx(super::po::t(
-                    "`baseline: cloud-v1` is apt-only today (debian/ubuntu)",
+                    "`baseline: cloud-v1` supports apt (debian/ubuntu) and dnf (rocky/fedora) bases",
                 )
                 .into())
             })?)
@@ -1662,11 +1712,13 @@ mod tests {
     }
 
     #[test]
-    fn baseline_exige_rede_apt_e_nome_conhecido() {
+    fn baseline_exige_rede_base_conhecida_e_nome_conhecido() {
         // Needs the network (it installs packages).
         assert!(one("images:\n  u:\n    distro: debian\n    release: trixie\n    baseline: cloud-v1\n").is_err());
-        // apt-only: a dnf base is refused rather than given a half-baseline.
-        assert!(one("images:\n  u:\n    distro: rocky\n    release: '9'\n    network: true\n    baseline: cloud-v1\n").is_err());
+        // A dnf base (rocky) is now supported, not refused.
+        assert!(one("images:\n  u:\n    distro: rocky\n    release: '9'\n    network: true\n    baseline: cloud-v1\n").is_ok());
+        // An unknown package manager has no baseline and is refused.
+        assert!(one("images:\n  u:\n    from: base.qcow2\n    package_manager: apk\n    network: true\n    baseline: cloud-v1\n").is_err());
         // Unknown baseline name is refused.
         assert!(one("images:\n  u:\n    distro: debian\n    release: trixie\n    network: true\n    baseline: cloud-v9\n").is_err());
         // A baseline on a golden profile is refused (it has its own shape).
@@ -1674,11 +1726,43 @@ mod tests {
     }
 
     #[test]
-    fn baseline_steps_sao_apt_only() {
+    fn baseline_steps_suporta_apt_e_dnf() {
         assert!(baseline_steps(Baseline::CloudV1, "apt").is_some());
-        assert!(baseline_steps(Baseline::CloudV1, "dnf").is_none());
+        assert!(baseline_steps(Baseline::CloudV1, "dnf").is_some());
+        // Any other package manager has no plan rather than a half-baseline.
+        assert!(baseline_steps(Baseline::CloudV1, "apk").is_none());
         assert_eq!(parse_baseline("cloud-v1").unwrap(), Baseline::CloudV1);
         assert!(parse_baseline("nope").is_err());
+    }
+
+    #[test]
+    fn baseline_cloud_v1_dnf_usa_nomes_do_rhel() {
+        let p = baseline_steps(Baseline::CloudV1, "dnf").expect("a dnf plan");
+        // The audit daemon package is `audit` in dnf, not `auditd`.
+        assert!(p.packages.iter().any(|s| s == "audit"));
+        assert!(!p.packages.iter().any(|s| s == "auditd"));
+        assert!(p.packages.iter().any(|s| s == "qemu-guest-agent"));
+        assert!(p.packages.iter().any(|s| s == "chrony"));
+        let step = |needle: &str| {
+            p.steps
+                .iter()
+                .any(|s| matches!(s, Step::Run(c) if c.contains(needle)))
+        };
+        // The time-sync service is `chronyd` on RHEL/Fedora.
+        assert!(step("systemctl enable chronyd"));
+        assert!(!step("systemctl enable chrony\n") && !step("enable chrony "));
+        assert!(step("systemctl enable auditd"));
+        assert!(step("systemctl enable qemu-guest-agent"));
+        assert!(step("systemctl enable serial-getty@ttyS0.service"));
+        assert!(step("systemctl enable fstrim.timer"));
+        // Serial console via grubby (BLS-aware), tolerating its absence.
+        assert!(step("grubby --update-kernel=ALL"));
+        assert!(step("console=ttyS0,115200n8"));
+        // The hardening drop-ins are the same as the apt path.
+        assert!(step("/etc/ssh/sshd_config.d/90-delonix-cloud.conf"));
+        assert!(step("PermitRootLogin no"));
+        assert!(step("/etc/sysctl.d/90-delonix-cloud.conf"));
+        assert!(step("tcp_syncookies=1"));
     }
 
     #[test]

@@ -36,16 +36,19 @@ images:
     baseline: cloud-v1
 ```
 
-`cloud-v1` (apt-only today — Debian/Ubuntu) adds:
+`cloud-v1` (Debian/Ubuntu via apt, Rocky/Fedora via dnf) adds:
 
-- **Packages** (through the same verified apt path and `network: true` requirement as `packages:`):
-  `qemu-guest-agent`, `chrony`, `auditd`.
-- **Serial console:** a grub drop-in (`console=tty1 console=ttyS0,115200n8`) and
-  `serial-getty@ttyS0.service` enabled, so `vm console` reaches a login prompt.
+- **Packages** (through the same verified package path and `network: true` requirement as
+  `packages:`): `qemu-guest-agent`, `chrony`, and the audit daemon — `auditd` on apt, `audit` on dnf.
+- **Serial console:** the kernel cmdline gets `console=tty1 console=ttyS0,115200n8` and
+  `serial-getty@ttyS0.service` is enabled, so `vm console` reaches a login prompt. apt sets the
+  cmdline with a grub drop-in applied by `update-grub`; dnf uses `grubby --update-kernel=ALL`,
+  which edits the Boot Loader Spec entries of the cloud image in place. Both are tolerated-failing.
 - **Drop-ins:** sshd (`PermitRootLogin no`, `PasswordAuthentication no`,
   `KbdInteractiveAuthentication no`, `X11Forwarding no`) and sysctl (rp_filter, syncookies, no
-  redirects/source-routing, restricted kptr/dmesg).
-- **Units enabled:** `qemu-guest-agent`, `chrony`, `auditd`, `fstrim.timer`.
+  redirects/source-routing, restricted kptr/dmesg) — identical across both families.
+- **Units enabled:** `qemu-guest-agent`, the time-sync service (`chrony` on apt, `chronyd` on dnf),
+  `auditd`, `fstrim.timer`.
 
 The baseline is a CLOSED enum (`parse_baseline`), so an unknown name is a clear error, not a silent
 no-op. It is refused on the golden profiles and the appliance/`build:` routes — those have their
@@ -54,8 +57,9 @@ undone) and before removal/cleanup (so the machine-id reset stays the last opera
 `Cleanup` invariant). It is OPT-IN by default: turning it on for all custom images, or baking it
 into the shipped recipes, is a behaviour change the owner decides (both force `network: true`).
 
-`dnf` (Rocky/Fedora) is refused for now rather than shipped as a half-baseline; a `rhel-v1` sibling
-is the obvious follow-up.
+Both apt and dnf bases are supported; any other package manager is refused rather than shipped as a
+half-baseline. The dnf package and service names (`audit`, `chronyd`) and the `grubby` cmdline edit
+still need confirmation on a real Rocky/Fedora cloud boot.
 
 ## Consequences
 
