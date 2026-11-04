@@ -19,7 +19,7 @@
 
 use crate::policy_nft::Family;
 use crate::{run, run_ok, Error, Result, SLIRP_IP};
-use delonix_node::peer_cred::peer_uid;
+use delonix_host::peer_cred::peer_uid;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -1676,11 +1676,11 @@ impl FileLock {
             .mode(0o600)
             .open(&path)
             .map_err(|e| lock_err(format!("cannot open the lock file: {e}")))?;
-        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`,
+        // Bounded exclusive lock (shared `delonix_host::flock_exclusive`,
         // which retries `EINTR` and caps the wait): a bare `flock(LOCK_EX)`
         // here waited forever if a holder was stuck — one of the hangs behind
         // the custom-network attach. Fail closed at the deadline.
-        match delonix_node::flock_exclusive(f.as_raw_fd()) {
+        match delonix_host::flock_exclusive(f.as_raw_fd()) {
             Ok(true) => Ok(FileLock { _file: f }),
             Ok(false) => Err(lock_err(
                 "could not take the ingress lock within the deadline (a holder is stuck) — refusing".into(),
@@ -2030,7 +2030,7 @@ fn engine_exe() -> Result<std::path::PathBuf> {
         context: "current_exe",
         message: e.to_string(),
     })?;
-    Ok(engine_exe_from(current, delonix_node::dispatch::cli_bin))
+    Ok(engine_exe_from(current, delonix_host::dispatch::cli_bin))
 }
 
 fn engine_exe_from(

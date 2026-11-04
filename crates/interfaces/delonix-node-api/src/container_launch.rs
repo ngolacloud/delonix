@@ -558,7 +558,7 @@ fn launch(root: &Path, id: &str) -> Result<(), String> {
     ));
     let err_file =
         std::fs::File::create(&err_path).map_err(|e| format!("preparing the launch: {e}"))?;
-    let status = Command::new(delonix_node::dispatch::cli_bin())
+    let status = Command::new(delonix_host::dispatch::cli_bin())
         .env("DELONIX_ROOT", root)
         // Machine-to-machine delegation: the top-level `start` form, past the
         // grouped-commands barrier, as the CRI uses `run`/`stop`/`rm`.

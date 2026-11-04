@@ -40,7 +40,7 @@ fn write_manifest(manifest: &[u8]) -> Result<PathBuf, Status> {
 /// root and the grouped-commands barrier are set the same way the other
 /// re-execs do.
 fn run(root: &Path, args: &[String]) -> std::io::Result<std::process::Output> {
-    Command::new(delonix_node::dispatch::cli_bin())
+    Command::new(delonix_host::dispatch::cli_bin())
         .env("DELONIX_ROOT", root)
         .env("DELONIX_INTERNAL", "1")
         .env("NO_COLOR", "1")

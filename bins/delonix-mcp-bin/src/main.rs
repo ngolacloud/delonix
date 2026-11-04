@@ -11,7 +11,7 @@ fn usage() -> String {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
-    delonix_node::dispatch::check_version("delonix-mcp", env!("CARGO_PKG_VERSION"))?;
+    delonix_host::dispatch::check_version("delonix-mcp", env!("CARGO_PKG_VERSION"))?;
     match args.first().map(String::as_str) {
         Some("serve") => {
             let mut transport = "stdio".to_string();

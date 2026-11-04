@@ -3208,7 +3208,7 @@ impl VmBackend for LibvirtBackend {
             xml = xml.replace("</domain>\n", &format!("{sec}</domain>\n"));
         }
         let xml_path = vmdir.join(format!("{}.xml", cfg.name));
-        delonix_node::write_atomic_mode(&xml_path, xml.as_bytes(), None)?;
+        delonix_host::write_atomic_mode(&xml_path, xml.as_bytes(), None)?;
 
         // Idempotent: if the domain already exists (auto-heal), it just (re)starts; otherwise
         // define + start. `virsh start` on an already-running domain is a benign no-op.
@@ -4138,7 +4138,7 @@ impl VmBackend for LibvirtBackend {
                     ),
                 })
             })?;
-            delonix_node::write_atomic_mode(&dir.join(format!("{n}.xml")), xml.as_bytes(), None)?;
+            delonix_host::write_atomic_mode(&dir.join(format!("{n}.xml")), xml.as_bytes(), None)?;
         }
         Ok(names)
     }
@@ -4243,7 +4243,7 @@ impl LibvirtBackend {
                     // Written next to the original: the redefine reads a FILE,
                     // and this one carries the current domain's uuid.
                     let tmp = path.with_extension("xml.redefine");
-                    delonix_node::write_atomic_mode(&tmp, patched.as_bytes(), None)
+                    delonix_host::write_atomic_mode(&tmp, patched.as_bytes(), None)
                         .map_err(|e| e.to_string())?;
                     let out = quiet(
                         "virsh",

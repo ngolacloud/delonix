@@ -96,7 +96,7 @@ fn resolve(
         ),
     };
     let timeout = match args.idle_timeout.clone().or(env_idle) {
-        Some(t) => Some(delonix_node::dispatch::parse_idle_timeout(&t)?),
+        Some(t) => Some(delonix_host::dispatch::parse_idle_timeout(&t)?),
         None if fd.is_some() => Some(activation::DEFAULT_ACTIVATED_IDLE),
         None => None,
     };
@@ -106,7 +106,7 @@ fn resolve(
 
 fn run() -> Result<(), Error> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    delonix_node::dispatch::check_version("delonix-node-api", env!("CARGO_PKG_VERSION"))
+    delonix_host::dispatch::check_version("delonix-node-api", env!("CARGO_PKG_VERSION"))
         .map_err(Error::Unavailable)?;
     let parsed = parse_args(&args)?;
     let (listen, idle) = resolve(

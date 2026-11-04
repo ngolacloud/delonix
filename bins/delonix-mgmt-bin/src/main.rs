@@ -20,7 +20,7 @@ fn wants_version(args: &[String]) -> bool {
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    delonix_node::dispatch::check_version("delonix-mgmt", env!("CARGO_PKG_VERSION"))?;
+    delonix_host::dispatch::check_version("delonix-mgmt", env!("CARGO_PKG_VERSION"))?;
     let mut addr = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
