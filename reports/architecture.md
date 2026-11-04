@@ -8,12 +8,12 @@
 | Layer | Crates | Lines | Share |
 | --- | ---: | ---: | ---: |
 | foundation | 2 | 6,373 | 1.8% |
-| context | 6 | 28,788 | 8.2% |
-| adapter | 9 | 79,376 | 22.6% |
+| context | 6 | 27,531 | 7.8% |
+| adapter | 10 | 80,643 | 22.9% |
 | provider | 10 | 54,557 | 15.5% |
-| interface | 4 | 31,716 | 9.0% |
+| interface | 4 | 31,717 | 9.0% |
 | bin | 5 | 150,715 | 42.9% |
-| **total** | **36** | **351,525** | 100% |
+| **total** | **37** | **351,536** | 100% |
 
 ## Lines per crate
 
@@ -30,9 +30,9 @@
 | --- | ---: |
 | delonix-compute | 12,494 |
 | delonix-networking | 5,539 |
-| delonix-storage | 3,353 |
 | delonix-security | 3,286 |
 | delonix-stack | 3,087 |
+| delonix-storage | 2,096 |
 | delonix-node | 1,029 |
 
 ### adapter
@@ -46,6 +46,7 @@
 | delonix-volume | 3,317 |
 | delonix-state | 3,010 |
 | delonix-scanner | 1,564 |
+| delonix-pool-helper | 1,267 |
 | delonix-telemetry | 1,144 |
 | delonix-host | 342 |
 
@@ -68,7 +69,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-node-api | 16,883 |
+| delonix-node-api | 16,884 |
 | delonix-cri | 9,784 |
 | delonix-mgmt | 3,291 |
 | delonix-mcp | 1,758 |
@@ -203,6 +204,7 @@ graph LR
   delonix_node_api[delonix-node-api]
   delonix_node_api_bin[delonix-node-api-bin]
   delonix_oci[delonix-oci]
+  delonix_pool_helper[delonix-pool-helper]
   delonix_provider_btrfs[delonix-provider-btrfs]
   delonix_provider_ceph[delonix-provider-ceph]
   delonix_provider_cloud_hypervisor[delonix-provider-cloud-hypervisor]
@@ -232,6 +234,7 @@ graph LR
   delonix_bin --> delonix_networking
   delonix_bin --> delonix_node
   delonix_bin --> delonix_oci
+  delonix_bin --> delonix_pool_helper
   delonix_bin --> delonix_provider_btrfs
   delonix_bin --> delonix_provider_ceph
   delonix_bin --> delonix_provider_lvm
@@ -306,6 +309,7 @@ graph LR
   delonix_node_api --> delonix_model
   delonix_node_api --> delonix_node
   delonix_node_api --> delonix_oci
+  delonix_node_api --> delonix_pool_helper
   delonix_node_api --> delonix_provider_ceph
   delonix_node_api --> delonix_provider_opnsense
   delonix_node_api --> delonix_provider_proxmox
@@ -324,6 +328,8 @@ graph LR
   delonix_oci --> delonix_model
   delonix_oci --> delonix_node
   delonix_oci --> delonix_state
+  delonix_pool_helper --> delonix_model
+  delonix_pool_helper --> delonix_storage
   delonix_provider_btrfs --> delonix_storage
   delonix_provider_ceph --> delonix_storage
   delonix_provider_cloud_hypervisor --> delonix_compute
@@ -361,6 +367,7 @@ graph LR
   delonix_state --> delonix_node
   delonix_storage --> delonix_model
   delonix_storage_helper --> delonix_model
+  delonix_storage_helper --> delonix_pool_helper
   delonix_storage_helper --> delonix_provider_btrfs
   delonix_storage_helper --> delonix_provider_ceph
   delonix_storage_helper --> delonix_provider_lvm
@@ -394,6 +401,7 @@ graph LR
   class delonix_node_api interface;
   class delonix_node_api_bin bin;
   class delonix_oci adapter;
+  class delonix_pool_helper adapter;
   class delonix_provider_btrfs provider;
   class delonix_provider_ceph provider;
   class delonix_provider_cloud_hypervisor provider;
