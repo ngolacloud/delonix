@@ -1,7 +1,8 @@
 # ADR-0040: Engine restructuring — layers, provider ports, and the node contract
 
-- **Status:** Accepted (2026-10-06, by the owner), with P0–P4 implemented and **P5 open** (socket activation and the
-  launcher, Sprint 7 of `docs/discovery/66_CONTINUITY_PLAN.md`). Accepting it unblocks M01's
+- **Status:** Accepted (2026-10-06, by the owner). **P2 re-opened and the plan re-cut as
+  R0–R5 by the 2026-11-04 amendment below** — the earlier “P0–P4 implemented” was measured
+  wrong (the application layer never left the CLI). Accepting it unblocks M01's
   `capability discovery`, which the traceability matrix records as blocked on this ADR, and
   ADR-0041, which depends on this one in writing.
 - **Deciders:** Walter (owner)
@@ -17,6 +18,54 @@
 > client** and names none (D4 below), phases are ordered by the engine's own capability
 > coverage, and nothing in `crates/`, `bins/` or `proto/` may name a consumer — enforced by
 > `scripts/arch_fitness.py` from P0 on. The decisions D1–D7 are unchanged.
+
+> **Amendment — R5 restructuring, end to end (owner, 2026-11-04).** Measured on
+> `develop` @ `64a5953a`. This supersedes the P0–P4-implemented status for the
+> application layer. The decisions D1–D7 stand; the eight points below extend them.
+>
+> 1. **Status.** P2 (extract the use cases into the contexts' `app/`) is OPEN, not
+>    implemented: the six contexts carry 30 669 lines with no `domain/`/`app/`
+>    split, while `delonix-runtime-bin/src/cmd` holds 118 322 lines (≈80 %) whose
+>    business rule belongs to a context (`reports/architecture.md`). The CLI-lines
+>    ratchet D7 implied did not exist until this amendment added `cli_context_lines`.
+>    The restructuring runs as phases R0–R5 (R0 is rails only, this amendment and
+>    the C1 gates, no production code moved).
+> 2. **D1 — assembly layer.** A seventh layer, `assembly`
+>    (`crates/assembly/delonix-engine`), is the single composition root. Direction:
+>    `bins → assembly → adapters/providers → contexts → foundation`; interfaces →
+>    contexts (`app` only). Assembly may depend on everything except interfaces and
+>    bins. It is the only crate that names a provider or an adapter.
+> 3. **D2.2.** `delonix-net-rules` stays a pure foundation crate. The current
+>    `delonix-node` splits into `delonix-host` (adapter: host facts, atomic writes,
+>    dispatch, peer-cred, flock) and a new pure `delonix-node` (context).
+> 4. **D2.5.** `delonix-telemetry` is an adapter (it carries opentelemetry/
+>    prometheus — HEAVY). The inter-context graph of A3 replaces “contexts depend
+>    only on foundation”: `stack → {compute, networking, storage, gateway, artifact,
+>    cluster, security}`, `cluster → {compute, networking, storage}`,
+>    `gateway → networking`, and no other inter-context edge.
+> 5. **D3.** The `Provider` / `ProviderId` / `CapabilitySet` / `Extensions` skeleton
+>    lives in `delonix-model::provider` (foundation).
+> 6. **D7.** Eight fitness functions join `scripts/arch_fitness.py`, each with its
+>    value on `64a5953a` as baseline, descending only: `cli_context_lines` (118 322
+>    → 0), `interface_mechanism_deps` (27 → 0), `provider_namers` (17 → 0),
+>    `bin_crates` (5 → 1), `inter_context_violations` (3 → 0), plus the hard rules
+>    `cli_destination_map`, `domain_impurities`, `duplicate_context_traits` and
+>    `oversize_crates`. `scripts/arch_report.py` renders them into
+>    `reports/architecture.md` (C2).
+> 7. **Binaries.** Exactly ONE package in `bins/` — `delonix-bin` → `delonix`
+>    (`bins/delonix`). `delonix-cri` / `delonix-mcp` / `delonix-docker-api` and the
+>    `__launcher` / `__netns-holder` / `__gateway-proxy` / `__storage-helper` roles
+>    are multicall symlinks or hidden subcommands of the same file, never their own
+>    `[[bin]]`. Privilege separation stays process isolation via re-exec of
+>    `/proc/self/exe`, not a sibling file (D2.4 amended). `self_exec_sites` still
+>    counts this; what falls to zero are the ad-hoc `__*` sites it replaces.
+> 8. **Autostart.** A `ServiceSupervisor` port (`delonix-compute::app`, implemented
+>    in `delonix-host`) registers an OS-supervisor unit (systemd `--user`/`--system`,
+>    launchd `LaunchAgent`/`LaunchDaemon`, or Windows SCM) so
+>    `delonix container run --autostart` survives a reboot with no resident
+>    `delonix`: the unit re-invokes the same binary once to restore the container and
+>    exits. `container rm` and `container stop --purge` remove the unit. Daemonless
+>    holds — the persistent party is the OS supervisor, not Delonix.
 
 ## Context
 
