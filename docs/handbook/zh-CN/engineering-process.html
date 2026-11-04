@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>工程流程（权威） · Delonix — 贡献者手册</title>
+<script>try{var t=localStorage.getItem('delonix-handbook-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<style>
+:root{
+  /* The NgolaCloud design system (delonix-web packages/ui/src/tokens.css):
+     light theme by default, dark as the secondary theme. */
+  --bg:#fcfaf8;--surface:#f5f3f1;--surface-2:#eeeae8;--card:#ffffff;--ink:#191513;--ink-2:#524b49;--muted:#675e59;
+  --line:#e1ddda;--line-soft:#ece8e5;
+  --accent:#cc2823;--accent-ink:#b70000;--accent-soft:#ffe2dc;--focus:#cc2823;
+  --code-bg:#1a1614;--code-ink:#ede7e3;--code-line:#2e2825;--code-label:#a39993;
+  --warn-bg:rgba(239,168,49,.16);--warn-line:#c9820f;--warn-ink:#6b4400;
+  --topbar:rgba(255,255,255,.82);
+  --shadow:0 4px 12px rgba(38,28,22,.08),0 1px 3px rgba(38,28,22,.06);
+  --f-display:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+  --f-body:var(--f-display);
+  --f-mono:"JetBrains Mono",ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --r-sm:4px;--r:6px;--r-lg:8px;
+  --header:60px;color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0b0b0c;--surface:#131315;--surface-2:#19191c;--card:#161618;--ink:#ededee;--ink-2:#b6b6ba;--muted:#87878c;
+  --line:#262629;--line-soft:#1d1d20;
+  --accent:#ee5a24;--accent-ink:#ff6c39;--accent-soft:rgba(238,90,36,.18);--focus:#ee5a24;
+  --code-bg:#101012;--code-ink:#dedee2;--code-line:#26262a;--code-label:#87878c;
+  --warn-bg:rgba(226,161,58,.12);--warn-line:#8a6a2a;--warn-ink:#e2c07a;
+  --topbar:rgba(11,11,12,.82);
+  --shadow:0 8px 24px rgba(0,0,0,.5),0 1px 4px rgba(0,0,0,.4);color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0b0b0c;--surface:#131315;--surface-2:#19191c;--card:#161618;--ink:#ededee;--ink-2:#b6b6ba;--muted:#87878c;
+  --line:#262629;--line-soft:#1d1d20;
+  --accent:#ee5a24;--accent-ink:#ff6c39;--accent-soft:rgba(238,90,36,.18);--focus:#ee5a24;
+  --code-bg:#101012;--code-ink:#dedee2;--code-line:#26262a;--code-label:#87878c;
+  --warn-bg:rgba(226,161,58,.12);--warn-line:#8a6a2a;--warn-ink:#e2c07a;
+  --topbar:rgba(11,11,12,.82);
+  --shadow:0 8px 24px rgba(0,0,0,.5),0 1px 4px rgba(0,0,0,.4);color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-padding-top:calc(var(--header) + 16px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 var(--f-body);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+a{color:var(--accent-ink);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+/* Header */
+.top{position:sticky;top:0;z-index:30;height:var(--header);display:flex;align-items:center;gap:16px;
+  padding-inline:20px;background:var(--topbar);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;color:var(--ink);font:700 16px/1 var(--f-display);white-space:nowrap}
+.brand:hover{text-decoration:none}
+.brand .mark{width:26px;height:26px;border-radius:var(--r);background:var(--accent);display:grid;place-items:center;color:#fff;font:800 13px/1 var(--f-display)}
+.brand .sub{font:500 14px/1 var(--f-body);color:var(--muted)}
+.brand .sep{width:1px;height:18px;background:var(--line)}
+.searchbtn{flex:1;max-width:460px;margin-inline:auto;display:flex;align-items:center;gap:10px;height:38px;padding-inline:12px;
+  border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--muted);font:15px var(--f-body);cursor:pointer;min-width:0}
+.searchbtn:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.searchbtn svg{flex:none}
+.searchbtn .label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.searchbtn kbd{margin-left:auto}
+kbd{font:600 11px/1 var(--f-mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:3px 6px;background:var(--bg);color:var(--muted);white-space:nowrap}
+.actions{display:flex;align-items:center;gap:6px}
+select.lang{height:36px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:14px var(--f-body);padding-inline:8px}
+.iconbtn{height:36px;width:36px;display:grid;place-items:center;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink-2);cursor:pointer}
+.iconbtn:hover{color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));text-decoration:none}
+.menubtn{display:none}
+
+/* Frame */
+.frame{display:grid;grid-template-columns:280px minmax(0,1fr) 240px}
+nav.side{position:sticky;top:var(--header);height:calc(100vh - var(--header));overflow-y:auto;padding:24px 16px 48px 20px;border-right:1px solid var(--line)}
+nav.side,aside.toc,.sres{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+nav.side .group{margin-bottom:18px}
+nav.side .gtitle{font:700 11px/1 var(--f-display);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:0 10px 8px}
+nav.side a{display:flex;gap:10px;align-items:baseline;padding:6px 10px;border-radius:8px;color:var(--ink-2);font-size:15px;line-height:1.35}
+nav.side a:hover{background:var(--surface);text-decoration:none;color:var(--ink)}
+nav.side a .n{flex:none;width:18px;font:500 12px/1.35 var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+nav.side a.on{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+nav.side a.on .n{color:var(--accent-ink)}
+main{min-width:0;padding:40px clamp(20px,3.5vw,56px) 80px}
+.content{max-width:1120px;margin-inline:auto}
+
+aside.toc{position:sticky;top:var(--header);height:calc(100vh - var(--header));overflow-y:auto;padding:40px 20px 40px 8px;font-size:13.5px}
+aside.toc .ttitle{font:700 11px/1 var(--f-display);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+aside.toc ul{list-style:none;margin:0;padding:0}
+aside.toc ul ul{padding-left:12px}
+aside.toc li{margin:0}
+aside.toc a{display:block;padding:4px 0 4px 12px;border-left:2px solid var(--line);color:var(--muted);line-height:1.4}
+aside.toc a:hover{color:var(--ink);text-decoration:none}
+aside.toc a.active{color:var(--accent-ink);border-left-color:var(--accent);font-weight:600}
+
+/* Type */
+.kicker{font:700 12px/1 var(--f-display);letter-spacing:.09em;text-transform:uppercase;color:var(--accent-ink);margin:0 0 12px}
+h1,h2,h3,h4{font-family:var(--f-display);color:var(--ink);text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:2.35rem;line-height:1.15;font-weight:800;margin:0 0 20px}
+h2{font-size:1.55rem;line-height:1.25;font-weight:700;margin:56px 0 14px}
+h3{font-size:1.18rem;line-height:1.3;font-weight:700;margin:36px 0 10px}
+h4{font-size:1rem;margin:28px 0 8px}
+h2 code,h3 code{font-size:.9em}
+.hanchor{margin-left:8px;color:var(--muted);opacity:0;font-weight:500;text-decoration:none}
+h2:hover .hanchor,h3:hover .hanchor,.hanchor:focus-visible{opacity:1}
+p,ul,ol{margin:0 0 16px}
+li{margin:4px 0}li>p{margin:0 0 8px}
+strong{font-weight:650;color:var(--ink)}
+hr{border:0;height:1px;background:var(--line);margin:40px 0}
+code{font:.86em/1.5 var(--f-mono);background:var(--surface-2);border:1px solid var(--line);padding:.08em .38em;border-radius:6px;overflow-wrap:break-word}
+a code{color:inherit}
+a.src code{border-color:color-mix(in srgb,var(--accent) 30%,var(--line));background:var(--accent-soft)}
+a.src:hover{text-decoration:none}a.src:hover code{border-color:var(--accent)}
+.crate-src{margin-left:10px;vertical-align:middle;font:600 11px/1 var(--f-display);letter-spacing:.04em;text-transform:uppercase;
+  border:1px solid var(--line);border-radius:999px;padding:5px 9px;color:var(--muted)}
+.crate-src:hover{color:var(--accent-ink);border-color:var(--accent);text-decoration:none}
+
+/* Blocks */
+blockquote{margin:20px 0;padding:2px 0 2px 18px;border-left:3px solid var(--line);color:var(--ink-2)}
+blockquote p:last-child{margin-bottom:0}
+blockquote.say{border:1px solid var(--line-soft);padding:14px 18px;border-radius:var(--r-lg);background:var(--card);margin:18px 0}
+blockquote.say .speaker{display:inline-block;margin-right:8px;font:700 11px/1 var(--f-display);letter-spacing:.08em;text-transform:uppercase;
+  padding:5px 8px;border-radius:999px;vertical-align:1px}
+blockquote.say-interviewer .speaker{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+blockquote.say-candidate{background:var(--accent-soft)}
+blockquote.say-candidate .speaker{background:var(--accent);color:#fff}
+.notice{display:flex;gap:10px;align-items:baseline;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-ink);
+  border-radius:12px;padding:12px 16px;margin:0 0 28px;font-size:15px}
+.notice a{color:inherit;font-weight:600;text-decoration:underline}
+.code{margin:18px 0 22px;border-radius:var(--r-lg);background:var(--code-bg);border:1px solid var(--code-line);overflow:hidden}
+.code-head{display:flex;align-items:center;justify-content:space-between;gap:8px;height:36px;padding:0 8px 0 14px;border-bottom:1px solid var(--code-line)}
+.code-head .lang{font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--code-label)}
+.copy{display:flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:1px solid var(--code-line);border-radius:7px;background:transparent;
+  color:var(--code-label);font:600 12px var(--f-body);cursor:pointer}
+.copy:hover{color:#fff;border-color:#3a4555}
+.copy.done{color:#7ee2a8;border-color:#2f5d45}
+.code pre{margin:0;padding:14px 16px 22px;overflow-x:auto;color:var(--code-ink);font:13.5px/1.6 var(--f-mono);
+  scrollbar-width:thin;scrollbar-color:#3a4555 transparent;color-scheme:dark}
+.code pre::-webkit-scrollbar{height:8px}.code pre::-webkit-scrollbar-thumb{background:#3a4555;border-radius:8px}
+.code pre code{background:none;border:0;padding:0;font:inherit;color:inherit;overflow-wrap:normal}
+.code pre code.hljs{background:none;padding:0}
+pre.mermaid{margin:22px 0;padding:18px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--card);text-align:center;overflow-x:auto;font-family:var(--f-body)}
+.tablewrap{margin:18px 0 24px;overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--card)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;line-height:1.5}
+th,td{padding:10px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{background:var(--surface);font:700 12.5px/1.3 var(--f-display);letter-spacing:.02em;color:var(--ink-2);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:color-mix(in srgb,var(--surface) 60%,transparent)}
+td code{font-size:.82em;overflow-wrap:normal}
+/* A table's first column names the thing (a variable, a crate, a flag): never break it. */
+td:first-child code{white-space:nowrap}
+th:first-child,td:first-child{white-space:nowrap}
+
+/* Pager + footer */
+.pager{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:64px}
+.pager a{display:block;padding:14px 16px;border:1px solid var(--line);border-radius:12px;color:var(--ink);font:600 15px/1.35 var(--f-display)}
+.pager a:hover{border-color:var(--accent);text-decoration:none}
+.pager a span{display:block;font:500 12px/1 var(--f-body);color:var(--muted);margin-bottom:6px}
+.pager .next{text-align:right;grid-column:2}
+.foot{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13.5px;color:var(--muted)}
+
+/* Search */
+#search{position:fixed;inset:0;z-index:60;background:rgba(10,13,18,.45);display:flex;align-items:flex-start;justify-content:center;padding:12vh 16px 16px}
+#search[hidden]{display:none}
+.sbox{width:min(680px,100%);background:var(--bg);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.sfield{display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--line);color:var(--muted)}
+.sfield input{flex:1;height:56px;border:0;outline:0;background:transparent;color:var(--ink);font:17px var(--f-body)}
+.sres{list-style:none;margin:0;padding:8px;max-height:56vh;overflow-y:auto}
+.sres a{display:block;padding:10px 12px;border-radius:10px;color:var(--ink)}
+.sres a:hover,.sres a.sel{background:var(--accent-soft);text-decoration:none}
+.sres .sp{display:block;font:600 11px/1 var(--f-display);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.sres .sh{font:600 15px/1.35 var(--f-display)}
+.sres .st{display:block;margin-top:3px;font-size:13.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sres mark{background:none;color:var(--accent-ink);font-weight:700}
+.sempty{padding:18px;color:var(--muted)}
+.shelp{display:flex;gap:16px;padding:10px 16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+
+/* Narrow screens */
+@media (max-width:1280px){.frame{grid-template-columns:256px minmax(0,1fr)}aside.toc{display:none}}
+@media (max-width:860px){
+  .frame{display:block}.menubtn{display:grid}.brand .sub,.brand .sep{display:none}
+  nav.side{position:fixed;top:var(--header);left:0;bottom:0;width:min(300px,86vw);height:auto;z-index:40;background:var(--bg);
+    transform:translateX(-102%);transition:transform .2s ease;box-shadow:var(--shadow)}
+  body.nav-open nav.side{transform:none}
+  main{padding:28px 16px 64px}
+  h1{font-size:1.9rem}h2{font-size:1.35rem}
+  .searchbtn kbd,.searchbtn .label{display:none}.searchbtn{flex:none;width:38px;justify-content:center;margin-inline:auto 0;padding:0}
+  .pager{grid-template-columns:1fr}.pager .next{grid-column:1}
+  .top{gap:8px;padding-inline:12px}
+  .brand{font-size:15px;min-width:0}
+  select.lang{width:78px;padding-inline:4px;text-overflow:ellipsis}
+}
+@media (max-width:480px){
+  .actions .ghbtn{display:none}
+  .brand .word{display:none}
+}
+</style></head>
+<body>
+<header class="top">
+  <button class="iconbtn menubtn" type="button" aria-label="菜单"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <a class="brand" href="index.html" aria-label="手册首页"><span class="mark">D</span><span class="word">Delonix</span><span class="sep"></span><span class="sub">贡献者手册</span></a>
+  <button class="searchbtn" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="label">搜索手册…</span><kbd>Ctrl K</kbd></button>
+  <div class="actions">
+    <select class="lang" id="lang" aria-label="Language"><option value="../en/engineering-process.html">EN · English</option><option value="../pt-AO/engineering-process.html">PT-AO · Português (Angola)</option><option value="../fr-FR/engineering-process.html">FR-FR · Français</option><option value="../zh-CN/engineering-process.html" selected>ZH-CN · 简体中文</option></select>
+    <button class="iconbtn themebtn" type="button" aria-label="切换配色主题" title="切换配色主题"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
+    <a class="iconbtn ghbtn" href="https://github.com/ngolacloud/delonix" target="_blank" rel="noopener" aria-label="GitHub" title="GitHub"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.58.23 2.75.11 3.04.74.81 1.19 1.83 1.19 3.09 0 4.41-2.7 5.38-5.27 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg></a>
+  </div>
+</header>
+<div class="frame">
+<nav class="side" aria-label="贡献者手册"><div class="group"><div class="gtitle">概览</div><a href="index.html"><span class="n">·</span><span>Delonix — 贡献者手册</span></a></div><div class="group"><div class="gtitle">入门</div><a href="start-here.html"><span class="n">01</span><span>从这里开始</span></a><a href="iaas-and-cloud-native.html"><span class="n">02</span><span>IaaS 与云原生——引擎的定位</span></a></div><div class="group"><div class="gtitle">基础</div><a href="linux-foundations.html"><span class="n">03</span><span>Linux 基础</span></a><a href="cloud-native-primer.html"><span class="n">04</span><span>云原生入门</span></a><a href="rust-primer.html"><span class="n">05</span><span>本代码库的 Rust 入门</span></a></div><div class="group"><div class="gtitle">环境与构建</div><a href="environment.html"><span class="n">06</span><span>准备你的环境</span></a><a href="build-and-test.html"><span class="n">07</span><span>克隆、构建与测试</span></a></div><div class="group"><div class="gtitle">架构</div><a href="project-structure.html"><span class="n">08</span><span>项目结构</span></a><a href="architecture.html"><span class="n">09</span><span>架构</span></a><a href="crates.html"><span class="n">10</span><span>各个 crate</span></a><a href="system-design-interview.html"><span class="n">11</span><span>系统设计面试 — Delonix 引擎</span></a></div><div class="group"><div class="gtitle">镜像与 microVM</div><a href="delonixfile-and-vmfile.html"><span class="n">12</span><span>Delonixfile 与 VMfile</span></a><a href="microvm-setup.html"><span class="n">13</span><span>构建 microVM</span></a></div><div class="group"><div class="gtitle">运维与排障</div><a href="troubleshooting.html"><span class="n">14</span><span>排查问题</span></a><a href="service-names-and-hosts.html"><span class="n">15</span><span>名称是如何抵达 /etc/hosts 的</span></a></div><div class="group"><div class="gtitle">贡献</div><a href="coding-conventions.html"><span class="n">16</span><span>编码规范</span></a><a href="adding-a-kind.html"><span class="n">17</span><span>新增一个 Kind</span></a><a class="on" aria-current="page" href="engineering-process.html"><span class="n">18</span><span>工程流程（权威）</span></a><a href="contributing-workflow.html"><span class="n">19</span><span>贡献流程</span></a><a href="releases-and-stability.html"><span class="n">20</span><span>发布与稳定性</span></a><a href="publishing-docs.html"><span class="n">21</span><span>发布文档</span></a></div><div class="group"><div class="gtitle">参考</div><a href="cloud-native-standards.html"><span class="n">22</span><span>云原生标准，逐层展开</span></a><a href="plano-conformidade-oci-cri.html"><span class="n">23</span><span>OCI + CRI 合规计划——让 Delonix 与 Docker/Podman 对齐</span></a><a href="environment-variables.html"><span class="n">24</span><span>环境变量（DELONIX_*）</span></a><a href="glossary.html"><span class="n">25</span><span>术语表</span></a></div></nav>
+<main><div class="content">
+<p class="kicker">贡献</p>
+<h1 id="engineering-process-canonical">工程流程（权威）</h1>
+<p>本页是工作如何在本仓库中流转的<strong>唯一真实来源（single source of truth）</strong>：一次变更从哪个分支开始、
+如何隔离构建、如何验证、如何落地，以及如何清理它留下的痕迹。AGENTS.md、<a href="https://github.com/ngolacloud/delonix/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">CONTRIBUTING.md</a>、
+<a href="contributing-workflow.html">贡献流程</a>以及各会话技能（session skill）在分支模型和生命周期方面都以本页为准——
+它们不会重述这些内容。当它们与本页不一致时，以本页为准；去修正另一处，而不是分叉出一条规则。</p>
+<blockquote>
+<p><strong>这是 Delonix 的决定，而非对其他项目的断言。</strong> 下面的分支模型是依据所有者的决定（2026-10-23）而采用
+GitFlow 形态。Docker/Moby 和 Podman 是 PR 优先、基于主干（trunk-based）的项目；我们借鉴它们的<em>贡献</em>和
+<em>评审</em>纪律（合并前测试、对面向内核的变更做实际（live）验证、DCO 风格的聚焦提交、CODEOWNERS 评审）——
+而非它们的分支拓扑。不要断言它们使用本流程。</p>
+</blockquote>
+<h2 id="the-two-long-lived-branches">两条长期存在的分支<a class="hanchor" href="#the-two-long-lived-branches" aria-label="#">#</a></h2>
+<ul>
+<li><strong><code>main</code></strong> 是已发布线。它只会因一次发布或一次热修复（hotfix）而向前移动。它的 <code>HEAD</code>
+  就是从源码安装的用户所得到的内容。</li>
+<li><strong><code>develop</code></strong> 是集成线。日常工作从它切出，并回落到它上面。一次发布会把 <code>develop</code> 提升进 <code>main</code>。</li>
+</ul>
+<p>两者在使用前都会重新 fetch；绝不要从陈旧的本地引用切分支，也绝不要为了方便而从另一个任务的分支切出。</p>
+<h2 id="branch-policy-mandatory">分支策略（强制）<a class="hanchor" href="#branch-policy-mandatory" aria-label="#">#</a></h2>
+<p>按<strong>问题的性质</strong>分类，而不是按某人建议的前缀分类。前缀跟随分类而定；它不驱动分类。</p>
+<div class="tablewrap"><table>
+<thead>
+<tr>
+<th>工作类型</th>
+<th>分支前缀</th>
+<th>起始于（最新远端）</th>
+<th>正常目的地</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>功能（Feature）</td>
+<td><code>feat/</code></td>
+<td><code>origin/develop</code></td>
+<td><code>develop</code></td>
+</tr>
+<tr>
+<td>杂务 / 维护</td>
+<td><code>chore/</code></td>
+<td><code>origin/develop</code></td>
+<td><code>develop</code></td>
+</tr>
+<tr>
+<td>重构</td>
+<td><code>refactor/</code></td>
+<td><code>origin/develop</code></td>
+<td><code>develop</code></td>
+</tr>
+<tr>
+<td>性能</td>
+<td><code>perf/</code></td>
+<td><code>origin/develop</code></td>
+<td><code>develop</code></td>
+</tr>
+<tr>
+<td>文档</td>
+<td><code>docs/</code></td>
+<td><code>origin/develop</code></td>
+<td><code>develop</code></td>
+</tr>
+<tr>
+<td>测试 / CI / 构建</td>
+<td><code>test/</code> <code>ci/</code> <code>build/</code></td>
+<td><code>origin/develop</code></td>
+<td><code>develop</code></td>
+</tr>
+<tr>
+<td><strong>缺陷修复 / 热修复</strong></td>
+<td><code>fix/</code> <code>bug/</code> <code>hotfix/</code></td>
+<td><strong><code>origin/main</code></strong></td>
+<td><strong><code>develop</code>，并且当它影响已发布线时还有 <code>main</code></strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>名称要简短且具描述性，若存在任务标识符则带上它：
+<code>feat/DX-1234-http-route-timeouts</code>、<code>fix/compose-secret-lazy-read</code>。</p>
+<h3 id="the-fixbughotfix-rule-and-its-one-real-trap">fix/bug/hotfix 规则，及其唯一真正的陷阱<a class="hanchor" href="#the-fixbughotfix-rule-and-its-one-real-trap" aria-label="#">#</a></h3>
+<p>修复从 <code>main</code> 切出，因为修复在默认情况下是对已发布内容的纠正。同一个纠正还必须到达 <code>develop</code>，
+以免下一次发布使它回归（regress）。</p>
+<p>本策略所禁止的那个陷阱：<strong>只存在于 <code>develop</code> 上的缺陷</strong>。不要从 <code>main</code> 切出它（它在那里无法复现），
+也不要把 <code>develop</code> 合并进 <code>main</code> 来让它复现。一个仅存在于 develop 的缺陷，应在一条从 <code>develop</code>
+切出的分支上纠正，并且只落到 <code>develop</code> 上——在分类时明确记录这一条件。如果本策略曾阻碍一个
+连贯的修复，请把具体冲突上报给所有者以作决定；不要悄悄地弯曲规则。</p>
+<h3 id="carrying-a-fix-to-both-destinations">把一个修复带到两个目的地<a class="hanchor" href="#carrying-a-fix-to-both-destinations" aria-label="#">#</a></h3>
+<p>当一个修复以已发布线为目标时，它通过发布门禁落到 <code>main</code>，同一变更也到达 <code>develop</code>。
+<strong>绝不要把 <code>develop</code> 合并进 <code>main</code></strong> 来把一个孤立的修复横移过去。按下面的线性历史约定选择
+merge、back-merge 或 <code>cherry-pick</code>，记录提交的等价关系，并把变更应用一次——而非两次。
+获得集成进 <code>develop</code> 的授权<strong>并不</strong>授权切出一次发布、一个标签或发布制品；那些要遵循发布流程。</p>
+<h2 id="one-worktree-per-task">每个任务一个 worktree<a class="hanchor" href="#one-worktree-per-task" aria-label="#">#</a></h2>
+<p>多个会话会同时写入这个克隆（实测：某次会话期间 <code>main</code> 的 <code>HEAD</code> 移动了四次，八个活跃的 worktree，
+两个在相隔几分钟内重新生成同一个文件）。因此每个任务都有自己的 worktree 和分支，并且不在 <code>main</code>
+或 <code>develop</code> 的检出中直接编辑任何东西。</p>
+<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>复制</span></button></div><pre><code class="language-bash">git fetch origin --prune
+# base is origin/develop for feat/chore/..., origin/main for fix/bug/hotfix
+git worktree add -b &lt;prefix&gt;/&lt;task&gt; \
+    &lt;workspace&gt;/.worktrees/delonix-runtime/&lt;task&gt; origin/&lt;base&gt;
+cd &lt;workspace&gt;/.worktrees/delonix-runtime/&lt;task&gt;
+export CARGO_TARGET_DIR=&lt;repo&gt;/target   # reuse the build cache safely
+</code></pre></div>
+<ul>
+<li><strong>绝不在 <code>/tmp</code> 中</strong> —— 它在开机时被清空，而本宿主机会重启；任务进行中的一次重启会带走未提交的工作。
+  使用仓库旁边持久的 <code>.worktrees/</code>（由工作区 harness 做 gitignore）。<strong>尽早并在每个有价值的步骤</strong>
+  提交并推送分支。</li>
+<li><strong>隔离的是状态，不只是代码。</strong> worktree 隔离的是文件；它<strong>不</strong>隔离本宿主机上那个唯一共享的 Delonix
+  引擎，也不隔离端口、卷或测试 fixture。不要在并行任务之间共享状态文件、端口、卷或测试资源。
+  仅当工具保证安全时，构建缓存才可以共享；绝不要在不核对身份（<code>target/release/delonix --version</code> +
+  提交距离）的情况下运行来自另一个 worktree 的二进制。</li>
+<li><strong>按名称暂存</strong>（<code>git add &lt;file&gt;</code>，绝不用 <code>-A</code>/<code>-u</code>/<code>.</code>），把每一条 <code>git status --short</code>
+  条目都认作你自己的，并且在共享树中<strong>绝不使用 <code>git checkout -- &lt;path&gt;</code></strong> —— 它会在不经 stash
+  的情况下销毁另一个会话未提交的工作。</li>
+<li>推送被拒时要 <strong>rebase，不要 merge</strong>（<code>git pull --rebase</code>）：历史是线性的，没有合并提交。</li>
+<li><strong>在制品上限（WIP cap）：同时最多 3 个开放的 worktree/会话。</strong> 开启第四个会强制关闭或搁置
+  （park）一个，并附带书面交接。</li>
+</ul>
+<h2 id="the-lifecycle-of-a-prompt">一个 prompt 的生命周期<a class="hanchor" href="#the-lifecycle-of-a-prompt" aria-label="#">#</a></h2>
+<p>每个新请求都运行这个循环。小任务可能就是一个 sprint——不要制造仪式感；但也不要把"实现就绪"
+与"完成"混为一谈。</p>
+<ol>
+<li>恢复指令、决策与检查点（会话契约、该领域的 <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/AGENTS.md" target="_blank" rel="noopener"><code>AGENTS.md</code></a>、<a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/adr" target="_blank" rel="noopener"><code>docs/adr/</code></a> 中的决策）。</li>
+<li>定义目标、范围与验收标准。</li>
+<li>对工作分类，并从上表选择基分支。</li>
+<li>识别所需的专家（见"委派"）。</li>
+<li>构建依赖图；对有依赖的工作前线排序，对独立的并行化。</li>
+<li>以与工作量相称的短 sprint 组织执行。</li>
+<li>创建 worktree。</li>
+<li>实现、评审、验证。</li>
+<li>把完成的工作集成进 <code>develop</code>。</li>
+<li>清理资源并更新检查点。</li>
+</ol>
+<h3 id="each-sprints-contract">每个 sprint 的契约<a class="hanchor" href="#each-sprints-contract" aria-label="#">#</a></h3>
+<p>一个 sprint 交付一个<strong>具体、可用的变更</strong> —— 没有被当作已完成来呈现的桩（stub）或虚构路径，
+也绝不留下一个使 <code>develop</code> 在功能上损坏的状态。它要点名：功能结果；任务及其依赖；负责的专家；
+验收标准；风险；测试；所收集的证据；以及集成条件。</p>
+<h2 id="delegation-to-specialist-agents">委派给专家 agent<a class="hanchor" href="#delegation-to-specialist-agents" aria-label="#">#</a></h2>
+<p>当环境提供专家 agent 时，按问题挑选它们（Rust/系统、OCI 生命周期、CRI/CNI/Kubernetes、
+网络/隔离、虚拟化/provider、云镜像、CLI/DX、安全、功能测试、CI/发布）。对每一个，说明：目标、专长、
+范围、分支与 worktree、它拥有的文件/契约、依赖、验收标准、验证命令，以及交付格式。独立的前线
+并行运行；有依赖的前线从一个已集成的契约出发按序运行。<strong>两个 agent 绝不同时编辑同一个 worktree。</strong>
+如果环境不提供 agent，就说明这一点并按序运行各项职责——不要模拟一次并未发生的委派。</p>
+<p>主 agent 拥有架构、公共契约与集成。当一条前线依赖另一条时：稳定并验证第一条，把它集成进 <code>develop</code>，
+从更新后的 <code>develop</code> 切出下一条前线，并重新验证所消费的契约。不要在关于某个 schema、trait 或 API
+的不兼容假设上启动并行实现。控制构建/测试的并发度，以免耗尽 CPU、RAM 和 I/O。</p>
+<h2 id="quality-before-integration">集成前的质量<a class="hanchor" href="#quality-before-integration" aria-label="#">#</a></h2>
+<p>在一个任务被视为已验证之前：</p>
+<ul>
+<li>确认需求和相关来源；评审 diff。</li>
+<li>运行仓库要求的门禁—— <code>make ci</code>（或变更所触及的子集，并引用 <code>rc=0</code>）。强制零 clippy 警告，
+  而非仅作建议。</li>
+<li>运行与风险相称的测试；一个依赖内核、provider 或协议的变更要做<strong>实际（live）</strong>验证，
+  并且 PR 要说明测试了什么（命令、预期 vs. 实际）。</li>
+<li>更新变更所影响的文档和契约
+  （<code>scripts/dev_docs.py --check</code>、<code>scripts/dev_docs_site.py --check</code>）。</li>
+<li>确认没有密钥或意外制品；在适用处检查迁移与兼容性。</li>
+<li>对相关的变更，由一个<strong>不同于实现者的评审 agent</strong> 去搜寻缺陷、回归、测试缺口和契约违背——
+  认可作者的描述不算评审。</li>
+</ul>
+<p>不要为了拿到绿色而更改断言、降低隔离或忽略失败。在关键测试缺失时，不要宣称集成已验证。</p>
+<h2 id="integration-into-develop-mandatory">集成进 <code>develop</code>（强制）<a class="hanchor" href="#integration-into-develop-mandatory" aria-label="#">#</a></h2>
+<p>已完成、已验证的工作要在<strong>同一工作序列中</strong>集成进 <code>develop</code>，当权限和门禁允许时。集成采用
+<strong>pull request、squash 合并、CI 套件为绿色</strong>的方式——与已在使用的线性历史和 Conventional Commits
+相匹配。集成前：</p>
+<ol>
+<li><code>git fetch origin --prune</code> 并检查 <code>develop</code> 是否移动过。</li>
+<li>在工作分支上解决冲突（<code>git pull --rebase origin develop</code>）。</li>
+<li>重新运行受影响的测试。</li>
+<li>确认要集成的确切候选。</li>
+<li>取得所需的评审。</li>
+<li>对 <code>develop</code> 开启/完成 PR；在合并前让 CI 跑完。</li>
+</ol>
+<p>尊重 PR、检查和保护。绝不要用直接 push 或 force-push 绕过某个控制。如果某个保护阻碍集成，
+把 PR 和证据准备好并解释确切的阻碍者——不要把工作标记为已集成。</p>
+<p>CI 在推送到 <code>main</code> 和 <code>develop</code> 时、以及在以两者之一为目标的 pull request 上运行门禁套件（见
+<a href="https://github.com/ngolacloud/delonix/blob/main/.github/workflows/ci.yml" target="_blank" rel="noopener"><code>.github/workflows/ci.yml</code></a>）。一个没有 PR 的已推送分支，
+本身并不证明"CI 绿色"。</p>
+<h2 id="cleanup-after-integration">集成后的清理<a class="hanchor" href="#cleanup-after-integration" aria-label="#">#</a></h2>
+<p>在集成被<strong>确认</strong>——而非假定——之后，核实：本地和远端的目的地分支；变更确实被包含；所需的检查；
+没有遗留的本地改动；没有未保留的提交；以及没有 agent/进程仍在使用该 worktree。然后：</p>
+<ol>
+<li><code>git worktree remove &lt;path&gt;</code>（绝不用 <code>--force</code> 来掩盖待处理的改动）。</li>
+<li><code>git branch -d &lt;branch&gt;</code>（绝不用 <code>-D</code>）。</li>
+<li>如果远端分支属于该任务且不再需要，则删除它。</li>
+<li>对陈旧引用执行 <code>git worktree prune</code>。</li>
+<li>更新任务记录 / 检查点。</li>
+</ol>
+<p>squash 或 cherry-pick 意味着<strong>提交身份发生变化</strong>——用 PR、diff 和 <code>git cherry develop &lt;branch&gt;</code>
+来证明包含关系，而不是仅凭血缘。绝不要移除别人的分支或 worktree。一个被阻塞的资源要保持被标识，
+连同其原因和下一步——没有不带状态的被遗弃分支。</p>
+<h2 id="definition-of-done-and-the-states-on-the-way">完成的定义，及途中的各个状态<a class="hanchor" href="#definition-of-done-and-the-states-on-the-way" aria-label="#">#</a></h2>
+<p>一个任务只有在满足以下条件时才算 <strong>CONCLUÍDA / DONE</strong>：验收标准达成；评审完成；所需测试通过；
+文档与契约已更新；集成进 <code>develop</code> 已确认；当额外集成进 <code>main</code> 处于被授权范围内时也已解决；
+临时 worktree 和分支已安全移除；以及检查点已更新。</p>
+<p>在会话契约中使用明确的中间状态：</p>
+<p><code>EM IMPLEMENTAÇÃO</code> → <code>EM REVISÃO</code> → <code>BLOQUEADO NA VALIDAÇÃO</code> →
+<code>VALIDADO, A AGUARDAR INTEGRAÇÃO</code> → <code>INTEGRADO, LIMPEZA PENDENTE</code> → <code>CONCLUÍDO</code>。</p>
+<h2 id="the-harness-that-enforces-this">强制执行此流程的 harness<a class="hanchor" href="#the-harness-that-enforces-this" aria-label="#">#</a></h2>
+<p><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gitflow.py" target="_blank" rel="noopener"><code>scripts/gitflow.py</code></a> 把本页变成可运行的控制。它在任何变更之前验证仓库和远端，支持 <code>--dry-run</code>，
+是幂等的，保全数据，并传播退出码。</p>
+<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>复制</span></button></div><pre><code class="language-bash">python3 scripts/gitflow.py classify &quot;fix a crash in compose config&quot;   # -&gt; prefix + base
+python3 scripts/gitflow.py start  &lt;prefix&gt;/&lt;task&gt;  [--dry-run]          # fetch, base, worktree, contract
+python3 scripts/gitflow.py preflight                                    # remote, base freshness, stale worktree refs, WIP cap
+python3 scripts/gitflow.py gates                                        # run the gates, collect evidence
+python3 scripts/gitflow.py integrate  [--dry-run]                       # rebase, re-gate, push, open PR to develop
+python3 scripts/gitflow.py done                                         # prove inclusion, checks, clean tree
+python3 scripts/gitflow.py cleanup  [--dry-run]                         # remove worktree + branches safely
+</code></pre></div>
+<p><code>make gitflow ARGS="&lt;subcommand&gt; ..."</code> 是通过 Makefile 做的同一件事。本地钩子（hook）辅助键盘前的那个人；
+真正守住重要规则的，是 CI 检查以及（当所有者启用时）分支保护。指令文件不能替代一个可执行的控制。</p>
+<nav class="pager"><a href="adding-a-kind.html"><span>← 上一页</span>新增一个 Kind</a><a class="next" href="contributing-workflow.html"><span>下一页 →</span>贡献流程</a></nav>
+<footer class="foot"><a href="https://github.com/ngolacloud/delonix/blob/main/docs/dev/zh-CN/engineering-process.md" target="_blank" rel="noopener">编辑本页</a><code>docs/dev/zh-CN/engineering-process.md</code></footer>
+</div></main>
+<aside class="toc"><p class="ttitle">本页内容</p><div class="toc">
+<ul>
+<li><a href="#the-two-long-lived-branches">两条长期存在的分支</a></li>
+<li><a href="#branch-policy-mandatory">分支策略（强制）</a><ul>
+<li><a href="#the-fixbughotfix-rule-and-its-one-real-trap">fix/bug/hotfix 规则，及其唯一真正的陷阱</a></li>
+<li><a href="#carrying-a-fix-to-both-destinations">把一个修复带到两个目的地</a></li>
+</ul>
+</li>
+<li><a href="#one-worktree-per-task">每个任务一个 worktree</a></li>
+<li><a href="#the-lifecycle-of-a-prompt">一个 prompt 的生命周期</a><ul>
+<li><a href="#each-sprints-contract">每个 sprint 的契约</a></li>
+</ul>
+</li>
+<li><a href="#delegation-to-specialist-agents">委派给专家 agent</a></li>
+<li><a href="#quality-before-integration">集成前的质量</a></li>
+<li><a href="#integration-into-develop-mandatory">集成进 develop（强制）</a></li>
+<li><a href="#cleanup-after-integration">集成后的清理</a></li>
+<li><a href="#definition-of-done-and-the-states-on-the-way">完成的定义，及途中的各个状态</a></li>
+<li><a href="#the-harness-that-enforces-this">强制执行此流程的 harness</a></li>
+</ul>
+</div>
+</aside>
+</div>
+<div id="search" hidden><div class="sbox" role="dialog" aria-modal="true" aria-label="搜索">
+<div class="sfield"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="search-input" type="search" placeholder="搜索手册…" autocomplete="off"><kbd>Esc</kbd></div>
+<ul class="sres"></ul>
+<div class="shelp"><span><kbd>↑</kbd> <kbd>↓</kbd></span><span><kbd>Enter</kbd></span></div></div></div>
+<script>window.HANDBOOK_UI={"copy": "复制", "copied": "已复制", "no_results": "没有结果"};</script>
+<script src="search-index.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/ini.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/dockerfile.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/protobuf.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/diff.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/makefile.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/xml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<script>
+(function(){
+  const ui = window.HANDBOOK_UI;
+  const root = document.documentElement;
+
+  // Theme: system by default; the toggle cycles light/dark and remembers the choice.
+  function effectiveDark(){ const t = root.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; }
+  document.querySelectorAll('.themebtn').forEach(function(b){
+    b.addEventListener('click', function(){
+      const next = effectiveDark() ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+      try { localStorage.setItem('delonix-handbook-theme', next); } catch (e) {}
+      renderMermaid();
+    });
+  });
+
+  // Mobile navigation drawer.
+  document.querySelectorAll('.menubtn').forEach(function(b){
+    b.addEventListener('click', function(){ document.body.classList.toggle('nav-open'); });
+  });
+  document.querySelectorAll('nav.side a').forEach(function(a){ a.addEventListener('click', function(){ document.body.classList.remove('nav-open'); }); });
+
+  // Copy buttons live in each code block's header; shell blocks drop a leading "$ ".
+  document.querySelectorAll('.code').forEach(function(box){
+    const btn = box.querySelector('.copy'); if (!btn) return;
+    btn.addEventListener('click', function(){
+      let text = box.querySelector('pre code').innerText;
+      if (box.hasAttribute('data-shell')) text = text.split('\n').map(function(l){ return l.replace(/^\$ /, ''); }).join('\n');
+      navigator.clipboard.writeText(text.replace(/\n$/, '')).then(function(){
+        btn.lastChild.textContent = ui.copied; btn.classList.add('done');
+        setTimeout(function(){ btn.lastChild.textContent = ui.copy; btn.classList.remove('done'); }, 1500);
+      });
+    });
+  });
+  if (window.hljs) document.querySelectorAll('.code pre code:not(.nohighlight)').forEach(function(el){ hljs.highlightElement(el); });
+
+  // Mermaid follows the effective theme, and re-renders when it changes.
+  const diagrams = Array.prototype.slice.call(document.querySelectorAll('pre.mermaid'));
+  diagrams.forEach(function(d){ d.setAttribute('data-src', d.textContent); });
+  function renderMermaid(){
+    if (!window.mermaid || !diagrams.length) return;
+    diagrams.forEach(function(d){ d.removeAttribute('data-processed'); d.textContent = d.getAttribute('data-src'); });
+    mermaid.initialize({startOnLoad:false, securityLevel:'strict', theme: effectiveDark() ? 'dark' : 'neutral',
+      fontFamily:getComputedStyle(document.body).fontFamily,
+      themeVariables:{fontSize:'17px'},
+      flowchart:{useMaxWidth:true, nodeSpacing:28, rankSpacing:44, padding:10},
+      sequence:{useMaxWidth:true}});
+    mermaid.run({nodes: diagrams});
+  }
+  renderMermaid();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ if (!root.getAttribute('data-theme')) renderMermaid(); });
+
+  // "On this page": highlight the section being read.
+  const tocLinks = Array.prototype.slice.call(document.querySelectorAll('aside.toc a'));
+  const byId = {}; tocLinks.forEach(function(a){ byId[decodeURIComponent(a.getAttribute('href').slice(1))] = a; });
+  const heads = Array.prototype.slice.call(document.querySelectorAll('.content h2[id], .content h3[id]')).filter(function(h){ return byId[h.id]; });
+  function spy(){
+    let current = heads.length ? heads[0] : null;
+    const line = 120;
+    heads.forEach(function(h){ if (h.getBoundingClientRect().top <= line) current = h; });
+    tocLinks.forEach(function(a){ a.classList.remove('active'); });
+    if (current) byId[current.id].classList.add('active');
+  }
+  if (heads.length){ document.addEventListener('scroll', spy, {passive:true}); spy(); }
+
+  // Search (Ctrl+K / Cmd+K / "/"): a static index of this language, scored in the browser.
+  const modal = document.getElementById('search'), input = modal.querySelector('input'), list = modal.querySelector('.sres');
+  let selected = 0;
+  function norm(s){ return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+  const index = (window.HANDBOOK_INDEX || []).map(function(r){ return Object.assign({nh: norm(r.h), np: norm(r.p), nt: norm(r.t)}, r); });
+  function esc(s){ return s.replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function mark(s, terms){ let out = esc(s); terms.forEach(function(t){ if (t.length > 1) out = out.replace(new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>'); }); return out; }
+  function snippet(r, terms){ const i = terms.length ? r.nt.indexOf(terms[0]) : -1; const start = Math.max(0, i - 50); return (start ? '…' : '') + r.t.slice(start, start + 170); }
+  function run(){
+    const terms = norm(input.value).split(/\s+/).filter(Boolean);
+    if (!terms.length){ list.innerHTML = ''; return; }
+    const hits = [];
+    index.forEach(function(r){
+      let score = 0;
+      for (const t of terms){ const s = (r.nh.includes(t) ? 10 : 0) + (r.np.includes(t) ? 3 : 0) + (r.nt.includes(t) ? 1 : 0); if (!s) return; score += s; }
+      hits.push([score, r]);
+    });
+    hits.sort(function(a, b){ return b[0] - a[0]; });
+    selected = 0;
+    list.innerHTML = hits.length ? hits.slice(0, 30).map(function(h, i){
+      const r = h[1];
+      return '<li><a href="' + esc(r.u) + '"' + (i === 0 ? ' class="sel"' : '') + '><span class="sp">' + esc(r.p) + '</span>' +
+        '<span class="sh">' + mark(r.h, terms) + '</span><span class="st">' + mark(snippet(r, terms), terms) + '</span></a></li>';
+    }).join('') : '<li class="sempty">' + esc(ui.no_results) + '</li>';
+  }
+  function open(){ modal.hidden = false; input.value = ''; list.innerHTML = ''; input.focus(); }
+  function close(){ modal.hidden = true; }
+  document.querySelectorAll('.searchbtn').forEach(function(b){ b.addEventListener('click', open); });
+  modal.addEventListener('click', function(e){ if (e.target === modal) close(); });
+  input.addEventListener('input', run);
+  input.addEventListener('keydown', function(e){
+    const links = list.querySelectorAll('a');
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      e.preventDefault(); if (!links.length) return;
+      links[selected].classList.remove('sel');
+      selected = (selected + (e.key === 'ArrowDown' ? 1 : links.length - 1)) % links.length;
+      links[selected].classList.add('sel'); links[selected].scrollIntoView({block:'nearest'});
+    } else if (e.key === 'Enter' && links.length){ e.preventDefault(); close(); location.href = links[selected].getAttribute('href'); }
+  });
+  document.addEventListener('keydown', function(e){
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'){ e.preventDefault(); modal.hidden ? open() : close(); }
+    else if (e.key === 'Escape'){ if (!modal.hidden) close(); document.body.classList.remove('nav-open'); }
+    else if (e.key === '/' && modal.hidden && !/input|textarea|select/i.test(document.activeElement.tagName)){ e.preventDefault(); open(); }
+  });
+  document.querySelectorAll('select.lang').forEach(function(s){ s.addEventListener('change', function(){ location.href = s.value + location.hash; }); });
+})();
+</script>
+</body></html>
