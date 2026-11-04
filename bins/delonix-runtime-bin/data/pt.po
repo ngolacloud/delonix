@@ -14806,6 +14806,12 @@ msgstr "Move uma VM para outro nó do seu cluster — a mesma VM, o mesmo regist
 msgid "The node of the VM's cluster to move it to"
 msgstr "O nó do cluster da VM para onde a mover"
 
+msgid "Move a STOPPED VM to another isolation namespace instead of another node: its disk is kept, its network identity (MAC/tap/seed) is reborn in the new namespace. Mutually exclusive with `--node`."
+msgstr "Move uma VM PARADA para outra namespace de isolamento em vez de outro nó: o disco é mantido, a identidade de rede (MAC/tap/seed) renasce na nova namespace. Mutuamente exclusivo com `--node`."
+
+msgid "vm/{name} moved to namespace '{ns}' — start it to boot under the new identity"
+msgstr "vm/{name} movida para a namespace '{ns}' — arranca-a para iniciar sob a nova identidade"
+
 msgid "Move the VM while it runs (online migration)"
 msgstr "Move a VM enquanto corre (migração a quente)"
 

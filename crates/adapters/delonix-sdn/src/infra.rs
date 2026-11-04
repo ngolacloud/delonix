@@ -10228,13 +10228,22 @@ fn build_dns_index() -> DnsIndex {
                 });
             if let Some(ip) = ip {
                 let ns = v["namespace"].as_str().unwrap_or(NS_DEFAULT).to_string();
+                let entry = DnsEntry {
+                    ip,
+                    ns: ns.clone(),
+                    allow_in: Vec::new(),
+                };
+                // A VM is now keyed PER NAMESPACE (ADR-0086 D7), the same as a
+                // container/pod: `web@prod` and `web@staging` resolve to their
+                // own VM, and a bare `web` resolves to the asker's-namespace VM
+                // first (`dns_resolve_for`). The legacy `vm:<name>` key stays as
+                // the last-resort bare fallback — now first-wins only AMONG VMs
+                // that share a bare name across namespaces, which the namespaced
+                // key above already disambiguates for any scoped query.
                 idx.by_key
-                    .entry(dns_index_vm_key(&name))
-                    .or_insert(DnsEntry {
-                        ip,
-                        ns: ns.clone(),
-                        allow_in: Vec::new(),
-                    });
+                    .entry(dns_index_ns_key(&name, &ns))
+                    .or_insert(entry.clone());
+                idx.by_key.entry(dns_index_vm_key(&name)).or_insert(entry);
                 idx.ns_of_ip.entry(ip).or_insert(ns);
             }
         }

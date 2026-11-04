@@ -1428,8 +1428,13 @@ pub enum VmCmd {
         #[arg(add = ArgValueCandidates::new(super::complete::vms))]
         name: String,
         /// The node of the VM's cluster to move it to.
-        #[arg(long)]
-        node: String,
+        #[arg(long, required_unless_present = "namespace", conflicts_with = "namespace")]
+        node: Option<String>,
+        /// Move a STOPPED VM to another isolation namespace instead of another
+        /// node: its disk is kept, its network identity (MAC/tap/seed) is reborn
+        /// in the new namespace. Mutually exclusive with `--node`.
+        #[arg(long, add = ArgValueCandidates::new(super::complete::namespaces))]
+        namespace: Option<String>,
         /// Move the VM while it runs (online migration).
         #[arg(long)]
         live: bool,
@@ -3414,7 +3419,7 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
         {
             keep_undeclared_devices(&mut cfg.extra_disks, &mut cfg.extra_nics, existing);
         }
-        refuse_inert_vm_isolation(cfg.namespace.as_deref())?;
+        refuse_inert_vm_isolation(cfg.namespace.as_deref(), cfg.backend.as_deref())?;
         let vm = delonix_vm::create(&base, &cfg)?;
         warn_if_mac_spoofing_allowed(&vm);
         println!("{}", super::po::tf("vm/{name}: ensured", &[("name", name)]));
@@ -3786,7 +3791,7 @@ pub fn run(action: VmCmd) -> Result<()> {
             };
             // Through the same failure path as the create itself, so a refusal
             // cleans the seed directory the way a failed create does.
-            let created = refuse_inert_vm_isolation(cfg.namespace.as_deref())
+            let created = refuse_inert_vm_isolation(cfg.namespace.as_deref(), cfg.backend.as_deref())
                 .and_then(|()| delonix_vm::create_with(&base, &cfg, &render).map_err(Into::into));
             // The last stage has no successor to close it, so it is closed here
             // — before anything else prints, or the tick lands after the line
@@ -4361,18 +4366,35 @@ pub fn run(action: VmCmd) -> Result<()> {
         VmCmd::Move {
             name,
             node,
+            namespace,
             live,
             with_local_disks,
             target_storage,
         } => {
-            let opts = delonix_vm::MoveOptions {
-                live,
-                with_local_disks,
-                target_storage,
-            };
-            let vm = delonix_vm::move_to_node(&base, &name, &node, &opts)?;
-            println!("{name}: {}", vm.api_socket);
-            Ok(())
+            // `--namespace` re-homes a stopped VM to another isolation namespace
+            // (ADR-0086 D7); `--node` migrates it to another cluster node. clap
+            // guarantees exactly one is present.
+            if let Some(new_ns) = namespace {
+                let vm = delonix_vm::move_namespace(&base, &name, &new_ns)?;
+                println!(
+                    "{}",
+                    super::po::tf(
+                        "vm/{name} moved to namespace '{ns}' — start it to boot under the new identity",
+                        &[("name", &vm.name), ("ns", &vm.namespace)],
+                    )
+                );
+                Ok(())
+            } else {
+                let node = node.expect("clap requires --node unless --namespace");
+                let opts = delonix_vm::MoveOptions {
+                    live,
+                    with_local_disks,
+                    target_storage,
+                };
+                let vm = delonix_vm::move_to_node(&base, &name, &node, &opts)?;
+                println!("{name}: {}", vm.api_socket);
+                Ok(())
+            }
         }
         VmCmd::Snapshot { action } => match action {
             VmSnapshotCmd::Create { vm, snapshot } => {
@@ -4994,7 +5016,14 @@ fn wait_for_boot(base: &std::path::Path, name: &str, timeout: std::time::Duratio
 /// first because the sysctl is per network namespace and only the holder can
 /// answer; a holder that cannot come up makes this «could not ask», and the
 /// create that follows fails on its own with the real reason.
-fn refuse_inert_vm_isolation(namespace: Option<&str>) -> Result<()> {
+fn refuse_inert_vm_isolation(namespace: Option<&str>, backend: Option<&str>) -> Result<()> {
+    // libvirt enforces namespace isolation by a dedicated per-namespace NAT
+    // network (ADR-0086 D7), not the SDN — so the SDN's br_netfilter readiness,
+    // which this guard checks, does not gate it. (For `auto`/cloud-hypervisor
+    // the SDN IS the dataplane, so the guard still applies.)
+    if backend == Some("libvirt") {
+        return Ok(());
+    }
     let Some(namespace) = namespace.filter(|n| !n.is_empty() && *n != "default") else {
         return Ok(());
     };
