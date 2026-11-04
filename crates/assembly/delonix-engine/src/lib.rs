@@ -68,6 +68,11 @@ impl VmService<'_> {
         delonix_vm::list(self.engine.root())
     }
 
+    /// One VM's full record by name.
+    pub fn status(&self, name: &str) -> Result<Vm> {
+        delonix_vm::status(self.engine.root(), name)
+    }
+
     /// Whether a VM of this name exists.
     pub fn exists(&self, name: &str) -> bool {
         delonix_vm::exists(self.engine.root(), name)

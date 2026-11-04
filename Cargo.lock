@@ -887,7 +887,6 @@ dependencies = [
  "delonix-node",
  "delonix-sdn",
  "delonix-state",
- "delonix-vm",
  "delonix-volume",
  "libc",
  "rmcp",
@@ -903,8 +902,11 @@ dependencies = [
 name = "delonix-mcp-bin"
 version = "0.1.0"
 dependencies = [
+ "delonix-compute",
+ "delonix-engine",
  "delonix-host",
  "delonix-mcp",
+ "delonix-model",
  "delonix-node",
  "delonix-telemetry",
  "serde_json",

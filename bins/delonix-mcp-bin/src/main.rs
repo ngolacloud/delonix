@@ -5,6 +5,28 @@
 //! the AI client for one session, not a daemon), `doctor`, `capabilities`.
 
 use std::process::ExitCode;
+use std::sync::Arc;
+
+use delonix_compute::Vm;
+use delonix_engine::Engine;
+use delonix_model::Error as EngineError;
+
+/// The composition's VM service, handed to the MCP server as its `VmView` port
+/// (ADR-0040 A5). The bin is the one place that names `delonix-engine`; the
+/// server receives the engine already mounted and never learns what composes it.
+/// The native VM error is mapped here to the shared engine error the interface
+/// already understands.
+struct EngineVms(Engine);
+
+impl delonix_mcp::VmView for EngineVms {
+    fn list(&self) -> Result<Vec<Vm>, EngineError> {
+        self.0.vms().list().map_err(Into::into)
+    }
+
+    fn status(&self, name: &str) -> Result<Vm, EngineError> {
+        self.0.vms().status(name).map_err(Into::into)
+    }
+}
 
 fn usage() -> String {
     "usage: delonix-mcp <serve [--transport stdio] | doctor | capabilities>".to_string()
@@ -32,11 +54,13 @@ fn run(args: &[String]) -> Result<(), String> {
                 ));
             }
             let base = delonix_mcp::state_root();
+            let engine = Engine::mount(base.clone()).map_err(|e| format!("mount engine: {e}"))?;
+            let vms: Arc<dyn delonix_mcp::VmView> = Arc::new(EngineVms(engine));
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .map_err(|e| format!("mcp runtime: {e}"))?;
-            rt.block_on(delonix_mcp::serve_stdio(base))
+            rt.block_on(delonix_mcp::serve_stdio(base, vms))
         }
         Some("doctor") => {
             let base = delonix_mcp::state_root();
