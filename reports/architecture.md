@@ -7,13 +7,13 @@
 
 | Layer | Crates | Lines | Share |
 | --- | ---: | ---: | ---: |
-| foundation | 2 | 4,785 | 1.4% |
-| context | 6 | 30,669 | 8.7% |
+| foundation | 2 | 6,373 | 1.8% |
+| context | 6 | 29,117 | 8.3% |
 | adapter | 8 | 79,034 | 22.5% |
 | provider | 10 | 54,557 | 15.5% |
 | interface | 4 | 31,716 | 9.0% |
 | bin | 5 | 150,715 | 42.9% |
-| **total** | **35** | **351,476** | 100% |
+| **total** | **35** | **351,512** | 100% |
 
 ## Lines per crate
 
@@ -21,14 +21,14 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-model | 3,664 |
+| delonix-model | 5,252 |
 | delonix-net-rules | 1,121 |
 
 ### context
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-compute | 14,046 |
+| delonix-compute | 12,494 |
 | delonix-networking | 5,539 |
 | delonix-storage | 3,353 |
 | delonix-security | 3,286 |
@@ -127,7 +127,7 @@ falls without the baseline lowered in the same commit.
 | interface_mechanism_deps | 27 | 27 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 5 | 5 | 1 (R1) |
-| inter_context_violations | 3 | 3 | 0 (R2) |
+| inter_context_violations | 2 | 2 | 0 (R2) |
 
 ## Open layer exceptions
 
@@ -150,7 +150,6 @@ Each names the phase that removes it (an exception with no phase fails the gate)
 Inter-context edges outside A3 (closed in R2):
 
 - `delonix-compute -> delonix-node (not in A3)`
-- `delonix-networking -> delonix-compute (not in A3)`
 - `delonix-security -> delonix-node (not in A3)`
 
 Interface → adapter/provider (closed in R3):
@@ -289,7 +288,6 @@ graph LR
   delonix_mgmt_bin --> delonix_mgmt
   delonix_mgmt_bin --> delonix_node
   delonix_mgmt_bin --> delonix_telemetry
-  delonix_networking --> delonix_compute
   delonix_networking --> delonix_model
   delonix_networking --> delonix_net_rules
   delonix_node --> delonix_model

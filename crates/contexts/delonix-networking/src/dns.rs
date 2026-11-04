@@ -258,7 +258,7 @@ pub fn gateway_records(
 
 /// A backend that registers the guests of the segments it serves in DNS.
 /// Extends the provider skeleton (ADR-0059 D1 rule 4).
-pub trait DnsProvider: delonix_compute::vm_provider::Provider {
+pub trait DnsProvider: delonix_model::provider::Provider {
     /// `true` if this backend can be used right now. Never a round trip.
     fn available(&self) -> bool;
 
