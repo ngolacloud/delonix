@@ -313,6 +313,19 @@ class C1RestructuringRules(unittest.TestCase):
         lines = {name: g.SIZE_LIMIT + 5000 for name in g.OVERSIZE_ALLOWLIST}
         self.assertEqual(g.oversize_crates(lines), [])
 
+    def test_domain_app_refs_are_all_in_compute_and_match_the_baseline(self):
+        """The C1 #2b ratchet: a pure domain module may still point the wrong way
+        (compute's domain uses value types stranded in app/record). The other five
+        contexts are clean — if that stops being true, the ratchet must move, not
+        the count drift unseen."""
+        import json
+        n, where = g.domain_app_refs()
+        self.assertEqual(n, len(where))
+        self.assertTrue(all("delonix-compute" in w for w in where),
+                        f"a non-compute domain->app ref appeared: {where}")
+        base = json.loads(g.BASELINE.read_text(encoding="utf-8"))
+        self.assertEqual(n, base["domain_app_refs"], "ratchet drifted without a baseline move")
+
     def test_bins_live_under_bins(self):
         import pathlib
         pkgs = {
