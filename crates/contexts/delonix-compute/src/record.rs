@@ -73,10 +73,30 @@ pub struct HealthConfig {
     /// rebuilt image is picked up without recreating the container.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub cmd: String,
+    /// A native HTTP/TCP probe the ENGINE runs — no `curl`/`wget`/`nc` in the
+    /// image required (the distroless case, review 2026-11-04). Set from
+    /// `--health-http`/`--health-tcp`; mutually exclusive with `cmd` (and with
+    /// the image's `HEALTHCHECK`, which this overrides when present).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub net: Option<NetProbe>,
     pub interval_secs: u64,
     pub timeout_secs: u64,
     pub retries: u32,
     pub start_period_secs: u64,
+}
+
+/// A native HTTP/TCP health probe run by the engine INSIDE the container's
+/// network namespace — it connects to `127.0.0.1:port` there, exactly as a
+/// probe that ran inside the container would. This is what lets a distroless
+/// image that ships no shell and no tools still be health-checked.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NetProbe {
+    /// Port to connect to on the container's loopback.
+    pub port: u16,
+    /// `Some(path)` → HTTP `GET <path>`, healthy on a 2xx/3xx status; `None` → a
+    /// bare TCP connect, healthy if the handshake completes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_path: Option<String>,
 }
 
 impl Default for HealthConfig {
@@ -86,6 +106,7 @@ impl Default for HealthConfig {
         // their service was tuned for, not ours.
         Self {
             cmd: String::new(),
+            net: None,
             interval_secs: 30,
             timeout_secs: 30,
             retries: 3,

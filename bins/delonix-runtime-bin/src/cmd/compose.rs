@@ -3081,6 +3081,9 @@ fn compose_health_config(hc: &Option<ComposeHealthcheck>) -> Result<Option<Healt
     let (interval, timeout, retries, start_period) = health_params(hc)?;
     Ok(Some(HealthConfig {
         cmd,
+        // Compose's `healthcheck.test` is a command (shell or exec), never a
+        // native HTTP/TCP probe — that is a `--health-http`/`--health-tcp` thing.
+        net: None,
         interval_secs: ceil_secs(interval).max(1),
         timeout_secs: ceil_secs(timeout).max(1),
         retries: retries.max(1),

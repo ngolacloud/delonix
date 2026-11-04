@@ -3873,6 +3873,12 @@ msgstr "Falhas seguidas antes de o container ficar `unhealthy`."
 msgid "Grace at startup: failures inside this window do not count, and the container reads `starting` rather than `unhealthy`."
 msgstr "Tolerância no arranque: falhas dentro desta janela não contam, e o container lê-se `starting` em vez de `unhealthy`."
 
+msgid "Native HTTP probe the engine runs in the container's netns — no shell or tools in the image needed. `[:]PORT[/path]`, path defaults to `/`; healthy on a 2xx/3xx. Excludes `--health-cmd`/`--health-tcp`"
+msgstr "Sonda HTTP nativa que o motor corre na netns do container — não precisa de shell nem ferramentas na imagem. `[:]PORTA[/caminho]`, o caminho é `/` por omissão; saudável com 2xx/3xx. Exclui `--health-cmd`/`--health-tcp`"
+
+msgid "Native TCP probe the engine runs in the container's netns — healthy if a connection to the container's own `127.0.0.1:PORT` is accepted. Excludes `--health-cmd`/`--health-http`"
+msgstr "Sonda TCP nativa que o motor corre na netns do container — saudável se uma ligação ao próprio `127.0.0.1:PORTA` do container for aceite. Exclui `--health-cmd`/`--health-http`"
+
 msgid "DNS server for the container's `/etc/resolv.conf`. Repeatable. Overrides the resolver the engine would pick (network gateway, slirp, or the host's copy)."
 msgstr "Servidor DNS para o `/etc/resolv.conf` do container. Repetível. Substitui o resolvedor que o motor escolheria (gateway da rede, slirp, ou a cópia do host)."
 
