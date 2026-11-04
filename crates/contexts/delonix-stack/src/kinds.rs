@@ -1082,6 +1082,29 @@ pub fn namespaced_kinds() -> Vec<&'static str> {
     out
 }
 
+/// The Kinds that are node-scoped — they carry no namespace, because they are a
+/// property of the node itself and not of any one tenant (ADR-0086 D7). Every
+/// OTHER Kind is namespaced, and its name is unique WITHIN the namespace.
+///
+/// This const is the source of truth for the first half of D7; the second — the
+/// name-unique-per-namespace relayout, where the store key (`vms/<name>.json`)
+/// and the pod netns (`pod-<name>`) become namespace-qualified, reversing
+/// ADR-0069 Pending #2 — is a structural change still to land (it touches the
+/// live VM adapter and needs a VM-capable environment to prove). Until then this
+/// list guards the node-scoped set from drift (`is_node_scoped` and the test),
+/// so the decision is recorded where the relayout will read it.
+pub const D7_NODE_SCOPED: &[&str] = &[NODE, STORAGE_POOL, IPPOOL, NETWORK_GATEWAY, RUNTIME_POLICY];
+
+/// Whether a Kind is node-scoped per ADR-0086 D7. The membership is the
+/// decision (`D7_NODE_SCOPED`); `Node` is on the list even though it is still
+/// `Form::Reserved` (declared, no apply yet), because being a node resource is
+/// about WHAT it is, not whether its apply is built. The test cross-checks that
+/// every Kind on the list really carries `Namespaced::Never`, so the list and
+/// the table cannot disagree.
+pub fn is_node_scoped(kind: &str) -> bool {
+    facts(kind).is_some_and(|f| D7_NODE_SCOPED.contains(&f.kind))
+}
+
 // There is deliberately no `is_declarative(kind)` helper. `stack wait` decides
 // on the presence MARKER the store actually returned (`-`), not on what the
 // table says the Kind should return: a second path to the same answer would let
@@ -1310,6 +1333,36 @@ mod tests {
                 f.presence,
                 Presence::NotObservable,
                 "{} é aplicado pelo stack e não tem presença — cairia no «unsupported kind»",
+                f.kind
+            );
+        }
+    }
+
+    /// ADR-0086 D7: exactly the Kinds in `D7_NODE_SCOPED` are node-scoped, and
+    /// each really carries `Namespaced::Never` in the table. This locks the
+    /// first (and today true) half of D7 — the node-scoped set — from drift: a
+    /// node resource accidentally made namespaced, or a tenant Kind slipped into
+    /// the node-scoped list. The second half (every OTHER Kind namespaced, name
+    /// unique per namespace, the `vms/<name>.json`/`pod-<name>` relayout that
+    /// reverses ADR-0069 #2) is a structural change still to land and is NOT
+    /// asserted here.
+    #[test]
+    fn the_d7_node_scoped_set_is_exactly_the_node_resources() {
+        for k in D7_NODE_SCOPED {
+            assert_eq!(
+                facts(k).unwrap().namespaced,
+                Namespaced::Never,
+                "{k} is in D7_NODE_SCOPED but the table does not mark it node-scoped"
+            );
+            assert!(is_node_scoped(k), "{k}");
+        }
+        // Nothing OUTSIDE the list answers `is_node_scoped` — the helper is the
+        // list, so a sixth node resource has to be added here on purpose.
+        for f in all() {
+            assert_eq!(
+                is_node_scoped(f.kind),
+                D7_NODE_SCOPED.contains(&f.kind),
+                "{} disagrees with D7_NODE_SCOPED",
                 f.kind
             );
         }
