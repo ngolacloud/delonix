@@ -27,6 +27,10 @@ pub enum Ecosystem {
     Dpkg,
     /// Python/PyPI (`requirements.txt` of modules — e.g. Odoo modules).
     PyPi,
+    /// Go modules read from a binary's embedded build info (`go version -m`).
+    Go,
+    /// Rust crates read from a binary's embedded `cargo-auditable` section.
+    Cargo,
 }
 
 /// A package installed in the image.
@@ -191,6 +195,246 @@ fn parse_dpkg(db: &str) -> Vec<Package> {
     out
 }
 
+// ---------------------------------------------------------------------------
+// Inventory embedded IN BINARIES — for distroless/scratch images that ship a
+// single static binary and no package manager database at all.
+// ---------------------------------------------------------------------------
+
+/// Reads an unsigned LEB128 varint at `data[*off..]`, advancing `off`. Returns
+/// `None` on truncation or an over-long encoding. Used by the Go build-info
+/// decoder, whose inline strings are length-prefixed this way.
+fn uvarint(data: &[u8], off: &mut usize) -> Option<u64> {
+    let mut x: u64 = 0;
+    let mut shift = 0u32;
+    loop {
+        let b = *data.get(*off)?;
+        *off += 1;
+        if b < 0x80 {
+            if shift >= 64 || (shift == 63 && b > 1) {
+                return None;
+            }
+            return Some(x | ((b as u64) << shift));
+        }
+        x |= ((b & 0x7f) as u64) << shift;
+        shift += 7;
+        if shift >= 64 {
+            return None;
+        }
+    }
+}
+
+/// Reads one uvarint-length-prefixed byte string at `data[*off..]`, advancing
+/// `off` past it. The encoding Go's linker uses for the inline build-info
+/// version and module strings.
+fn decode_string<'a>(data: &'a [u8], off: &mut usize) -> Option<&'a [u8]> {
+    let len = uvarint(data, off)? as usize;
+    let s = data.get(*off..*off + len)?;
+    *off += len;
+    Some(s)
+}
+
+/// Extracts the Go module list embedded by the linker in a Go binary — the same
+/// data `go version -m` prints. Scans the raw bytes for the 14-byte build-info
+/// magic (`\xff Go buildinf:`), then reads the modern *inline* format
+/// (`flags & 0x2`): a pointer-size byte, a flags byte, 16 bytes of (zeroed, in
+/// inline mode) pointer slots, then two uvarint-length strings — the Go version
+/// and the module info. The module info is bracketed by two 16-byte sentinels
+/// and holds tab-separated `path`/`mod`/`dep`/`build` lines; `mod` and `dep`
+/// lines carry `name`, `version`. Pure: takes bytes, returns packages, no ELF
+/// crate and no network. The older pointer-indirection format (pre-Go-1.18) is
+/// not decoded — resolving those pointers needs the section's virtual address,
+/// which is not worth an ELF parser here; such a binary yields no Go packages
+/// rather than a wrong answer.
+pub fn go_buildinfo_packages(binary: &[u8]) -> Vec<Package> {
+    const MAGIC: &[u8] = b"\xff Go buildinf:";
+    let mut out = Vec::new();
+    let Some(base) = find_subslice(binary, MAGIC) else {
+        return out;
+    };
+    // Header: magic(14) + ptrSize(1) + flags(1) = 16 bytes, then in inline mode
+    // 16 zeroed pointer-slot bytes, so the strings begin at offset 32.
+    let flags = match binary.get(base + 15) {
+        Some(f) => *f,
+        None => return out,
+    };
+    if flags & 0x2 == 0 {
+        return out; // old pointer format — not decoded
+    }
+    let mut off = base + 32;
+    let Some(_version) = decode_string(binary, &mut off) else {
+        return out;
+    };
+    let Some(modinfo) = decode_string(binary, &mut off) else {
+        return out;
+    };
+    // Strip the 16-byte sentinels the runtime brackets the module string with,
+    // if present (`3077af0c…` … `f9324331…`).
+    let body = {
+        let mut b = modinfo;
+        if b.len() >= 32 {
+            b = &b[16..b.len() - 16];
+        }
+        b
+    };
+    for line in body.split(|&c| c == b'\n') {
+        let mut fields = line.split(|&c| c == b'\t');
+        let kind = fields.next().unwrap_or(b"");
+        if kind != b"mod" && kind != b"dep" {
+            continue;
+        }
+        let (Some(name), Some(version)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let name = String::from_utf8_lossy(name).into_owned();
+        let version = String::from_utf8_lossy(version).into_owned();
+        // The main module of a `go build` with no version carries `(devel)`;
+        // it is not a resolvable module version, so skip it.
+        if name.is_empty() || version.is_empty() || version == "(devel)" {
+            continue;
+        }
+        out.push(Package {
+            name,
+            version,
+            ecosystem: Ecosystem::Go,
+        });
+    }
+    out
+}
+
+/// Extracts the Rust crate list embedded by `cargo auditable` in the ELF
+/// section `.dep-v0` — zlib-compressed JSON of the shape
+/// `{"packages":[{"name":..,"version":..}, …]}`. Locates the section by name
+/// through the ELF section-header table (32- or 64-bit, either endianness),
+/// inflates it with the `flate2` the crate already carries, and reads
+/// name+version off each package. Pure, no new dependency. A non-ELF input, a
+/// binary without the section, or malformed JSON yields no packages rather than
+/// an error.
+pub fn cargo_auditable_packages(binary: &[u8]) -> Vec<Package> {
+    let Some(section) = elf_section(binary, b".dep-v0") else {
+        return Vec::new();
+    };
+    let mut json = Vec::new();
+    if flate2::read::ZlibDecoder::new(section)
+        .read_to_end(&mut json)
+        .is_err()
+    {
+        return Vec::new();
+    }
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&json) else {
+        return Vec::new();
+    };
+    let Some(packages) = v.get("packages").and_then(|p| p.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for p in packages {
+        let name = p.get("name").and_then(|x| x.as_str()).unwrap_or("");
+        let version = p.get("version").and_then(|x| x.as_str()).unwrap_or("");
+        if name.is_empty() || version.is_empty() {
+            continue;
+        }
+        out.push(Package {
+            name: name.to_string(),
+            version: version.to_string(),
+            ecosystem: Ecosystem::Cargo,
+        });
+    }
+    out
+}
+
+/// First index of `needle` in `haystack`, naive scan — fine for the one-shot
+/// magic search over a binary we already hold in memory.
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    (0..=haystack.len() - needle.len()).find(|&i| &haystack[i..i + needle.len()] == needle)
+}
+
+/// Returns the bytes of the ELF section named `want`, resolving it through the
+/// section-header string table. Supports 32- and 64-bit, little- and
+/// big-endian — the four shapes a Linux binary can take — and nothing else
+/// (program headers, relocations and symbol tables are irrelevant here).
+/// Returns `None` for a non-ELF input or a missing section.
+fn elf_section<'a>(bin: &'a [u8], want: &[u8]) -> Option<&'a [u8]> {
+    if bin.get(0..4)? != b"\x7fELF" {
+        return None;
+    }
+    let is64 = *bin.get(4)? == 2;
+    let le = *bin.get(5)? == 1;
+    let rd16 = |o: usize| -> Option<u64> {
+        let b = bin.get(o..o + 2)?;
+        Some(if le {
+            u16::from_le_bytes([b[0], b[1]]) as u64
+        } else {
+            u16::from_be_bytes([b[0], b[1]]) as u64
+        })
+    };
+    let rd32 = |o: usize| -> Option<u64> {
+        let b = bin.get(o..o + 4)?;
+        let a = [b[0], b[1], b[2], b[3]];
+        Some(if le {
+            u32::from_le_bytes(a) as u64
+        } else {
+            u32::from_be_bytes(a) as u64
+        })
+    };
+    let rd64 = |o: usize| -> Option<u64> {
+        let b = bin.get(o..o + 8)?;
+        let a = [b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]];
+        Some(if le {
+            u64::from_le_bytes(a)
+        } else {
+            u64::from_be_bytes(a)
+        })
+    };
+    // Offsets of e_shoff/e_shentsize/e_shnum/e_shstrndx differ by word size.
+    let (shoff, shentsize, shnum, shstrndx) = if is64 {
+        (
+            rd64(0x28)? as usize,
+            rd16(0x3a)? as usize,
+            rd16(0x3c)? as usize,
+            rd16(0x3e)? as usize,
+        )
+    } else {
+        (
+            rd32(0x20)? as usize,
+            rd16(0x2e)? as usize,
+            rd16(0x30)? as usize,
+            rd16(0x32)? as usize,
+        )
+    };
+    if shoff == 0 || shentsize == 0 || shnum == 0 {
+        return None;
+    }
+    // A section header: sh_name(u32) at 0, sh_offset and sh_size at word-size
+    // dependent offsets.
+    let sh_fields = |idx: usize| -> Option<(usize, usize, usize)> {
+        let hdr = shoff + idx * shentsize;
+        let name = rd32(hdr)? as usize;
+        let (offset, size) = if is64 {
+            (rd64(hdr + 0x18)? as usize, rd64(hdr + 0x20)? as usize)
+        } else {
+            (rd32(hdr + 0x10)? as usize, rd32(hdr + 0x14)? as usize)
+        };
+        Some((name, offset, size))
+    };
+    // The section-header string table gives every section its name.
+    let (_, strtab_off, strtab_size) = sh_fields(shstrndx)?;
+    let strtab = bin.get(strtab_off..strtab_off + strtab_size)?;
+    for i in 0..shnum {
+        let (name_off, offset, size) = sh_fields(i)?;
+        let name_end = strtab[name_off..]
+            .iter()
+            .position(|&c| c == 0)
+            .map(|p| name_off + p)?;
+        if &strtab[name_off..name_end] == want {
+            return bin.get(offset..offset + size);
+        }
+    }
+    None
+}
+
 /// Extracts the SBOM of an image, reading the *layers* from the top down to the
 /// base (the most recent package database wins).
 pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> {
@@ -275,6 +519,8 @@ fn purl(pkg: &Package) -> String {
         Ecosystem::Apk => "apk/alpine",
         Ecosystem::Dpkg => "deb",
         Ecosystem::PyPi => "pypi",
+        Ecosystem::Go => "golang",
+        Ecosystem::Cargo => "cargo",
     };
     format!("pkg:{ecosystem}/{}@{}", pkg.name, pkg.version)
 }
@@ -491,6 +737,10 @@ fn map_osv_ecosystem(s: &str) -> Option<Ecosystem> {
         Some(Ecosystem::Dpkg)
     } else if s == "PyPI" {
         Some(Ecosystem::PyPi)
+    } else if s == "Go" {
+        Some(Ecosystem::Go)
+    } else if s == "crates.io" {
+        Some(Ecosystem::Cargo)
     } else {
         None
     }
@@ -913,6 +1163,115 @@ mod tests {
     }
 
     #[test]
+    fn go_buildinfo_extrai_modulos_e_ignora_devel() {
+        // A hand-built Go build-info blob in the modern inline format (the one
+        // `go version -m` reads), embedded between junk bytes so the magic scan
+        // is exercised. The parser does not check the 16-byte sentinel VALUES,
+        // only strips them, so zero padding stands in for the real sentinels.
+        fn uvarint_enc(mut n: u64, out: &mut Vec<u8>) {
+            loop {
+                let mut b = (n & 0x7f) as u8;
+                n >>= 7;
+                if n != 0 {
+                    b |= 0x80;
+                }
+                out.push(b);
+                if n == 0 {
+                    break;
+                }
+            }
+        }
+        let body = b"path\texample.com/app\nmod\texample.com/app\t(devel)\t\ndep\trsc.io/quote\tv1.5.2\th1:aaa\ndep\tgolang.org/x/text\tv0.3.0\th1:bbb\n";
+        let mut modinfo = vec![0u8; 16];
+        modinfo.extend_from_slice(body);
+        modinfo.extend_from_slice(&[0u8; 16]);
+
+        let mut blob = Vec::new();
+        blob.extend_from_slice(b"\xff Go buildinf:"); // magic (14)
+        blob.push(8); // ptrSize
+        blob.push(2); // flags: inline
+        blob.extend_from_slice(&[0u8; 16]); // zeroed pointer slots
+        let version = b"go1.21";
+        uvarint_enc(version.len() as u64, &mut blob);
+        blob.extend_from_slice(version);
+        uvarint_enc(modinfo.len() as u64, &mut blob);
+        blob.extend_from_slice(&modinfo);
+
+        let mut binary = vec![0xABu8; 100];
+        binary.extend_from_slice(&blob);
+        binary.extend_from_slice(&[0xCDu8; 50]);
+
+        let pkgs = go_buildinfo_packages(&binary);
+        let got: Vec<(&str, &str)> = pkgs
+            .iter()
+            .map(|p| (p.name.as_str(), p.version.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![("rsc.io/quote", "v1.5.2"), ("golang.org/x/text", "v0.3.0")],
+            "the (devel) main module and path/build lines must be skipped"
+        );
+        assert!(pkgs.iter().all(|p| p.ecosystem == Ecosystem::Go));
+        // A binary with no build-info magic yields nothing (not a panic).
+        assert!(go_buildinfo_packages(b"not a go binary").is_empty());
+    }
+
+    #[test]
+    fn cargo_auditable_extrai_crates_da_seccao_dep_v0() {
+        use std::io::Write;
+        // The cargo-auditable payload: zlib-compressed JSON in the ELF section
+        // `.dep-v0`.
+        let json = br#"{"packages":[{"name":"serde","version":"1.0.197","source":"registry"},{"name":"libc","version":"0.2.153","source":"registry"}]}"#;
+        let mut enc =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(json).unwrap();
+        let dep = enc.finish().unwrap();
+
+        // Minimal 64-bit little-endian ELF: sections [0]=null, [1]=.dep-v0,
+        // [2]=.shstrtab. Enough for `elf_section` to resolve a section by name;
+        // no program headers, symbols or relocations.
+        let shstrtab: &[u8] = b"\0.dep-v0\0.shstrtab\0"; // names at offsets 1 and 9
+        let ehsize = 64usize;
+        let dep_off = ehsize;
+        let strtab_off = dep_off + dep.len();
+        let shoff = strtab_off + shstrtab.len();
+        let shentsize = 64usize;
+
+        let mut elf = vec![0u8; shoff + 3 * shentsize];
+        elf[0..4].copy_from_slice(b"\x7fELF");
+        elf[4] = 2; // 64-bit
+        elf[5] = 1; // little-endian
+        elf[6] = 1; // ELF version
+        elf[0x28..0x30].copy_from_slice(&(shoff as u64).to_le_bytes()); // e_shoff
+        elf[0x3a..0x3c].copy_from_slice(&(shentsize as u16).to_le_bytes()); // e_shentsize
+        elf[0x3c..0x3e].copy_from_slice(&3u16.to_le_bytes()); // e_shnum
+        elf[0x3e..0x40].copy_from_slice(&2u16.to_le_bytes()); // e_shstrndx
+        elf[dep_off..dep_off + dep.len()].copy_from_slice(&dep);
+        elf[strtab_off..strtab_off + shstrtab.len()].copy_from_slice(shstrtab);
+
+        let write_sh = |elf: &mut [u8], idx: usize, name: u32, off: u64, size: u64| {
+            let h = shoff + idx * shentsize;
+            elf[h..h + 4].copy_from_slice(&name.to_le_bytes());
+            elf[h + 0x18..h + 0x20].copy_from_slice(&off.to_le_bytes());
+            elf[h + 0x20..h + 0x28].copy_from_slice(&size.to_le_bytes());
+        };
+        write_sh(&mut elf, 1, 1, dep_off as u64, dep.len() as u64);
+        write_sh(&mut elf, 2, 9, strtab_off as u64, shstrtab.len() as u64);
+
+        let pkgs = cargo_auditable_packages(&elf);
+        let mut names: Vec<&str> = pkgs.iter().map(|p| p.name.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, vec!["libc", "serde"]);
+        assert!(pkgs.iter().all(|p| p.ecosystem == Ecosystem::Cargo));
+        assert_eq!(
+            pkgs.iter().find(|p| p.name == "serde").unwrap().version,
+            "1.0.197"
+        );
+        // A non-ELF input and an ELF without the section both yield nothing.
+        assert!(cargo_auditable_packages(b"not an elf").is_empty());
+    }
+
+    #[test]
     fn matches_only_vulnerable() {
         let sbom = vec![
             Package {
@@ -990,7 +1349,7 @@ mod tests {
     fn advs_json(advs: &[Advisory]) -> Vec<serde_json::Value> {
         advs.iter().map(|a| serde_json::json!({
             "id": a.id, "package": a.package,
-            "ecosystem": match a.ecosystem { Ecosystem::Apk => "Apk", Ecosystem::Dpkg => "Dpkg", Ecosystem::PyPi => "PyPi" },
+            "ecosystem": match a.ecosystem { Ecosystem::Apk => "Apk", Ecosystem::Dpkg => "Dpkg", Ecosystem::PyPi => "PyPi", Ecosystem::Go => "Go", Ecosystem::Cargo => "Cargo" },
             "fixed": a.fixed,
             "severity": match a.severity { Severity::Low=>"low", Severity::Medium=>"medium", Severity::High=>"high", Severity::Critical=>"critical" },
             "summary": a.summary,
