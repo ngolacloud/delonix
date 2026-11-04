@@ -623,7 +623,11 @@ pub struct BuildArgs {
     #[arg(long, default_value = "26.04")]
     pub ubuntu_release: String,
     /// Debian codename (`bookworm`, `trixie`, ...) — only used with `--distro debian`.
-    #[arg(long, default_value = "bookworm")]
+    // Default `trixie` (Debian 13): `bookworm` (12) moved to LTS in Jun 2026, and 13
+    // is the base NgolaCloud aligns on with the `distroless/*-debian13` containers —
+    // one patch stream (review 2026-11-04). (A `//` note, NOT a `///` doc line: the
+    // help text — and so its pt.po entry — stays exactly as it was.)
+    #[arg(long, default_value = "trixie")]
     pub debian_release: String,
     /// Rocky Linux major version (`8`, `9`, `10`) — only used with `--distro
     /// rocky`. Rocky currently only supports `--no-k8s` builds.

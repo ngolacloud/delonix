@@ -41,7 +41,7 @@ on:
         default: ubuntu
       debian_release:
         description: "Codinome Debian (usado quando distro=debian, builds --no-k8s)"
-        default: "bookworm"
+        default: "trixie"
       rocky_release:
         description: "Versão major do Rocky (usado quando distro=rocky, builds --no-k8s)"
         default: "9"
