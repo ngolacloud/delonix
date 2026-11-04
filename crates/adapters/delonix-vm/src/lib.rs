@@ -131,19 +131,18 @@ pub fn exists(base: &Path, name: &str) -> bool {
     store(base, ns).map(|s| s.exists(name)).unwrap_or(false)
 }
 
-/// Whether `backend` puts its VMs on the holder's SDN, where namespace isolation
-/// is enforceable at all.
+/// Whether `backend` ENFORCES namespace isolation — the only grounds on which
+/// `--namespace` is accepted, since an isolation option that silently does
+/// nothing is worse than not having one.
 ///
-/// **Today only Cloud Hypervisor does**, and it is the backend's own report that
-/// says so (`vm.namespace-isolation`, ADR-0050) — not this function comparing
-/// the id against a literal, which is the provider-name matching ADR-0044 D3
-/// rule 3 forbids outside a composition root. A libvirt VM lives on `virbr0`,
-/// in the HOST's network namespace — a different L2 entirely, governed by
-/// libvirt's own filtering, which this engine does not program. Accepting
-/// `--namespace` there and quietly doing nothing would be the exact
-/// anti-pattern this codebase has already had to correct three times over
-/// (`--security-opt seccomp=`, `-v …:z`, `--network-alias`): an option
-/// accepted, ignored, and believed. An id no registration knows is a "no".
+/// Both local backends do, by different dataplanes (ADR-0086 D7), and it is the
+/// backend's own report that says so (`vm.namespace-isolation`, ADR-0050) — not
+/// this function comparing the id against a literal, which is the provider-name
+/// matching ADR-0044 D3 rule 3 forbids outside a composition root. Cloud
+/// Hypervisor shares the holder's SDN and is isolated by its `@dlxns_<ns>` sets;
+/// libvirt places a non-default namespace's VMs on a dedicated per-namespace NAT
+/// network (`delonix-ns-<ns>`), a separate L2 whose cross-network traffic
+/// libvirt's own reject rules drop. An id no registration knows is a "no".
 pub fn vm_namespace_supported(backend_id: &str) -> bool {
     backend_declares(backend_id, Capability::VmNamespaceIsolation)
 }
@@ -823,6 +822,110 @@ pub fn change_device(
 pub fn move_to_node(base: &Path, name: &str, target: &str, opts: &MoveOptions) -> Result<Vm> {
     let (ns, name) = split_ns(name);
     engine(base, ns)?.move_to_node(name, target, opts)
+}
+
+/// Moves a STOPPED VM from one isolation namespace to another (`vm move
+/// <name> --namespace <new>`, ADR-0086 D7). The disk state (the overlay) is
+/// preserved; the VM's node-wide IDENTITY is reborn in the new namespace.
+///
+/// Because the MAC/tap/owner and the cloud-init network match are all derived
+/// from `scoped_vm_name(namespace, name)` (so two namespaces can each own a
+/// `web`), a move to a new namespace is a new identity: the record is re-keyed
+/// into `vms/<new>/`, the overlay moves with it, the MAC is recomputed, and the
+/// cloud-init seed is dropped so the next `start` regenerates it with a
+/// network-config that matches the new MAC (the seed's inputs — hostname, user,
+/// keys, volumes — are on the record, so nothing is lost). The VM must be
+/// stopped: its live tap/lease belong to the old identity and cannot be carried.
+///
+/// Refused, before anything moves: a running or paused VM, a target namespace
+/// that already has a VM of this name, and a no-op move to the same namespace
+/// (returned unchanged). `default`↔named both work; an emptied non-default
+/// source directory is removed.
+pub fn move_namespace(base: &Path, reference: &str, new_namespace: &str) -> Result<Vm> {
+    let (old_ns, name) = split_ns(reference);
+    let new_ns = if new_namespace.is_empty() {
+        "default"
+    } else {
+        new_namespace
+    };
+    // A no-op move still has to resolve the VM (so a wrong name is an error, not
+    // a silent success) but changes nothing.
+    if old_ns == new_ns {
+        return status(base, reference);
+    }
+    // The live identity (tap/lease/owner) belongs to the old namespace; a
+    // running VM cannot be re-keyed under it without tearing that down.
+    let current = engine(base, old_ns)?.status(name)?;
+    if matches!(
+        current.status,
+        delonix_model::records::Status::Running | delonix_model::records::Status::Paused
+    ) {
+        return Err(Error::Command {
+            context: "vm",
+            message: format!(
+                "VM '{name}' is {} — stop it before moving it to namespace '{new_ns}' (its live \
+                 network identity belongs to '{old_ns}' and cannot be carried across)",
+                current.status
+            ),
+        });
+    }
+    let old_store = store(base, old_ns)?;
+    let new_store = store(base, new_ns)?;
+    if new_store.exists(name) {
+        return Err(Error::RecordConflict(format!(
+            "namespace '{new_ns}' already has a VM '{name}' — a VM name is unique per namespace"
+        )));
+    }
+    let old_vmdir = delonix_compute::vm::vms_root(base, old_ns);
+    let new_vmdir = delonix_compute::vm::vms_root(base, new_ns);
+    std::fs::create_dir_all(&new_vmdir)?;
+
+    let mut vm = old_store.load(name).map_err(state_err)?;
+    // The disk state moves; the seed is regenerated for the new identity, so
+    // the old seed directory is discarded rather than carried.
+    let old_overlay = old_vmdir.join(format!("{name}.qcow2"));
+    if old_overlay.exists() {
+        std::fs::rename(&old_overlay, new_vmdir.join(format!("{name}.qcow2")))?;
+    }
+    let old_seed_dir = old_vmdir.join(name);
+    if old_seed_dir.is_dir() {
+        let _ = std::fs::remove_dir_all(&old_seed_dir);
+    }
+    // Stale runtime files of the stopped VM (log/pid/console/serial/sock/xml):
+    // they are rebuilt at the next boot, so clear them from the source rather
+    // than carry them — which also lets an emptied namespace dir be removed.
+    for ext in ["console", "serial", "log", "pid", "sock", "sock.lock", "xml"] {
+        let _ = std::fs::remove_file(old_vmdir.join(format!("{name}.{ext}")));
+    }
+
+    // Rewrite the record to the new namespace and identity. `scoped_vm_name`
+    // gives the new MAC; the tap is cleared (the next boot attaches a fresh one
+    // under the new owner); the seed is dropped so `create_with` regenerates it
+    // with the matching network-config; the recorded overlay path follows the
+    // file. The base `disk` and any out-of-vmdir extra disks are untouched.
+    let new_id = delonix_compute::vm::scoped_vm_name(new_ns, name);
+    vm.namespace = new_ns.to_string();
+    vm.mac = mac_for(&new_id);
+    vm.tap = String::new();
+    vm.boot.seed = None;
+    vm.overlay = new_vmdir
+        .join(format!("{name}.qcow2"))
+        .to_string_lossy()
+        .into_owned();
+    vm.api_socket = new_vmdir
+        .join(format!("{name}.sock"))
+        .to_string_lossy()
+        .into_owned();
+    // The predicted address belonged to the old MAC; let the next boot learn it.
+    vm.ip = None;
+
+    new_store.save(name, &vm).map_err(state_err)?;
+    old_store.remove(name).map_err(state_err)?;
+    // Remove an emptied non-default source dir (never the shared `default` `vms/`).
+    if old_ns != "default" {
+        let _ = std::fs::remove_dir(&old_vmdir);
+    }
+    Ok(vm)
 }
 
 /// What the guest of VM `name` reports about itself through its agent
@@ -1783,14 +1886,15 @@ mod tests {
         assert_eq!(vm_namespace_of(&cfg), "teamA");
     }
 
-    /// libvirt VMs live on `virbr0`, in the HOST netns — a different L2 that this
-    /// engine does not program. Reporting that honestly (a refusal) instead of
-    /// accepting `--namespace` and doing nothing is the whole point: an isolation
-    /// option that silently does nothing is worse than not having one.
+    /// Both local backends ENFORCE namespace isolation, by different dataplanes
+    /// (ADR-0086 D7): Cloud Hypervisor via the SDN `@dlxns_<ns>` sets (shared
+    /// network, filtered peers), libvirt via a dedicated per-namespace NAT
+    /// network (separate L2, libvirt's own reject rules). The predicate asks the
+    /// backend's REPORT, so a name neither build registered is still a "no".
     #[test]
-    fn so_o_cloud_hypervisor_suporta_namespace() {
+    fn os_dois_backends_locais_suportam_namespace() {
         assert!(vm_namespace_supported("cloud-hypervisor"));
-        assert!(!vm_namespace_supported("libvirt"));
+        assert!(vm_namespace_supported("libvirt"));
         assert!(!vm_namespace_supported("qualquer-outro"));
     }
 

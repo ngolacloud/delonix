@@ -15,7 +15,7 @@ use delonix_compute::capability::{
     Capability as C, CapabilityState as S, HealthStatus, ProviderHealth, ProviderKind,
     ProviderReport,
 };
-use delonix_compute::vm::{serial_log_path, valid_vm_name};
+use delonix_compute::vm::{scoped_vm_name, serial_log_path, valid_vm_name, vm_namespace_of};
 use delonix_compute::vm_backend::{
     guest_cpu_outcome as cpu_outcome, guest_memory_outcome as memory_outcome, guest_memory_state,
     guest_online_vcpus, libvirt_nic, mem_mib, names_a_declared_network, BackendRegistration, Boot,
@@ -428,9 +428,9 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
             C::VmRestartPolicyNative => bin(S::Partial {
                 detail: "`on_crash=restart` for always/on-failure reaches the LIVE domain XML (validated against a booted guest); the crash→restart EFFECT stays unproven because the domain carries no `<panic>` device, so a guest kernel panic is not reported to libvirt and on_crash never fires — honest until a pvpanic path exists",
             }),
-            C::VmNamespaceIsolation => S::UnsupportedByProvider {
-                reason: "a libvirt VM lives on virbr0 in the host netns, a different L2 the engine does not program; `--namespace` is refused by name",
-            },
+            C::VmNamespaceIsolation => sys(S::Supported {
+                evidence: "test:crates/providers/delonix-provider-libvirt/src/lib.rs::a_namespace_gets_its_own_isolated_nat_network",
+            }),
             C::VmAntispoof => sys(S::Supported {
                 evidence: "test:crates/providers/delonix-provider-libvirt/src/lib.rs::antispoof_live_defines_and_survives_the_domain",
             }),
@@ -2782,6 +2782,73 @@ fn recorded_libvirt_network<'a>(bridge: Option<&'a str>, network: &'a str) -> Op
 
 /// Returns whether it DEFINED the network in this call, so a `boot` that fails
 /// afterwards can take it back with it.
+/// The dedicated NAT network a non-default namespace's libvirt VMs live on:
+/// `delonix-ns-<ns>`. Separate libvirt networks are separate L2 segments, and
+/// libvirt's own per-network reject rules keep one network's traffic out of
+/// another — so this IS the enforced namespace isolation for the libvirt
+/// backend (ADR-0086 D7), the analogue of the SDN `@dlxns_<ns>` sets Cloud
+/// Hypervisor VMs get. The `default` namespace keeps the declared/`default`
+/// network, unchanged.
+fn namespace_network_name(ns: &str) -> String {
+    format!("delonix-ns-{ns}")
+}
+
+/// Every IPv4 subnet already defined on this libvirt connection — so a new
+/// namespace network can take one that overlaps nothing already in use.
+fn used_libvirt_subnets(uri: &str) -> Vec<(std::net::Ipv4Addr, u32)> {
+    let Some(names) = capture("virsh", &["-c", uri, "net-list", "--all", "--name"]) else {
+        return Vec::new();
+    };
+    names
+        .lines()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .filter_map(|n| capture("virsh", &["-c", uri, "net-dumpxml", "--", n]))
+        .filter_map(|xml| parse_live_network(&xml).subnet)
+        .collect()
+}
+
+/// `(name, cidr)` of the per-namespace NAT network, allocating a free `/24`
+/// the first time. Idempotent: an already-defined `delonix-ns-<ns>` is reused
+/// on its recorded subnet (the caller's `ensure_libvirt_network` then just
+/// activates it). A fresh one takes the first free `172.30.N.0/24` — a private
+/// block this engine's SDN (10.x) and libvirt's own `default` (192.168.122) do
+/// not use — probed from a hash of the namespace so different namespaces spread
+/// out, and skipping any `/24` an existing network overlaps.
+fn namespace_network(uri: &str, ns: &str) -> Result<(String, String)> {
+    let name = namespace_network_name(ns);
+    if let Some(xml) = capture("virsh", &["-c", uri, "net-dumpxml", "--", &name]) {
+        if let Some((base, prefix)) = parse_live_network(&xml).subnet {
+            return Ok((name, format!("{base}/{prefix}")));
+        }
+    }
+    let used = used_libvirt_subnets(uri);
+    let overlaps = |n: u8| -> bool {
+        let cand = u32::from(std::net::Ipv4Addr::new(172, 30, n, 0));
+        let cand_mask: u32 = u32::MAX << 8; // /24
+        used.iter().any(|(b, p)| {
+            let b = u32::from(*b);
+            let coarse = (u32::MAX.checked_shl(32 - p).unwrap_or(0)) & cand_mask;
+            (b & coarse) == (cand & coarse)
+        })
+    };
+    // FNV-1a of the namespace → a spread-out starting octet.
+    let mut h: u32 = 0x811c_9dc5;
+    for byte in ns.bytes() {
+        h ^= u32::from(byte);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    let start = (h % 256) as u8;
+    let n = (0u16..256)
+        .map(|i| start.wrapping_add(i as u8))
+        .find(|n| !overlaps(*n))
+        .ok_or_else(|| Error::Command {
+            context: "libvirt",
+            message: format!("no free /24 in 172.30.0.0/16 for the namespace network of '{ns}'"),
+        })?;
+    Ok((name, format!("172.30.{n}.0/24")))
+}
+
 fn ensure_libvirt_network(uri: &str, net: &str, subnet: Option<&str>) -> Result<bool> {
     // System connection reachable? (NAT lives in qemu:///system.)
     if capture("virsh", &["-c", uri, "net-list", "--all"]).is_none() {
@@ -3112,6 +3179,48 @@ impl VmBackend for LibvirtBackend {
         // live. Mapping it here (and not in `libvirt_interface_xml`) keeps the
         // XML generator pure and leaves ONE place that decides the network.
         map_declared_network(&mut cfg);
+        // Namespace isolation on libvirt is L2 SEPARATION (ADR-0086 D7): a
+        // non-default namespace puts the VM on its own NAT network, so VMs of
+        // different namespaces sit on separate bridges/subnets that libvirt's
+        // own per-network reject rules keep apart. `default` is unchanged.
+        let ns = vm_namespace_of(&cfg);
+        if ns != "default" {
+            // The namespace FIXES the network; honouring an explicit declared
+            // `--network` too is impossible, so it is refused rather than
+            // silently overridden.
+            if names_a_declared_network(&cfg.network) {
+                return Err(Error::Command {
+                    context: "vm",
+                    message: format!(
+                        "VM '{}': a namespaced libvirt VM is placed on its namespace's own \
+                         isolated network — drop `--network {}`, or use `--backend \
+                         cloud-hypervisor` to keep a shared network with namespace isolation",
+                        cfg.name, cfg.network
+                    ),
+                }
+                .into());
+            }
+            // The per-namespace network is a system (qemu:///system) NAT
+            // network; without that connection the isolation cannot be
+            // enforced, so it is refused rather than given unenforced.
+            if !system_libvirt_usable() {
+                return Err(Error::Command {
+                    context: "vm",
+                    message: format!(
+                        "VM '{}': namespace '{ns}' isolation on libvirt needs the system \
+                         connection (qemu:///system) for a dedicated NAT network, which is not \
+                         reachable — join the `libvirt` group, or use `--backend cloud-hypervisor`",
+                        cfg.name
+                    ),
+                }
+                .into());
+            }
+            cfg.net_mode = Some("nat".into());
+            let uri = libvirt_uri_for(cfg.net_mode.as_deref());
+            let (net_name, cidr) = namespace_network(uri, &ns)?;
+            cfg.bridge = Some(net_name);
+            cfg.network_subnet = Some(cidr);
+        }
         let cfg = &cfg;
         if let Some(ip) = cfg.static_ip.as_deref() {
             if !matches!(cfg.net_mode.as_deref(), Some("nat") | Some("network")) {
@@ -3129,7 +3238,12 @@ impl VmBackend for LibvirtBackend {
                 .into());
             }
         }
-        let mac = mac_for(&cfg.name);
+        // The MAC is derived from the node-wide identity (`<ns>/<name>`, bare in
+        // `default`) so two namespaces' `web`s differ, and — crucially — it
+        // MATCHES the MAC the cloud-init seed's network-config is written for
+        // (`scoped_vm_name`, see `cloudinit`), which is how the guest brings the
+        // right NIC up. `default`→bare keeps an existing VM's MAC byte-for-byte.
+        let mac = mac_for(&scoped_vm_name(&vm_namespace_of(cfg), &cfg.name));
         let uri = libvirt_uri_for(cfg.net_mode.as_deref());
         // overlay as an absolute path (libvirtd may run in another cwd).
         let overlay_abs = std::fs::canonicalize(overlay)
@@ -3873,6 +3987,33 @@ impl VmBackend for LibvirtBackend {
     }
 
     fn release_network(&self, vm: &Vm, remaining: &[Vm]) -> delonix_model::Result<()> {
+        // A non-default namespace's VM is on its dedicated per-namespace NAT
+        // network (ADR-0086 D7), chosen inside `boot` and so NOT on the record's
+        // `bridge`/`network` fields — it is derived from the namespace instead,
+        // and goes with the LAST VM of that namespace.
+        let ns = if vm.namespace.is_empty() {
+            "default"
+        } else {
+            vm.namespace.as_str()
+        };
+        if ns != "default" {
+            if remaining.iter().any(|o| {
+                let o_ns = if o.namespace.is_empty() {
+                    "default"
+                } else {
+                    o.namespace.as_str()
+                };
+                o_ns == ns
+            }) {
+                return Ok(());
+            }
+            let net = namespace_network_name(ns);
+            let uri = libvirt_uri_for(Some(vm.tap.as_str()));
+            if release_owned_network(uri, &net)? {
+                tracing::debug!(network = %net, "per-namespace libvirt network removed with its last VM");
+            }
+            return Ok(());
+        }
         let Some(net) = libvirt_network_of(vm) else {
             return Ok(()); // libvirt's own `default`: never ours to remove
         };
@@ -4388,6 +4529,27 @@ mod tests {
     /// Gateway is the first host, the DHCP range runs from the second host to
     /// the last one BELOW the broadcast — getting that off by one is how you
     /// ship a network that leases its own broadcast address.
+    #[test]
+    /// ADR-0086 D7: a non-default namespace is placed on its OWN dedicated NAT
+    /// network, named per namespace and distinct between namespaces — separate
+    /// L2 segments libvirt's own per-network reject rules keep apart, which is
+    /// how the libvirt backend ENFORCES namespace isolation (the evidence the
+    /// capability report cites). The network it defines is NAT and carries the
+    /// ownership marker, so `release_network` reclaims it with its last VM.
+    #[test]
+    fn a_namespace_gets_its_own_isolated_nat_network() {
+        assert_eq!(super::namespace_network_name("prod"), "delonix-ns-prod");
+        assert_ne!(
+            super::namespace_network_name("prod"),
+            super::namespace_network_name("staging")
+        );
+        let xml =
+            super::libvirt_network_xml("delonix-ns-prod", "172.30.7.0/24").expect("valid /24");
+        assert!(xml.contains("<name>delonix-ns-prod</name>"), "{xml}");
+        assert!(xml.contains("<forward mode='nat'/>"), "{xml}");
+        assert!(xml.contains(super::NET_OWNER_NS), "{xml}");
+    }
+
     #[test]
     fn libvirt_network_xml_places_gateway_and_range_inside_the_subnet() {
         let x = libvirt_network_xml("k8s-net", "10.229.0.0/16").expect("valid /16");
