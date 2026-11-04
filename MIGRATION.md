@@ -66,6 +66,24 @@ em vez de recriar.
 4. `scripts/release_verify.py` + pipeline (`release.yml`): SHA256SUMS, SBOM, minisign, SLSA.
 5. etiquetar `v0.1.0` e publicar. Ver a checklist em [VERSIONING.md](VERSIONING.md#checklist-antes-de-etiquetar-v010).
 
+## Para quem contribui — renomes internos de crate (ADR-0040 R1)
+
+A reestruturação do motor (ADR-0040) uniformizou nomes de **crate internos**
+(`publish = false`), sem tocar em nada exposto ao utilizador — binários, sockets,
+serviços systemd, `DELONIX_*`, grupos de schema e contratos CLI/API ficam iguais.
+Quem tem um branch por integrar reaponta os imports:
+
+| Antes | Depois | Import Rust |
+| --- | --- | --- |
+| `delonix-proxmox` | `delonix-provider-proxmox` | `delonix_provider_proxmox` |
+| `delonix-truenas` | `delonix-provider-truenas` | `delonix_provider_truenas` |
+| `delonix-opnsense` | `delonix-provider-opnsense` | `delonix_provider_opnsense` |
+| `delonix-powerdns` | `delonix-provider-powerdns` | `delonix_provider_powerdns` |
+| `delonix-security-runtime` | `delonix-security` | `delonix_security` |
+
+Movidos com `git mv` (o `git log --follow`/`blame` seguem). `scripts/arch_fitness.py`
+passa a recusar um crate em `providers/` sem o prefixo `delonix-provider-`.
+
 ## Estado desta transição (2026-10-28)
 
 - **Feito e integrado em `develop`:** identidade segura em config/docs

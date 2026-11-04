@@ -20,7 +20,7 @@ use super::po;
 use super::providers_config::PowerdnsEntry;
 use delonix_model::{Error, Result};
 use delonix_networking::dns::DnsRecord;
-use delonix_powerdns::{Client, Removal, Target};
+use delonix_provider_powerdns::{Client, Removal, Target};
 
 /// The client target of a `powerdns` entry: the key read from `keyFile`
 /// (refused unless only its owner reads it), the CA from `tls.caFile`.

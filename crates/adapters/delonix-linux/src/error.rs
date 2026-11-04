@@ -22,7 +22,7 @@
 //! same way.
 //!
 //! **Two domains, chosen by what the failure is ABOUT, not which crate wrote
-//! it** — the same rule `delonix-truenas` already set (its own failures live
+//! it** — the same rule `delonix-provider-truenas` already set (its own failures live
 //! under [`delonix_model::codes::Domain::Volume`], not a "TrueNAS" domain,
 //! because a provisioning failure is still about a volume). A failure that
 //! names a specific container — it is not running, it already is, its

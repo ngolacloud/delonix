@@ -12,7 +12,7 @@
 //! DELONIX_PROXMOX_TEST_USER=root@pam \
 //! DELONIX_PROXMOX_TEST_PASS=delonix-admin \
 //! DELONIX_PROXMOX_TRACE_ROUTES=/path/to/trace.routes \
-//!   cargo test -p delonix-proxmox --test live -- --ignored --nocapture --test-threads=1
+//!   cargo test -p delonix-provider-proxmox --test live -- --ignored --nocapture --test-threads=1
 //! ```
 //!
 //! A case that needs more than the node (a prepared agent guest, a second
@@ -70,10 +70,10 @@
 //! ```text
 //! # 1. everything that does not touch a guest firewall — the SDN zones and
 //! #    their DHCP guests among them — with the datacenter firewall as found:
-//! cargo test -p delonix-proxmox --test live -- --ignored --skip firewall --test-threads=1
+//! cargo test -p delonix-provider-proxmox --test live -- --ignored --skip firewall --test-threads=1
 //! # 2. the firewall cases (turn the datacenter firewall on first, with the
 //! #    `management` IPSet the lab needs — see the trace header):
-//! cargo test -p delonix-proxmox --test live -- --ignored firewall --test-threads=1
+//! cargo test -p delonix-provider-proxmox --test live -- --ignored firewall --test-threads=1
 //! ```
 //!
 //! The split holds only while every case that touches a guest's or the
@@ -83,20 +83,20 @@
 //! timeout in a run that already had the firewall on is read as this first.
 
 use delonix_compute::vm_backend::{CreateStage, VmBackend, VmConfig};
-use delonix_proxmox::{AgentExecStatus, Auth, ProxmoxBackend, Target};
+use delonix_provider_proxmox::{AgentExecStatus, Auth, ProxmoxBackend, Target};
 
 /// The backend over a client that honours the route trace: with
 /// `DELONIX_PROXMOX_TRACE_ROUTES=<file>` every request of this run lands in
 /// the file, which is what promotes a route to `supported+tested` in the
 /// coverage matrix (`scripts/proxmox_api_inventory.py --trace`, ADR-0049).
-fn backend(t: &Target) -> Result<ProxmoxBackend, delonix_proxmox::Error> {
-    let opts = delonix_proxmox::ClientOptions {
-        trace_routes: std::env::var_os(delonix_proxmox::TRACE_ROUTES_ENV)
+fn backend(t: &Target) -> Result<ProxmoxBackend, delonix_provider_proxmox::Error> {
+    let opts = delonix_provider_proxmox::ClientOptions {
+        trace_routes: std::env::var_os(delonix_provider_proxmox::TRACE_ROUTES_ENV)
             .filter(|v| !v.is_empty())
             .map(std::path::PathBuf::from),
         ..Default::default()
     };
-    let client = delonix_proxmox::Client::connect_with(t, opts)?;
+    let client = delonix_provider_proxmox::Client::connect_with(t, opts)?;
     Ok(ProxmoxBackend::sharing(std::sync::Arc::new(client)))
 }
 
@@ -170,7 +170,7 @@ fn auth_from_env() -> Option<Auth> {
     })
 }
 
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn cria_arranca_e_destroi_contra_um_no_real() {
     let t = target().expect(NEEDS_TARGET);
@@ -417,7 +417,7 @@ fn cria_arranca_e_destroi_contra_um_no_real() {
 /// proof is the node's own list each time (`snapshots`), never the call that
 /// took it; a snapshot that only lived as long as the VM ran would be gone from
 /// the first of those two reads.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_snapshot_survives_a_stop_and_a_start() {
     let t = target().expect(NEEDS_TARGET);
@@ -507,7 +507,7 @@ fn a_snapshot_survives_a_stop_and_a_start() {
 /// then leaves the guest RUNNING, the behavioural half of the same claim: a
 /// disk-only snapshot has no RAM to resume into. Nothing global is touched; the
 /// VM it creates is destroyed, leaving the node as it was found.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_snapshot_of_a_running_vm_captures_its_ram_state() {
     let t = target().expect(NEEDS_TARGET);
@@ -602,7 +602,7 @@ fn a_snapshot_of_a_running_vm_captures_its_ram_state() {
 /// that matters, because a VM this backend cannot copy a disk FOR locally
 /// (`manages_own_storage`) has no other honest way to prove "nothing had to
 /// stop".
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_backup_lands_on_the_storage_and_comes_off_it() {
     let t = target().expect(NEEDS_TARGET);
@@ -649,7 +649,7 @@ fn a_backup_lands_on_the_storage_and_comes_off_it() {
         "a freshly created VM already has a backup: {before:?}"
     );
 
-    let ledger = delonix_proxmox::Ledger::at(vmdir);
+    let ledger = delonix_provider_proxmox::Ledger::at(vmdir);
     b.client()
         .backup_vm(&ledger, vmid, &backup_storage)
         .expect("backup");
@@ -754,7 +754,7 @@ fn a_backup_lands_on_the_storage_and_comes_off_it() {
 /// deleted it and want it back" story — and proves the restored VM is the
 /// SAME shape (same boot disk size) as what was destroyed, read from the
 /// node's own config, never from what the call said.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_deleted_vm_comes_back_from_its_own_backup() {
     let t = target().expect(NEEDS_TARGET);
@@ -789,7 +789,7 @@ fn a_deleted_vm_comes_back_from_its_own_backup() {
     );
     let vmid: u32 = boot.api_socket.rsplit(':').next().unwrap().parse().unwrap();
 
-    let ledger = delonix_proxmox::Ledger::at(vmdir);
+    let ledger = delonix_provider_proxmox::Ledger::at(vmdir);
     b.client()
         .backup_vm(&ledger, vmid, &backup_storage)
         .expect("backup");
@@ -890,7 +890,7 @@ fn a_deleted_vm_comes_back_from_its_own_backup() {
 /// (`download-url` com `content=import` + `qm set --scsi0 …,import-from=…`),
 /// dar-lhe `--net0`/`--net1` e um drive de cloud-init, e lá dentro
 /// `apt install qemu-guest-agent`.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn o_ip_vem_do_agente_de_um_convidado_a_serio() {
     let t = target().expect(NEEDS_TARGET);
@@ -924,7 +924,7 @@ fn o_ip_vem_do_agente_de_um_convidado_a_serio() {
 /// possibly answer). Proven against a REAL node and not only the TLS mock:
 /// `Ok(false)`, never an `Err`, matching the same "no agent is not a
 /// failure" rule `ip()` already established for this backend.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn agent_ping_answers_false_without_an_agent() {
     let t = target().expect(NEEDS_TARGET);
@@ -975,7 +975,7 @@ fn agent_ping_answers_false_without_an_agent() {
 /// COMMAND and reports back a real exit code and stdout, through
 /// `agent_exec_wait`'s poll loop and not just the pure translation the unit
 /// tests already cover.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn agent_exec_wait_runs_a_real_command_in_the_guest() {
     let t = target().expect(NEEDS_TARGET);
@@ -1024,7 +1024,7 @@ fn agent_exec_wait_runs_a_real_command_in_the_guest() {
 /// What is asserted is read back from the node (`GET …/config`, the boot
 /// disk's `size=`), never taken from the call's answer; and a SHRINK is
 /// refused before anything exists on the node, which the VM count proves.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_template_clone_gets_the_disk_size_asked_for() {
     let t = target().expect(NEEDS_TARGET);
@@ -1065,7 +1065,7 @@ fn a_template_clone_gets_the_disk_size_asked_for() {
     let src_id = vmid_of(&src_boot.api_socket);
     b.stop(vmdir, &src).expect("stop the source");
     b.client()
-        .mark_template(&delonix_proxmox::Ledger::at(vmdir), src_id)
+        .mark_template(&delonix_provider_proxmox::Ledger::at(vmdir), src_id)
         .expect("template");
     let tpl_cfg = b.client().config(src_id).expect("template config");
     assert_eq!(
@@ -1095,7 +1095,7 @@ fn a_template_clone_gets_the_disk_size_asked_for() {
     // Grow the template itself to 2 GiB first, so that asking a clone for 1
     // GiB is a genuine shrink.
     b.client()
-        .resize_disk(&delonix_proxmox::Ledger::at(vmdir), src_id, &key, 2)
+        .resize_disk(&delonix_provider_proxmox::Ledger::at(vmdir), src_id, &key, 2)
         .expect("grow the template to 2 GiB");
     let (_, tpl_bytes) = b.client().boot_disk(src_id).expect("re-read");
     assert_eq!(
@@ -1249,7 +1249,7 @@ fn a_template_clone_gets_the_disk_size_asked_for() {
 /// images by default on a stock node — the live run enables `content=images`
 /// on it once, out of band, the same way the backup case's own storage
 /// (`DELONIX_PROXMOX_TEST_BACKUP_STORAGE`) needs `content=backup` enabled.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn move_disk_unlink_and_cloudinit_dump() {
     let t = target().expect(NEEDS_TARGET);
@@ -1285,7 +1285,7 @@ fn move_disk_unlink_and_cloudinit_dump() {
         .expect("stop before the disk operations below");
     assert!(!b.is_running(&vm), "the VM must be stopped");
 
-    let ledger = delonix_proxmox::Ledger::at(vmdir);
+    let ledger = delonix_provider_proxmox::Ledger::at(vmdir);
 
     // cloudinit_dump: the RENDERED file, not the inputs `config` reads. Every
     // VM this backend creates gets a cloud-init drive unless `cloud_init:
@@ -1359,12 +1359,12 @@ fn move_disk_unlink_and_cloudinit_dump() {
 }
 
 /// which lives entirely in `delonix-sdn` and has no relationship to any of
-/// this. Proves the trap [`delonix_proxmox::Client::firewall_options`]'s doc
+/// this. Proves the trap [`delonix_provider_proxmox::Client::firewall_options`]'s doc
 /// comment names — a rule means nothing until the firewall itself is turned
 /// on — and the full loop of a rule (add, read back two ways, update,
 /// delete), every assertion against what the node reports, never against
 /// what a call merely claimed.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_vms_own_firewall_rule_round_trips_through_the_node() {
     let t = target().expect(NEEDS_TARGET);
@@ -1373,7 +1373,7 @@ fn the_vms_own_firewall_rule_round_trips_through_the_node() {
     let b = backend(&t).expect("connect");
     let dir = tempfile::tempdir().expect("tempdir");
     let vmdir = dir.path();
-    let ledger = delonix_proxmox::Ledger::at(vmdir);
+    let ledger = delonix_provider_proxmox::Ledger::at(vmdir);
     let stage = |_: CreateStage| {};
 
     let name = format!("dlxfw{}", std::process::id() % 10000);
@@ -1410,7 +1410,7 @@ fn the_vms_own_firewall_rule_round_trips_through_the_node() {
             vmid,
             "in",
             "DROP",
-            &delonix_proxmox::FirewallRuleOpts {
+            &delonix_provider_proxmox::FirewallRuleOpts {
                 dest: Some("10.0.0.0/8"),
                 dport: Some("12345"),
                 proto: Some("tcp"),
@@ -1457,7 +1457,7 @@ fn the_vms_own_firewall_rule_round_trips_through_the_node() {
             &ledger,
             vmid,
             pos,
-            &delonix_proxmox::FirewallRuleOpts {
+            &delonix_provider_proxmox::FirewallRuleOpts {
                 action: Some("ACCEPT"),
                 ..Default::default()
             },
@@ -1527,13 +1527,13 @@ fn the_vms_own_firewall_rule_round_trips_through_the_node() {
 /// `source /etc/network/interfaces.d/*` removed from the second node, whose
 /// reload then warned `missing 'source /etc/network/interfaces.d/sdn'
 /// directive`, while the apply's own task said `OK`.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn sdn_apply_waits_for_every_nodes_network_reload() {
     let t = target().expect(NEEDS_TARGET);
     let b = backend(&t).expect("connect");
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
     b.client()
         .apply_sdn(&ledger)
         .expect("an apply with nothing staged, every node's reload followed");
@@ -1541,7 +1541,7 @@ fn sdn_apply_waits_for_every_nodes_network_reload() {
 
 /// Stages a Proxmox SDN zone and a vnet inside it, applies the PENDING
 /// configuration to the cluster, and tears both back down — the whole
-/// create→vnet→apply cycle `delonix_proxmox::sdn`'s module doc comment warns
+/// create→vnet→apply cycle `delonix_provider_proxmox::sdn`'s module doc comment warns
 /// about: every write up to `apply_sdn` only edits a STAGED config, and this
 /// case exists to prove nothing is left half-applied when it is done.
 ///
@@ -1553,20 +1553,20 @@ fn sdn_apply_waits_for_every_nodes_network_reload() {
 /// VLAN-capable hardware on the lab node to prove the cycle end to end.
 /// `vlan`/`vxlan`/`qinq` are real Proxmox zone types this crate does not
 /// implement.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn sdn_zone_and_vnet_are_staged_applied_and_torn_down() {
     let t = target().expect(NEEDS_TARGET);
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
 
     // Derived from this process's id, the same convention every VM name in
     // this file uses, so a run never collides with another one on the
     // shared lab node. Proxmox's own zone/vnet id format (a lowercase letter
     // then up to 7 more lowercase letters or digits, 8 characters total,
-    // enforced client-side by `delonix_proxmox::sdn::validate_sdn_id`) is
+    // enforced client-side by `delonix_provider_proxmox::sdn::validate_sdn_id`) is
     // why the prefix is a single letter and the pid is reduced to 6 digits.
     let suffix = std::process::id() % 1_000_000;
     let zone = format!("z{suffix}");
@@ -1608,7 +1608,7 @@ fn sdn_zone_and_vnet_are_staged_applied_and_torn_down() {
     );
 
     // The one call in this cycle that genuinely forks a task and makes the
-    // staged zone/vnet REAL on every node (see `delonix_proxmox::sdn`'s doc
+    // staged zone/vnet REAL on every node (see `delonix_provider_proxmox::sdn`'s doc
     // comment). Read back from the ledger, not just the call's `Ok(())` —
     // the same discipline every other write in this file follows.
     client.apply_sdn(&ledger).expect("apply the pending config");
@@ -1693,7 +1693,7 @@ fn sdn_zone_and_vnet_are_staged_applied_and_torn_down() {
 /// The other half of `cloudinit_dump`: what `GET …/cloudinit` reports for a
 /// key just after a config write, and what `PUT …/cloudinit` (regenerate)
 /// actually reaches. This case is what MEASURED
-/// [`delonix_proxmox::Client::cloudinit_pending`]'s doc comment — it
+/// [`delonix_provider_proxmox::Client::cloudinit_pending`]'s doc comment — it
 /// originally asserted the same premise that comment now says is false
 /// (that an `ipconfig0` write shows up here as pending): a live PVE 9.2.2
 /// run of this exact test, VM stopped then again running, found the list
@@ -1703,7 +1703,7 @@ fn sdn_zone_and_vnet_are_staged_applied_and_torn_down() {
 /// the list is well-formed (an empty list is success, not a probe failure),
 /// `regenerate` does not error, and — the part that matters to a caller —
 /// the RENDERED file genuinely carries the write once `regenerate` has run.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn cloudinit_pending_answers_and_regenerate_reaches_the_rendered_file() {
     let t = target().expect(NEEDS_TARGET);
@@ -1739,7 +1739,7 @@ fn cloudinit_pending_answers_and_regenerate_reaches_the_rendered_file() {
         .expect("stop before touching the cloud-init config");
     assert!(!b.is_running(&vm), "the VM must be stopped");
 
-    let ledger = delonix_proxmox::Ledger::at(vmdir);
+    let ledger = delonix_provider_proxmox::Ledger::at(vmdir);
     let client = b.client();
 
     // Baseline: a plain read, before anything is touched. The route
@@ -1802,7 +1802,7 @@ fn cloudinit_pending_answers_and_regenerate_reaches_the_rendered_file() {
 /// rule test does, never trusting what the write call itself claimed —
 /// and confirms a field an update did not name survives it, the same
 /// property the rule test's update case proves for a rule.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_vms_own_firewall_aliases_ipsets_log_and_refs_round_trip_through_the_node() {
     let t = target().expect(NEEDS_TARGET);
@@ -1811,7 +1811,7 @@ fn the_vms_own_firewall_aliases_ipsets_log_and_refs_round_trip_through_the_node(
     let b = backend(&t).expect("connect");
     let dir = tempfile::tempdir().expect("tempdir");
     let vmdir = dir.path();
-    let ledger = delonix_proxmox::Ledger::at(vmdir);
+    let ledger = delonix_provider_proxmox::Ledger::at(vmdir);
     let stage = |_: CreateStage| {};
 
     let name = format!("dlxfwa{}", std::process::id() % 10000);
@@ -1915,7 +1915,7 @@ fn the_vms_own_firewall_aliases_ipsets_log_and_refs_round_trip_through_the_node(
             vmid,
             &ipset,
             entry_cidr,
-            &delonix_proxmox::IpsetCidrOpts {
+            &delonix_provider_proxmox::IpsetCidrOpts {
                 comment: Some("entry"),
                 nomatch: None,
             },
@@ -1947,7 +1947,7 @@ fn the_vms_own_firewall_aliases_ipsets_log_and_refs_round_trip_through_the_node(
             vmid,
             &ipset,
             entry_cidr,
-            &delonix_proxmox::IpsetCidrOpts {
+            &delonix_provider_proxmox::IpsetCidrOpts {
                 comment: None,
                 nomatch: Some(true),
             },
@@ -2023,7 +2023,7 @@ fn the_vms_own_firewall_aliases_ipsets_log_and_refs_round_trip_through_the_node(
 /// Stages a subnet inside a zone/vnet pair, exercises the single-item
 /// zone/vnet read/edit routes and the subnet's own read/edit/delete, applies
 /// the PENDING configuration, confirms via the NODE's own directory-index
-/// routes that the zone/vnet answer at all (see `delonix_proxmox::sdn`'s
+/// routes that the zone/vnet answer at all (see `delonix_provider_proxmox::sdn`'s
 /// module doc comment, "The two node-side routes here answer a directory
 /// index, not 'is this real'" — those two calls do NOT prove the subnet's
 /// dataplane is live; they prove the route exists against a real node and
@@ -2034,14 +2034,14 @@ fn the_vms_own_firewall_aliases_ipsets_log_and_refs_round_trip_through_the_node(
 /// zone/vnet, same cleanup order, same "read the ledger, not just `Ok(())`"
 /// discipline — extended with the one thing that test does not cover: a
 /// subnet, and the single-item `GET`/`PUT` for a zone and a vnet.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn sdn_subnet_and_the_single_item_zone_vnet_routes_are_staged_applied_and_torn_down() {
     let t = target().expect(NEEDS_TARGET);
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
 
     // Same naming convention as the sibling test, and a distinct letter
     // prefix so the two tests never collide on the same lab node even if
@@ -2311,15 +2311,15 @@ impl ControllerStub {
 /// address the NODE can reach this host at); without it that half is
 /// skipped and the rest still runs. No SKIP line: a print in a library
 /// crate's tests is counted debt.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn sdn_controllers_fabric_dhcp_and_ip_reservations_round_trip_through_the_node() {
-    use delonix_proxmox::{DhcpRange, FabricProtocol, IpamKind, SubnetOptions, ZoneOptions};
+    use delonix_provider_proxmox::{DhcpRange, FabricProtocol, IpamKind, SubnetOptions, ZoneOptions};
     let t = target().expect(NEEDS_TARGET);
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
     let node = t.node.clone();
 
     let suffix = std::process::id() % 1_000_000;
@@ -2813,7 +2813,7 @@ fn sdn_controllers_fabric_dhcp_and_ip_reservations_round_trip_through_the_node()
 /// whole cycle runs — the three switches, the rules in policy order above a
 /// hand-made rule that must survive, a re-apply that replaces instead of
 /// appending, and the other direction left alone.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_scope_vm_policy_lands_on_the_nodes_own_firewall_and_reads_back() {
     use delonix_compute::vm_firewall::{Direction, Policy, Proto, Rule};
@@ -2823,7 +2823,7 @@ fn a_scope_vm_policy_lands_on_the_nodes_own_firewall_and_reads_back() {
     let b = backend(&t).expect("connect");
     let dir = tempfile::tempdir().expect("tempdir");
     let vmdir = dir.path();
-    let ledger = delonix_proxmox::Ledger::at(vmdir);
+    let ledger = delonix_provider_proxmox::Ledger::at(vmdir);
     let stage = |_: CreateStage| {};
 
     let name = format!("dlxpol{}", std::process::id() % 10000);
@@ -2867,7 +2867,7 @@ fn a_scope_vm_policy_lands_on_the_nodes_own_firewall_and_reads_back() {
     let dc = client
         .cluster_firewall_options()
         .expect("datacenter firewall options");
-    if !delonix_proxmox::vm_firewall::datacenter_enabled(&dc) {
+    if !delonix_provider_proxmox::vm_firewall::datacenter_enabled(&dc) {
         let err = b
             .apply_firewall(vmdir, &vm, &inbound)
             .expect_err("a datacenter firewall that is off must refuse the policy");
@@ -2892,7 +2892,7 @@ fn a_scope_vm_policy_lands_on_the_nodes_own_firewall_and_reads_back() {
                 vmid,
                 "in",
                 "ACCEPT",
-                &delonix_proxmox::FirewallRuleOpts {
+                &delonix_provider_proxmox::FirewallRuleOpts {
                     enable: Some(true),
                     comment: Some("hand-made"),
                     source: None,
@@ -3035,7 +3035,7 @@ fn a_scope_vm_policy_lands_on_the_nodes_own_firewall_and_reads_back() {
 ///
 /// The ledger is read at the end: every task that was meant to succeed did,
 /// and the only failures are the two the guest caused.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn power_operations_round_trip_through_the_node() {
     let t = target().expect(NEEDS_TARGET);
@@ -3068,7 +3068,7 @@ fn power_operations_round_trip_through_the_node() {
         boot.api_socket.clone(),
     );
     let client = b.client();
-    let ledger = delonix_proxmox::Ledger::at(vmdir);
+    let ledger = delonix_provider_proxmox::Ledger::at(vmdir);
     let state = || client.power_state(vmid).expect("status/current");
 
     b.pause(vmdir, &vm).expect("pause (…/status/suspend)");
@@ -3101,7 +3101,7 @@ fn power_operations_round_trip_through_the_node() {
         .reboot(&ledger, vmid, short)
         .expect_err("a guest with no OS ignores ACPI: the reboot must fail");
     assert!(
-        matches!(err, delonix_proxmox::Error::TaskFailed(_)),
+        matches!(err, delonix_provider_proxmox::Error::TaskFailed(_)),
         "a task failure, not a transport error: {err:?}"
     );
     assert_eq!(
@@ -3183,7 +3183,7 @@ fn power_operations_round_trip_through_the_node() {
 ///   is empty: the numbers are the ones the VM boots with;
 /// - it boots with them: after `resume` the config still says so and the
 ///   node reports the VM's `cpus`/`maxmem` from the new definition.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_stopped_vm_is_resized_and_the_node_reads_back_the_new_size() {
     let t = target().expect(NEEDS_TARGET);
@@ -3286,7 +3286,7 @@ fn a_stopped_vm_is_resized_and_the_node_reads_back_the_new_size() {
 /// - a SHRINK is refused and the node's disk is unchanged after it;
 /// - stopped, a GROW to 2 GiB lands, and the node reads the boot disk back at
 ///   exactly 2 GiB — the number a tenant's quota is counted against.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_stopped_vms_boot_disk_grows_and_the_node_reads_it_back() {
     let t = target().expect(NEEDS_TARGET);
@@ -3358,7 +3358,7 @@ fn a_stopped_vms_boot_disk_grows_and_the_node_reads_it_back() {
 /// slots asked for and with the sizes asked for; the extra NICs carry the
 /// model, the fixed MAC and the bridge asked for; and a destroy takes every
 /// disk with it (`storage/.../content?content=images`), not only the boot one.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn extra_disks_and_nics_are_created_with_the_vm_and_go_with_it() {
     let t = target().expect(NEEDS_TARGET);
@@ -3468,7 +3468,7 @@ fn extra_disks_and_nics_are_created_with_the_vm_and_go_with_it() {
 ///   bridge asked for, and `pending` holds nothing for `net1`;
 /// - the VM was running throughout (never stopped), and a destroy takes both
 ///   the device and the hot-added disk's volume with it.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_running_vm_gets_a_disk_and_a_nic_hotplugged() {
     let t = target().expect(NEEDS_TARGET);
@@ -3491,7 +3491,7 @@ fn a_running_vm_gets_a_disk_and_a_nic_hotplugged() {
     let vmid: u32 = boot.api_socket.rsplit(':').next().unwrap().parse().unwrap();
     let vm = record_of(&name, &cfg, &boot);
     let client = b.client();
-    let ledger = delonix_proxmox::Ledger::at(vmdir);
+    let ledger = delonix_provider_proxmox::Ledger::at(vmdir);
 
     // The device is plugged into a RUNNING QEMU, not parked: the VM is up now
     // and stays up — nothing here stops it.
@@ -3586,7 +3586,7 @@ fn a_running_vm_gets_a_disk_and_a_nic_hotplugged() {
 /// node mints a `termproxy` ticket for a stopped VM too — the helper forks and
 /// the console simply shows nothing, it is not refused — so a "stopped ⇒ error"
 /// assumption would be wrong, and the proof stays on the running path.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_running_vm_opens_a_serial_and_a_vnc_console_and_the_websocket_connects() {
     let t = target().expect(NEEDS_TARGET);
@@ -3837,7 +3837,7 @@ impl rustls::client::danger::ServerCertVerifier for NoCertVerify {
 /// - stopped, the change reaches the drive: the new hostname, the new user
 ///   and the new key are in the user-data, the old key is not, and
 ///   `…/cloudinit` has nothing pending.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_stopped_vms_cloud_init_is_changed_and_the_node_renders_it() {
     let t = target().expect(NEEDS_TARGET);
@@ -3918,7 +3918,7 @@ fn a_stopped_vms_cloud_init_is_changed_and_the_node_renders_it() {
 /// resource list places a VM this backend created on its node, and an id
 /// nobody has is not placed anywhere. On a single node this proves the READ;
 /// following a VM to ANOTHER node needs a second node and is not measured here.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_cluster_resource_list_places_a_vm_on_its_node() {
     let t = target().expect(NEEDS_TARGET);
@@ -4017,7 +4017,7 @@ fn record_of(
 ///   stopped on the target, through the configured node's API (the
 ///   behaviour ADR-0053 marked "not measured": a request for
 ///   `/nodes/<other>/…` served for a cluster member).
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_MOVE_NODE, DELONIX_PROXMOX_TEST_SHARED_STORAGE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_MOVE_NODE, DELONIX_PROXMOX_TEST_SHARED_STORAGE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_stopped_vm_moves_to_another_node_and_the_cluster_lists_it_there() {
     let t = target().expect(NEEDS_TARGET);
@@ -4165,7 +4165,7 @@ fn a_stopped_vm_moves_to_another_node_and_the_cluster_lists_it_there() {
 /// — the second move settles the ledger's first `qmigrate`, whose worker is
 /// on the other node, through the task's own node (a status read aimed at
 /// the wrong node answered "no such task").
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_MOVE_NODE, DELONIX_PROXMOX_TEST_SHARED_STORAGE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_MOVE_NODE, DELONIX_PROXMOX_TEST_SHARED_STORAGE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_running_vm_moves_live_on_shared_storage_and_keeps_running() {
     let t = target().expect(NEEDS_TARGET);
@@ -4244,7 +4244,7 @@ fn a_running_vm_moves_live_on_shared_storage_and_keeps_running() {
 /// live move is refused by name (DX-5507) and the VM stays where it was;
 /// with it, the VM is running on the target and its config names the target
 /// storage, not the source one.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_MOVE_NODE, DELONIX_PROXMOX_TEST_SHARED_STORAGE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_MOVE_NODE, DELONIX_PROXMOX_TEST_SHARED_STORAGE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_running_vm_with_a_local_disk_moves_live_and_its_disk_is_mirrored() {
     let t = target().expect(NEEDS_TARGET);
@@ -4340,7 +4340,7 @@ fn agent_guest(t: &Target) -> (u32, delonix_compute::Vm) {
 /// the guest's own `nproc` prints (read through `agent/exec`), and the memory
 /// blocks parse into a non-zero online size with a power-of-two block size.
 /// Read-only: nothing is plugged.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_guest_agent_reports_its_online_vcpus_and_memory_blocks() {
     let t = target().expect(NEEDS_TARGET);
@@ -4386,7 +4386,7 @@ fn the_guest_agent_reports_its_online_vcpus_and_memory_blocks() {
 /// come back, and the hostname is the SAME one the guest's own
 /// `/etc/hostname` holds, read through `agent/exec` — the block is the
 /// guest's answer, not a field filled from anywhere else.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_guest_agent_reports_the_os_hostname_and_filesystems() {
     let t = target().expect(NEEDS_TARGET);
@@ -4429,7 +4429,7 @@ fn the_guest_agent_reports_the_os_hostname_and_filesystems() {
 /// and the thaw) and the guest reporting `thawed` afterwards, and the archive
 /// is on the storage. A running VM with no agent is refused with DX-6509
 /// BEFORE any backup runs: its archive count does not change.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_backup_of_a_running_vm_is_taken_with_its_filesystem_frozen() {
     let t = target().expect(NEEDS_TARGET);
@@ -4441,7 +4441,7 @@ fn a_backup_of_a_running_vm_is_taken_with_its_filesystem_frozen() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
 
     // A running VM without an agent: refused, nothing archived.
     let name = format!("dlxnoagent{}", std::process::id() % 10000);
@@ -4523,8 +4523,8 @@ fn mv(live: bool) -> delonix_compute::vm_backend::MoveOptions {
 /// on it. Forcing the lock away is acceptable HERE only — a lab node this
 /// run owns for its duration; nothing in the crate does it on its own.
 struct SdnLabCleanup<'a> {
-    client: &'a delonix_proxmox::Client,
-    ledger: &'a delonix_proxmox::Ledger,
+    client: &'a delonix_provider_proxmox::Client,
+    ledger: &'a delonix_provider_proxmox::Ledger,
     controllers: [String; 2],
     route_map: String,
     prefix_list: String,
@@ -4575,10 +4575,10 @@ impl Drop for SdnLabCleanup<'_> {
 ///    policy. The writes' own round trip was measured live on 2026-09-27
 ///    (`docs/proxmox/trace-9.2.2.routes`) before the refusal was decided.
 /// 5. The teardown, under the lock again, and the node back as it was found.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn sdn_routing_chain_vnet_firewall_and_the_lock_round_trip_through_the_node() {
-    use delonix_proxmox::{
+    use delonix_provider_proxmox::{
         ControllerKind, ControllerOptions, FirewallRuleOpts, PrefixListEntry,
         PrefixListEntryUpdate, RouteMapClause, RouteMapEntry, RouteMapEntryUpdate, RoutingAction,
         VnetFirewallOptions,
@@ -4586,9 +4586,9 @@ fn sdn_routing_chain_vnet_firewall_and_the_lock_round_trip_through_the_node() {
     let t = target().expect(NEEDS_TARGET);
     let b = backend(&t).expect("connect");
     let shared = b.client();
-    let client: &delonix_proxmox::Client = &shared;
+    let client: &delonix_provider_proxmox::Client = &shared;
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
 
     let s = std::process::id() % 1_000_000;
     let pl = format!("dlxsdnpl{s}");
@@ -5088,7 +5088,7 @@ fn sdn_routing_chain_vnet_firewall_and_the_lock_round_trip_through_the_node() {
 /// an earlier run), the VM's boot disk is imported onto the disk storage and
 /// grown to `diskSize`, and a second staging of the same image uploads
 /// nothing. The node must have `import` enabled on the import storage.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_IMAGE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_IMAGE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_vm_boots_from_a_local_store_image_uploaded_and_imported() {
     let t = target().expect(NEEDS_TARGET);
@@ -5141,7 +5141,7 @@ fn a_vm_boots_from_a_local_store_image_uploaded_and_imported() {
     let err = client
         .upload(
             &import,
-            delonix_proxmox::UploadContent::Import,
+            delonix_provider_proxmox::UploadContent::Import,
             std::path::Path::new(&image),
             &bogus,
             &"0".repeat(64),
@@ -5165,7 +5165,7 @@ fn a_vm_boots_from_a_local_store_image_uploaded_and_imported() {
 /// (the node does not parse it on upload; slice 1 proved it parses the
 /// engine's OCI archive on create). It stays on the storage, as the cache;
 /// its bytes are fixed, so a later run takes the cached path.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_container_archive_is_staged_as_vztmpl_and_a_wrong_checksum_is_refused() {
     let t = target().expect(NEEDS_TARGET);
@@ -5189,7 +5189,7 @@ fn a_container_archive_is_staged_as_vztmpl_and_a_wrong_checksum_is_refused() {
     };
 
     let before = client
-        .list_content(&storage, delonix_proxmox::UploadContent::Vztmpl)
+        .list_content(&storage, delonix_provider_proxmox::UploadContent::Vztmpl)
         .expect("list");
     let staged = client
         .stage_template(&storage, &archive, &digest)
@@ -5200,7 +5200,7 @@ fn a_container_archive_is_staged_as_vztmpl_and_a_wrong_checksum_is_refused() {
         "uploaded must mean «was not there before»: {staged:?}"
     );
     let listed = client
-        .list_content(&storage, delonix_proxmox::UploadContent::Vztmpl)
+        .list_content(&storage, delonix_provider_proxmox::UploadContent::Vztmpl)
         .expect("list");
     assert!(
         listed.contains(&staged.volid),
@@ -5220,7 +5220,7 @@ fn a_container_archive_is_staged_as_vztmpl_and_a_wrong_checksum_is_refused() {
     let err = client
         .upload(
             &storage,
-            delonix_proxmox::UploadContent::Vztmpl,
+            delonix_provider_proxmox::UploadContent::Vztmpl,
             &archive,
             &bogus,
             &"0".repeat(64),
@@ -5231,7 +5231,7 @@ fn a_container_archive_is_staged_as_vztmpl_and_a_wrong_checksum_is_refused() {
         "the refusal does not say why: {err}"
     );
     let listed = client
-        .list_content(&storage, delonix_proxmox::UploadContent::Vztmpl)
+        .list_content(&storage, delonix_provider_proxmox::UploadContent::Vztmpl)
         .expect("list");
     assert!(
         !listed.contains(&format!("{storage}:vztmpl/{bogus}")),
@@ -5277,7 +5277,7 @@ fn oci_archive_manifest_digest(path: &std::path::Path) -> String {
 /// (the lab's `vmbr0` has no DHCP server, so `NotReady` with the node's
 /// warning is the expected answer there); stop and destroy leave no container
 /// and no volume; and the task ledger is read at the end.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_system_container_runs_its_lifecycle_through_the_node() {
     use delonix_compute::system_container::{
@@ -5293,7 +5293,7 @@ fn a_system_container_runs_its_lifecycle_through_the_node() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let provider =
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxct{}", std::process::id() % 10000),
@@ -5347,7 +5347,7 @@ fn a_system_container_runs_its_lifecycle_through_the_node() {
     assert!(
         matches!(
             client.lxc_config(vmid),
-            Err(delonix_proxmox::Error::NodeNotFound(_))
+            Err(delonix_provider_proxmox::Error::NodeNotFound(_))
         ),
         "the container is still there"
     );
@@ -5361,11 +5361,11 @@ fn a_system_container_runs_its_lifecycle_through_the_node() {
     // The ledger: every action's LAST task succeeded (a shutdown that timed
     // out against a `sleep` init may fail before the stop), nothing is still
     // submitted, and the start is there.
-    let recs = delonix_proxmox::Ledger::at(dir.path()).records();
+    let recs = delonix_provider_proxmox::Ledger::at(dir.path()).records();
     assert!(
         !recs
             .iter()
-            .any(|r| matches!(r.state, delonix_proxmox::TaskState::Submitted)),
+            .any(|r| matches!(r.state, delonix_provider_proxmox::TaskState::Submitted)),
         "{recs:?}"
     );
     let stopped_ok = recs
@@ -5377,9 +5377,9 @@ fn a_system_container_runs_its_lifecycle_through_the_node() {
                 recs.iter()
                     .rev()
                     .find(|r| r.action == "ct-shutdown")
-                    .is_some_and(|r| r.state == delonix_proxmox::TaskState::Ok)
+                    .is_some_and(|r| r.state == delonix_provider_proxmox::TaskState::Ok)
             },
-            |r| r.state == delonix_proxmox::TaskState::Ok,
+            |r| r.state == delonix_provider_proxmox::TaskState::Ok,
         );
     assert!(
         stopped_ok,
@@ -5392,7 +5392,7 @@ fn a_system_container_runs_its_lifecycle_through_the_node() {
             .find(|r| r.action == action)
             .unwrap_or_else(|| panic!("no {action} in the ledger: {recs:?}"));
         assert!(
-            !matches!(last.state, delonix_proxmox::TaskState::Failed { .. }),
+            !matches!(last.state, delonix_provider_proxmox::TaskState::Failed { .. }),
             "{action} failed: {last:?}"
         );
     }
@@ -5403,7 +5403,7 @@ fn a_system_container_runs_its_lifecycle_through_the_node() {
 /// leaves the container running as it was. A taken name is a conflict
 /// (DX-5503), a missing one not found (DX-4503), and `current` — the API's
 /// pseudo-entry for the live state — is neither listed nor accepted.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_system_containers_snapshot_is_rolled_back_and_deleted() {
     use delonix_compute::system_container::{
@@ -5419,7 +5419,7 @@ fn a_system_containers_snapshot_is_rolled_back_and_deleted() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let provider =
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxsnap{}", std::process::id() % 10000),
@@ -5498,7 +5498,7 @@ fn a_system_containers_snapshot_is_rolled_back_and_deleted() {
     provider.destroy(dir.path(), &h).expect("destroy");
     let left = client.list_ct_volumes(&rootfs, vmid).expect("list");
     assert!(left.is_empty(), "a volume was left behind: {left:?}");
-    let recs = delonix_proxmox::Ledger::at(dir.path()).records();
+    let recs = delonix_provider_proxmox::Ledger::at(dir.path()).records();
     for action in ["ct-snapshot", "ct-rollback", "ct-delete-snapshot"] {
         let last = recs
             .iter()
@@ -5507,7 +5507,7 @@ fn a_system_containers_snapshot_is_rolled_back_and_deleted() {
             .unwrap_or_else(|| panic!("no {action} in the ledger: {recs:?}"));
         assert_eq!(
             last.state,
-            delonix_proxmox::TaskState::Ok,
+            delonix_provider_proxmox::TaskState::Ok,
             "{action}: {last:?}"
         );
     }
@@ -5517,7 +5517,7 @@ fn a_system_containers_snapshot_is_rolled_back_and_deleted() {
 /// container change without recreating it — the node grows the volume
 /// (`PUT …/resize`) and never shrinks it, and a smaller size is refused
 /// before any request (DX-1540), leaving the volume as it was.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_system_containers_root_volume_grows_live_and_never_shrinks() {
     use delonix_compute::system_container::{
@@ -5533,7 +5533,7 @@ fn a_system_containers_root_volume_grows_live_and_never_shrinks() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let provider =
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxgrow{}", std::process::id() % 10000),
@@ -5589,13 +5589,13 @@ fn a_system_containers_root_volume_grows_live_and_never_shrinks() {
     provider.destroy(dir.path(), &h).expect("destroy");
     let left = client.list_ct_volumes(&rootfs, vmid).expect("list");
     assert!(left.is_empty(), "a volume was left behind: {left:?}");
-    let recs = delonix_proxmox::Ledger::at(dir.path()).records();
+    let recs = delonix_provider_proxmox::Ledger::at(dir.path()).records();
     let grow = recs
         .iter()
         .rev()
         .find(|r| r.action == "resize")
         .unwrap_or_else(|| panic!("no resize in the ledger: {recs:?}"));
-    assert_eq!(grow.state, delonix_proxmox::TaskState::Ok, "{grow:?}");
+    assert_eq!(grow.state, delonix_provider_proxmox::TaskState::Ok, "{grow:?}");
 }
 
 /// Plan 63 slice 5, firewall: a `scope: systemcontainer` policy lands on the
@@ -5604,7 +5604,7 @@ fn a_system_containers_root_volume_grows_live_and_never_shrinks() {
 /// default verdict last — reads back as it was written, and a second apply
 /// leaves the same rules, not twice as many. A container with no network has
 /// nothing to filter and is refused before any rule is written.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_system_containers_firewall_is_applied_and_reads_back() {
     use delonix_compute::system_container::{SystemContainerProvider, SystemContainerSpec};
@@ -5619,7 +5619,7 @@ fn a_system_containers_firewall_is_applied_and_reads_back() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let provider =
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxfw{}", std::process::id() % 10000),
@@ -5716,12 +5716,12 @@ fn a_system_containers_firewall_is_applied_and_reads_back() {
     provider.destroy(dir.path(), &h).expect("destroy");
     let left = client.list_ct_volumes(&rootfs, vmid).expect("list");
     assert!(left.is_empty(), "a volume was left behind: {left:?}");
-    let recs = delonix_proxmox::Ledger::at(dir.path()).records();
+    let recs = delonix_provider_proxmox::Ledger::at(dir.path()).records();
     // The firewall writes answer inline (no UPID), so they leave nothing in
     // the ledger; what must hold there is that no task was left unfinished.
     assert!(
         recs.iter()
-            .all(|r| !matches!(r.state, delonix_proxmox::TaskState::Submitted)),
+            .all(|r| !matches!(r.state, delonix_provider_proxmox::TaskState::Submitted)),
         "{recs:?}"
     );
 }
@@ -5731,7 +5731,7 @@ fn a_system_containers_firewall_is_applied_and_reads_back() {
 /// snapshot, so the provider takes a temporary one and deletes it. The copy
 /// is created stopped with the source's configuration, the source keeps
 /// running, and a name the node cannot take is refused before any request.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_running_system_container_is_cloned_from_a_temporary_snapshot() {
     use delonix_compute::system_container::{SystemContainerProvider, SystemContainerSpec};
@@ -5745,7 +5745,7 @@ fn a_running_system_container_is_cloned_from_a_temporary_snapshot() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let provider =
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxcln{}", std::process::id() % 10000),
@@ -5824,14 +5824,14 @@ fn a_running_system_container_is_cloned_from_a_temporary_snapshot() {
     provider.destroy(dir.path(), &h).expect("destroy");
     let left = client.list_ct_volumes(&rootfs, vmid).expect("list");
     assert!(left.is_empty(), "a volume was left behind: {left:?}");
-    let recs = delonix_proxmox::Ledger::at(dir.path()).records();
+    let recs = delonix_provider_proxmox::Ledger::at(dir.path()).records();
     for action in ["ct-snapshot", "ct-clone", "ct-delete-snapshot"] {
         let r = recs
             .iter()
             .rev()
             .find(|r| r.action == action)
             .unwrap_or_else(|| panic!("no {action} in the ledger: {recs:?}"));
-        assert_eq!(r.state, delonix_proxmox::TaskState::Ok, "{r:?}");
+        assert_eq!(r.state, delonix_provider_proxmox::TaskState::Ok, "{r:?}");
     }
 }
 
@@ -5843,7 +5843,7 @@ fn a_running_system_container_is_cloned_from_a_temporary_snapshot() {
 /// offline and starts it on the target. A root volume on `local-lvm`, which
 /// the cluster does not share, is refused without `with_local_disks`; every
 /// refusal leaves the container where and as it was.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE, DELONIX_PROXMOX_TEST_MOVE_NODE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE, DELONIX_PROXMOX_TEST_MOVE_NODE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_system_container_moves_to_another_node_offline_and_by_restart() {
     use delonix_compute::system_container::{
@@ -5861,7 +5861,7 @@ fn a_system_container_moves_to_another_node_offline_and_by_restart() {
     let client = b.client();
     let there = client.for_node(&to).expect("client for the target node");
     let provider =
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxmov{}", std::process::id() % 10000),
@@ -5998,13 +5998,13 @@ fn a_system_container_moves_to_another_node_offline_and_by_restart() {
     provider.destroy(dir.path(), &back).expect("destroy");
     let left = client.list_ct_volumes(&rootfs, vmid).expect("list");
     assert!(left.is_empty(), "a volume was left behind: {left:?}");
-    let recs = delonix_proxmox::Ledger::at(dir.path()).records();
+    let recs = delonix_provider_proxmox::Ledger::at(dir.path()).records();
     let migrations: Vec<_> = recs.iter().filter(|r| r.action == "ct-migrate").collect();
     assert_eq!(migrations.len(), 2, "{recs:?}");
     assert!(
         migrations
             .iter()
-            .all(|r| r.state == delonix_proxmox::TaskState::Ok),
+            .all(|r| r.state == delonix_provider_proxmox::TaskState::Ok),
         "{migrations:?}"
     );
 }
@@ -6013,7 +6013,7 @@ fn a_system_container_moves_to_another_node_offline_and_by_restart() {
 /// node's backup storage without stopping it, a restore puts the container
 /// back over itself and leaves it running, another container's archive is
 /// refused before any request, and a delete removes only this archive.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_system_containers_backup_is_restored_over_it_and_deleted() {
     use delonix_compute::system_container::{
@@ -6029,7 +6029,7 @@ fn a_system_containers_backup_is_restored_over_it_and_deleted() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let provider =
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxbak{}", std::process::id() % 10000),
@@ -6150,7 +6150,7 @@ fn a_system_containers_backup_is_restored_over_it_and_deleted() {
     provider.destroy(dir.path(), &h).expect("destroy");
     let left = client.list_ct_volumes(&rootfs, vmid).expect("list");
     assert!(left.is_empty(), "a volume was left behind: {left:?}");
-    let recs = delonix_proxmox::Ledger::at(dir.path()).records();
+    let recs = delonix_provider_proxmox::Ledger::at(dir.path()).records();
     for action in ["backup", "ct-restore", "delete-backup"] {
         let r = recs
             .iter()
@@ -6162,7 +6162,7 @@ fn a_system_containers_backup_is_restored_over_it_and_deleted() {
         assert!(
             matches!(
                 r.state,
-                delonix_proxmox::TaskState::Ok | delonix_proxmox::TaskState::OkWithWarnings { .. }
+                delonix_provider_proxmox::TaskState::Ok | delonix_provider_proxmox::TaskState::OkWithWarnings { .. }
             ),
             "{r:?}"
         );
@@ -6175,26 +6175,26 @@ fn a_system_containers_backup_is_restored_over_it_and_deleted() {
 /// and never deleted; a vnet edited on the cluster is drift; and someone
 /// else's staged change refuses the whole transaction before it writes,
 /// leaving that change pending and not applied.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn network_zone_provider_owns_by_mark_and_never_pushes_someone_elses_pending_change() {
     use delonix_networking::ownership::{Owner, OwnerMark, RemoveOutcome};
     use delonix_networking::segment::{EnsureOutcome, NetworkZoneSpec, SegmentProvider, VNetSpec};
 
     let t = target().expect(NEEDS_TARGET);
-    let opts = delonix_proxmox::ClientOptions {
-        trace_routes: std::env::var_os(delonix_proxmox::TRACE_ROUTES_ENV)
+    let opts = delonix_provider_proxmox::ClientOptions {
+        trace_routes: std::env::var_os(delonix_provider_proxmox::TRACE_ROUTES_ENV)
             .filter(|v| !v.is_empty())
             .map(std::path::PathBuf::from),
         ..Default::default()
     };
     let client =
-        std::sync::Arc::new(delonix_proxmox::Client::connect_with(&t, opts).expect("connect"));
+        std::sync::Arc::new(delonix_provider_proxmox::Client::connect_with(&t, opts).expect("connect"));
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
-    let provider = delonix_proxmox::ProxmoxSegmentProvider::new(
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
+    let provider = delonix_provider_proxmox::ProxmoxSegmentProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
     assert!(
         client.sdn_pending_changes().expect("pending").is_empty(),
@@ -6329,7 +6329,7 @@ fn network_zone_provider_owns_by_mark_and_never_pushes_someone_elses_pending_cha
 /// that MAC there when the guest starts. The teardown releases the
 /// reservation before the subnet (the node refuses a subnet that still holds
 /// one), and leaves no zone and no IPAM entry.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_ipam_provider_reserves_an_address_and_a_guest_gets_it_by_dhcp() {
     use delonix_compute::system_container::{
@@ -6349,13 +6349,13 @@ fn the_ipam_provider_reserves_an_address_and_a_guest_gets_it_by_dhcp() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let segment = delonix_proxmox::ProxmoxSegmentProvider::new(
+    let segment = delonix_provider_proxmox::ProxmoxSegmentProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
-    let ipam = delonix_proxmox::ProxmoxIpamProvider::new(
+    let ipam = delonix_provider_proxmox::ProxmoxIpamProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
     let owner = OwnerMark::from_random(
         &std::process::id()
@@ -6426,7 +6426,7 @@ fn the_ipam_provider_reserves_an_address_and_a_guest_gets_it_by_dhcp() {
         unprivileged: true,
     };
     let ct =
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
     let ctdir = tempfile::tempdir().expect("tempdir");
     let h = ct.create(ctdir.path(), &spec).expect("create");
     let vmid: u32 = h.locator.rsplit(':').next().unwrap().parse().unwrap();
@@ -6576,7 +6576,7 @@ fn the_ipam_provider_reserves_an_address_and_a_guest_gets_it_by_dhcp() {
 /// and the failure ADR-0063 measured — a gateway change staged, the
 /// transaction failed and rolled back, the IPAM's gateway entry left on the
 /// new address — is injected and then repaired (D2.3).
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_subnet_changes_in_place_and_a_rolled_back_gateway_entry_is_repaired() {
     use delonix_networking::ipam::{DhcpRange, IpamProvider, IpamReservation, IpamSubnet};
@@ -6586,13 +6586,13 @@ fn a_subnet_changes_in_place_and_a_rolled_back_gateway_entry_is_repaired() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let segment = delonix_proxmox::ProxmoxSegmentProvider::new(
+    let segment = delonix_provider_proxmox::ProxmoxSegmentProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
-    let ipam = delonix_proxmox::ProxmoxIpamProvider::new(
+    let ipam = delonix_provider_proxmox::ProxmoxIpamProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
     let owner = OwnerMark::from_random(
         &(std::process::id() ^ 0x0063_d200)
@@ -6824,7 +6824,7 @@ fn a_subnet_changes_in_place_and_a_rolled_back_gateway_entry_is_repaired() {
 /// plan one line naming the subnet — the reading `kind: NetworkZone`'s
 /// `gatewayEntries` field makes — and after the repair the apply runs, the
 /// plan is in sync again. Until N18 the plan said `=` for all three.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_plan_reads_a_gateway_entry_released_or_moved_by_hand_and_the_repair_clears_it() {
     use delonix_networking::ipam::{gateway_entry_drift, DhcpRange, IpamProvider, IpamSubnet};
@@ -6834,14 +6834,14 @@ fn the_plan_reads_a_gateway_entry_released_or_moved_by_hand_and_the_repair_clear
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
-    let segment = delonix_proxmox::ProxmoxSegmentProvider::new(
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
+    let segment = delonix_provider_proxmox::ProxmoxSegmentProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
-    let ipam = delonix_proxmox::ProxmoxIpamProvider::new(
+    let ipam = delonix_provider_proxmox::ProxmoxIpamProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
     let owner = OwnerMark::from_random(
         &(std::process::id() ^ 0x0018_0018)
@@ -6919,7 +6919,7 @@ fn the_plan_reads_a_gateway_entry_released_or_moved_by_hand_and_the_repair_clear
                 &vnet,
                 &zone,
                 &subnet.cidr,
-                &delonix_proxmox::SubnetOptions {
+                &delonix_provider_proxmox::SubnetOptions {
                     gateway: Some(&at(200)),
                     ..Default::default()
                 },
@@ -6956,20 +6956,20 @@ fn the_plan_reads_a_gateway_entry_released_or_moved_by_hand_and_the_repair_clear
 /// while the built-in `pve` one stays served. The stub sees only the node's
 /// own verification: the engine never talks to an external IPAM. Needs
 /// `DELONIX_PROXMOX_TEST_CALLBACK_ADDR`, like the controller half above.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_CALLBACK_ADDR and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_CALLBACK_ADDR and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn an_external_ipam_controller_is_listed_and_refused_by_name() {
     use delonix_networking::ipam::IpamProvider;
-    use delonix_proxmox::IpamKind;
+    use delonix_provider_proxmox::IpamKind;
     let t = target().expect(NEEDS_TARGET);
     let callback = need("DELONIX_PROXMOX_TEST_CALLBACK_ADDR");
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
-    let ipam = delonix_proxmox::ProxmoxIpamProvider::new(
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
+    let ipam = delonix_provider_proxmox::ProxmoxIpamProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
     let stub = ControllerStub::start();
     let base = format!("http://{callback}:{}", stub.port);
@@ -6979,8 +6979,8 @@ fn an_external_ipam_controller_is_listed_and_refused_by_name() {
 
     /// Deletes the controllers this test registered, on every exit.
     struct Registered<'a> {
-        client: &'a delonix_proxmox::Client,
-        ledger: &'a delonix_proxmox::Ledger,
+        client: &'a delonix_provider_proxmox::Client,
+        ledger: &'a delonix_provider_proxmox::Ledger,
         ids: Vec<String>,
     }
     impl Drop for Registered<'_> {
@@ -7076,7 +7076,7 @@ fn an_external_ipam_controller_is_listed_and_refused_by_name() {
 /// * D2.5: a guest's allocation (made by the node at the VM's create), then
 ///   the subnet's range narrowed so the allocation falls outside it — the
 ///   node accepts the change and leaves the allocation where it is.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn a_gateway_is_removed_and_added_in_place_and_a_range_narrows_under_a_guest() {
     use delonix_networking::ipam::{DhcpRange, IpamProvider, IpamSubnet};
@@ -7088,14 +7088,14 @@ fn a_gateway_is_removed_and_added_in_place_and_a_range_narrows_under_a_guest() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let ledger = delonix_proxmox::Ledger::at(dir.path());
-    let segment = delonix_proxmox::ProxmoxSegmentProvider::new(
+    let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
+    let segment = delonix_provider_proxmox::ProxmoxSegmentProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
-    let ipam = delonix_proxmox::ProxmoxIpamProvider::new(
+    let ipam = delonix_provider_proxmox::ProxmoxIpamProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
     let owner = OwnerMark::from_random(
         &(std::process::id() ^ 0x0063_d225)
@@ -7258,8 +7258,8 @@ fn a_gateway_is_removed_and_added_in_place_and_a_range_narrows_under_a_guest() {
     // D2.5: a guest's allocation, then the range narrowed under it.
     /// Destroys the guest this test created, on every exit.
     struct Guest<'a> {
-        client: &'a delonix_proxmox::Client,
-        ledger: &'a delonix_proxmox::Ledger,
+        client: &'a delonix_provider_proxmox::Client,
+        ledger: &'a delonix_provider_proxmox::Ledger,
         vmid: u32,
     }
     impl Drop for Guest<'_> {
@@ -7398,7 +7398,7 @@ fn powerdns_delete(url: &str, key: &str, zone: &str, name: &str, kind: &str) {
 /// when everything before it passed). Best effort: each step ignores what is
 /// already gone.
 struct DnsLabGuard {
-    client: std::sync::Arc<delonix_proxmox::Client>,
+    client: std::sync::Arc<delonix_provider_proxmox::Client>,
     ledger_dir: std::path::PathBuf,
     zone: String,
     vnet: String,
@@ -7412,7 +7412,7 @@ struct DnsLabGuard {
 
 impl Drop for DnsLabGuard {
     fn drop(&mut self) {
-        let ledger = delonix_proxmox::Ledger::at(&self.ledger_dir);
+        let ledger = delonix_provider_proxmox::Ledger::at(&self.ledger_dir);
         if let Some(vmid) = self.vmid.get() {
             let _ = self.client.lxc_destroy(&ledger, vmid);
         }
@@ -7458,7 +7458,7 @@ impl Drop for DnsLabGuard {
 /// (`DELONIX_PROXMOX_TEST_DNS_ZONE`) and `10.in-addr.arpa.` on that server,
 /// and the server's API reachable from the test (`DELONIX_PROXMOX_TEST_DNS_URL`,
 /// key in `DELONIX_PROXMOX_TEST_DNS_KEY_FILE`) to read the records back.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE, DELONIX_PROXMOX_TEST_DNS_CONTROLLER, DELONIX_PROXMOX_TEST_DNS_ZONE, DELONIX_PROXMOX_TEST_DNS_URL, DELONIX_PROXMOX_TEST_DNS_KEY_FILE and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_OCI_ARCHIVE, DELONIX_PROXMOX_TEST_DNS_CONTROLLER, DELONIX_PROXMOX_TEST_DNS_ZONE, DELONIX_PROXMOX_TEST_DNS_URL, DELONIX_PROXMOX_TEST_DNS_KEY_FILE and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_dns_provider_registers_a_guest_in_the_zones_dns_server() {
     use delonix_compute::system_container::{
@@ -7485,17 +7485,17 @@ fn the_dns_provider_registers_a_guest_in_the_zones_dns_server() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let dir = tempfile::tempdir().expect("tempdir");
-    let segment = delonix_proxmox::ProxmoxSegmentProvider::new(
+    let segment = delonix_provider_proxmox::ProxmoxSegmentProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
-    let ipam = delonix_proxmox::ProxmoxIpamProvider::new(
+    let ipam = delonix_provider_proxmox::ProxmoxIpamProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
-    let dns = delonix_proxmox::ProxmoxDnsProvider::new(
+    let dns = delonix_provider_proxmox::ProxmoxDnsProvider::new(
         client.clone(),
-        delonix_proxmox::Ledger::at(dir.path()),
+        delonix_provider_proxmox::Ledger::at(dir.path()),
     );
     assert!(
         dns.controllers()
@@ -7615,7 +7615,7 @@ fn the_dns_provider_registers_a_guest_in_the_zones_dns_server() {
         unprivileged: true,
     };
     let ct =
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
     let ctdir = tempfile::tempdir().expect("tempdir");
     let h = ct.create(ctdir.path(), &spec).expect("create");
     guard
@@ -7689,7 +7689,7 @@ fn the_dns_provider_registers_a_guest_in_the_zones_dns_server() {
 /// use. A read-only node-level query, so it needs nothing beyond the node and
 /// leaves it exactly as found. Asserts the counts are coherent (CPUs and totals
 /// positive, used never above total) rather than any one lab's numbers.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_node_reports_its_cpu_memory_and_disk_capacity() {
     let t = target().expect(NEEDS_TARGET);
@@ -7729,7 +7729,7 @@ fn the_node_reports_its_cpu_memory_and_disk_capacity() {
 /// discovery reads, all GETs. Asserts the version is the one the node's own
 /// `pveversion` would print in its first field, and says whether it is the
 /// release the route matrix is measured on.
-#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-proxmox --test live -- --ignored"]
+#[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn the_cluster_probe_reads_the_nodes_release() {
     let t = target().expect(NEEDS_TARGET);
@@ -7746,8 +7746,8 @@ fn the_cluster_probe_reads_the_nodes_release() {
     );
     // On the lab (9.2.2) there is nothing to say; on any other release the
     // note names both.
-    match delonix_proxmox::cluster::release_note(Some(&release)) {
-        None => assert_eq!(release, delonix_proxmox::cluster::MATRIX_RELEASE),
+    match delonix_provider_proxmox::cluster::release_note(Some(&release)) {
+        None => assert_eq!(release, delonix_provider_proxmox::cluster::MATRIX_RELEASE),
         Some(note) => assert!(note.contains(&release), "{note}"),
     }
 }

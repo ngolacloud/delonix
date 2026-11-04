@@ -156,7 +156,7 @@ pub(crate) const FEATURES: &[Feature] = &[
         name: "Proxmox VM backend",
         level: Level::Experimental,
         evidence:
-            "ADR-0008; crates/providers/delonix-proxmox/tests/live.rs runs against a real node, \
+            "ADR-0008; crates/providers/delonix-provider-proxmox/tests/live.rs runs against a real node, \
                    and skips loudly without one",
     },
     Feature {

@@ -1782,7 +1782,7 @@ pub const DEFAULT_CH_FIRMWARES: [&str; 4] = [
 /// Hypervisor's `vm.pause`/`vm.resume` (which have no response body either —
 /// both answer `204 No Content`). There is no HTTP client anywhere in this
 /// crate — ADR-0008 keeps `delonix-vm` free of network dependencies, and a
-/// REMOTE backend gets its own crate instead (`delonix-proxmox`) — so this is
+/// REMOTE backend gets its own crate instead (`delonix-provider-proxmox`) — so this is
 /// the smallest thing that talks the one endpoint these two verbs need, over
 /// `UnixStream`, the same primitive `delonix-sdn`'s `slirp_api` already uses
 /// for a different (line-delimited JSON) protocol.

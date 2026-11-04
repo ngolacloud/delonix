@@ -20,7 +20,7 @@ delonix-compute = { workspace = true }
 delonix-linux = { workspace = true }
 delonix-oci = { workspace = true }
 delonix-sdn = { workspace = true }
-delonix-security-runtime = { workspace = true }
+delonix-security = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true }

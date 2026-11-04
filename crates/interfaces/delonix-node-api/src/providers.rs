@@ -19,7 +19,7 @@ pub fn measured_reports() -> Vec<ProviderReport> {
     let mut out = delonix_vm::provider_reports();
     let proxmox_configured = out.iter().any(|r| r.id == "proxmox");
     if !proxmox_configured {
-        out.push(delonix_proxmox::capability_report(false));
+        out.push(delonix_provider_proxmox::capability_report(false));
     }
     out.push(delonix_linux::provider_report::report(
         &delonix_linux::provider_report::LinuxHost::probe(),
@@ -29,15 +29,15 @@ pub fn measured_reports() -> Vec<ProviderReport> {
     ));
     // The node's own per-VM firewall (ADR-0052): the second network provider,
     // with the same configured flag as the VM backend — one target, two ports.
-    out.push(delonix_proxmox::network_capability_report(
+    out.push(delonix_provider_proxmox::network_capability_report(
         proxmox_configured,
     ));
     out.push(delonix_volume::provider_report::report(
         &delonix_volume::provider_report::StorageHost::probe(),
     ));
     // The perimeter appliance (ADR-0059 D2), declared, same flag rule as Proxmox.
-    out.push(delonix_opnsense::capability_report(
-        delonix_sdn::gateway::gateway_provider_ids().contains(&delonix_opnsense::ID),
+    out.push(delonix_provider_opnsense::capability_report(
+        delonix_sdn::gateway::gateway_provider_ids().contains(&delonix_provider_opnsense::ID),
     ));
     out
 }
@@ -49,14 +49,14 @@ pub fn declared_reports() -> Vec<ProviderReport> {
     vec![
         vmc::cloud_hypervisor_report(&vmc::CloudHypervisorHost::ASSUMED),
         vmc::libvirt_report(&vmc::LibvirtHost::ASSUMED),
-        delonix_proxmox::capability_report(true),
+        delonix_provider_proxmox::capability_report(true),
         delonix_linux::provider_report::report(&delonix_linux::provider_report::LinuxHost::ASSUMED),
         delonix_sdn::provider_report::report(&delonix_sdn::provider_report::SdnHost::ASSUMED),
-        delonix_proxmox::network_capability_report(true),
+        delonix_provider_proxmox::network_capability_report(true),
         delonix_volume::provider_report::report(
             &delonix_volume::provider_report::StorageHost::ASSUMED,
         ),
-        delonix_opnsense::capability_report(true),
+        delonix_provider_opnsense::capability_report(true),
     ]
 }
 

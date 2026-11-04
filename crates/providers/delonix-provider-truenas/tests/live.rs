@@ -11,13 +11,13 @@
 //! DELONIX_TRUENAS_TEST_USER=truenas_admin \
 //! DELONIX_TRUENAS_TEST_PASS=delonix-admin \
 //! DELONIX_TRUENAS_TEST_POOL=tank \
-//!   cargo test -p delonix-truenas --test live -- --ignored --nocapture
+//!   cargo test -p delonix-provider-truenas --test live -- --ignored --nocapture
 //! ```
 //!
 //! It creates and then destroys `<pool>/dlxlive-<pid>`, so it never touches a
 //! dataset it did not make.
 
-use delonix_truenas::{Auth, Client, DatasetSpec, NfsShareSpec, Owner, Target};
+use delonix_provider_truenas::{Auth, Client, DatasetSpec, NfsShareSpec, Owner, Target};
 
 fn target() -> Option<(Target, String)> {
     let url = std::env::var("DELONIX_TRUENAS_TEST_URL").ok()?;
@@ -40,7 +40,7 @@ fn target() -> Option<(Target, String)> {
     ))
 }
 
-#[ignore = "needs DELONIX_TRUENAS_TEST_URL, DELONIX_TRUENAS_TEST_KEY (or _USER + _PASS) and a reachable TrueNAS: cargo test -p delonix-truenas --test live -- --ignored"]
+#[ignore = "needs DELONIX_TRUENAS_TEST_URL, DELONIX_TRUENAS_TEST_KEY (or _USER + _PASS) and a reachable TrueNAS: cargo test -p delonix-provider-truenas --test live -- --ignored"]
 #[test]
 fn provisiona_partilha_e_destroi_contra_uma_appliance_real() {
     let (t, pool) = target()
@@ -127,7 +127,7 @@ fn um_dataset_invalido_e_recusado_antes_de_qualquer_pedido() {
     // No target needed: the validation is what runs first, at every call site.
     for bad in ["tank/../etc", "tank", "/tank/x", "tank/x?a=b"] {
         assert!(
-            delonix_truenas::validate_dataset_name(bad).is_err(),
+            delonix_provider_truenas::validate_dataset_name(bad).is_err(),
             "{bad}"
         );
     }

@@ -6581,7 +6581,7 @@ fn cmd_update(store: &Store, id: &str, o: UpdateOpts) -> Result<()> {
     // /etc:/x` reading the host's files on a baseline node. Asked only when a
     // host path is named, so a named volume logs no admission event. The
     // image is not part of the question: an update does not pull anything.
-    if !delonix_security_runtime::admission::host_path_sources(&o.volume_add).is_empty() {
+    if !delonix_security::admission::host_path_sources(&o.volume_add).is_empty() {
         super::policy::enforce(
             &super::util::state_root(),
             &c.name,

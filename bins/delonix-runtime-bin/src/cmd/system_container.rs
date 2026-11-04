@@ -310,9 +310,9 @@ fn resolve_provider() -> Result<Box<dyn SystemContainerProvider>> {
         .disk_storage
         .clone()
         .unwrap_or_else(|| "local-lvm".into());
-    let client = delonix_proxmox::Client::connect_with(&target, opts)?;
+    let client = delonix_provider_proxmox::Client::connect_with(&target, opts)?;
     Ok(Box::new(
-        delonix_proxmox::ProxmoxSystemContainerProvider::new(Arc::new(client), &template, &rootfs),
+        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(Arc::new(client), &template, &rootfs),
     ))
 }
 
