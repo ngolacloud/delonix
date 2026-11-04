@@ -182,7 +182,11 @@ pub(crate) struct Cleanup {
     pub(crate) tmp: bool,
     /// Empty `/etc/machine-id`, so every VM cloned from the image gets its own.
     pub(crate) machine_id: bool,
-    /// Off by default: cloud-init regenerates them per instance already.
+    /// On by default (review 2026-11-04): delete the host keys so every instance
+    /// regenerates its OWN, instead of trusting cloud-init to do it — an image
+    /// used without cloud-init (or with `ssh_deletekeys` off) would otherwise
+    /// clone shared host keys. The appliances already deleted them explicitly;
+    /// this makes it the baseline.
     pub(crate) ssh_host_keys: bool,
 }
 
@@ -194,7 +198,7 @@ impl Default for Cleanup {
             history: true,
             tmp: true,
             machine_id: true,
-            ssh_host_keys: false,
+            ssh_host_keys: true,
         }
     }
 }

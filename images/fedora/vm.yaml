@@ -65,4 +65,4 @@ images:
       history: true
       tmp: true
       machine_id: true
-      ssh_host_keys: false
+      ssh_host_keys: true
