@@ -6077,8 +6077,8 @@ msgstr "tudo o que está registado sobre uma imagem dourada, ao estilo do `kubec
 msgid "two at once, to compare the bases before choosing one to build on"
 msgstr "duas de uma vez, para comparar as bases antes de escolher uma para construir por cima"
 
-msgid "the official Kubernetes golden (`ghcr.io/angolardevops/delonix-vm-k8s`) — no argument needed"
-msgstr "a dourada oficial de Kubernetes (`ghcr.io/angolardevops/delonix-vm-k8s`) — não é preciso argumento"
+msgid "the official Kubernetes golden (`ghcr.io/ngolacloud/delonix-vm-k8s`) — no argument needed"
+msgstr "a dourada oficial de Kubernetes (`ghcr.io/ngolacloud/delonix-vm-k8s`) — não é preciso argumento"
 
 msgid "the Kubernetes-free golden instead: the same base with `delonix` on board and rootless already set up"
 msgstr "em vez dela, a dourada sem Kubernetes: a mesma base com o `delonix` a bordo e o rootless já configurado"

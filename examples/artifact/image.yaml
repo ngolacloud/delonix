@@ -63,7 +63,7 @@ kind: Image
 metadata:
   name: private-app
 spec:
-  pull: ghcr.io/angolardevops/private-app:1.0
+  pull: ghcr.io/ngolacloud/private-app:1.0
   pullSecret: registry-cred    # PT: `kind: Secret` com username+password; só com pull | EN: `kind: Secret` with username+password; only with pull
 
 # ── 3. build — construir a partir de um Delonixfile/Dockerfile ───────────────

@@ -3274,10 +3274,10 @@ mod tests {
 
     #[test]
     fn tags_url_is_the_v2_tags_list_endpoint() {
-        let c = test_client("ghcr.io", "angolardevops/delonix-vm-k8s");
+        let c = test_client("ghcr.io", "ngolacloud/delonix-vm-k8s");
         assert_eq!(
             c.tags_url(),
-            "https://ghcr.io/v2/angolardevops/delonix-vm-k8s/tags/list"
+            "https://ghcr.io/v2/ngolacloud/delonix-vm-k8s/tags/list"
         );
     }
 

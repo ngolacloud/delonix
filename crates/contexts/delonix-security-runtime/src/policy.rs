@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn lint_catches_a_reference_put_where_a_host_was_expected() {
         let p =
-            SecurityPolicy::parse(r#"{"allowedRegistries": ["ghcr.io/angolardevops"]}"#).unwrap();
+            SecurityPolicy::parse(r#"{"allowedRegistries": ["ghcr.io/ngolacloud"]}"#).unwrap();
         assert!(p
             .lint()
             .iter()
