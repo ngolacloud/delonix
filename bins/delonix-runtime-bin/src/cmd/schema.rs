@@ -145,8 +145,20 @@ fn untyped_hint(kind: &str) -> &'static str {
                 `share: {from: ...}` block, which is what it is rewritten to at load";
     }
     if kind.eq_ignore_ascii_case(k::STORAGE) {
-        " — `kind: Storage` is the deprecated spelling: write `kind: Volume` with an \
-         `nfs:`/`cifs:`/`webdav:` block, which is what it is rewritten to at load"
+        return " — `kind: Storage` is the deprecated spelling: write `kind: Volume` with an \
+                `nfs:`/`cifs:`/`webdav:` block, which is what it is rewritten to at load";
+    }
+    // A Reserved Kind (ADR-0086 D3): declared at v1beta1 with no apply yet, so
+    // deliberately no typed spec. Derived from the Form so any future Reserved
+    // Kind gets the hint without being named here — the hint says so rather than
+    // reading as a forgotten Kind. `canonical_kind` resolves any casing/alias to
+    // the spelling `facts` keys on.
+    if matches!(
+        super::kinds::facts(super::manifest::canonical_kind(kind)).map(|f| f.form),
+        Some(super::kinds::Form::Reserved)
+    ) {
+        " — a Reserved Kind: its name and group are declared at v1beta1, but the apply and \
+         its typed schema land in a later phase (ADR-0090). Nothing validates its spec yet."
     } else {
         ""
     }
