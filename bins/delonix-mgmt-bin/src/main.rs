@@ -6,6 +6,28 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
+
+use delonix_compute::Vm;
+use delonix_engine::Engine;
+use delonix_model::Error as EngineError;
+
+/// The composition's VM service, handed to the management API as its `VmView`
+/// port (ADR-0040 A5). The bin is the one place that names `delonix-engine`; the
+/// server receives the engine already mounted and never learns what composes it,
+/// so no `interface -> delonix-vm` edge survives. The native VM error is mapped
+/// to the shared engine error the interface already understands.
+struct EngineVms(Engine);
+
+impl delonix_mgmt::VmView for EngineVms {
+    fn list(&self) -> Result<Vec<Vm>, EngineError> {
+        self.0.vms().list().map_err(Into::into)
+    }
+
+    fn status(&self, name: &str) -> Result<Vm, EngineError> {
+        self.0.vms().status(name).map_err(Into::into)
+    }
+}
 
 /// The `--version` line: binary name and the crate version, nothing else.
 fn version_line() -> String {
@@ -38,7 +60,9 @@ fn run() -> Result<(), String> {
     let base = std::env::var_os("DELONIX_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/var/lib/delonix"));
-    delonix_mgmt::serve_blocking(base, &addr).map_err(|e| e.to_string())
+    let engine = Engine::mount(base.clone()).map_err(|e| format!("mount engine: {e}"))?;
+    let vms: Arc<dyn delonix_mgmt::VmView> = Arc::new(EngineVms(engine));
+    delonix_mgmt::serve_blocking(base, vms, &addr).map_err(|e| e.to_string())
 }
 
 fn main() -> ExitCode {

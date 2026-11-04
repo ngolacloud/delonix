@@ -132,19 +132,18 @@ fn list_containers(base: &Path) -> Result<Vec<Container>, ErrorData> {
         .map_err(|e| from_engine_error(e.into()))
 }
 
-/// The composed engine's VM queries, as this server needs them (ADR-0040 A5). The
-/// bin mounts a `delonix_engine::Engine` and hands the server an implementor; the
-/// interface receives the engine already composed and never names the assembly
-/// crate (an interface→assembly dependency is forbidden by the arch gate — the
-/// VM backend reaches this crate as this port, not as a `delonix-vm` dependency).
-/// Errors arrive already mapped to the shared [`EngineError`], the foundation
-/// type this crate turns into an MCP [`ErrorData`] via [`from_engine_error`].
-pub trait VmView: Send + Sync {
-    /// Every VM the node has.
-    fn list(&self) -> Result<Vec<delonix_compute::Vm>, EngineError>;
-    /// One VM's full record by name.
-    fn status(&self, name: &str) -> Result<delonix_compute::Vm, EngineError>;
-}
+/// The composed engine's VM queries, as this server needs them (ADR-0040 A5).
+///
+/// This is `delonix-mgmt`'s [`VmView`](delonix_mgmt::VmView), reused rather than
+/// redeclared: `delonix-mcp` already depends on `delonix-mgmt` (for `dashstats`),
+/// and `dashstats::collect` needs the very same VM port, so a second identical
+/// trait here would let the two drift. The bin mounts a `delonix_engine::Engine`
+/// and hands the server an implementor; the interface receives the engine already
+/// composed and never names the assembly crate (an interface→assembly dependency
+/// is forbidden by the arch gate — the VM backend reaches this crate as this
+/// port, not as a `delonix-vm` dependency). Errors arrive already mapped to the
+/// shared [`EngineError`], turned into an MCP [`ErrorData`] via [`from_engine_error`].
+pub use delonix_mgmt::VmView;
 
 fn list_vms(vms: &dyn VmView) -> Result<Vec<delonix_compute::Vm>, ErrorData> {
     vms.list().map_err(from_engine_error)
@@ -328,7 +327,7 @@ impl DelonixMcp {
         annotations(read_only_hint = true)
     )]
     fn runtime_info(&self) -> String {
-        let summary = delonix_mgmt::dashstats::collect(&self.base, false, false);
+        let summary = delonix_mgmt::dashstats::collect(&self.base, self.vms.as_ref(), false, false);
         self.log("runtime.info", "ok", &json!({}), None, None, None);
         pretty(json!({
             "version": env!("CARGO_PKG_VERSION"),
@@ -540,7 +539,7 @@ impl DelonixMcp {
         annotations(read_only_hint = true)
     )]
     fn metrics_query(&self) -> String {
-        let summary = delonix_mgmt::dashstats::collect(&self.base, false, false);
+        let summary = delonix_mgmt::dashstats::collect(&self.base, self.vms.as_ref(), false, false);
         self.log("metrics.query", "ok", &json!({}), None, None, None);
         pretty(summary)
     }

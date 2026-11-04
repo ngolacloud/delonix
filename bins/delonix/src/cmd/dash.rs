@@ -218,7 +218,8 @@ impl DashData {
     /// `tui::render`.
     pub fn collect(scope: DashScope) -> Result<DashData> {
         let root = state_root();
-        let summary = delonix_mgmt::dashstats::collect(&root, true, true);
+        let summary =
+            delonix_mgmt::dashstats::collect(&root, &crate::cmd::engine_vms::vm_view(&root), true, true);
         // Per-container network breakdown: same expensive-collection budget
         // as the aggregate TRAFFIC tile above (a one-shot `--once`/`--json`
         // caller already accepts a slow full collect — see `collect`'s doc
@@ -874,7 +875,8 @@ mod tui {
         // left to clean up). From here on, ALL exit paths restore the
         // terminal (the central `render` function does the cleanup once at
         // the end).
-        let cheap = delonix_mgmt::dashstats::collect(&root, false, false);
+        let cheap =
+            delonix_mgmt::dashstats::collect(&root, &crate::cmd::engine_vms::vm_view(&root), false, false);
         let empty_net = HashMap::new();
         let data = DashData::collect_with(scope, &root, cheap.clone(), &empty_net)?;
 
@@ -908,6 +910,7 @@ mod tui {
                 // values. The mgmt loop, which HAS a log, distinguishes them.
                 let full = delonix_mgmt::dashstats::collect_with_timeout(
                     &root,
+                    Arc::new(crate::cmd::engine_vms::vm_view(&root)),
                     true,
                     true,
                     COLLECT_TIMEOUT,
@@ -1253,7 +1256,12 @@ mod tui {
 
             // Collect every ~1s (not every frame).
             if last.elapsed() >= Duration::from_secs(1) {
-                let mut summary = delonix_mgmt::dashstats::collect(&root, false, false);
+                let mut summary = delonix_mgmt::dashstats::collect(
+                    &root,
+                    &crate::cmd::engine_vms::vm_view(&root),
+                    false,
+                    false,
+                );
                 let mut per_container_net = HashMap::new();
                 if let Ok(slow) = shared.lock() {
                     summary.network_rx_bytes = slow.summary.network_rx_bytes;

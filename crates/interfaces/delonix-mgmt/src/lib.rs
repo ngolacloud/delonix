@@ -17,7 +17,10 @@
 
 pub mod dashstats;
 
+pub use dashstats::VmView;
+
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -44,20 +47,29 @@ struct AppState {
     /// exists because that logic lives in a crate with no `[lib]` target, and
     /// ADR-0041 (Proposed) plans moving these mutations onto library calls.
     bin: PathBuf,
+    /// The node's VM service as a read-only port. The interface never names the
+    /// `delonix-vm` adapter (ADR-0040 A5): the bin composes the engine and hands
+    /// in this `VmView`, so the dashstats VM counts/series resolve off the port.
+    vms: Arc<dyn VmView>,
 }
 
 /// Starts the management API listening on a unix socket (blocking). `addr` accepts
 /// a path or `unix:///path`. Same pattern as `delonix-cri::serve_blocking`.
-pub fn serve_blocking(base: PathBuf, addr: &str) -> Result<(), Error> {
+pub fn serve_blocking(base: PathBuf, vms: Arc<dyn VmView>, addr: &str) -> Result<(), Error> {
     // The CLI the mutations run: never this process's own executable, which is the
     // API server (`delonix serve api` runs `delonix-mgmt`) and would serve again
     // instead of running the command.
     let bin = delonix_host::dispatch::cli_bin();
-    serve_blocking_with(base, bin, addr)
+    serve_blocking_with(base, bin, vms, addr)
 }
 
 /// Like [`serve_blocking`], but with the CLI binary explicit (for tests).
-pub fn serve_blocking_with(base: PathBuf, bin: PathBuf, addr: &str) -> Result<(), Error> {
+pub fn serve_blocking_with(
+    base: PathBuf,
+    bin: PathBuf,
+    vms: Arc<dyn VmView>,
+    addr: &str,
+) -> Result<(), Error> {
     let path = addr.strip_prefix("unix://").unwrap_or(addr).to_string();
     delonix_node::alloc_tuning::limit_malloc_arenas();
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -86,8 +98,8 @@ pub fn serve_blocking_with(base: PathBuf, bin: PathBuf, addr: &str) -> Result<()
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
         eprintln!("delonix-mgmt (management API) listening on unix://{path}");
-        tokio::spawn(spawn_expensive_metrics_refresh(base.clone()));
-        serve_over_uds(uds, router(AppState { base, bin })).await
+        tokio::spawn(spawn_expensive_metrics_refresh(base.clone(), Arc::clone(&vms)));
+        serve_over_uds(uds, router(AppState { base, bin, vms })).await
     })
 }
 
@@ -101,7 +113,7 @@ pub fn serve_blocking_with(base: PathBuf, bin: PathBuf, addr: &str) -> Result<()
 /// fresh on every `/metrics` request (see `metrics()`) — only this slow half
 /// is decoupled. Runs for the lifetime of the process; best-effort (a
 /// collection panic/slow disk on one tick never stops the next one).
-async fn spawn_expensive_metrics_refresh(base: PathBuf) {
+async fn spawn_expensive_metrics_refresh(base: PathBuf, vms: Arc<dyn VmView>) {
     // BUG FOUND (code review): this used to `.await` `dashstats::collect`
     // with no ceiling at all — a genuinely stuck disk/netns operation (not
     // just "slow", an actual hang) would freeze this loop, and every
@@ -127,8 +139,9 @@ async fn spawn_expensive_metrics_refresh(base: PathBuf) {
             }
         }
         let base = base.clone();
+        let vms = Arc::clone(&vms);
         let summary = tokio::task::spawn_blocking(move || {
-            dashstats::collect_with_timeout(&base, true, true, COLLECT_TIMEOUT)
+            dashstats::collect_with_timeout(&base, vms, true, true, COLLECT_TIMEOUT)
         })
         .await;
         match summary {
@@ -315,10 +328,11 @@ async fn ping() -> &'static str {
 /// to its interval, never read on the scrape itself.
 async fn metrics(State(s): State<AppState>) -> impl IntoResponse {
     let base = s.base.clone();
+    let vms = Arc::clone(&s.vms);
     let collected = tokio::task::spawn_blocking(move || {
         (
-            dashstats::collect(&base, false, false),
-            dashstats::collect_workload_series(&base),
+            dashstats::collect(&base, &*vms, false, false),
+            dashstats::collect_workload_series(&base, &*vms),
         )
     })
     .await;
@@ -343,7 +357,8 @@ async fn metrics(State(s): State<AppState>) -> impl IntoResponse {
 /// doc comment) — a client with a request timeout shorter than that should
 /// use `/metrics` instead, which is always fast.
 async fn dash_summary(State(s): State<AppState>) -> Response {
-    match tokio::task::spawn_blocking(move || dashstats::collect(&s.base, true, true)).await {
+    match tokio::task::spawn_blocking(move || dashstats::collect(&s.base, &*s.vms, true, true)).await
+    {
         Ok(summary) => Json(summary).into_response(),
         Err(e) => err_response(Error::Runtime {
             context: "join",
@@ -1494,6 +1509,19 @@ mod tests {
     use http_body_util::BodyExt;
     use tower::ServiceExt; // oneshot
 
+    /// A `VmView` with no VMs — these handler tests exercise the volume/
+    /// container/validation routes, none of which read VMs; the VM port is
+    /// proven through the engine in the cross-process e2e.
+    struct NoVms;
+    impl VmView for NoVms {
+        fn list(&self) -> Result<Vec<delonix_compute::Vm>, Error> {
+            Ok(Vec::new())
+        }
+        fn status(&self, name: &str) -> Result<delonix_compute::Vm, Error> {
+            Err(Error::VmNotFound(name.to_string()))
+        }
+    }
+
     fn test_state() -> (AppState, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         (
@@ -1502,6 +1530,7 @@ mod tests {
                 // `/bin/false`: the real mutations are proven in the cross-process e2e;
                 // the unit tests cover only the validation (refusal BEFORE the exec).
                 bin: PathBuf::from("/bin/false"),
+                vms: Arc::new(NoVms),
             },
             dir,
         )

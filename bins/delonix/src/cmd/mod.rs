@@ -17,6 +17,7 @@ pub mod dependency;
 pub mod diff;
 pub mod dns_cleanup;
 pub mod dockerapi;
+pub mod engine_vms;
 pub mod drift;
 pub mod etcd;
 pub mod etcd_backup;

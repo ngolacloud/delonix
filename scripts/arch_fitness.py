@@ -297,7 +297,7 @@ CLI_DESTINATION = {
     "net": "delonix-cli", "manifestcmd": "delonix-cli", "mod": "delonix-cli", "serve": "delonix-cli",
     # delonix-engine (composition root, R3)
     "vmbackends": "delonix-engine", "providers_config": "delonix-engine", "provider": "delonix-engine",
-    "util": "delonix-engine",
+    "util": "delonix-engine", "engine_vms": "delonix-engine",
     # adapters
     "mapped": "delonix-linux", "ingress_proxy": "delonix-l7proxy", "remote": "delonix-ssh",
     "gitops_git": "delonix-git", "cni_plugins": "delonix-sdn",

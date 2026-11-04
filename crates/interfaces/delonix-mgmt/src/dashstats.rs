@@ -10,16 +10,32 @@
 //!    straight into [`collect`] instead of re-implementing the aggregation.
 //!
 //! Lives here (not in the foundation or a context) because it needs the store/
-//! cgroup/netns access of `delonix-linux`/`delonix-vm`/`delonix-sdn`/
-//! `delonix-oci`/`delonix-volume` — adapters a lower layer cannot depend on.
+//! cgroup/netns access of `delonix-linux`/`delonix-sdn`/`delonix-oci`/
+//! `delonix-volume` — adapters a lower layer cannot depend on. VMs arrive
+//! through the [`VmView`] port instead of a direct `delonix-vm` dependency
+//! (ADR-0040 A5): the assembly composes the VM service and the bin hands it in.
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
 use delonix_linux::pressure::{self, CgroupSeries, Why};
 use delonix_model::records::Status;
+
+/// Read-only view of the node's VMs — the one VM use case this collector needs.
+/// The interface holds this port instead of calling the `delonix-vm` adapter
+/// directly (ADR-0040 A5): the `delonix-engine` assembly composes the service
+/// and the bin hands it in, so no `interface -> adapter` edge survives. Shared
+/// with `delonix-mcp`, which reuses this exact trait for its
+/// `resource.list`/`resource.get vm` path (it already depends on `delonix-mgmt`),
+/// so the two surfaces cannot drift.
+pub trait VmView: Send + Sync {
+    /// Every VM the node has.
+    fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error>;
+    /// One VM's full record by name.
+    fn status(&self, name: &str) -> Result<delonix_compute::Vm, delonix_model::Error>;
+}
 use delonix_telemetry::workload::{
     CpuThrottle, MemoryEvents, Pressure as WorkloadPressure, Stall, Unavailable, WorkloadKind,
     WorkloadSeries,
@@ -105,7 +121,12 @@ fn dir_size(p: &Path) -> u64 {
 /// (a background tokio task) for the two real callers of that pattern.
 /// One-shot callers with no latency budget (`--once`/`--json`, a human
 /// hitting `/v1/dash`) should pass `true` for both.
-pub fn collect(root: &Path, include_network: bool, include_storage: bool) -> DashSummary {
+pub fn collect(
+    root: &Path,
+    vms: &dyn VmView,
+    include_network: bool,
+    include_storage: bool,
+) -> DashSummary {
     let mut containers_running = 0u64;
     let mut containers_total = 0u64;
     let mut running_ids: Vec<String> = Vec::new();
@@ -122,9 +143,9 @@ pub fn collect(root: &Path, include_network: bool, include_storage: bool) -> Das
         }
     }
 
-    let vms = delonix_vm::list(root).unwrap_or_default();
-    let vms_running = vms.iter().filter(|v| v.status == Status::Running).count() as u64;
-    let vms_total = vms.len() as u64;
+    let vm_list = vms.list().unwrap_or_default();
+    let vms_running = vm_list.iter().filter(|v| v.status == Status::Running).count() as u64;
+    let vms_total = vm_list.len() as u64;
 
     let networks_total = delonix_sdn::NetworkStore::open(root)
         .and_then(|s| s.list())
@@ -335,13 +356,16 @@ static COLLECT_IN_FLIGHT: InFlight = InFlight::new();
 /// See [`run_bounded`] for both mechanisms and why each is needed.
 pub fn collect_with_timeout(
     root: &Path,
+    vms: Arc<dyn VmView>,
     include_network: bool,
     include_storage: bool,
     timeout: Duration,
 ) -> Bounded<DashSummary> {
+    // Owned `Arc` (not a borrow): `run_bounded` moves `work` into a `'static`
+    // worker thread, so the VM port must outlive this stack frame.
     let root = root.to_path_buf();
     run_bounded(&COLLECT_IN_FLIGHT, timeout, move || {
-        collect(&root, include_network, include_storage)
+        collect(&root, &*vms, include_network, include_storage)
     })
 }
 
@@ -429,7 +453,7 @@ fn container_net_from_cache(id: &str) -> Option<(u64, u64)> {
 /// the engine creates no cgroup for a VMM, so on most hosts a VM's series are
 /// absent with reason `shared_cgroup` rather than a whole session's numbers
 /// under the VM's name.
-pub fn collect_workload_series(root: &Path) -> Vec<WorkloadSeries> {
+pub fn collect_workload_series(root: &Path, vms: &dyn VmView) -> Vec<WorkloadSeries> {
     let mut out = Vec::new();
     if let Ok(store) = delonix_state::Store::open(root.join("containers")) {
         if let Ok(list) = store.list() {
@@ -447,7 +471,7 @@ pub fn collect_workload_series(root: &Path) -> Vec<WorkloadSeries> {
             }
         }
     }
-    for vm in delonix_vm::list(root).unwrap_or_default() {
+    for vm in vms.list().unwrap_or_default() {
         if vm.status != Status::Running {
             continue;
         }
@@ -565,10 +589,23 @@ pub fn publish_workloads_to_metrics(series: Vec<WorkloadSeries>) {
 mod tests {
     use super::*;
 
+    /// A `VmView` with no VMs — the collector's numbers for an empty node do
+    /// not depend on the VM port, so these tests inject this instead of a real
+    /// engine. VM-aware collection is proved end-to-end through the bin.
+    struct NoVms;
+    impl VmView for NoVms {
+        fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error> {
+            Ok(Vec::new())
+        }
+        fn status(&self, name: &str) -> Result<delonix_compute::Vm, delonix_model::Error> {
+            Err(delonix_model::Error::VmNotFound(name.to_string()))
+        }
+    }
+
     #[test]
     fn collect_sobre_root_vazio_nao_rebenta_e_da_zeros() {
         let dir = tempfile::tempdir().unwrap();
-        let s = collect(dir.path(), true, true);
+        let s = collect(dir.path(), &NoVms, true, true);
         assert_eq!(s.containers_running, 0);
         assert_eq!(s.containers_total, 0);
         assert_eq!(s.vms_total, 0);
@@ -579,7 +616,7 @@ mod tests {
     #[test]
     fn collect_sem_include_network_nem_storage_devolve_none() {
         let dir = tempfile::tempdir().unwrap();
-        let s = collect(dir.path(), false, false);
+        let s = collect(dir.path(), &NoVms, false, false);
         assert_eq!(s.network_rx_bytes, None);
         assert_eq!(s.network_tx_bytes, None);
         assert_eq!(s.storage_bytes_images, None);
@@ -615,7 +652,7 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         wait_for_idle_latch();
         let dir = tempfile::tempdir().unwrap();
-        let s = collect_with_timeout(dir.path(), true, true, Duration::from_secs(10));
+        let s = collect_with_timeout(dir.path(), Arc::new(NoVms), true, true, Duration::from_secs(10));
         assert!(matches!(s, Bounded::Done(_)));
     }
 
@@ -629,7 +666,7 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         wait_for_idle_latch();
         let dir = tempfile::tempdir().unwrap();
-        let s = collect_with_timeout(dir.path(), true, true, Duration::from_nanos(1));
+        let s = collect_with_timeout(dir.path(), Arc::new(NoVms), true, true, Duration::from_nanos(1));
         assert!(matches!(s, Bounded::TimedOut));
         // O worker desta colheita ainda está a correr (só o PRAZO expirou);
         // espera que largue a latch antes de devolver o mutex.
@@ -906,6 +943,6 @@ mod tests {
     #[test]
     fn collect_workload_series_on_an_empty_root_is_empty() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(collect_workload_series(dir.path()).is_empty());
+        assert!(collect_workload_series(dir.path(), &NoVms).is_empty());
     }
 }
