@@ -4595,6 +4595,14 @@
     "TunnelSpec": {
       "additionalProperties": false,
       "properties": {
+        "class": {
+          "default": null,
+          "description": "Which kind of Gateway this is (ADR-0086 D4): `tunnel` (the default, and\neverything above — a public edge via `pinggy`/`ngrok`/`cloudflare`) or\n`native` (a Gateway-API entry point: `listeners[]`, addresses from an\n`IPPool`, TLS). One Kind, two classes, no second `Gateway`. The `native`\napply is NOT built yet — `lower_tunnel_provider` refuses it with a flag\n(it lands in a later phase); until then the field exists so a manifest\ncan DECLARE the class and the collision is resolved at the catalog level.\n\nRead off the raw document in `lower_tunnel_provider` (before `provider`,\nwhich `native` lacks), never off this typed struct — it is here only so\nthe generated schema carries the field and a round-trip preserves it, the\nsame reason `ApplicationSpec.pod` is `#[allow(dead_code)]`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "hostname": {
           "default": null,
           "description": "Custom/reserved hostname — provider-dependent support (see module doc).\nFor `cloudflare` this is informational only: it does not create the\nroute, it just labels the URL this tunnel is expected to answer on —\nthe route itself lives in the Cloudflare dashboard for that tunnel.",
