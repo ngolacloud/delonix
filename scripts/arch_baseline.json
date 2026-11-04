@@ -4,5 +4,10 @@
   "env_writes": 23,
   "shared_error_imports": 3,
   "raw_error_variant_matches": 0,
-  "context_spawns": 0
+  "context_spawns": 0,
+  "cli_context_lines": 118322,
+  "interface_mechanism_deps": 27,
+  "provider_namers": 17,
+  "bin_crates": 5,
+  "inter_context_violations": 3
 }

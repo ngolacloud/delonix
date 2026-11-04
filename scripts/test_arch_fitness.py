@@ -244,5 +244,85 @@ class SilentTestSkips(unittest.TestCase):
         self.assertGreaterEqual(len(g.test_functions(proxmox)), 42)
 
 
+def _pkg(name, deps):
+    """A cargo-metadata package with normal dependencies, for the C1 rules."""
+    return {"name": name, "dependencies": [{"name": d, "kind": None} for d in deps]}
+
+
+class C1RestructuringRules(unittest.TestCase):
+    """The C1 ratchets and rules of the R5 restructuring (ADR-0040 R0 amendment)."""
+
+    def test_the_part_d_map_covers_every_cmd_module(self):
+        """A cmd module with no Part D destination, or a destination for a module
+        that no longer exists, is a coverage failure — the map cannot drift."""
+        _, bad = g.cli_destination_map()
+        self.assertEqual(bad, [], "Part D map out of sync with cmd/ — fix CLI_DESTINATION")
+
+    def test_every_context_destination_is_a_known_context(self):
+        for dest in g.CONTEXT_DESTINATIONS:
+            self.assertTrue(dest.startswith("delonix-"), dest)
+
+    def test_interface_depending_on_an_adapter_is_counted(self):
+        pkgs = {
+            "delonix-cri": _pkg("delonix-cri", ["delonix-linux", "delonix-compute"]),
+            "delonix-linux": _pkg("delonix-linux", []),
+            "delonix-compute": _pkg("delonix-compute", []),
+        }
+        n, where = g.interface_mechanism_deps(pkgs)
+        self.assertEqual(n, 1)
+        self.assertIn("delonix-cri -> delonix-linux (adapter)", where)
+
+    def test_a_provider_namer_outside_the_engine_is_counted_but_the_engine_is_not(self):
+        pkgs = {
+            "delonix-engine": _pkg("delonix-engine", ["delonix-proxmox"]),
+            "delonix-node-api": _pkg("delonix-node-api", ["delonix-proxmox"]),
+        }
+        n, where = g.provider_namers(pkgs)
+        self.assertEqual(n, 1)
+        self.assertEqual(where, ["delonix-node-api -> delonix-proxmox"])
+
+    def test_an_inter_context_edge_outside_a3_fails_and_an_allowed_one_does_not(self):
+        pkgs = {
+            # networking may depend on no other context — a violation
+            "delonix-networking": _pkg("delonix-networking", ["delonix-compute"]),
+            # gateway → networking is allowed by A3 — not a violation
+            "delonix-gateway": _pkg("delonix-gateway", ["delonix-networking"]),
+            "delonix-compute": _pkg("delonix-compute", []),
+        }
+        # the layer table must know these names for the LAYERS.get(...) == CONTEXT guard
+        saved = dict(g.LAYERS)
+        g.LAYERS["delonix-gateway"] = g.CONTEXT
+        try:
+            n, where = g.inter_context_violations(pkgs)
+        finally:
+            g.LAYERS.clear()
+            g.LAYERS.update(saved)
+        self.assertEqual(n, 1)
+        self.assertEqual(where, ["delonix-networking -> delonix-compute (not in A3)"])
+
+    def test_oversize_without_a_plan_fails_and_a_stale_allowlist_entry_fails(self):
+        over = g.oversize_crates({"delonix-huge": g.SIZE_LIMIT + 1})
+        self.assertTrue(any("no ADR/split plan" in b for b in over))
+        # every allowlisted crate pretending to be small = stale entries
+        small = g.oversize_crates({name: 10 for name in g.OVERSIZE_ALLOWLIST})
+        self.assertEqual(len(small), len(g.OVERSIZE_ALLOWLIST))
+        self.assertTrue(all("remove it" in b for b in small))
+
+    def test_an_allowlisted_oversize_crate_passes(self):
+        # every allowlist entry genuinely oversize -> no failure
+        lines = {name: g.SIZE_LIMIT + 5000 for name in g.OVERSIZE_ALLOWLIST}
+        self.assertEqual(g.oversize_crates(lines), [])
+
+    def test_bins_live_under_bins(self):
+        import pathlib
+        pkgs = {
+            "delonix-bin": {"manifest_path": str(g.ROOT / "bins/delonix/Cargo.toml"), "dependencies": []},
+            "delonix-compute": {"manifest_path": str(g.ROOT / "crates/contexts/delonix-compute/Cargo.toml"), "dependencies": []},
+        }
+        n, names = g.bin_crates(pkgs)
+        self.assertEqual(n, 1)
+        self.assertEqual(names, ["delonix-bin"])
+
+
 if __name__ == "__main__":
     unittest.main()
