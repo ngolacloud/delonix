@@ -610,10 +610,7 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
              `systemd-run --user --scope -p Delegate=yes`.",
         ));
     }
-    // SAFETY: single-threaded here; read by the re-exec children.
-    unsafe {
-        std::env::set_var("DELONIX_NO_CGROUP_WARN", "1");
-    }
+    super::util::silence_cgroup_warning();
 
     std::fs::create_dir_all(cluster_dir(&cfg.name))?;
     let net = cluster_net(&cfg.name);
@@ -1182,11 +1179,7 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
                  `systemd-run --user --scope -p Delegate=yes`."),
         );
     }
-    // SAFETY: single-threaded here (before any worker thread); the env
-    // var is read by the re-exec child processes, not by this thread.
-    unsafe {
-        std::env::set_var("DELONIX_NO_CGROUP_WARN", "1");
-    }
+    super::util::silence_cgroup_warning();
 
     // The shared dir must exist BEFORE the 1st node (it is the bind mount target).
     std::fs::create_dir_all(cluster_dir(&cfg.name))?;
