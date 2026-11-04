@@ -12,6 +12,7 @@
 | adapter | 10 | 80,643 | 22.9% |
 | provider | 10 | 54,557 | 15.5% |
 | interface | 4 | 31,717 | 9.0% |
+| assembly | 0 | 0 | 0.0% |
 | bin | 5 | 150,715 | 42.9% |
 | **total** | **37** | **351,675** | 100% |
 
@@ -428,5 +429,6 @@ graph LR
   classDef adapter fill:#fef7e0,stroke:#fbbc04;
   classDef provider fill:#fce8e6,stroke:#ea4335;
   classDef interface fill:#f3e8fd,stroke:#a142f4;
+  classDef assembly fill:#e0f7fa,stroke:#00acc1;
   classDef bin fill:#e8eaed,stroke:#5f6368;
 ```
