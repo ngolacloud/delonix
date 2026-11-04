@@ -510,6 +510,45 @@ def domain_impurities() -> list[str]:
     return bad
 
 
+_PUB_ITEM = re.compile(r"\bpub (?:struct|enum|fn|const|type|trait) ([A-Za-z_][A-Za-z0-9_]*)")
+_CRATE_GROUP = re.compile(r"crate::\{([^}]*)\}")
+_CRATE_ITEM = re.compile(r"crate::([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def domain_app_refs() -> tuple[int, list[str]]:
+    """A `domain/` module referencing a VALUE defined in an `app/` module of the
+    same context (C1 #2b ratchet).
+
+    `domain_impurities` proves a domain module runs no I/O, but a module can be
+    pure and still point the WRONG WAY: compute's `domain/vm_provider` uses the
+    `CpuTopology`/`ExtraDisk` value types that sit in `app/record` (reached through
+    the crate-root `pub use record::*`), so cargo is happy and purity holds, yet
+    domain depends on app. This counts those references — a pure domain type
+    trapped in an impure module is lifted into `domain/` to pay it down. Measured
+    by crate-root item name (that is how the reference is written), so it sees the
+    re-export path the module ref check misses."""
+    where: list[str] = []
+    for ctx in sorted((ROOT / "crates/contexts").glob("*")):
+        dom, app = ctx / "src" / "domain", ctx / "src" / "app"
+        if not dom.is_dir() or not app.is_dir():
+            continue
+        app_items: set[str] = set()
+        for f in app.glob("*.rs"):
+            if f.name == "mod.rs":
+                continue
+            app_items |= set(_PUB_ITEM.findall(f.read_text(encoding="utf-8", errors="replace")))
+        for f in sorted(dom.rglob("*.rs")):
+            if f.name == "mod.rs":
+                continue
+            code = rust_code_only(f.read_text(encoding="utf-8", errors="replace"))
+            names = set(_CRATE_ITEM.findall(code))
+            for grp in _CRATE_GROUP.findall(code):
+                names |= {n for n in re.split(r"[,\s]+", grp) if n}
+            for name in sorted(names & app_items):
+                where.append(f"{f.relative_to(ROOT).as_posix()}: crate::{name} (in app/)")
+    return len(where), where
+
+
 def duplicate_context_traits() -> list[str]:
     """The same `pub trait` name declared in two different contexts (C1 #7, hard
     rule): a port carries the consumer's name (VmNetwork, WorkloadVolumes), so two
@@ -982,6 +1021,7 @@ def main() -> int:
     prov_namers, prov_namers_where = provider_namers(pkgs)
     n_bins, bin_where = bin_crates(pkgs)
     ctx_viol, ctx_viol_where = inter_context_violations(pkgs)
+    dom_app, dom_app_where = domain_app_refs()
     crate_lines = crate_rs_lines()
     # C1 hard rules (no ratchet: a violation fails, full stop).
     bad += cli_map_bad
@@ -1002,6 +1042,7 @@ def main() -> int:
         "provider_namers": prov_namers,
         "bin_crates": n_bins,
         "inter_context_violations": ctx_viol,
+        "domain_app_refs": dom_app,
     }
 
     if args.list:
@@ -1035,6 +1076,9 @@ def main() -> int:
         print(f"crates under bins/ (C1 #5): {', '.join(bin_where)}")
         print("inter-context edges outside A3 (C1 #8):")
         for w in ctx_viol_where:
+            print(f"  {w}")
+        print("domain/ referencing an app/ value (C1 #2b):")
+        for w in dom_app_where:
             print(f"  {w}")
         print("crates over the size budget (C1 #6):")
         for name, n in sorted(crate_lines.items()):

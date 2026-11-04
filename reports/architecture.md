@@ -130,6 +130,7 @@ falls without the baseline lowered in the same commit.
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 5 | 5 | 1 (R1) |
 | inter_context_violations | 2 | 2 | 0 (R2) |
+| domain_app_refs | 13 | 13 | — |
 
 ## Open layer exceptions
 
