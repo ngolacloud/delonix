@@ -638,7 +638,11 @@ pub struct BuildArgs {
     /// number is not derivable from the release, and Fedora's redirector
     /// offers no listing to look it up, so it is asked for rather than
     /// guessed.
-    #[arg(long, default_value = "42-1.1")]
+    // Default `44-1.1` (review 2026-11-04): Fedora 42 reached EOL in May 2026. The
+    // build suffix (`-1.1`) is the one Fedora's download page shows for the GA spin;
+    // confirm it against the mirror if a build pulls a 404. (A `//` note, not `///`:
+    // the help text — and its pt.po entry — stays exactly as it was.)
+    #[arg(long, default_value = "44-1.1")]
     pub fedora_release: String,
     /// Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION`
     /// (1.37, o estável mais recente do pkgs.k8s.io). 1.34/1.35/1.36 continuam
@@ -1312,19 +1316,19 @@ pub(crate) struct OfficialRepo {
 pub(crate) const OFFICIAL_REPOS: &[OfficialRepo] = &[
     OfficialRepo {
         key: "k8s",
-        repo: "ghcr.io/angolardevops/delonix-vm-k8s",
+        repo: "ghcr.io/ngolacloud/delonix-vm-k8s",
         default_tag: Some(DEFAULT_K8S_VERSION),
         what: "golden Kubernetes node (kubeadm/kubelet/kubectl + delonix-cri)",
     },
     OfficialRepo {
         key: "base",
-        repo: "ghcr.io/angolardevops/delonix-vm-base",
+        repo: "ghcr.io/ngolacloud/delonix-vm-base",
         default_tag: Some("ubuntu-24.04"),
         what: "base OS images (delonix engine, rootless-ready, no Kubernetes)",
     },
     OfficialRepo {
         key: "appliances",
-        repo: "ghcr.io/angolardevops/delonix-vm-appliances",
+        repo: "ghcr.io/ngolacloud/delonix-vm-appliances",
         default_tag: None,
         what: "vendor appliances (OPNsense, Proxmox, TrueNAS) — no cloud-init",
     },
@@ -1520,13 +1524,13 @@ pub(crate) const GOLDEN_DISK_SIZE_GIB: u32 = 10;
 /// A tag TEM de ser `DEFAULT_K8S_VERSION` — amarrado pelo teste
 /// `a_imagem_oficial_aponta_para_a_versao_por_omissao` (o `concat!` não aceita
 /// constantes, e duas fontes de verdade para o mesmo número divergem sempre).
-pub(crate) const OFFICIAL_VM_IMAGE: &str = "ghcr.io/angolardevops/delonix-vm-k8s:1.37";
+pub(crate) const OFFICIAL_VM_IMAGE: &str = "ghcr.io/ngolacloud/delonix-vm-k8s:1.37";
 
 /// Golden VM image with NO Kubernetes — just the `delonix` engine binary and
 /// rootless prerequisites (see `rootless_customization_steps`). Selected by
 /// `Pull`/`LsRemote --no-k8s` when no explicit `source` is given.
 pub(crate) const OFFICIAL_VM_BASE_IMAGE: &str =
-    "ghcr.io/angolardevops/delonix-vm-base:ubuntu-24.04";
+    "ghcr.io/ngolacloud/delonix-vm-base:ubuntu-24.04";
 
 /// Downloads a cloud image from an ARBITRARY URL, for `FROM https://…`.
 ///
@@ -1628,7 +1632,7 @@ pub(crate) fn image_of_disk(disk: &str) -> Option<VmImage> {
 ///
 /// `FROM ubuntu:24.04` used to mean one thing only: go to Canonical and fetch
 /// their cloud image. But the project publishes its own base for that same
-/// distro and release — `ghcr.io/angolardevops/delonix-vm-base:ubuntu-24.04`,
+/// distro and release — `ghcr.io/ngolacloud/delonix-vm-base:ubuntu-24.04`,
 /// built and validated here — so a recipe that names a distro should land on
 /// THAT, and reach the publisher only when the project has nothing to offer.
 /// The tag spelling needs no translation table: the official repositories
@@ -1662,7 +1666,7 @@ pub(crate) fn official_distro_base(
         );
         return Some(path);
     }
-    let source = format!("ghcr.io/angolardevops/delonix-vm-base:{tag}");
+    let source = format!("ghcr.io/ngolacloud/delonix-vm-base:{tag}");
     eprintln!(
         "{}",
         super::po::tf(
@@ -8764,7 +8768,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             .ends_with("delonix-vm-appliances"));
         assert_eq!(
             resolve_official_ref_local("k8s:1.35").as_deref(),
-            Some("ghcr.io/angolardevops/delonix-vm-k8s:1.35")
+            Some("ghcr.io/ngolacloud/delonix-vm-k8s:1.35")
         );
     }
 

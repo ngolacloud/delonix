@@ -25,7 +25,7 @@ on:
         default: "24.04"
       image:
         description: "Repositório OCI de destino"
-        default: "ghcr.io/angolardevops/delonix-vm-k8s"
+        default: "ghcr.io/ngolacloud/delonix-vm-k8s"
       no_k8s:
         description: "Construir a variante SEM Kubernetes (só delonix + rootless)"
         type: boolean
@@ -47,7 +47,7 @@ on:
         default: "9"
       fedora_release:
         description: "Release E build do Fedora (ex.: 42-1.1) — o build não se deduz da versão"
-        default: "42-1.1"
+        default: "44-1.1"
 
 permissions:
   contents: read
@@ -111,7 +111,7 @@ jobs:
               echo "tag=delonix-vm-base:ubuntu-${{ inputs.ubuntu_release }}" >> "$GITHUB_OUTPUT"
               echo "dest_tag=ubuntu-${{ inputs.ubuntu_release }}" >> "$GITHUB_OUTPUT"
             fi
-            echo "dest_repo=ghcr.io/angolardevops/delonix-vm-base" >> "$GITHUB_OUTPUT"
+            echo "dest_repo=ghcr.io/ngolacloud/delonix-vm-base" >> "$GITHUB_OUTPUT"
           else
             echo "tag=delonix-vm-k8s:${{ inputs.k8s_version }}" >> "$GITHUB_OUTPUT"
             echo "dest_tag=${{ inputs.k8s_version }}" >> "$GITHUB_OUTPUT"

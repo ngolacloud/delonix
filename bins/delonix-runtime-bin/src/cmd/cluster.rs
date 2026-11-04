@@ -5624,14 +5624,14 @@ mod tests {
         // local qcow2) used to be a dead end — never attempted a pull.
         assert_eq!(
             official_pull_source("1.35"),
-            "ghcr.io/angolardevops/delonix-vm-k8s:1.35"
+            "ghcr.io/ngolacloud/delonix-vm-k8s:1.35"
         );
         // `resolve_vm_image`'s own `--k8s-version` convention
         // (`delonix-vm-k8s:<v>`) must resolve to the SAME source, not double
         // up the repo prefix.
         assert_eq!(
             official_pull_source("delonix-vm-k8s:1.35"),
-            "ghcr.io/angolardevops/delonix-vm-k8s:1.35"
+            "ghcr.io/ngolacloud/delonix-vm-k8s:1.35"
         );
     }
 
