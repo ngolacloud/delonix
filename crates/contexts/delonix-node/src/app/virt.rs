@@ -8,25 +8,9 @@
 
 use std::path::Path;
 
-/// Summary of the virtualization environment of the host where Delonix runs.
-#[derive(Debug, Clone, Default)]
-pub struct VirtInfo {
-    /// `true` if we are inside a VM (any hypervisor).
-    pub virtualized: bool,
-    /// Hypervisor name: `kvm`, `qemu`, `xen`, `vmware`, `virtualbox`,
-    /// `hyper-v`, `unknown` or `none` (bare-metal).
-    pub hypervisor: String,
-    /// `true` when the guest is KVM-accelerated (maximum performance path).
-    pub is_kvm: bool,
-    /// `/dev/kvm` present (KVM acceleration available — e.g. nested virtualization).
-    pub kvm_accel: bool,
-    /// Network interfaces served by `virtio_net` (e.g. `enp1s0`).
-    pub virtio_net: Vec<String>,
-    /// Disks served by `virtio_blk` (e.g. `vda`).
-    pub virtio_blk: Vec<String>,
-    /// Total number of devices on the virtio bus (`/sys/bus/virtio/devices`).
-    pub virtio_count: usize,
-}
+// `VirtInfo` is the pure value `detect()` produces; it lives in the context's
+// domain (ADR-0040 A4). Re-exported so `delonix_node::virt::VirtInfo` resolves.
+pub use crate::domain::VirtInfo;
 
 fn read_trim(p: &str) -> String {
     std::fs::read_to_string(p)
