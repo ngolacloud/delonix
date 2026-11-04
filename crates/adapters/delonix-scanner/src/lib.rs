@@ -19,7 +19,7 @@ pub mod pytree;
 pub use error::{Error, Result};
 
 /// The package manager that registered a package (determines the advisory source).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Ecosystem {
     /// Alpine (`/lib/apk/db/installed`).
     Apk,
@@ -110,6 +110,44 @@ fn read_member(blob: &[u8], suffix: &str) -> Option<Vec<u8>> {
     None
 }
 
+/// Enumerates EVERY tar member whose path (after an optional `./`) begins with
+/// `prefix`, returning `(relative_path, bytes)` for each regular file found.
+/// Distroless images keep one dpkg stanza per file under
+/// `var/lib/dpkg/status.d/` instead of the monolithic `var/lib/dpkg/status`, so
+/// a single `read_member` (first match only) can never see them all — this
+/// reads the whole directory. The directory marker itself and any nested
+/// directory entry are skipped; unreadable entries are ignored rather than
+/// failing the whole layer.
+fn read_members_with_prefix(blob: &[u8], prefix: &str) -> Vec<(String, Vec<u8>)> {
+    let is_gzip = blob.len() >= 2 && blob[0] == 0x1f && blob[1] == 0x8b;
+    let reader: Box<dyn Read> = if is_gzip {
+        Box::new(flate2::read::GzDecoder::new(blob))
+    } else {
+        Box::new(blob)
+    };
+    let mut out = Vec::new();
+    let mut archive = tar::Archive::new(reader);
+    let Ok(entries) = archive.entries() else {
+        return out;
+    };
+    for entry in entries {
+        let Ok(mut entry) = entry else { continue };
+        let Ok(path) = entry.path() else { continue };
+        let path = path.to_string_lossy().into_owned();
+        let rel = path.trim_start_matches("./");
+        if let Some(name) = rel.strip_prefix(prefix) {
+            if name.is_empty() || name.ends_with('/') {
+                continue;
+            }
+            let mut buf = Vec::new();
+            if entry.read_to_end(&mut buf).is_ok() {
+                out.push((rel.to_string(), buf));
+            }
+        }
+    }
+    out
+}
+
 /// Packages from an `apk` database (`P:` name, `V:` version, records separated
 /// by a blank line).
 fn parse_apk(db: &str) -> Vec<Package> {
@@ -158,6 +196,13 @@ fn parse_dpkg(db: &str) -> Vec<Package> {
 pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> {
     let mut apk_db: Option<String> = None;
     let mut dpkg_db: Option<String> = None;
+    // Distroless images register each package as its own dpkg stanza file under
+    // `var/lib/dpkg/status.d/<package>` instead of the monolithic
+    // `var/lib/dpkg/status`. Collect every such member, topmost layer winning
+    // per path (the same precedence the monolithic status already follows),
+    // keyed by the member path so a package re-shipped by an upper layer is not
+    // read twice.
+    let mut statusd: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     for digest in image.layers.iter().rev() {
         let blob = images.cas().read(digest)?;
         if apk_db.is_none() {
@@ -170,6 +215,11 @@ pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> 
                 dpkg_db = Some(String::from_utf8_lossy(&b).into_owned());
             }
         }
+        for (path, bytes) in read_members_with_prefix(&blob, "var/lib/dpkg/status.d/") {
+            statusd
+                .entry(path)
+                .or_insert_with(|| String::from_utf8_lossy(&bytes).into_owned());
+        }
     }
     let mut pkgs = Vec::new();
     if let Some(db) = apk_db {
@@ -178,6 +228,17 @@ pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> 
     if let Some(db) = dpkg_db {
         pkgs.extend(parse_dpkg(&db));
     }
+    // Each status.d/ file is a single dpkg stanza — reuse the same parser. A
+    // `.md5sums` sibling (which carries no `Package:`/`Version:` lines) yields
+    // nothing, so it is harmlessly ignored.
+    for stanza in statusd.values() {
+        pkgs.extend(parse_dpkg(stanza));
+    }
+    // An image may carry BOTH the monolithic status and status.d/ stanzas (or an
+    // upper layer may re-list a package); de-duplicate by (ecosystem, name),
+    // keeping the first seen — apk, then monolithic dpkg, then status.d.
+    let mut seen = std::collections::HashSet::new();
+    pkgs.retain(|p| seen.insert((p.ecosystem, p.name.clone())));
     if pkgs.is_empty() {
         return Err(Error::EmptySbom);
     }
@@ -749,6 +810,106 @@ mod tests {
         let pkgs = parse_dpkg(db);
         assert_eq!(pkgs.len(), 2);
         assert_eq!(pkgs[1].name, "bash");
+    }
+
+    /// Builds a gzipped tar layer from `(path, bytes)` members and writes it to
+    /// the store's CAS, returning a single-layer `Image` over it — the real path
+    /// `extract_sbom` reads (no mounting, no running).
+    fn layer_image(store: &ImageStore, files: &[(&str, &[u8])]) -> Image {
+        use std::io::Write;
+        let mut tar_buf = Vec::new();
+        {
+            let mut ar = tar::Builder::new(&mut tar_buf);
+            for (path, data) in files {
+                let mut header = tar::Header::new_gnu();
+                header.set_path(path).unwrap();
+                header.set_size(data.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                ar.append(&header, *data).unwrap();
+            }
+            ar.finish().unwrap();
+        }
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&tar_buf).unwrap();
+        let layer = gz.finish().unwrap();
+        let digest = store.cas().write(&layer).unwrap();
+        Image {
+            id: "sha256:distroless".into(),
+            repo_tags: vec!["cc-debian13:test".into()],
+            layers: vec![digest],
+            config: delonix_oci::ImageConfig::default(),
+            created_unix: 0,
+        }
+    }
+
+    #[test]
+    fn parses_dpkg_status_d() {
+        // Distroless (gcr.io/distroless/cc-debian13) keeps ONE stanza per file
+        // under var/lib/dpkg/status.d/ — the scanner must read the whole
+        // directory, not just a single `status` file (which does not exist).
+        let dir = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(dir.path()).unwrap();
+        let img = layer_image(
+            &store,
+            &[
+                (
+                    "var/lib/dpkg/status.d/base-files",
+                    b"Package: base-files\nStatus: install ok installed\nVersion: 13.1\n",
+                ),
+                (
+                    "var/lib/dpkg/status.d/libc6",
+                    b"Package: libc6\nStatus: install ok installed\nVersion: 2.37-15\n",
+                ),
+                // A .md5sums sibling (no Package:/Version:) must be ignored, not
+                // turned into a junk package.
+                (
+                    "var/lib/dpkg/status.d/libc6.md5sums",
+                    b"abc123  usr/lib/x86_64-linux-gnu/libc.so.6\n",
+                ),
+            ],
+        );
+        let sbom = extract_sbom(&store, &img).unwrap();
+        assert_eq!(sbom.len(), 2, "two real packages, the .md5sums ignored");
+        assert_eq!(sbom[0].name, "base-files");
+        assert_eq!(sbom[0].version, "13.1");
+        assert_eq!(sbom[0].ecosystem, Ecosystem::Dpkg);
+        assert_eq!(sbom[1].name, "libc6");
+        assert_eq!(sbom[1].version, "2.37-15");
+    }
+
+    #[test]
+    fn extract_sbom_junta_status_e_status_d_sem_duplicar() {
+        // An image carrying BOTH the monolithic status and a status.d/ stanza:
+        // the shared package (libc6) must appear once, the extras from each side
+        // must all be present.
+        let dir = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(dir.path()).unwrap();
+        let img = layer_image(
+            &store,
+            &[
+                (
+                    "var/lib/dpkg/status",
+                    b"Package: libc6\nVersion: 2.37-15\n\nPackage: bash\nVersion: 5.2-15\n",
+                ),
+                (
+                    "var/lib/dpkg/status.d/libc6",
+                    b"Package: libc6\nVersion: 2.37-15\n",
+                ),
+                (
+                    "var/lib/dpkg/status.d/tzdata",
+                    b"Package: tzdata\nVersion: 2025a-1\n",
+                ),
+            ],
+        );
+        let sbom = extract_sbom(&store, &img).unwrap();
+        let names: Vec<&str> = sbom.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["bash", "libc6", "tzdata"]);
+        assert_eq!(
+            sbom.iter().filter(|p| p.name == "libc6").count(),
+            1,
+            "libc6 listed by both sources must not be duplicated"
+        );
     }
 
     #[test]
