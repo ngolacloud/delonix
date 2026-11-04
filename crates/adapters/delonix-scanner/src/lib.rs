@@ -114,6 +114,47 @@ fn read_member(blob: &[u8], suffix: &str) -> Option<Vec<u8>> {
     None
 }
 
+/// Reads the content of the tar member at EXACTLY `rel_path` (after an optional
+/// `./`), if present. Unlike [`read_member`]'s `ends_with` match, this is an
+/// exact-path lookup — used to resolve a single-binary image's `Entrypoint`
+/// (e.g. `/app`) to its member without accidentally matching `myapp` or
+/// `usr/bin/app`.
+fn read_member_exact(blob: &[u8], rel_path: &str) -> Option<Vec<u8>> {
+    let is_gzip = blob.len() >= 2 && blob[0] == 0x1f && blob[1] == 0x8b;
+    let reader: Box<dyn Read> = if is_gzip {
+        Box::new(flate2::read::GzDecoder::new(blob))
+    } else {
+        Box::new(blob)
+    };
+    let mut archive = tar::Archive::new(reader);
+    for entry in archive.entries().ok()? {
+        let mut entry = entry.ok()?;
+        let path = entry.path().ok()?.to_string_lossy().into_owned();
+        if path.trim_start_matches("./") == rel_path {
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf).ok()?;
+            return Some(buf);
+        }
+    }
+    None
+}
+
+/// The tar member path of the image's main binary — `argv[0]` of `Entrypoint`
+/// (or `Cmd` when there is no entrypoint), but ONLY when it is an absolute path
+/// (`/app`, `/usr/local/bin/server`), which a single-binary scratch/distroless
+/// image always uses. Returns `None` for a relative or absent command:
+/// resolving those would need the image's `PATH`/`WorkingDir` and is
+/// deliberately left to a follow-up rather than guessed at here.
+fn entrypoint_member_path(config: &delonix_oci::ImageConfig) -> Option<String> {
+    let argv0 = config.entrypoint.first().or_else(|| config.cmd.first())?;
+    let rel = argv0.strip_prefix('/')?;
+    if rel.is_empty() {
+        None
+    } else {
+        Some(rel.to_string())
+    }
+}
+
 /// Enumerates EVERY tar member whose path (after an optional `./`) begins with
 /// `prefix`, returning `(relative_path, bytes)` for each regular file found.
 /// Distroless images keep one dpkg stanza per file under
@@ -447,6 +488,12 @@ pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> 
     // keyed by the member path so a package re-shipped by an upper layer is not
     // read twice.
     let mut statusd: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    // A scratch/distroless image carrying a single static binary has no package
+    // database at all — its only inventory is embedded IN that binary. Resolve
+    // the Entrypoint/Cmd to its layer member (topmost wins) and read it once; a
+    // relative or absent command leaves this `None` and the behaviour unchanged.
+    let entry_path = entrypoint_member_path(&image.config);
+    let mut entry_bin: Option<Vec<u8>> = None;
     for digest in image.layers.iter().rev() {
         let blob = images.cas().read(digest)?;
         if apk_db.is_none() {
@@ -464,6 +511,11 @@ pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> 
                 .entry(path)
                 .or_insert_with(|| String::from_utf8_lossy(&bytes).into_owned());
         }
+        if entry_bin.is_none() {
+            if let Some(ref p) = entry_path {
+                entry_bin = read_member_exact(&blob, p);
+            }
+        }
     }
     let mut pkgs = Vec::new();
     if let Some(db) = apk_db {
@@ -477,6 +529,13 @@ pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> 
     // nothing, so it is harmlessly ignored.
     for stanza in statusd.values() {
         pkgs.extend(parse_dpkg(stanza));
+    }
+    // The Entrypoint binary's embedded inventory (Go build info / Rust
+    // cargo-auditable). Each reader returns nothing for the other ecosystem (or
+    // for a non-matching binary), so feeding both is safe.
+    if let Some(bin) = entry_bin {
+        pkgs.extend(go_buildinfo_packages(&bin));
+        pkgs.extend(cargo_auditable_packages(&bin));
     }
     // An image may carry BOTH the monolithic status and status.d/ stanzas (or an
     // upper layer may re-list a package); de-duplicate by (ecosystem, name),
@@ -1162,12 +1221,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn go_buildinfo_extrai_modulos_e_ignora_devel() {
-        // A hand-built Go build-info blob in the modern inline format (the one
-        // `go version -m` reads), embedded between junk bytes so the magic scan
-        // is exercised. The parser does not check the 16-byte sentinel VALUES,
-        // only strips them, so zero padding stands in for the real sentinels.
+    /// A hand-built Go binary carrying a build-info blob in the modern inline
+    /// format (the one `go version -m` reads), embedded between junk bytes so
+    /// the magic scan is exercised. The parser does not check the 16-byte
+    /// sentinel VALUES, only strips them, so zero padding stands in for the real
+    /// sentinels. Lists `rsc.io/quote@v1.5.2` and `golang.org/x/text@v0.3.0`;
+    /// the `(devel)` main module and `path`/`build` lines must be skipped.
+    fn go_buildinfo_fixture() -> Vec<u8> {
         fn uvarint_enc(mut n: u64, out: &mut Vec<u8>) {
             loop {
                 let mut b = (n & 0x7f) as u8;
@@ -1200,7 +1260,12 @@ mod tests {
         let mut binary = vec![0xABu8; 100];
         binary.extend_from_slice(&blob);
         binary.extend_from_slice(&[0xCDu8; 50]);
+        binary
+    }
 
+    #[test]
+    fn go_buildinfo_extrai_modulos_e_ignora_devel() {
+        let binary = go_buildinfo_fixture();
         let pkgs = go_buildinfo_packages(&binary);
         let got: Vec<(&str, &str)> = pkgs
             .iter()
@@ -1269,6 +1334,44 @@ mod tests {
         );
         // A non-ELF input and an ELF without the section both yield nothing.
         assert!(cargo_auditable_packages(b"not an elf").is_empty());
+    }
+
+    #[test]
+    fn extract_sbom_le_binario_do_entrypoint_em_imagem_scratch() {
+        // A single-binary Go `scratch` image: NO dpkg/apk database anywhere,
+        // just a binary at /app. extract_sbom must resolve the Entrypoint to
+        // that layer member and read the embedded Go module list — instead of
+        // failing EmptySbom, which is what leaves `require-sbom` rejecting it.
+        let dir = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(dir.path()).unwrap();
+        let mut img = layer_image(&store, &[("app", &go_buildinfo_fixture())]);
+        img.config.entrypoint = vec!["/app".into()];
+
+        let sbom = extract_sbom(&store, &img).unwrap();
+        let go: Vec<&str> = sbom
+            .iter()
+            .filter(|p| p.ecosystem == Ecosystem::Go)
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(go, vec!["golang.org/x/text", "rsc.io/quote"]); // sorted by name
+        assert!(
+            sbom.iter().any(|p| p.name == "rsc.io/quote" && p.version == "v1.5.2"),
+            "the Go module version must survive the end-to-end read"
+        );
+    }
+
+    #[test]
+    fn extract_sbom_ignora_entrypoint_relativo_ou_ausente() {
+        // A relative command (or none) must NOT be resolved — the behaviour
+        // stays exactly as before (EmptySbom when there is nothing else).
+        let dir = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(dir.path()).unwrap();
+        let mut img = layer_image(&store, &[("app", &go_buildinfo_fixture())]);
+        img.config.entrypoint = vec!["app".into()]; // relative → not resolved
+        assert!(matches!(
+            extract_sbom(&store, &img),
+            Err(Error::EmptySbom)
+        ));
     }
 
     #[test]
