@@ -32,6 +32,7 @@ members = [
     "crates/contexts/delonix-node",
     "crates/adapters/delonix-host",
     "crates/adapters/delonix-pool-helper",
+    "crates/assembly/delonix-engine",
     "crates/adapters/delonix-telemetry",
     "bins/delonix-mcp-bin",
     "bins/delonix-mgmt-bin",
@@ -84,6 +85,7 @@ delonix-storage = { path = "crates/contexts/delonix-storage" }
 delonix-node = { path = "crates/contexts/delonix-node" }
 delonix-host = { path = "crates/adapters/delonix-host" }
 delonix-pool-helper = { path = "crates/adapters/delonix-pool-helper" }
+delonix-engine = { path = "crates/assembly/delonix-engine" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
