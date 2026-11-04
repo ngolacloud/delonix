@@ -22,7 +22,7 @@
 //! Every operation is required. A default that refuses let a provider
 //! compile while claiming, by existing, an operation it does not have; a
 //! default that answers `Ok(())` was worse. The one implementation,
-//! `crates/providers/delonix-opnsense`, has every method for real, against
+//! `crates/providers/delonix-provider-opnsense`, has every method for real, against
 //! what ADR-0051 Phase 0 measured on an appliance.
 //!
 //! The `native` provider Phase 1 registered is gone: it refused every

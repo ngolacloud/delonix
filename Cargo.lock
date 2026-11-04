@@ -761,7 +761,7 @@ dependencies = [
  "delonix-node",
  "delonix-oci",
  "delonix-sdn",
- "delonix-security-runtime",
+ "delonix-security",
  "delonix-state",
  "delonix-telemetry",
  "flate2",
@@ -917,9 +917,9 @@ dependencies = [
  "delonix-model",
  "delonix-node",
  "delonix-oci",
- "delonix-opnsense",
  "delonix-provider-ceph",
- "delonix-proxmox",
+ "delonix-provider-opnsense",
+ "delonix-provider-proxmox",
  "delonix-sdn",
  "delonix-state",
  "delonix-storage",
@@ -985,33 +985,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "delonix-opnsense"
-version = "0.1.0"
-dependencies = [
- "delonix-compute",
- "delonix-model",
- "delonix-networking",
- "rcgen",
- "reqwest 0.12.28",
- "rustls",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.19",
- "tracing",
-]
-
-[[package]]
-name = "delonix-powerdns"
-version = "0.1.0"
-dependencies = [
- "delonix-model",
- "reqwest 0.12.28",
- "serde_json",
- "tracing",
-]
-
-[[package]]
 name = "delonix-provider-btrfs"
 version = "0.1.0"
 dependencies = [
@@ -1071,16 +1044,34 @@ dependencies = [
 ]
 
 [[package]]
-name = "delonix-provider-zfs"
+name = "delonix-provider-opnsense"
 version = "0.1.0"
 dependencies = [
- "delonix-storage",
- "libc",
+ "delonix-compute",
+ "delonix-model",
+ "delonix-networking",
+ "rcgen",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde",
+ "serde_json",
  "tempfile",
+ "thiserror 2.0.19",
+ "tracing",
 ]
 
 [[package]]
-name = "delonix-proxmox"
+name = "delonix-provider-powerdns"
+version = "0.1.0"
+dependencies = [
+ "delonix-model",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "delonix-provider-proxmox"
 version = "0.1.0"
 dependencies = [
  "delonix-compute",
@@ -1100,6 +1091,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "delonix-provider-truenas"
+version = "0.1.0"
+dependencies = [
+ "delonix-model",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "delonix-provider-zfs"
+version = "0.1.0"
+dependencies = [
+ "delonix-storage",
+ "libc",
+ "tempfile",
+]
+
+[[package]]
 name = "delonix-runtime-bin"
 version = "0.1.0"
 dependencies = [
@@ -1115,21 +1126,21 @@ dependencies = [
  "delonix-networking",
  "delonix-node",
  "delonix-oci",
- "delonix-opnsense",
- "delonix-powerdns",
  "delonix-provider-btrfs",
  "delonix-provider-ceph",
  "delonix-provider-lvm",
+ "delonix-provider-opnsense",
+ "delonix-provider-powerdns",
+ "delonix-provider-proxmox",
+ "delonix-provider-truenas",
  "delonix-provider-zfs",
- "delonix-proxmox",
  "delonix-scanner",
  "delonix-sdn",
- "delonix-security-runtime",
+ "delonix-security",
  "delonix-stack",
  "delonix-state",
  "delonix-storage",
  "delonix-telemetry",
- "delonix-truenas",
  "delonix-vm",
  "delonix-volume",
  "flate2",
@@ -1188,7 +1199,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "delonix-security-runtime"
+name = "delonix-security"
 version = "0.1.0"
 dependencies = [
  "delonix-model",
@@ -1265,17 +1276,6 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "delonix-truenas"
-version = "0.1.0"
-dependencies = [
- "delonix-model",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "thiserror 2.0.19",
 ]
 
 [[package]]

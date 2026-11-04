@@ -31,7 +31,7 @@ pub fn capability_report(configured: bool) -> ProviderReport {
             message: "add a `type: opnsense` entry to providers.yaml, or set DELONIX_OPNSENSE_URL and a credential".to_string(),
         }
     };
-    const LIVE: &str = "live:crates/providers/delonix-opnsense/tests/live.rs::ensures_and_removes_an_alias_and_a_rule_against_a_real_appliance";
+    const LIVE: &str = "live:crates/providers/delonix-provider-opnsense/tests/live.rs::ensures_and_removes_an_alias_and_a_rule_against_a_real_appliance";
     ProviderReport::build(crate::ID, ProviderKind::Gateway, configured, health, |c| {
         match c {
             C::NetGatewayFilter | C::NetGatewayAlias | C::NetApplyStaged => {
@@ -39,11 +39,11 @@ pub fn capability_report(configured: bool) -> ProviderReport {
             }
             C::NetGatewayUpdateInPlace => S::NotImplemented,
             C::NetGatewayRuleOrder | C::FirewallStateless | C::FirewallLogging => S::Supported {
-                evidence: "live:crates/providers/delonix-opnsense/tests/live.rs::a_lowered_policy_lands_on_the_appliance_in_its_order_with_its_fields",
+                evidence: "live:crates/providers/delonix-provider-opnsense/tests/live.rs::a_lowered_policy_lands_on_the_appliance_in_its_order_with_its_fields",
             },
             C::NetGatewayMultiWan | C::NetGatewayVpn => S::NotImplemented,
             C::NetNatSnat | C::NetNatDnat => S::Supported {
-                evidence: "live:crates/providers/delonix-opnsense/tests/live.rs::a_source_and_a_destination_nat_rule_load_in_pf_and_are_removed",
+                evidence: "live:crates/providers/delonix-provider-opnsense/tests/live.rs::a_source_and_a_destination_nat_rule_load_in_pf_and_are_removed",
             },
             C::NetNatOneToOne | C::NetNatNpt => S::NotImplemented,
             C::NetLbL4 | C::NetLbHealthCheck => S::RequiresExternalComponent {
@@ -59,11 +59,11 @@ pub fn capability_report(configured: bool) -> ProviderReport {
             },
             C::NetApplyRollback => S::NotImplemented,
             C::NetObserve => S::Supported {
-                evidence: "live:crates/providers/delonix-opnsense/tests/live.rs::a_lowered_policy_lands_on_the_appliance_in_its_order_with_its_fields",
+                evidence: "live:crates/providers/delonix-provider-opnsense/tests/live.rs::a_lowered_policy_lands_on_the_appliance_in_its_order_with_its_fields",
             },
             C::NetVerifyDataplane => S::NotImplemented,
             C::NetOwnershipMarker => S::Supported {
-                evidence: "live:crates/providers/delonix-opnsense/tests/live.rs::a_hand_made_rule_is_never_adopted_and_a_hand_made_pending_change_blocks_the_commit",
+                evidence: "live:crates/providers/delonix-provider-opnsense/tests/live.rs::a_hand_made_rule_is_never_adopted_and_a_hand_made_pending_change_blocks_the_commit",
             },
             C::NetBridge
             | C::NetMacvlanIpvlan

@@ -5,8 +5,8 @@
 //!
 //! It was written because the property was FALSE when measured (2026-08-25,
 //! `b4653002b`): `ARCHITECTURE.md` said "os 10 crates" and named ten while the
-//! tree had thirteen — `delonix-net-rules`, `delonix-proxmox` and
-//! `delonix-truenas` existed and appeared in no C4 level. `AGENTS.md` said
+//! tree had thirteen — `delonix-net-rules`, `delonix-provider-proxmox` and
+//! `delonix-provider-truenas` existed and appeared in no C4 level. `AGENTS.md` said
 //! "12 crates" and missed `delonix-net-rules`.
 //!
 //! Nothing had drifted deliberately: there was simply nothing that could tell.

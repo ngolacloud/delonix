@@ -18,14 +18,14 @@ delonix-oci = { workspace = true }
 delonix-node = { workspace = true }
 delonix-model = { workspace = true }
 delonix-vm = { workspace = true }
-delonix-proxmox = { workspace = true }
+delonix-provider-proxmox = { workspace = true }
 delonix-linux = { workspace = true }
 delonix-sdn = { workspace = true }
 delonix-volume = { workspace = true }
 delonix-storage = { workspace = true }
 delonix-provider-ceph = { workspace = true }
 delonix-state = { workspace = true }
-delonix-opnsense = { workspace = true }
+delonix-provider-opnsense = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
 pbjson = { workspace = true }

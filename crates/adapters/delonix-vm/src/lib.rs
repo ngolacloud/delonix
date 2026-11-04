@@ -137,7 +137,7 @@ pub fn vm_namespace_supported(backend_id: &str) -> bool {
 /// unknown-name error gives).
 /// Backend names this engine KNOWS but does not register itself, and why.
 ///
-/// The distinction is not pedantry. `delonix-proxmox` exists in this workspace
+/// The distinction is not pedantry. `delonix-provider-proxmox` exists in this workspace
 /// and implements the trait — answering `--backend proxmox` with «unknown
 /// backend» told the operator the opposite of the truth: that the thing does
 /// not exist, rather than that this process did not configure it.
@@ -147,7 +147,7 @@ pub fn vm_namespace_supported(backend_id: &str) -> bool {
 /// nothing registered the name, and the only way in is [`register_backend`].
 const KNOWN_UNREGISTERED: &[(&str, &str)] = &[(
     "proxmox",
-    "the Proxmox backend (crate `delonix-proxmox`) needs a node to talk to, so it is only \
+    "the Proxmox backend (crate `delonix-provider-proxmox`) needs a node to talk to, so it is only \
      available once one is configured. Set `DELONIX_PROXMOX_URL`, `DELONIX_PROXMOX_NODE` and a \
      credential (`DELONIX_PROXMOX_TOKEN`, or a `kind: Secret` named by \
      `DELONIX_PROXMOX_SECRET`), or a `type: proxmox` entry in the node's providers file \
@@ -1283,7 +1283,7 @@ mod tests {
     }
 
     /// A name this engine knows but does not register must NOT be reported as
-    /// unknown. `delonix-proxmox` is in this workspace and implements the trait;
+    /// unknown. `delonix-provider-proxmox` is in this workspace and implements the trait;
     /// telling an operator «unknown backend, use cloud-hypervisor or libvirt»
     /// says the opposite of what is true, and sends them looking for a crate
     /// that is right there. Two assertions, because both halves matter: the

@@ -264,7 +264,7 @@ pub fn validate_target_url(url: &str) -> Result<()> {
 impl Client {
     /// Builds the client and proves the credential works — the same
     /// "authenticate at construction, not at first real use" contract
-    /// `delonix-proxmox::Client::connect` already documents, and exactly
+    /// `delonix-provider-proxmox::Client::connect` already documents, and exactly
     /// what ADR-0051's Phase 0 spike did by hand (`GET core/firmware/
     /// status`) before anything else.
     pub fn connect(target: &Target) -> Result<Self> {
@@ -1414,7 +1414,7 @@ fn read_bounded(resp: reqwest::blocking::Response, path: &str) -> Result<String>
 
 /// `s`, cut to at most `max` BYTES, backing off to the nearest character
 /// boundary — never a byte-index slice that can land inside a multi-byte
-/// UTF-8 sequence and panic (the same fix `delonix-proxmox` needed after
+/// UTF-8 sequence and panic (the same fix `delonix-provider-proxmox` needed after
 /// its own security review).
 fn truncate_chars(s: &str, max: usize) -> &str {
     if s.len() <= max {
@@ -1481,7 +1481,7 @@ impl OpnsenseGatewayProvider {
 pub const ID: &str = "opnsense";
 
 /// Registers this provider with `delonix-sdn`'s gateway registry, under
-/// [`ID`] (mirrors `delonix_proxmox::register_with`).
+/// [`ID`] (mirrors `delonix_provider_proxmox::register_with`).
 ///
 /// **Nothing here does I/O until the registered factory is actually
 /// selected** — the same contract `register_gateway_provider`'s own doc

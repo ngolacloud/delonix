@@ -5,7 +5,7 @@
 //! `GatewayProvider` and `SegmentProvider` moved here from `delonix-sdn`
 //! in ADR-0059 F2a, in the shape `VmBackend` left `delonix-vm` for the
 //! compute context (ADR-0044 P4b.2): the providers that implement them
-//! (`delonix-opnsense`, `delonix-proxmox`) depend on a context, not on the
+//! (`delonix-provider-opnsense`, `delonix-provider-proxmox`) depend on a context, not on the
 //! native dataplane, and `delonix-sdn` re-exports the three modules under
 //! their old paths.
 

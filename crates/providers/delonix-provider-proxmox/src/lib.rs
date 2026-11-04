@@ -4892,7 +4892,7 @@ fn decode_category(e: &serde_json::Error) -> &'static str {
 /// Truncates to at most `max` BYTES without splitting a character. Slicing a
 /// response body by byte index panics when the cut lands inside a multi-byte
 /// character — and the body comes from the far end, so that turns any error
-/// path into a remote crash. The same fix `delonix-truenas` carries, for the
+/// path into a remote crash. The same fix `delonix-provider-truenas` carries, for the
 /// same reason and found the same way.
 fn truncate_chars(s: &str, max: usize) -> &str {
     if s.len() <= max {
@@ -7557,7 +7557,7 @@ pub fn network_capability_report(configured: bool) -> delonix_compute::capabilit
             // controller the cluster's administrator registered; the node
             // writes a guest's A and PTR, proven against a real PowerDNS.
             C::NetDnsRecords => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::the_dns_provider_registers_a_guest_in_the_zones_dns_server",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::the_dns_provider_registers_a_guest_in_the_zones_dns_server",
             },
             C::NetDnsAuthoritative => S::UnsupportedByProvider {
                 reason: "the SDN writes records into a PowerDNS server it does not run; it serves no zone itself",
@@ -7565,20 +7565,20 @@ pub fn network_capability_report(configured: bool) -> delonix_compute::capabilit
             // ADR-0059 F5b: `kind: NetworkZone` subnets, DHCP ranges and
             // reservations, proven by a guest that gets the reserved address.
             C::NetIpamProvider | C::NetIpamReservation | C::NetIpamDhcp => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::the_ipam_provider_reserves_an_address_and_a_guest_gets_it_by_dhcp",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::the_ipam_provider_reserves_an_address_and_a_guest_gets_it_by_dhcp",
             },
             C::NetSegmentRemote => S::Partial {
                 detail: "`kind: NetworkZone` creates a simple zone and its VNets in one SDN transaction, live in the e2e section «providers remotos» (S6); the other five zone types are not created",
             },
             C::NetApplyStaged | C::NetApplyRollback => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::network_zone_provider_owns_by_mark_and_never_pushes_someone_elses_pending_change",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::network_zone_provider_owns_by_mark_and_never_pushes_someone_elses_pending_change",
             },
             C::NetObserve => S::Partial {
                 detail: "zones, VNets and the IPAM are read back; no comparison with the record yet (ADR-0059 F4)",
             },
             C::NetVerifyDataplane => S::NotImplemented,
             C::NetOwnershipMarker => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::network_zone_provider_owns_by_mark_and_never_pushes_someone_elses_pending_change",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::network_zone_provider_owns_by_mark_and_never_pushes_someone_elses_pending_change",
             },
             C::FirewallStateless => S::UnsupportedByProvider {
                 reason: "the node's firewall tracks connections; there is no stateless rule",
@@ -7735,44 +7735,44 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 detail: "`available()` is always true once configured; reachability is learned on the first call",
             },
             C::ResourceReadback => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::Events => S::NotImplemented,
             C::AsyncOperations => S::Partial {
                 detail: "every write waits on its UPID and is written to a per-VM task ledger before the wait (ADR-0049 slice 1); the engine exposes no job handle yet",
             },
             C::VmCreate => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmStart => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmStop => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmDestroy => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmRestart => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmPause => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::power_operations_round_trip_through_the_node",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::power_operations_round_trip_through_the_node",
             },
             C::VmResume => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::power_operations_round_trip_through_the_node",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::power_operations_round_trip_through_the_node",
             },
             C::VmResumeSameIdentity => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmClone => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_template_clone_gets_the_disk_size_asked_for",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_template_clone_gets_the_disk_size_asked_for",
             },
             C::VmTemplate => S::Partial {
                 detail: "`POST …/template` is a client call (`mark_template`) the live case uses to make its clone source; no engine verb turns a VM into a template",
             },
             C::VmResizeCold => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_stopped_vm_is_resized_and_the_node_reads_back_the_new_size",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_stopped_vm_is_resized_and_the_node_reads_back_the_new_size",
             },
             C::VmHotplugCpuAdd => S::Partial {
                 detail: "`vm update --vcpus` sets `vcpus` up to the `cores` ceiling fixed at create (`numa: 1`, `cpu` in `hotplug`, ADR-0068 D3), read back from `status/current`; a change the node parks in `pending` is reverted and refused; the guest agent's `get-vcpus` decides complete or partial (D4/D8); mock-tested, never run against a guest",
@@ -7783,21 +7783,21 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
             },
             C::VmHotplugMemoryRemove => S::NotImplemented,
             C::VmHotplugDiskAdd => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_running_vm_gets_a_disk_and_a_nic_hotplugged",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_running_vm_gets_a_disk_and_a_nic_hotplugged",
             },
             C::VmHotplugDiskRemove => S::NotImplemented,
             C::VmHotplugNicAdd => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_running_vm_gets_a_disk_and_a_nic_hotplugged",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_running_vm_gets_a_disk_and_a_nic_hotplugged",
             },
             C::VmHotplugNicRemove => S::NotImplemented,
             C::VmExtraDisks => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::extra_disks_and_nics_are_created_with_the_vm_and_go_with_it",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::extra_disks_and_nics_are_created_with_the_vm_and_go_with_it",
             },
             C::VmExtraNics => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::extra_disks_and_nics_are_created_with_the_vm_and_go_with_it",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::extra_disks_and_nics_are_created_with_the_vm_and_go_with_it",
             },
             C::VmDiskResize => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_stopped_vms_boot_disk_grows_and_the_node_reads_it_back",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_stopped_vms_boot_disk_grows_and_the_node_reads_it_back",
             },
             C::VmPciPassthrough => S::UnsupportedByProvider {
                 reason: "`devices` refused by name: the guest is on another machine",
@@ -7815,7 +7815,7 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 reason: "refused by name",
             },
             C::VmCloudInit => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_stopped_vms_cloud_init_is_changed_and_the_node_renders_it",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_stopped_vms_cloud_init_is_changed_and_the_node_renders_it",
             },
             C::VmRestartPolicyNative => S::UnsupportedByProvider {
                 reason: "the engine's supervisor is not on the node; no policy is set there",
@@ -7830,13 +7830,13 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 reason: "no raw config passthrough (ADR-0049 D6)",
             },
             C::SystemContainerLifecycle => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_system_container_runs_its_lifecycle_through_the_node",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_system_container_runs_its_lifecycle_through_the_node",
             },
             C::SystemContainerOciImage => S::Partial {
                 detail: "created from an OCI archive with OCI media types that the engine uploads (`stage_template`), named by its manifest digest; the image is pulled by the engine (digest verified, `image login` credentials) when a `kind: SystemContainer` is applied; each container is a full copy of the image on the rootfs storage, with no layer sharing (ADR-0058 T6)",
             },
             C::SystemContainerEntrypointEnv => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_system_container_runs_its_lifecycle_through_the_node",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_system_container_runs_its_lifecycle_through_the_node",
             },
             C::SystemContainerExec => S::UnsupportedByProvider {
                 reason: "the LXC API has no exec: the only ways in are interactive console websockets (`termproxy`, `vncproxy`, `spiceproxy`), never emulated (ADR-0058)",
@@ -7851,22 +7851,22 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 detail: "`net0` on a bridge of the node, with an optional VLAN tag and DHCP; judged after the start by `GET …/interfaces`, and an address that never came is `NetworkReady=False` with the node's warning (live case); the engine's SDN, isolation, DNS and publish do not apply (ADR-0058 T7)",
             },
             C::SystemContainerUnprivileged => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_system_container_runs_its_lifecycle_through_the_node",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_system_container_runs_its_lifecycle_through_the_node",
             },
             C::SystemContainerSnapshot => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_system_containers_snapshot_is_rolled_back_and_deleted",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_system_containers_snapshot_is_rolled_back_and_deleted",
             },
             C::SystemContainerResize => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_system_containers_root_volume_grows_live_and_never_shrinks",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_system_containers_root_volume_grows_live_and_never_shrinks",
             },
             C::SystemContainerBackup => S::Partial {
                 detail: "archive, list, delete and restore are proved live (a_system_containers_backup_is_restored_over_it_and_deleted); a restore by an API token drops the raw lxc.* keys the node wrote from the image (working directory, halt signal) — the node lets only root@pam write them back, and the restore names each one it dropped",
             },
             C::SystemContainerClone => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_running_system_container_is_cloned_from_a_temporary_snapshot",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_running_system_container_is_cloned_from_a_temporary_snapshot",
             },
             C::SystemContainerMove => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_system_container_moves_to_another_node_offline_and_by_restart",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_system_container_moves_to_another_node_offline_and_by_restart",
             },
             C::SystemContainerFirewall => S::Partial {
                 detail: "a `scope: systemcontainer` policy is applied, read back in order and re-applied without doubling (a_system_containers_firewall_is_applied_and_reads_back), with the datacenter switch refused when off, never turned on; no packet crossed the container in a test, the same limit the scope: vm rows carry",
@@ -7890,7 +7890,7 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 reason: "the node has no NAT network of the engine's; `net0` is bridged",
             },
             C::VmNetworkBridge => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmNetworkSdn => S::UnsupportedByProvider {
                 reason: "the engine's SDN is on this host; a `network` that names one is refused by name (`refuse_unsupported`), the NIC is `net0` on the node's bridge",
@@ -7900,34 +7900,34 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 detail: "`disk: <storage>:<gib>` names a node storage for a fresh disk; pools are not listed (ADR-0049: `storage` missing, not excluded)",
             },
             C::VmSnapshotDisk => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmSnapshotMemory => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_snapshot_of_a_running_vm_captures_its_ram_state",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_snapshot_of_a_running_vm_captures_its_ram_state",
             },
             C::VmSnapshotRestore => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmSnapshotDelete => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
             },
             C::VmSnapshotPersistent => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_snapshot_survives_a_stop_and_a_start",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_snapshot_survives_a_stop_and_a_start",
             },
             C::VmBackupDisk => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_backup_lands_on_the_storage_and_comes_off_it",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_backup_lands_on_the_storage_and_comes_off_it",
             },
             C::VmBackupQuiesced => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_backup_of_a_running_vm_is_taken_with_its_filesystem_frozen",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_backup_of_a_running_vm_is_taken_with_its_filesystem_frozen",
             },
             C::VmBackupRestore => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_deleted_vm_comes_back_from_its_own_backup",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_deleted_vm_comes_back_from_its_own_backup",
             },
             C::VmMigrationCold => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_stopped_vm_moves_to_another_node_and_the_cluster_lists_it_there",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_stopped_vm_moves_to_another_node_and_the_cluster_lists_it_there",
             },
             C::VmMigrationLive => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_running_vm_moves_live_on_shared_storage_and_keeps_running",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_running_vm_moves_live_on_shared_storage_and_keeps_running",
             },
             C::VmReplication => S::RequiresExternalComponent {
                 component: "cluster replication jobs (ADR-0049 D3: excluded as administration)",
@@ -7936,22 +7936,22 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 component: "cluster HA policy (ADR-0049 D3: excluded as administration)",
             },
             C::VmConsoleSerial => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_running_vm_opens_a_serial_and_a_vnc_console_and_the_websocket_connects",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_running_vm_opens_a_serial_and_a_vnc_console_and_the_websocket_connects",
             },
             C::VmConsoleVnc => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::a_running_vm_opens_a_serial_and_a_vnc_console_and_the_websocket_connects",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_running_vm_opens_a_serial_and_a_vnc_console_and_the_websocket_connects",
             },
             C::VmGuestAgent => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::the_guest_agent_reports_the_os_hostname_and_filesystems",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::the_guest_agent_reports_the_os_hostname_and_filesystems",
             },
             C::VmIpObserved => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::o_ip_vem_do_agente_de_um_convidado_a_serio",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::o_ip_vem_do_agente_de_um_convidado_a_serio",
             },
             C::MetricsPrometheus => S::NotImplemented,
             C::MetricsPerWorkloadNetwork => S::NotImplemented,
             C::HostHealth => S::NotImplemented,
             C::HostCapacity => S::Supported {
-                evidence: "live:crates/providers/delonix-proxmox/tests/live.rs::the_node_reports_its_cpu_memory_and_disk_capacity",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::the_node_reports_its_cpu_memory_and_disk_capacity",
             },
             C::TransportVerified => S::Partial {
                 detail: "TLS verified by default (webpki roots, or `ca_cert_pem`/`DELONIX_PROXMOX_CA_FILE` for an internal CA); `insecure_tls` is an explicit opt-out; 16 MiB response bound; `Debug` redacts the credential (ADR-0049 slice 1)",

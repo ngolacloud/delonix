@@ -2,7 +2,7 @@
 //!
 //! The client refuses `http://`, so the mock is a real listener with a
 //! certificate `rcgen` mints per test and `rustls` serves — the same shape
-//! `delonix-proxmox`'s own failure-injection suite already uses, because it
+//! `delonix-provider-proxmox`'s own failure-injection suite already uses, because it
 //! is what makes the two TLS cases provable: a certificate the client
 //! cannot verify is refused, and the same certificate handed over as
 //! `ca_cert_pem` is accepted WITHOUT `insecure_tls`.
@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use delonix_networking::gateway::{AliasKind, EnsureOutcome, GatewayAlias, GatewayRule};
 use delonix_networking::ownership::{Owner, OwnerMark, RemoveOutcome};
-use delonix_opnsense::{Auth, Client, Error, Staging, Target, MAX_RESPONSE_BYTES};
+use delonix_provider_opnsense::{Auth, Client, Error, Staging, Target, MAX_RESPONSE_BYTES};
 
 // ===========================================================================
 // The mock appliance
@@ -1096,12 +1096,12 @@ fn a_table_left_for_a_deleted_alias_is_not_pending() {
             "firewall/alias_util/aliases",
             Reply::Json(
                 200,
-                r#"["bogons","delonix_opnsense_live_test","__lan_network"]"#.into(),
+                r#"["bogons","delonix_provider_opnsense_live_test","__lan_network"]"#.into(),
             ),
         ),
         (
             "GET",
-            "firewall/alias_util/list/delonix_opnsense_live_test",
+            "firewall/alias_util/list/delonix_provider_opnsense_live_test",
             Reply::Json(200, rows(&[serde_json::json!({ "ip": "10.99.99.99" })])),
         ),
     ]));
@@ -1366,7 +1366,7 @@ fn a_refusal_keeps_its_dx_number_through_the_gateway_provider_trait() {
             Reply::Json(200, rows(&[rule_row(U2, "someone else's")])),
         ),
     ]));
-    let provider = delonix_opnsense::OpnsenseGatewayProvider::connect(&target(&appliance)).unwrap();
+    let provider = delonix_provider_opnsense::OpnsenseGatewayProvider::connect(&target(&appliance)).unwrap();
     // One reason (provider_conflict, ADR-0059 D5) for both; the message still
     // says which of the two it was.
     let e = provider.ensure_rule(&web_rule(), &mark()).unwrap_err();
@@ -1400,7 +1400,7 @@ fn a_gateway_refuses_a_foreign_staged_nat_rule_and_not_its_own() {
             ]),
         ),
     )]));
-    let provider = delonix_opnsense::OpnsenseGatewayProvider::connect(&target(&appliance)).unwrap();
+    let provider = delonix_provider_opnsense::OpnsenseGatewayProvider::connect(&target(&appliance)).unwrap();
     // Any call that takes the owner claims it for this value's commit.
     provider.adopt_pending(&mark(), &[]).unwrap();
     let err = provider.check_no_foreign_pending().unwrap_err();

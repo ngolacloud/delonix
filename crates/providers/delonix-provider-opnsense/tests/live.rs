@@ -9,7 +9,7 @@
 //! DELONIX_OPNSENSE_TEST_URL=https://192.168.122.103 \
 //! DELONIX_OPNSENSE_TEST_KEY=<key> \
 //! DELONIX_OPNSENSE_TEST_SECRET=<secret> \
-//!   cargo test -p delonix-opnsense --test live -- --ignored --nocapture --test-threads=1
+//!   cargo test -p delonix-provider-opnsense --test live -- --ignored --nocapture --test-threads=1
 //! ```
 //!
 //! Two scenarios, each leaving the appliance as it found it:
@@ -31,7 +31,7 @@ use delonix_networking::gateway::{
     AliasKind, EnsureOutcome, GatewayAlias, GatewayProvider, GatewayRule,
 };
 use delonix_networking::ownership::{Owner, OwnerMark, RemoveOutcome};
-use delonix_opnsense::{Auth, OpnsenseGatewayProvider, Target};
+use delonix_provider_opnsense::{Auth, OpnsenseGatewayProvider, Target};
 
 fn target() -> Option<Target> {
     Some(Target {
@@ -137,7 +137,7 @@ impl Hand {
     }
 }
 
-#[ignore = "needs DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY, DELONIX_OPNSENSE_TEST_SECRET and a reachable OPNsense: cargo test -p delonix-opnsense --test live -- --ignored --test-threads=1"]
+#[ignore = "needs DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY, DELONIX_OPNSENSE_TEST_SECRET and a reachable OPNsense: cargo test -p delonix-provider-opnsense --test live -- --ignored --test-threads=1"]
 #[test]
 fn ensures_and_removes_an_alias_and_a_rule_against_a_real_appliance() {
     let t = target().expect("DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY and DELONIX_OPNSENSE_TEST_SECRET must be set to run this --ignored test against a real OPNsense appliance");
@@ -145,13 +145,13 @@ fn ensures_and_removes_an_alias_and_a_rule_against_a_real_appliance() {
     let owner = fresh_mark();
 
     let alias = GatewayAlias {
-        name: "delonix_opnsense_live_test".into(),
+        name: "delonix_provider_opnsense_live_test".into(),
         kind: AliasKind::Host,
         content: vec!["10.99.99.99".into()],
-        description: "delonix-opnsense live test - safe to delete".into(),
+        description: "delonix-provider-opnsense live test - safe to delete".into(),
     };
     let rule = GatewayRule {
-        description: "delonix-opnsense live test - safe to delete".into(),
+        description: "delonix-provider-opnsense live test - safe to delete".into(),
         source: alias.name.clone(),
         destination: "10.0.0.0/24".into(),
         protocol: Some("TCP".into()),
@@ -229,7 +229,7 @@ fn ensures_and_removes_an_alias_and_a_rule_against_a_real_appliance() {
         .expect("the appliance is left with nothing staged");
 }
 
-#[ignore = "needs DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY, DELONIX_OPNSENSE_TEST_SECRET and a reachable OPNsense: cargo test -p delonix-opnsense --test live -- --ignored --test-threads=1"]
+#[ignore = "needs DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY, DELONIX_OPNSENSE_TEST_SECRET and a reachable OPNsense: cargo test -p delonix-provider-opnsense --test live -- --ignored --test-threads=1"]
 #[test]
 fn a_hand_made_rule_is_never_adopted_and_a_hand_made_pending_change_blocks_the_commit() {
     // No SKIP line: a print in a library crate's tests is counted debt, and
@@ -238,7 +238,7 @@ fn a_hand_made_rule_is_never_adopted_and_a_hand_made_pending_change_blocks_the_c
     let hand = Hand::new(&t);
     let provider = OpnsenseGatewayProvider::connect(&t).expect("connect");
     let owner = fresh_mark();
-    let description = "delonix-opnsense live ownership - safe to delete";
+    let description = "delonix-provider-opnsense live ownership - safe to delete";
     let rule = GatewayRule {
         description: description.into(),
         source: "any".into(),
@@ -325,7 +325,7 @@ fn a_hand_made_rule_is_never_adopted_and_a_hand_made_pending_change_blocks_the_c
 /// returns it, and the order pf loaded the rules in (`pf_statistics`, one
 /// line per pf rule with the rule's uuid as its label) — never the `Ok` of a
 /// call. Then it is all removed and the owner retired.
-#[ignore = "needs DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY, DELONIX_OPNSENSE_TEST_SECRET and a reachable OPNsense: cargo test -p delonix-opnsense --test live -- --ignored --test-threads=1"]
+#[ignore = "needs DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY, DELONIX_OPNSENSE_TEST_SECRET and a reachable OPNsense: cargo test -p delonix-provider-opnsense --test live -- --ignored --test-threads=1"]
 #[test]
 fn a_lowered_policy_lands_on_the_appliance_in_its_order_with_its_fields() {
     let t = target().expect("DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY and DELONIX_OPNSENSE_TEST_SECRET must be set to run this --ignored test against a real OPNsense appliance");
@@ -496,16 +496,16 @@ fn nat_lines(hand: &Hand) -> Vec<String> {
 /// ADR-0059 F5: a source and a destination NAT rule under an owner mark,
 /// proven in the RUNNING packet filter — a NAT rule has no label there, so
 /// what is read is the line itself.
-#[ignore = "needs DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY, DELONIX_OPNSENSE_TEST_SECRET and a reachable OPNsense: cargo test -p delonix-opnsense --test live -- --ignored --test-threads=1"]
+#[ignore = "needs DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY, DELONIX_OPNSENSE_TEST_SECRET and a reachable OPNsense: cargo test -p delonix-provider-opnsense --test live -- --ignored --test-threads=1"]
 #[test]
 fn a_source_and_a_destination_nat_rule_load_in_pf_and_are_removed() {
     use delonix_networking::nat::{nat_drift, NatKind, NatProvider, NatRule, INTERFACE_ADDRESS};
     let t = target().expect("DELONIX_OPNSENSE_TEST_URL, DELONIX_OPNSENSE_TEST_KEY and DELONIX_OPNSENSE_TEST_SECRET must be set to run this --ignored test against a real OPNsense appliance");
-    let provider = delonix_opnsense::OpnsenseNatProvider::connect(&t).expect("connect");
+    let provider = delonix_provider_opnsense::OpnsenseNatProvider::connect(&t).expect("connect");
     let hand = Hand::new(&t);
     let owner = fresh_mark();
     let snat = NatRule {
-        description: "delonix-opnsense live snat - safe to delete".into(),
+        description: "delonix-provider-opnsense live snat - safe to delete".into(),
         kind: NatKind::Source,
         interface: "lan".into(),
         source: "10.97.0.0/24".into(),
@@ -515,7 +515,7 @@ fn a_source_and_a_destination_nat_rule_load_in_pf_and_are_removed() {
         target_port: None,
     };
     let dnat = NatRule {
-        description: "delonix-opnsense live dnat - safe to delete".into(),
+        description: "delonix-provider-opnsense live dnat - safe to delete".into(),
         kind: NatKind::Destination,
         interface: "lan".into(),
         source: "any".into(),
@@ -584,11 +584,11 @@ fn a_source_and_a_destination_nat_rule_load_in_pf_and_are_removed() {
         .expect("the hand-made rule's uuid")
         .to_string();
     let extra = NatRule {
-        description: "delonix-opnsense live snat 2 - safe to delete".into(),
+        description: "delonix-provider-opnsense live snat 2 - safe to delete".into(),
         source: "10.99.0.0/24".into(),
         ..snat.clone()
     };
-    let second = delonix_opnsense::OpnsenseNatProvider::connect(&t).expect("connect");
+    let second = delonix_provider_opnsense::OpnsenseNatProvider::connect(&t).expect("connect");
     let err = second.check_no_foreign_pending().unwrap_err();
     assert!(
         err.to_string().contains("made by hand - live test"),

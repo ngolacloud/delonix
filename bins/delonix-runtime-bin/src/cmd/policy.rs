@@ -24,7 +24,7 @@
 //!
 //! # What moved, and what stayed
 //!
-//! The decision itself now lives in `delonix-security-runtime`, so the VM path
+//! The decision itself now lives in `delonix-security`, so the VM path
 //! can reach the same gate the container path already did (ADR-0026). This file
 //! is what is left over and cannot move: reading the file, rendering a refusal
 //! in the operator's language, and recording the event.
@@ -37,7 +37,7 @@
 //!
 //! **Reuses [`SecurityPolicy`] itself, not a parallel copy.** `RuntimePolicySpec`
 //! below exists ONLY because `SecurityPolicy` cannot derive `schemars::JsonSchema`
-//! — `delonix-security-runtime`'s `Cargo.toml` fixes its dependency count at
+//! — `delonix-security`'s `Cargo.toml` fixes its dependency count at
 //! three, on purpose (ADR-0026: this crate decides on the highest-privilege path
 //! of the runtime, and every dependency it grows is supply-chain surface there).
 //! So the manifest-facing struct is a field-for-field mirror, and
@@ -58,7 +58,7 @@
 //! the only way down is the imperative [`PolicyCmd::Unset`].
 
 use delonix_model::{Error, Result};
-use delonix_security_runtime as srt;
+use delonix_security as srt;
 use srt::admission::{Decision, Violation, Workload};
 use srt::policy::SecurityPolicy;
 use std::collections::BTreeMap;

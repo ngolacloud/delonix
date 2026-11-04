@@ -1,4 +1,4 @@
-//! `delonix-security-runtime` — the node's security decisions, in one place.
+//! `delonix-security` — the node's security decisions, in one place.
 //!
 //! # What this crate is
 //!
@@ -9,7 +9,7 @@
 //! what makes a security control testable without the infrastructure it guards.
 //!
 //! ```
-//! use delonix_security_runtime::{admission, policy::SecurityPolicy};
+//! use delonix_security::{admission, policy::SecurityPolicy};
 //!
 //! let p = SecurityPolicy::parse(r#"{"denyDevicePassthrough": true}"#).unwrap();
 //! let devices = vec!["0000:01:00.0".to_string()];

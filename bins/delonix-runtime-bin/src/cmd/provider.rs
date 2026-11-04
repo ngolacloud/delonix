@@ -120,7 +120,7 @@ pub fn measured_reports() -> Vec<ProviderReport> {
     let mut out = delonix_vm::provider_reports();
     let proxmox_configured = out.iter().any(|r| r.id == "proxmox");
     if !proxmox_configured {
-        out.push(delonix_proxmox::capability_report(false));
+        out.push(delonix_provider_proxmox::capability_report(false));
     }
     out.push(delonix_linux::provider_report::report(
         &delonix_linux::provider_report::LinuxHost::probe(),
@@ -131,7 +131,7 @@ pub fn measured_reports() -> Vec<ProviderReport> {
     // The node's own per-VM firewall (ADR-0052): the second network
     // provider, next to the Linux one. Same configured flag as the VM backend
     // — it is the same target, answering a different port.
-    out.push(delonix_proxmox::network_capability_report(
+    out.push(delonix_provider_proxmox::network_capability_report(
         proxmox_configured,
     ));
     out.push(delonix_volume::provider_report::report(
@@ -139,8 +139,8 @@ pub fn measured_reports() -> Vec<ProviderReport> {
     ));
     // The perimeter appliance (ADR-0051), declared like Proxmox and listed
     // whether or not a target is registered (ADR-0059 D2).
-    out.push(delonix_opnsense::capability_report(
-        delonix_sdn::gateway::gateway_provider_ids().contains(&delonix_opnsense::ID),
+    out.push(delonix_provider_opnsense::capability_report(
+        delonix_sdn::gateway::gateway_provider_ids().contains(&delonix_provider_opnsense::ID),
     ));
     out
 }
@@ -152,14 +152,14 @@ pub fn declared_reports() -> Vec<ProviderReport> {
     vec![
         vmc::cloud_hypervisor_report(&vmc::CloudHypervisorHost::ASSUMED),
         vmc::libvirt_report(&vmc::LibvirtHost::ASSUMED),
-        delonix_proxmox::capability_report(true),
+        delonix_provider_proxmox::capability_report(true),
         delonix_linux::provider_report::report(&delonix_linux::provider_report::LinuxHost::ASSUMED),
         delonix_sdn::provider_report::report(&delonix_sdn::provider_report::SdnHost::ASSUMED),
-        delonix_proxmox::network_capability_report(true),
+        delonix_provider_proxmox::network_capability_report(true),
         delonix_volume::provider_report::report(
             &delonix_volume::provider_report::StorageHost::ASSUMED,
         ),
-        delonix_opnsense::capability_report(true),
+        delonix_provider_opnsense::capability_report(true),
     ]
 }
 
@@ -268,8 +268,8 @@ pub fn run(cmd: ProviderCmd) -> Result<()> {
 pub struct ProbedCluster {
     url: String,
     node: String,
-    facts: delonix_proxmox::cluster::ClusterFacts,
-    verdicts: Vec<delonix_proxmox::cluster::ClusterVerdict>,
+    facts: delonix_provider_proxmox::cluster::ClusterFacts,
+    verdicts: Vec<delonix_provider_proxmox::cluster::ClusterVerdict>,
 }
 
 /// `provider describe proxmox --probe`: connects to the configured target —
@@ -291,9 +291,9 @@ fn probe_cluster(id: &str) -> Result<ProbedCluster> {
     })?;
     let url = target.base_url.clone();
     let node = target.node.clone();
-    let client = delonix_proxmox::Client::connect_with(&target, opts)?;
+    let client = delonix_provider_proxmox::Client::connect_with(&target, opts)?;
     let facts = client.cluster_facts()?;
-    let verdicts = delonix_proxmox::cluster::cluster_verdicts(&facts);
+    let verdicts = delonix_provider_proxmox::cluster::cluster_verdicts(&facts);
     Ok(ProbedCluster {
         url,
         node,
@@ -307,8 +307,8 @@ fn cluster_json(c: &ProbedCluster) -> serde_json::Value {
         "url": c.url,
         "node": c.node,
         "facts": c.facts,
-        "matrix_release": delonix_proxmox::cluster::MATRIX_RELEASE,
-        "release_note": delonix_proxmox::cluster::release_note(c.facts.release.as_deref()),
+        "matrix_release": delonix_provider_proxmox::cluster::MATRIX_RELEASE,
+        "release_note": delonix_provider_proxmox::cluster::release_note(c.facts.release.as_deref()),
         "verdicts": c.verdicts.iter().map(|v| serde_json::json!({
             "name": v.capability.name(),
             "offered": v.offered,
@@ -335,7 +335,7 @@ fn print_cluster(c: &ProbedCluster) {
             .clone()
             .unwrap_or_else(|| super::po::t("not named by the node").to_string())
     );
-    if let Some(note) = delonix_proxmox::cluster::release_note(f.release.as_deref()) {
+    if let Some(note) = delonix_provider_proxmox::cluster::release_note(f.release.as_deref()) {
         println!("  {note}");
     }
     println!(

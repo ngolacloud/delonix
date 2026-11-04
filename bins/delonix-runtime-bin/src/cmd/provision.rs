@@ -228,8 +228,8 @@ pub(crate) fn destroy_remote(
         )));
     }
     let spec = prov.to_spec()?;
-    delonix_truenas::validate_dataset_name(&spec.dataset)?;
-    let client = delonix_truenas::Client::connect(&delonix_truenas::Target {
+    delonix_provider_truenas::validate_dataset_name(&spec.dataset)?;
+    let client = delonix_provider_truenas::Client::connect(&delonix_provider_truenas::Target {
         base_url: spec.url.clone(),
         auth: auth_of(&spec)?,
         insecure_tls: spec.insecure_tls,
@@ -279,9 +279,9 @@ fn resolve_secret_key(name: &str, keys: &[&str]) -> Result<String> {
     )))
 }
 
-fn auth_of(spec: &TrueNasSpec) -> Result<delonix_truenas::Auth> {
+fn auth_of(spec: &TrueNasSpec) -> Result<delonix_provider_truenas::Auth> {
     if let Some(sref) = &spec.api_key_secret {
-        return Ok(delonix_truenas::Auth::ApiKey(resolve_secret_key(
+        return Ok(delonix_provider_truenas::Auth::ApiKey(resolve_secret_key(
             sref,
             &["apiKey", "api_key", "token"],
         )?));
@@ -302,7 +302,7 @@ fn auth_of(spec: &TrueNasSpec) -> Result<delonix_truenas::Auth> {
             ))
         }
     };
-    Ok(delonix_truenas::Auth::Password { username, password })
+    Ok(delonix_provider_truenas::Auth::Password { username, password })
 }
 
 /// The host part of `https://nas.example:443` → `nas.example`.
@@ -353,7 +353,7 @@ pub(crate) fn parse_mode(s: &str) -> Result<u32> {
 /// would make renaming a volume silently point at a different dataset — and,
 /// with the destructive path, at a different dataset to destroy.
 pub(crate) fn run_truenas(spec: &TrueNasSpec) -> Result<Provisioned> {
-    delonix_truenas::validate_dataset_name(&spec.dataset)?;
+    delonix_provider_truenas::validate_dataset_name(&spec.dataset)?;
     let server = host_of_url(&spec.url)?;
     let quota = match &spec.quota {
         Some(q) => Some(
@@ -364,9 +364,9 @@ pub(crate) fn run_truenas(spec: &TrueNasSpec) -> Result<Provisioned> {
     };
     // Refuse an unacceptable quota BEFORE connecting: a manifest error should
     // not need a reachable NAS to be reported.
-    delonix_truenas::validate_quota(quota)?;
+    delonix_provider_truenas::validate_quota(quota)?;
     let owner = match &spec.owner {
-        Some(o) => Some(delonix_truenas::Owner {
+        Some(o) => Some(delonix_provider_truenas::Owner {
             uid: o.uid,
             gid: o.gid,
             mode: match &o.mode {
@@ -384,13 +384,13 @@ pub(crate) fn run_truenas(spec: &TrueNasSpec) -> Result<Provisioned> {
         }
     }
 
-    let client = delonix_truenas::Client::connect(&delonix_truenas::Target {
+    let client = delonix_provider_truenas::Client::connect(&delonix_provider_truenas::Target {
         base_url: spec.url.clone(),
         auth: auth_of(spec)?,
         insecure_tls: spec.insecure_tls,
     })?;
 
-    let p = client.ensure_dataset(&delonix_truenas::DatasetSpec {
+    let p = client.ensure_dataset(&delonix_provider_truenas::DatasetSpec {
         dataset: spec.dataset.clone(),
         quota,
         owner,
@@ -399,7 +399,7 @@ pub(crate) fn run_truenas(spec: &TrueNasSpec) -> Result<Provisioned> {
     if let Some(sh) = &spec.share {
         client.ensure_nfs_share(
             &p.mountpoint,
-            &delonix_truenas::NfsShareSpec {
+            &delonix_provider_truenas::NfsShareSpec {
                 networks: sh.networks.clone(),
                 maproot_user: sh.maproot_user.clone(),
                 maproot_group: sh.maproot_group.clone(),

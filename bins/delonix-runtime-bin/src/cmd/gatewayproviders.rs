@@ -54,7 +54,7 @@ fn register_opnsense() -> Result<()> {
 /// test can hand it a map instead of writing the PROCESS environment.
 fn register_opnsense_with(lookup: &dyn Fn(&str) -> Option<String>) -> Result<()> {
     match opnsense_target_with(lookup)? {
-        Some(target) => delonix_opnsense::register_with(target),
+        Some(target) => delonix_provider_opnsense::register_with(target),
         None => Ok(()),
     }
 }
@@ -64,7 +64,7 @@ fn register_opnsense_with(lookup: &dyn Fn(&str) -> Option<String>) -> Result<()>
 /// runs this without touching the registry. `None` = no target configured.
 pub(crate) fn opnsense_target_with(
     lookup: &dyn Fn(&str) -> Option<String>,
-) -> Result<Option<delonix_opnsense::Target>> {
+) -> Result<Option<delonix_provider_opnsense::Target>> {
     let Some(base_url) = lookup("DELONIX_OPNSENSE_URL") else {
         return Ok(None);
     };
@@ -85,7 +85,7 @@ pub(crate) fn opnsense_target_with(
             })
         })
         .transpose()?;
-    Ok(Some(delonix_opnsense::Target {
+    Ok(Some(delonix_provider_opnsense::Target {
         base_url,
         auth,
         insecure_tls,
@@ -95,12 +95,12 @@ pub(crate) fn opnsense_target_with(
 
 /// The credential, preferring a `kind: Secret` over the plain environment
 /// (a value there is inherited by every child this engine spawns).
-fn opnsense_auth(lookup: &dyn Fn(&str) -> Option<String>) -> Result<delonix_opnsense::Auth> {
+fn opnsense_auth(lookup: &dyn Fn(&str) -> Option<String>) -> Result<delonix_provider_opnsense::Auth> {
     if let Some(name) = lookup("DELONIX_OPNSENSE_CREDENTIAL") {
         let s = delonix_state::SecretStore::open(state_root())?.load(&name)?;
         let get = |k: &str| s.data.get(k).cloned();
         if let (Some(key), Some(secret)) = (get("key"), get("secret")) {
-            return Ok(delonix_opnsense::Auth { key, secret });
+            return Ok(delonix_provider_opnsense::Auth { key, secret });
         }
         return Err(Error::Invalid(po::tf(
             "secret '{name}' has neither `key` nor `secret` — generate an API key on the \
@@ -118,7 +118,7 @@ fn opnsense_auth(lookup: &dyn Fn(&str) -> Option<String>) -> Result<delonix_opns
         None => lookup("DELONIX_OPNSENSE_KEY"),
     };
     if let (Some(key), Some(secret)) = (key, credential_value(lookup, "DELONIX_OPNSENSE_SECRET")?) {
-        return Ok(delonix_opnsense::Auth { key, secret });
+        return Ok(delonix_provider_opnsense::Auth { key, secret });
     }
     Err(Error::Invalid(
         po::t(

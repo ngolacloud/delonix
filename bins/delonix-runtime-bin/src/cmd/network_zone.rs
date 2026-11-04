@@ -52,7 +52,7 @@
 //!
 //! **Teardown order is vnets, then the zone, then ONE commit**: a real
 //! Proxmox node refuses to delete a zone a vnet still references
-//! (`delonix_proxmox`'s own `Client::delete_sdn_zone` doc comment) — the
+//! (`delonix_provider_proxmox`'s own `Client::delete_sdn_zone` doc comment) — the
 //! same referential-integrity reason `kind: NetworkGateway` removes rules
 //! before aliases.
 

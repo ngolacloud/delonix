@@ -24,6 +24,12 @@ etiquetado nem publicado.
 ### Changed
 - Identidade do produto passa a **Delonix**; o repositório migra para
   `github.com/ngolacloud/delonix`. O binário da CLI já se chamava `delonix`.
+- **Reestruturação ADR-0040 R1 (renomes internos, `publish = false`).** Os quatro
+  providers sem prefixo uniformizam-se — `delonix-{proxmox,truenas,opnsense,powerdns}`
+  → `delonix-provider-*` — e o contexto `delonix-security-runtime` → `delonix-security`.
+  São nomes de **crate** internos: binários, sockets, serviços, `DELONIX_*`, schemas
+  e contratos CLI/API ficam iguais. Movidos com `git mv` (histórico preservado); o
+  gate `scripts/arch_fitness.py` passa a exigir o prefixo `delonix-provider-`.
 - `scripts/version_gate.py` passa a ser **consciente de linha de versão**: a
   linha legada `delonix-runtime` (majors 1..5) e a linha Delonix (0.x) são
   comparadas em separado, com guarda de que nenhum commit perde o histórico

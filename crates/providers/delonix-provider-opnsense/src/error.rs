@@ -1,6 +1,6 @@
 //! This provider's own failures, grouped by what went wrong, and the
 //! dictionary number of each group (ADR-0043). Shares `Domain::Network`
-//! with `delonix-sdn` — the same convention `delonix-proxmox` follows for
+//! with `delonix-sdn` — the same convention `delonix-provider-proxmox` follows for
 //! `Domain::Vm` (a provider continues its port's own domain, never gets
 //! one of its own).
 

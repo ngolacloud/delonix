@@ -148,14 +148,14 @@ graph TB
     MGMT["delonix-mgmt<br>API de gestao LOCAL (HTTP+JSON num socket unix, so o proprio uid)<br>expoe as metricas partilhadas em /metrics"]
     TEL["delonix-telemetry<br>observabilidade: logging estruturado, spans OpenTelemetry/OTLP<br>e o registo Prometheus partilhado (saiu do core na P3)"]
     SCAN["delonix-scanner<br>SBOM e varredura de CVE — image scan<br>e a imposicao de scan-on-pull"]
-    SEC["delonix-security-runtime<br>decisoes de seguranca do no: politica, admissao<br>unica (container E VM), evento, score, redaccao<br>(ADR-0026) — puro, sem sensores e sem inquilino"]
+    SEC["delonix-security<br>decisoes de seguranca do no: politica, admissao<br>unica (container E VM), evento, score, redaccao<br>(ADR-0026) — puro, sem sensores e sem inquilino"]
     RULES["delonix-net-rules<br>regras de rede PURAS, ZERO dependencias — Cidr, nome de bridge,<br>IPAM dentro de um prefixo, leitura de taxas, o PolicyIr (ADR-0059 D6); partilhado com o PaaS"]
     CHV["delonix-provider-cloud-hypervisor<br>backend VmBackend Cloud Hypervisor (microVM por processo, api-socket)<br>(ADR-0044 P4b.4c) — saiu do delonix-vm, que o regista"]
     LVIRT["delonix-provider-libvirt<br>backend VmBackend libvirt/KVM (QEMU via virsh)<br>(ADR-0044 P4b.4b) — saiu do delonix-vm, que o regista"]
-    PVE["delonix-proxmox<br>backend VmBackend REMOTO contra a API de UM no Proxmox VE<br>(ADR-0008) — fora do delonix-vm por trazer cliente HTTP"]
-    NAS["delonix-truenas<br>provisiona dataset, quota, permissoes e export numa NAS<br>pela API do TrueNAS (ADR-0009) — mesma razao de crate a parte"]
-    OPN["delonix-opnsense<br>GatewayProvider REMOTO contra a API REST de UMA appliance OPNsense<br>(ADR-0051) — fora do delonix-sdn por trazer cliente HTTP"]
-    PDNS["delonix-powerdns<br>cliente minimo da API de UM servidor PowerDNS, com a credencial<br>do PROPRIO motor (ADR-0064 D6) — remove os registos de gateway que o no deixa"]
+    PVE["delonix-provider-proxmox<br>backend VmBackend REMOTO contra a API de UM no Proxmox VE<br>(ADR-0008) — fora do delonix-vm por trazer cliente HTTP"]
+    NAS["delonix-provider-truenas<br>provisiona dataset, quota, permissoes e export numa NAS<br>pela API do TrueNAS (ADR-0009) — mesma razao de crate a parte"]
+    OPN["delonix-provider-opnsense<br>GatewayProvider REMOTO contra a API REST de UMA appliance OPNsense<br>(ADR-0051) — fora do delonix-sdn por trazer cliente HTTP"]
+    PDNS["delonix-provider-powerdns<br>cliente minimo da API de UM servidor PowerDNS, com a credencial<br>do PROPRIO motor (ADR-0064 D6) — remove os registos de gateway que o no deixa"]
     MODEL["delonix-model<br>modelo partilhado PURO (foundation, ADR-0040) —<br>o Error e o dicionario DX-CDNN, Status, ContainerFw,<br>typestate, o modelo do segredo e os nomes gerados"]
     STACK["delonix-stack<br>contexto Stack (ADR-0040): tabela de Kinds,<br>reconciliador de 3 vias, Condition, revisões"]
     COMPUTE["delonix-compute<br>contexto Compute (ADR-0040): a especificacao<br>de execucao unica (RunOpts) que as entradas traduzem"]
@@ -337,7 +337,7 @@ Notas de leitura do grafo (todas verificadas):
   salto de rede — e um modo de falha novo — para calcular o que os dois lados já sabem
   calcular; e duas implementações que TÊM de concordar são duas que um dia não
   concordam. O `delonix-sdn` re-exporta tudo, portanto nenhum consumidor mudou.
-- **`delonix-proxmox`, `delonix-truenas` e `delonix-opnsense` estão fora dos crates de
+- **`delonix-provider-proxmox`, `delonix-provider-truenas` e `delonix-provider-opnsense` estão fora dos crates de
   motor de propósito, e pela mesma razão escrita nos três `Cargo.toml`**: trazem um
   cliente HTTP (`reqwest`), e um crate de motor não cresce um. O `delonix-vm` tem quatro
   dependências, o `delonix-volume` três e o `delonix-sdn` cinco — meter lá o cliente para
@@ -346,13 +346,13 @@ Notas de leitura do grafo (todas verificadas):
   `GatewayProvider` do OPNsense (ADR-0051) implementa a porta do contexto `delonix-networking`
   (ADR-0059 F2a; até lá vivia no `delonix-sdn`), os dois a partir de fora, e **registam-se** (`register_backend`/`register_gateway_provider`), com
   o alvo conhecido só pelo `-bin`, não pelo motor.
-- **`delonix-powerdns` está fora pela mesma razão** (ADR-0064 D6): fala com UM servidor
+- **`delonix-provider-powerdns` está fora pela mesma razão** (ADR-0064 D6): fala com UM servidor
   PowerDNS, com a credencial que o operador dá ao MOTOR no `providers.yaml`, para remover
   os registos de gateway que o nó Proxmox escreve e nunca remove. Depende só do
   `delonix-model`; quem sabe QUE registos são é o contexto `delonix-networking`
   (`gateway_records`) e o provider (`DnsProvider::reverse_zone`), e quem os liga é o `-bin`.
-- **Nada depende de `delonix-proxmox`, `delonix-truenas` nem `delonix-opnsense` a não ser
-  o `-bin` e, no caso do `delonix-proxmox`, o `delonix-node-api`** (que o lista entre os
+- **Nada depende de `delonix-provider-proxmox`, `delonix-provider-truenas` nem `delonix-provider-opnsense` a não ser
+  o `-bin` e, no caso do `delonix-provider-proxmox`, o `delonix-node-api`** (que o lista entre os
   providers do nó, como o `delonix provider ls` faz) — são folhas do grafo, e é o que permite que um alvo remoto mal configurado
   avise e siga em vez de parar um `container ls`.
 - **`delonix-mcp` fica fora dos oito crates de motor dependency-clean, pela MESMA razão

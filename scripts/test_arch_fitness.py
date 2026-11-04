@@ -235,12 +235,12 @@ class SilentTestSkips(unittest.TestCase):
         """If the walk stops finding them, the rule guards nothing and reads as green."""
         found = {f.relative_to(g.ROOT).as_posix() for f in g.integration_test_files()}
         for live in (
-            "crates/providers/delonix-proxmox/tests/live.rs",
-            "crates/providers/delonix-powerdns/tests/live.rs",
+            "crates/providers/delonix-provider-proxmox/tests/live.rs",
+            "crates/providers/delonix-provider-powerdns/tests/live.rs",
             "crates/adapters/delonix-linux/tests/cgroup_parent.rs",
         ):
             self.assertIn(live, found)
-        proxmox = (g.ROOT / "crates/providers/delonix-proxmox/tests/live.rs").read_text(encoding="utf-8")
+        proxmox = (g.ROOT / "crates/providers/delonix-provider-proxmox/tests/live.rs").read_text(encoding="utf-8")
         self.assertGreaterEqual(len(g.test_functions(proxmox)), 42)
 
 
@@ -274,12 +274,12 @@ class C1RestructuringRules(unittest.TestCase):
 
     def test_a_provider_namer_outside_the_engine_is_counted_but_the_engine_is_not(self):
         pkgs = {
-            "delonix-engine": _pkg("delonix-engine", ["delonix-proxmox"]),
-            "delonix-node-api": _pkg("delonix-node-api", ["delonix-proxmox"]),
+            "delonix-engine": _pkg("delonix-engine", ["delonix-provider-proxmox"]),
+            "delonix-node-api": _pkg("delonix-node-api", ["delonix-provider-proxmox"]),
         }
         n, where = g.provider_namers(pkgs)
         self.assertEqual(n, 1)
-        self.assertEqual(where, ["delonix-node-api -> delonix-proxmox"])
+        self.assertEqual(where, ["delonix-node-api -> delonix-provider-proxmox"])
 
     def test_an_inter_context_edge_outside_a3_fails_and_an_allowed_one_does_not(self):
         pkgs = {

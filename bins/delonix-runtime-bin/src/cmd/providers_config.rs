@@ -541,7 +541,7 @@ pub fn proxmox_lookup_with<'a>(
         })
         .unwrap_or_default();
     Box::new(move |k| {
-        if k == delonix_proxmox::TRACE_ROUTES_ENV {
+        if k == delonix_provider_proxmox::TRACE_ROUTES_ENV {
             return env(k);
         }
         keys.get(k).cloned()
@@ -722,7 +722,7 @@ pub fn validate(cfg: &ProviderConfig, origin: &Path) -> Result<()> {
             let lookup = |k: &str| keys.get(k).cloned();
             let (target, opts) = super::vmbackends::proxmox_target_with(&lookup)?
                 .ok_or_else(|| Error::Invalid(format!("{}: proxmox entry", origin.display())))?;
-            delonix_proxmox::registration(target, opts)?;
+            delonix_provider_proxmox::registration(target, opts)?;
         }
     }
     Ok(())

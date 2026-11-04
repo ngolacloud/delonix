@@ -1,5 +1,5 @@
 [package]
-name = "delonix-opnsense"
+name = "delonix-provider-opnsense"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,7 +14,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# The same client, features and TLS stack as `delonix-proxmox`/`delonix-truenas`.
+# The same client, features and TLS stack as `delonix-provider-proxmox`/`delonix-provider-truenas`.
 # It lives HERE and not in `delonix-sdn`: that crate has no HTTP client today and
 # a motor crate does not grow one (ADR-0008/ADR-0009's reasoning, ADR-0051).
 reqwest = { workspace = true, features = ["blocking", "rustls-tls-webpki-roots", "json"] }
@@ -25,7 +25,7 @@ workspace = true
 [dev-dependencies]
 # A TLS mock appliance: the client only speaks https, so every failure-injection
 # test (302/401/403/404, a validation failure at HTTP 200, a truncated body)
-# needs a listener with a certificate. Same stack `delonix-proxmox` already uses.
+# needs a listener with a certificate. Same stack `delonix-provider-proxmox` already uses.
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 rcgen = { workspace = true, features = ["ring", "pem"] }
 tempfile = { workspace = true }

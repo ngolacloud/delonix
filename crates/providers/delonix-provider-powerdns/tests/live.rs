@@ -8,14 +8,14 @@
 //! DELONIX_POWERDNS_TEST_URL=http://192.168.122.55:8081/api/v1/servers/localhost \
 //! DELONIX_POWERDNS_TEST_KEY_FILE=$HOME/.cache/dlx-slice6/pdns-lab.key \
 //! DELONIX_POWERDNS_TEST_ZONE=f5c.lab \
-//! cargo test -p delonix-powerdns --test live -- --ignored --nocapture
+//! cargo test -p delonix-provider-powerdns --test live -- --ignored --nocapture
 //! ```
 //!
 //! It writes one rrset of its own (named after the process id), with the
 //! test's own `PATCH` — the client never creates a record — and removes it on
 //! every exit.
 
-use delonix_powerdns::{Client, Removal, Target};
+use delonix_provider_powerdns::{Client, Removal, Target};
 
 struct Lab {
     url: String,
@@ -76,7 +76,7 @@ impl Drop for Cleanup<'_> {
     }
 }
 
-#[ignore = "needs DELONIX_POWERDNS_TEST_URL, DELONIX_POWERDNS_TEST_KEY_FILE, DELONIX_POWERDNS_TEST_ZONE and a reachable PowerDNS: cargo test -p delonix-powerdns --test live -- --ignored"]
+#[ignore = "needs DELONIX_POWERDNS_TEST_URL, DELONIX_POWERDNS_TEST_KEY_FILE, DELONIX_POWERDNS_TEST_ZONE and a reachable PowerDNS: cargo test -p delonix-provider-powerdns --test live -- --ignored"]
 #[test]
 fn one_record_is_removed_and_the_rest_of_its_rrset_kept() {
     let lab = lab();
