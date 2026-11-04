@@ -39,12 +39,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = Path(__file__).resolve().parent / "arch_baseline.json"
 
-FOUNDATION, CONTEXT, ADAPTER, PROVIDER, INTERFACE, BIN = (
+FOUNDATION, CONTEXT, ADAPTER, PROVIDER, INTERFACE, ASSEMBLY, BIN = (
     "foundation",
     "context",
     "adapter",
     "provider",
     "interface",
+    "assembly",
     "bin",
 )
 
@@ -112,7 +113,10 @@ ALLOWED = {
     ADAPTER: {FOUNDATION, CONTEXT},
     PROVIDER: {FOUNDATION, CONTEXT},
     INTERFACE: {FOUNDATION, CONTEXT, ADAPTER, PROVIDER},
-    BIN: {FOUNDATION, CONTEXT, ADAPTER, PROVIDER, INTERFACE},
+    # assembly (delonix-engine, ADR-0040 D1/A1): the single composition root, may
+    # depend on everything below it — never on an interface or a bin.
+    ASSEMBLY: {FOUNDATION, CONTEXT, ADAPTER, PROVIDER},
+    BIN: {FOUNDATION, CONTEXT, ADAPTER, PROVIDER, INTERFACE, ASSEMBLY},
 }
 
 # Dependencies that carry a runtime, a server or a CLI. A foundation or context
@@ -671,6 +675,7 @@ LAYER_DIR = {
     ADAPTER: "crates/adapters",
     PROVIDER: "crates/providers",
     INTERFACE: "crates/interfaces",
+    ASSEMBLY: "crates/assembly",
     BIN: "bins",
 }
 
