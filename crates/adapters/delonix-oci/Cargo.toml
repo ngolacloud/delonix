@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 thiserror = { workspace = true }
 delonix-node = { workspace = true }
+delonix-host = { workspace = true }
 delonix-model = { workspace = true }
 delonix-state = { workspace = true }
 # Implements the compute context's ImageStore port (ADR-0040).

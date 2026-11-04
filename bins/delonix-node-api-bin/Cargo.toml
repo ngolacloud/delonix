@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 delonix-model = { workspace = true }
 delonix-node = { workspace = true }
+delonix-host = { workspace = true }
 delonix-node-api = { workspace = true }
 delonix-telemetry = { workspace = true }
 

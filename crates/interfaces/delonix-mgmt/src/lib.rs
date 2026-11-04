@@ -25,7 +25,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use delonix_model::Error;
-use delonix_node::peer_cred::peer_uid;
+use delonix_host::peer_cred::peer_uid;
 use delonix_oci::ImageStore;
 use delonix_state::Store;
 use delonix_volume::VolumeStore;
@@ -52,7 +52,7 @@ pub fn serve_blocking(base: PathBuf, addr: &str) -> Result<(), Error> {
     // The CLI the mutations run: never this process's own executable, which is the
     // API server (`delonix serve api` runs `delonix-mgmt`) and would serve again
     // instead of running the command.
-    let bin = delonix_node::dispatch::cli_bin();
+    let bin = delonix_host::dispatch::cli_bin();
     serve_blocking_with(base, bin, addr)
 }
 

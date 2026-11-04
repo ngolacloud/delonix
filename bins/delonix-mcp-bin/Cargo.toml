@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 delonix-node = { workspace = true }
+delonix-host = { workspace = true }
 delonix-mcp = { workspace = true }
 delonix-telemetry = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }

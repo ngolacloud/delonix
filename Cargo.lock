@@ -744,6 +744,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "delonix-compute",
+ "delonix-host",
  "delonix-linux",
  "delonix-mgmt",
  "delonix-model",
@@ -811,6 +812,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "delonix-compute",
+ "delonix-host",
  "delonix-linux",
  "delonix-model",
  "delonix-node",
@@ -837,6 +839,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "delonix-host"
+version = "0.1.0"
+dependencies = [
+ "delonix-model",
+ "libc",
+]
+
+[[package]]
 name = "delonix-linux"
 version = "0.1.0"
 dependencies = [
@@ -860,6 +870,7 @@ name = "delonix-mcp"
 version = "0.1.0"
 dependencies = [
  "delonix-compute",
+ "delonix-host",
  "delonix-linux",
  "delonix-mgmt",
  "delonix-model",
@@ -882,6 +893,7 @@ dependencies = [
 name = "delonix-mcp-bin"
 version = "0.1.0"
 dependencies = [
+ "delonix-host",
  "delonix-mcp",
  "delonix-node",
  "delonix-telemetry",
@@ -895,6 +907,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "delonix-compute",
+ "delonix-host",
  "delonix-linux",
  "delonix-model",
  "delonix-node",
@@ -920,6 +933,7 @@ dependencies = [
 name = "delonix-mgmt-bin"
 version = "0.1.0"
 dependencies = [
+ "delonix-host",
  "delonix-mgmt",
  "delonix-node",
  "delonix-telemetry",
@@ -967,6 +981,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "delonix-compute",
+ "delonix-host",
  "delonix-linux",
  "delonix-model",
  "delonix-node",
@@ -1004,6 +1019,7 @@ dependencies = [
 name = "delonix-node-api-bin"
 version = "0.1.0"
 dependencies = [
+ "delonix-host",
  "delonix-model",
  "delonix-node",
  "delonix-node-api",
@@ -1019,6 +1035,7 @@ dependencies = [
  "base64 0.22.1",
  "criterion",
  "delonix-compute",
+ "delonix-host",
  "delonix-model",
  "delonix-node",
  "delonix-state",
@@ -1079,6 +1096,7 @@ name = "delonix-provider-libvirt"
 version = "0.1.0"
 dependencies = [
  "delonix-compute",
+ "delonix-host",
  "delonix-model",
  "delonix-node",
  "libc",
@@ -1183,6 +1201,7 @@ name = "delonix-sdn"
 version = "0.1.0"
 dependencies = [
  "delonix-compute",
+ "delonix-host",
  "delonix-model",
  "delonix-net-rules",
  "delonix-networking",
@@ -1223,6 +1242,7 @@ version = "0.1.0"
 dependencies = [
  "chacha20poly1305",
  "delonix-compute",
+ "delonix-host",
  "delonix-model",
  "delonix-node",
  "getrandom 0.2.17",

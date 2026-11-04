@@ -16,6 +16,7 @@ repository.workspace = true
 delonix-compute = { workspace = true }
 delonix-oci = { workspace = true }
 delonix-node = { workspace = true }
+delonix-host = { workspace = true }
 delonix-model = { workspace = true }
 delonix-vm = { workspace = true }
 delonix-provider-proxmox = { workspace = true }

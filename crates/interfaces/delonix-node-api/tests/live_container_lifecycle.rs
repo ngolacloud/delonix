@@ -16,7 +16,7 @@
 //! ```
 //!
 //! `Start` re-execs `$DELONIX_BIN` (the `delonix` CLI — the same variable
-//! `delonix_node::dispatch::cli_bin` reads), so that variable and a
+//! `delonix_host::dispatch::cli_bin` reads), so that variable and a
 //! `DELONIX_ROOT` with `busybox:latest` already pulled are required; the test
 //! fails naming them when either is missing.
 

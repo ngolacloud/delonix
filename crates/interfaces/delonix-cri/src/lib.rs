@@ -9,7 +9,7 @@
 //! large by nature, so we silence `result_large_err` across the whole crate.
 #![allow(clippy::result_large_err)]
 
-use delonix_node::peer_cred::peer_uid;
+use delonix_host::peer_cred::peer_uid;
 use std::path::PathBuf;
 use tokio_stream::StreamExt as _;
 use tonic::{Request, Response, Status};

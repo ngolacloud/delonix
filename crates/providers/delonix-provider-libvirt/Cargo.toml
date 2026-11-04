@@ -9,6 +9,7 @@ repository.workspace = true
 delonix-compute = { workspace = true }
 delonix-model = { workspace = true }
 delonix-node = { workspace = true }
+delonix-host = { workspace = true }
 tracing = { workspace = true }
 libc = { workspace = true }
 serde_json = { workspace = true }

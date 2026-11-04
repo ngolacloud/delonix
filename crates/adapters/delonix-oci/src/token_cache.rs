@@ -87,7 +87,7 @@ pub(crate) fn store(
         Err(_) => return,
     };
     let path = entry_path(root, host, scope);
-    if let Err(e) = delonix_node::write_atomic_mode(&path, &bytes, Some(0o600)) {
+    if let Err(e) = delonix_host::write_atomic_mode(&path, &bytes, Some(0o600)) {
         tracing::debug!("token cache: cannot write {}: {e}", path.display());
     }
 }

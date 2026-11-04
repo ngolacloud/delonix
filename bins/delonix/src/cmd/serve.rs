@@ -364,7 +364,7 @@ fn install_node_api_units(addr: Option<&str>, idle: Option<&str>) -> Result<()> 
     let exec = exec.display().to_string();
     let root = super::util::state_root().display().to_string();
     let idle = idle.unwrap_or(UNIT_DEFAULT_IDLE);
-    let never_idle = delonix_node::dispatch::parse_idle_timeout(idle)?.is_zero();
+    let never_idle = delonix_host::dispatch::parse_idle_timeout(idle)?.is_zero();
     let listen = match addr {
         Some(a) => {
             let p = a.strip_prefix("unix://").unwrap_or(a);

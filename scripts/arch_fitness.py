@@ -62,6 +62,7 @@ LAYERS = {
     "delonix-node": CONTEXT,
     "delonix-net-rules": FOUNDATION,  # → delonix-networking/domain (P2)
     "delonix-security": CONTEXT,  # → delonix-security (P2)
+    "delonix-host": ADAPTER,  # the host adapter: the delonix-node split's process/fs mechanism (R2)
     "delonix-linux": ADAPTER,
     "delonix-sdn": ADAPTER,
     "delonix-oci": ADAPTER,
@@ -88,6 +89,11 @@ LAYERS = {
     "delonix-node-api-bin": BIN,  # `delonix-node-api`, run by `delonix serve node-api`
     "delonix-storage-helper": BIN,  # the privileged storage pool helper (ADR-0067 D3, P1)
 }
+
+# The one adapter that adapters and providers may depend on directly (ADR-0040
+# A1): the shared host mechanism of the delonix-node split. Everything above the
+# adapter layer already reaches any adapter.
+HOST_ADAPTER = {"delonix-host"}
 
 # Which layers each layer may depend on. The direction, in one place.
 ALLOWED = {
@@ -421,12 +427,21 @@ def cli_destination_map() -> tuple[int, list[str]]:
 
 def interface_mechanism_deps(pkgs: dict[str, dict]) -> tuple[int, list[str]]:
     """Interface crates depending on an adapter or a provider (C1 #3 ratchet).
-    An interface sees contexts (app); mechanism arrives already composed."""
+    An interface sees contexts (app); mechanism arrives already composed.
+
+    The shared host adapter (`delonix-host`, A1) does not count: it is the
+    process/fs mechanism everything may depend on directly, not a provider the
+    Engine is meant to compose away. (The delonix-node split moved dispatch/
+    peer_cred there — the interfaces already used them when they lived in the
+    node context, which this ratchet never counted, so counting them now would
+    read corrected classification as new coupling.)"""
     where: list[str] = []
     for name, pkg in sorted(pkgs.items()):
         if LAYERS.get(name) != INTERFACE:
             continue
         for dep in pkg["dependencies"]:
+            if dep["name"] in HOST_ADAPTER:
+                continue
             if dep["kind"] is None and LAYERS.get(dep["name"]) in (ADAPTER, PROVIDER):
                 where.append(f"{name} -> {dep['name']} ({LAYERS[dep['name']]})")
     return len(where), where
@@ -578,7 +593,13 @@ def rule_failures(pkgs: dict[str, dict]) -> tuple[list[str], set[tuple]]:
             dname = dep["name"]
             if dname in LAYERS:
                 dlayer = LAYERS[dname]
-                if dlayer not in ALLOWED[layer]:
+                # A1 exception: the host adapter is the one adapter that adapters and
+                # providers may depend on directly (the shared process/filesystem
+                # mechanism of the delonix-node split, ADR-0040 R2). Interfaces and
+                # bins already reach any adapter.
+                if dname in HOST_ADAPTER and layer in (ADAPTER, PROVIDER, INTERFACE, BIN):
+                    pass
+                elif dlayer not in ALLOWED[layer]:
                     key = ("dep", name, dname)
                     if key in EXCEPTIONS:
                         used.add(key)

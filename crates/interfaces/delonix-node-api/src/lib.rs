@@ -241,7 +241,7 @@ pub async fn serve_listener(
     app: axum::Router,
     idle: Option<activation::IdleExit>,
 ) -> Result<(), Error> {
-    use delonix_node::peer_cred::peer_uid;
+    use delonix_host::peer_cred::peer_uid;
     use hyper::body::Incoming;
     use hyper_util::rt::{TokioExecutor, TokioIo};
     use std::sync::atomic::{AtomicUsize, Ordering};

@@ -299,7 +299,7 @@ pub fn begin(
     // Exclusive creation: the whole record is written to a private file and
     // linked under its name. `link` fails if the name exists, so of two
     // requests with one `request_id` exactly one begins. The staged name is
-    // unique per ATTEMPT (`delonix_node::unique_tmp_suffix`, pid + a
+    // unique per ATTEMPT (`delonix_host::unique_tmp_suffix`, pid + a
     // process-wide sequence) — not just per `(request_id, pid)` — so two
     // threads racing the same `request_id` never share a staged inode: a
     // shared, non-unique name let one thread's later write silently mutate
@@ -307,7 +307,7 @@ pub fn begin(
     // legitimate replay into an ENOENT `Err` (measured: 33-40% of racing
     // retries, before this fix).
     let bytes = serde_json::to_vec_pretty(&rec).map_err(|e| io("encoding", e))?;
-    let staged = dir(root).join(format!(".{id}.{}.new", delonix_node::unique_tmp_suffix()));
+    let staged = dir(root).join(format!(".{id}.{}.new", delonix_host::unique_tmp_suffix()));
     std::fs::write(&staged, bytes).map_err(|e| io("writing", e))?;
     let linked = std::fs::hard_link(&staged, path(root, &id));
     let _ = std::fs::remove_file(&staged);

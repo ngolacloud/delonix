@@ -435,7 +435,7 @@ fn reexec(root: &Path, args: &[String], what: &str) -> delonix_model::Result<()>
     ));
     let err_file = std::fs::File::create(&err_path)
         .map_err(|e| delonix_model::Error::Invalid(format!("preparing `{what}`: {e}")))?;
-    let status = Command::new(delonix_node::dispatch::cli_bin())
+    let status = Command::new(delonix_host::dispatch::cli_bin())
         .env("DELONIX_ROOT", root)
         .env("DELONIX_INTERNAL", "1")
         .env("NO_COLOR", "1")

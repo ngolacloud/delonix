@@ -2525,7 +2525,7 @@ fn after_stopped(base: &std::path::Path, name: &str) {
     }
     let ok = sched
         .arg("--")
-        .arg(delonix_node::dispatch::cli_bin())
+        .arg(delonix_host::dispatch::cli_bin())
         .args(["vm", "destroy", "--force", "--if-stopped", "--", name])
         .status()
         .map(|s| s.success())

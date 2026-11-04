@@ -1,0 +1,9 @@
+[package]
+name = "delonix-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+delonix-model = { workspace = true }
+libc = { workspace = true }

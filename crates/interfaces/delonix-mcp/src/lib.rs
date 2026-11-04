@@ -1045,7 +1045,7 @@ pub fn doctor_checks(base: &Path) -> Vec<(&'static str, bool, String)> {
 
     // The CLI the mutations run: never this executable, which is the MCP server
     // (`delonix mcp` runs `delonix-mcp`), and the answer must be a file that exists.
-    let bin = delonix_node::dispatch::cli_bin();
+    let bin = delonix_host::dispatch::cli_bin();
     let found = if bin.is_absolute() {
         bin.is_file().then(|| bin.clone())
     } else {
@@ -1072,7 +1072,7 @@ pub fn doctor_checks(base: &Path) -> Vec<(&'static str, bool, String)> {
 /// that is `delonix-mcp`, and re-running it would start another server instead
 /// of running the command.
 fn run_cli_blocking(base: &Path, args: Vec<String>) -> Result<(bool, String), String> {
-    let bin = delonix_node::dispatch::cli_bin();
+    let bin = delonix_host::dispatch::cli_bin();
     let out = std::process::Command::new(&bin)
         .env("DELONIX_ROOT", base)
         .args(&args)

@@ -782,7 +782,7 @@ fn list_recs<T: for<'de> Deserialize<'de>>(dir: &Path) -> Vec<T> {
 }
 
 fn delonix_bin() -> PathBuf {
-    delonix_node::dispatch::cli_bin()
+    delonix_host::dispatch::cli_bin()
 }
 
 /// Runs the `delonix` binary (single-threaded) with the CRI's `DELONIX_ROOT`.

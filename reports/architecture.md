@@ -8,12 +8,12 @@
 | Layer | Crates | Lines | Share |
 | --- | ---: | ---: | ---: |
 | foundation | 2 | 6,373 | 1.8% |
-| context | 6 | 29,117 | 8.3% |
-| adapter | 8 | 79,034 | 22.5% |
+| context | 6 | 28,788 | 8.2% |
+| adapter | 9 | 79,376 | 22.6% |
 | provider | 10 | 54,557 | 15.5% |
 | interface | 4 | 31,716 | 9.0% |
 | bin | 5 | 150,715 | 42.9% |
-| **total** | **35** | **351,512** | 100% |
+| **total** | **36** | **351,525** | 100% |
 
 ## Lines per crate
 
@@ -33,7 +33,7 @@
 | delonix-storage | 3,353 |
 | delonix-security | 3,286 |
 | delonix-stack | 3,087 |
-| delonix-node | 1,358 |
+| delonix-node | 1,029 |
 
 ### adapter
 
@@ -47,6 +47,7 @@
 | delonix-state | 3,010 |
 | delonix-scanner | 1,564 |
 | delonix-telemetry | 1,144 |
+| delonix-host | 342 |
 
 ### provider
 
@@ -189,6 +190,7 @@ graph LR
   delonix_bin[delonix-bin]
   delonix_compute[delonix-compute]
   delonix_cri[delonix-cri]
+  delonix_host[delonix-host]
   delonix_linux[delonix-linux]
   delonix_mcp[delonix-mcp]
   delonix_mcp_bin[delonix-mcp-bin]
@@ -222,6 +224,7 @@ graph LR
   delonix_vm[delonix-vm]
   delonix_volume[delonix-volume]
   delonix_bin --> delonix_compute
+  delonix_bin --> delonix_host
   delonix_bin --> delonix_linux
   delonix_bin --> delonix_mgmt
   delonix_bin --> delonix_model
@@ -250,6 +253,7 @@ graph LR
   delonix_compute --> delonix_net_rules
   delonix_compute --> delonix_node
   delonix_cri --> delonix_compute
+  delonix_cri --> delonix_host
   delonix_cri --> delonix_linux
   delonix_cri --> delonix_model
   delonix_cri --> delonix_node
@@ -258,11 +262,13 @@ graph LR
   delonix_cri --> delonix_security
   delonix_cri --> delonix_state
   delonix_cri --> delonix_telemetry
+  delonix_host --> delonix_model
   delonix_linux --> delonix_compute
   delonix_linux --> delonix_model
   delonix_linux --> delonix_node
   delonix_linux --> delonix_state
   delonix_mcp --> delonix_compute
+  delonix_mcp --> delonix_host
   delonix_mcp --> delonix_linux
   delonix_mcp --> delonix_mgmt
   delonix_mcp --> delonix_model
@@ -271,10 +277,12 @@ graph LR
   delonix_mcp --> delonix_state
   delonix_mcp --> delonix_vm
   delonix_mcp --> delonix_volume
+  delonix_mcp_bin --> delonix_host
   delonix_mcp_bin --> delonix_mcp
   delonix_mcp_bin --> delonix_node
   delonix_mcp_bin --> delonix_telemetry
   delonix_mgmt --> delonix_compute
+  delonix_mgmt --> delonix_host
   delonix_mgmt --> delonix_linux
   delonix_mgmt --> delonix_model
   delonix_mgmt --> delonix_node
@@ -285,6 +293,7 @@ graph LR
   delonix_mgmt --> delonix_telemetry
   delonix_mgmt --> delonix_vm
   delonix_mgmt --> delonix_volume
+  delonix_mgmt_bin --> delonix_host
   delonix_mgmt_bin --> delonix_mgmt
   delonix_mgmt_bin --> delonix_node
   delonix_mgmt_bin --> delonix_telemetry
@@ -292,6 +301,7 @@ graph LR
   delonix_networking --> delonix_net_rules
   delonix_node --> delonix_model
   delonix_node_api --> delonix_compute
+  delonix_node_api --> delonix_host
   delonix_node_api --> delonix_linux
   delonix_node_api --> delonix_model
   delonix_node_api --> delonix_node
@@ -304,11 +314,13 @@ graph LR
   delonix_node_api --> delonix_storage
   delonix_node_api --> delonix_vm
   delonix_node_api --> delonix_volume
+  delonix_node_api_bin --> delonix_host
   delonix_node_api_bin --> delonix_model
   delonix_node_api_bin --> delonix_node
   delonix_node_api_bin --> delonix_node_api
   delonix_node_api_bin --> delonix_telemetry
   delonix_oci --> delonix_compute
+  delonix_oci --> delonix_host
   delonix_oci --> delonix_model
   delonix_oci --> delonix_node
   delonix_oci --> delonix_state
@@ -318,6 +330,7 @@ graph LR
   delonix_provider_cloud_hypervisor --> delonix_model
   delonix_provider_cloud_hypervisor --> delonix_node
   delonix_provider_libvirt --> delonix_compute
+  delonix_provider_libvirt --> delonix_host
   delonix_provider_libvirt --> delonix_model
   delonix_provider_libvirt --> delonix_node
   delonix_provider_lvm --> delonix_storage
@@ -333,6 +346,7 @@ graph LR
   delonix_scanner --> delonix_model
   delonix_scanner --> delonix_oci
   delonix_sdn --> delonix_compute
+  delonix_sdn --> delonix_host
   delonix_sdn --> delonix_model
   delonix_sdn --> delonix_net_rules
   delonix_sdn --> delonix_networking
@@ -342,6 +356,7 @@ graph LR
   delonix_security --> delonix_node
   delonix_stack --> delonix_model
   delonix_state --> delonix_compute
+  delonix_state --> delonix_host
   delonix_state --> delonix_model
   delonix_state --> delonix_node
   delonix_storage --> delonix_model
@@ -366,6 +381,7 @@ graph LR
   class delonix_bin bin;
   class delonix_compute context;
   class delonix_cri interface;
+  class delonix_host adapter;
   class delonix_linux adapter;
   class delonix_mcp interface;
   class delonix_mcp_bin bin;
