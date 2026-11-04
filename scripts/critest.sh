@@ -30,9 +30,9 @@ command -v crictl  >/dev/null || { echo "ERRO: crictl não está no PATH"; exit 
 
 # Build (idempotente) dos DOIS binários — o CRI delega o ciclo de vida na CLI.
 if [[ "${NO_BUILD:-}" != "1" ]]; then
-  echo "==> cargo build -p delonix-cri -p delonix-runtime-bin ($PROFILE)"
+  echo "==> cargo build -p delonix-cri -p delonix-bin ($PROFILE)"
   ( cd "$ROOT_DIR" && cargo build ${PROFILE:+$([[ $PROFILE == release ]] && echo --release)} \
-      -p delonix-cri --bin delonix-cri -p delonix-runtime-bin --bin delonix ) || exit $?
+      -p delonix-cri --bin delonix-cri -p delonix-bin --bin delonix ) || exit $?
 fi
 [[ -x "$CRI_BIN" && -x "$CLI_BIN" ]] || { echo "ERRO: binários em falta em $BIN_DIR"; exit 2; }
 

@@ -20,7 +20,7 @@
 //! `delonix_vm::image_defaults` (ADR-0076 D3) — a minimal port
 //! (`delonix_compute::ports::ImageDefaultsReader`) that reads only the three
 //! fields this needs straight off an image's JSON sidecar, independently of
-//! `bins/delonix-runtime-bin`'s richer `VmImageStore` (build/registry
+//! `bins/delonix`'s richer `VmImageStore` (build/registry
 //! metadata that resolution has no use for, and that an INTERFACE crate must
 //! not depend on `bin` to reach — ADR-0040's layering). A reference this
 //! port does not recognize (no sidecar, or none registered) falls back to
@@ -45,7 +45,7 @@ use delonix_compute::vm_backend::VmConfig;
 
 /// `wait_until_reachable`'s budget. The contract has no per-request timeout
 /// field; this matches `vm create --wait`'s own default (`--boot-timeout
-/// 120`, `bins/delonix-runtime-bin/src/cmd/vm.rs`) so the two entry points do
+/// 120`, `bins/delonix/src/cmd/vm.rs`) so the two entry points do
 /// not disagree about how long "wait" means.
 const WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -168,7 +168,7 @@ fn mib_ceil(bytes: i64, field: &str) -> Result<Option<u64>, Status> {
 
 /// The subnet of `network` as this node's registry records it, for
 /// `VmConfig::network_subnet` — the same resolution the CLI does
-/// (`subnet_of` in `bins/delonix-runtime-bin/src/cmd/network.rs`), on this
+/// (`subnet_of` in `bins/delonix/src/cmd/network.rs`), on this
 /// side because a provider does not read the registry
 /// (`docs/discovery/61`): without it the libvirt provider has no subnet to
 /// define a network that libvirt does not know yet, and the VM's create
@@ -320,7 +320,7 @@ fn stamp_metadata(
 
 /// Polls for [`CreateVirtualMachineRequest::wait_until_reachable`] — the same
 /// three-way read `vm create --wait` makes (`wait_for_boot`,
-/// `bins/delonix-runtime-bin/src/cmd/vm.rs`), without its spinner/i18n side:
+/// `bins/delonix/src/cmd/vm.rs`), without its spinner/i18n side:
 /// up (real or predicted-and-probed-reachable), an address that exists but
 /// never answered, or no address at all yet. Only the last two, past the
 /// deadline, are an error — the same DX-8503 class the CLI gives, because the
@@ -1121,7 +1121,7 @@ mod tests {
     }
 
     /// D3's regression test (review 2026-10-09, ADR-0076): writes the exact
-    /// on-disk shape `bins/delonix-runtime-bin/src/cmd/vmimage.rs::
+    /// on-disk shape `bins/delonix/src/cmd/vmimage.rs::
     /// VmImageStore::save` produces — `<root>/vm-images/<name>.json` —
     /// recommending 4 vCPUs / 4 GiB, and asks `config_from_spec` to resolve
     /// `vcpus: 0, memory_bytes: 0` against it. Before this fix, this always

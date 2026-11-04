@@ -80,9 +80,13 @@ Quem tem um branch por integrar reaponta os imports:
 | `delonix-opnsense` | `delonix-provider-opnsense` | `delonix_provider_opnsense` |
 | `delonix-powerdns` | `delonix-provider-powerdns` | `delonix_provider_powerdns` |
 | `delonix-security-runtime` | `delonix-security` | `delonix_security` |
+| `delonix-runtime-bin` (em `bins/delonix-runtime-bin`) | `delonix-bin` (em `bins/delonix`) | — (é um bin, sem lib) |
 
 Movidos com `git mv` (o `git log --follow`/`blame` seguem). `scripts/arch_fitness.py`
-passa a recusar um crate em `providers/` sem o prefixo `delonix-provider-`.
+passa a recusar um crate em `providers/` sem o prefixo `delonix-provider-`. O
+binário **continua `delonix`** — só o nome do pacote e do directório mudaram
+(`delonix-bin` é o único em `bins/` cujo directório diverge do nome, A6a); quem
+invoca `cargo … -p delonix-runtime-bin` passa a `-p delonix-bin`.
 
 ## Estado desta transição (2026-10-28)
 

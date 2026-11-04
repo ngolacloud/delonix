@@ -60,7 +60,7 @@ TRACE = REPO / "scripts" / "cli_exec_trace.tsv"
 BASELINE = REPO / "scripts" / "cli_exec_baseline.json"
 
 # The only global option of the engine CLI, read from the `Cli` struct in
-# `bins/delonix-runtime-bin/src/main.rs` rather than guessed. It can arrive as
+# `bins/delonix/src/main.rs` rather than guessed. It can arrive as
 # `--l18n=pt` (one word) or `--l18n pt` (two), and in the second shape its value
 # has to be skipped as well or it would be mistaken for a subcommand.
 GLOBAL_VALUE_FLAGS = {"--l18n"}
@@ -68,7 +68,7 @@ GLOBAL_VALUE_FLAGS = {"--l18n"}
 # The command aliases of the CLI, which the leaf inventory cannot carry: the
 # inventory is read from `--help`, and `--help` prints only the canonical name.
 # Measured in the source rather than guessed — there are exactly three
-# `#[command(alias…)]`/`visible_alias` sites in `bins/delonix-runtime-bin/src`,
+# `#[command(alias…)]`/`visible_alias` sites in `bins/delonix/src`,
 # and `test_cli_exec_ratchet.py` greps for them so a fourth cannot be added
 # without this map noticing. Without it `container ls`, which the battery runs
 # more than any other command, resolved to nothing.
@@ -83,7 +83,7 @@ ALIASES = {
 # what makes this metric different from the one `cli surface` already holds: the
 # battery checks the `--help` of EVERY leaf through `check`, so counting those
 # gave 100% in every group on the first real measurement. There is no
-# `short = 'h'` or `short = 'V'` anywhere in `bins/delonix-runtime-bin/src`, so
+# `short = 'h'` or `short = 'V'` anywhere in `bins/delonix/src`, so
 # the short forms are unambiguous.
 HELP_FLAGS = {"--help", "-h", "--version", "-V"}
 

@@ -190,7 +190,7 @@ def binary() -> Path:
     for c in (ROOT / "target/release/delonix", ROOT / "target/debug/delonix"):
         if c.is_file():
             return c
-    sys.exit("sem binário: corre `cargo build --release -p delonix-runtime-bin`")
+    sys.exit("sem binário: corre `cargo build --release -p delonix-bin`")
 
 
 def resolve(

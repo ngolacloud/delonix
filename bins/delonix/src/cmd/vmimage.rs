@@ -4885,7 +4885,7 @@ pub(crate) fn resolve_delonix_bin(explicit: Option<PathBuf>) -> Result<PathBuf> 
                 "build",
                 "--release",
                 "-p",
-                "delonix-runtime-bin",
+                "delonix-bin",
                 "--bin",
                 "delonix",
             ])

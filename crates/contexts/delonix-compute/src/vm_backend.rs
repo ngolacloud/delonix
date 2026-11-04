@@ -345,7 +345,7 @@ pub fn mem_mib(s: &str) -> u64 {
 
 /// Stages emitted by `create_with` so a caller can render step-by-step
 /// progress. The engine emits ONLY the enum — the user-facing text and its
-/// translation stay in `delonix-runtime-bin` (project rule: UI strings live in
+/// translation stay in `delonix-bin` (project rule: UI strings live in
 /// the bin, not in the mechanism crates).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CreateStage {

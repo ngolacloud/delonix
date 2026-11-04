@@ -89,7 +89,7 @@ fi
 
 if [[ ! -x "$BIN" ]]; then
   echo "ERRO: binário do delonix não encontrado em $BIN" >&2
-  echo "      constrói com \`cargo build --release -p delonix-runtime-bin\` ou passa --bin" >&2
+  echo "      constrói com \`cargo build --release -p delonix-bin\` ou passa --bin" >&2
   exit 2
 fi
 

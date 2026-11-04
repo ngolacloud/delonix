@@ -154,7 +154,7 @@ def render() -> str:
 
     w("## CLI lines by Part D destination")
     w("")
-    w("Where each `bins/delonix-runtime-bin/src/cmd` module's business rule goes.")
+    w("Where each `bins/delonix/src/cmd` module's business rule goes.")
     w("Context destinations (the `cli_context_lines` ratchet) come first.")
     w("")
     w("| Destination | Lines | Modules | Context? |")

@@ -78,7 +78,7 @@ SHA-256; they need `qemu-system-x86_64`, `xorriso` and `/dev/kvm`.
 ## A run on a capable host
 
 ```bash
-cargo build -p delonix-runtime-bin
+cargo build -p delonix-bin
 D="--delonix $PWD/target/debug/delonix"
 
 scripts/verify-images.sh $D --seed-bases --self-test          # 1. offline distros + probe + self-test

@@ -7,7 +7,7 @@ e mantido contra o código — cada afirmação estrutural tem a referência do
 crate/ficheiro onde foi confirmada. Onde há limites, eles aparecem nos diagramas,
 não escondidos em rodapés.
 
-Convenção de nomes: `delonix` é o binário CLI (crate `delonix-runtime-bin`);
+Convenção de nomes: `delonix` é o binário CLI (crate `delonix-bin`);
 `delonix-cri` é o binário servidor CRI (crate `delonix-cri`); "holder" é o processo
 que detém o network namespace de infra-estrutura do ingress rootless
 (`crates/adapters/delonix-sdn/src/infra.rs`).
@@ -39,7 +39,7 @@ graph TB
     DLX -- "download validado por SHA256SUMS" --> UBU
 ```
 
-- CLI: `bins/delonix-runtime-bin/src/main.rs` (grupos `Container`/`Image`/`Build`/
+- CLI: `bins/delonix/src/main.rs` (grupos `Container`/`Image`/`Build`/
   `Vm`/`Volumes`/`Network`/`Stack`/`Cluster`, um módulo por grupo em `src/cmd/`).
 - CRI: `crates/interfaces/delonix-cri/src/bin/delonix-cri.rs` → `serve_blocking` num socket
   unix (`DELONIX_CRI_ADDR`, default `unix:///run/delonix-cri.sock`), o endpoint do
@@ -47,7 +47,7 @@ graph TB
 - Registos OCI: `crates/adapters/delonix-oci/src/registry.rs` (`pull_from_registry_with_creds`,
   `push_to_registry`, `push_oci_artifact`/`pull_oci_artifact` — este par com
   verificação de digest do blob contra o manifesto).
-- Hosts SSH: `bins/delonix-runtime-bin/src/cmd/remote.rs` (shell-out a `ssh`/`scp`
+- Hosts SSH: `bins/delonix/src/cmd/remote.rs` (shell-out a `ssh`/`scp`
   do sistema, `sudo -n` remoto).
 - Hipervisores: `crates/adapters/delonix-vm/src/lib.rs` (trait `VmBackend`, implementações
   `CloudHypervisorBackend` e `LibvirtBackend`).
@@ -104,13 +104,13 @@ Confirmação no código, peça a peça:
 
 | Processo | Onde nasce | Tempo de vida |
 |---|---|---|
-| `delonix` (CLI) | `bins/delonix-runtime-bin/src/main.rs` | um comando; em foreground faz `waitpid` do container e sai |
+| `delonix` (CLI) | `bins/delonix/src/main.rs` | um comando; em foreground faz `waitpid` do container e sai |
 | `delonix-cri` | `crates/interfaces/delonix-cri/src/bin/delonix-cri.rs` | serviço (ex.: unit systemd `dist/delonix-cri.service` dentro da imagem VM dourada) |
 | holder netns | `infra::start_holder` (`crates/adapters/delonix-sdn/src/infra.rs`): `unshare --user --map-auto --map-root-user --net --mount -- <self> netns holder`; o re-exec é apanhado em `main.rs` antes do parser clap | vida da infra do ingress, gerida por ref-count em ficheiro (`infra::acquire`/`release`) |
 | slirp4netns único | `infra::start_slirp` — liga o `tap0` ao netns do holder, com api-socket para `add_hostfwd` | acompanha o holder |
 | slirp4netns por container | `delonix_sdn::slirp_attach` (`crates/adapters/delonix-sdn/src/lib.rs`) — chamado como hook `on_started` do `RunSpec` | vida do container (morre com o netns); órfãos limpos por `reap_orphan_slirp` |
 | log shim | `fork` no pai em `spawn` (`crates/adapters/delonix-linux/src/lib.rs`), corre `log_shim` — lê o pipe (ou o master do pty em modo console) e escreve o log com rotação | vida do container; destaca-se do stdio com `setsid` + `/dev/null` |
-| watcher `--rm` | `spawn_rm_watcher` (`bins/delonix-runtime-bin/src/cmd/container.rs`) — só em `run -d --rm` | até o container terminar; faz a mesma limpeza do `rm -f` |
+| watcher `--rm` | `spawn_rm_watcher` (`bins/delonix/src/cmd/container.rs`) — só em `run -d --rm` | até o container terminar; faz a mesma limpeza do `rm -f` |
 | microVM | `delonix_vm::create` — processo `cloud-hypervisor` (dentro do netns de infra, tap via `infra::vm_attach`) ou domínio libvirt | vida da VM |
 
 O estado vive em `$DELONIX_ROOT` (default `/var/lib/delonix` para root,
@@ -136,7 +136,7 @@ Setas = dependências **reais**, confirmadas nos `Cargo.toml` de `crates/*/` e n
 
 ```mermaid
 graph TB
-    BIN["delonix-runtime-bin<br>CLI delonix — um modulo por grupo em src/cmd<br>manifesto e apply, cluster kubeadm, imagens VM douradas"]
+    BIN["delonix-bin<br>CLI delonix — um modulo por grupo em src/cmd<br>manifesto e apply, cluster kubeadm, imagens VM douradas"]
     CRI["delonix-cri<br>servidor CRI runtime.v1 — ImageService e RuntimeService<br>modulos: runtime_svc, lifecycle, streaming, spdy"]
     RT["delonix-linux<br>motor de containers: clone e namespaces, setup_rootfs,<br>cgroups v2, seccomp, caps, exec, log shim, reconcile_status"]
     NET["delonix-sdn<br>SDN rootless: modulo infra — holder netns, slirp unico,<br>publish e DNAT, DNS e DHCP; cni, wg WireGuard, discover"]
@@ -309,10 +309,10 @@ graph TB
 
 Notas de leitura do grafo (todas verificadas):
 
-- **`delonix-runtime-bin` DEPENDE de `delonix-cri`** — uma versão anterior deste
+- **`delonix-bin` DEPENDE de `delonix-cri`** — uma versão anterior deste
   documento afirmava o contrário («são dois binários independentes»), e isso deixou de
   ser verdade quando o `delonix serve cri` passou a servir o CRI a partir da própria
-  CLI. Confirmado em `bins/delonix-runtime-bin/Cargo.toml:21`. O `delonix-cri`
+  CLI. Confirmado em `bins/delonix/Cargo.toml:21`. O `delonix-cri`
   continua a ter o seu `[[bin]]` próprio, e é a razão de o `hyper`/`tonic`/`tokio-rustls`
   já estarem na árvore do `-bin` sem custo novo de supply-chain (ver a secção do
   proxy L7 no `AGENTS.md`). O CRI, por sua vez, **não** depende de `delonix-vm` nem de
@@ -378,7 +378,7 @@ Notas de leitura do grafo (todas verificadas):
   - `delonix-state::{secret,cred_vault}` — Secret Manager do runtime
     (`--secret`/`--secret-files`; os valores decifrados só tocam um tmpfs dentro do
     namespace do container — `write_secret_files` em `crates/adapters/delonix-linux/src/lib.rs`);
-  - `delonix-runtime-bin::cmd::{cluster,k8s_recipes,vmimage,remote}` — o plano de
+  - `delonix-bin::cmd::{cluster,k8s_recipes,vmimage,remote}` — o plano de
     cluster kubeadm (fluxo d, abaixo).
 
 ---
@@ -390,7 +390,7 @@ Notas de leitura do grafo (todas verificadas):
 Com `-p` e sem rede custom, o container deixa de partilhar a rede do host e ganha um
 netns próprio servido por um `slirp4netns` dedicado — o comportamento do
 `docker run -p` no modelo rootless do Podman (`cmd_run` em
-`bins/delonix-runtime-bin/src/cmd/container.rs`; `spawn` em
+`bins/delonix/src/cmd/container.rs`; `spawn` em
 `crates/adapters/delonix-linux/src/lib.rs`; `slirp_attach` em `crates/adapters/delonix-sdn/src/lib.rs`).
 
 ```mermaid
@@ -513,7 +513,7 @@ kubectl passam por `streaming.rs`/`spdy.rs` (servidor de streaming próprio, SPD
 
 ### (d) `cluster kubeadm` — da imagem dourada ao cluster
 
-Duas camadas com a mesma fundação (`bins/delonix-runtime-bin/src/cmd/cluster.rs`):
+Duas camadas com a mesma fundação (`bins/delonix/src/cmd/cluster.rs`):
 `cluster apply -f cloud.yaml` faz o bootstrap kubeadm em hosts **já vivos**;
 `cluster kubeadm --name N --control-plane 1 --workers M` provisiona primeiro as VMs
 (imagem dourada) e depois chama a **mesma** `apply_one` (`provision_and_apply` —
@@ -566,7 +566,7 @@ diagramas acima.
    não a consegue abrir. O mecanismo certo já existe no motor — re-exec via
    `nsenter … ip netns exec` + `RunSpec.inherit_userns`
    (`crates/adapters/delonix-linux/src/lib.rs`) — mas hoje só é usado pelo próprio holder;
-   não há nenhum caminho em `delonix-linux`/`delonix-runtime-bin` que o faça para
+   não há nenhum caminho em `delonix-linux`/`delonix-bin` que o faça para
    um `container run` normal. Fechar isto é trabalho do motor, não da CLI.
 2. **`delonix build` é single-stage.** Um Dockerfile/Delonixfile com `FROM … AS x`
    seguido doutro `FROM` é recusado com erro claro (`cmd/build.rs`); multi-stage

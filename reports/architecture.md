@@ -76,7 +76,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-runtime-bin ⚠️ >20k | 149,411 |
+| delonix-bin ⚠️ >20k | 149,411 |
 | delonix-storage-helper | 645 |
 | delonix-node-api-bin | 436 |
 | delonix-mcp-bin | 140 |
@@ -84,7 +84,7 @@
 
 ## CLI lines by Part D destination
 
-Where each `bins/delonix-runtime-bin/src/cmd` module's business rule goes.
+Where each `bins/delonix/src/cmd` module's business rule goes.
 Context destinations (the `cli_context_lines` ratchet) come first.
 
 | Destination | Lines | Modules | Context? |
@@ -187,6 +187,7 @@ Interface → adapter/provider (closed in R3):
 
 ```mermaid
 graph LR
+  delonix_bin[delonix-bin]
   delonix_compute[delonix-compute]
   delonix_cri[delonix-cri]
   delonix_linux[delonix-linux]
@@ -211,7 +212,6 @@ graph LR
   delonix_provider_proxmox[delonix-provider-proxmox]
   delonix_provider_truenas[delonix-provider-truenas]
   delonix_provider_zfs[delonix-provider-zfs]
-  delonix_runtime_bin[delonix-runtime-bin]
   delonix_scanner[delonix-scanner]
   delonix_sdn[delonix-sdn]
   delonix_security[delonix-security]
@@ -222,6 +222,31 @@ graph LR
   delonix_telemetry[delonix-telemetry]
   delonix_vm[delonix-vm]
   delonix_volume[delonix-volume]
+  delonix_bin --> delonix_compute
+  delonix_bin --> delonix_linux
+  delonix_bin --> delonix_mgmt
+  delonix_bin --> delonix_model
+  delonix_bin --> delonix_net_rules
+  delonix_bin --> delonix_networking
+  delonix_bin --> delonix_node
+  delonix_bin --> delonix_oci
+  delonix_bin --> delonix_provider_btrfs
+  delonix_bin --> delonix_provider_ceph
+  delonix_bin --> delonix_provider_lvm
+  delonix_bin --> delonix_provider_opnsense
+  delonix_bin --> delonix_provider_powerdns
+  delonix_bin --> delonix_provider_proxmox
+  delonix_bin --> delonix_provider_truenas
+  delonix_bin --> delonix_provider_zfs
+  delonix_bin --> delonix_scanner
+  delonix_bin --> delonix_sdn
+  delonix_bin --> delonix_security
+  delonix_bin --> delonix_stack
+  delonix_bin --> delonix_state
+  delonix_bin --> delonix_storage
+  delonix_bin --> delonix_telemetry
+  delonix_bin --> delonix_vm
+  delonix_bin --> delonix_volume
   delonix_compute --> delonix_model
   delonix_compute --> delonix_net_rules
   delonix_compute --> delonix_node
@@ -307,31 +332,6 @@ graph LR
   delonix_provider_proxmox --> delonix_networking
   delonix_provider_truenas --> delonix_model
   delonix_provider_zfs --> delonix_storage
-  delonix_runtime_bin --> delonix_compute
-  delonix_runtime_bin --> delonix_linux
-  delonix_runtime_bin --> delonix_mgmt
-  delonix_runtime_bin --> delonix_model
-  delonix_runtime_bin --> delonix_net_rules
-  delonix_runtime_bin --> delonix_networking
-  delonix_runtime_bin --> delonix_node
-  delonix_runtime_bin --> delonix_oci
-  delonix_runtime_bin --> delonix_provider_btrfs
-  delonix_runtime_bin --> delonix_provider_ceph
-  delonix_runtime_bin --> delonix_provider_lvm
-  delonix_runtime_bin --> delonix_provider_opnsense
-  delonix_runtime_bin --> delonix_provider_powerdns
-  delonix_runtime_bin --> delonix_provider_proxmox
-  delonix_runtime_bin --> delonix_provider_truenas
-  delonix_runtime_bin --> delonix_provider_zfs
-  delonix_runtime_bin --> delonix_scanner
-  delonix_runtime_bin --> delonix_sdn
-  delonix_runtime_bin --> delonix_security
-  delonix_runtime_bin --> delonix_stack
-  delonix_runtime_bin --> delonix_state
-  delonix_runtime_bin --> delonix_storage
-  delonix_runtime_bin --> delonix_telemetry
-  delonix_runtime_bin --> delonix_vm
-  delonix_runtime_bin --> delonix_volume
   delonix_scanner --> delonix_model
   delonix_scanner --> delonix_oci
   delonix_sdn --> delonix_compute
@@ -365,6 +365,7 @@ graph LR
   delonix_volume --> delonix_node
   delonix_volume --> delonix_state
   delonix_volume --> delonix_storage
+  class delonix_bin bin;
   class delonix_compute context;
   class delonix_cri interface;
   class delonix_linux adapter;
@@ -389,7 +390,6 @@ graph LR
   class delonix_provider_proxmox provider;
   class delonix_provider_truenas provider;
   class delonix_provider_zfs provider;
-  class delonix_runtime_bin bin;
   class delonix_scanner adapter;
   class delonix_sdn adapter;
   class delonix_security context;

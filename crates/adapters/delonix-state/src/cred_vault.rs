@@ -37,7 +37,7 @@ pub struct CredVault {
 /// Cryptographic random bytes (getrandom → /dev/urandom on Linux).
 /// Fills `buf` with cryptographically secure random bytes (`getrandom`, already
 /// a direct dependency of this crate — no new one added by exposing this).
-/// Shared by anything under `delonix-runtime-bin` that needs fresh entropy
+/// Shared by anything under `delonix-bin` that needs fresh entropy
 /// without duplicating the syscall wrapper (e.g. `secret rotate`'s generated
 /// value), the same discipline as `fw_rule_tail`'s single generator/reader.
 pub fn random_bytes(buf: &mut [u8]) -> Result<()> {

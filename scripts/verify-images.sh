@@ -112,7 +112,7 @@ preflight() {
   say "preflight"
   mkdir -p "$VDIR"
   printf '  delonix  %s (%s)\n' "$("$DELONIX" version 2>&1 | head -1)" "$(command -v "$DELONIX" || echo not-found)"
-  need_cmd "$DELONIX" "build it: cargo build -p delonix-runtime-bin, then --delonix target/debug/delonix"
+  need_cmd "$DELONIX" "build it: cargo build -p delonix-bin, then --delonix target/debug/delonix"
   need_cmd qemu-img "sudo apt install qemu-utils"
   need_cmd virt-customize "sudo apt install libguestfs-tools"
   need_cmd guestfish "sudo apt install libguestfs-tools"

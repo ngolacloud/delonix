@@ -45,7 +45,7 @@ def binary() -> str:
             return str(c)
     sys.exit(
         "sem binário: passa o caminho como argumento ou corre "
-        "`cargo build --release -p delonix-runtime-bin`"
+        "`cargo build --release -p delonix-bin`"
     )
 
 

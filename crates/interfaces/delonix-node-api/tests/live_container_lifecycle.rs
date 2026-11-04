@@ -7,7 +7,7 @@
 //! host that can (rootless containers), and on demand:
 //!
 //! ```sh
-//! cargo build -p delonix-runtime-bin            # the `delonix` the launch re-execs
+//! cargo build -p delonix-bin            # the `delonix` the launch re-execs
 //! ROOT=$(mktemp -d)
 //! DELONIX_ROOT=$ROOT target/debug/delonix pull busybox:latest
 //! DELONIX_ROOT=$ROOT \

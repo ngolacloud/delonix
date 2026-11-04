@@ -190,7 +190,7 @@ jobs:
       - name: Install the pinned toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-      - run: cargo build --release -p delonix-runtime-bin
+      - run: cargo build --release -p delonix-bin
       - name: Every CLI leaf has a decided destination
         run: scripts/cli-tree.sh --gate
       # The other half of the same question. `--gate` above guards the tree
@@ -433,7 +433,7 @@ jobs:
       - name: Install the pinned toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-      - run: cargo build --release --locked -p delonix-runtime-bin
+      - run: cargo build --release --locked -p delonix-bin
       - name: Measure (human report to stderr, the object to the file)
         run: scripts/bench.sh --json --runs 10 > run.json
       - name: Judge against this machine's baseline
@@ -457,7 +457,7 @@ jobs:
       - name: Install the pinned toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-      - run: cargo build --release --locked -p delonix-runtime-bin
+      - run: cargo build --release --locked -p delonix-bin
       - run: python3 scripts/release_verify.py
 
   # ---- O site e os exemplos: gerados do binário, e por isso verificáveis ----
@@ -485,7 +485,7 @@ jobs:
       - uses: ./.github/actions/protoc
       - name: Instala toolchain fixada
         run: rustup show
-      - run: cargo build --release --locked -p delonix-runtime-bin
+      - run: cargo build --release --locked -p delonix-bin
       - name: Dependências do gerador
         # `gen.py`'s `c4_page`/`architecture_page` render ARCHITECTURE.md with
         # the `markdown` module. Without it the generator dies with

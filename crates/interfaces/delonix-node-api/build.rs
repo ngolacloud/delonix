@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     std::fs::write(out.join("rest_routes.rs"), rest::generate(&bytes)?)?;
     // `NodeInfo.engine_commit`: the short hash the CLI's `--version` prints,
-    // with the same rule (`bins/delonix-runtime-bin/build.rs`): `git rev-parse
+    // with the same rule (`bins/delonix/build.rs`): `git rev-parse
     // --short=9 HEAD`, "unknown" in a tree without git.
     let hash = std::process::Command::new("git")
         .args(["rev-parse", "--short=9", "HEAD"])

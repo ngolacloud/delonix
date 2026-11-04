@@ -68,7 +68,7 @@
 //! read past that line. So the two options were a probe behind an ADR-0049
 //! addendum, or an unconditional refusal; the refusal was taken, because it
 //! crosses nothing, and nothing called these three anyway (no `kind:`, no
-//! CLI — grep across `bins/delonix-runtime-bin` and `delonix-networking`).
+//! CLI — grep across `bins/delonix` and `delonix-networking`).
 //!
 //! What was removed with it: the request each one sent, and the per-field
 //! checks (`forward`-only rule type, ACCEPT/DROP/REJECT, the log levels) that
