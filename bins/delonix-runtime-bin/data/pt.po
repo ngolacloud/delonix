@@ -13832,6 +13832,18 @@ msgstr "o perfil '{other}' é desconhecido — custom, rootless ou k8s"
 msgid "`k8s:` and `node_exporter:` belong to `profile: rootless|k8s`"
 msgstr "`k8s:` e `node_exporter:` pertencem a `profile: rootless|k8s`"
 
+msgid "baseline '{b}' unknown — cloud-v1"
+msgstr "a baseline '{b}' é desconhecida — cloud-v1"
+
+msgid "`baseline:` applies to a custom distro image, not profile '{profile}'"
+msgstr "`baseline:` aplica-se a uma imagem de distro custom, não ao perfil '{profile}'"
+
+msgid "`baseline:` needs an apt base — set `distro: debian|ubuntu` or `package_manager: apt`"
+msgstr "`baseline:` precisa de uma base apt — defina `distro: debian|ubuntu` ou `package_manager: apt`"
+
+msgid "`baseline: cloud-v1` is apt-only today (debian/ubuntu)"
+msgstr "`baseline: cloud-v1` só suporta apt por agora (debian/ubuntu)"
+
 msgid "distro '{d}' unknown — ubuntu, debian, rocky or fedora"
 msgstr "a distro '{d}' é desconhecida — ubuntu, debian, rocky ou fedora"
 

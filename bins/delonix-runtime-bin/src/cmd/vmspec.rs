@@ -89,6 +89,12 @@ pub(crate) struct Image {
     pub(crate) k8s: Option<K8s>,
     /// Bare `true` means `0.0.0.0:9100`; a string is the listen address.
     pub(crate) node_exporter: Option<NodeExporter>,
+    /// Common hardening baseline to fold into the recipe, or absent for none.
+    /// Only `cloud-v1` exists; see `baseline_steps` for exactly what it adds
+    /// (a guest agent, serial console, and minimal sshd/sysctl/time/audit/trim
+    /// drop-ins). apt-only for now, so it needs a `debian`/`ubuntu` base — or an
+    /// explicit `package_manager: apt` — and `network: true` for the packages.
+    pub(crate) baseline: Option<String>,
 }
 
 /// An image that cannot be described as edits to a cloud image: the vendor's
@@ -515,7 +521,111 @@ fn used_content_fields(img: &Image) -> Vec<&'static str> {
     add(!img.run.is_empty(), "run");
     add(img.k8s.is_some(), "k8s");
     add(img.node_exporter.is_some(), "node_exporter");
+    add(img.baseline.is_some(), "baseline");
     v
+}
+
+/// The named hardening baselines a recipe can fold in. A closed enum (not a
+/// free string) so an unknown name is a clear error at validation, not a silent
+/// no-op — the same fail-closed stance as `pkg_manager`/`profile`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Baseline {
+    /// `cloud-v1`: the common cloud hardening baseline — a guest agent, serial
+    /// console and minimal sshd/sysctl/time/audit/trim drop-ins. apt-only.
+    CloudV1,
+}
+
+/// Parses the `baseline:` field. Fail-closed on an unknown name.
+fn parse_baseline(s: &str) -> Result<Baseline> {
+    match s {
+        "cloud-v1" => Ok(Baseline::CloudV1),
+        _ => Err(Error::Invalid(super::po::tf(
+            "baseline '{b}' unknown — cloud-v1",
+            &[("b", s)],
+        ))),
+    }
+}
+
+/// The extra packages and build steps a baseline folds into an apt recipe.
+pub(crate) struct BaselinePlan {
+    /// Packages added to the install list (so they go through the same verified
+    /// apt path, and the same `network: true` requirement, as `packages`).
+    pub(crate) packages: Vec<String>,
+    /// Steps spliced in after the recipe's own `run:` and before removal.
+    pub(crate) steps: Vec<Step>,
+}
+
+/// Builds the hardening baseline for an apt base (Debian/Ubuntu).
+///
+/// Everything here is either a package the engine needs to talk to the guest
+/// (`qemu-guest-agent` — "real compute": the engine shuts down, freezes and
+/// queries a VM through it) or a conservative drop-in that an operator would
+/// otherwise have to remember on every image:
+///
+/// - serial console on `ttyS0` so `vm console` reaches a login prompt (a grub
+///   drop-in for the kernel cmdline, plus `serial-getty@ttyS0`);
+/// - `sshd` drop-in: no root login, no passwords, no X11 forwarding;
+/// - `sysctl` drop-in: rp_filter, syncookies, no redirects/source-routing,
+///   restricted kptr/dmesg;
+/// - `chrony` for time sync, `auditd` for an audit trail, `fstrim.timer` to
+///   keep the thin-provisioned disk from growing without bound.
+///
+/// Pure and deterministic — tested at the recipe level. Only the `apt` package
+/// manager is supported today; `dnf` returns `None` so the caller can refuse
+/// it with a clear message rather than ship a half-baseline.
+pub(crate) fn baseline_steps(baseline: Baseline, pm: &str) -> Option<BaselinePlan> {
+    if pm != "apt" {
+        return None;
+    }
+    let Baseline::CloudV1 = baseline;
+
+    // sshd/sysctl drop-ins are written with `printf` so the recipe stays a
+    // sequence of RUN steps (no extra build-context files to stage). The
+    // `%s\n` + repeated args keep each line a separate argument, so a stray
+    // metacharacter in one line cannot run as part of another.
+    let sshd = "PermitRootLogin no\n\
+                PasswordAuthentication no\n\
+                KbdInteractiveAuthentication no\n\
+                X11Forwarding no\n";
+    let sysctl = "net.ipv4.conf.all.rp_filter=1\n\
+                  net.ipv4.conf.default.rp_filter=1\n\
+                  net.ipv4.tcp_syncookies=1\n\
+                  net.ipv4.conf.all.accept_redirects=0\n\
+                  net.ipv6.conf.all.accept_redirects=0\n\
+                  net.ipv4.conf.all.accept_source_route=0\n\
+                  kernel.kptr_restrict=2\n\
+                  kernel.dmesg_restrict=1\n";
+    // The serial console: the generic cloud images already put `console=ttyS0`
+    // on the kernel cmdline, but the login getty is what `vm console` needs, so
+    // the grub drop-in is belt-and-braces and the getty enable is the operative
+    // step. `update-grub` is tolerated-failing so a base without grub (none of
+    // ours, but a `from:` qcow2 might) does not break the build.
+    let grub = "GRUB_CMDLINE_LINUX=\\\"\\$GRUB_CMDLINE_LINUX console=tty1 console=ttyS0,115200n8\\\"\n";
+
+    let steps = vec![
+        Step::Run(format!(
+            "mkdir -p /etc/ssh/sshd_config.d && printf '%s' '{sshd}' > /etc/ssh/sshd_config.d/90-delonix-cloud.conf"
+        )),
+        Step::Run(format!(
+            "mkdir -p /etc/sysctl.d && printf '%s' '{sysctl}' > /etc/sysctl.d/90-delonix-cloud.conf"
+        )),
+        Step::Run(format!(
+            "mkdir -p /etc/default/grub.d && printf '%s' '{grub}' > /etc/default/grub.d/90-delonix-serial.cfg && update-grub || true"
+        )),
+        Step::Run("systemctl enable serial-getty@ttyS0.service".into()),
+        Step::Run("systemctl enable qemu-guest-agent".into()),
+        Step::Run("systemctl enable chrony".into()),
+        Step::Run("systemctl enable auditd".into()),
+        Step::Run("systemctl enable fstrim.timer".into()),
+    ];
+    Some(BaselinePlan {
+        packages: vec![
+            "qemu-guest-agent".into(),
+            "chrony".into(),
+            "auditd".into(),
+        ],
+        steps,
+    })
 }
 
 /// Validates one image and decides how it is built. `dir` is the folder of the
@@ -580,6 +690,18 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
 
     // ── golden profiles ────────────────────────────────────────────────────
     let profile = img.profile.as_deref().unwrap_or("custom");
+    // The baseline folds into the custom recipe below; the golden recipes have
+    // their own fixed shape, so refuse it there rather than silently ignore it.
+    let baseline = match &img.baseline {
+        Some(b) => Some(parse_baseline(b).map_err(|e| ctx(e.to_string()))?),
+        None => None,
+    };
+    if baseline.is_some() && profile != "custom" {
+        return Err(ctx(super::po::tf(
+            "`baseline:` applies to a custom distro image, not profile '{profile}'",
+            &[("profile", profile)],
+        )));
+    }
     match profile {
         "custom" => {}
         "rootless" | "k8s" => {
@@ -637,7 +759,30 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
     };
 
     let pm = pkg_manager(img);
-    let installs = !img.packages.install.is_empty() || img.packages.upgrade;
+    // Resolve the baseline now that the package manager is known: it is apt-only
+    // today, so it needs an apt base, and its packages flow through the same
+    // verified apt path (and the same `network: true` requirement) as `packages`.
+    let baseline_plan = match baseline {
+        Some(b) => {
+            let Some(pm) = pm else {
+                return Err(ctx(super::po::t(
+                    "`baseline:` needs an apt base — set `distro: debian|ubuntu` or `package_manager: apt`",
+                )
+                .into()));
+            };
+            Some(baseline_steps(b, pm).ok_or_else(|| {
+                ctx(super::po::t(
+                    "`baseline: cloud-v1` is apt-only today (debian/ubuntu)",
+                )
+                .into())
+            })?)
+        }
+        None => None,
+    };
+    let baseline_installs = baseline_plan
+        .as_ref()
+        .is_some_and(|p| !p.packages.is_empty());
+    let installs = !img.packages.install.is_empty() || img.packages.upgrade || baseline_installs;
     if installs && !(img.network || cli_network) {
         return Err(ctx(
             super::po::t(
@@ -826,8 +971,14 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
                 },
             );
         }
-        if !img.packages.install.is_empty() {
-            let list = img.packages.install.join(" ");
+        // The baseline's packages install through the same path as the
+        // recipe's own; combined here so they share one `apt-get install`.
+        let mut install = img.packages.install.clone();
+        if let Some(bp) = &baseline_plan {
+            install.extend(bp.packages.iter().cloned());
+        }
+        if !install.is_empty() {
+            let list = install.join(" ");
             run(
                 &mut st,
                 match pm {
@@ -842,6 +993,15 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
 
     for c in &img.run {
         run(&mut st, c.clone());
+    }
+
+    // The baseline's drop-ins and unit enables go in after the recipe's own
+    // `run:` (so a recipe step cannot be undone by the baseline) and before
+    // removal/cleanup (so the machine-id reset still runs last — see `Cleanup`).
+    if let Some(bp) = baseline_plan {
+        for s in bp.steps {
+            st.steps.push(s);
+        }
     }
 
     // ── removal: after everything that could have added it ──────────────────
@@ -1456,6 +1616,69 @@ mod tests {
         assert!(pos("echo hi") < pos("purge -y snapd"));
         assert!(pos("purge -y snapd") < pos("rm -rf -- '/usr/share/doc'"));
         assert!(r.iter().any(|c| c.contains("systemctl mask cups")));
+    }
+
+    #[test]
+    fn baseline_cloud_v1_adiciona_agente_consola_e_drop_ins() {
+        let vf = vmfile(
+            "images:\n  u:\n    distro: debian\n    release: trixie\n    network: true\n    baseline: cloud-v1\n",
+        );
+        let r = runs(&vf);
+        let has = |needle: &str| r.iter().any(|c| c.contains(needle));
+        // The guest agent, time, and audit packages are installed via apt.
+        assert!(has("install -y") && has("qemu-guest-agent"));
+        assert!(has("chrony") && has("auditd"));
+        // Serial console for `vm console`: grub cmdline + the login getty.
+        assert!(has("console=ttyS0,115200n8"));
+        assert!(has("systemctl enable serial-getty@ttyS0.service"));
+        // Units are enabled.
+        for unit in [
+            "systemctl enable qemu-guest-agent",
+            "systemctl enable chrony",
+            "systemctl enable auditd",
+            "systemctl enable fstrim.timer",
+        ] {
+            assert!(has(unit), "missing: {unit}");
+        }
+        // The hardening drop-ins land in the conventional d/ directories.
+        assert!(has("/etc/ssh/sshd_config.d/90-delonix-cloud.conf"));
+        assert!(has("PermitRootLogin no"));
+        assert!(has("/etc/sysctl.d/90-delonix-cloud.conf"));
+        assert!(has("tcp_syncookies=1"));
+    }
+
+    #[test]
+    fn baseline_corre_antes_da_remocao_e_a_limpeza_fica_por_ultimo() {
+        let vf = vmfile(
+            "images:\n  u:\n    distro: ubuntu\n    release: '26.04'\n    network: true\n    baseline: cloud-v1\n    run: ['echo hi']\n    remove: {packages: [snapd]}\n",
+        );
+        let r = runs(&vf);
+        let pos = |needle: &str| r.iter().position(|c| c.contains(needle)).unwrap();
+        // Recipe `run:` first, then the baseline, then removal, then the
+        // machine-id reset LAST (so nothing after it regenerates one).
+        assert!(pos("echo hi") < pos("systemctl enable qemu-guest-agent"));
+        assert!(pos("systemctl enable qemu-guest-agent") < pos("purge -y snapd"));
+        assert!(pos("purge -y snapd") < pos("/etc/machine-id"));
+    }
+
+    #[test]
+    fn baseline_exige_rede_apt_e_nome_conhecido() {
+        // Needs the network (it installs packages).
+        assert!(one("images:\n  u:\n    distro: debian\n    release: trixie\n    baseline: cloud-v1\n").is_err());
+        // apt-only: a dnf base is refused rather than given a half-baseline.
+        assert!(one("images:\n  u:\n    distro: rocky\n    release: '9'\n    network: true\n    baseline: cloud-v1\n").is_err());
+        // Unknown baseline name is refused.
+        assert!(one("images:\n  u:\n    distro: debian\n    release: trixie\n    network: true\n    baseline: cloud-v9\n").is_err());
+        // A baseline on a golden profile is refused (it has its own shape).
+        assert!(one("images:\n  u:\n    profile: rootless\n    distro: debian\n    release: trixie\n    baseline: cloud-v1\n").is_err());
+    }
+
+    #[test]
+    fn baseline_steps_sao_apt_only() {
+        assert!(baseline_steps(Baseline::CloudV1, "apt").is_some());
+        assert!(baseline_steps(Baseline::CloudV1, "dnf").is_none());
+        assert_eq!(parse_baseline("cloud-v1").unwrap(), Baseline::CloudV1);
+        assert!(parse_baseline("nope").is_err());
     }
 
     #[test]
