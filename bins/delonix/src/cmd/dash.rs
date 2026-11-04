@@ -218,8 +218,12 @@ impl DashData {
     /// `tui::render`.
     pub fn collect(scope: DashScope) -> Result<DashData> {
         let root = state_root();
-        let summary =
-            delonix_mgmt::dashstats::collect(&root, &crate::cmd::engine_vms::vm_view(&root), true, true);
+        let summary = delonix_mgmt::dashstats::collect(
+            &root,
+            &crate::cmd::engine_vms::vm_view(&root),
+            true,
+            true,
+        );
         // Per-container network breakdown: same expensive-collection budget
         // as the aggregate TRAFFIC tile above (a one-shot `--once`/`--json`
         // caller already accepts a slow full collect — see `collect`'s doc
@@ -875,8 +879,12 @@ mod tui {
         // left to clean up). From here on, ALL exit paths restore the
         // terminal (the central `render` function does the cleanup once at
         // the end).
-        let cheap =
-            delonix_mgmt::dashstats::collect(&root, &crate::cmd::engine_vms::vm_view(&root), false, false);
+        let cheap = delonix_mgmt::dashstats::collect(
+            &root,
+            &crate::cmd::engine_vms::vm_view(&root),
+            false,
+            false,
+        );
         let empty_net = HashMap::new();
         let data = DashData::collect_with(scope, &root, cheap.clone(), &empty_net)?;
 

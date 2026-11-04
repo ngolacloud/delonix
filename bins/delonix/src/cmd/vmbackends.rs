@@ -82,14 +82,23 @@ fn register_proxmox_with(lookup: &dyn Fn(&str) -> Option<String>) -> Result<()> 
 /// the backend registers, so `provider describe proxmox --probe` asks the
 /// node a VM operation would talk to and no other. `Ok(None)` when no target
 /// is configured.
-pub(crate) fn proxmox_target(
-) -> Result<Option<(delonix_provider_proxmox::Target, delonix_provider_proxmox::ClientOptions)>> {
+pub(crate) fn proxmox_target() -> Result<
+    Option<(
+        delonix_provider_proxmox::Target,
+        delonix_provider_proxmox::ClientOptions,
+    )>,
+> {
     proxmox_target_with(&*configured_lookup()?)
 }
 
 pub(crate) fn proxmox_target_with(
     lookup: &dyn Fn(&str) -> Option<String>,
-) -> Result<Option<(delonix_provider_proxmox::Target, delonix_provider_proxmox::ClientOptions)>> {
+) -> Result<
+    Option<(
+        delonix_provider_proxmox::Target,
+        delonix_provider_proxmox::ClientOptions,
+    )>,
+> {
     let Some(url) = lookup("DELONIX_PROXMOX_URL") else {
         return Ok(None);
     };

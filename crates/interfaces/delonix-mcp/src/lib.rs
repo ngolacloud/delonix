@@ -1322,11 +1322,12 @@ mod tests {
         .unwrap();
 
         let listed = server
-            .resource_list(Parameters(ResourceListParams {
-                kind: "vm".into(),
-            }))
+            .resource_list(Parameters(ResourceListParams { kind: "vm".into() }))
             .expect("list vm");
-        assert!(listed.contains("\"v1\""), "the engine's VM is listed: {listed}");
+        assert!(
+            listed.contains("\"v1\""),
+            "the engine's VM is listed: {listed}"
+        );
 
         let got = server
             .resource_get(Parameters(ResourceGetParams {

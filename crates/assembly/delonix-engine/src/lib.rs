@@ -13,8 +13,8 @@
 
 use std::path::{Path, PathBuf};
 
-use delonix_compute::Vm;
 use delonix_compute::capability::ProviderReport;
+use delonix_compute::Vm;
 
 // The VM service's result is the compute VM error (re-exported by delonix-vm).
 // As more contexts' services land here, the engine presents each through its own
