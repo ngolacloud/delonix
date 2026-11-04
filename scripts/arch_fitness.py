@@ -337,20 +337,36 @@ PROVIDER_NAMES = {
 
 
 def crate_rs_lines() -> dict[str, int]:
-    """Lines of Rust per crate/bin, by its directory under crates/ or bins/."""
+    """Lines of Rust per workspace member, attributing each `.rs` to the DEEPEST
+    crate that owns it.
+
+    `bins/delonix-runtime-bin/templates/rust` is a scaffold crate vendored under
+    the CLI; counting a crate's whole subtree would bill its template's lines to
+    the CLI AND to the template, double-counting. Deepest-owner attribution bills
+    each file once; the result is filtered to the layer table, so the scaffold
+    (not an engine member) drops out instead of inflating the report.
+    """
+    crate_dirs = sorted(
+        (
+            manifest.parent
+            for top in ("crates", "bins")
+            for manifest in (ROOT / top).rglob("Cargo.toml")
+            if "target" not in manifest.parts
+        ),
+        key=lambda p: -len(p.parts),  # deepest first
+    )
     lines: dict[str, int] = {}
     for top in ("crates", "bins"):
-        for manifest in sorted((ROOT / top).rglob("Cargo.toml")):
-            d = manifest.parent
-            if "target" in d.parts:
+        for f in (ROOT / top).rglob("*.rs"):
+            if "target" in f.parts:
                 continue
-            total = sum(
-                len(f.read_text(encoding="utf-8", errors="replace").splitlines())
-                for f in d.rglob("*.rs")
-                if "target" not in f.parts
+            owner = next((d for d in crate_dirs if d in f.parents), None)
+            if owner is None:
+                continue
+            lines[owner.name] = lines.get(owner.name, 0) + len(
+                f.read_text(encoding="utf-8", errors="replace").splitlines()
             )
-            lines[d.name] = total
-    return lines
+    return {name: n for name, n in lines.items() if name in LAYERS}
 
 
 def cmd_module_lines() -> dict[str, int]:
