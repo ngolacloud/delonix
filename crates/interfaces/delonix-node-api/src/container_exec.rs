@@ -175,7 +175,7 @@ fn build_args(start: &ExecStart, id: &str) -> Vec<String> {
 /// delegation flag, and the built argv — the same shape [`crate::container_launch`]
 /// and the CRI use. `kill_on_drop` so an abandoned child never outlives its task.
 fn command(root: &Path, args: &[String]) -> tokio::process::Command {
-    let mut cmd = tokio::process::Command::new(delonix_node::dispatch::cli_bin());
+    let mut cmd = tokio::process::Command::new(delonix_host::dispatch::cli_bin());
     cmd.env("DELONIX_ROOT", root)
         .env("DELONIX_INTERNAL", "1")
         .args(args)

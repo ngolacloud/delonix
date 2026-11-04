@@ -92,9 +92,9 @@ impl Lock {
             .mode(0o600)
             .open(d.join(".lock"))
             .map_err(|e| Error::Invalid(format!("ippool lock: {e}")))?;
-        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): a
+        // Bounded exclusive lock (shared `delonix_host::flock_exclusive`): a
         // stuck holder makes this refuse at the deadline, never hang.
-        if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
+        if !delonix_host::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
             return Err(Error::Invalid(
                 "ippool: could not lock the ledger within the deadline".into(),
             ));

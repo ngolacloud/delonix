@@ -64,11 +64,11 @@ impl FileLock {
                     path.display()
                 ))
             })?;
-        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): a
+        // Bounded exclusive lock (shared `delonix_host::flock_exclusive`): a
         // bare `flock(LOCK_EX)` waits forever if a holder is stuck, and this is
         // the hot state lock — a stuck holder would hang every state op. Fail
         // closed at the deadline instead, which the `Err` path already demands.
-        if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
+        if !delonix_host::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
             return Err(Error::Lock(format!(
                 "could not lock {} within the deadline — refusing the \
                  read-modify-write rather than hanging or doing it unlocked",
@@ -230,7 +230,7 @@ pub fn write_private_temp(prefix: &str, bytes: &[u8]) -> Result<PathBuf> {
 /// in the kubeconfig path and closed with `OpenOptions::mode`; the secret store
 /// had the same shape and had not been converted.
 pub fn write_atomic_mode(path: &Path, bytes: &[u8], mode: Option<u32>) -> Result<()> {
-    delonix_node::write_atomic_mode(path, bytes, mode).map_err(Error::from)
+    delonix_host::write_atomic_mode(path, bytes, mode).map_err(Error::from)
 }
 
 /// Sanitizes a key/id into a safe file name (`a-z0-9._-`,

@@ -4545,9 +4545,9 @@ impl StartLock {
             .mode(0o600)
             .open(dir.join("start.lock"))
             .map_err(|e| Error::Invalid(format!("start lock: {e}")))?;
-        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): a
+        // Bounded exclusive lock (shared `delonix_host::flock_exclusive`): a
         // stuck holder refuses at the deadline rather than hanging the start.
-        if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
+        if !delonix_host::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
             return Err(Error::Invalid(format!(
                 "{id}: could not lock its start within the deadline"
             )));

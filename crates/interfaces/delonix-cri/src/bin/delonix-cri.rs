@@ -59,7 +59,7 @@ fn main() {
         return;
     }
     delonix_telemetry::telemetry::init();
-    if let Err(e) = delonix_node::dispatch::check_version("delonix-cri", env!("CARGO_PKG_VERSION"))
+    if let Err(e) = delonix_host::dispatch::check_version("delonix-cri", env!("CARGO_PKG_VERSION"))
     {
         fail(&e);
     }

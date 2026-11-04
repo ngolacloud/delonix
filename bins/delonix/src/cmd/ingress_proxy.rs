@@ -1374,9 +1374,9 @@ impl FileLock {
             .truncate(false)
             .open(path)
             .ok()?;
-        // Bounded exclusive lock (shared `delonix_node::flock_exclusive`): give
+        // Bounded exclusive lock (shared `delonix_host::flock_exclusive`): give
         // up at the deadline if a holder is stuck, instead of hanging forever.
-        if !delonix_node::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
+        if !delonix_host::flock_exclusive(f.as_raw_fd()).unwrap_or(false) {
             return None;
         }
         Some(FileLock(f))
