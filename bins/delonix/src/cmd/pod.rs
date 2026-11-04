@@ -559,7 +559,7 @@ fn pod_firewall_to_enforce(pod: &str, ns: &str) -> Option<delonix_model::records
 ///
 /// A pod whose isolation could not be installed does NOT run, and the attach of
 /// its netns is undone — the rule is `delonix_compute::network::isolate_shared_netns`
-/// (NaaS audit P0-3), reached here through the host's `NetworkProvider`, which is
+/// (NaaS audit P0-3), reached here through the host's `WorkloadNetwork`, which is
 /// what makes that rule testable without a holder.
 pub(crate) fn apply_pod_namespace_isolation(netns: &str, ip: &str, ns: &str) -> Result<()> {
     let net = delonix_sdn::run_network::HostNetwork {
