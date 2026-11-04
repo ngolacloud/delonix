@@ -1,4 +1,4 @@
-//! The `container run` network phase over [`NetworkProvider`]
+//! The `container run` network phase over [`WorkloadNetwork`]
 //! (`docs/discovery/54_P2_COMPUTE_RUN.md`, step 3b).
 //!
 //! A custom network is wired in two passes. The first attaches the container and
@@ -13,12 +13,12 @@
 use crate::Container;
 use delonix_model::Result;
 
-use crate::ports::NetworkProvider;
+use crate::ports::WorkloadNetwork;
 use crate::{Notice, RunOpts};
 
 /// The first pass on a custom network: attach and register the `--expose`
 /// route. Returns the network namespace and the address to re-execute into.
-pub fn attach_custom_network<N: NetworkProvider>(
+pub fn attach_custom_network<N: WorkloadNetwork>(
     o: &RunOpts,
     container: &Container,
     network: &str,
@@ -49,7 +49,7 @@ pub fn attach_custom_network<N: NetworkProvider>(
 /// namespace isolation, which used to be a warning: a container outside
 /// `default` whose isolation did not apply came up reachable from every other
 /// namespace while its record said `--namespace teamA` (NaaS audit P0-3).
-pub fn wire_network<N: NetworkProvider>(
+pub fn wire_network<N: WorkloadNetwork>(
     o: &RunOpts,
     c: &mut Container,
     custom_net: Option<&str>,
@@ -118,7 +118,7 @@ pub fn wire_network<N: NetworkProvider>(
 /// without it. Both used to print a warning and carry on, which is a pod
 /// reachable from every other namespace while its manifest says `namespace:
 /// teamA` (NaaS audit P0-3). `default` is the open SDN and has nothing to apply.
-pub fn isolate_shared_netns<N: NetworkProvider>(
+pub fn isolate_shared_netns<N: WorkloadNetwork>(
     net: &N,
     netns: &str,
     ip: &str,
@@ -191,7 +191,7 @@ mod tests {
         }
     }
 
-    impl NetworkProvider for FakeNet {
+    impl WorkloadNetwork for FakeNet {
         fn check_network(&self, name: &str) -> Result<()> {
             self.log(format!("check {name}"));
             Ok(())

@@ -22,14 +22,14 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-/// The compute context's `StorageProvider` port, backed by the volume store under
+/// The compute context's `WorkloadVolumes` port, backed by the volume store under
 /// `root`: each `-v` specification becomes a mount.
 pub struct HostVolumes {
     /// The state root the volume store lives under.
     pub root: PathBuf,
 }
 
-impl delonix_compute::ports::StorageProvider for HostVolumes {
+impl delonix_compute::ports::WorkloadVolumes for HostVolumes {
     fn resolve_mounts(
         &self,
         volumes: &[String],

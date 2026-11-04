@@ -6597,7 +6597,7 @@ fn cmd_update(store: &Store, id: &str, o: UpdateOpts) -> Result<()> {
         )?;
     }
     for spec in &o.volume_add {
-        let mounts = delonix_compute::ports::StorageProvider::resolve_mounts(
+        let mounts = delonix_compute::ports::WorkloadVolumes::resolve_mounts(
             &delonix_volume::HostVolumes {
                 root: super::util::state_root(),
             },

@@ -1,7 +1,7 @@
 //! The read ports the `container run` use case resolves its inputs through
 //! (`docs/discovery/54_P2_COMPUTE_RUN.md`, step 2).
 //!
-//! The names are the ones ADR-0040 gives them. `ImageStore` and `StorageProvider`
+//! The names are the ones ADR-0040 gives them. `WorkloadImages` and `WorkloadVolumes`
 //! belong to the artifact and storage contexts, which do not exist yet; they live
 //! here until then, and move with a `pub use` left behind so no caller changes.
 //!
@@ -29,7 +29,7 @@ pub struct ImageConfig {
 
 /// Images: resolve a reference (pulling it when absent), read its config, and
 /// prepare the root filesystem a container starts from.
-pub trait ImageStore {
+pub trait WorkloadImages {
     type Image;
 
     /// The image a reference names, pulled when it is not local.
@@ -57,7 +57,7 @@ pub trait ImageStore {
 }
 
 /// Volumes: the `-v` specifications resolved into mounts.
-pub trait StorageProvider {
+pub trait WorkloadVolumes {
     fn resolve_mounts(&self, volumes: &[String], namespace: &str) -> Result<Vec<Mount>>;
 }
 
@@ -261,7 +261,7 @@ pub trait SeedBuilder {
 /// The node's network: custom networks, published ports, per-container firewall
 /// and shaping, and the L7 proxy's routes. Its home is the networking context
 /// (ADR-0040); it lives here until that context exists.
-pub trait NetworkProvider {
+pub trait WorkloadNetwork {
     /// Refuses a network that does not exist.
     fn check_network(&self, name: &str) -> Result<()>;
     /// Attaches container `id` to `network` in `namespace` — at `fixed_ip` when
