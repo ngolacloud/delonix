@@ -3,7 +3,11 @@
 //! (ADR-0040, contexts layer). Planning is pure; nothing here opens a store of a
 //! concrete resource or runs a command.
 
-pub mod condition;
-pub mod kinds;
-pub mod reconcile;
-pub mod revision;
+pub mod app;
+pub mod domain;
+
+// The R2 domain/app split keeps the public API and the internal `crate::<module>`
+// paths: every module is re-exported at the crate root. `domain` is the Kinds
+// and the condition vocabulary; `app` is the reconciler and the revision store.
+pub use app::{reconcile, revision};
+pub use domain::{condition, kinds};
