@@ -306,7 +306,7 @@ class Aliases(unittest.TestCase):
     def test_the_map_covers_every_alias_the_source_declares(self):
         # A fourth `#[command(alias…)]` added to the CLI would silently
         # undercount; this is what stops the map going stale.
-        src = HERE.parent / "bins" / "delonix-bin" / "src"
+        src = HERE.parent / "bins" / "delonix" / "src"
         found = set()
         for f in src.rglob("*.rs"):
             for line in f.read_text().splitlines():

@@ -13,7 +13,7 @@ The extracted form (one row per method and path, with the privilege, the
 return type and the provenance of the fetch) is what the repository commits —
 the 4 MB of generated JavaScript is not — and it is what the matrix is
 regenerated from. The numerator is what the provider crate actually CALLS,
-read from its source (`crates/providers/delonix-proxmox/src/{lib,sdn}.rs` — an
+read from its source (`crates/providers/delonix-provider-proxmox/src/{lib,sdn}.rs` — an
 `impl Client` block spans both files, and `--source` scans every file given),
 never from a list kept next to it.
 
@@ -56,12 +56,12 @@ from collections import Counter
 from pathlib import Path
 
 CRATE_SOURCE = [
-    Path("crates/providers/delonix-proxmox/src/lib.rs"),
-    Path("crates/providers/delonix-proxmox/src/sdn.rs"),
-    Path("crates/providers/delonix-proxmox/src/cluster.rs"),
-    Path("crates/providers/delonix-proxmox/src/sdn_lock.rs"),
-    Path("crates/providers/delonix-proxmox/src/sdn_routing.rs"),
-    Path("crates/providers/delonix-proxmox/src/lxc.rs"),
+    Path("crates/providers/delonix-provider-proxmox/src/lib.rs"),
+    Path("crates/providers/delonix-provider-proxmox/src/sdn.rs"),
+    Path("crates/providers/delonix-provider-proxmox/src/cluster.rs"),
+    Path("crates/providers/delonix-provider-proxmox/src/sdn_lock.rs"),
+    Path("crates/providers/delonix-provider-proxmox/src/sdn_routing.rs"),
+    Path("crates/providers/delonix-provider-proxmox/src/lxc.rs"),
 ]
 
 SUPPORTED_TESTED = "supported+tested"
