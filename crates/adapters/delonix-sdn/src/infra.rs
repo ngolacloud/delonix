@@ -9890,12 +9890,23 @@ fn dns_index_ns_key(name: &str, ns: &str) -> String {
     format!("{name}@{}", ns.to_lowercase())
 }
 
-/// VM key, distinct namespace from container keys: VMs have no namespace
-/// concept (matches the original code, whose VM branch never checked
-/// `want_ns`), and containers are always tried first — same priority the
-/// original two-section scan had.
+/// VM key space, kept DISTINCT from the container key space (`vm:` prefix) so a
+/// VM and a container that share a name never collide on one `by_key` entry — a
+/// container `web` and a VM `web` are two resources, and the resolver tries the
+/// container key first, then the VM key, for every lookup form (the same
+/// container-first priority the original two-section scan had).
+///
+/// The bare form, the last-resort fallback.
 fn dns_index_vm_key(name: &str) -> String {
     format!("vm:{name}")
+}
+
+/// The per-namespace VM key — the `vm:`-prefixed sibling of
+/// [`dns_index_ns_key`]. Since ADR-0086 D7 a VM is keyed per namespace, so
+/// `web@prod` and `web@staging` are two VMs; keeping the `vm:` prefix is what
+/// stops a VM's `web@prod` from overwriting a container's `web@prod`.
+fn dns_index_vm_ns_key(name: &str, ns: &str) -> String {
+    format!("vm:{name}@{}", ns.to_lowercase())
 }
 
 /// The default (shared) namespace. Reachable from every namespace by design —
@@ -10233,15 +10244,14 @@ fn build_dns_index() -> DnsIndex {
                     ns: ns.clone(),
                     allow_in: Vec::new(),
                 };
-                // A VM is now keyed PER NAMESPACE (ADR-0086 D7), the same as a
-                // container/pod: `web@prod` and `web@staging` resolve to their
-                // own VM, and a bare `web` resolves to the asker's-namespace VM
-                // first (`dns_resolve_for`). The legacy `vm:<name>` key stays as
-                // the last-resort bare fallback — now first-wins only AMONG VMs
-                // that share a bare name across namespaces, which the namespaced
-                // key above already disambiguates for any scoped query.
+                // A VM is keyed PER NAMESPACE (ADR-0086 D7) in its OWN `vm:` key
+                // space, so `web@prod` and `web@staging` resolve to their own VM
+                // and neither overwrites a container of the same name. The bare
+                // `vm:<name>` stays as the last-resort fallback (first-wins only
+                // among same-bare-name VMs, which the namespaced key
+                // disambiguates for any scoped query).
                 idx.by_key
-                    .entry(dns_index_ns_key(&name, &ns))
+                    .entry(dns_index_vm_ns_key(&name, &ns))
                     .or_insert(entry.clone());
                 idx.by_key.entry(dns_index_vm_key(&name)).or_insert(entry);
                 idx.ns_of_ip.entry(ip).or_insert(ns);
@@ -10376,10 +10386,12 @@ fn dns_resolve_for(name: &str, client: Option<[u8; 4]>) -> Option<[u8; 4]> {
 
     if let Some(ns) = &want_ns {
         // Fully-qualified: the namespace is named, so it must BE the one asked
-        // for — and the asker must be allowed to see it.
+        // for — and the asker must be allowed to see it. Container first, then
+        // the VM in that namespace (distinct `vm:` key, ADR-0086 D7).
         return idx
             .by_key
             .get(&dns_index_ns_key(&cname, ns))
+            .or_else(|| idx.by_key.get(&dns_index_vm_ns_key(&cname, ns)))
             .filter(|e| visible(e))
             .map(|e| e.ip);
     }
@@ -10395,6 +10407,7 @@ fn dns_resolve_for(name: &str, client: Option<[u8; 4]>) -> Option<[u8; 4]> {
             if let Some(e) = idx
                 .by_key
                 .get(&dns_index_ns_key(short, ns))
+                .or_else(|| idx.by_key.get(&dns_index_vm_ns_key(short, ns)))
                 .filter(|e| visible(e))
             {
                 return Some(e.ip);
@@ -10402,8 +10415,12 @@ fn dns_resolve_for(name: &str, client: Option<[u8; 4]>) -> Option<[u8; 4]> {
         }
     }
     // Bare name: the asker's OWN namespace first. This is what makes two tenants
-    // able to both own `db` and each get their own.
-    if let Some(e) = idx.by_key.get(&dns_index_ns_key(&cname, &client_ns)) {
+    // able to both own `db` and each get their own — container, then VM.
+    if let Some(e) = idx
+        .by_key
+        .get(&dns_index_ns_key(&cname, &client_ns))
+        .or_else(|| idx.by_key.get(&dns_index_vm_ns_key(&cname, &client_ns)))
+    {
         return Some(e.ip);
     }
     if let Some(e) = idx.by_key.get(&cname).filter(|e| visible(e)) {
@@ -12987,6 +13004,12 @@ Inter-|   Receive                                                |  Transmit
         assert_eq!(dns_index_vm_key("db"), "vm:db");
         // A VM key can never collide with a bare container key (distinct prefix).
         assert_ne!(dns_index_vm_key("db"), "db");
+        // ADR-0086 D7: the per-namespace VM key is `vm:`-prefixed, so a VM
+        // `db@prod` and a container `db@prod` occupy DISTINCT `by_key` entries —
+        // they no longer share one and first-win over each other.
+        assert_eq!(dns_index_vm_ns_key("db", "prod"), "vm:db@prod");
+        assert_eq!(dns_index_vm_ns_key("db", "PROD"), "vm:db@prod");
+        assert_ne!(dns_index_vm_ns_key("db", "prod"), dns_index_ns_key("db", "prod"));
     }
 
     #[test]

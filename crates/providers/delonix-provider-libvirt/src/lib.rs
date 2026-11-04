@@ -2224,7 +2224,11 @@ fn libvirt_interface_xml(cfg: &VmConfig, mac: &str) -> String {
     let mac = xml_escape(mac);
     let model = &format!(
         "      <model type='virtio'/>\n{}    </interface>\n",
-        libvirt_filterref_xml(cfg.net_mode.as_deref(), cfg.allow_mac_spoofing)
+        libvirt_filterref_xml(
+            cfg.net_mode.as_deref(),
+            cfg.allow_mac_spoofing,
+            vm_namespace_of(cfg) != "default",
+        )
     )[..];
     // The same function `vm describe` and the node API read the record back
     // with (`delonix_compute::vm::attached_network`), so what is reported is
@@ -2376,6 +2380,46 @@ fn parse_nwfilter_uuid(xml: &str) -> Option<String> {
 /// together).
 const ANTISPOOF_FILTERREF: &str = "      <filterref filter='delonix-antispoof'/>\n";
 
+/// The nwfilter a NAMESPACED libvirt VM's NIC references instead of
+/// [`ANTISPOOF_FILTER`]: the same anti-spoofing, PLUS an outbound drop of
+/// anything bound for the SDN (`10.200.0.0/16`, `delonix_sdn::infra::INFRA_CIDR`
+/// — where containers and Cloud Hypervisor VMs land).
+///
+/// # Why this exists (defense in depth)
+///
+/// A libvirt VM lives on a per-namespace NAT network in the HOST netns; the SDN
+/// bridge lives inside the rootless ingress netns, so there is no route from the
+/// VM to a container to begin with — the two dataplanes are already separated by
+/// the netns boundary (ADR-0086 D7). This filter makes that isolation EXPLICIT
+/// and enforced at the VM's own NIC (installed by libvirtd, root), so a future
+/// host-side route to the SDN — or a misconfiguration — cannot quietly let a
+/// namespaced VM reach another namespace's containers. It does NOT touch the
+/// `172.30.0.0/16` namespace-network block: a VM must still reach its OWN
+/// network's peers, and cross-namespace libvirt traffic is already dropped by
+/// libvirt's per-network reject rules (one network cannot reach another's).
+const NS_GUARD_FILTER: &str = "delonix-ns-guard";
+
+/// See [`ANTISPOOF_FILTER_UUID`] for why a uuid is minted and then adopted.
+const NS_GUARD_FILTER_UUID: &str = "de102000-0000-4000-8000-000000000002";
+
+/// The single `<filterref>` a namespaced VM's NIC carries (exactly one, as the
+/// `the_domain_carries_exactly_one_filterref` test pins).
+const NS_GUARD_FILTERREF: &str = "      <filterref filter='delonix-ns-guard'/>\n";
+
+/// The `delonix-ns-guard` nwfilter: anti-spoofing (same members as
+/// [`ANTISPOOF_FILTER`]) plus the SDN-egress drop. One filter so the NIC keeps
+/// exactly one `filterref`.
+fn ns_guard_filter_xml(uuid: &str) -> String {
+    format!(
+        "<filter name='{NS_GUARD_FILTER}' chain='root'>\n  \
+         <uuid>{uuid}</uuid>\n  \
+         <filterref filter='no-mac-spoofing'/>\n  \
+         <filterref filter='no-arp-mac-spoofing'/>\n  \
+         <rule action='drop' direction='out' priority='400'>\n    \
+         <ip dstipaddr='10.200.0.0' dstipmask='255.255.0.0'/>\n  </rule>\n</filter>\n"
+    )
+}
+
 /// Whether a nwfilter can attach to this NIC at all. **Pure.**
 ///
 /// `nat`/`network` and `bridge` give the guest a tap device on the host, which
@@ -2423,16 +2467,44 @@ pub fn check_allow_mac_spoofing(cfg: &VmConfig, backend_id: &str) -> Result<()> 
             cfg.net_mode.as_deref().unwrap_or("user")
         )));
     }
+    // A namespaced VM's NIC carries the isolation guard, which BUNDLES the
+    // anti-spoofing with the SDN-egress drop (ADR-0086 D7) — the two cannot be
+    // separated, so opting out of anti-spoofing there would mean dropping the
+    // isolation too. Refuse rather than silently keep or silently drop it.
+    let ns = vm_namespace_of(cfg);
+    if ns != "default" {
+        return Err(Error::Command {
+            context: "vm",
+            message: format!(
+                "VM '{}': --allow-mac-spoofing cannot be combined with a non-default namespace \
+                 ('{ns}') on libvirt — the namespace isolation filter bundles the anti-spoofing it \
+                 would opt out of. Drop one of the two.",
+                cfg.name
+            ),
+        });
+    }
     Ok(())
 }
 
 /// The `<filterref>` block for this NIC, or empty. **Pure** — tested without a
 /// daemon.
-fn libvirt_filterref_xml(net_mode: Option<&str>, allow_mac_spoofing: bool) -> &'static str {
-    if antispoof_wanted(net_mode, allow_mac_spoofing) {
-        ANTISPOOF_FILTERREF
+fn libvirt_filterref_xml(
+    net_mode: Option<&str>,
+    allow_mac_spoofing: bool,
+    namespaced: bool,
+) -> &'static str {
+    if !antispoof_wanted(net_mode, allow_mac_spoofing) {
+        return "";
+    }
+    // A namespaced VM gets the isolation guard (anti-spoofing + the SDN-egress
+    // drop) instead of the plain anti-spoof filter — still ONE filterref.
+    // `--allow-mac-spoofing` is refused on a namespaced VM
+    // (`check_allow_mac_spoofing`), so `antispoof_wanted` is always true here
+    // when `namespaced`.
+    if namespaced {
+        NS_GUARD_FILTERREF
     } else {
-        ""
+        ANTISPOOF_FILTERREF
     }
 }
 
@@ -2473,6 +2545,30 @@ fn ensure_antispoof_filter(uri: &str) -> Result<()> {
             "could not define the '{ANTISPOOF_FILTER}' network filter on {uri} — refusing to \
              create the VM rather than boot it without the anti-spoofing it is supposed to have. \
              Check that the connection is reachable (`virsh -c {uri} nwfilter-list`)."
+        ),
+    })
+}
+
+/// Defines [`NS_GUARD_FILTER`] on `uri`, idempotently — the namespaced VM's
+/// anti-spoof + SDN-egress-drop filter. Same fail-closed contract and uuid
+/// adoption as [`ensure_antispoof_filter`]: a namespaced VM's NIC references it,
+/// so `virsh define` refuses the domain if it is missing, and booting without
+/// the isolation drop the operator believes is there is the one outcome ruled
+/// out.
+fn ensure_ns_guard_filter(uri: &str) -> Result<()> {
+    let uuid = capture("virsh", &["-c", uri, "nwfilter-dumpxml", "--", NS_GUARD_FILTER])
+        .as_deref()
+        .and_then(parse_nwfilter_uuid)
+        .unwrap_or_else(|| NS_GUARD_FILTER_UUID.to_string());
+    if virsh_define_xml(uri, "nwfilter-define", "nwfilter", &ns_guard_filter_xml(&uuid)) {
+        return Ok(());
+    }
+    Err(Error::Command {
+        context: "libvirt",
+        message: format!(
+            "could not define the '{NS_GUARD_FILTER}' network filter on {uri} — refusing to create \
+             the namespaced VM rather than boot it without the namespace isolation it is supposed \
+             to have. Check that the connection is reachable (`virsh -c {uri} nwfilter-list`)."
         ),
     })
 }
@@ -3287,7 +3383,14 @@ impl VmBackend for LibvirtBackend {
         // daemon that cannot define it. It still says so, every boot: the
         // record is the durable trace, this is the one in the journal.
         if antispoof_wanted(cfg.net_mode.as_deref(), cfg.allow_mac_spoofing) {
-            ensure_antispoof_filter(uri)?;
+            // A namespaced VM's NIC references the isolation guard (anti-spoof +
+            // SDN-egress drop), so that is the filter that must exist first
+            // (ADR-0086 D7). `default` keeps the plain anti-spoof filter.
+            if vm_namespace_of(cfg) != "default" {
+                ensure_ns_guard_filter(uri)?;
+            } else {
+                ensure_antispoof_filter(uri)?;
+            }
         } else if cfg.allow_mac_spoofing {
             tracing::warn!(
                 vm = %cfg.name,
@@ -5765,27 +5868,64 @@ mod tests {
         // nat/network/bridge give the guest a tap — libvirt has something to
         // apply the filter to.
         assert_eq!(
-            super::libvirt_filterref_xml(Some("nat"), false),
+            super::libvirt_filterref_xml(Some("nat"), false, false),
             super::ANTISPOOF_FILTERREF
         );
         assert_eq!(
-            super::libvirt_filterref_xml(Some("network"), false),
+            super::libvirt_filterref_xml(Some("network"), false, false),
             super::ANTISPOOF_FILTERREF
         );
         assert_eq!(
-            super::libvirt_filterref_xml(Some("bridge"), false),
+            super::libvirt_filterref_xml(Some("bridge"), false, false),
             super::ANTISPOOF_FILTERREF
+        );
+        // A namespaced VM gets the isolation guard (anti-spoof + SDN-egress
+        // drop) instead — still one filterref (ADR-0086 D7).
+        assert_eq!(
+            super::libvirt_filterref_xml(Some("nat"), false, true),
+            super::NS_GUARD_FILTERREF
         );
         // `user` (SLIRP/passt) has no tap. Emitting there would be accepted and
         // ignored — exactly what this repo has already corrected three times.
-        assert_eq!(super::libvirt_filterref_xml(Some("user"), false), "");
-        assert_eq!(super::libvirt_filterref_xml(None, false), "");
+        assert_eq!(super::libvirt_filterref_xml(Some("user"), false, false), "");
+        assert_eq!(super::libvirt_filterref_xml(None, false, false), "");
     }
+    /// ADR-0086 D7 defense-in-depth: a namespaced libvirt VM's NIC carries the
+    /// isolation guard, which drops egress to the SDN (`10.200.0.0/16`, where
+    /// containers and Cloud Hypervisor VMs live) — an explicit, libvirtd-applied
+    /// block on top of the netns separation. It stays ONE filterref, and it does
+    /// NOT block the VM's own `172.30.0.0/16` network (same-namespace peers).
+    #[test]
+    fn a_namespaced_vm_drops_egress_to_the_sdn() {
+        let xml = super::ns_guard_filter_xml("de102000-0000-4000-8000-000000000002");
+        assert!(xml.contains("name='delonix-ns-guard'"), "{xml}");
+        assert!(
+            xml.contains("action='drop'") && xml.contains("direction='out'"),
+            "{xml}"
+        );
+        assert!(
+            xml.contains("dstipaddr='10.200.0.0'") && xml.contains("dstipmask='255.255.0.0'"),
+            "{xml}"
+        );
+        assert!(!xml.contains("172.30"), "must not block its own ns network: {xml}");
+        // And a namespaced domain carries exactly one filterref — the guard.
+        let mut cfg = test_vm_cfg("1G");
+        cfg.net_mode = Some("nat".into());
+        cfg.namespace = Some("prod".into());
+        let dom = super::libvirt_domain_xml(&cfg, "/x.qcow2", "52:54:00:aa:bb:cc");
+        assert_eq!(dom.matches("<filterref").count(), 1, "{dom}");
+        assert!(dom.contains("delonix-ns-guard"), "{dom}");
+    }
+
     #[test]
     fn an_opted_out_nic_carries_no_filterref() {
         // ADR-0055: the opt-out removes the ONE line and nothing else.
         for mode in ["nat", "network", "bridge", "user"] {
-            assert_eq!(super::libvirt_filterref_xml(Some(mode), true), "", "{mode}");
+            assert_eq!(
+                super::libvirt_filterref_xml(Some(mode), true, false),
+                "",
+                "{mode}"
+            );
         }
         let mut cfg = test_vm_cfg("128M");
         cfg.net_mode = Some("bridge".into());
