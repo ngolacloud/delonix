@@ -238,28 +238,11 @@ pub fn report_of(
         .find(|r| r.id == id || r.aliases.contains(&id))
         .map(|r| (r.report)())
 }
-/// `name: state — detail` for every required entry the report does not mark
-/// usable. An entry the report lacks (a kind mismatch) is "not in this
-/// provider's report", which is a "no" too.
-pub fn unmet(report: &crate::capability::ProviderReport, required: &[Capability]) -> Vec<String> {
-    required
-        .iter()
-        .filter_map(
-            |c| match report.capabilities.iter().find(|r| r.capability == *c) {
-                Some(r) if r.state.is_usable() => None,
-                Some(r) => {
-                    let detail = r.state.detail();
-                    Some(if detail.is_empty() {
-                        format!("{}: {}", c.name(), r.state.label())
-                    } else {
-                        format!("{}: {} — {}", c.name(), r.state.label(), detail)
-                    })
-                }
-                None => Some(format!("{}: not in this provider's report", c.name())),
-            },
-        )
-        .collect()
-}
+// `unmet` moved to the foundation with the capability model
+// (`delonix_model::provider::unmet`, ADR-0040 R2 / D3): it is pure over a report,
+// so it belongs where the report is. Re-exported so `delonix_compute::vm_registry::unmet`
+// still resolves.
+pub use delonix_model::provider::unmet;
 fn capability_not_supported(id: &str, missing: &[String]) -> Error {
     Error::CapabilityNotSupported(format!(
         "the '{id}' backend does not support what this VM requires on this host:\n  {}\nPick a \

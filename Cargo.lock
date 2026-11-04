@@ -942,7 +942,6 @@ version = "0.1.0"
 name = "delonix-networking"
 version = "0.1.0"
 dependencies = [
- "delonix-compute",
  "delonix-model",
  "delonix-net-rules",
  "serde",

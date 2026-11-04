@@ -8,6 +8,7 @@ pub mod error;
 pub mod exitcode;
 pub mod names;
 pub mod ports;
+pub mod provider;
 pub mod records;
 pub mod secret;
 pub mod typestate;
