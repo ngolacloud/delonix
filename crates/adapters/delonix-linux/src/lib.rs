@@ -9647,6 +9647,198 @@ pub fn exec_with(
     }
 }
 
+/// Runs a native HTTP/TCP health probe INSIDE the container's network namespace
+/// and returns an exit-style code: 0 healthy, non-zero unhealthy, 137 if the
+/// deadline killed it. The ENGINE does the probe itself — a `connect()` to
+/// `127.0.0.1:port`, optionally an HTTP `GET <path>` — so an image that ships no
+/// `/bin/sh` and no `curl`/`wget`/`nc` (a distroless) can still be health-checked
+/// (review 2026-11-04). It hits the container's own loopback, exactly where a
+/// probe that ran inside it would, and exactly where a server bound to
+/// `0.0.0.0`/`127.0.0.1` listens.
+///
+/// The namespace join mirrors [`exec_with`]: enter the container's USER ns first
+/// (to gain caps over the net ns it owns, created OR inherited), then its NET ns
+/// — nothing else, a loopback connect needs neither mnt nor pid. The probe runs
+/// in a forked child, the SOLE child of the caller (the health monitor process,
+/// or the CLI), so the deadline wait that would kill it also reaps it — nothing
+/// is orphaned, the same property the exec-form path has.
+pub fn health_probe_net(
+    container: &Container,
+    port: u16,
+    http_path: Option<&str>,
+    timeout_secs: u64,
+) -> Result<i32> {
+    let pid = container
+        .pid
+        .filter(|p| safe_to_signal(*p, container.pid_starttime))
+        .ok_or_else(|| Error::NotRunning(container.short_id().to_string()))?;
+    use std::os::unix::fs::MetadataExt;
+    let self_pid = std::process::id();
+    // USER before NET: joining the net ns owned by the container's userns needs
+    // caps in that userns, which setns(user) grants. Skip either if we already
+    // share it (same inode) — a host-networked container shares `net`.
+    let mut fds: Vec<i32> = Vec::new();
+    for ns in ["user", "net"] {
+        let target = format!("/proc/{pid}/ns/{ns}");
+        let mine = format!("/proc/{self_pid}/ns/{ns}");
+        if let (Ok(a), Ok(b)) = (std::fs::metadata(&target), std::fs::metadata(&mine)) {
+            if a.ino() == b.ino() {
+                continue;
+            }
+        }
+        let fd = open(
+            target.as_str(),
+            OFlag::O_RDONLY | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(syserr("open ns"))?;
+        fds.push(fd);
+    }
+    let http_owned = http_path.map(str::to_string);
+    // SAFETY: fork from a caller single-threaded at this point (the health
+    // monitor process, or the CLI). The child makes syscalls and ONE `format!`
+    // (malloc, which `fork` resets) and leaves via `_exit` — no stderr, no env,
+    // none of the std locks `fork` does not reset.
+    match unsafe { fork() }.map_err(syserr("fork"))? {
+        ForkResult::Child => {
+            for fd in &fds {
+                // SAFETY: inherited ns fd; `OwnedFd` closes it after the setns.
+                let owned = unsafe { OwnedFd::from_raw_fd(*fd) };
+                if setns(owned, CloneFlags::empty()).is_err() {
+                    // SAFETY: `_exit` in the forked child — 1 reads as unhealthy.
+                    unsafe { libc::_exit(1) };
+                }
+            }
+            let code = probe_loopback(port, http_owned.as_deref(), timeout_secs);
+            // SAFETY: `_exit` in the forked child; must not run the parent's destructors.
+            unsafe { libc::_exit(code) };
+        }
+        ForkResult::Parent { child } => {
+            for fd in &fds {
+                // SAFETY: the parent's copies of the ns fds, each closed exactly once
+                // (the child closes its own via `OwnedFd`). A leaked fd pins the ns.
+                unsafe { libc::close(*fd) };
+            }
+            // The child bounds itself with socket timeouts; the parent's deadline
+            // is the backstop (+1s so the child's own timeout fires first and
+            // returns a real verdict rather than a kill).
+            Ok(wait_grandchild_deadline(
+                child,
+                Some(timeout_secs.saturating_add(1)),
+            ))
+        }
+    }
+}
+
+/// The actual loopback probe, run by the child of [`health_probe_net`] AFTER it
+/// has joined the container's net namespace. `None` path → a bare TCP connect
+/// (healthy iff the handshake completes); `Some(path)` → an HTTP `GET`, healthy
+/// on a 2xx/3xx. Returns 0 (healthy) or 1 (unhealthy). All syscalls so it is
+/// safe in the forked child; the one allocation is the request string.
+fn probe_loopback(port: u16, http_path: Option<&str>, timeout_secs: u64) -> i32 {
+    let secs = timeout_secs.min(3600);
+    // SAFETY: a sequence of socket syscalls on a loopback address; `fd` is owned
+    // here and closed on every path, and the structs are stack-local.
+    unsafe {
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0);
+        if fd < 0 {
+            return 1;
+        }
+        let mut addr: libc::sockaddr_in = std::mem::zeroed();
+        addr.sin_family = libc::AF_INET as libc::sa_family_t;
+        addr.sin_port = port.to_be();
+        addr.sin_addr.s_addr = 0x7f00_0001u32.to_be(); // 127.0.0.1, network order
+        let addr_len = std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t;
+        // Non-blocking connect + poll: a blocking connect to a firewalled port
+        // could hang past the deadline, which the whole feature exists to bound.
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        let rc = libc::connect(fd, std::ptr::addr_of!(addr).cast(), addr_len);
+        if rc != 0 {
+            if *libc::__errno_location() != libc::EINPROGRESS {
+                libc::close(fd);
+                return 1;
+            }
+            let mut pfd = libc::pollfd {
+                fd,
+                events: libc::POLLOUT,
+                revents: 0,
+            };
+            if libc::poll(&mut pfd, 1, (secs * 1000) as libc::c_int) <= 0 {
+                libc::close(fd); // timeout or error
+                return 1;
+            }
+            let mut so_err: libc::c_int = 0;
+            let mut l = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_ERROR,
+                std::ptr::addr_of_mut!(so_err).cast(),
+                &mut l,
+            );
+            if so_err != 0 {
+                libc::close(fd);
+                return 1;
+            }
+        }
+        // Connected. A bare TCP probe is already satisfied.
+        let Some(path) = http_path else {
+            libc::close(fd);
+            return 0;
+        };
+        // Blocking again, now with a send/recv timeout for the HTTP exchange.
+        libc::fcntl(fd, libc::F_SETFL, flags);
+        let tv = libc::timeval {
+            tv_sec: secs as libc::time_t,
+            tv_usec: 0,
+        };
+        let tvp = std::ptr::addr_of!(tv).cast();
+        let tvl = std::mem::size_of::<libc::timeval>() as libc::socklen_t;
+        libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_SNDTIMEO, tvp, tvl);
+        libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_RCVTIMEO, tvp, tvl);
+        // HTTP/1.0 + `Connection: close`: no keep-alive to unwind, the server
+        // closes after one response, and the status line is all a probe reads.
+        let req = format!(
+            "GET {path} HTTP/1.0\r\nHost: localhost\r\nUser-Agent: delonix-health\r\nConnection: close\r\n\r\n"
+        );
+        let bytes = req.as_bytes();
+        let mut off = 0usize;
+        while off < bytes.len() {
+            let n = libc::write(fd, bytes[off..].as_ptr().cast(), bytes.len() - off);
+            if n <= 0 {
+                libc::close(fd);
+                return 1;
+            }
+            off += n as usize;
+        }
+        let mut buf = [0u8; 256];
+        let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len());
+        libc::close(fd);
+        if n <= 0 {
+            return 1;
+        }
+        let got = &buf[..n as usize];
+        let end = got
+            .iter()
+            .position(|&b| b == b'\r' || b == b'\n')
+            .unwrap_or(got.len());
+        i32::from(!http_status_healthy(&got[..end]))
+    }
+}
+
+/// Whether an HTTP status line (`HTTP/1.1 200 OK`) is a healthy probe response:
+/// any 2xx or 3xx, the range `curl -f` treats as success. PURE.
+fn http_status_healthy(status_line: &[u8]) -> bool {
+    let Ok(s) = std::str::from_utf8(status_line) else {
+        return false;
+    };
+    matches!(
+        s.split_whitespace().nth(1).and_then(|c| c.parse::<u16>().ok()),
+        Some(c) if (200..400).contains(&c)
+    )
+}
+
 // ----------------------------------------------------------------------------
 // Volume hot-plug (zero-downtime): mount/unmount in a RUNNING container
 // ----------------------------------------------------------------------------
@@ -15000,6 +15192,22 @@ mod spawn_step_tests {
             ForkResult::Parent { child } => child,
         };
         assert_eq!(wait_grandchild_deadline(plain, None), 0);
+    }
+
+    #[test]
+    fn http_status_healthy_aceita_2xx_3xx_apenas() {
+        // The native HTTP probe's verdict: 2xx/3xx healthy, anything else (or a
+        // line it cannot parse) unhealthy — the range `curl -f` accepts.
+        assert!(http_status_healthy(b"HTTP/1.1 200 OK"));
+        assert!(http_status_healthy(b"HTTP/1.0 204 No Content"));
+        assert!(http_status_healthy(b"HTTP/1.1 301 Moved Permanently"));
+        assert!(http_status_healthy(b"HTTP/2 399"));
+        assert!(!http_status_healthy(b"HTTP/1.1 404 Not Found"));
+        assert!(!http_status_healthy(b"HTTP/1.1 500 Internal Server Error"));
+        assert!(!http_status_healthy(b"HTTP/1.1 400"));
+        assert!(!http_status_healthy(b""));
+        assert!(!http_status_healthy(b"garbage"));
+        assert!(!http_status_healthy(b"HTTP/1.1 notacode"));
     }
 }
 
