@@ -52,7 +52,7 @@ fn register_proxmox_zone_provider_with(lookup: &dyn Fn(&str) -> Option<String>) 
     let Some((target, opts)) = super::vmbackends::proxmox_target_with(lookup)? else {
         return Ok(());
     };
-    delonix_proxmox::register_segment_provider(
+    delonix_provider_proxmox::register_segment_provider(
         target,
         opts,
         // The cluster-wide `apply_sdn` reload has no VM directory of its

@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use delonix_compute::vm_backend::VmConfig;
-use delonix_proxmox::{
+use delonix_provider_proxmox::{
     AgentExecStatus, Auth, Client, ClientOptions, Error, Ledger, Target, TaskState,
     MAX_RESPONSE_BYTES,
 };
@@ -1224,7 +1224,7 @@ fn a_vm_policy_on_a_cluster_with_its_firewall_off_is_refused_before_any_write() 
         default_allow: false,
         rules: vec![],
     };
-    let err = delonix_proxmox::vm_firewall::apply(&client, &Ledger::at(dir.path()), 100, &policy)
+    let err = delonix_provider_proxmox::vm_firewall::apply(&client, &Ledger::at(dir.path()), 100, &policy)
         .expect_err("a datacenter firewall that is off must refuse");
     assert_eq!(err.number(), 6508, "{err}");
     let writes: Vec<Seen> = node
@@ -1514,7 +1514,7 @@ fn extra_devices_on_a_template_clone_are_refused_before_any_request() {
     let node = MockNode::start(script(&[]));
     let client = Client::connect_with(&token_target(&node), fast()).unwrap();
     let before = node.log().len();
-    let b = delonix_proxmox::ProxmoxBackend::sharing(std::sync::Arc::new(client));
+    let b = delonix_provider_proxmox::ProxmoxBackend::sharing(std::sync::Arc::new(client));
     let dir = tempfile::tempdir().unwrap();
     let cfg = VmConfig {
         name: "x".into(),
@@ -1602,9 +1602,9 @@ fn vm_with_handle(handle: &str) -> delonix_compute::Vm {
     )
 }
 
-fn backend_on(node: &MockNode) -> delonix_proxmox::ProxmoxBackend {
+fn backend_on(node: &MockNode) -> delonix_provider_proxmox::ProxmoxBackend {
     let client = Client::connect_with(&token_target(node), fast()).unwrap();
-    delonix_proxmox::ProxmoxBackend::sharing(Arc::new(client))
+    delonix_provider_proxmox::ProxmoxBackend::sharing(Arc::new(client))
 }
 
 const PVE_STATUS: &str = "/nodes/pve/qemu/100/status/current";
@@ -2049,7 +2049,7 @@ fn a_quiesced_backup_without_an_agent_never_starts() {
     let client = Client::connect_with(&token_target(&node), fast()).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let err = client
-        .backup_vm_quiesced(&delonix_proxmox::Ledger::at(dir.path()), 100, "local")
+        .backup_vm_quiesced(&delonix_provider_proxmox::Ledger::at(dir.path()), 100, "local")
         .expect_err("no agent");
     assert_eq!(delonix_model::Error::from(err).number(), 6509);
     assert_eq!(node.count("POST", VZDUMP), 0, "the backup was started");
@@ -2076,7 +2076,7 @@ fn a_backup_whose_log_shows_no_freeze_is_not_reported_quiesced() {
     let client = Client::connect_with(&token_target(&node), fast()).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let err = client
-        .backup_vm_quiesced(&delonix_proxmox::Ledger::at(dir.path()), 100, "local")
+        .backup_vm_quiesced(&delonix_provider_proxmox::Ledger::at(dir.path()), 100, "local")
         .expect_err("no freeze in the log");
     let shown = err.to_string();
     assert_eq!(delonix_model::Error::from(err).number(), 6509, "{shown}");
@@ -2198,8 +2198,8 @@ fn an_sdn_transaction_carries_the_lock_token_and_applies_with_it() {
     let cli = sdn_client(&node);
     let dir = tempfile::tempdir().unwrap();
     let ledger = Ledger::at(dir.path());
-    let entries = [delonix_proxmox::PrefixListEntry {
-        action: delonix_proxmox::RoutingAction::Permit,
+    let entries = [delonix_provider_proxmox::PrefixListEntry {
+        action: delonix_provider_proxmox::RoutingAction::Permit,
         prefix: "10.77.0.0/16",
         ge: None,
         le: Some(24),
@@ -2288,8 +2288,8 @@ fn a_failed_sdn_change_is_rolled_back_and_never_applied() {
             cli.create_sdn_controller(
                 &ledger,
                 "ev1",
-                delonix_proxmox::ControllerKind::Evpn,
-                &delonix_proxmox::ControllerOptions {
+                delonix_provider_proxmox::ControllerKind::Evpn,
+                &delonix_provider_proxmox::ControllerOptions {
                     asn: Some(65000),
                     peers: &peers,
                     route_map_in: Some("rm1"),
@@ -2703,7 +2703,7 @@ fn a_vnet_firewall_write_is_refused_before_anything_reaches_the_node() {
     let dir = tempfile::tempdir().unwrap();
     let ledger = Ledger::at(dir.path());
 
-    let ssh = delonix_proxmox::FirewallRuleOpts {
+    let ssh = delonix_provider_proxmox::FirewallRuleOpts {
         rule_type: Some("forward"),
         proto: Some("tcp"),
         dport: Some("22"),
@@ -2711,11 +2711,11 @@ fn a_vnet_firewall_write_is_refused_before_anything_reaches_the_node() {
     };
     // Malformed on purpose: an `in` rule, a vnet id the node could not hold.
     // The refusal comes first, so it is the same answer as the valid one.
-    let inbound = delonix_proxmox::FirewallRuleOpts {
+    let inbound = delonix_provider_proxmox::FirewallRuleOpts {
         rule_type: Some("in"),
         ..Default::default()
     };
-    let opts = delonix_proxmox::VnetFirewallOptions {
+    let opts = delonix_provider_proxmox::VnetFirewallOptions {
         enable: Some(true),
         policy_forward: Some("DROP"),
         ..Default::default()
@@ -2775,11 +2775,11 @@ fn a_route_map_entry_and_a_dry_run_read_the_nodes_shapes() {
     let cli = sdn_client(&node);
     let dir = tempfile::tempdir().unwrap();
     let ledger = Ledger::at(dir.path());
-    let matches = [delonix_proxmox::RouteMapClause {
+    let matches = [delonix_provider_proxmox::RouteMapClause {
         key: "ip-address-prefix-list",
         value: Some("pl1"),
     }];
-    let sets = [delonix_proxmox::RouteMapClause {
+    let sets = [delonix_provider_proxmox::RouteMapClause {
         key: "local-preference",
         value: Some("200"),
     }];
@@ -2787,8 +2787,8 @@ fn a_route_map_entry_and_a_dry_run_read_the_nodes_shapes() {
         &ledger,
         "rm1",
         10,
-        &delonix_proxmox::RouteMapEntry {
-            action: delonix_proxmox::RoutingAction::Permit,
+        &delonix_provider_proxmox::RouteMapEntry {
+            action: delonix_provider_proxmox::RoutingAction::Permit,
             matches: &matches,
             sets: &sets,
             call: None,
@@ -2826,8 +2826,8 @@ fn a_route_map_entry_and_a_dry_run_read_the_nodes_shapes() {
             &ledger,
             "pve_x",
             1,
-            &delonix_proxmox::RouteMapEntry {
-                action: delonix_proxmox::RoutingAction::Deny,
+            &delonix_provider_proxmox::RouteMapEntry {
+                action: delonix_provider_proxmox::RoutingAction::Deny,
                 matches: &[],
                 sets: &[],
                 call: None,
@@ -3251,9 +3251,9 @@ fn ct_spec(dir: &std::path::Path) -> delonix_compute::system_container::SystemCo
     }
 }
 
-fn ct_provider(node: &MockNode) -> delonix_proxmox::ProxmoxSystemContainerProvider {
+fn ct_provider(node: &MockNode) -> delonix_provider_proxmox::ProxmoxSystemContainerProvider {
     let client = Client::connect_with(&token_target(node), fast()).unwrap();
-    delonix_proxmox::ProxmoxSystemContainerProvider::new(Arc::new(client), "local", "local-lvm")
+    delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(Arc::new(client), "local", "local-lvm")
 }
 
 fn ct_cached_template() -> Vec<(&'static str, &'static str, Reply)> {
@@ -3650,11 +3650,11 @@ fn gateway_node(
     MockNode::start(script(&entries))
 }
 
-fn ipam_on(node: &MockNode, dir: &std::path::Path) -> delonix_proxmox::ProxmoxIpamProvider {
-    delonix_proxmox::ProxmoxIpamProvider::new(Arc::new(sdn_client(node)), Ledger::at(dir))
+fn ipam_on(node: &MockNode, dir: &std::path::Path) -> delonix_provider_proxmox::ProxmoxIpamProvider {
+    delonix_provider_proxmox::ProxmoxIpamProvider::new(Arc::new(sdn_client(node)), Ledger::at(dir))
 }
 
-fn plan_lines(p: &delonix_proxmox::ProxmoxIpamProvider) -> Vec<String> {
+fn plan_lines(p: &delonix_provider_proxmox::ProxmoxIpamProvider) -> Vec<String> {
     use delonix_networking::ipam::IpamProvider;
     let o = p.observe("n18z", &["n18v".to_string()]).expect("observe");
     delonix_networking::ipam::gateway_entry_drift(&o.subnets, &o.gateway_entries)
@@ -3814,9 +3814,9 @@ fn the_cluster_probe_reads_the_release_with_get_only() {
     ));
     let facts = sdn_client(&node).cluster_facts().expect("facts");
     assert_eq!(facts.release.as_deref(), Some("9.3.1"));
-    let note = delonix_proxmox::cluster::release_note(facts.release.as_deref()).unwrap();
+    let note = delonix_provider_proxmox::cluster::release_note(facts.release.as_deref()).unwrap();
     assert!(
-        note.contains("9.3.1") && note.contains(delonix_proxmox::cluster::MATRIX_RELEASE),
+        note.contains("9.3.1") && note.contains(delonix_provider_proxmox::cluster::MATRIX_RELEASE),
         "{note}"
     );
     assert_eq!(node.count("GET", "/version"), 1);
@@ -3831,7 +3831,7 @@ fn the_cluster_probe_reads_the_release_with_get_only() {
     let node = discovery_node(ok_data(r#"{"version":"9.2.2","release":"9.2"}"#));
     let facts = sdn_client(&node).cluster_facts().expect("facts");
     assert_eq!(
-        delonix_proxmox::cluster::release_note(facts.release.as_deref()),
+        delonix_provider_proxmox::cluster::release_note(facts.release.as_deref()),
         None
     );
 }

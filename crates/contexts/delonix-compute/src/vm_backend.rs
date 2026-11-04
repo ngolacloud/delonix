@@ -326,7 +326,7 @@ pub fn parse_mem_mib(s: &str) -> Option<u64> {
 /// `"2G"`/`"512M"`/`"2Gi"`/`"2048"` → MiB.
 ///
 /// **Public because every backend has to read the SAME field the same way.**
-/// It was private, so `delonix-proxmox` grew its own copy — and the copy did
+/// It was private, so `delonix-provider-proxmox` grew its own copy — and the copy did
 /// not know the k8s `Gi`/`Mi` suffix this one tolerates, so `memory: 2Gi` meant
 /// 2 GiB on libvirt and Cloud Hypervisor and 1 GiB on Proxmox, silently. Same
 /// discipline as `fw_rule_tail` on the network side: one definition, shared by

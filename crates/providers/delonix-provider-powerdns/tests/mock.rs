@@ -4,7 +4,7 @@
 //! `Not Found` for a missing zone AND a wrong server id, `Unauthorized` for a
 //! wrong key, and the rrset filter honoured.
 
-use delonix_powerdns::{Client, Removal, Target};
+use delonix_provider_powerdns::{Client, Removal, Target};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};

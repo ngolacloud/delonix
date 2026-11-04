@@ -12,11 +12,11 @@ members = [
     "crates/interfaces/delonix-mgmt",
     "crates/adapters/delonix-scanner",
     "crates/adapters/delonix-state",
-    "crates/contexts/delonix-security-runtime",
-    "crates/providers/delonix-truenas",
-    "crates/providers/delonix-proxmox",
-    "crates/providers/delonix-opnsense",
-    "crates/providers/delonix-powerdns",
+    "crates/contexts/delonix-security",
+    "crates/providers/delonix-provider-truenas",
+    "crates/providers/delonix-provider-proxmox",
+    "crates/providers/delonix-provider-opnsense",
+    "crates/providers/delonix-provider-powerdns",
     "crates/providers/delonix-provider-libvirt",
     "crates/providers/delonix-provider-cloud-hypervisor",
     "crates/providers/delonix-provider-lvm",
@@ -62,11 +62,11 @@ delonix-mgmt = { path = "crates/interfaces/delonix-mgmt" }
 delonix-node-api = { path = "crates/interfaces/delonix-node-api" }
 delonix-scanner = { path = "crates/adapters/delonix-scanner" }
 delonix-state = { path = "crates/adapters/delonix-state" }
-delonix-security-runtime = { path = "crates/contexts/delonix-security-runtime" }
-delonix-truenas = { path = "crates/providers/delonix-truenas" }
-delonix-proxmox = { path = "crates/providers/delonix-proxmox" }
-delonix-opnsense = { path = "crates/providers/delonix-opnsense" }
-delonix-powerdns = { path = "crates/providers/delonix-powerdns" }
+delonix-security = { path = "crates/contexts/delonix-security" }
+delonix-provider-truenas = { path = "crates/providers/delonix-provider-truenas" }
+delonix-provider-proxmox = { path = "crates/providers/delonix-provider-proxmox" }
+delonix-provider-opnsense = { path = "crates/providers/delonix-provider-opnsense" }
+delonix-provider-powerdns = { path = "crates/providers/delonix-provider-powerdns" }
 delonix-provider-libvirt = { path = "crates/providers/delonix-provider-libvirt" }
 delonix-provider-cloud-hypervisor = { path = "crates/providers/delonix-provider-cloud-hypervisor" }
 delonix-provider-lvm = { path = "crates/providers/delonix-provider-lvm" }
@@ -133,7 +133,7 @@ axum = "0.7"
 tower = "0.5"
 tokio-rustls = { version = "0.26", default-features = false }
 rustls-pemfile = "2"
-# Server side of the TLS mock node `delonix-proxmox` tests against (dev-dependency
+# Server side of the TLS mock node `delonix-provider-proxmox` tests against (dev-dependency
 # only): the client refuses http://, so a failure-injection test needs a real
 # listener with a certificate. Same 0.23 line reqwest already resolves to.
 rustls = { version = "0.23", default-features = false }

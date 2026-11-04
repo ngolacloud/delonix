@@ -61,23 +61,23 @@ LAYERS = {
     "delonix-storage": CONTEXT,  # ADR-0067 D1: the storage pool port, its registry and the allowlist
     "delonix-node": CONTEXT,
     "delonix-net-rules": FOUNDATION,  # → delonix-networking/domain (P2)
-    "delonix-security-runtime": CONTEXT,  # → delonix-security (P2)
+    "delonix-security": CONTEXT,  # → delonix-security (P2)
     "delonix-linux": ADAPTER,
     "delonix-sdn": ADAPTER,
     "delonix-oci": ADAPTER,
     "delonix-scanner": ADAPTER,
     "delonix-volume": ADAPTER,  # → delonix-provider-mount (P4)
     "delonix-vm": ADAPTER,  # the VM composition root since P4b.4; absorbed by the application layer (P5)
-    "delonix-proxmox": PROVIDER,  # → delonix-provider-proxmox (P4)
+    "delonix-provider-proxmox": PROVIDER,  # → delonix-provider-proxmox (P4)
     "delonix-provider-libvirt": PROVIDER,
     "delonix-provider-cloud-hypervisor": PROVIDER,
     "delonix-provider-lvm": PROVIDER,  # ADR-0067 P4: the lvm-thin storage pool driver
     "delonix-provider-zfs": PROVIDER,  # ADR-0067 P3: the zfs storage pool driver
     "delonix-provider-btrfs": PROVIDER,  # ADR-0067 P2: the btrfs storage pool driver
     "delonix-provider-ceph": PROVIDER,  # ADR-0081: the ceph-rbd/cephfs drivers and the RGW port
-    "delonix-truenas": PROVIDER,  # → delonix-provider-truenas (P4)
-    "delonix-opnsense": PROVIDER,  # ADR-0051: GatewayProvider, same P4 shape as delonix-proxmox
-    "delonix-powerdns": PROVIDER,  # ADR-0064 D6: the engine's own PowerDNS credential, record cleanup
+    "delonix-provider-truenas": PROVIDER,  # → delonix-provider-truenas (P4)
+    "delonix-provider-opnsense": PROVIDER,  # ADR-0051: GatewayProvider, same P4 shape as delonix-provider-proxmox
+    "delonix-provider-powerdns": PROVIDER,  # ADR-0064 D6: the engine's own PowerDNS credential, record cleanup
     "delonix-cri": INTERFACE,
     "delonix-mgmt": INTERFACE,  # replaced by delonix-node-api (P5)
     "delonix-mcp": INTERFACE,
@@ -264,7 +264,7 @@ CLI_DESTINATION = {
     "schema": "delonix-stack", "diff": "delonix-stack", "drift": "delonix-stack",
     "resource": "delonix-stack", "verbs": "delonix-stack", "conditions": "delonix-stack",
     "gitops": "delonix-stack",
-    # delonix-security (renamed from delonix-security-runtime in R1)
+    # delonix-security (renamed from delonix-security in R1)
     "secret": "delonix-security", "policy": "delonix-security", "credentials": "delonix-security",
     # delonix-node (the context half of the R2 split)
     "boot": "delonix-node", "prune": "delonix-node", "system": "delonix-node", "migrate": "delonix-node",
@@ -295,9 +295,7 @@ CONTEXT_DESTINATIONS = {
 }
 
 # A3's inter-context dependency graph, declared in ONE place. A context may depend
-# on foundation and on the contexts listed here, and on no other context. Keys use
-# the target crate names; `delonix-security-runtime` is read as `delonix-security`
-# (its R1 name) so the rule works before and after the rename.
+# on foundation and on the contexts listed here, and on no other context.
 A3_ALLOWED = {
     "delonix-stack": {
         "delonix-compute", "delonix-networking", "delonix-storage",
@@ -306,7 +304,9 @@ A3_ALLOWED = {
     "delonix-cluster": {"delonix-compute", "delonix-networking", "delonix-storage"},
     "delonix-gateway": {"delonix-networking"},
 }
-_CTX_RENAME = {"delonix-security-runtime": "delonix-security"}
+# Reserved for reading an old context name as its renamed one during a split; empty
+# since R1 renamed delonix-security-runtime to delonix-security in place.
+_CTX_RENAME: dict[str, str] = {}
 
 # A crate above this many lines of Rust needs an ADR or a registered split plan
 # (C1 #6). The allowlist is that register: each oversize crate names the phase or
@@ -315,7 +315,7 @@ _CTX_RENAME = {"delonix-security-runtime": "delonix-security"}
 SIZE_LIMIT = 20_000
 OVERSIZE_ALLOWLIST = {
     "delonix-runtime-bin": "R4 extracts its use cases into the contexts; the residue becomes delonix-cli",
-    "delonix-proxmox": "R5 split plan for delonix-provider-proxmox (ADR pending)",
+    "delonix-provider-proxmox": "R5 split plan for delonix-provider-proxmox (ADR pending)",
     "delonix-sdn": "R5 split plan for the SDN adapter (ADR pending)",
     "delonix-linux": "R5 split plan for the container runtime adapter (ADR pending)",
 }
@@ -330,7 +330,7 @@ PUB_TRAIT = re.compile(r"\bpub\s+trait\s+(\w+)")
 PROVIDER_PREFIXES = ("delonix-provider-",)
 # The provider crates by name today (the four unprefixed ones rename in R1).
 PROVIDER_NAMES = {
-    "delonix-opnsense", "delonix-powerdns", "delonix-proxmox", "delonix-truenas",
+    "delonix-provider-opnsense", "delonix-provider-powerdns", "delonix-provider-proxmox", "delonix-provider-truenas",
     "delonix-provider-btrfs", "delonix-provider-ceph", "delonix-provider-cloud-hypervisor",
     "delonix-provider-libvirt", "delonix-provider-lvm", "delonix-provider-zfs",
 }
@@ -509,6 +509,23 @@ def oversize_crates(lines: dict[str, int]) -> list[str]:
     for name in sorted(OVERSIZE_ALLOWLIST):
         if lines.get(name, 0) <= SIZE_LIMIT:
             bad.append(f"{name}: in OVERSIZE_ALLOWLIST but is {lines.get(name, 0)} lines (<= {SIZE_LIMIT}) — remove it")
+    return bad
+
+
+FORBIDDEN_SUFFIXES = ("-core", "-common", "-utils", "-types")
+
+
+def name_convention() -> list[str]:
+    """The naming half of C1 #5 (hard rule): a provider crate's name starts with
+    `delonix-provider-`, and no crate ends in a junk-drawer suffix. The one-bin
+    rule is the `bin_crates` ratchet; this is the part that is 0 today and stays 0
+    once R1 has renamed the four unprefixed providers."""
+    bad: list[str] = []
+    for name, layer in sorted(LAYERS.items()):
+        if layer == PROVIDER and not name.startswith("delonix-provider-"):
+            bad.append(f"{name}: a provider crate must start with 'delonix-provider-'")
+        if name.endswith(FORBIDDEN_SUFFIXES):
+            bad.append(f"{name}: a crate must not end in -core/-common/-utils/-types")
     return bad
 
 
@@ -929,6 +946,7 @@ def main() -> int:
     bad += domain_impurities()
     bad += duplicate_context_traits()
     bad += oversize_crates(crate_lines)
+    bad += name_convention()
 
     current = {
         "self_exec_sites": self_exec,

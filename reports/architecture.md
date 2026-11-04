@@ -31,7 +31,7 @@
 | delonix-compute | 14,046 |
 | delonix-networking | 5,539 |
 | delonix-storage | 3,353 |
-| delonix-security-runtime | 3,286 |
+| delonix-security | 3,286 |
 | delonix-stack | 3,087 |
 | delonix-node | 1,358 |
 
@@ -52,14 +52,14 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-proxmox ⚠️ >20k | 31,590 |
+| delonix-provider-proxmox ⚠️ >20k | 31,590 |
 | delonix-provider-libvirt | 6,617 |
-| delonix-opnsense | 5,242 |
+| delonix-provider-opnsense | 5,242 |
 | delonix-provider-cloud-hypervisor | 3,543 |
 | delonix-provider-ceph | 2,077 |
 | delonix-provider-lvm | 1,271 |
-| delonix-truenas | 1,189 |
-| delonix-powerdns | 1,064 |
+| delonix-provider-truenas | 1,189 |
+| delonix-provider-powerdns | 1,064 |
 | delonix-provider-btrfs | 1,002 |
 | delonix-provider-zfs | 962 |
 
@@ -151,7 +151,7 @@ Inter-context edges outside A3 (closed in R2):
 
 - `delonix-compute -> delonix-node (not in A3)`
 - `delonix-networking -> delonix-compute (not in A3)`
-- `delonix-security-runtime -> delonix-node (not in A3)`
+- `delonix-security -> delonix-node (not in A3)`
 
 Interface → adapter/provider (closed in R3):
 
@@ -175,9 +175,9 @@ Interface → adapter/provider (closed in R3):
 - `delonix-mgmt -> delonix-volume (adapter)`
 - `delonix-node-api -> delonix-linux (adapter)`
 - `delonix-node-api -> delonix-oci (adapter)`
-- `delonix-node-api -> delonix-opnsense (provider)`
 - `delonix-node-api -> delonix-provider-ceph (provider)`
-- `delonix-node-api -> delonix-proxmox (provider)`
+- `delonix-node-api -> delonix-provider-opnsense (provider)`
+- `delonix-node-api -> delonix-provider-proxmox (provider)`
 - `delonix-node-api -> delonix-sdn (adapter)`
 - `delonix-node-api -> delonix-state (adapter)`
 - `delonix-node-api -> delonix-vm (adapter)`
@@ -201,25 +201,25 @@ graph LR
   delonix_node_api[delonix-node-api]
   delonix_node_api_bin[delonix-node-api-bin]
   delonix_oci[delonix-oci]
-  delonix_opnsense[delonix-opnsense]
-  delonix_powerdns[delonix-powerdns]
   delonix_provider_btrfs[delonix-provider-btrfs]
   delonix_provider_ceph[delonix-provider-ceph]
   delonix_provider_cloud_hypervisor[delonix-provider-cloud-hypervisor]
   delonix_provider_libvirt[delonix-provider-libvirt]
   delonix_provider_lvm[delonix-provider-lvm]
+  delonix_provider_opnsense[delonix-provider-opnsense]
+  delonix_provider_powerdns[delonix-provider-powerdns]
+  delonix_provider_proxmox[delonix-provider-proxmox]
+  delonix_provider_truenas[delonix-provider-truenas]
   delonix_provider_zfs[delonix-provider-zfs]
-  delonix_proxmox[delonix-proxmox]
   delonix_runtime_bin[delonix-runtime-bin]
   delonix_scanner[delonix-scanner]
   delonix_sdn[delonix-sdn]
-  delonix_security_runtime[delonix-security-runtime]
+  delonix_security[delonix-security]
   delonix_stack[delonix-stack]
   delonix_state[delonix-state]
   delonix_storage[delonix-storage]
   delonix_storage_helper[delonix-storage-helper]
   delonix_telemetry[delonix-telemetry]
-  delonix_truenas[delonix-truenas]
   delonix_vm[delonix-vm]
   delonix_volume[delonix-volume]
   delonix_compute --> delonix_model
@@ -231,7 +231,7 @@ graph LR
   delonix_cri --> delonix_node
   delonix_cri --> delonix_oci
   delonix_cri --> delonix_sdn
-  delonix_cri --> delonix_security_runtime
+  delonix_cri --> delonix_security
   delonix_cri --> delonix_state
   delonix_cri --> delonix_telemetry
   delonix_linux --> delonix_compute
@@ -273,9 +273,9 @@ graph LR
   delonix_node_api --> delonix_model
   delonix_node_api --> delonix_node
   delonix_node_api --> delonix_oci
-  delonix_node_api --> delonix_opnsense
   delonix_node_api --> delonix_provider_ceph
-  delonix_node_api --> delonix_proxmox
+  delonix_node_api --> delonix_provider_opnsense
+  delonix_node_api --> delonix_provider_proxmox
   delonix_node_api --> delonix_sdn
   delonix_node_api --> delonix_state
   delonix_node_api --> delonix_storage
@@ -289,10 +289,6 @@ graph LR
   delonix_oci --> delonix_model
   delonix_oci --> delonix_node
   delonix_oci --> delonix_state
-  delonix_opnsense --> delonix_compute
-  delonix_opnsense --> delonix_model
-  delonix_opnsense --> delonix_networking
-  delonix_powerdns --> delonix_model
   delonix_provider_btrfs --> delonix_storage
   delonix_provider_ceph --> delonix_storage
   delonix_provider_cloud_hypervisor --> delonix_compute
@@ -302,10 +298,15 @@ graph LR
   delonix_provider_libvirt --> delonix_model
   delonix_provider_libvirt --> delonix_node
   delonix_provider_lvm --> delonix_storage
+  delonix_provider_opnsense --> delonix_compute
+  delonix_provider_opnsense --> delonix_model
+  delonix_provider_opnsense --> delonix_networking
+  delonix_provider_powerdns --> delonix_model
+  delonix_provider_proxmox --> delonix_compute
+  delonix_provider_proxmox --> delonix_model
+  delonix_provider_proxmox --> delonix_networking
+  delonix_provider_truenas --> delonix_model
   delonix_provider_zfs --> delonix_storage
-  delonix_proxmox --> delonix_compute
-  delonix_proxmox --> delonix_model
-  delonix_proxmox --> delonix_networking
   delonix_runtime_bin --> delonix_compute
   delonix_runtime_bin --> delonix_linux
   delonix_runtime_bin --> delonix_mgmt
@@ -314,21 +315,21 @@ graph LR
   delonix_runtime_bin --> delonix_networking
   delonix_runtime_bin --> delonix_node
   delonix_runtime_bin --> delonix_oci
-  delonix_runtime_bin --> delonix_opnsense
-  delonix_runtime_bin --> delonix_powerdns
   delonix_runtime_bin --> delonix_provider_btrfs
   delonix_runtime_bin --> delonix_provider_ceph
   delonix_runtime_bin --> delonix_provider_lvm
+  delonix_runtime_bin --> delonix_provider_opnsense
+  delonix_runtime_bin --> delonix_provider_powerdns
+  delonix_runtime_bin --> delonix_provider_proxmox
+  delonix_runtime_bin --> delonix_provider_truenas
   delonix_runtime_bin --> delonix_provider_zfs
-  delonix_runtime_bin --> delonix_proxmox
   delonix_runtime_bin --> delonix_scanner
   delonix_runtime_bin --> delonix_sdn
-  delonix_runtime_bin --> delonix_security_runtime
+  delonix_runtime_bin --> delonix_security
   delonix_runtime_bin --> delonix_stack
   delonix_runtime_bin --> delonix_state
   delonix_runtime_bin --> delonix_storage
   delonix_runtime_bin --> delonix_telemetry
-  delonix_runtime_bin --> delonix_truenas
   delonix_runtime_bin --> delonix_vm
   delonix_runtime_bin --> delonix_volume
   delonix_scanner --> delonix_model
@@ -339,8 +340,8 @@ graph LR
   delonix_sdn --> delonix_networking
   delonix_sdn --> delonix_node
   delonix_sdn --> delonix_state
-  delonix_security_runtime --> delonix_model
-  delonix_security_runtime --> delonix_node
+  delonix_security --> delonix_model
+  delonix_security --> delonix_node
   delonix_stack --> delonix_model
   delonix_state --> delonix_compute
   delonix_state --> delonix_model
@@ -353,7 +354,6 @@ graph LR
   delonix_storage_helper --> delonix_provider_zfs
   delonix_storage_helper --> delonix_storage
   delonix_storage_helper --> delonix_volume
-  delonix_truenas --> delonix_model
   delonix_vm --> delonix_compute
   delonix_vm --> delonix_model
   delonix_vm --> delonix_node
@@ -379,25 +379,25 @@ graph LR
   class delonix_node_api interface;
   class delonix_node_api_bin bin;
   class delonix_oci adapter;
-  class delonix_opnsense provider;
-  class delonix_powerdns provider;
   class delonix_provider_btrfs provider;
   class delonix_provider_ceph provider;
   class delonix_provider_cloud_hypervisor provider;
   class delonix_provider_libvirt provider;
   class delonix_provider_lvm provider;
+  class delonix_provider_opnsense provider;
+  class delonix_provider_powerdns provider;
+  class delonix_provider_proxmox provider;
+  class delonix_provider_truenas provider;
   class delonix_provider_zfs provider;
-  class delonix_proxmox provider;
   class delonix_runtime_bin bin;
   class delonix_scanner adapter;
   class delonix_sdn adapter;
-  class delonix_security_runtime context;
+  class delonix_security context;
   class delonix_stack context;
   class delonix_state adapter;
   class delonix_storage context;
   class delonix_storage_helper bin;
   class delonix_telemetry adapter;
-  class delonix_truenas provider;
   class delonix_vm adapter;
   class delonix_volume adapter;
   classDef foundation fill:#e8f0fe,stroke:#4285f4;

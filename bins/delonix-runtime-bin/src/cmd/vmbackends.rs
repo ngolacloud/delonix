@@ -74,7 +74,7 @@ fn register_proxmox_with(lookup: &dyn Fn(&str) -> Option<String>) -> Result<()> 
     let Some((target, opts)) = proxmox_target_with(lookup)? else {
         return Ok(());
     };
-    delonix_vm::register_backend(delonix_proxmox::registration(target, opts)?)?;
+    delonix_vm::register_backend(delonix_provider_proxmox::registration(target, opts)?)?;
     Ok(())
 }
 
@@ -83,13 +83,13 @@ fn register_proxmox_with(lookup: &dyn Fn(&str) -> Option<String>) -> Result<()> 
 /// node a VM operation would talk to and no other. `Ok(None)` when no target
 /// is configured.
 pub(crate) fn proxmox_target(
-) -> Result<Option<(delonix_proxmox::Target, delonix_proxmox::ClientOptions)>> {
+) -> Result<Option<(delonix_provider_proxmox::Target, delonix_provider_proxmox::ClientOptions)>> {
     proxmox_target_with(&*configured_lookup()?)
 }
 
 pub(crate) fn proxmox_target_with(
     lookup: &dyn Fn(&str) -> Option<String>,
-) -> Result<Option<(delonix_proxmox::Target, delonix_proxmox::ClientOptions)>> {
+) -> Result<Option<(delonix_provider_proxmox::Target, delonix_provider_proxmox::ClientOptions)>> {
     let Some(url) = lookup("DELONIX_PROXMOX_URL") else {
         return Ok(None);
     };
@@ -136,14 +136,14 @@ pub(crate) fn proxmox_target_with(
 
     // The route trace for the coverage matrix (ADR-0049): read here, once,
     // and handed to the client — the library never reads the environment.
-    let opts = delonix_proxmox::ClientOptions {
-        trace_routes: lookup(delonix_proxmox::TRACE_ROUTES_ENV)
+    let opts = delonix_provider_proxmox::ClientOptions {
+        trace_routes: lookup(delonix_provider_proxmox::TRACE_ROUTES_ENV)
             .filter(|v| !v.is_empty())
             .map(std::path::PathBuf::from),
         ..Default::default()
     };
     Ok(Some((
-        delonix_proxmox::Target {
+        delonix_provider_proxmox::Target {
             base_url: url,
             node,
             auth,
@@ -163,7 +163,7 @@ pub(crate) fn proxmox_target_with(
 /// A token is revocable on the node without touching an account, and it does
 /// not expire the way a password ticket does. The password form is accepted
 /// because a freshly installed node has an account before it has any token.
-fn proxmox_auth(lookup: &dyn Fn(&str) -> Option<String>) -> Result<delonix_proxmox::Auth> {
+fn proxmox_auth(lookup: &dyn Fn(&str) -> Option<String>) -> Result<delonix_provider_proxmox::Auth> {
     // A `kind: Secret` first: a token on the command line lands in the shell
     // history and in `ps`.
     if let Some(name) = lookup("DELONIX_PROXMOX_SECRET") {
@@ -173,10 +173,10 @@ fn proxmox_auth(lookup: &dyn Fn(&str) -> Option<String>) -> Result<delonix_proxm
             get("tokenId").or_else(|| get("token_id")),
             get("tokenSecret").or_else(|| get("token_secret")),
         ) {
-            return Ok(delonix_proxmox::Auth::ApiToken { id, secret });
+            return Ok(delonix_provider_proxmox::Auth::ApiToken { id, secret });
         }
         if let (Some(username), Some(password)) = (get("username"), get("password")) {
-            return Ok(delonix_proxmox::Auth::Password { username, password });
+            return Ok(delonix_provider_proxmox::Auth::Password { username, password });
         }
         return Err(Error::Invalid(po::tf(
             "secret '{name}' has neither `tokenId`+`tokenSecret` nor `username`+`password`",
@@ -187,13 +187,13 @@ fn proxmox_auth(lookup: &dyn Fn(&str) -> Option<String>) -> Result<delonix_proxm
         lookup("DELONIX_PROXMOX_TOKEN_ID"),
         credential_value(lookup, "DELONIX_PROXMOX_TOKEN")?,
     ) {
-        return Ok(delonix_proxmox::Auth::ApiToken { id, secret });
+        return Ok(delonix_provider_proxmox::Auth::ApiToken { id, secret });
     }
     if let (Some(username), Some(password)) = (
         lookup("DELONIX_PROXMOX_USER"),
         credential_value(lookup, "DELONIX_PROXMOX_PASSWORD")?,
     ) {
-        return Ok(delonix_proxmox::Auth::Password { username, password });
+        return Ok(delonix_provider_proxmox::Auth::Password { username, password });
     }
     Err(Error::Invalid(
         po::t(

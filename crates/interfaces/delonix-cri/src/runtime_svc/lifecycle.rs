@@ -1613,14 +1613,14 @@ pub fn create_container(
             cap_add.join(",")
         };
         let severity = if privileged {
-            delonix_security_runtime::Severity::High
+            delonix_security::Severity::High
         } else {
-            delonix_security_runtime::Severity::Medium
+            delonix_security::Severity::Medium
         };
-        delonix_security_runtime::SecurityEvent::unconstrained(
-            delonix_security_runtime::event::unconstrained::NO_CAP_CEILING,
+        delonix_security::SecurityEvent::unconstrained(
+            delonix_security::event::unconstrained::NO_CAP_CEILING,
             severity,
-            delonix_security_runtime::Workload::Container,
+            delonix_security::Workload::Container,
             &format!("cri-{id}"),
             Some(&asked),
         )
@@ -4531,7 +4531,7 @@ mod tests {
         .expect("an explicit `all` lifts the ceiling");
     }
 
-    /// Counts of `delonix_security_runtime::event::unconstrained::NO_CAP_CEILING`
+    /// Counts of `delonix_security::event::unconstrained::NO_CAP_CEILING`
     /// events on `base`'s log, since `rule` doubles as the generic `Event::action`.
     fn no_cap_ceiling_events(base: &std::path::Path) -> usize {
         delonix_node::events::read(base)
