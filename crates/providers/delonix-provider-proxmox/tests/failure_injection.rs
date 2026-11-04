@@ -1224,8 +1224,13 @@ fn a_vm_policy_on_a_cluster_with_its_firewall_off_is_refused_before_any_write() 
         default_allow: false,
         rules: vec![],
     };
-    let err = delonix_provider_proxmox::vm_firewall::apply(&client, &Ledger::at(dir.path()), 100, &policy)
-        .expect_err("a datacenter firewall that is off must refuse");
+    let err = delonix_provider_proxmox::vm_firewall::apply(
+        &client,
+        &Ledger::at(dir.path()),
+        100,
+        &policy,
+    )
+    .expect_err("a datacenter firewall that is off must refuse");
     assert_eq!(err.number(), 6508, "{err}");
     let writes: Vec<Seen> = node
         .log()
@@ -2049,7 +2054,11 @@ fn a_quiesced_backup_without_an_agent_never_starts() {
     let client = Client::connect_with(&token_target(&node), fast()).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let err = client
-        .backup_vm_quiesced(&delonix_provider_proxmox::Ledger::at(dir.path()), 100, "local")
+        .backup_vm_quiesced(
+            &delonix_provider_proxmox::Ledger::at(dir.path()),
+            100,
+            "local",
+        )
         .expect_err("no agent");
     assert_eq!(delonix_model::Error::from(err).number(), 6509);
     assert_eq!(node.count("POST", VZDUMP), 0, "the backup was started");
@@ -2076,7 +2085,11 @@ fn a_backup_whose_log_shows_no_freeze_is_not_reported_quiesced() {
     let client = Client::connect_with(&token_target(&node), fast()).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let err = client
-        .backup_vm_quiesced(&delonix_provider_proxmox::Ledger::at(dir.path()), 100, "local")
+        .backup_vm_quiesced(
+            &delonix_provider_proxmox::Ledger::at(dir.path()),
+            100,
+            "local",
+        )
         .expect_err("no freeze in the log");
     let shown = err.to_string();
     assert_eq!(delonix_model::Error::from(err).number(), 6509, "{shown}");
@@ -3253,7 +3266,11 @@ fn ct_spec(dir: &std::path::Path) -> delonix_compute::system_container::SystemCo
 
 fn ct_provider(node: &MockNode) -> delonix_provider_proxmox::ProxmoxSystemContainerProvider {
     let client = Client::connect_with(&token_target(node), fast()).unwrap();
-    delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(Arc::new(client), "local", "local-lvm")
+    delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        Arc::new(client),
+        "local",
+        "local-lvm",
+    )
 }
 
 fn ct_cached_template() -> Vec<(&'static str, &'static str, Reply)> {
@@ -3650,7 +3667,10 @@ fn gateway_node(
     MockNode::start(script(&entries))
 }
 
-fn ipam_on(node: &MockNode, dir: &std::path::Path) -> delonix_provider_proxmox::ProxmoxIpamProvider {
+fn ipam_on(
+    node: &MockNode,
+    dir: &std::path::Path,
+) -> delonix_provider_proxmox::ProxmoxIpamProvider {
     delonix_provider_proxmox::ProxmoxIpamProvider::new(Arc::new(sdn_client(node)), Ledger::at(dir))
 }
 

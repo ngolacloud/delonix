@@ -1366,7 +1366,8 @@ fn a_refusal_keeps_its_dx_number_through_the_gateway_provider_trait() {
             Reply::Json(200, rows(&[rule_row(U2, "someone else's")])),
         ),
     ]));
-    let provider = delonix_provider_opnsense::OpnsenseGatewayProvider::connect(&target(&appliance)).unwrap();
+    let provider =
+        delonix_provider_opnsense::OpnsenseGatewayProvider::connect(&target(&appliance)).unwrap();
     // One reason (provider_conflict, ADR-0059 D5) for both; the message still
     // says which of the two it was.
     let e = provider.ensure_rule(&web_rule(), &mark()).unwrap_err();
@@ -1400,7 +1401,8 @@ fn a_gateway_refuses_a_foreign_staged_nat_rule_and_not_its_own() {
             ]),
         ),
     )]));
-    let provider = delonix_provider_opnsense::OpnsenseGatewayProvider::connect(&target(&appliance)).unwrap();
+    let provider =
+        delonix_provider_opnsense::OpnsenseGatewayProvider::connect(&target(&appliance)).unwrap();
     // Any call that takes the owner claims it for this value's commit.
     provider.adopt_pending(&mark(), &[]).unwrap();
     let err = provider.check_no_foreign_pending().unwrap_err();
