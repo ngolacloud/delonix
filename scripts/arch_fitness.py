@@ -222,7 +222,7 @@ RAW_VARIANT_SKIP = ("crates/foundation/delonix-model/",)
 # ---------------------------------------------------------------------------
 
 # The Part D map: which crate each CLI command module's BUSINESS RULE belongs to
-# (`docs/discovery/52_CLI_PLANO_MIGRACAO.md` / the restructuring prompt, Part D).
+# (the CLI migration plan under docs/discovery/52, and the restructuring prompt, Part D).
 # The destination is a CONTEXT crate when the module carries application logic to
 # extract in R4; otherwise it names where the module ends up (presentation in
 # delonix-cli, the composition root, an adapter, or a local surface). The six
