@@ -2,7 +2,7 @@
 //!
 //! # Why this lives in the engine and not in the CLI
 //!
-//! It used to live in `delonix-runtime-bin`, and that put a mechanism where an
+//! It used to live in `delonix-bin`, and that put a mechanism where an
 //! intent belonged. [`crate::VmConfig`] could say only `seed: <path>` — a
 //! NoCloud ISO on THIS filesystem — so every consumer had to build one itself,
 //! and any backend that cannot read this host's disk was structurally excluded

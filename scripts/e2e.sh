@@ -11,7 +11,7 @@
 #
 # ## E são CINCO binários, não um — constrói-os todos no MESMO target
 #
-#   cargo build --release -p delonix-runtime-bin -p delonix-cri \
+#   cargo build --release -p delonix-bin -p delonix-cri \
 #     -p delonix-mgmt-bin -p delonix-mcp-bin -p delonix-node-api-bin
 #
 # O `delonix` não serve o CRI, a API de nó, o MCP nem a API de gestão: faz

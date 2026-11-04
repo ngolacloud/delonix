@@ -470,7 +470,7 @@ pub fn parse_iptables_save(texto: &str) -> IptablesSummary {
 /// backend set for the DNS index, and `kind: FirewallPolicy`'s own planned
 /// selector (ADR-0024, still unimplemented) is meant to reuse the exact same
 /// function rather than grow a second, divergence-prone `matchLabels` reader.
-/// Lives here — not in `delonix-runtime-bin`, where both Kinds' CLI code lives
+/// Lives here — not in `delonix-bin`, where both Kinds' CLI code lives
 /// — because `delonix-sdn::infra::build_dns_index` (which computes a
 /// `Service`'s live membership) cannot depend on the bin crate.
 ///

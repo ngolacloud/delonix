@@ -36,7 +36,7 @@ if [ -z "$BIN" ]; then
   done
 fi
 [ -n "$BIN" ] && [ -x "$BIN" ] || {
-  echo "sem binário: constrói com 'cargo build --release -p delonix-runtime-bin' ou aponta DELONIX_BIN" >&2
+  echo "sem binário: constrói com 'cargo build --release -p delonix-bin' ou aponta DELONIX_BIN" >&2
   exit 1
 }
 

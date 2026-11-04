@@ -27,9 +27,12 @@ etiquetado nem publicado.
 - **Reestruturação ADR-0040 R1 (renomes internos, `publish = false`).** Os quatro
   providers sem prefixo uniformizam-se — `delonix-{proxmox,truenas,opnsense,powerdns}`
   → `delonix-provider-*` — e o contexto `delonix-security-runtime` → `delonix-security`.
-  São nomes de **crate** internos: binários, sockets, serviços, `DELONIX_*`, schemas
-  e contratos CLI/API ficam iguais. Movidos com `git mv` (histórico preservado); o
-  gate `scripts/arch_fitness.py` passa a exigir o prefixo `delonix-provider-`.
+  O pacote da CLI `delonix-runtime-bin` passa a `delonix-bin` e muda-se para
+  `bins/delonix`; **o binário continua a chamar-se `delonix`** (único pacote em
+  `bins/` que diverge do nome do directório, A6a). São nomes de **crate** internos:
+  binários, sockets, serviços, `DELONIX_*`, schemas e contratos CLI/API ficam iguais.
+  Movidos com `git mv` (histórico preservado); o gate `scripts/arch_fitness.py` passa
+  a exigir o prefixo `delonix-provider-`.
 - `scripts/version_gate.py` passa a ser **consciente de linha de versão**: a
   linha legada `delonix-runtime` (majors 1..5) e a linha Delonix (0.x) são
   comparadas em separado, com guarda de que nenhum commit perde o histórico

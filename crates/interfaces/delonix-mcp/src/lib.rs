@@ -876,7 +876,7 @@ impl DelonixMcp {
             ["schema", _kind] => Err(typed_err(
                 "NOT_IMPLEMENTED",
                 "delonix://schema/{kind} is not implemented in this pass: the generated JSON \
-                 Schema for manifest Kinds (ADR-0007) lives in delonix-runtime-bin, which this \
+                 Schema for manifest Kinds (ADR-0007) lives in delonix-bin, which this \
                  crate cannot depend on (the bin depends on delonix-mcp, not the reverse) — \
                  reusing it here needs the spec structs promoted to a shared crate first, which \
                  is its own follow-up, not silently faked here.",

@@ -22,7 +22,7 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/build/target \
-    cargo build --release -p delonix-runtime-bin -p delonix-cri \
+    cargo build --release -p delonix-bin -p delonix-cri \
     && mkdir -p /out \
     && cp target/release/delonix target/release/delonix-cri /out/
 

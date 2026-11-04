@@ -27,7 +27,7 @@ build() { # <dir>
   local d=$1
   ( cd "$d" && SOURCE_DATE_EPOCH=$EPOCH CARGO_BUILD_JOBS=$JOBS CARGO_TARGET_DIR="$d/target" \
       RUSTFLAGS="--remap-path-prefix=$d=/build --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=${RUSTUP_HOME:-$HOME/.rustup}=/rustup" \
-      nice -n 19 cargo build --release --locked -p delonix-runtime-bin >"$d/build.log" 2>&1 )
+      nice -n 19 cargo build --release --locked -p delonix-bin >"$d/build.log" 2>&1 )
 }
 build "$A" & PA=$!
 build "$B" & PB=$!
