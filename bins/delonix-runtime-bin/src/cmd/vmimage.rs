@@ -3464,15 +3464,146 @@ pub(crate) fn node_exporter_steps(bin: &Path, listen: &str) -> Result<Vec<Custom
     ])
 }
 
+// ---------------------------------------------------------------------------
+// Pinned upstream build identifiers (reproducibility — review 2026-11-04)
+// ---------------------------------------------------------------------------
+//
+// Ubuntu, Debian and Rocky each publish every build at a DATED location and
+// keep a floating alias (`release`/`latest`/`.latest.`) pointing at the newest
+// one. Building from the floating alias makes the SAME recipe produce a
+// DIFFERENT image on different days — the exact property this verified-download
+// path exists to rule out. Pinning a dated build makes the URL reproducible and
+// turns «which base is this?» into a value an operator can read and bump.
+//
+// THESE `*_build_pin` FUNCTIONS ARE THE SINGLE UPDATE POINTS. Each returns the
+// dated build identifier for a release, or `None` to fall back to the floating
+// alias — which preserves the previous behaviour for any release not listed,
+// so this change is behaviour-preserving except where a pin is given.
+//
+// Fedora is already reproducible by construction: `--fedora-release` carries
+// the full `<release>-<build>` (e.g. `44-1.1`), so there is no floating alias
+// to pin and no `fedora_build_pin` here.
+//
+// NOTE(lab): the serials below are PLAUSIBLE defaults for the shipped-default
+// releases, not confirmed against the mirrors (there is no network here). The
+// owner confirms each one in the lab; a wrong serial fails closed as a 404 at
+// download time, never as a silently-wrong image.
+
+/// A base image's resolved upstream location. Built once so the download
+/// function and its tests agree on every byte of the URL and filename.
+struct BaseImageLoc {
+    img_name: String,
+    img_url: String,
+    sums_url: String,
+}
+
+/// Pinned Ubuntu build serial — selects the dated `releases/<rel>/release-<serial>/`
+/// directory instead of the floating `releases/<rel>/release/` alias. The image
+/// filename is identical in both, so only the directory changes.
+fn ubuntu_build_pin(release: &str) -> Option<&'static str> {
+    match release {
+        // NOTE(lab): confirm against cloud-images.ubuntu.com/releases/26.04/
+        // (the `release-<serial>` directory for the 26.04 GA build).
+        "26.04" => Some("20260423"),
+        _ => None,
+    }
+}
+
+/// Pinned Debian build serial — selects the dated `cloud/<codename>/<serial>/`
+/// directory instead of the floating `cloud/<codename>/latest/` alias. Unlike
+/// Ubuntu, Debian ALSO embeds the serial in the filename inside a dated
+/// directory (`debian-<major>-genericcloud-amd64-<serial>.qcow2`), so both the
+/// directory and the filename change when pinned.
+fn debian_build_pin(release: &str) -> Option<&'static str> {
+    match release {
+        // NOTE(lab): confirm against cloud.debian.org/images/cloud/trixie/
+        // (the dated `<serial>` directory for the trixie GA build).
+        "trixie" => Some("20250814-2204"),
+        _ => None,
+    }
+}
+
+/// Pinned Rocky build identifier — selects the dated `-Base-<ver>-<date>.<build>`
+/// filename instead of the floating `GenericCloud.latest` symlink. The whole
+/// filename stem changes, so the pin carries the full `<ver>-<date>.<build>`.
+fn rocky_build_pin(release: &str) -> Option<&'static str> {
+    match release {
+        // NOTE(lab): confirm against dl.rockylinux.org/pub/rocky/9/images/x86_64/
+        // (the dated `Rocky-9-GenericCloud-Base-<ver>-<date>.<build>.x86_64.qcow2`).
+        "9" => Some("9.6-20250531.0"),
+        _ => None,
+    }
+}
+
+/// Resolves the Ubuntu cloud image location, pinning the dated directory when a
+/// serial is known (see `ubuntu_build_pin`). Pure and deterministic — tested.
+fn ubuntu_base_loc(release: &str) -> BaseImageLoc {
+    let dir = match ubuntu_build_pin(release) {
+        Some(serial) => format!("release-{serial}"),
+        None => "release".to_string(),
+    };
+    let base_url = format!("https://cloud-images.ubuntu.com/releases/{release}/{dir}");
+    let img_name = format!("ubuntu-{release}-server-cloudimg-amd64.img");
+    let img_url = format!("{base_url}/{img_name}");
+    let sums_url = format!("{base_url}/SHA256SUMS");
+    BaseImageLoc {
+        img_name,
+        img_url,
+        sums_url,
+    }
+}
+
+/// Resolves the Debian cloud image location, pinning both the dated directory
+/// and the serial-bearing filename when a serial is known (see
+/// `debian_build_pin`). `major` is the codename→major mapping the caller has
+/// already validated. Pure and deterministic — tested.
+fn debian_base_loc(release: &str, major: &str) -> BaseImageLoc {
+    let (dir, img_name) = match debian_build_pin(release) {
+        Some(serial) => (
+            serial.to_string(),
+            format!("debian-{major}-genericcloud-amd64-{serial}.qcow2"),
+        ),
+        None => (
+            "latest".to_string(),
+            format!("debian-{major}-genericcloud-amd64.qcow2"),
+        ),
+    };
+    let base_url = format!("https://cloud.debian.org/images/cloud/{release}/{dir}");
+    let img_url = format!("{base_url}/{img_name}");
+    let sums_url = format!("{base_url}/SHA512SUMS");
+    BaseImageLoc {
+        img_name,
+        img_url,
+        sums_url,
+    }
+}
+
+/// Resolves the Rocky cloud image location, pinning the dated filename stem when
+/// a build is known (see `rocky_build_pin`). Pure and deterministic — tested.
+fn rocky_base_loc(release: &str) -> BaseImageLoc {
+    let img_name = match rocky_build_pin(release) {
+        Some(pin) => format!("Rocky-{release}-GenericCloud-Base-{pin}.x86_64.qcow2"),
+        None => format!("Rocky-{release}-GenericCloud.latest.x86_64.qcow2"),
+    };
+    let img_url = format!("https://dl.rockylinux.org/pub/rocky/{release}/images/x86_64/{img_name}");
+    let sums_url = format!("{img_url}.CHECKSUM");
+    BaseImageLoc {
+        img_name,
+        img_url,
+        sums_url,
+    }
+}
+
 pub(crate) fn download_ubuntu_base(store: &VmImageStore, release: &str) -> Result<PathBuf> {
     let cached = store.base_cache_path(Distro::Ubuntu, release);
     if cache_intact(&cached) {
         return Ok(cached);
     }
-    let base_url = format!("https://cloud-images.ubuntu.com/releases/{release}/release");
-    let img_name = format!("ubuntu-{release}-server-cloudimg-amd64.img");
-    let img_url = format!("{base_url}/{img_name}");
-    let sums_url = format!("{base_url}/SHA256SUMS");
+    let BaseImageLoc {
+        img_name,
+        img_url,
+        sums_url,
+    } = ubuntu_base_loc(release);
 
     eprintln!(
         "{}",
@@ -3534,8 +3665,10 @@ fn debian_major_version(codename: &str) -> Result<&'static str> {
 
 /// Same shape as `download_ubuntu_base`, two confirmed differences (checked
 /// live against `cloud.debian.org` before writing this, not assumed): (1) the
-/// path is `images/cloud/<codename>/latest/`, filename
-/// `debian-<major>-genericcloud-amd64.qcow2` (the `genericcloud` variant —
+/// path is `images/cloud/<codename>/{latest|<serial>}/`, filename
+/// `debian-<major>-genericcloud-amd64[-<serial>].qcow2` (the location and the
+/// serial-bearing filename are resolved by `debian_base_loc`; the `genericcloud`
+/// variant —
 /// virtio-only kernel, smaller, still has cloud-init — not the `generic`
 /// variant, which also ships legacy drivers this project never needs); (2)
 /// Debian publishes `SHA512SUMS`, NOT `SHA256SUMS` (no SHA256 checksums file
@@ -3547,10 +3680,11 @@ pub(crate) fn download_debian_base(store: &VmImageStore, release: &str) -> Resul
         return Ok(cached);
     }
     let major = debian_major_version(release)?;
-    let base_url = format!("https://cloud.debian.org/images/cloud/{release}/latest");
-    let img_name = format!("debian-{major}-genericcloud-amd64.qcow2");
-    let img_url = format!("{base_url}/{img_name}");
-    let sums_url = format!("{base_url}/SHA512SUMS");
+    let BaseImageLoc {
+        img_name,
+        img_url,
+        sums_url,
+    } = debian_base_loc(release, major);
 
     eprintln!(
         "{}",
@@ -3696,8 +3830,10 @@ fn valid_fedora_release(release: &str) -> Result<()> {
 }
 
 /// Same shape as `download_ubuntu_base`/`download_debian_base`, confirmed
-/// live before writing code: the image is `Rocky-<release>-GenericCloud.
-/// latest.x86_64.qcow2` under `pub/rocky/<release>/images/x86_64/` (no
+/// live before writing code: the floating image is `Rocky-<release>-GenericCloud.
+/// latest.x86_64.qcow2` under `pub/rocky/<release>/images/x86_64/` (the dated,
+/// pinned form `Rocky-<release>-GenericCloud-Base-<ver>-<date>.<build>.x86_64.qcow2`
+/// is resolved by `rocky_base_loc`) (no
 /// `images/cloud/` segment — a different tree shape than Debian's). The
 /// checksum sidecar is PER-FILE (`<img>.CHECKSUM`, not a directory-wide
 /// `SUMS` file) and uses the BSD `SHA256 (<filename>) = <hash>` shape — a
@@ -3711,9 +3847,11 @@ pub(crate) fn download_rocky_base(store: &VmImageStore, release: &str) -> Result
     if cache_intact(&cached) {
         return Ok(cached);
     }
-    let img_name = format!("Rocky-{release}-GenericCloud.latest.x86_64.qcow2");
-    let img_url = format!("https://dl.rockylinux.org/pub/rocky/{release}/images/x86_64/{img_name}");
-    let sums_url = format!("{img_url}.CHECKSUM");
+    let BaseImageLoc {
+        img_name,
+        img_url,
+        sums_url,
+    } = rocky_base_loc(release);
 
     eprintln!(
         "{}",
@@ -7773,6 +7911,75 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         );
         assert_eq!(parse_bsd_checksum(text, "other-file.qcow2"), None);
         assert_eq!(parse_bsd_checksum("", "x"), None);
+    }
+
+    #[test]
+    fn urls_base_ubuntu_sao_deterministicas_e_pinadas() {
+        // A pinned release resolves to the dated `release-<serial>` directory;
+        // the image filename is the same in both the floating and dated dirs.
+        let loc = ubuntu_base_loc("26.04");
+        assert_eq!(loc.img_name, "ubuntu-26.04-server-cloudimg-amd64.img");
+        assert_eq!(
+            loc.img_url,
+            "https://cloud-images.ubuntu.com/releases/26.04/release-20260423/ubuntu-26.04-server-cloudimg-amd64.img"
+        );
+        assert_eq!(
+            loc.sums_url,
+            "https://cloud-images.ubuntu.com/releases/26.04/release-20260423/SHA256SUMS"
+        );
+        // An unpinned release keeps the old floating URL (behaviour-preserving).
+        let loc = ubuntu_base_loc("24.04");
+        assert_eq!(
+            loc.img_url,
+            "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+        );
+    }
+
+    #[test]
+    fn urls_base_debian_sao_deterministicas_e_pinadas() {
+        // A pinned release changes BOTH the dated directory and the
+        // serial-bearing filename.
+        let loc = debian_base_loc("trixie", "13");
+        assert_eq!(
+            loc.img_name,
+            "debian-13-genericcloud-amd64-20250814-2204.qcow2"
+        );
+        assert_eq!(
+            loc.img_url,
+            "https://cloud.debian.org/images/cloud/trixie/20250814-2204/debian-13-genericcloud-amd64-20250814-2204.qcow2"
+        );
+        assert_eq!(
+            loc.sums_url,
+            "https://cloud.debian.org/images/cloud/trixie/20250814-2204/SHA512SUMS"
+        );
+        // An unpinned codename keeps the old floating `latest/` URL + filename.
+        let loc = debian_base_loc("bookworm", "12");
+        assert_eq!(loc.img_name, "debian-12-genericcloud-amd64.qcow2");
+        assert_eq!(
+            loc.img_url,
+            "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+        );
+    }
+
+    #[test]
+    fn urls_base_rocky_sao_deterministicas_e_pinadas() {
+        // A pinned release changes the whole filename stem to the dated form.
+        let loc = rocky_base_loc("9");
+        assert_eq!(
+            loc.img_name,
+            "Rocky-9-GenericCloud-Base-9.6-20250531.0.x86_64.qcow2"
+        );
+        assert_eq!(
+            loc.img_url,
+            "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.6-20250531.0.x86_64.qcow2"
+        );
+        assert_eq!(loc.sums_url, format!("{}.CHECKSUM", loc.img_url));
+        // An unpinned release keeps the old floating `.latest.` filename.
+        let loc = rocky_base_loc("10");
+        assert_eq!(
+            loc.img_url,
+            "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud.latest.x86_64.qcow2"
+        );
     }
 
     #[test]
