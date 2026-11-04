@@ -11,14 +11,14 @@
 //! allocate, release and usage. Resize, snapshot, rollback and clone enter
 //! with the first driver that serves them, not before.
 
-pub mod admin;
-pub mod allowlist;
-mod error;
-pub mod exec;
-pub mod helper;
-pub mod mounts;
-pub mod ownership;
-pub mod pool;
-pub mod registry;
+pub mod app;
+pub mod domain;
+
+// The R2 domain/app split keeps the public API and the internal `crate::<module>`
+// paths: every module is re-exported at the crate root. `domain` holds the
+// standalone pure modules (error, exec, helper); `app` holds the pool model and
+// the I/O use cases.
+pub use app::{admin, allowlist, mounts, ownership, pool, registry};
+pub use domain::{error, exec, helper};
 
 pub use error::{Error, Result};
