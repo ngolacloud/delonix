@@ -1,5 +1,5 @@
 //! The `container run` network phase on this host: the implementation of
-//! `delonix_compute::ports::NetworkProvider` over the holder's SDN, and the two
+//! `delonix_compute::ports::WorkloadNetwork` over the holder's SDN, and the two
 //! publish helpers the lifecycle verbs share.
 //!
 //! Terminal manners stay with the caller: the warning that namespace isolation
@@ -247,7 +247,7 @@ pub fn launch_addresses(l: &delonix_compute::launch::Launch) -> LaunchAddresses 
     LaunchAddresses { dns, hosts_ip }
 }
 
-/// The host's network as the `container run` use case's `NetworkProvider`.
+/// The host's network as the `container run` use case's `WorkloadNetwork`.
 pub struct HostNetwork<'a> {
     /// The engine's state root, where networks are declared.
     pub state_root: PathBuf,
@@ -258,7 +258,7 @@ pub struct HostNetwork<'a> {
     pub register_expose: &'a dyn Fn(&str, &str, &str, u16) -> Result<()>,
 }
 
-impl delonix_compute::ports::NetworkProvider for HostNetwork<'_> {
+impl delonix_compute::ports::WorkloadNetwork for HostNetwork<'_> {
     fn check_network(&self, name: &str) -> Result<()> {
         let store =
             crate::NetworkStore::open(&self.state_root).map_err(delonix_model::Error::from)?;

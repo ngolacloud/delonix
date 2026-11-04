@@ -1,4 +1,4 @@
-//! The compute context's `ImageStore` port, backed by this crate's store.
+//! The compute context's `WorkloadImages` port, backed by this crate's store.
 //!
 //! What the terminal owns stays with the caller as hooks: the line printed before
 //! a pull, the progress shown while an image is unpacked, and the wording of a
@@ -23,7 +23,7 @@ pub struct HostImages<'a> {
     pub user_error: &'a dyn Fn(UserLookupError) -> Error,
 }
 
-impl delonix_compute::ports::ImageStore for HostImages<'_> {
+impl delonix_compute::ports::WorkloadImages for HostImages<'_> {
     type Image = Image;
 
     fn resolve(&self, reference: &str) -> Result<Image> {

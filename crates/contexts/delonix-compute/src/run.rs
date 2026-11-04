@@ -12,7 +12,7 @@
 //! everything after the record exists (network attach, spawn).
 
 use crate::pod::parse_add_host;
-use crate::ports::{DeviceResolver, ImageStore, RunHost, StorageProvider};
+use crate::ports::{DeviceResolver, WorkloadImages, RunHost, WorkloadVolumes};
 use crate::{Container, KubeCgroupParent, Mount};
 use crate::{Notice, RunOpts};
 use delonix_model::{Error, Result};
@@ -104,8 +104,8 @@ pub fn resolve_run<I, S, D, H>(
     host: &H,
 ) -> Result<Resolved>
 where
-    I: ImageStore,
-    S: StorageProvider,
+    I: WorkloadImages,
+    S: WorkloadVolumes,
     D: DeviceResolver,
     H: RunHost,
 {
@@ -706,7 +706,7 @@ mod tests {
         }
     }
 
-    impl ImageStore for Fake {
+    impl WorkloadImages for Fake {
         type Image = String;
         fn resolve(&self, reference: &str) -> Result<String> {
             self.log(format!("resolve {reference}"));
@@ -737,7 +737,7 @@ mod tests {
         }
     }
 
-    impl StorageProvider for Fake {
+    impl WorkloadVolumes for Fake {
         fn resolve_mounts(&self, volumes: &[String], namespace: &str) -> Result<Vec<Mount>> {
             self.log(format!("mounts {} in {namespace}", volumes.len()));
             Ok(Vec::new())

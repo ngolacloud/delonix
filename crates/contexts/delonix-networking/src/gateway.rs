@@ -3,7 +3,7 @@
 //! over its own API (ADR-0051).
 //!
 //! **Deliberately not the same thing as `delonix_sdn::infra::apply_firewall`** /
-//! `delonix_compute::ports::NetworkProvider::apply_firewall`, which is
+//! `delonix_compute::ports::WorkloadNetwork::apply_firewall`, which is
 //! per-workload nftables rules and is always native: `FirewallPerWorkload`/
 //! `FirewallDefaultDeny`/`FirewallSourceFiltering`/`FirewallEgressPolicy`
 //! (ADR-0050) already answer that for free, rootless, with no extra VM.
