@@ -182,33 +182,10 @@ pub fn self_bin() -> std::path::PathBuf {
 /// The local host's capacity to run workloads: CPU, memory, swap and the disk
 /// that holds the VM images. For a provider whose VMs run on THIS machine
 /// (Cloud Hypervisor, libvirt `qemu:///system`), the "node" of `host.capacity`
-/// IS this host — the parallel of Proxmox's `GET /nodes/{node}/status`.
-///
-/// Discipline (same as the node-api's `/v1/node/capacity`): a number that could
-/// not be measured names itself in [`HostCapacity::unmeasured`] and stays `0`,
-/// never a silent zero. A number that is LEGITIMATELY zero (a host with no
-/// swap) is a real `0` and is NOT unmeasured.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct HostCapacity {
-    /// Logical CPUs the host reports (`processor` lines in `/proc/cpuinfo`).
-    pub cpus: u64,
-    /// The CPU model string (first `model name` in `/proc/cpuinfo`).
-    pub cpu_model: String,
-    /// Total RAM in bytes (`MemTotal`).
-    pub mem_total_bytes: u64,
-    /// RAM in use in bytes (`MemTotal - MemAvailable`).
-    pub mem_used_bytes: u64,
-    /// Total swap in bytes (`SwapTotal`); a real `0` on a host without swap.
-    pub swap_total_bytes: u64,
-    /// Swap in use in bytes (`SwapTotal - SwapFree`).
-    pub swap_used_bytes: u64,
-    /// Total bytes of the filesystem holding the VM images.
-    pub disk_total_bytes: u64,
-    /// Bytes in use on that filesystem.
-    pub disk_used_bytes: u64,
-    /// Names of the counts above that could not be measured on this host.
-    pub unmeasured: Vec<&'static str>,
-}
+// `HostCapacity` is the pure value this module's `capacity()` produces; it lives
+// in the context's domain (ADR-0040 A4). Re-exported so `delonix_node::host::HostCapacity`
+// keeps resolving.
+pub use crate::domain::HostCapacity;
 
 /// Reads [`HostCapacity`] for this host, using `disk_path` for the filesystem
 /// figures (the provider passes the directory its VM images live in).
