@@ -162,6 +162,49 @@ fn wait_to_code(status: WaitStatus) -> i32 {
     }
 }
 
+/// Waits for the grandchild (the exec'd process inside the container's PID
+/// namespace), optionally with a deadline. Called ONLY from the MIDDLE process
+/// of [`exec_with`] — the grandchild's DIRECT parent — so a timed-out kill is
+/// also reaped here, with nothing orphaned to the container's PID 1. `None`
+/// blocks forever (the `exec`/CRI default). On the deadline the process is
+/// SIGKILLed and reaped, coming back as 137 (128+SIGKILL) — a failure by the
+/// same rule as any non-zero, which is what a health probe that hangs IS.
+///
+/// The poll is WNOHANG + a 0.1s `nanosleep`, counted in tenths like the shell
+/// deadline it replaces: a probe runs on an interval (default 30s), so a tenth-
+/// second poll of a process that normally answers in milliseconds costs nothing
+/// measurable and needs no signal plumbing (no SIGALRM handler, no second
+/// process) in a child that must stay doing syscalls only after the `fork`.
+fn wait_grandchild_deadline(child: nix::unistd::Pid, timeout_secs: Option<u64>) -> i32 {
+    use nix::sys::wait::WaitPidFlag;
+    let Some(secs) = timeout_secs else {
+        return waitpid(child, None).map(wait_to_code).unwrap_or(-1);
+    };
+    let deadline_tenths = secs.saturating_mul(10);
+    let mut tenths = 0u64;
+    loop {
+        match waitpid(child, Some(WaitPidFlag::WNOHANG)) {
+            Ok(WaitStatus::StillAlive) => {}
+            Ok(status) => return wait_to_code(status),
+            Err(_) => return -1,
+        }
+        if tenths >= deadline_tenths {
+            // SAFETY: killing our OWN direct child by pid, then reaping it below —
+            // no orphan, no zombie. 137 if the reap itself somehow fails.
+            unsafe { libc::kill(child.as_raw(), libc::SIGKILL) };
+            return waitpid(child, None).map(wait_to_code).unwrap_or(137);
+        }
+        let ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 100_000_000,
+        };
+        // SAFETY: `nanosleep` with a valid timespec and a null remainder; EINTR
+        // only shortens the sleep, which the tenths counter tolerates.
+        unsafe { libc::nanosleep(&ts, std::ptr::null_mut()) };
+        tenths += 1;
+    }
+}
+
 /// Converts the `WaitStatus` into the correct terminal [`Status`]: exit 0 → Stopped,
 /// exit ≠ 0 → Failed, killed by signal → Crashed.
 fn wait_to_status(status: WaitStatus) -> Status {
@@ -9188,6 +9231,15 @@ pub struct ExecOverrides<'a> {
     /// Overrides the exec'd process's uid/gid for this call only — `exec -u`.
     /// `None` falls back to the container's own `run_uid`/`run_gid`.
     pub user: Option<(u32, Option<u32>)>,
+    /// Kills the exec'd process after this many seconds and reports it as 137
+    /// (128+SIGKILL) — `None` waits forever (the `exec`/CRI default). Set by the
+    /// health monitor so an EXEC-form probe needs no `/bin/sh` deadline script:
+    /// the deadline is enforced by the MIDDLE process, the probe's direct parent,
+    /// which kills AND reaps it — no process is orphaned to the container's PID 1
+    /// (the leak the shell self-kill in `cmd/container.rs` exists to avoid). Only
+    /// a single-process probe (a healthcheck binary) is clean this way; a probe
+    /// that forks its own children is the shell path's territory, not this one.
+    pub timeout_secs: Option<u64>,
 }
 
 pub fn exec(container: &Container, argv: &[String], tty: bool) -> Result<i32> {
@@ -9529,7 +9581,7 @@ pub fn exec_with(
                             libc::close(sc);
                         }
                     }
-                    let code = waitpid(child, None).map(wait_to_code).unwrap_or(-1);
+                    let code = wait_grandchild_deadline(child, overrides.timeout_secs);
                     // SAFETY: `_exit` in the forked child: it must not run the parent's
                     // destructors or atexit handlers, and it never returns.
                     unsafe { libc::_exit((code & 0xff) as i32) };
@@ -14895,6 +14947,59 @@ mod spawn_step_tests {
         .is_ok());
         // SAFETY: our write end; the read end was consumed by the call.
         unsafe { libc::close(fds[1]) };
+    }
+
+    #[test]
+    fn wait_grandchild_deadline_mata_e_ceifa_uma_sonda_pendurada() {
+        // The exec-form probe's deadline lives HERE (the middle process), not in
+        // a `/bin/sh` script — which is what lets a distroless image with no
+        // shell be health-checked. A probe that answers keeps its own exit code;
+        // one that hangs past the deadline is SIGKILLed AND reaped (no zombie
+        // orphaned to the container's PID 1), reported as 137 (128+SIGKILL).
+
+        // Answers at once with 0: the exact code survives, no deadline pressure.
+        let quick = match unsafe { fork() }.unwrap() {
+            // SAFETY: the child only calls `_exit` — no allocation, no std locks.
+            ForkResult::Child => unsafe { libc::_exit(0) },
+            ForkResult::Parent { child } => child,
+        };
+        assert_eq!(wait_grandchild_deadline(quick, Some(5)), 0);
+
+        // A probe may FAIL without hanging; the non-zero code is preserved too.
+        let failed = match unsafe { fork() }.unwrap() {
+            // SAFETY: as above.
+            ForkResult::Child => unsafe { libc::_exit(3) },
+            ForkResult::Parent { child } => child,
+        };
+        assert_eq!(wait_grandchild_deadline(failed, Some(5)), 3);
+
+        // Sleeps 60s but the deadline is 1s: killed and reaped as 137, and the
+        // whole call returns well under the sleep — proving the DEADLINE ended
+        // it, not the child exiting on its own.
+        let hung = match unsafe { fork() }.unwrap() {
+            // SAFETY: the child only calls `sleep`/`_exit`.
+            ForkResult::Child => unsafe {
+                libc::sleep(60);
+                libc::_exit(0)
+            },
+            ForkResult::Parent { child } => child,
+        };
+        let start = std::time::Instant::now();
+        assert_eq!(wait_grandchild_deadline(hung, Some(1)), 137);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "deadline did not fire: waited {:?}",
+            start.elapsed()
+        );
+
+        // `None` is the plain blocking wait (the `exec`/CRI default): a child
+        // that exits returns its code with no deadline involved.
+        let plain = match unsafe { fork() }.unwrap() {
+            // SAFETY: as above.
+            ForkResult::Child => unsafe { libc::_exit(0) },
+            ForkResult::Parent { child } => child,
+        };
+        assert_eq!(wait_grandchild_deadline(plain, None), 0);
     }
 }
 
