@@ -1809,6 +1809,8 @@ mod tui {
             extra_env: &extra_env,
             workdir: None,
             user: None,
+            // Interactive shell from the dashboard — no deadline.
+            timeout_secs: None,
         };
         let _code = delonix_linux::exec_with(&c, &command, true, &overrides)?;
         Ok(())
