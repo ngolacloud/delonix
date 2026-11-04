@@ -30,13 +30,14 @@ import arch_fitness as g  # noqa: E402
 
 OUT = g.ROOT / "reports" / "architecture.md"
 
-LAYER_ORDER = [g.FOUNDATION, g.CONTEXT, g.ADAPTER, g.PROVIDER, g.INTERFACE, g.BIN]
+LAYER_ORDER = [g.FOUNDATION, g.CONTEXT, g.ADAPTER, g.PROVIDER, g.INTERFACE, g.ASSEMBLY, g.BIN]
 LAYER_TITLE = {
     g.FOUNDATION: "foundation",
     g.CONTEXT: "context",
     g.ADAPTER: "adapter",
     g.PROVIDER: "provider",
     g.INTERFACE: "interface",
+    g.ASSEMBLY: "assembly",
     g.BIN: "bin",
 }
 
@@ -75,7 +76,8 @@ def _mermaid(pkgs: dict[str, dict]) -> str:
     lines = ["```mermaid", "graph LR"]
     layer_class = {
         g.FOUNDATION: "foundation", g.CONTEXT: "context", g.ADAPTER: "adapter",
-        g.PROVIDER: "provider", g.INTERFACE: "interface", g.BIN: "bin",
+        g.PROVIDER: "provider", g.INTERFACE: "interface", g.ASSEMBLY: "assembly",
+        g.BIN: "bin",
     }
     for name in sorted(names):
         node = name.replace("-", "_")
@@ -95,6 +97,7 @@ def _mermaid(pkgs: dict[str, dict]) -> str:
         "  classDef adapter fill:#fef7e0,stroke:#fbbc04;",
         "  classDef provider fill:#fce8e6,stroke:#ea4335;",
         "  classDef interface fill:#f3e8fd,stroke:#a142f4;",
+        "  classDef assembly fill:#e0f7fa,stroke:#00acc1;",
         "  classDef bin fill:#e8eaed,stroke:#5f6368;",
         "```",
     ]
