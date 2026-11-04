@@ -12,7 +12,7 @@
 //! everything after the record exists (network attach, spawn).
 
 use crate::pod::parse_add_host;
-use crate::ports::{DeviceResolver, WorkloadImages, RunHost, WorkloadVolumes};
+use crate::ports::{DeviceResolver, RunHost, WorkloadImages, WorkloadVolumes};
 use crate::{Container, KubeCgroupParent, Mount};
 use crate::{Notice, RunOpts};
 use delonix_model::{Error, Result};

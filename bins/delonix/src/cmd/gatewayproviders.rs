@@ -95,7 +95,9 @@ pub(crate) fn opnsense_target_with(
 
 /// The credential, preferring a `kind: Secret` over the plain environment
 /// (a value there is inherited by every child this engine spawns).
-fn opnsense_auth(lookup: &dyn Fn(&str) -> Option<String>) -> Result<delonix_provider_opnsense::Auth> {
+fn opnsense_auth(
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<delonix_provider_opnsense::Auth> {
     if let Some(name) = lookup("DELONIX_OPNSENSE_CREDENTIAL") {
         let s = delonix_state::SecretStore::open(state_root())?.load(&name)?;
         let get = |k: &str| s.data.get(k).cloned();

@@ -27,8 +27,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
-use delonix_model::Error;
 use delonix_host::peer_cred::peer_uid;
+use delonix_model::Error;
 use delonix_oci::ImageStore;
 use delonix_state::Store;
 use delonix_volume::VolumeStore;
@@ -98,7 +98,10 @@ pub fn serve_blocking_with(
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
         eprintln!("delonix-mgmt (management API) listening on unix://{path}");
-        tokio::spawn(spawn_expensive_metrics_refresh(base.clone(), Arc::clone(&vms)));
+        tokio::spawn(spawn_expensive_metrics_refresh(
+            base.clone(),
+            Arc::clone(&vms),
+        ));
         serve_over_uds(uds, router(AppState { base, bin, vms })).await
     })
 }
@@ -357,7 +360,8 @@ async fn metrics(State(s): State<AppState>) -> impl IntoResponse {
 /// doc comment) — a client with a request timeout shorter than that should
 /// use `/metrics` instead, which is always fast.
 async fn dash_summary(State(s): State<AppState>) -> Response {
-    match tokio::task::spawn_blocking(move || dashstats::collect(&s.base, &*s.vms, true, true)).await
+    match tokio::task::spawn_blocking(move || dashstats::collect(&s.base, &*s.vms, true, true))
+        .await
     {
         Ok(summary) => Json(summary).into_response(),
         Err(e) => err_response(Error::Runtime {

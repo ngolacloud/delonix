@@ -50,9 +50,9 @@ use serde_json::json;
 use tokio_stream::wrappers::ReceiverStream;
 
 use delonix_compute::Container;
+use delonix_host::peer_cred::peer_uid;
 use delonix_model::records::Status;
 use delonix_model::{Error, Result};
-use delonix_host::peer_cred::peer_uid;
 use delonix_oci::registry::pull_from_registry_with_creds_full;
 use delonix_oci::ImageStore;
 use delonix_state::Store;

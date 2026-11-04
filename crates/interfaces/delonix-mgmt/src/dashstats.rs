@@ -144,7 +144,10 @@ pub fn collect(
     }
 
     let vm_list = vms.list().unwrap_or_default();
-    let vms_running = vm_list.iter().filter(|v| v.status == Status::Running).count() as u64;
+    let vms_running = vm_list
+        .iter()
+        .filter(|v| v.status == Status::Running)
+        .count() as u64;
     let vms_total = vm_list.len() as u64;
 
     let networks_total = delonix_sdn::NetworkStore::open(root)
@@ -652,7 +655,13 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         wait_for_idle_latch();
         let dir = tempfile::tempdir().unwrap();
-        let s = collect_with_timeout(dir.path(), Arc::new(NoVms), true, true, Duration::from_secs(10));
+        let s = collect_with_timeout(
+            dir.path(),
+            Arc::new(NoVms),
+            true,
+            true,
+            Duration::from_secs(10),
+        );
         assert!(matches!(s, Bounded::Done(_)));
     }
 
@@ -666,7 +675,13 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         wait_for_idle_latch();
         let dir = tempfile::tempdir().unwrap();
-        let s = collect_with_timeout(dir.path(), Arc::new(NoVms), true, true, Duration::from_nanos(1));
+        let s = collect_with_timeout(
+            dir.path(),
+            Arc::new(NoVms),
+            true,
+            true,
+            Duration::from_nanos(1),
+        );
         assert!(matches!(s, Bounded::TimedOut));
         // O worker desta colheita ainda está a correr (só o PRAZO expirou);
         // espera que largue a latch antes de devolver o mutex.

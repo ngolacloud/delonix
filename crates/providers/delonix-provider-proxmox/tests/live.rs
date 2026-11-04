@@ -1095,7 +1095,12 @@ fn a_template_clone_gets_the_disk_size_asked_for() {
     // Grow the template itself to 2 GiB first, so that asking a clone for 1
     // GiB is a genuine shrink.
     b.client()
-        .resize_disk(&delonix_provider_proxmox::Ledger::at(vmdir), src_id, &key, 2)
+        .resize_disk(
+            &delonix_provider_proxmox::Ledger::at(vmdir),
+            src_id,
+            &key,
+            2,
+        )
         .expect("grow the template to 2 GiB");
     let (_, tpl_bytes) = b.client().boot_disk(src_id).expect("re-read");
     assert_eq!(
@@ -2314,7 +2319,9 @@ impl ControllerStub {
 #[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
 fn sdn_controllers_fabric_dhcp_and_ip_reservations_round_trip_through_the_node() {
-    use delonix_provider_proxmox::{DhcpRange, FabricProtocol, IpamKind, SubnetOptions, ZoneOptions};
+    use delonix_provider_proxmox::{
+        DhcpRange, FabricProtocol, IpamKind, SubnetOptions, ZoneOptions,
+    };
     let t = target().expect(NEEDS_TARGET);
     let b = backend(&t).expect("connect");
     let client = b.client();
@@ -5292,8 +5299,11 @@ fn a_system_container_runs_its_lifecycle_through_the_node() {
     let rootfs = t.disk_storage.clone().unwrap_or_else(|| "local-lvm".into());
     let b = backend(&t).expect("connect");
     let client = b.client();
-    let provider =
-        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+    let provider = delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        client.clone(),
+        &template,
+        &rootfs,
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxct{}", std::process::id() % 10000),
@@ -5392,7 +5402,10 @@ fn a_system_container_runs_its_lifecycle_through_the_node() {
             .find(|r| r.action == action)
             .unwrap_or_else(|| panic!("no {action} in the ledger: {recs:?}"));
         assert!(
-            !matches!(last.state, delonix_provider_proxmox::TaskState::Failed { .. }),
+            !matches!(
+                last.state,
+                delonix_provider_proxmox::TaskState::Failed { .. }
+            ),
             "{action} failed: {last:?}"
         );
     }
@@ -5418,8 +5431,11 @@ fn a_system_containers_snapshot_is_rolled_back_and_deleted() {
     let rootfs = t.disk_storage.clone().unwrap_or_else(|| "local-lvm".into());
     let b = backend(&t).expect("connect");
     let client = b.client();
-    let provider =
-        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+    let provider = delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        client.clone(),
+        &template,
+        &rootfs,
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxsnap{}", std::process::id() % 10000),
@@ -5532,8 +5548,11 @@ fn a_system_containers_root_volume_grows_live_and_never_shrinks() {
     let rootfs = t.disk_storage.clone().unwrap_or_else(|| "local-lvm".into());
     let b = backend(&t).expect("connect");
     let client = b.client();
-    let provider =
-        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+    let provider = delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        client.clone(),
+        &template,
+        &rootfs,
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxgrow{}", std::process::id() % 10000),
@@ -5595,7 +5614,11 @@ fn a_system_containers_root_volume_grows_live_and_never_shrinks() {
         .rev()
         .find(|r| r.action == "resize")
         .unwrap_or_else(|| panic!("no resize in the ledger: {recs:?}"));
-    assert_eq!(grow.state, delonix_provider_proxmox::TaskState::Ok, "{grow:?}");
+    assert_eq!(
+        grow.state,
+        delonix_provider_proxmox::TaskState::Ok,
+        "{grow:?}"
+    );
 }
 
 /// Plan 63 slice 5, firewall: a `scope: systemcontainer` policy lands on the
@@ -5618,8 +5641,11 @@ fn a_system_containers_firewall_is_applied_and_reads_back() {
     let rootfs = t.disk_storage.clone().unwrap_or_else(|| "local-lvm".into());
     let b = backend(&t).expect("connect");
     let client = b.client();
-    let provider =
-        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+    let provider = delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        client.clone(),
+        &template,
+        &rootfs,
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxfw{}", std::process::id() % 10000),
@@ -5744,8 +5770,11 @@ fn a_running_system_container_is_cloned_from_a_temporary_snapshot() {
     let rootfs = t.disk_storage.clone().unwrap_or_else(|| "local-lvm".into());
     let b = backend(&t).expect("connect");
     let client = b.client();
-    let provider =
-        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+    let provider = delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        client.clone(),
+        &template,
+        &rootfs,
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxcln{}", std::process::id() % 10000),
@@ -5860,8 +5889,11 @@ fn a_system_container_moves_to_another_node_offline_and_by_restart() {
     let b = backend(&t).expect("connect");
     let client = b.client();
     let there = client.for_node(&to).expect("client for the target node");
-    let provider =
-        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+    let provider = delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        client.clone(),
+        &template,
+        &rootfs,
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxmov{}", std::process::id() % 10000),
@@ -6028,8 +6060,11 @@ fn a_system_containers_backup_is_restored_over_it_and_deleted() {
     let rootfs = t.disk_storage.clone().unwrap_or_else(|| "local-lvm".into());
     let b = backend(&t).expect("connect");
     let client = b.client();
-    let provider =
-        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+    let provider = delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        client.clone(),
+        &template,
+        &rootfs,
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let spec = SystemContainerSpec {
         name: format!("dlxbak{}", std::process::id() % 10000),
@@ -6162,7 +6197,8 @@ fn a_system_containers_backup_is_restored_over_it_and_deleted() {
         assert!(
             matches!(
                 r.state,
-                delonix_provider_proxmox::TaskState::Ok | delonix_provider_proxmox::TaskState::OkWithWarnings { .. }
+                delonix_provider_proxmox::TaskState::Ok
+                    | delonix_provider_proxmox::TaskState::OkWithWarnings { .. }
             ),
             "{r:?}"
         );
@@ -6188,8 +6224,9 @@ fn network_zone_provider_owns_by_mark_and_never_pushes_someone_elses_pending_cha
             .map(std::path::PathBuf::from),
         ..Default::default()
     };
-    let client =
-        std::sync::Arc::new(delonix_provider_proxmox::Client::connect_with(&t, opts).expect("connect"));
+    let client = std::sync::Arc::new(
+        delonix_provider_proxmox::Client::connect_with(&t, opts).expect("connect"),
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let ledger = delonix_provider_proxmox::Ledger::at(dir.path());
     let provider = delonix_provider_proxmox::ProxmoxSegmentProvider::new(
@@ -6425,8 +6462,11 @@ fn the_ipam_provider_reserves_an_address_and_a_guest_gets_it_by_dhcp() {
         }),
         unprivileged: true,
     };
-    let ct =
-        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+    let ct = delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        client.clone(),
+        &template,
+        &rootfs,
+    );
     let ctdir = tempfile::tempdir().expect("tempdir");
     let h = ct.create(ctdir.path(), &spec).expect("create");
     let vmid: u32 = h.locator.rsplit(':').next().unwrap().parse().unwrap();
@@ -7614,8 +7654,11 @@ fn the_dns_provider_registers_a_guest_in_the_zones_dns_server() {
         }),
         unprivileged: true,
     };
-    let ct =
-        delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(client.clone(), &template, &rootfs);
+    let ct = delonix_provider_proxmox::ProxmoxSystemContainerProvider::new(
+        client.clone(),
+        &template,
+        &rootfs,
+    );
     let ctdir = tempfile::tempdir().expect("tempdir");
     let h = ct.create(ctdir.path(), &spec).expect("create");
     guard
