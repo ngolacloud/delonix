@@ -9,16 +9,13 @@
 //! native dataplane, and `delonix-sdn` re-exports the three modules under
 //! their old paths.
 
-pub mod dns;
-mod error;
-pub mod gateway;
-pub mod ipam;
-pub mod ledger;
-pub mod nat;
-pub mod ownership;
-pub mod plan;
-pub mod policy;
-pub mod resolve;
-pub mod segment;
+pub mod app;
+pub mod domain;
+
+// The R2 domain/app split keeps the public API and the internal `crate::<module>`
+// paths: every module is re-exported at the crate root. `domain` is the pure
+// network model and rules; `app` holds the plan-digest use case.
+pub use app::plan;
+pub use domain::{dns, error, gateway, ipam, ledger, nat, ownership, policy, resolve, segment};
 
 pub use error::{Error, Result};
