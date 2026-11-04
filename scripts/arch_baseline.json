@@ -9,5 +9,6 @@
   "interface_mechanism_deps": 27,
   "provider_namers": 17,
   "bin_crates": 5,
-  "inter_context_violations": 2
+  "inter_context_violations": 2,
+  "domain_app_refs": 13
 }
