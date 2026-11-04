@@ -240,6 +240,7 @@ impl SeedBuilder for CloudLocaldsSeed {
     fn seed(&self, root: &Path, cfg: &VmConfig) -> delonix_model::Result<PathBuf> {
         super::cloudinit::generate_seed_iso(
             root,
+            cfg.namespace.as_deref().unwrap_or("default"),
             &cfg.name,
             cfg.hostname.as_deref(),
             cfg.ci_user.as_deref(),

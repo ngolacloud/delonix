@@ -441,20 +441,16 @@ pub fn capacity() -> Capacity {
         Err(_) => unmeasured.push("containers_running"),
     }
 
-    match delonix_state::JsonStore::<delonix_compute::Vm>::open(root.join("vms"))
-        .and_then(|s| s.list())
-    {
+    // `delonix_vm::list` spans every namespace's `vms/<ns>/` subtree and already
+    // reconciles each record against its backend (ADR-0086 D7) — so a namespaced
+    // VM is counted, and there is no second per-VM reconcile to make by a bare
+    // name the flat store no longer keys.
+    match delonix_vm::list(&root) {
         Ok(vms) => {
             c.vms_running = vms
                 .iter()
                 .filter(|v| LOCAL_VM_BACKENDS.contains(&v.backend.as_str()))
-                .filter(|v| {
-                    // Reconciled one by one, local backends only (a record
-                    // can say Running for a VM whose process died).
-                    delonix_vm::status(&root, &v.name)
-                        .map(|s| matches!(s.status, Status::Running))
-                        .unwrap_or(false)
-                })
+                .filter(|v| matches!(v.status, Status::Running))
                 .count() as i32
         }
         Err(_) => unmeasured.push("vms_running"),

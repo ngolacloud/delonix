@@ -2,13 +2,14 @@
 //! `ListVirtualMachines` (ADR-0040 P5, closing the VMaaS audit's §4 gap —
 //! `docs/discovery/67_VMAAS_READINESS_AUDIT.md`).
 //!
-//! A VM's name is unique at the NODE level (`delonix_vm::list`/`status` read
-//! one flat store, never one per isolation namespace — a `kind: Vm` with the
-//! same name in two namespaces is a `Conflict`, not two resources). So a read
-//! here is: find the record by name anywhere, then require its recorded
-//! `namespace` to match what was asked — exactly how a Container's isolation
-//! namespace is read, and the opposite of how `Network`'s single shared
-//! namespace is read in [`crate::networks`].
+//! A VM's name is unique PER NAMESPACE (ADR-0086 D7, reverting ADR-0069 #2):
+//! each namespace keys its own `vms/<namespace>/` subtree, so a `kind:
+//! VirtualMachine` with the same name in two namespaces is two resources, the
+//! same as a Container. So a read here addresses the record by its
+//! `(namespace, name)` pair — `delonix_vm::status(root, "<ns>/<name>")`, bare in
+//! `default` — exactly how a Container's isolation namespace is read, and the
+//! opposite of how `Network`'s single shared namespace is read in
+//! [`crate::networks`].
 //!
 //! What a VM IS and whether it is alive come from the SAME call —
 //! `delonix_vm::status`/`list` already reconcile the record against the
@@ -203,13 +204,21 @@ pub fn get_in(root: &Path, req: &GetVirtualMachineRequest) -> Result<VirtualMach
     if wanted == "*" {
         return Err(missing());
     }
-    let vm = delonix_vm::status(root, &req.name).map_err(|e| {
+    // Address the record by (namespace, name): the store is keyed per namespace
+    // now (ADR-0086 D7), so a bare name would only ever find the `default` VM.
+    let reference = if wanted == "default" {
+        req.name.clone()
+    } else {
+        format!("{wanted}/{}", req.name)
+    };
+    let vm = delonix_vm::status(root, &reference).map_err(|e| {
         if e.is_not_found() {
             missing()
         } else {
             crate::network_ops::status_of(&e.into())
         }
     })?;
+    // Defensive: the record under `vms/<wanted>/` must itself declare `wanted`.
     if vm.namespace != wanted {
         return Err(missing());
     }

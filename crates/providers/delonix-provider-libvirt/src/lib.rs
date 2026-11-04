@@ -1586,10 +1586,12 @@ fn serial_capture_path(cfg: &VmConfig, overlay: &str) -> Option<String> {
     if !cfg.serial_capture {
         return None;
     }
+    // `serial_log_path` is relative to the VM's own directory now (the dir the
+    // overlay lives in), the same `<root>/vms[/<namespace>]` the record and the
+    // other per-VM files sit in (ADR-0086 D7).
     let vmdir = Path::new(overlay).parent()?;
-    let base = vmdir.parent().unwrap_or(vmdir);
     Some(
-        serial_log_path(base, &cfg.name)
+        serial_log_path(vmdir, &cfg.name)
             .to_string_lossy()
             .into_owned(),
     )

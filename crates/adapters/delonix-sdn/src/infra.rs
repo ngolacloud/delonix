@@ -10171,15 +10171,34 @@ fn build_dns_index() -> DnsIndex {
             }
         }
     }
-    // VMs: <base>/vms/*.json (name + mac) → IP via the neigh table (fetched once).
-    if let Ok(rd) = std::fs::read_dir(base_root().join("vms")) {
-        let neigh_table: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
-        for e in rd.flatten() {
-            if e.path().extension().and_then(|x| x.to_str()) != Some("json") {
-                continue;
+    // VMs: <base>/vms/*.json for `default`, plus <base>/vms/<ns>/*.json for every
+    // other namespace (ADR-0086 D7) → IP via the neigh table (fetched once). A
+    // `default` VM's seed dir (`vms/<name>/`) holds no `*.json`, so scanning the
+    // subdirectories for records never mistakes a seed dir for a namespace.
+    {
+        let vms_dir = base_root().join("vms");
+        let mut vm_records: Vec<std::path::PathBuf> = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&vms_dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|x| x.to_str()) == Some("json") {
+                    vm_records.push(p);
+                } else if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    if let Ok(sub) = std::fs::read_dir(&p) {
+                        for se in sub.flatten() {
+                            let sp = se.path();
+                            if sp.extension().and_then(|x| x.to_str()) == Some("json") {
+                                vm_records.push(sp);
+                            }
+                        }
+                    }
+                }
             }
+        }
+        let neigh_table: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
+        for vm_path in vm_records {
             let Ok(v) = serde_json::from_slice::<serde_json::Value>(
-                &std::fs::read(e.path()).unwrap_or_default(),
+                &std::fs::read(&vm_path).unwrap_or_default(),
             ) else {
                 continue;
             };

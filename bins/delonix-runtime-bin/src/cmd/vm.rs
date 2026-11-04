@@ -3130,26 +3130,20 @@ fn resolve_vm_disk(
 /// `base` é a pasta do MANIFESTO (não o cwd), como em `secret::apply`: é
 /// relativamente a ela que o `spec.build.context` se resolve, para um manifesto
 /// querer dizer o mesmo seja de onde for aplicado.
-/// A VM name is unique on the node: the record is `vms/<name>.json`, whatever
-/// namespace it declares, so the same name asked for in ANOTHER namespace is a
-/// different resource that cannot exist. It is the same rule a Pod already
-/// states, and for the same reason — but on a VM the namespace IS the isolation
-/// boundary (`@dlxns_<ns>`), so answering «ensured» is worse than cosmetic.
+/// A VM record's isolation namespace, normalized so an empty string (older
+/// records written before the field existed) reads as `default`.
 ///
-/// Measured 2026-10-06, before this: a manifest declaring `nsvm` in `teamB`
-/// over a VM of that name in `teamA` had `stack plan` print `= 1 unchanged` and
-/// `stack apply` print `vm/nsvm: ensured` with rc=0 — while the VM stayed in
-/// `teamA`, reachable by `teamA` and not by the tenant that asked for `teamB`.
-fn check_vm_namespace(name: &str, want: &str, have: &str) -> Result<()> {
-    let have = if have.is_empty() { "default" } else { have };
-    let want = if want.is_empty() { "default" } else { want };
-    if want.eq_ignore_ascii_case(have) {
-        return Ok(());
+/// Since ADR-0086 D7 (reverting ADR-0069 #2) a VM is identified by
+/// `(namespace, name)` — each namespace keys its own `vms/<ns>/` subtree — so
+/// the node no longer forbids the same name in two namespaces. Matching a
+/// record by name therefore has to match its namespace too; this is what the
+/// callers compare against.
+fn vm_ns(vm: &delonix_compute::Vm) -> &str {
+    if vm.namespace.is_empty() {
+        "default"
+    } else {
+        &vm.namespace
     }
-    Err(Error::Conflict(format!(
-        "VM '{name}' already exists in namespace '{have}'; a VM name is unique on the node, so \
-         '{want}' cannot reuse it"
-    )))
 }
 
 /// What a `kind: VirtualMachine` hands the guest from the host, as the node
@@ -3206,15 +3200,13 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
     let on_node = delonix_vm::list(&base)?;
     for doc in manifest::of_kind(docs, k::VM) {
         let name = &doc.metadata.name;
-        // Before anything is resolved or created: a VM of this name already on
-        // the node, in another namespace, is a different resource.
-        if let Some(existing) = on_node.iter().find(|v| &v.name == name) {
-            check_vm_namespace(
-                name,
-                doc.metadata.namespace.as_deref().unwrap_or("default"),
-                &existing.namespace,
-            )?;
-        }
+        // ADR-0086 D7 (reverting ADR-0069 #2): a VM is identified by
+        // (namespace, name), each namespace keying its own `vms/<ns>/` subtree.
+        // A `web` already on the node in ANOTHER namespace is therefore a
+        // different resource and no longer blocks this one — the old
+        // node-global-name refusal is gone. Re-applying the SAME (namespace,
+        // name) stays the idempotent update the engine already performs.
+        let ns = doc.metadata.namespace.as_deref().unwrap_or("default");
         let spec: VmSpec = vm_spec_of(doc)?;
         // The node's runtime policy, BEFORE the image is resolved or built —
         // the same gate, placement and request shape as the CLI `vm create`.
@@ -3298,6 +3290,7 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
             None if appliance => None,
             None if spec.user_data.is_some() => Some(
                 generate_seed_iso(
+                    ns,
                     name,
                     spec.hostname.as_deref(),
                     &spec.ssh_keys,
@@ -3413,7 +3406,12 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
         // rebuilds from the record. Rebuilding from the manifest alone dropped
         // it at the next start or reboot while the plan said nothing changes.
         let mut cfg = cfg;
-        if let Some(existing) = on_node.iter().find(|v| &v.name == name) {
+        // The SAME (namespace, name) VM, not a homonym in another namespace —
+        // devices are kept from this VM's own record, never another tenant's.
+        if let Some(existing) = on_node
+            .iter()
+            .find(|v| &v.name == name && vm_ns(v) == ns)
+        {
             keep_undeclared_devices(&mut cfg.extra_disks, &mut cfg.extra_nics, existing);
         }
         refuse_inert_vm_isolation(cfg.namespace.as_deref())?;
@@ -3425,7 +3423,7 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
         let own = super::reconcile::user_labels_field(&doc.metadata.labels);
         let delta = super::reconcile::labels_delta(None, own.as_deref());
         let st: delonix_state::JsonStore<delonix_compute::Vm> =
-            delonix_state::JsonStore::open(base.join("vms"))?;
+            delonix_state::JsonStore::open(delonix_compute::vm::vms_root(&base, ns))?;
         let declared = declared.join(",");
         st.update(name, |vm| {
             set_labels(&mut vm.labels, &delta);
@@ -3692,6 +3690,7 @@ pub fn run(action: VmCmd) -> Result<()> {
                 None if appliance => None,
                 None if user_data.is_some() => {
                     let iso = generate_seed_iso(
+                        namespace.as_deref().unwrap_or("default"),
                         &name,
                         hostname.as_deref(),
                         &ssh_keys,
@@ -5609,6 +5608,11 @@ fn print_vm_next_steps(
 
 /// local tty (raw mode); libvirt: delegates to `virsh console` (which does it).
 pub(crate) fn cmd_console(base: &std::path::Path, name: &str, escape: Option<&str>) -> Result<()> {
+    // The console/serial sockets live beside the record, in the VM's own
+    // namespace directory (ADR-0086 D7). `name` may be qualified `ns/name`; the
+    // on-disk file is keyed by the bare name within that directory.
+    let (ns, bare) = name.split_once('/').unwrap_or(("default", name));
+    let vmdir = delonix_compute::vm::vms_root(base, ns);
     let vm = delonix_vm::status(base, name)?;
     if !matches!(vm.status, delonix_model::records::Status::Running) {
         return Err(Error::Invalid(super::po::tf(
@@ -5623,7 +5627,7 @@ pub(crate) fn cmd_console(base: &std::path::Path, name: &str, escape: Option<&st
     if vm.boot.serial_capture {
         return Err(Error::Invalid(super::po::tf(
             "VM '{name}' captures its serial console to a file, so there is no interactive console to attach to — read {path} instead, or recreate the VM without capture",
-            &[("name", name), ("path", &delonix_vm::serial_log_path(base, name).display().to_string())],
+            &[("name", name), ("path", &delonix_vm::serial_log_path(&vmdir, bare).display().to_string())],
         )));
     }
     let esc = resolve_escape(escape)?;
@@ -5693,7 +5697,7 @@ pub(crate) fn cmd_console(base: &std::path::Path, name: &str, escape: Option<&st
         return Ok(());
     }
     // Cloud Hypervisor: ponte tty<->socket.
-    let sock = delonix_vm::console_socket(base, name);
+    let sock = delonix_vm::console_socket(&vmdir, bare);
     if !sock.exists() {
         // The VM is alive but was started by an old binary (serial to a file,
         // not a socket). An idempotent `create` won't restart it; you have to
@@ -6137,6 +6141,7 @@ fn resolve_ssh_key(spec: &str) -> Result<String> {
 ///
 /// `pub(crate)` because `cmd::vmfile` still packages an author's own document.
 pub(crate) fn generate_seed_iso(
+    namespace: &str,
     vm_name: &str,
     hostname: Option<&str>,
     ssh_keys: &[String],
@@ -6166,6 +6171,7 @@ pub(crate) fn generate_seed_iso(
     let resolved: Result<Vec<String>> = ssh_keys.iter().map(|s| resolve_ssh_key(s)).collect();
     Ok(delonix_vm::cloudinit::generate_seed_iso(
         &state_root(),
+        namespace,
         vm_name,
         hostname,
         None,
@@ -6221,22 +6227,29 @@ pub(crate) fn init_for(
 
 #[cfg(test)]
 mod tests {
-    /// A VM name is unique on the node, so the same name in another namespace is
-    /// a conflict — never «ensured». The comparison is case-insensitive and an
-    /// empty namespace means `default`, so a record written before namespaces
-    /// existed does not read as a conflict with `default`.
+    /// ADR-0086 D7 (reverting ADR-0069 #2): the same VM name in two namespaces
+    /// is NO LONGER a conflict — each namespace keys its own `vms/<ns>/` subtree,
+    /// so `apply` matches a record by `(namespace, name)`. `vm_ns` normalizes an
+    /// empty namespace (a record written before the field existed) to `default`,
+    /// so matching stays correct across record generations.
     #[test]
-    fn the_same_vm_name_in_another_namespace_is_a_conflict() {
-        assert!(super::check_vm_namespace("v", "default", "").is_ok());
-        assert!(super::check_vm_namespace("v", "", "default").is_ok());
-        assert!(super::check_vm_namespace("v", "teamA", "teama").is_ok());
-        let msg = super::check_vm_namespace("v", "teamB", "teamA")
-            .unwrap_err()
-            .to_string();
-        assert!(
-            msg.contains("already exists in namespace 'teamA'") && msg.contains("'teamB'"),
-            "{msg}"
-        );
+    fn vm_ns_normalizes_empty_to_default() {
+        let mk = |ns: &str| {
+            let mut v: delonix_compute::Vm = serde_json::from_value(serde_json::json!({
+                "name": "web", "disk": "/d", "overlay": "/o", "vcpus": 1,
+                "memory": "64M", "network": "", "tap": "", "mac": "",
+                "api_socket": "", "status": "Stopped", "created_unix": 0,
+                "backend": "cloud-hypervisor"
+            }))
+            .unwrap();
+            v.namespace = ns.to_string();
+            v
+        };
+        assert_eq!(super::vm_ns(&mk("")), "default");
+        assert_eq!(super::vm_ns(&mk("default")), "default");
+        assert_eq!(super::vm_ns(&mk("prod")), "prod");
+        // Two `web` in different namespaces are distinct records (different ns).
+        assert_ne!(super::vm_ns(&mk("prod")), super::vm_ns(&mk("staging")));
     }
 
     #[test]
