@@ -17,7 +17,6 @@ delonix-linux = { workspace = true }
 delonix-volume = { workspace = true }
 delonix-oci = { workspace = true }
 delonix-scanner = { workspace = true }
-delonix-vm = { workspace = true }
 delonix-sdn = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros", "sync"] }

@@ -31,6 +31,9 @@ delonix-telemetry = { workspace = true }
 delonix-linux = { workspace = true }
 delonix-oci = { workspace = true }
 delonix-vm = { workspace = true }
+# The bin mounts the `Engine` to hand `dashstats` a `VmView` (ADR-0040 A5, R3c);
+# a bin is the one layer allowed to name the assembly.
+delonix-engine = { workspace = true }
 delonix-volume = { workspace = true }
 # Provisioning on a NAS (ADR-0009). Only the bin depends on it — a motor crate
 # does not grow an HTTP client.
