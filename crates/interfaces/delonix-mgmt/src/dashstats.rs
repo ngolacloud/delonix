@@ -5,7 +5,7 @@
 //!
 //!  * `delonix-mgmt`'s `GET /metrics` (Prometheus gauges) and `GET /v1/dash`
 //!    (JSON) — this crate, see `lib.rs`.
-//!  * `delonix dash` (the TUI/`--once`/`--json` CLI) — `delonix-runtime-bin`
+//!  * `delonix dash` (the TUI/`--once`/`--json` CLI) — `delonix-bin`
 //!    depends on `delonix-mgmt` (not the other way around), so it calls
 //!    straight into [`collect`] instead of re-implementing the aggregation.
 //!

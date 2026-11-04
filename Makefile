@@ -41,7 +41,7 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 # ------------------------------------------------------------------ what is built
-PACKAGES := delonix-runtime-bin delonix-cri delonix-mgmt-bin delonix-mcp-bin delonix-node-api-bin
+PACKAGES := delonix-bin delonix-cri delonix-mgmt-bin delonix-mcp-bin delonix-node-api-bin
 BINARIES := delonix delonix-cri delonix-mgmt delonix-mcp delonix-node-api
 
 PROFILE ?= release

@@ -81,7 +81,7 @@ LAYERS = {
     "delonix-cri": INTERFACE,
     "delonix-mgmt": INTERFACE,  # replaced by delonix-node-api (P5)
     "delonix-mcp": INTERFACE,
-    "delonix-runtime-bin": BIN,  # → delonix-cli (interfaces) + bins/delonix (P2)
+    "delonix-bin": BIN,  # → delonix-cli (interfaces) + bins/delonix (P2)
     "delonix-mcp-bin": BIN,  # `delonix-mcp`, run by `delonix mcp` (ADR-0040 D2.4 amended)
     "delonix-mgmt-bin": BIN,  # `delonix-mgmt`, run by `delonix serve api`
     "delonix-node-api": INTERFACE,  # the node contract on the socket (ADR-0040 P5); replaces delonix-mgmt
@@ -314,7 +314,7 @@ _CTX_RENAME: dict[str, str] = {}
 # oversize also fails, so the register cannot rot.
 SIZE_LIMIT = 20_000
 OVERSIZE_ALLOWLIST = {
-    "delonix-runtime-bin": "R4 extracts its use cases into the contexts; the residue becomes delonix-cli",
+    "delonix-bin": "R4 extracts its use cases into the contexts; the residue becomes delonix-cli",
     "delonix-provider-proxmox": "R5 split plan for delonix-provider-proxmox (ADR pending)",
     "delonix-sdn": "R5 split plan for the SDN adapter (ADR pending)",
     "delonix-linux": "R5 split plan for the container runtime adapter (ADR pending)",
@@ -340,21 +340,25 @@ def crate_rs_lines() -> dict[str, int]:
     """Lines of Rust per workspace member, attributing each `.rs` to the DEEPEST
     crate that owns it.
 
-    `bins/delonix-runtime-bin/templates/rust` is a scaffold crate vendored under
+    `bins/delonix/templates/rust` is a scaffold crate vendored under
     the CLI; counting a crate's whole subtree would bill its template's lines to
     the CLI AND to the template, double-counting. Deepest-owner attribution bills
     each file once; the result is filtered to the layer table, so the scaffold
     (not an engine member) drops out instead of inflating the report.
     """
-    crate_dirs = sorted(
-        (
-            manifest.parent
-            for top in ("crates", "bins")
-            for manifest in (ROOT / top).rglob("Cargo.toml")
-            if "target" not in manifest.parts
-        ),
-        key=lambda p: -len(p.parts),  # deepest first
-    )
+    manifests = [
+        m
+        for top in ("crates", "bins")
+        for m in (ROOT / top).rglob("Cargo.toml")
+        if "target" not in m.parts
+    ]
+    # dir → package name: delonix-bin lives in bins/delonix (its binary is `delonix`),
+    # so key by the package name, not the directory, or that divergence vanishes.
+    name_of = {
+        m.parent: tomllib.loads(m.read_text(encoding="utf-8")).get("package", {}).get("name", m.parent.name)
+        for m in manifests
+    }
+    crate_dirs = sorted(name_of, key=lambda p: -len(p.parts))  # deepest first
     lines: dict[str, int] = {}
     for top in ("crates", "bins"):
         for f in (ROOT / top).rglob("*.rs"):
@@ -363,20 +367,21 @@ def crate_rs_lines() -> dict[str, int]:
             owner = next((d for d in crate_dirs if d in f.parents), None)
             if owner is None:
                 continue
-            lines[owner.name] = lines.get(owner.name, 0) + len(
+            name = name_of[owner]
+            lines[name] = lines.get(name, 0) + len(
                 f.read_text(encoding="utf-8", errors="replace").splitlines()
             )
     return {name: n for name, n in lines.items() if name in LAYERS}
 
 
 def cmd_module_lines() -> dict[str, int]:
-    """Lines of each `bins/delonix-runtime-bin/src/cmd/<module>`.
+    """Lines of each `bins/delonix/src/cmd/<module>`.
 
     A module is a `<name>.rs` file, a `<name>/` directory, or BOTH: `gitops.rs`
     declares `mod tests;` which lives in `gitops/tests.rs`, so the module's lines
     are the file PLUS its directory, added — not one overwriting the other.
     """
-    base = ROOT / "bins/delonix-runtime-bin/src/cmd"
+    base = ROOT / "bins/delonix/src/cmd"
     out: dict[str, int] = {}
 
     def add(name: str, n: int) -> None:
@@ -600,6 +605,12 @@ LAYER_DIR = {
 }
 
 
+# The one crate whose directory is deliberately not its name: the single binary
+# package `delonix-bin` lives in `bins/delonix` because the binary it builds is
+# `delonix` (A6a, multicall). Every other crate's directory is its name.
+DIR_OVERRIDE = {"delonix-bin": "bins/delonix"}
+
+
 def misplaced(pkgs: dict[str, dict]) -> list[str]:
     """A crate whose directory is not the one its declared layer lives in."""
     bad: list[str] = []
@@ -608,7 +619,7 @@ def misplaced(pkgs: dict[str, dict]) -> list[str]:
         if layer is None:
             continue  # already reported by rule_failures
         rel = Path(pkg["manifest_path"]).parent.relative_to(ROOT).as_posix()
-        want = f"{LAYER_DIR[layer]}/{name}"
+        want = DIR_OVERRIDE.get(name, f"{LAYER_DIR[layer]}/{name}")
         if rel != want:
             bad.append(f"{name}: lives in {rel}, but its layer ({layer}) lives in {want}")
     return bad

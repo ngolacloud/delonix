@@ -556,7 +556,7 @@ Languages
 The CLI speaks **English by default**. ``--l18n=pt`` (or ``DELONIX_L18N=pt``)
 switches everything — including ``--help`` — to Portuguese, served from a
 standard gettext catalog embedded in the binary
-(`data/pt.po <bins/delonix-runtime-bin/data/pt.po>`_). Adding a language is
+(`data/pt.po <bins/delonix/data/pt.po>`_). Adding a language is
 adding a ``.po`` file; no code changes. Containers started without ``--name``
 get readable names drawn from Angolan kings, queens and places
 (``njinga-benguela-07``) — the project's naming identity.
@@ -731,7 +731,7 @@ command, no residing process:
      - Model Context Protocol server; ``delonix-mcp`` binary, run by ``delonix mcp``.
    * - ``delonix-node-api``
      - The node contract ``delonix.node.v1`` (gRPC + HTTP/JSON on a unix socket, ADR-0040 P5); ``delonix-node-api`` binary, run by ``delonix serve node-api``. Serves ``ListProviders`` today.
-   * - ``delonix-runtime-bin`` / ``delonix-mcp-bin`` / ``delonix-mgmt-bin`` / ``delonix-node-api-bin``
+   * - ``delonix-bin`` / ``delonix-mcp-bin`` / ``delonix-mgmt-bin`` / ``delonix-node-api-bin``
      - The ``delonix`` CLI — the one door; it runs the servers as sibling binaries.
 
 See the `architecture page

@@ -4594,7 +4594,7 @@ fn apply_readonly_paths(paths: &[String]) -> std::result::Result<(), String> {
 /// top (they are mounts, not part of the exported rootfs). Best-effort: individual
 /// errors are ignored (special files), what matters is the app's tree.
 ///
-/// Public because it is shared with `delonix-runtime-bin` (rootless FLAT rootfs) —
+/// Public because it is shared with `delonix-bin` (rootless FLAT rootfs) —
 /// **never reimplement this with `std::fs::chown`/`std::os::unix::fs::chown`**, which
 /// follows symlinks.
 pub fn lchown_tree(root: &std::path::Path, uid: u32, gid: u32) {

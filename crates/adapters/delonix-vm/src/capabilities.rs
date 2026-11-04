@@ -5,7 +5,7 @@
 //! The declaration is a `match` with no wildcard arm, on purpose: a catalog
 //! entry added tomorrow fails to compile here until the backend answers it.
 //! Every `Supported` names its evidence — a battery check, a scenario or a
-//! test — and `bins/delonix-runtime-bin` has a test that greps for each one,
+//! test — and `bins/delonix` has a test that greps for each one,
 //! so an evidence string that names nothing real is a red test, not a claim.
 //!
 //! Two backends, two probes, and the probe is a plain struct so the SAME

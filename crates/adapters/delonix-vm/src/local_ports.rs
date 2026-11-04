@@ -133,7 +133,7 @@ fn clone_disk_independent(src: &Path, dest: &Path) -> super::Result<()> {
 
 /// Reads an image's own recorded defaults straight off
 /// `<root>/vm-images/<name>.json` (ADR-0076 D3) — independently of, and
-/// without depending on, `bins/delonix-runtime-bin`'s `VmImageStore`/
+/// without depending on, `bins/delonix`'s `VmImageStore`/
 /// `VmImage`. Deliberately reads only the THREE fields this port's
 /// [`ImageDefaults`] carries: that struct's build/registry metadata
 /// (`ubuntu_release`, `kernel_version`, `packages`, `built_by`, …) belongs
@@ -141,12 +141,12 @@ fn clone_disk_independent(src: &Path, dest: &Path) -> super::Result<()> {
 /// which stay exactly where they are. Two readers of one JSON shape is real
 /// duplication (ADR-0076 names and accepts this cost); the alternatives —
 /// moving the whole rich struct down here, or an `interfaces`/`delonix-vm`
-/// dependency on `bins/delonix-runtime-bin` — were rejected on measurement
+/// dependency on `bins/delonix` — were rejected on measurement
 /// and on this engine's own layering rule, respectively.
 pub struct VmImageJsonDefaults;
 
 /// Same character-class allowlist as `VmImageStore::sanitize`
-/// (`bins/delonix-runtime-bin/src/cmd/vmimage.rs`) — the two have to agree,
+/// (`bins/delonix/src/cmd/vmimage.rs`) — the two have to agree,
 /// or a name that round-trips through the CLI's store resolves to a
 /// DIFFERENT file here than the one the CLI itself reads.
 fn sanitize_image_name(name: &str) -> String {

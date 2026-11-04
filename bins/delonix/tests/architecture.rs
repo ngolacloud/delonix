@@ -295,7 +295,7 @@ fn find_baked_indent(s: &str) -> Option<String> {
 #[test]
 fn the_bootstrap_caches_the_kubeconfig_before_the_steps_whose_errors_name_it() {
     let src =
-        std::fs::read_to_string(repo_root().join("bins/delonix-runtime-bin/src/cmd/cluster.rs"))
+        std::fs::read_to_string(repo_root().join("bins/delonix/src/cmd/cluster.rs"))
             .expect("cluster.rs is readable");
     let start = src
         .find("\nfn apply_ssh(")

@@ -13,7 +13,7 @@ and the numerator is what the engine actually INVOKES, read from the Rust
 sources that spawn `virsh` (never from a list kept next to them):
 
     crates/adapters/delonix-vm/src/lib.rs
-    bins/delonix-runtime-bin/src/cmd/vm.rs
+    bins/delonix/src/cmd/vm.rs
 
 Each subcommand of the help lands in exactly one of three states:
 
@@ -53,7 +53,7 @@ from pathlib import Path
 
 SOURCES = [
     Path("crates/adapters/delonix-vm/src/lib.rs"),
-    Path("bins/delonix-runtime-bin/src/cmd/vm.rs"),
+    Path("bins/delonix/src/cmd/vm.rs"),
 ]
 
 # Groups (by the `help keyword` virsh prints) the engine does not call by

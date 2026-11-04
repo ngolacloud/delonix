@@ -6,7 +6,7 @@
 //! `#[ignore]` by default, same harness as `live_container_lifecycle`:
 //!
 //! ```sh
-//! cargo build -p delonix-runtime-bin
+//! cargo build -p delonix-bin
 //! ROOT=$(mktemp -d)
 //! DELONIX_ROOT=$ROOT target/debug/delonix pull busybox:latest
 //! DELONIX_ROOT=$ROOT \

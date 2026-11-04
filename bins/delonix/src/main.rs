@@ -1278,7 +1278,7 @@ fn run() -> Result<()> {
             edge,
         } => cmd::init::run(dir, name, template, template_version, force, edge),
         Cmd::Version => {
-            // CARGO_BIN_NAME, not CARGO_PKG_NAME: the package is `delonix-runtime-bin`
+            // CARGO_BIN_NAME, not CARGO_PKG_NAME: the package is `delonix-bin`
             // and the binary clap names is `delonix`. Caught by diffing the two outputs —
             // "byte-for-byte" is the requirement precisely because this misses by one word.
             println!("{} {}", env!("CARGO_BIN_NAME"), long_version_text());

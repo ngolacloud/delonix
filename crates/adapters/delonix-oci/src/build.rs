@@ -195,7 +195,7 @@ fn substituted_too_large(line: &str) -> Error {
 /// `RUN pip install pkg==${PKG_VERSION}`) without pulling in a shell parser.
 ///
 /// Shared by two callers with two different "known" maps: parsing (`ARG`s,
-/// here) and the builder (`ENV`s, in `delonix-runtime-bin::cmd::build` —
+/// here) and the builder (`ENV`s, in `delonix-bin::cmd::build` —
 /// `pub` for exactly that reason). Same substitution either way; only which
 /// variables are "known" differs.
 ///

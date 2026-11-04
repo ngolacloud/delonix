@@ -2,7 +2,7 @@
 # Rebrand of the product/repo identity: angolardevops/delonix-runtime -> ngolacloud/delonix.
 #
 # Scope (approved): PRODUCT and REPO identity only. This script DOES NOT rename
-# internal Cargo crate/bin packages (`delonix-runtime-bin`, `delonix-runtime-core`,
+# internal Cargo crate/bin packages (`delonix-bin`, `delonix-runtime-core`,
 # ...), and it NEVER touches the persisted operational contracts:
 #   state dirs (/var/lib/delonix, /etc/delonix, ~/.local/share/delonix),
 #   sockets (/run/delonix-*.sock), systemd service UNIT NAMES, env DELONIX_*,
@@ -57,11 +57,11 @@ rebrand_safe() {
 
 rebrand_build_coupled() {
   local rs=(
-    bins/delonix-runtime-bin/src/main.rs
-    bins/delonix-runtime-bin/src/cmd/providers_config.rs
-    bins/delonix-runtime-bin/src/cmd/vmimage.rs
-    bins/delonix-runtime-bin/src/cmd/container.rs
-    bins/delonix-runtime-bin/src/cmd/scaffold.rs
+    bins/delonix/src/main.rs
+    bins/delonix/src/cmd/providers_config.rs
+    bins/delonix/src/cmd/vmimage.rs
+    bins/delonix/src/cmd/container.rs
+    bins/delonix/src/cmd/scaffold.rs
     crates/foundation/delonix-model/src/codes.rs
     crates/adapters/delonix-scanner/src/lib.rs
   )
@@ -73,7 +73,7 @@ rebrand_build_coupled() {
   sub "$PG_OLD"   "$PG_NEW"   "${rs[@]}" "${docsrc[@]}" "${devmd[@]}" "${protos[@]}"
   cat <<'EOF'
 build-coupled: source edited. NOW run, or the docs/buf gates go red:
-  cargo build --release -p delonix-runtime-bin --bin delonix   # + the 4 server bins for a release
+  cargo build --release -p delonix-bin --bin delonix   # + the 4 server bins for a release
   python3 docs/gen.py                 # regenerate docs/*.html from the rebuilt --help
   python3 scripts/dev_docs_site.py    # regenerate docs/handbook/ from docs/dev/*.md
   buf generate                        # regenerate gen/go from the new go_package

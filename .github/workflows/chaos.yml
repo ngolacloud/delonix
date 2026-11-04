@@ -137,7 +137,7 @@ jobs:
         run: sudo apt-get install -y -qq slirp4netns uidmap nftables iproute2 conntrack
 
       - name: Constrói o binário
-        run: cargo build --release -p delonix-runtime-bin
+        run: cargo build --release -p delonix-bin
 
       # O passo que este projecto aprendeu à força: sem um cgroup DELEGADO os
       # limites de recurso são silenciosamente inertes, e o arnês reportá-lo-ia

@@ -13,7 +13,7 @@
 # spellings.
 #
 # Usage: build the binary, then run this with its path:
-#   cargo build -p delonix-runtime-bin --bin delonix
+#   cargo build -p delonix-bin --bin delonix
 #   tests/cli-parity/frequent-verbs.sh target/debug/delonix
 set -u
 BIN="${1:-delonix}"

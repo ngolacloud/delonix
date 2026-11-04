@@ -52,7 +52,7 @@ jobs:
       # found, and six checks fail for a reason that is not the engine's.
       - name: Build
         run: |
-          cargo build --release -p delonix-runtime-bin -p delonix-mgmt-bin \
+          cargo build --release -p delonix-bin -p delonix-mgmt-bin \
             -p delonix-mcp-bin -p delonix-node-api-bin -p delonix-cri
           ./target/release/delonix --version
 
