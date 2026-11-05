@@ -83,6 +83,22 @@ impl delonix_mgmt::EngineOps for EnginePorts {
     fn remove_volume(&self, name: &str) -> Result<(), EngineError> {
         self.0.volumes().remove(name)
     }
+
+    fn list_containers(&self) -> Result<Vec<delonix_compute::Container>, EngineError> {
+        self.0.containers().list()
+    }
+
+    fn get_container(&self, id: &str) -> Result<delonix_compute::Container, EngineError> {
+        self.0.containers().load(id)
+    }
+
+    fn record_published_port(&self, ip: &str, spec: &str) -> Result<(), EngineError> {
+        self.0.containers().record_published_port(ip, spec)
+    }
+
+    fn forget_published_port(&self, ip: Option<&str>, spec_or_port: &str) -> Result<(), EngineError> {
+        self.0.containers().forget_published_port(ip, spec_or_port)
+    }
 }
 
 /// The `--version` line: binary name and the crate version, nothing else.
