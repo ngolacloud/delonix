@@ -837,7 +837,6 @@ flowchart TB
   delonix_node_api --> delonix_sdn
   delonix_node_api --> delonix_state
   delonix_node_api --> delonix_storage
-  delonix_node_api --> delonix_vm
   delonix_node_api --> delonix_volume
   delonix_node_api_bin --> delonix_compute
   delonix_node_api_bin --> delonix_engine

@@ -87,28 +87,36 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| Status::internal(format!("{what} panicked: {e}")))
 }
 
-/// `GetNodeInfo`, the one function both encodings call.
-pub async fn node_info() -> Result<NodeInfo, Status> {
-    blocking("node info", || {
-        node::node_info(&providers::measured_reports())
+/// `GetNodeInfo`, the one function both encodings call. `vms` is the composed
+/// VM port (ADR-0040 A5): the measured provider reports come through it, never
+/// the `delonix-vm` adapter.
+pub async fn node_info(vms: Arc<dyn crate::vms::VmPort>) -> Result<NodeInfo, Status> {
+    blocking("node info", move || {
+        node::node_info(&providers::measured_reports(&*vms))
     })
     .await
 }
 
 /// `GetHealth`, the one function both encodings call.
-pub async fn health() -> Result<Health, Status> {
-    blocking("health", || node::health(&providers::measured_reports())).await
+pub async fn health(vms: Arc<dyn crate::vms::VmPort>) -> Result<Health, Status> {
+    blocking("health", move || {
+        node::health(&providers::measured_reports(&*vms))
+    })
+    .await
 }
 
 /// `GetCapacity`, the one function both encodings call.
-pub async fn capacity() -> Result<Capacity, Status> {
-    blocking("capacity", node::capacity).await
+pub async fn capacity(vms: Arc<dyn crate::vms::VmPort>) -> Result<Capacity, Status> {
+    blocking("capacity", move || node::capacity(&*vms)).await
 }
 
 /// `ListProviders`, the one function both encodings call (ADR-0050 D5).
 /// `kind` empty = all; a kind the catalog does not have is `INVALID_ARGUMENT`
 /// (the same refusal `provider ls --kind ceph` gives), not an empty list.
-pub async fn list_providers(req: ListProvidersRequest) -> Result<ListProvidersResponse, Status> {
+pub async fn list_providers(
+    vms: Arc<dyn crate::vms::VmPort>,
+    req: ListProvidersRequest,
+) -> Result<ListProvidersResponse, Status> {
     let kind = match req.kind.as_str() {
         "" => None,
         k @ ("compute" | "network" | "storage" | "image" | "gateway") => Some(k.to_string()),
@@ -120,7 +128,7 @@ pub async fn list_providers(req: ListProvidersRequest) -> Result<ListProvidersRe
     };
     // The reports probe the host (binaries on the PATH, /dev/kvm, the holder):
     // blocking work, off the runtime's workers.
-    let reports = tokio::task::spawn_blocking(providers::measured_reports)
+    let reports = tokio::task::spawn_blocking(move || providers::measured_reports(&*vms))
         .await
         .map_err(|e| Status::internal(format!("provider probe panicked: {e}")))?;
     let this = match &kind {
@@ -150,28 +158,30 @@ impl NodeService for NodeApi {
         &self,
         _req: Request<GetNodeInfoRequest>,
     ) -> Result<Response<NodeInfo>, Status> {
-        Ok(Response::new(node_info().await?))
+        Ok(Response::new(node_info(Arc::clone(&self.vms)).await?))
     }
 
     async fn get_health(
         &self,
         _req: Request<GetHealthRequest>,
     ) -> Result<Response<Health>, Status> {
-        Ok(Response::new(health().await?))
+        Ok(Response::new(health(Arc::clone(&self.vms)).await?))
     }
 
     async fn get_capacity(
         &self,
         _req: Request<GetCapacityRequest>,
     ) -> Result<Response<Capacity>, Status> {
-        Ok(Response::new(capacity().await?))
+        Ok(Response::new(capacity(Arc::clone(&self.vms)).await?))
     }
 
     async fn list_providers(
         &self,
         req: Request<ListProvidersRequest>,
     ) -> Result<Response<ListProvidersResponse>, Status> {
-        Ok(Response::new(list_providers(req.into_inner()).await?))
+        Ok(Response::new(
+            list_providers(Arc::clone(&self.vms), req.into_inner()).await?,
+        ))
     }
 
     type WatchEventsStream =
@@ -597,8 +607,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<CreateVirtualMachineRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine create", move || {
-            crate::vm_ops::create_in(&node::state_root(), &req)
+            crate::vm_ops::create_in(&node::state_root(), &*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -1002,12 +1013,39 @@ impl crate::vms::VmPort for NoVms {
     fn destroy(&self, name: &str, _force: bool, _purge: bool) -> Result<(), delonix_model::Error> {
         Err(delonix_model::Error::VmNotFound(name.to_string()))
     }
-}
-
-/// The empty VM port, for `serve_blocking` and callers that do not inject an
-/// engine. Production serves through `serve` with an engine-backed port.
-pub(crate) fn no_vms() -> Arc<dyn crate::vms::VmPort> {
-    Arc::new(NoVms)
+    // The write/resolution half: an empty backing has no engine to compose a
+    // VM with. A create never reaches here in practice — `config_from_spec`
+    // refuses an empty `spec.image` first, and the router's own tests only
+    // drive refusals — but the port is total, so each answers the safe nothing.
+    fn create(
+        &self,
+        _cfg: &delonix_compute::vm_backend::VmConfig,
+    ) -> Result<(), delonix_model::Error> {
+        Err(delonix_model::Error::Unavailable(
+            "no VM engine is composed on this server (serve with an engine-backed port)".into(),
+        ))
+    }
+    fn image_defaults(&self, _reference: &str) -> Option<delonix_compute::ports::ImageDefaults> {
+        None
+    }
+    fn store_image_disk(&self, reference: &str) -> String {
+        reference.to_string()
+    }
+    fn refuse_undeclared_network(
+        &self,
+        _cfg: &delonix_compute::vm_backend::VmConfig,
+    ) -> Result<(), delonix_model::Error> {
+        Ok(())
+    }
+    fn ip_is_predicted(&self, _vm: &delonix_compute::Vm) -> bool {
+        false
+    }
+    fn provider_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        Vec::new()
+    }
+    fn declared_vm_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        Vec::new()
+    }
 }
 
 /// Builds the router with the VM port the composition injects (ADR-0040 A5).

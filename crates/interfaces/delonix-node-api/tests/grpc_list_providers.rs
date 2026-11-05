@@ -2,6 +2,8 @@
 //! the generated client, and HTTP/JSON through the same router. The server is
 //! the one `delonix serve node-api` runs, not a test double.
 
+mod common;
+
 use delonix_node_api::proto::v1::node_service_client::NodeServiceClient;
 use delonix_node_api::proto::v1::{
     ConditionStatus, GetApiRootRequest, GetCapacityRequest, GetHealthRequest, GetNodeInfoRequest,
@@ -31,7 +33,7 @@ async fn list_providers_answers_over_grpc_on_the_unix_socket() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"));
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing());
     });
     wait_for(&sock).await;
 

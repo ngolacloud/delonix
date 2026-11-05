@@ -18,7 +18,6 @@ delonix-oci = { workspace = true }
 delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-model = { workspace = true }
-delonix-vm = { workspace = true }
 delonix-provider-proxmox = { workspace = true }
 delonix-linux = { workspace = true }
 delonix-sdn = { workspace = true }
@@ -51,6 +50,11 @@ pbjson-build = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+# The VM adapter is the composition's mechanism: production reaches it only
+# through the engine-backed `VmPort` the bin injects (ADR-0040 A5). The tests
+# seed VM backends and build an adapter-backed port directly, so it is a
+# dev-dependency — no `interface -> delonix-vm` edge survives in the graph.
+delonix-vm = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }

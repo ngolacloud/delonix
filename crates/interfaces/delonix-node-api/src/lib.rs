@@ -129,13 +129,22 @@ pub use vms::VmPort;
 pub fn compose() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        delonix_vm::set_network(Box::new(delonix_sdn::vm_network::HostVmNetwork {
-            state_root: node::state_root(),
-        }));
+        // These seed the SHARED VM registry (`delonix_compute::vm_registry`),
+        // which `delonix-vm` only re-exports — the interface sets them straight
+        // on the registry so it names no adapter in production. The VM backends
+        // themselves are seeded by the composed engine the first time a VM use
+        // case runs (the bin's engine-backed `VmPort`).
+        delonix_compute::vm_registry::set_network(Box::new(
+            delonix_sdn::vm_network::HostVmNetwork {
+                state_root: node::state_root(),
+            },
+        ));
         // The cgroup leaf a Cloud Hypervisor VMM starts in, with the VM's
         // ceilings — the same registration the CLI's `main` makes. Without it a
         // `CreateVirtualMachine` on Cloud Hypervisor is refused (DX-6515).
-        delonix_vm::set_process_leaves(Box::new(delonix_linux::HostProcessLeaves));
+        delonix_compute::vm_registry::set_process_leaves(Box::new(
+            delonix_linux::HostProcessLeaves,
+        ));
         // The Ceph storage-pool drivers (ADR-0081): `CreateVolume` with a
         // `spec.provision` naming a `ceph-rbd`/`cephfs` pool allocates through
         // them. Registering does no I/O.
@@ -154,11 +163,12 @@ pub enum Listen {
 }
 
 /// Serves the node API on a unix socket, blocking the calling thread. `addr` is a
-/// path or `unix:///path`. Same pattern as `delonix_mgmt::serve_blocking`. Serves
-/// with no VM backend (the convenience for tests and simple callers); the bin's
-/// production entry is [`serve`], which injects the engine-backed VM port.
-pub fn serve_blocking(addr: &str) -> Result<(), Error> {
-    serve_with(Listen::Path(addr.to_string()), None, service::no_vms())
+/// path or `unix:///path`, `vms` is the VM port the server reads through (same
+/// shape as `delonix_mgmt::serve_blocking`, which already takes its VM view). A
+/// test passes an adapter-backed port for the VM reads and provider reports it
+/// drives; the bin's production entry is [`serve`], which injects the engine.
+pub fn serve_blocking(addr: &str, vms: std::sync::Arc<dyn VmPort>) -> Result<(), Error> {
+    serve_with(Listen::Path(addr.to_string()), None, vms)
 }
 
 /// Serves the node API, blocking the calling thread, until `idle` (if given)

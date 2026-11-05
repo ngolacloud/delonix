@@ -36,11 +36,11 @@ use crate::selector::Selector;
 /// Errors arrive as the shared [`delonix_model::Error`] the engine and this crate
 /// both speak.
 ///
-/// Covers the reads and the observe/control lifecycle the `Engine` exposes
-/// (start/stop/pause/snapshot/restore/destroy). `create` is the one VM use case
-/// still reached through `delonix-vm` inside the interface — it carries the
-/// `wait_until_reachable` poll and the `VmConfig`, and moves onto the port once
-/// the `Engine` grows it.
+/// Covers the full VM lifecycle the `Engine` exposes — the reads, the observe/
+/// control verbs (start/stop/pause/snapshot/restore/destroy), `create` and the
+/// image/network resolution a create needs — plus the provider reports. No VM
+/// use case reaches `delonix-vm` from inside the interface any more; every one
+/// is a method of this port, served by the composed engine in the bin.
 pub trait VmPort: Send + Sync {
     /// Every VM the node has.
     fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error>;
@@ -71,6 +71,30 @@ pub trait VmPort: Send + Sync {
         force: bool,
         purge_disks: bool,
     ) -> Result<(), delonix_model::Error>;
+    /// Create a VM from a resolved config (the write half's one engine call).
+    fn create(
+        &self,
+        cfg: &delonix_compute::vm_backend::VmConfig,
+    ) -> Result<(), delonix_model::Error>;
+    /// A referenced image's own recorded vCPU/memory/backend default (ADR-0076
+    /// D3), if any — what resolves the contract's "0 = image default".
+    fn image_defaults(&self, reference: &str) -> Option<delonix_compute::ports::ImageDefaults>;
+    /// The disk path a store `reference` resolves to (a store name → its qcow2;
+    /// a path → itself).
+    fn store_image_disk(&self, reference: &str) -> String;
+    /// Refuse a create whose network a LOCAL backend cannot reach on this node,
+    /// before any operation is acknowledged.
+    fn refuse_undeclared_network(
+        &self,
+        cfg: &delonix_compute::vm_backend::VmConfig,
+    ) -> Result<(), delonix_model::Error>;
+    /// Whether a VM's recorded IP is a prediction rather than an observation.
+    fn ip_is_predicted(&self, vm: &delonix_compute::Vm) -> bool;
+    /// Every registered VM provider's capability report, MEASURED on this host.
+    fn provider_reports(&self) -> Vec<delonix_compute::capability::ProviderReport>;
+    /// The VM providers' DECLARED (host-assumed) capability reports — the pure
+    /// matrix, no host probe.
+    fn declared_vm_reports(&self) -> Vec<delonix_compute::capability::ProviderReport>;
 }
 
 /// A [`VmPort`] over the `delonix-vm` adapter at a root, for the in-crate tests
@@ -135,6 +159,39 @@ impl VmPort for LocalVmReads {
             .map(|_| ())
             .map_err(Into::into)
     }
+    fn create(
+        &self,
+        cfg: &delonix_compute::vm_backend::VmConfig,
+    ) -> Result<(), delonix_model::Error> {
+        delonix_vm::create_with(&self.0, cfg, &|_stage| {})
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+    fn image_defaults(&self, reference: &str) -> Option<delonix_compute::ports::ImageDefaults> {
+        delonix_vm::image_defaults(&self.0, reference)
+    }
+    fn store_image_disk(&self, reference: &str) -> String {
+        delonix_vm::store_image_disk(&self.0, reference)
+    }
+    fn refuse_undeclared_network(
+        &self,
+        cfg: &delonix_compute::vm_backend::VmConfig,
+    ) -> Result<(), delonix_model::Error> {
+        delonix_vm::refuse_undeclared_network(cfg).map_err(Into::into)
+    }
+    fn ip_is_predicted(&self, vm: &delonix_compute::Vm) -> bool {
+        delonix_vm::ip_is_predicted(vm)
+    }
+    fn provider_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        delonix_vm::provider_reports()
+    }
+    fn declared_vm_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        use delonix_vm::capabilities as vmc;
+        vec![
+            vmc::cloud_hypervisor_report(&vmc::CloudHypervisorHost::ASSUMED),
+            vmc::libvirt_report(&vmc::LibvirtHost::ASSUMED),
+        ]
+    }
 }
 
 /// Whether `namespace` is one a VM can be reported under: any explicit name
@@ -192,8 +249,8 @@ fn restart_mode_of(policy: Option<&str>) -> i32 {
 /// is computed from the MAC before the guest ever runs, so "has an address"
 /// is only "is up" when this is `false` — reported here instead of letting a
 /// caller rediscover it.
-pub fn message(vm: &delonix_compute::Vm) -> VirtualMachine {
-    let predicted = delonix_vm::ip_is_predicted(vm);
+pub fn message(vms: &dyn VmPort, vm: &delonix_compute::Vm) -> VirtualMachine {
+    let predicted = vms.ip_is_predicted(vm);
     let phase = match &vm.status {
         delonix_model::records::Status::Created => VirtualMachinePhase::Provisioning,
         delonix_model::records::Status::Running => VirtualMachinePhase::Running,
@@ -321,7 +378,7 @@ pub fn get_in(vms: &dyn VmPort, req: &GetVirtualMachineRequest) -> Result<Virtua
     if vm.namespace != wanted {
         return Err(missing());
     }
-    Ok(message(&vm))
+    Ok(message(vms, &vm))
 }
 
 /// `ListVirtualMachines` under `root`: filtered by `label_selector` and the
@@ -342,7 +399,8 @@ pub fn list_in(
         .filter(|v| ns == "*" || v.namespace == ns)
         .filter(|v| selector.matches(&v.labels))
         .filter(|v| after.as_ref().is_none_or(|a| v.name.as_str() > a.as_str()));
-    let virtual_machines: Vec<VirtualMachine> = matching.by_ref().take(size).map(message).collect();
+    let virtual_machines: Vec<VirtualMachine> =
+        matching.by_ref().take(size).map(|v| message(vms, v)).collect();
     let next = match (matching.next(), virtual_machines.last()) {
         (Some(_), Some(last)) => crate::page::encode_token(
             last.meta
@@ -507,8 +565,12 @@ mod tests {
             String::new(),
         );
         vm.backend = "libvirt".into();
+        // `message` reads `ip_is_predicted` through the port; this test only
+        // asserts on the attached network, so a `delonix-vm`-backed port over
+        // an unused root answers the predicted question from the backend id.
+        let port = LocalVmReads(std::path::PathBuf::from("/"));
         let nets = |vm: &delonix_compute::Vm| -> Vec<String> {
-            message(vm)
+            message(&port, vm)
                 .spec
                 .unwrap()
                 .networks

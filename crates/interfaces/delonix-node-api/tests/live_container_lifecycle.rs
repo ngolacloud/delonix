@@ -20,6 +20,8 @@
 //! `DELONIX_ROOT` with `busybox:latest` already pulled are required; the test
 //! fails naming them when either is missing.
 
+mod common;
+
 use std::time::Duration;
 
 use delonix_node_api::proto::v1::container_service_client::ContainerServiceClient;
@@ -59,7 +61,7 @@ async fn the_container_lifecycle_runs_end_to_end_over_grpc() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"));
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing());
     });
     wait_for(&sock).await;
 

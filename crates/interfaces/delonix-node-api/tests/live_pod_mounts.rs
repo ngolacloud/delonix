@@ -22,6 +22,8 @@
 //! `DELONIX_ROOT` with `busybox:1.36` already pulled are required; the test
 //! fails naming them when either is missing.
 
+mod common;
+
 use std::time::Duration;
 
 use delonix_node_api::proto::v1::container_service_client::ContainerServiceClient;
@@ -75,7 +77,7 @@ async fn a_pod_shares_a_named_volume_between_its_members_over_grpc() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"));
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing());
     });
     wait_for(&sock).await;
 

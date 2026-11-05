@@ -14,6 +14,8 @@
 use std::path::{Path, PathBuf};
 
 use delonix_compute::capability::ProviderReport;
+use delonix_compute::ports::ImageDefaults;
+use delonix_compute::vm_backend::VmConfig;
 use delonix_compute::Vm;
 
 // The VM service's result is the compute VM error (re-exported by delonix-vm).
@@ -52,6 +54,19 @@ impl Engine {
     /// so a surface never reaches a provider crate to ask.
     pub fn provider_reports(&self) -> Vec<ProviderReport> {
         delonix_vm::provider_reports()
+    }
+
+    /// The VM providers' DECLARED (host-assumed) capability reports — the pure
+    /// matrix a surface compares against the published one, with no host probe.
+    /// The composition's view, so an interface never reaches a provider crate to
+    /// build it (the companion of [`provider_reports`](Self::provider_reports),
+    /// which is this host's MEASURED answer).
+    pub fn declared_vm_reports(&self) -> Vec<ProviderReport> {
+        use delonix_vm::capabilities as vmc;
+        vec![
+            vmc::cloud_hypervisor_report(&vmc::CloudHypervisorHost::ASSUMED),
+            vmc::libvirt_report(&vmc::LibvirtHost::ASSUMED),
+        ]
     }
 }
 
@@ -121,6 +136,39 @@ impl VmService<'_> {
     /// Delete one of a VM's snapshots.
     pub fn delete_snapshot(&self, name: &str, snap: &str) -> Result<()> {
         delonix_vm::delete_snapshot(self.engine.root(), name, snap)
+    }
+
+    /// Create a VM from a resolved [`VmConfig`]; returns its first observed
+    /// state. The boot-progress callback is not surfaced on this port — the
+    /// node API's own `wait_until_reachable` poll stands in for a live UI.
+    pub fn create(&self, cfg: &VmConfig) -> Result<Vm> {
+        delonix_vm::create_with(self.engine.root(), cfg, &|_stage| {})
+    }
+
+    /// A referenced image's own recorded vCPU/memory/backend recommendation
+    /// under this root (ADR-0076 D3), if any — what resolves the contract's
+    /// "0 = image default".
+    pub fn image_defaults(&self, reference: &str) -> Option<ImageDefaults> {
+        delonix_vm::image_defaults(self.engine.root(), reference)
+    }
+
+    /// The disk path a store `reference` resolves to under this root (a store
+    /// name → its qcow2; a path → itself).
+    pub fn store_image_disk(&self, reference: &str) -> String {
+        delonix_vm::store_image_disk(self.engine.root(), reference)
+    }
+
+    /// Refuses a create whose network a LOCAL backend cannot reach on this node
+    /// (the engine's own pre-overlay check), before any work is acknowledged.
+    pub fn refuse_undeclared_network(&self, cfg: &VmConfig) -> Result<()> {
+        delonix_vm::refuse_undeclared_network(cfg)
+    }
+
+    /// Whether a VM's recorded IP is a PREDICTION rather than an observation
+    /// (ADR-0076): the backend's own answer, so a read never probes an address
+    /// nobody can vouch for.
+    pub fn ip_is_predicted(&self, vm: &Vm) -> bool {
+        delonix_vm::ip_is_predicted(vm)
     }
 }
 
