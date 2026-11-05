@@ -97,6 +97,31 @@ impl VmService<'_> {
     pub fn destroy(&self, name: &str, force: bool, purge_disks: bool) -> Result<Destroyed> {
         delonix_vm::destroy(self.engine.root(), name, force, purge_disks)
     }
+
+    /// Pause a running VM (freeze its vCPUs), keeping it resident.
+    pub fn pause(&self, name: &str) -> Result<()> {
+        delonix_vm::pause(self.engine.root(), name)
+    }
+
+    /// Resume a paused VM.
+    pub fn unpause(&self, name: &str) -> Result<()> {
+        delonix_vm::unpause(self.engine.root(), name)
+    }
+
+    /// Take a named snapshot of a VM.
+    pub fn snapshot(&self, name: &str, snap: &str) -> Result<()> {
+        delonix_vm::snapshot(self.engine.root(), name, snap)
+    }
+
+    /// Restore a VM to one of its snapshots.
+    pub fn restore(&self, name: &str, snap: &str) -> Result<()> {
+        delonix_vm::restore(self.engine.root(), name, snap)
+    }
+
+    /// Delete one of a VM's snapshots.
+    pub fn delete_snapshot(&self, name: &str, snap: &str) -> Result<()> {
+        delonix_vm::delete_snapshot(self.engine.root(), name, snap)
+    }
 }
 
 #[cfg(test)]

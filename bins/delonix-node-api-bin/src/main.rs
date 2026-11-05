@@ -14,16 +14,16 @@ use std::sync::Arc;
 use delonix_compute::Vm;
 use delonix_engine::Engine;
 use delonix_model::Error;
-use delonix_node_api::{activation, Listen, VmReads};
+use delonix_node_api::{activation, Listen, VmPort};
 
-/// The composition's VM reads, handed to the node API as its `VmReads` port
+/// The composition's VM reads, handed to the node API as its `VmPort` port
 /// (ADR-0040 A5). The bin is the one place that names `delonix-engine`: it mounts
 /// the `Engine` and the server receives it already composed, never learning what
 /// is underneath, so no `interface -> delonix-vm` edge survives on the VM read
 /// path. The native VM error maps to the shared engine error the interface speaks.
 struct EngineVms(Engine);
 
-impl VmReads for EngineVms {
+impl VmPort for EngineVms {
     fn list(&self) -> Result<Vec<Vm>, Error> {
         self.0.vms().list().map_err(Into::into)
     }
@@ -34,6 +34,46 @@ impl VmReads for EngineVms {
 
     fn exists(&self, name: &str) -> bool {
         self.0.vms().exists(name)
+    }
+
+    fn start(&self, name: &str) -> Result<(), Error> {
+        self.0.vms().start(name).map(|_| ()).map_err(Into::into)
+    }
+
+    fn stop(&self, name: &str) -> Result<(), Error> {
+        self.0.vms().stop(name).map_err(Into::into)
+    }
+
+    fn pause(&self, name: &str) -> Result<(), Error> {
+        self.0.vms().pause(name).map_err(Into::into)
+    }
+
+    fn unpause(&self, name: &str) -> Result<(), Error> {
+        self.0.vms().unpause(name).map_err(Into::into)
+    }
+
+    fn snapshots(&self, name: &str) -> Result<Vec<String>, Error> {
+        self.0.vms().snapshots(name).map_err(Into::into)
+    }
+
+    fn snapshot(&self, name: &str, snap: &str) -> Result<(), Error> {
+        self.0.vms().snapshot(name, snap).map_err(Into::into)
+    }
+
+    fn restore(&self, name: &str, snap: &str) -> Result<(), Error> {
+        self.0.vms().restore(name, snap).map_err(Into::into)
+    }
+
+    fn delete_snapshot(&self, name: &str, snap: &str) -> Result<(), Error> {
+        self.0.vms().delete_snapshot(name, snap).map_err(Into::into)
+    }
+
+    fn destroy(&self, name: &str, force: bool, purge_disks: bool) -> Result<(), Error> {
+        self.0
+            .vms()
+            .destroy(name, force, purge_disks)
+            .map(|_| ())
+            .map_err(Into::into)
     }
 }
 
@@ -145,7 +185,7 @@ fn run() -> Result<(), Error> {
     // path resolves off the engine; the write half of the VM lifecycle still
     // reaches `delonix-vm` inside the interface until a later slice moves it.
     let engine = Engine::mount(root)?;
-    let vms: Arc<dyn VmReads> = Arc::new(EngineVms(engine));
+    let vms: Arc<dyn VmPort> = Arc::new(EngineVms(engine));
     delonix_node_api::serve(listen, idle, vms)
 }
 

@@ -113,7 +113,7 @@ pub use service::{
     capacity, health, link_header, list_providers, node_info, openapi_document, router,
     router_with, NodeApi, OPENAPI_YAML,
 };
-pub use vms::VmReads;
+pub use vms::VmPort;
 
 /// The node API's composition root: the ports this process registers before it
 /// serves anything, once.
@@ -169,7 +169,7 @@ pub fn serve_blocking(addr: &str) -> Result<(), Error> {
 pub fn serve(
     listen: Listen,
     idle: Option<activation::IdleExit>,
-    vms: std::sync::Arc<dyn VmReads>,
+    vms: std::sync::Arc<dyn VmPort>,
 ) -> Result<(), Error> {
     serve_with(listen, idle, vms)
 }
@@ -177,7 +177,7 @@ pub fn serve(
 fn serve_with(
     listen: Listen,
     idle: Option<activation::IdleExit>,
-    vms: std::sync::Arc<dyn VmReads>,
+    vms: std::sync::Arc<dyn VmPort>,
 ) -> Result<(), Error> {
     compose();
     delonix_node::alloc_tuning::limit_malloc_arenas();
