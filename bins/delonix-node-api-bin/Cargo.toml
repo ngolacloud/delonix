@@ -31,6 +31,11 @@ delonix-linux = { workspace = true }
 # R3d-e — bin installs the SDN VM-network + linux process-leaves providers into
 # the shared vm_registry.
 delonix-sdn = { workspace = true }
+# R3d-h — bin composes the per-adapter capability reports behind the node API's
+# `ProviderReports` port (`HostProviders`), so the interface no longer names the
+# Proxmox/OPNsense providers in `providers.rs`.
+delonix-provider-proxmox = { workspace = true }
+delonix-provider-opnsense = { workspace = true }
 delonix-telemetry = { workspace = true }
 
 [dev-dependencies]

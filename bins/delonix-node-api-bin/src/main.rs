@@ -17,7 +17,7 @@ use delonix_model::Error;
 use delonix_node_api::image_repo::StoredImage;
 use delonix_node_api::net_ops::NetRecord;
 use delonix_node_api::{
-    activation, ImageRepo, Listen, NetworkOps, RunResolver, StorePort, VmPort,
+    activation, ImageRepo, Listen, NetworkOps, ProviderReports, RunResolver, StorePort, VmPort,
 };
 
 /// The composition's VM reads, handed to the node API as its `VmPort` port
@@ -417,6 +417,47 @@ impl ImageRepo for OciImages {
     }
 }
 
+/// The composition's per-adapter capability reports, handed to the node API as
+/// its `ProviderReports` port (ADR-0040 A5, R3d-h). The bin names the
+/// `delonix-provider-proxmox`, `delonix-provider-opnsense`, `delonix-linux` and
+/// `delonix-volume` adapters directly — a bin may name an adapter (A1) — so the
+/// `delonix-node-api` interface no longer names them in `providers.rs`. This
+/// Engine has no report service yet, so the port is backed by the four adapters
+/// directly, exactly as `StateStore`/`SdnNet`/`OciImages` back the record store,
+/// the SDN and the image store.
+struct HostProviders;
+
+impl ProviderReports for HostProviders {
+    fn proxmox_compute_report(&self, configured: bool) -> delonix_compute::capability::ProviderReport {
+        delonix_provider_proxmox::capability_report(configured)
+    }
+    fn proxmox_network_report(&self, configured: bool) -> delonix_compute::capability::ProviderReport {
+        delonix_provider_proxmox::network_capability_report(configured)
+    }
+    fn linux_compute_report(&self, measured: bool) -> delonix_compute::capability::ProviderReport {
+        let host = if measured {
+            delonix_linux::provider_report::LinuxHost::probe()
+        } else {
+            delonix_linux::provider_report::LinuxHost::ASSUMED
+        };
+        delonix_linux::provider_report::report(&host)
+    }
+    fn volume_storage_report(&self, measured: bool) -> delonix_compute::capability::ProviderReport {
+        let host = if measured {
+            delonix_volume::provider_report::StorageHost::probe()
+        } else {
+            delonix_volume::provider_report::StorageHost::ASSUMED
+        };
+        delonix_volume::provider_report::report(&host)
+    }
+    fn opnsense_report(&self, is_gateway: bool) -> delonix_compute::capability::ProviderReport {
+        delonix_provider_opnsense::capability_report(is_gateway)
+    }
+    fn opnsense_id(&self) -> &'static str {
+        delonix_provider_opnsense::ID
+    }
+}
+
 /// The `--version` line: binary name and the crate version, nothing else.
 fn version_line() -> String {
     format!("delonix-node-api {}", env!("CARGO_PKG_VERSION"))
@@ -547,7 +588,22 @@ fn run() -> Result<(), Error> {
     // the same shape as the record store and the SDN — and the interface names
     // no OCI adapter.
     let images: Arc<dyn ImageRepo> = Arc::new(OciImages);
-    delonix_node_api::serve(listen, idle, vms, store, run_resolver, net, images)
+    // The per-adapter capability reports, behind the `ProviderReports` port
+    // (R3d-h): this Engine has no report service yet, so the bin backs it with
+    // the Proxmox/OPNsense/Linux/volume adapters directly — the same shape as the
+    // record store, the SDN and the image store — and the interface names none of
+    // the four adapters in `providers.rs`.
+    let providers: Arc<dyn ProviderReports> = Arc::new(HostProviders);
+    delonix_node_api::serve(
+        listen,
+        idle,
+        vms,
+        store,
+        run_resolver,
+        net,
+        images,
+        providers,
+    )
 }
 
 fn main() -> ExitCode {

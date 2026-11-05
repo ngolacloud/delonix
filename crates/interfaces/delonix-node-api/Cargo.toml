@@ -17,13 +17,11 @@ delonix-compute = { workspace = true }
 delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-model = { workspace = true }
-delonix-provider-proxmox = { workspace = true }
 delonix-linux = { workspace = true }
 delonix-volume = { workspace = true }
 delonix-storage = { workspace = true }
 delonix-pool-helper = { workspace = true }
 delonix-provider-ceph = { workspace = true }
-delonix-provider-opnsense = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
 pbjson = { workspace = true }
@@ -63,6 +61,14 @@ delonix-sdn = { workspace = true }
 # only through the `ImageRepo` port the bin composes. Kept for the integration
 # harness's `AdapterImages` test backing over the real store.
 delonix-oci = { workspace = true }
+# R3d-h — production no longer names the Proxmox/OPNsense providers; it reaches
+# their capability reports only through the `ProviderReports` port the bin
+# composes. Kept for `provider_reports::LocalProviders` (the crate's own matrix/
+# parse tests) and the integration harness's `AdapterProviders` test backing.
+# `delonix-linux`/`delonix-volume` stay in `[dependencies]`: the lifecycle/store
+# code still names them in production.
+delonix-provider-proxmox = { workspace = true }
+delonix-provider-opnsense = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }

@@ -100,6 +100,7 @@ pub mod operations;
 pub mod page;
 pub mod pod_ops;
 pub mod pods;
+pub mod provider_reports;
 pub mod providers;
 pub mod run_resolver;
 pub mod selector;
@@ -115,6 +116,7 @@ pub mod volumes;
 
 pub use image_repo::ImageRepo;
 pub use net_ops::NetworkOps;
+pub use provider_reports::ProviderReports;
 pub use run_resolver::RunResolver;
 pub use service::{
     capacity, health, link_header, list_providers, node_info, openapi_document, router,
@@ -166,6 +168,7 @@ pub fn serve_blocking(
     run_resolver: std::sync::Arc<dyn RunResolver>,
     net: std::sync::Arc<dyn NetworkOps>,
     images: std::sync::Arc<dyn ImageRepo>,
+    providers: std::sync::Arc<dyn ProviderReports>,
 ) -> Result<(), Error> {
     serve_with(
         Listen::Path(addr.to_string()),
@@ -175,6 +178,7 @@ pub fn serve_blocking(
         run_resolver,
         net,
         images,
+        providers,
     )
 }
 
@@ -191,8 +195,18 @@ pub fn serve(
     run_resolver: std::sync::Arc<dyn RunResolver>,
     net: std::sync::Arc<dyn NetworkOps>,
     images: std::sync::Arc<dyn ImageRepo>,
+    providers: std::sync::Arc<dyn ProviderReports>,
 ) -> Result<(), Error> {
-    serve_with(listen, idle, vms, store, run_resolver, net, images)
+    serve_with(
+        listen,
+        idle,
+        vms,
+        store,
+        run_resolver,
+        net,
+        images,
+        providers,
+    )
 }
 
 fn serve_with(
@@ -203,6 +217,7 @@ fn serve_with(
     run_resolver: std::sync::Arc<dyn RunResolver>,
     net: std::sync::Arc<dyn NetworkOps>,
     images: std::sync::Arc<dyn ImageRepo>,
+    providers: std::sync::Arc<dyn ProviderReports>,
 ) -> Result<(), Error> {
     compose();
     delonix_node::alloc_tuning::limit_malloc_arenas();
@@ -268,7 +283,7 @@ fn serve_with(
         };
         serve_listener(
             uds,
-            router_with(vms, store, run_resolver, net, images),
+            router_with(vms, store, run_resolver, net, images, providers),
             idle,
         )
         .await
