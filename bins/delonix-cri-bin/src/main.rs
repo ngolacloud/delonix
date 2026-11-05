@@ -6,8 +6,9 @@
 //! needs). A unit may also call it directly.
 //!
 //! The bin is the one layer allowed to name the assembly (ADR-0040 A5): it mounts
-//! the `Engine` and hands the server its image port, so the `delonix-cri`
-//! interface composes no adapter for images (R3h).
+//! the `Engine` and hands the server its image AND container ports, so the
+//! `delonix-cri` interface composes no adapter for images or for the container
+//! store (R3h).
 //!
 //! Flags beat environment variables, which beat the defaults:
 //! `--addr` / `DELONIX_CRI_ADDR`, `--cap-ceiling` / `DELONIX_CRI_CAP_CEILING`,
@@ -19,12 +20,15 @@ use std::sync::Arc;
 use delonix_engine::Engine;
 use delonix_model::Error as EngineError;
 
-/// The composed engine as the CRI `ImageService`'s port (ADR-0040 A5, R3h).
-/// Image records cross as the engine's `{id, user, repo_tags, size}` summary
-/// (`Image` stays in the adapter); the CRI proto mapping is `delonix-cri`'s.
-struct EngineImages(Engine);
+/// The composed engine behind the CRI server's ports (ADR-0040 A5, R3h): the
+/// `ImageService`'s image use cases and the RuntimeService's container-store use
+/// cases, served from one mounted [`Engine`]. Image records cross as the engine's
+/// `{id, user, repo_tags, size}` summary (`Image` stays in the adapter); container
+/// records cross as [`delonix_compute::Container`]. The CRI proto mappings are
+/// `delonix-cri`'s. Wrapped once in an `Arc` and handed in as both ports.
+struct EnginePorts(Engine);
 
-impl delonix_cri::ImageOps for EngineImages {
+impl delonix_cri::ImageOps for EnginePorts {
     fn list_images(&self) -> Result<Vec<serde_json::Value>, EngineError> {
         self.0.images().image_summaries().map(|v| match v {
             serde_json::Value::Array(a) => a,
@@ -46,6 +50,24 @@ impl delonix_cri::ImageOps for EngineImages {
     }
     fn image_fs_used_bytes(&self) -> u64 {
         self.0.images().image_fs_used_bytes()
+    }
+}
+
+impl delonix_cri::ContainerOps for EnginePorts {
+    fn list(&self) -> Result<Vec<delonix_compute::Container>, EngineError> {
+        self.0.containers().list()
+    }
+    fn load(&self, id_or_name: &str) -> Result<delonix_compute::Container, EngineError> {
+        self.0.containers().load(id_or_name)
+    }
+    fn update(
+        &self,
+        id_or_name: &str,
+        f: &mut dyn FnMut(&mut delonix_compute::Container) -> bool,
+    ) -> Result<delonix_compute::Container, EngineError> {
+        // The port's `&mut dyn FnMut` forwards to the engine's generic `update`,
+        // which runs it under the store's exclusive `flock` (safe read-modify-write).
+        self.0.containers().update(id_or_name, |c| f(c))
     }
 }
 
@@ -124,15 +146,18 @@ fn main() {
         Err(e) => fail(&e),
     };
 
-    // The bin mounts the composed engine and hands the server its image port.
+    // The bin mounts the composed engine ONCE and hands the server both ports:
+    // the same `Arc` is the image port and the container port (R3h).
     let engine = match Engine::mount(base.clone()) {
         Ok(e) => e,
         Err(e) => fail(&format!("mount engine: {e}")),
     };
-    let images: Arc<dyn delonix_cri::ImageOps> = Arc::new(EngineImages(engine));
+    let ports = Arc::new(EnginePorts(engine));
+    let images: Arc<dyn delonix_cri::ImageOps> = ports.clone();
+    let containers: Arc<dyn delonix_cri::ContainerOps> = ports;
 
     tracing::info!(%addr, root = %base.display(), "delonix-cri starting");
-    if let Err(e) = delonix_cri::serve_blocking(base, images, &addr, ceiling) {
+    if let Err(e) = delonix_cri::serve_blocking(base, images, containers, &addr, ceiling) {
         exit_with(1, &e.to_string());
     }
 }

@@ -10,6 +10,12 @@ use crate::{RUNTIME_NAME, RUNTIME_VERSION};
 
 pub struct DelonixRuntime {
     pub base: PathBuf,
+    /// The container store, reached through the engine's port (R3h) — the
+    /// interface no longer opens `delonix-state` itself. Every lifecycle free
+    /// function that reads or reconciles a record takes `&dyn ContainerOps`
+    /// handed down from here (and from the [`Streamer`](crate::streaming::Streamer),
+    /// which owns a clone of the same `Arc` for its port-forward path).
+    pub containers: std::sync::Arc<dyn crate::ContainerOps>,
     pub streamer: crate::streaming::Streamer,
     /// Node-level upper bound on container capabilities (see [`crate::cap_ceiling`]).
     /// Carried on the service, not read from the environment where it is needed:
@@ -21,11 +27,13 @@ pub struct DelonixRuntime {
 impl DelonixRuntime {
     pub fn new(
         base: PathBuf,
+        containers: std::sync::Arc<dyn crate::ContainerOps>,
         streamer: crate::streaming::Streamer,
         cap_ceiling: crate::CapCeiling,
     ) -> Self {
         Self {
             base,
+            containers,
             streamer,
             cap_ceiling,
         }
@@ -158,7 +166,7 @@ impl RuntimeService for DelonixRuntime {
             // usa — mesma regra, um só dono. Se a lista de containers não puder
             // ser lida, usa-se o `refcount` cru: é o comportamento anterior, e
             // um erro de leitura não pode passar por "não há workloads".
-            let vivos = live_attached_refs(&self.base).unwrap_or(st.refcount);
+            let vivos = live_attached_refs(&self.base, self.containers.as_ref()).unwrap_or(st.refcount);
             if network_ready_rootless(st.up, vivos) {
                 cond("NetworkReady", true, "", "")
             } else {
@@ -235,7 +243,8 @@ impl RuntimeService for DelonixRuntime {
         r: Request<StopPodSandboxRequest>,
     ) -> Result<Response<StopPodSandboxResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().pod_sandbox_id);
-        blocking(move || lifecycle::stop_pod_sandbox(&base, id)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::stop_pod_sandbox(&base, ops.as_ref(), id)).await
     }
     #[tracing::instrument(name = "cri.remove_pod_sandbox", skip_all, fields(
         pod = %r.get_ref().pod_sandbox_id,
@@ -245,7 +254,8 @@ impl RuntimeService for DelonixRuntime {
         r: Request<RemovePodSandboxRequest>,
     ) -> Result<Response<RemovePodSandboxResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().pod_sandbox_id);
-        blocking(move || lifecycle::remove_pod_sandbox(&base, id)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::remove_pod_sandbox(&base, ops.as_ref(), id)).await
     }
     #[tracing::instrument(name = "cri.pod_sandbox_status", skip_all, fields(
         pod = %r.get_ref().pod_sandbox_id,
@@ -255,7 +265,8 @@ impl RuntimeService for DelonixRuntime {
         r: Request<PodSandboxStatusRequest>,
     ) -> Result<Response<PodSandboxStatusResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().pod_sandbox_id);
-        blocking(move || lifecycle::pod_sandbox_status(&base, id)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::pod_sandbox_status(&base, ops.as_ref(), id)).await
     }
     #[tracing::instrument(name = "cri.list_pod_sandbox", skip_all)]
     async fn list_pod_sandbox(
@@ -286,7 +297,8 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<StartContainerResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().container_id);
         let ceiling = self.cap_ceiling;
-        blocking(move || lifecycle::start_container(&base, id, ceiling)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::start_container(&base, ops.as_ref(), id, ceiling)).await
     }
     #[tracing::instrument(name = "cri.stop_container", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -298,7 +310,8 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<StopContainerResponse>, Status> {
         let req = r.into_inner();
         let (base, id, timeout) = (self.base.clone(), req.container_id, req.timeout);
-        blocking(move || lifecycle::stop_container(&base, id, timeout)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::stop_container(&base, ops.as_ref(), id, timeout)).await
     }
     #[tracing::instrument(name = "cri.remove_container", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -308,7 +321,8 @@ impl RuntimeService for DelonixRuntime {
         r: Request<RemoveContainerRequest>,
     ) -> Result<Response<RemoveContainerResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().container_id);
-        blocking(move || lifecycle::remove_container(&base, id)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::remove_container(&base, ops.as_ref(), id)).await
     }
     #[tracing::instrument(name = "cri.list_containers", skip_all)]
     async fn list_containers(
@@ -316,7 +330,8 @@ impl RuntimeService for DelonixRuntime {
         r: Request<ListContainersRequest>,
     ) -> Result<Response<ListContainersResponse>, Status> {
         let (base, filter) = (self.base.clone(), r.into_inner().filter);
-        blocking(move || lifecycle::list_containers(&base, filter)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::list_containers(&base, ops.as_ref(), filter)).await
     }
     #[tracing::instrument(name = "cri.container_status", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -327,7 +342,8 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<ContainerStatusResponse>, Status> {
         let req = r.into_inner();
         let (base, id, verbose) = (self.base.clone(), req.container_id, req.verbose);
-        blocking(move || lifecycle::container_status(&base, id, verbose)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::container_status(&base, ops.as_ref(), id, verbose)).await
     }
 
     async fn update_container_resources(
@@ -335,7 +351,8 @@ impl RuntimeService for DelonixRuntime {
         r: Request<UpdateContainerResourcesRequest>,
     ) -> Result<Response<UpdateContainerResourcesResponse>, Status> {
         let base = self.base.clone();
-        blocking(move || lifecycle::update_container_resources(&base, r.into_inner())).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::update_container_resources(&base, ops.as_ref(), r.into_inner())).await
     }
 
     async fn reopen_container_log(
@@ -421,28 +438,32 @@ impl RuntimeService for DelonixRuntime {
         r: Request<ContainerStatsRequest>,
     ) -> Result<Response<ContainerStatsResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().container_id);
-        blocking(move || lifecycle::container_stats(&base, id)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::container_stats(&base, ops.as_ref(), id)).await
     }
     async fn list_container_stats(
         &self,
         r: Request<ListContainerStatsRequest>,
     ) -> Result<Response<ListContainerStatsResponse>, Status> {
         let (base, filter) = (self.base.clone(), r.into_inner().filter);
-        blocking(move || lifecycle::list_container_stats(&base, filter)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::list_container_stats(&base, ops.as_ref(), filter)).await
     }
     async fn pod_sandbox_stats(
         &self,
         r: Request<PodSandboxStatsRequest>,
     ) -> Result<Response<PodSandboxStatsResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().pod_sandbox_id);
-        blocking(move || lifecycle::pod_sandbox_stats(&base, id)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::pod_sandbox_stats(&base, ops.as_ref(), id)).await
     }
     async fn list_pod_sandbox_stats(
         &self,
         r: Request<ListPodSandboxStatsRequest>,
     ) -> Result<Response<ListPodSandboxStatsResponse>, Status> {
         let (base, filter) = (self.base.clone(), r.into_inner().filter);
-        blocking(move || lifecycle::list_pod_sandbox_stats(&base, filter)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::list_pod_sandbox_stats(&base, ops.as_ref(), filter)).await
     }
     /// The kubelet hands the runtime the cluster's pod CIDR once, at startup.
     ///
@@ -518,7 +539,8 @@ impl RuntimeService for DelonixRuntime {
         _r: Request<ListPodSandboxMetricsRequest>,
     ) -> Result<Response<ListPodSandboxMetricsResponse>, Status> {
         let base = self.base.clone();
-        blocking(move || lifecycle::list_pod_sandbox_metrics(&base)).await
+        let ops = self.containers.clone();
+        blocking(move || lifecycle::list_pod_sandbox_metrics(&base, ops.as_ref())).await
     }
     async fn runtime_config(
         &self,
@@ -587,7 +609,7 @@ fn network_ready_rootless(up: bool, refcount: i64) -> bool {
 /// leitura como "zero workloads" seria a armadilha que este repo já catalogou
 /// (um `read_dir` que falha não é um directório vazio), e aqui declararia o nó
 /// saudável precisamente quando não se sabe nada.
-fn live_attached_refs(base: &std::path::Path) -> Option<i64> {
+fn live_attached_refs(base: &std::path::Path, ops: &dyn crate::ContainerOps) -> Option<i64> {
     // Os marcadores vêm do MESMO root que o store de containers — o `base` deste
     // serviço. A primeira versão usava o `attached_refs()` sem argumento, que
     // resolve o root do AMBIENTE: num servidor normal coincidem, mas com um
@@ -603,8 +625,12 @@ fn live_attached_refs(base: &std::path::Path) -> Option<i64> {
     if attached.is_empty() {
         return Some(0);
     }
-    let store = delonix_state::Store::open(base).ok()?;
-    let live: std::collections::HashSet<String> = store
+    // The container store through the engine's port (R3h): `ops.list()` reads
+    // `<base>/containers`, the SAME root the ref markers live under — closing the
+    // gap the free-standing `Store::open(base)` here opened (it read `<base>`, the
+    // parent of the store, so it counted nothing). The markers still come from
+    // `attached_refs_in(base)`; only the store read moved behind the port.
+    let live: std::collections::HashSet<String> = ops
         .list()
         .ok()?
         .into_iter()
@@ -646,14 +672,18 @@ mod tests {
         let st = delonix_sdn::infra::status();
         let base_dir = tempfile::tempdir().unwrap();
         let base = base_dir.path().to_path_buf();
-        let streamer = crate::streaming::Streamer::new(base.clone(), "127.0.0.1:0".to_string());
-        let svc = DelonixRuntime::new(base.clone(), streamer, crate::CapCeiling::unlimited());
+        let ops: std::sync::Arc<dyn crate::ContainerOps> =
+            std::sync::Arc::new(crate::test_ops::StoreOps::new(base.clone()));
+        let streamer =
+            crate::streaming::Streamer::new(base.clone(), ops.clone(), "127.0.0.1:0".to_string());
+        let svc =
+            DelonixRuntime::new(base.clone(), ops.clone(), streamer, crate::CapCeiling::unlimited());
 
         // Pela MESMA regra e com o MESMO root que o serviço usa: refs VIVOS do
         // `base` deste serviço, não marcadores em disco nem um root do ambiente.
         // Com o `refcount` cru aqui, o teste chumbaria em qualquer host com
         // fantasmas — seria o teste a codificar o defeito que a mudança fecha.
-        let vivos = live_attached_refs(&base).unwrap_or(st.refcount);
+        let vivos = live_attached_refs(&base, ops.as_ref()).unwrap_or(st.refcount);
         let esperado = network_ready_rootless(st.up, vivos);
 
         let resp = svc
@@ -757,9 +787,12 @@ mod tests_runtime_config {
     #[tokio::test]
     async fn the_kubelet_is_told_cgroupfs() {
         let base = std::env::temp_dir();
+        let ops: std::sync::Arc<dyn crate::ContainerOps> =
+            std::sync::Arc::new(crate::test_ops::StoreOps::new(base.clone()));
         let rt = super::DelonixRuntime::new(
             base.clone(),
-            crate::streaming::Streamer::new(base, "http://127.0.0.1:0".into()),
+            ops.clone(),
+            crate::streaming::Streamer::new(base, ops, "http://127.0.0.1:0".into()),
             crate::CapCeiling::unlimited(),
         );
         let resp = rt

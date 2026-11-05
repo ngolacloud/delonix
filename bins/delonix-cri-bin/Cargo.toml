@@ -20,6 +20,8 @@ delonix-telemetry = { workspace = true }
 # The bin composes the engine and hands the CRI server its image use cases.
 delonix-engine = { workspace = true }
 delonix-model = { workspace = true }
+# Container records cross the CRI's container port as this type (R3h).
+delonix-compute = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 
