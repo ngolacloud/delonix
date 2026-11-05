@@ -99,6 +99,40 @@ impl delonix_mgmt::EngineOps for EnginePorts {
     fn forget_published_port(&self, ip: Option<&str>, spec_or_port: &str) -> Result<(), EngineError> {
         self.0.containers().forget_published_port(ip, spec_or_port)
     }
+
+    fn dhcp_ip(&self, net: &str, mac: &str) -> Option<String> {
+        self.0.networks().dhcp_ip_for_mac(net, mac)
+    }
+    fn dhcp_ip6(&self, net: &str, mac: &str) -> Option<String> {
+        self.0.networks().dhcp_ip6_for_mac(net, mac)
+    }
+    fn container_ip(&self, id: &str) -> String {
+        self.0.networks().container_ip(id)
+    }
+    fn network_list(&self) -> Value {
+        serde_json::to_value(self.0.networks().network_list()).unwrap_or(Value::Null)
+    }
+    fn network_get(&self, name: &str) -> Option<Value> {
+        self.0
+            .networks()
+            .network_get(name)
+            .map(|d| serde_json::to_value(d).unwrap_or(Value::Null))
+    }
+    fn network_status(&self) -> Value {
+        serde_json::to_value(self.0.networks().status()).unwrap_or(Value::Null)
+    }
+    fn valid_container_ip(&self, ip: &str) -> bool {
+        self.0.networks().valid_container_ip(ip)
+    }
+    fn set_net_rate(&self, id: &str, rate_bit: u64, burst_bytes: u64) -> Result<(), EngineError> {
+        self.0.networks().set_net_rate(id, rate_bit, burst_bytes)
+    }
+    fn publish_port(&self, container_ip: &str, spec: &str) -> Result<(), EngineError> {
+        self.0.networks().publish_port(container_ip, spec)
+    }
+    fn unpublish_port(&self, host_port: &str) {
+        self.0.networks().unpublish_port(host_port)
+    }
 }
 
 /// The `--version` line: binary name and the crate version, nothing else.

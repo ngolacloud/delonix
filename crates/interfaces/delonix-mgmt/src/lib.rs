@@ -108,6 +108,28 @@ pub trait EngineOps: Send + Sync {
     fn record_published_port(&self, ip: &str, spec: &str) -> Result<(), Error>;
     /// Drop a publication from whichever record claims it.
     fn forget_published_port(&self, ip: Option<&str>, spec_or_port: &str) -> Result<(), Error>;
+
+    // --- network (delonix-sdn, R3f-E) ---
+    /// The IPv4 a MAC was leased on a network, or `None`.
+    fn dhcp_ip(&self, net: &str, mac: &str) -> Option<String>;
+    /// The IPv6 equivalent.
+    fn dhcp_ip6(&self, net: &str, mac: &str) -> Option<String>;
+    /// The IP a container has on the default network.
+    fn container_ip(&self, id: &str) -> String;
+    /// Every declared network, serialized (`NetDef` is the adapter's type).
+    fn network_list(&self) -> serde_json::Value;
+    /// One declared network by name, serialized, or `None`.
+    fn network_get(&self, name: &str) -> Option<serde_json::Value>;
+    /// The realized SDN infra status, serialized.
+    fn network_status(&self) -> serde_json::Value;
+    /// Whether `ip` is a valid container IP (the publish-port input guard).
+    fn valid_container_ip(&self, ip: &str) -> bool;
+    /// Rate-limit a running container's bandwidth.
+    fn set_net_rate(&self, id: &str, rate_bit: u64, burst_bytes: u64) -> Result<(), Error>;
+    /// Publish a container port through the ingress.
+    fn publish_port(&self, container_ip: &str, spec: &str) -> Result<(), Error>;
+    /// Withdraw a published host port (best-effort).
+    fn unpublish_port(&self, host_port: &str);
 }
 
 /// Starts the management API listening on a unix socket (blocking). `addr` accepts
@@ -1029,12 +1051,12 @@ struct NetworkBody {
 ///
 /// `None` → 404: a rede não existe. Não é o mesmo que «a VM ainda não arrancou»,
 /// e por isso não se responde 200 com corpo vazio.
-async fn dhcp_ip(Path((net, mac)): Path<(String, String)>) -> Response {
+async fn dhcp_ip(State(s): State<AppState>, Path((net, mac)): Path<(String, String)>) -> Response {
     if !valid_arg(&net) || !valid_mac(&mac) {
         return err_response(Error::Invalid("invalid network or MAC".to_string()));
     }
-    match tokio::task::spawn_blocking(move || delonix_sdn::infra::dhcp_ip_for_mac(&net, &mac)).await
-    {
+    let engine = s.engine.clone();
+    match tokio::task::spawn_blocking(move || engine.dhcp_ip(&net, &mac)).await {
         Ok(Some(ip)) => Json(serde_json::json!({ "ip": ip })).into_response(),
         Ok(None) => err_response(Error::NotFound("network".to_string())),
         Err(e) => err_response(Error::Runtime {
@@ -1049,13 +1071,12 @@ async fn dhcp_ip(Path((net, mac)): Path<(String, String)>) -> Response {
 /// Rota própria e não um campo na de cima: o v6 está DESLIGADO por decisão de
 /// segurança neste motor, e quem o pede tem de o pedir. Um campo opcional numa
 /// resposta partilhada faria parecer que vem de graça.
-async fn dhcp_ip6(Path((net, mac)): Path<(String, String)>) -> Response {
+async fn dhcp_ip6(State(s): State<AppState>, Path((net, mac)): Path<(String, String)>) -> Response {
     if !valid_arg(&net) || !valid_mac(&mac) {
         return err_response(Error::Invalid("invalid network or MAC".to_string()));
     }
-    match tokio::task::spawn_blocking(move || delonix_sdn::infra::dhcp_ip6_for_mac(&net, &mac))
-        .await
-    {
+    let engine = s.engine.clone();
+    match tokio::task::spawn_blocking(move || engine.dhcp_ip6(&net, &mac)).await {
         Ok(Some(ip)) => Json(serde_json::json!({ "ip": ip })).into_response(),
         Ok(None) => err_response(Error::NotFound("ipv6 lease".to_string())),
         Err(e) => err_response(Error::Runtime {
@@ -1071,11 +1092,12 @@ async fn dhcp_ip6(Path((net, mac)): Path<(String, String)>) -> Response {
 /// publicar um porto ou de escrever uma regra, e fazê-la por HTTP evita que ele
 /// reimplemente a fórmula — que teria de dar exactamente o mesmo resultado que
 /// esta, sempre.
-async fn container_ip(Path(id): Path<String>) -> Response {
+async fn container_ip(State(s): State<AppState>, Path(id): Path<String>) -> Response {
     if !valid_arg(&id) {
         return err_response(Error::Invalid("invalid container id".to_string()));
     }
-    match tokio::task::spawn_blocking(move || delonix_sdn::infra::container_ip(&id)).await {
+    let engine = s.engine.clone();
+    match tokio::task::spawn_blocking(move || engine.container_ip(&id)).await {
         Ok(ip) => Json(serde_json::json!({ "ip": ip })).into_response(),
         Err(e) => err_response(Error::Runtime {
             context: "join",
@@ -1145,21 +1167,18 @@ struct RateBody {
 /// Sob `/v1/containers` e não sob `/v1/net`: quem o lê está a mudar uma
 /// propriedade DAQUELE workload, e é lá que a vai procurar. O mecanismo é de
 /// rede; o recurso não é.
-async fn set_net_rate(Path(id): Path<String>, Json(b): Json<RateBody>) -> Response {
+async fn set_net_rate(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(b): Json<RateBody>,
+) -> Response {
     if !valid_arg(&id) {
         return err_response(Error::Invalid("invalid container id".to_string()));
     }
-    let r = tokio::task::spawn_blocking(move || {
-        delonix_sdn::infra::set_net_rate(&id, b.rate_bit, b.burst_bytes)
-    })
-    .await;
-    match r {
-        Ok(Ok(())) => Json(serde_json::json!({ "ok": true })).into_response(),
-        Ok(Err(e)) => err_response(e.into()),
-        Err(e) => err_response(Error::Runtime {
-            context: "join",
-            message: e.to_string(),
-        }),
+    let engine = s.engine.clone();
+    match blocking(move || engine.set_net_rate(&id, b.rate_bit, b.burst_bytes)).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(e) => err_response(e),
     }
 }
 
@@ -1180,7 +1199,7 @@ struct PublishBody {
 /// O `container_ip` é validado antes de chegar ao mecanismo: é o que acaba numa
 /// regra de DNAT, e uma string arbitrária ali é uma regra arbitrária.
 async fn publish_port(State(s): State<AppState>, Json(b): Json<PublishBody>) -> Response {
-    if delonix_sdn::Cidr::parse_addr(&b.container_ip).is_none() {
+    if !s.engine.valid_container_ip(&b.container_ip) {
         return err_response(Error::Invalid(format!(
             "invalid container IP: '{}'",
             b.container_ip
@@ -1212,17 +1231,15 @@ async fn publish_port(State(s): State<AppState>, Json(b): Json<PublishBody>) -> 
     if let Err(e) = record_published_port(s.engine.clone(), ip.clone(), spec.clone()).await {
         return err_response(e);
     }
-    let r = tokio::task::spawn_blocking(move || {
-        delonix_sdn::infra::publish_port(&b.container_ip, &b.spec)
-    })
-    .await;
+    let engine = s.engine.clone();
+    let r = tokio::task::spawn_blocking(move || engine.publish_port(&b.container_ip, &b.spec)).await;
     match r {
         Ok(Ok(())) => Json(serde_json::json!({ "ok": true })).into_response(),
         Ok(Err(e)) => {
             // The publication failed, so the record must not keep claiming it —
             // otherwise the next start would replay a port the operator never got.
             let _ = forget_published_port(s.engine.clone(), Some(ip), spec).await;
-            err_response(e.into())
+            err_response(e)
         }
         Err(e) => err_response(Error::Runtime {
             context: "join",
@@ -1273,8 +1290,8 @@ async fn unpublish_port(State(s): State<AppState>, Path(host_port): Path<String>
     // Mirror of the publish path: drop the desired state too, or the next start
     // would faithfully republish a port the operator has just asked to remove.
     let _ = forget_published_port(s.engine.clone(), None, host_port.clone()).await;
-    let r =
-        tokio::task::spawn_blocking(move || delonix_sdn::infra::unpublish_port(&host_port)).await;
+    let engine = s.engine.clone();
+    let r = tokio::task::spawn_blocking(move || engine.unpublish_port(&host_port)).await;
     match r {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
         Err(e) => err_response(Error::Runtime {
@@ -1293,8 +1310,9 @@ async fn unpublish_port(State(s): State<AppState>, Path(host_port): Path<String>
 /// `network create`, mas a bridge só nasce no netns do holder ao primeiro
 /// attach — ver `/v1/net/status` para saber o que está de pé. A distinção é do
 /// modelo, não desta rota, e esconde-la aqui seria fazer a API mentir sobre ela.
-async fn list_networks() -> Response {
-    match tokio::task::spawn_blocking(delonix_sdn::infra::network_list).await {
+async fn list_networks(State(s): State<AppState>) -> Response {
+    let engine = s.engine.clone();
+    match tokio::task::spawn_blocking(move || engine.network_list()).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => err_response(Error::Runtime {
             context: "join",
@@ -1308,11 +1326,12 @@ async fn list_networks() -> Response {
 /// O 404 é a resposta certa e não um detalhe: quem chama isto está a decidir se
 /// cria a rede ou se a reutiliza, e um corpo vazio com 200 fá-lo-ia criar por
 /// cima de uma rede que existe.
-async fn get_network(Path(name): Path<String>) -> Response {
+async fn get_network(State(s): State<AppState>, Path(name): Path<String>) -> Response {
     if !valid_arg(&name) {
         return err_response(Error::Invalid("invalid network name".to_string()));
     }
-    let achada = tokio::task::spawn_blocking(move || delonix_sdn::infra::network_get(&name)).await;
+    let engine = s.engine.clone();
+    let achada = tokio::task::spawn_blocking(move || engine.network_get(&name)).await;
     match achada {
         Ok(Some(def)) => Json(def).into_response(),
         Ok(None) => err_response(Error::NotFound("network".to_string())),
@@ -1328,8 +1347,9 @@ async fn get_network(Path(name): Path<String>) -> Response {
 /// A contraparte do `list_networks`: aquele diz o que está declarado, este diz
 /// o que está de pé (holder, slirp, bridge, ref-count). Um cliente que só leia o
 /// primeiro conclui que a rede existe quando ainda não existe.
-async fn net_status() -> Response {
-    match tokio::task::spawn_blocking(delonix_sdn::infra::status).await {
+async fn net_status(State(s): State<AppState>) -> Response {
+    let engine = s.engine.clone();
+    match tokio::task::spawn_blocking(move || engine.network_status()).await {
         Ok(st) => Json(st).into_response(),
         Err(e) => err_response(Error::Runtime {
             context: "join",
@@ -1583,6 +1603,40 @@ mod tests {
             spec_or_port: &str,
         ) -> Result<(), Error> {
             self.0.containers().forget_published_port(ip, spec_or_port)
+        }
+        fn dhcp_ip(&self, net: &str, mac: &str) -> Option<String> {
+            self.0.networks().dhcp_ip_for_mac(net, mac)
+        }
+        fn dhcp_ip6(&self, net: &str, mac: &str) -> Option<String> {
+            self.0.networks().dhcp_ip6_for_mac(net, mac)
+        }
+        fn container_ip(&self, id: &str) -> String {
+            self.0.networks().container_ip(id)
+        }
+        fn network_list(&self) -> serde_json::Value {
+            serde_json::to_value(self.0.networks().network_list())
+                .unwrap_or(serde_json::Value::Null)
+        }
+        fn network_get(&self, name: &str) -> Option<serde_json::Value> {
+            self.0
+                .networks()
+                .network_get(name)
+                .map(|d| serde_json::to_value(d).unwrap_or(serde_json::Value::Null))
+        }
+        fn network_status(&self) -> serde_json::Value {
+            serde_json::to_value(self.0.networks().status()).unwrap_or(serde_json::Value::Null)
+        }
+        fn valid_container_ip(&self, ip: &str) -> bool {
+            self.0.networks().valid_container_ip(ip)
+        }
+        fn set_net_rate(&self, id: &str, rate_bit: u64, burst_bytes: u64) -> Result<(), Error> {
+            self.0.networks().set_net_rate(id, rate_bit, burst_bytes)
+        }
+        fn publish_port(&self, container_ip: &str, spec: &str) -> Result<(), Error> {
+            self.0.networks().publish_port(container_ip, spec)
+        }
+        fn unpublish_port(&self, host_port: &str) {
+            self.0.networks().unpublish_port(host_port)
         }
     }
 
