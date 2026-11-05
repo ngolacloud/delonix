@@ -54,7 +54,7 @@ async fn virtual_machine_service_answers_over_grpc_without_touching_any_state() 
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store());
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store(), common::backing_resolver());
     });
     wait_for(&sock).await;
 
@@ -311,7 +311,7 @@ async fn console_is_not_served_yet() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store());
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store(), common::backing_resolver());
     });
     wait_for(&sock).await;
     let channel = tonic::transport::Endpoint::try_from("http://[::]:50051")

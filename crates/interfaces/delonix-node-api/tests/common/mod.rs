@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use delonix_node_api::{StorePort, VmPort};
+use delonix_node_api::{RunResolver, StorePort, VmPort};
 
 /// A [`VmPort`] over the `delonix-vm` adapter at a state root — the tests'
 /// stand-in for the engine the bin composes.
@@ -36,6 +36,74 @@ pub struct AdapterStore(pub PathBuf);
 /// `Arc` for `serve_blocking`.
 pub fn backing_store() -> Arc<dyn StorePort> {
     Arc::new(AdapterStore(delonix_node_api::node::state_root()))
+}
+
+/// A [`RunResolver`] over the real host adapters at a state root (R3d-e) — the
+/// tests' stand-in for the engine-composed resolver the bin injects, mirroring
+/// `delonix-node-api-bin`'s `HostResolver`. Production reaches the create
+/// resolution only through this port; the node-api crate itself names no OCI/
+/// volume/linux adapter on the create path, so this lives in the test harness
+/// over the crate's own deps, exactly as [`AdapterVms`]/[`AdapterStore`] do.
+pub struct AdapterResolver(pub PathBuf);
+
+/// The adapter-backed create resolver over this host's real state root, as an
+/// `Arc` for `serve_blocking`.
+pub fn backing_resolver() -> Arc<dyn RunResolver> {
+    Arc::new(AdapterResolver(delonix_node_api::node::state_root()))
+}
+
+impl RunResolver for AdapterResolver {
+    fn resolve_run(
+        &self,
+        root: &std::path::Path,
+        o: &delonix_compute::RunOpts,
+        id: String,
+        name: String,
+        namespace: String,
+    ) -> Result<delonix_compute::run::Resolved, delonix_model::Error> {
+        use delonix_oci::rootfs_user::UserLookupError;
+        let images = delonix_oci::ImageStore::open(&self.0)?;
+        let announce_pull = |_r: &str| {};
+        let unpacking =
+            |prepare: &mut dyn FnMut() -> delonix_model::Result<std::path::PathBuf>| prepare();
+        let user_error = |e: UserLookupError| {
+            delonix_model::Error::Invalid(match e {
+                UserLookupError::EmptyUser => "spec.user: empty user".to_string(),
+                UserLookupError::NoSuchUser(u) => {
+                    format!("spec.user: user '{u}' does not exist in the image (/etc/passwd)")
+                }
+                UserLookupError::NoSuchGroup(g) => {
+                    format!("spec.user: group '{g}' does not exist in the image (/etc/group)")
+                }
+            })
+        };
+        let apparmor_disabled = |p: &str| {
+            delonix_linux::Error::ApparmorUnavailable(format!(
+                "spec.security.apparmor_profile '{p}': this host has no AppArmor to apply it"
+            ))
+        };
+        delonix_compute::run::resolve_run(
+            o,
+            id,
+            name,
+            namespace,
+            false,
+            &delonix_oci::run_images::HostImages {
+                store: &images,
+                announce_pull: &announce_pull,
+                unpacking: &unpacking,
+                user_error: &user_error,
+            },
+            &delonix_volume::HostVolumes {
+                root: root.to_path_buf(),
+            },
+            &delonix_linux::cdi::HostDevices,
+            &delonix_linux::run_host::HostRuntime {
+                state_root: root.to_path_buf(),
+                apparmor_disabled: &apparmor_disabled,
+            },
+        )
+    }
 }
 
 impl StorePort for AdapterStore {

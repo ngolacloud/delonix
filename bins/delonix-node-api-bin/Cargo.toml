@@ -24,6 +24,13 @@ delonix-compute = { workspace = true }
 # directly (a bin may name an adapter, ADR-0040 A1), so the interface no longer
 # opens the record store itself.
 delonix-state = { workspace = true }
+# R3d-e — bin composes the container-create host adapters behind RunResolver.
+delonix-oci = { workspace = true }
+delonix-volume = { workspace = true }
+delonix-linux = { workspace = true }
+# R3d-e — bin installs the SDN VM-network + linux process-leaves providers into
+# the shared vm_registry.
+delonix-sdn = { workspace = true }
 delonix-telemetry = { workspace = true }
 
 [dev-dependencies]

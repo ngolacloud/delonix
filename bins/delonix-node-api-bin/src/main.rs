@@ -14,7 +14,7 @@ use std::sync::Arc;
 use delonix_compute::Vm;
 use delonix_engine::Engine;
 use delonix_model::Error;
-use delonix_node_api::{activation, Listen, StorePort, VmPort};
+use delonix_node_api::{activation, Listen, RunResolver, StorePort, VmPort};
 
 /// The composition's VM reads, handed to the node API as its `VmPort` port
 /// (ADR-0040 A5). The bin is the one place that names `delonix-engine`: it mounts
@@ -180,6 +180,71 @@ impl StorePort for StateStore {
     }
 }
 
+/// The composition's container-create resolver, handed to the node API as its
+/// `RunResolver` port (ADR-0040 A5, R3d-e). The bin composes the four host
+/// adapters a `CreateContainer` resolution needs — the OCI image store, the
+/// volume root, the CDI device view and the Linux runtime — so the
+/// `delonix-node-api` interface no longer names them. Rooted at the node's state
+/// root; it opens the OCI image store itself, exactly as the interface's create
+/// handler did before the port existed. The host adapters' errors map to the
+/// shared engine error the interface speaks.
+struct HostResolver(std::path::PathBuf);
+
+impl RunResolver for HostResolver {
+    fn resolve_run(
+        &self,
+        root: &std::path::Path,
+        o: &delonix_compute::RunOpts,
+        id: String,
+        name: String,
+        namespace: String,
+    ) -> Result<delonix_compute::run::Resolved, Error> {
+        use delonix_oci::rootfs_user::UserLookupError;
+        let images = delonix_oci::ImageStore::open(&self.0)?;
+        let announce_pull = |_r: &str| {};
+        // No progress line: run the unpacking straight through.
+        let unpacking =
+            |prepare: &mut dyn FnMut() -> delonix_model::Result<std::path::PathBuf>| prepare();
+        let user_error = |e: UserLookupError| {
+            delonix_model::Error::Invalid(match e {
+                UserLookupError::EmptyUser => "spec.user: empty user".to_string(),
+                UserLookupError::NoSuchUser(u) => {
+                    format!("spec.user: user '{u}' does not exist in the image (/etc/passwd)")
+                }
+                UserLookupError::NoSuchGroup(g) => {
+                    format!("spec.user: group '{g}' does not exist in the image (/etc/group)")
+                }
+            })
+        };
+        let apparmor_disabled = |p: &str| {
+            delonix_linux::Error::ApparmorUnavailable(format!(
+                "spec.security.apparmor_profile '{p}': this host has no AppArmor to apply it"
+            ))
+        };
+        delonix_compute::run::resolve_run(
+            o,
+            id,
+            name,
+            namespace,
+            false,
+            &delonix_oci::run_images::HostImages {
+                store: &images,
+                announce_pull: &announce_pull,
+                unpacking: &unpacking,
+                user_error: &user_error,
+            },
+            &delonix_volume::HostVolumes {
+                root: root.to_path_buf(),
+            },
+            &delonix_linux::cdi::HostDevices,
+            &delonix_linux::run_host::HostRuntime {
+                state_root: root.to_path_buf(),
+                apparmor_disabled: &apparmor_disabled,
+            },
+        )
+    }
+}
+
 /// The `--version` line: binary name and the crate version, nothing else.
 fn version_line() -> String {
     format!("delonix-node-api {}", env!("CARGO_PKG_VERSION"))
@@ -288,9 +353,20 @@ fn run() -> Result<(), Error> {
     // path resolves off the engine; the write half of the VM lifecycle still
     // reaches `delonix-vm` inside the interface until a later slice moves it.
     let store: Arc<dyn StorePort> = Arc::new(StateStore(root.clone()));
+    // The container-create host adapters, composed behind the `RunResolver` port
+    // (R3d-e) so the interface no longer names them.
+    let run_resolver: Arc<dyn RunResolver> = Arc::new(HostResolver(root.clone()));
+    // R3d-e: the bin installs the SDN VM-network + linux process-leaves providers
+    // into the shared `vm_registry` (moved out of the interface's `compose()`),
+    // the same registrations the CLI's `main` makes — without them a networked
+    // `CreateVirtualMachine` on Cloud Hypervisor is refused.
+    delonix_compute::vm_registry::set_network(Box::new(delonix_sdn::vm_network::HostVmNetwork {
+        state_root: root.clone(),
+    }));
+    delonix_compute::vm_registry::set_process_leaves(Box::new(delonix_linux::HostProcessLeaves));
     let engine = Engine::mount(root)?;
     let vms: Arc<dyn VmPort> = Arc::new(EngineVms(engine));
-    delonix_node_api::serve(listen, idle, vms, store)
+    delonix_node_api::serve(listen, idle, vms, store, run_resolver)
 }
 
 fn main() -> ExitCode {

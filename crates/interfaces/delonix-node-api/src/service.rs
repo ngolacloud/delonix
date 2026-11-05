@@ -75,6 +75,7 @@ use crate::{node, providers};
 pub struct NodeApi {
     vms: Arc<dyn crate::vms::VmPort>,
     store: Arc<dyn crate::store::StorePort>,
+    run_resolver: Arc<dyn crate::run_resolver::RunResolver>,
 }
 
 /// Runs a host probe off the runtime's workers: every `NodeService` answer
@@ -855,11 +856,14 @@ impl ContainerService for NodeApi {
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let run_resolver = Arc::clone(&self.run_resolver);
         blocking("container create", move || {
-            let root = node::state_root();
-            let images = delonix_oci::ImageStore::open(&root)
-                .map_err(|e| crate::network_ops::status_of(&e.into()))?;
-            crate::container_launch::create_in(&root, store.as_ref(), &images, &req)
+            crate::container_launch::create_in(
+                &node::state_root(),
+                store.as_ref(),
+                run_resolver.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
@@ -1001,7 +1005,11 @@ pub fn router() -> axum::Router {
     // The convenience builder: a server with an empty VM port, for tests and any
     // caller that does not exercise the VM reads. Production mounts the engine
     // through [`router_with`] (see `serve`).
-    router_with(Arc::new(NoVms), Arc::new(crate::store::NoStore))
+    router_with(
+        Arc::new(NoVms),
+        Arc::new(crate::store::NoStore),
+        Arc::new(crate::run_resolver::NoResolver),
+    )
 }
 
 /// A [`crate::vms::VmPort`] with no VMs — the empty backing [`router`] hands the
@@ -1088,9 +1096,14 @@ impl crate::vms::VmPort for NoVms {
 pub fn router_with(
     vms: Arc<dyn crate::vms::VmPort>,
     store: Arc<dyn crate::store::StorePort>,
+    run_resolver: Arc<dyn crate::run_resolver::RunResolver>,
 ) -> axum::Router {
     use tonic::server::NamedService;
-    let api = NodeApi { vms, store };
+    let api = NodeApi {
+        vms,
+        store,
+        run_resolver,
+    };
     // The gRPC service is mounted the way tonic's own `Routes` mounts it — one
     // wildcard route under the service name. Not through `Routes::into_axum_router`,
     // whose fallback answers EVERY unknown path with HTTP 200 + `grpc-status: 12`:
