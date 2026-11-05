@@ -77,7 +77,7 @@ async fn a_pod_shares_a_named_volume_between_its_members_over_grpc() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store());
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store(), common::backing_resolver());
     });
     wait_for(&sock).await;
 

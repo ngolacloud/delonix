@@ -99,6 +99,7 @@ pub mod page;
 pub mod pod_ops;
 pub mod pods;
 pub mod providers;
+pub mod run_resolver;
 pub mod selector;
 mod service;
 pub mod stacks;
@@ -114,39 +115,24 @@ pub use service::{
     capacity, health, link_header, list_providers, node_info, openapi_document, router,
     router_with, NodeApi, OPENAPI_YAML,
 };
+pub use run_resolver::RunResolver;
 pub use store::StorePort;
 pub use vms::VmPort;
 
 /// The node API's composition root: the ports this process registers before it
 /// serves anything, once.
 ///
-/// Today two: the node's VM network ([`delonix_sdn::vm_network::HostVmNetwork`])
-/// and the cgroup leaf provider ([`delonix_linux::HostProcessLeaves`]), the same
-/// registrations the CLI's `main` makes. Without it a
-/// `CreateVirtualMachine` that names a network attachment on Cloud Hypervisor
-/// reached the backend and failed with «no VM network provider is registered
-/// in this process» (plan 68 item N3): `delonix-vm` seeds its own backends, but
-/// the network needs a state root, which only the composition root knows.
-/// Idempotent; the first registration in a process wins.
+/// The SHARED VM registry providers a networked Cloud Hypervisor create needs —
+/// the node's VM network and the cgroup leaf provider — are NOT installed here
+/// any more (R3d-e): they name the `delonix-sdn`/`delonix-linux` adapters, so
+/// `delonix-node-api-bin` installs them into `delonix_compute::vm_registry`
+/// before it serves, the same registrations the CLI's `main` makes. What stays
+/// here names no adapter: the Ceph storage-pool drivers (ADR-0081), through
+/// which `CreateVolume` with a `spec.provision` naming a `ceph-rbd`/`cephfs`
+/// pool allocates. Idempotent; the first registration in a process wins.
 pub fn compose() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        // These seed the SHARED VM registry (`delonix_compute::vm_registry`),
-        // which `delonix-vm` only re-exports — the interface sets them straight
-        // on the registry so it names no adapter in production. The VM backends
-        // themselves are seeded by the composed engine the first time a VM use
-        // case runs (the bin's engine-backed `VmPort`).
-        delonix_compute::vm_registry::set_network(Box::new(
-            delonix_sdn::vm_network::HostVmNetwork {
-                state_root: node::state_root(),
-            },
-        ));
-        // The cgroup leaf a Cloud Hypervisor VMM starts in, with the VM's
-        // ceilings — the same registration the CLI's `main` makes. Without it a
-        // `CreateVirtualMachine` on Cloud Hypervisor is refused (DX-6515).
-        delonix_compute::vm_registry::set_process_leaves(Box::new(
-            delonix_linux::HostProcessLeaves,
-        ));
         // The Ceph storage-pool drivers (ADR-0081): `CreateVolume` with a
         // `spec.provision` naming a `ceph-rbd`/`cephfs` pool allocates through
         // them. Registering does no I/O.
@@ -173,8 +159,9 @@ pub fn serve_blocking(
     addr: &str,
     vms: std::sync::Arc<dyn VmPort>,
     store: std::sync::Arc<dyn StorePort>,
+    run_resolver: std::sync::Arc<dyn RunResolver>,
 ) -> Result<(), Error> {
-    serve_with(Listen::Path(addr.to_string()), None, vms, store)
+    serve_with(Listen::Path(addr.to_string()), None, vms, store, run_resolver)
 }
 
 /// Serves the node API, blocking the calling thread, until `idle` (if given)
@@ -187,8 +174,9 @@ pub fn serve(
     idle: Option<activation::IdleExit>,
     vms: std::sync::Arc<dyn VmPort>,
     store: std::sync::Arc<dyn StorePort>,
+    run_resolver: std::sync::Arc<dyn RunResolver>,
 ) -> Result<(), Error> {
-    serve_with(listen, idle, vms, store)
+    serve_with(listen, idle, vms, store, run_resolver)
 }
 
 fn serve_with(
@@ -196,6 +184,7 @@ fn serve_with(
     idle: Option<activation::IdleExit>,
     vms: std::sync::Arc<dyn VmPort>,
     store: std::sync::Arc<dyn StorePort>,
+    run_resolver: std::sync::Arc<dyn RunResolver>,
 ) -> Result<(), Error> {
     compose();
     delonix_node::alloc_tuning::limit_malloc_arenas();
@@ -259,7 +248,7 @@ fn serve_with(
             }
             (Listen::Inherited(_), None) => unreachable!("an inherited listener is taken above"),
         };
-        serve_listener(uds, router_with(vms, store), idle).await
+        serve_listener(uds, router_with(vms, store, run_resolver), idle).await
     })
 }
 

@@ -330,61 +330,6 @@ pub fn spec_to_run_opts(
     Ok(o)
 }
 
-/// The host adapters [`delonix_compute::run::resolve_run`] needs, wired for the
-/// node API: no terminal (no pull announcement, no progress line), and refusals
-/// as plain `Error::Invalid` — this is a server, not a CLI.
-fn resolve(
-    root: &Path,
-    images: &delonix_oci::ImageStore,
-    o: &delonix_compute::RunOpts,
-    id: String,
-    name: String,
-    namespace: String,
-) -> delonix_model::Result<delonix_compute::run::Resolved> {
-    use delonix_oci::rootfs_user::UserLookupError;
-    let announce_pull = |_r: &str| {};
-    // No progress line: run the unpacking straight through.
-    let unpacking =
-        |prepare: &mut dyn FnMut() -> delonix_model::Result<std::path::PathBuf>| prepare();
-    let user_error = |e: UserLookupError| {
-        delonix_model::Error::Invalid(match e {
-            UserLookupError::EmptyUser => "spec.user: empty user".to_string(),
-            UserLookupError::NoSuchUser(u) => {
-                format!("spec.user: user '{u}' does not exist in the image (/etc/passwd)")
-            }
-            UserLookupError::NoSuchGroup(g) => {
-                format!("spec.user: group '{g}' does not exist in the image (/etc/group)")
-            }
-        })
-    };
-    let apparmor_disabled = |p: &str| {
-        delonix_linux::Error::ApparmorUnavailable(format!(
-            "spec.security.apparmor_profile '{p}': this host has no AppArmor to apply it"
-        ))
-    };
-    delonix_compute::run::resolve_run(
-        o,
-        id,
-        name,
-        namespace,
-        false,
-        &delonix_oci::run_images::HostImages {
-            store: images,
-            announce_pull: &announce_pull,
-            unpacking: &unpacking,
-            user_error: &user_error,
-        },
-        &delonix_volume::HostVolumes {
-            root: root.to_path_buf(),
-        },
-        &delonix_linux::cdi::HostDevices,
-        &delonix_linux::run_host::HostRuntime {
-            state_root: root.to_path_buf(),
-            apparmor_disabled: &apparmor_disabled,
-        },
-    )
-}
-
 /// Whether a container of this name already exists at the node (the store is
 /// flat, so the name alone is the identity).
 fn name_taken(
@@ -424,15 +369,14 @@ fn create_fingerprint(req: &CreateContainerRequest, spec: &ContainerSpec) -> Str
 fn create_work(
     root: &Path,
     store: &dyn crate::store::StorePort,
-    images: &delonix_oci::ImageStore,
+    resolver: &dyn crate::run_resolver::RunResolver,
     req: &CreateContainerRequest,
     o: &delonix_compute::RunOpts,
 ) -> delonix_model::Result<String> {
     let namespace = requested_namespace(&req.namespace).to_string();
     let id = delonix_node::generate_id();
-    let resolved = resolve(
+    let resolved = resolver.resolve_run(
         root,
-        images,
         o,
         id.clone(),
         req.name.clone(),
@@ -492,7 +436,7 @@ fn create_work(
 pub fn create_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
-    images: &delonix_oci::ImageStore,
+    resolver: &dyn crate::run_resolver::RunResolver,
     req: &CreateContainerRequest,
 ) -> Result<Operation, Status> {
     if !valid_container_name(&req.name) {
@@ -536,7 +480,7 @@ pub fn create_in(
         Begun::New(rec) => rec,
     };
     let namespace = requested_namespace(&req.namespace).to_string();
-    let outcome = create_work(root, store, images, req, &o)
+    let outcome = create_work(root, store, resolver, req, &o)
         .map(|_id| format!("/v1/namespaces/{namespace}/containers/{}", req.name));
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
@@ -973,10 +917,11 @@ mod tests {
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
 
         let dir = tempfile::tempdir().unwrap();
-        let images = delonix_oci::ImageStore::open(dir.path()).unwrap();
+        let resolver = crate::run_resolver::LocalResolver(dir.path().to_path_buf());
         let store = crate::store::LocalStore(dir.path().to_path_buf());
         for bad in ["-leading", "has.dot", "a b", ""] {
-            let err = create_in(dir.path(), &store, &images, &req(bad, spec("alpine"))).unwrap_err();
+            let err =
+                create_in(dir.path(), &store, &resolver, &req(bad, spec("alpine"))).unwrap_err();
             assert_eq!(err.code(), tonic::Code::InvalidArgument, "{bad}");
         }
     }
@@ -996,11 +941,10 @@ mod tests {
         );
         c.namespace = "default".into();
         store.save(&c).unwrap();
-        let images = delonix_oci::ImageStore::open(root).unwrap();
         let err = create_in(
             root,
             &crate::store::LocalStore(root.to_path_buf()),
-            &images,
+            &crate::run_resolver::LocalResolver(root.to_path_buf()),
             &req("web", spec("alpine")),
         )
         .unwrap_err();
