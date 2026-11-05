@@ -794,7 +794,6 @@ flowchart TB
   delonix_mgmt --> delonix_model
   delonix_mgmt --> delonix_node
   delonix_mgmt --> delonix_sdn
-  delonix_mgmt --> delonix_state
   delonix_mgmt --> delonix_telemetry
   delonix_mgmt_bin --> delonix_compute
   delonix_mgmt_bin --> delonix_engine
