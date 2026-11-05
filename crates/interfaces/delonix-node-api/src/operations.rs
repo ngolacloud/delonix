@@ -186,7 +186,8 @@ fn write(root: &Path, rec: &Record) -> Result<(), Status> {
     // did internally — so the interface no longer names that adapter here, and
     // without threading a store through `begin`/`finish`/`replay` (which every
     // mutation verb shares) into image_ops/pod_ops/stacks.
-    delonix_host::write_atomic_mode(&path(root, &rec.id), &bytes, None).map_err(|e| io("writing", e))
+    delonix_host::write_atomic_mode(&path(root, &rec.id), &bytes, None)
+        .map_err(|e| io("writing", e))
 }
 
 fn read(root: &Path, id: &str) -> Result<Option<Record>, Status> {

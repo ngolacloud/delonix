@@ -399,8 +399,11 @@ pub fn list_in(
         .filter(|v| ns == "*" || v.namespace == ns)
         .filter(|v| selector.matches(&v.labels))
         .filter(|v| after.as_ref().is_none_or(|a| v.name.as_str() > a.as_str()));
-    let virtual_machines: Vec<VirtualMachine> =
-        matching.by_ref().take(size).map(|v| message(vms, v)).collect();
+    let virtual_machines: Vec<VirtualMachine> = matching
+        .by_ref()
+        .take(size)
+        .map(|v| message(vms, v))
+        .collect();
     let next = match (matching.next(), virtual_machines.last()) {
         (Some(_), Some(last)) => crate::page::encode_token(
             last.meta

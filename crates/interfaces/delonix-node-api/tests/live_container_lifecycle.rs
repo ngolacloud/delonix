@@ -61,7 +61,13 @@ async fn the_container_lifecycle_runs_end_to_end_over_grpc() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store(), common::backing_resolver());
+        let _ = delonix_node_api::serve_blocking(
+            &format!("unix://{s}"),
+            common::backing(),
+            common::backing_store(),
+            common::backing_resolver(),
+            common::backing_net(),
+        );
     });
     wait_for(&sock).await;
 

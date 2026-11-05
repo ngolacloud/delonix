@@ -12,7 +12,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use delonix_node_api::{RunResolver, StorePort, VmPort};
+use delonix_node_api::net_ops::NetRecord;
+use delonix_node_api::{NetworkOps, RunResolver, StorePort, VmPort};
 
 /// A [`VmPort`] over the `delonix-vm` adapter at a state root — the tests'
 /// stand-in for the engine the bin composes.
@@ -50,6 +51,136 @@ pub struct AdapterResolver(pub PathBuf);
 /// `Arc` for `serve_blocking`.
 pub fn backing_resolver() -> Arc<dyn RunResolver> {
     Arc::new(AdapterResolver(delonix_node_api::node::state_root()))
+}
+
+/// A [`NetworkOps`] over the real `delonix-sdn` adapter (R3d-f) — the tests'
+/// stand-in for the `delonix-sdn`-backed port the bin composes. Production
+/// reaches the SDN only through this port; the node-api crate names no SDN
+/// adapter, so this lives in the test harness over the `delonix-sdn`
+/// dev-dependency, exactly as [`AdapterVms`]/[`AdapterStore`] do. The provider
+/// report a `ListProviders` test asserts comes from the real registry, the one
+/// thing only this backing can supply.
+pub struct AdapterNet;
+
+/// The adapter-backed network port, as an `Arc` for `serve_blocking`.
+pub fn backing_net() -> Arc<dyn NetworkOps> {
+    Arc::new(AdapterNet)
+}
+
+fn net_record(n: &delonix_sdn::Network) -> NetRecord {
+    NetRecord {
+        name: n.name.clone(),
+        driver: n.driver.clone(),
+        subnet: n.subnet.clone(),
+        bridge: n.bridge.clone(),
+        gateway: n.gateway.clone(),
+        parent: n.parent.clone(),
+        vni: n.vni,
+        wg_ip: n.wg_ip.clone(),
+        peers: n.peers.clone(),
+        labels: n.labels.clone(),
+        annotations: n.annotations.clone(),
+    }
+}
+
+impl NetworkOps for AdapterNet {
+    fn list(&self, root: &std::path::Path) -> Result<Vec<NetRecord>, delonix_model::Error> {
+        Ok(delonix_sdn::NetworkStore::open(root)?
+            .list()?
+            .iter()
+            .map(net_record)
+            .collect())
+    }
+    fn get(&self, root: &std::path::Path, name: &str) -> Result<NetRecord, delonix_model::Error> {
+        Ok(net_record(
+            &delonix_sdn::NetworkStore::open(root)?.get(name)?,
+        ))
+    }
+    fn set_metadata(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        labels: &[(String, Option<String>)],
+        annotations: &[(String, Option<String>)],
+    ) -> Result<(), delonix_model::Error> {
+        delonix_sdn::NetworkStore::open(root)?.set_metadata(name, labels, annotations)?;
+        Ok(())
+    }
+    fn validate_name(&self, name: &str) -> Result<(), delonix_model::Error> {
+        delonix_sdn::NetworkStore::validate_name(name)?;
+        Ok(())
+    }
+    fn validate_subnet(&self, cidr: &str) -> Result<(), delonix_model::Error> {
+        delonix_sdn::NetworkStore::validate_subnet(cidr)?;
+        Ok(())
+    }
+    fn create_bridge(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        subnet: Option<&str>,
+    ) -> Result<(), delonix_model::Error> {
+        let store = delonix_sdn::NetworkStore::open(root)?;
+        delonix_sdn::netops::create_bridge(&store, name, subnet, |_| Ok(None))?;
+        Ok(())
+    }
+    fn remove(&self, root: &std::path::Path, name: &str) -> Result<(), delonix_model::Error> {
+        let store = delonix_sdn::NetworkStore::open(root)?;
+        delonix_sdn::netops::remove(&store, name)?;
+        Ok(())
+    }
+    fn dependents_of(
+        &self,
+        name: &str,
+        subnet: &str,
+        containers: &[delonix_compute::Container],
+        vms: &[(String, String)],
+    ) -> Vec<String> {
+        delonix_sdn::netops::dependents_of(name, subnet, containers, vms)
+    }
+    fn realized_names(&self, root: &std::path::Path) -> Vec<String> {
+        delonix_sdn::infra::network_list_in(root)
+            .into_iter()
+            .map(|d| d.name)
+            .collect()
+    }
+    fn reachable(
+        &self,
+        network: &str,
+        ip: &str,
+        mac: &str,
+        timeout: std::time::Duration,
+    ) -> Option<bool> {
+        delonix_sdn::infra::sdn_reachable(network, ip, mac, timeout)
+    }
+    fn provider_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        vec![delonix_sdn::provider_report::report(
+            &delonix_sdn::provider_report::SdnHost::probe(),
+        )]
+    }
+    fn declared_provider_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        vec![delonix_sdn::provider_report::report(
+            &delonix_sdn::provider_report::SdnHost::ASSUMED,
+        )]
+    }
+    fn gateway_provider_ids(&self) -> Vec<String> {
+        delonix_sdn::gateway::gateway_provider_ids()
+            .into_iter()
+            .map(String::from)
+            .collect()
+    }
+    fn default_net(&self) -> &'static str {
+        delonix_sdn::DEFAULT_NET
+    }
+    fn parse_overlay_peer(&self, peer: &str) -> (String, Option<(String, String)>) {
+        delonix_sdn::parse_overlay_peer(peer)
+    }
+    fn expand_publish_range(&self, spec: &str) -> Result<Vec<String>, delonix_model::Error> {
+        delonix_sdn::expand_publish_range(spec).map_err(Into::into)
+    }
+    fn normalize_publish_spec(&self, spec: &str) -> Result<String, delonix_model::Error> {
+        delonix_sdn::normalize_publish_spec(spec).map_err(Into::into)
+    }
 }
 
 impl RunResolver for AdapterResolver {
@@ -184,7 +315,9 @@ impl VmPort for AdapterVms {
         delonix_vm::exists(&self.0, name)
     }
     fn start(&self, name: &str) -> Result<(), delonix_model::Error> {
-        delonix_vm::start(&self.0, name).map(|_| ()).map_err(Into::into)
+        delonix_vm::start(&self.0, name)
+            .map(|_| ())
+            .map_err(Into::into)
     }
     fn stop(&self, name: &str) -> Result<(), delonix_model::Error> {
         delonix_vm::stop(&self.0, name).map_err(Into::into)

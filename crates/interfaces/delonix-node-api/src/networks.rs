@@ -11,9 +11,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use delonix_sdn::infra;
 use tonic::Status;
 
+use crate::net_ops::{NetRecord, NetworkOps};
 use crate::proto::v1::{
     Condition, ConditionStatus, GetNetworkRequest, ListNetworksRequest, ListNetworksResponse,
     Network, NetworkSpec, NetworkTopology, OverlayPeer, OverlaySpec, PageResponse,
@@ -30,28 +30,24 @@ fn has_networks(namespace: &str) -> bool {
     matches!(namespace, "" | NAMESPACE | "*")
 }
 
-/// The declarative records under `root`, by name. A state root where no
-/// network was ever created has no `networks/` directory — that is an empty
-/// list, and reading must not create it.
-fn records(root: &Path) -> Result<Vec<delonix_sdn::Network>, Status> {
+/// The declarative records under `root`, by name, through the composed port. A
+/// state root where no network was ever created has no `networks/` directory —
+/// that is an empty list, and reading must not create it (so the directory
+/// check stays here, before the port opens anything).
+fn records(root: &Path, net: &dyn NetworkOps) -> Result<Vec<NetRecord>, Status> {
     if !root.join("networks").is_dir() {
         return Ok(Vec::new());
     }
-    let store = delonix_sdn::NetworkStore::open(root)
-        .map_err(|e| Status::internal(format!("opening the network store: {e}")))?;
-    let mut all = store
-        .list()
+    let mut all = net
+        .list(root)
         .map_err(|e| Status::internal(format!("listing networks: {e}")))?;
     all.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(all)
 }
 
 /// The names that have a dataplane record under `root`.
-fn realized(root: &Path) -> BTreeSet<String> {
-    infra::network_list_in(root)
-        .into_iter()
-        .map(|d| d.name)
-        .collect()
+fn realized(root: &Path, net: &dyn NetworkOps) -> BTreeSet<String> {
+    net.realized_names(root).into_iter().collect()
 }
 
 fn text(s: &str) -> pbjson_types::Value {
@@ -62,8 +58,9 @@ fn text(s: &str) -> pbjson_types::Value {
 
 use crate::page::fnv;
 
-/// One record as the contract's `Network`.
-pub fn message(n: &delonix_sdn::Network, realized: bool) -> Network {
+/// One record as the contract's `Network`. `net` is only read for the pure
+/// overlay-peer rule; everything else is already on the summary record.
+pub fn message(net: &dyn NetworkOps, n: &NetRecord, realized: bool) -> Network {
     let path = format!("/v1/namespaces/{NAMESPACE}/networks/{}", n.name);
     let overlay = (n.driver == "overlay").then(|| OverlaySpec {
         vni: n.vni.unwrap_or_default(),
@@ -72,7 +69,7 @@ pub fn message(n: &delonix_sdn::Network, realized: bool) -> Network {
             .peers
             .iter()
             .map(|p| {
-                let (node_ip, wg) = delonix_sdn::parse_overlay_peer(p);
+                let (node_ip, wg) = net.parse_overlay_peer(p);
                 let (public_key, tunnel_ip) = wg.unwrap_or_default();
                 OverlayPeer {
                     node_ip,
@@ -154,7 +151,11 @@ pub fn message(n: &delonix_sdn::Network, realized: bool) -> Network {
 }
 
 /// `GetNetwork` under `root`.
-pub fn get_in(root: &Path, req: &GetNetworkRequest) -> Result<Network, Status> {
+pub fn get_in(
+    root: &Path,
+    net: &dyn NetworkOps,
+    req: &GetNetworkRequest,
+) -> Result<Network, Status> {
     let missing = || {
         Status::not_found(format!(
             "network '{}' in namespace '{}'",
@@ -169,16 +170,24 @@ pub fn get_in(root: &Path, req: &GetNetworkRequest) -> Result<Network, Status> {
     if !has_networks(&req.namespace) || req.namespace == "*" {
         return Err(missing());
     }
-    let record = records(root)?
+    let record = records(root, net)?
         .into_iter()
         .find(|n| n.name == req.name)
         .ok_or_else(missing)?;
-    Ok(message(&record, realized(root).contains(&record.name)))
+    Ok(message(
+        net,
+        &record,
+        realized(root, net).contains(&record.name),
+    ))
 }
 
 /// `ListNetworks` under `root`: filtered by `label_selector`, ordered by
 /// name, one page at a time.
-pub fn list_in(root: &Path, req: &ListNetworksRequest) -> Result<ListNetworksResponse, Status> {
+pub fn list_in(
+    root: &Path,
+    net: &dyn NetworkOps,
+    req: &ListNetworksRequest,
+) -> Result<ListNetworksResponse, Status> {
     let selector = Selector::parse(&req.label_selector).map_err(Status::invalid_argument)?;
     let page = req.page.clone().unwrap_or_default();
     let size = crate::page::size(&page)?;
@@ -189,11 +198,11 @@ pub fn list_in(root: &Path, req: &ListNetworksRequest) -> Result<ListNetworksRes
         &req.namespace
     };
     let all = if has_networks(&req.namespace) {
-        records(root)?
+        records(root, net)?
     } else {
         Vec::new()
     };
-    let live = realized(root);
+    let live = realized(root, net);
     let mut matching = all
         .iter()
         .filter(|n| selector.matches(&n.labels))
@@ -201,7 +210,7 @@ pub fn list_in(root: &Path, req: &ListNetworksRequest) -> Result<ListNetworksRes
     let networks: Vec<Network> = matching
         .by_ref()
         .take(size)
-        .map(|n| message(n, live.contains(&n.name)))
+        .map(|n| message(net, n, live.contains(&n.name)))
         .collect();
     let next = match (matching.next(), networks.last()) {
         (Some(_), Some(last)) => crate::page::encode_token(
@@ -264,9 +273,14 @@ mod tests {
         dir
     }
 
+    /// The crate's own `delonix-sdn`-backed port, the tests' stand-in for the
+    /// one the bin composes.
+    const NET: crate::net_ops::LocalNet = crate::net_ops::LocalNet;
+
     fn list(root: &Path, selector: &str, size: i32, token: &str) -> ListNetworksResponse {
         list_in(
             root,
+            &NET,
             &ListNetworksRequest {
                 namespace: String::new(),
                 label_selector: selector.into(),
@@ -291,6 +305,7 @@ mod tests {
         let dir = root();
         let a = get_in(
             dir.path(),
+            &NET,
             &GetNetworkRequest {
                 name: "lab-a".into(),
                 namespace: String::new(),
@@ -317,6 +332,7 @@ mod tests {
         // Declared, never realized: the condition says so, read from the node.
         let c = get_in(
             dir.path(),
+            &NET,
             &GetNetworkRequest {
                 name: "lab-c".into(),
                 namespace: "default".into(),
@@ -339,6 +355,7 @@ mod tests {
         let get = || {
             get_in(
                 dir.path(),
+                &NET,
                 &GetNetworkRequest {
                     name: "lab-b".into(),
                     namespace: String::new(),
@@ -373,6 +390,7 @@ mod tests {
         let dir = root();
         let other = list_in(
             dir.path(),
+            &NET,
             &ListNetworksRequest {
                 namespace: "prod".into(),
                 ..Default::default()
@@ -382,6 +400,7 @@ mod tests {
         assert!(other.networks.is_empty());
         let e = get_in(
             dir.path(),
+            &NET,
             &GetNetworkRequest {
                 name: "lab-a".into(),
                 namespace: "prod".into(),
@@ -391,6 +410,7 @@ mod tests {
         assert_eq!(e.code(), tonic::Code::NotFound);
         let e = get_in(
             dir.path(),
+            &NET,
             &GetNetworkRequest {
                 name: "nope".into(),
                 namespace: String::new(),
@@ -400,6 +420,7 @@ mod tests {
         assert_eq!(e.code(), tonic::Code::NotFound);
         let all = list_in(
             dir.path(),
+            &NET,
             &ListNetworksRequest {
                 namespace: "*".into(),
                 ..Default::default()
@@ -409,7 +430,7 @@ mod tests {
         assert_eq!(names(&all), ["lab-a", "lab-b", "lab-c"]);
         // A root where nothing was ever created: empty, and still not created.
         let empty = tempfile::tempdir().unwrap();
-        assert!(list_in(empty.path(), &ListNetworksRequest::default())
+        assert!(list_in(empty.path(), &NET, &ListNetworksRequest::default())
             .unwrap()
             .networks
             .is_empty());
@@ -447,7 +468,7 @@ mod tests {
         let exact = list(dir.path(), "", 3, "");
         assert!(exact.page.unwrap().next_page_token.is_empty());
 
-        let bad = |req: ListNetworksRequest| list_in(dir.path(), &req).unwrap_err().code();
+        let bad = |req: ListNetworksRequest| list_in(dir.path(), &NET, &req).unwrap_err().code();
         let page = |size, token: &str| {
             Some(PageRequest {
                 page_size: size,

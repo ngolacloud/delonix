@@ -840,17 +840,20 @@ flowchart TB
   delonix_node_api --> delonix_provider_ceph
   delonix_node_api --> delonix_provider_opnsense
   delonix_node_api --> delonix_provider_proxmox
-  delonix_node_api --> delonix_sdn
   delonix_node_api --> delonix_storage
   delonix_node_api --> delonix_volume
   delonix_node_api_bin --> delonix_compute
   delonix_node_api_bin --> delonix_engine
   delonix_node_api_bin --> delonix_host
+  delonix_node_api_bin --> delonix_linux
   delonix_node_api_bin --> delonix_model
   delonix_node_api_bin --> delonix_node
   delonix_node_api_bin --> delonix_node_api
+  delonix_node_api_bin --> delonix_oci
+  delonix_node_api_bin --> delonix_sdn
   delonix_node_api_bin --> delonix_state
   delonix_node_api_bin --> delonix_telemetry
+  delonix_node_api_bin --> delonix_volume
   delonix_oci --> delonix_compute
   delonix_oci --> delonix_host
   delonix_oci --> delonix_model

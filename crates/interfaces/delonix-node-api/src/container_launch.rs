@@ -104,6 +104,7 @@ fn not_served_yet(what: &str, cli: &str) -> Status {
 /// defines identity. Fields that need machinery not wired on this path are
 /// refused rather than dropped (see the module doc).
 pub fn spec_to_run_opts(
+    netops: &dyn crate::net_ops::NetworkOps,
     req: &CreateContainerRequest,
     spec: &ContainerSpec,
 ) -> Result<delonix_compute::RunOpts, Status> {
@@ -318,12 +319,12 @@ pub fn spec_to_run_opts(
             (true, hp) if hp != 0 => format!("{hp}:{}{proto}", p.container_port),
             (true, _) => format!("{}{proto}", p.container_port),
         };
-        let bad = |e: delonix_sdn::Error| {
+        let bad = |e: delonix_model::Error| {
             Status::invalid_argument(format!("CreateContainer: spec.ports[{i}] '{raw}': {e}"))
         };
-        for one in delonix_sdn::expand_publish_range(&raw).map_err(bad)? {
+        for one in netops.expand_publish_range(&raw).map_err(bad)? {
             o.ports
-                .push(delonix_sdn::normalize_publish_spec(&one).map_err(bad)?);
+                .push(netops.normalize_publish_spec(&one).map_err(bad)?);
         }
     }
 
@@ -375,13 +376,8 @@ fn create_work(
 ) -> delonix_model::Result<String> {
     let namespace = requested_namespace(&req.namespace).to_string();
     let id = delonix_node::generate_id();
-    let resolved = resolver.resolve_run(
-        root,
-        o,
-        id.clone(),
-        req.name.clone(),
-        namespace.clone(),
-    )?;
+    let resolved =
+        resolver.resolve_run(root, o, id.clone(), req.name.clone(), namespace.clone())?;
     let mut c = delonix_compute::run::build_record(o, resolved.record)?;
     // `build_record` carries the net INTENT (`c.net_mode`) but NOT the published
     // ports — the CLI's `cmd_run` fills `c.ports` after it, and so must we, or a
@@ -437,6 +433,7 @@ pub fn create_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
     resolver: &dyn crate::run_resolver::RunResolver,
+    net: &dyn crate::net_ops::NetworkOps,
     req: &CreateContainerRequest,
 ) -> Result<Operation, Status> {
     if !valid_container_name(&req.name) {
@@ -451,7 +448,7 @@ pub fn create_in(
         .as_ref()
         .ok_or_else(|| Status::invalid_argument("CreateContainer: spec is required"))?;
     // What is wrong with the request is refused BEFORE it is acknowledged.
-    let o = spec_to_run_opts(req, spec)?;
+    let o = spec_to_run_opts(net, req, spec)?;
     let target = format!("Container/{}", req.name);
     let fp = create_fingerprint(req, spec);
     // The same request again gets the first answer — before "already exists",
@@ -648,6 +645,10 @@ mod tests {
     use super::*;
     use crate::proto::v1::{Resources, RestartPolicy, SecurityContext};
 
+    /// The crate's own `delonix-sdn`-backed port (dev-dependency): the publish
+    /// rules a `spec.ports` resolution reaches go through it.
+    const NET: crate::net_ops::LocalNet = crate::net_ops::LocalNet;
+
     fn spec(image: &str) -> ContainerSpec {
         ContainerSpec {
             image: image.to_string(),
@@ -689,7 +690,8 @@ mod tests {
             mode: RestartMode::OnFailure as i32,
             max_retries: 3,
         });
-        let o = spec_to_run_opts(&req("web", s.clone()), &s).unwrap_or_else(|e| panic!("{e:?}"));
+        let o =
+            spec_to_run_opts(&NET, &req("web", s.clone()), &s).unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(o.image, "alpine:3.20");
         assert_eq!(o.command, ["echo", "hi"]);
         // Env sorted, so the record (and the fingerprint) are stable.
@@ -710,21 +712,21 @@ mod tests {
     fn the_entrypoint_three_states_are_distinguished() {
         let mut s = spec("alpine");
         assert_eq!(
-            spec_to_run_opts(&req("a", s.clone()), &s)
+            spec_to_run_opts(&NET, &req("a", s.clone()), &s)
                 .unwrap()
                 .entrypoint,
             None
         );
         s.entrypoint = vec!["".into()];
         assert_eq!(
-            spec_to_run_opts(&req("a", s.clone()), &s)
+            spec_to_run_opts(&NET, &req("a", s.clone()), &s)
                 .unwrap()
                 .entrypoint,
             Some(Vec::new())
         );
         s.entrypoint = vec!["/bin/sh".into(), "-c".into()];
         assert_eq!(
-            spec_to_run_opts(&req("a", s.clone()), &s)
+            spec_to_run_opts(&NET, &req("a", s.clone()), &s)
                 .unwrap()
                 .entrypoint,
             Some(vec!["/bin/sh".to_string(), "-c".to_string()])
@@ -751,7 +753,9 @@ mod tests {
         for mutate in cases {
             let mut s = spec("alpine");
             mutate(&mut s);
-            let err = spec_to_run_opts(&req("a", s.clone()), &s).err().unwrap();
+            let err = spec_to_run_opts(&NET, &req("a", s.clone()), &s)
+                .err()
+                .unwrap();
             assert_eq!(err.code(), tonic::Code::Unimplemented, "{}", err.message());
         }
     }
@@ -772,7 +776,7 @@ mod tests {
                 read_only: true,
             },
         ];
-        let o = spec_to_run_opts(&req("web", s.clone()), &s).unwrap();
+        let o = spec_to_run_opts(&NET, &req("web", s.clone()), &s).unwrap();
         assert_eq!(o.volumes, ["data:/var/lib/data", "/srv/cfg:/etc/cfg:ro"]);
     }
 
@@ -794,7 +798,7 @@ mod tests {
                 protocol: Protocol::Udp as i32,
             },
         ];
-        let o = spec_to_run_opts(&req("web", s.clone()), &s).unwrap();
+        let o = spec_to_run_opts(&NET, &req("web", s.clone()), &s).unwrap();
         // normalize_publish_spec resolves the bind address (default 127.0.0.1)
         // and the proto, so the record carries the canonical, restart-stable form.
         assert_eq!(o.ports.len(), 2);
@@ -814,7 +818,7 @@ mod tests {
             ipv4_address: String::new(),
             aliases: vec!["db".into(), "primary".into()],
         }];
-        let o = spec_to_run_opts(&req("web", s.clone()), &s).unwrap();
+        let o = spec_to_run_opts(&NET, &req("web", s.clone()), &s).unwrap();
         assert_eq!(o.net, "backend");
         assert_eq!(o.network_alias, ["db", "primary"]);
         // `custom_net_name` resolves this to the record's `c.network` in create_work.
@@ -823,7 +827,7 @@ mod tests {
             Some("backend")
         );
         // host stays host (no custom network).
-        let plain = spec_to_run_opts(&req("w2", spec("alpine")), &spec("alpine")).unwrap();
+        let plain = spec_to_run_opts(&NET, &req("w2", spec("alpine")), &spec("alpine")).unwrap();
         assert_eq!(plain.net, "host");
         assert_eq!(
             delonix_compute::preflight::custom_net_name(&plain.net),
@@ -842,7 +846,7 @@ mod tests {
         let mut s = spec("alpine");
         s.networks = vec![attach("host"), attach("backend")];
         assert_eq!(
-            spec_to_run_opts(&req("a", s.clone()), &s)
+            spec_to_run_opts(&NET, &req("a", s.clone()), &s)
                 .err()
                 .unwrap()
                 .code(),
@@ -852,7 +856,7 @@ mod tests {
         // extras — accepted (built into `c.extra_networks` in create_work).
         let mut ok = spec("alpine");
         ok.networks = vec![attach("frontend"), attach("backend")];
-        let o = spec_to_run_opts(&req("web", ok.clone()), &ok).unwrap();
+        let o = spec_to_run_opts(&NET, &req("web", ok.clone()), &ok).unwrap();
         assert_eq!(o.net, "frontend");
     }
 
@@ -867,7 +871,7 @@ mod tests {
             protocol: 0,
         }];
         assert_eq!(
-            spec_to_run_opts(&req("a", s.clone()), &s)
+            spec_to_run_opts(&NET, &req("a", s.clone()), &s)
                 .err()
                 .unwrap()
                 .code(),
@@ -885,7 +889,7 @@ mod tests {
             read_only: false,
         }];
         assert_eq!(
-            spec_to_run_opts(&req("a", s.clone()), &s)
+            spec_to_run_opts(&NET, &req("a", s.clone()), &s)
                 .err()
                 .unwrap()
                 .code(),
@@ -898,7 +902,7 @@ mod tests {
             read_only: false,
         }];
         assert_eq!(
-            spec_to_run_opts(&req("a", s2.clone()), &s2)
+            spec_to_run_opts(&NET, &req("a", s2.clone()), &s2)
                 .err()
                 .unwrap()
                 .code(),
@@ -909,6 +913,7 @@ mod tests {
     #[test]
     fn an_image_less_spec_and_a_bad_name_are_refused_before_anything() {
         let err = spec_to_run_opts(
+            &NET,
             &req("a", ContainerSpec::default()),
             &ContainerSpec::default(),
         )
@@ -920,8 +925,14 @@ mod tests {
         let resolver = crate::run_resolver::LocalResolver(dir.path().to_path_buf());
         let store = crate::store::LocalStore(dir.path().to_path_buf());
         for bad in ["-leading", "has.dot", "a b", ""] {
-            let err =
-                create_in(dir.path(), &store, &resolver, &req(bad, spec("alpine"))).unwrap_err();
+            let err = create_in(
+                dir.path(),
+                &store,
+                &resolver,
+                &NET,
+                &req(bad, spec("alpine")),
+            )
+            .unwrap_err();
             assert_eq!(err.code(), tonic::Code::InvalidArgument, "{bad}");
         }
     }
@@ -945,6 +956,7 @@ mod tests {
             root,
             &crate::store::LocalStore(root.to_path_buf()),
             &crate::run_resolver::LocalResolver(root.to_path_buf()),
+            &NET,
             &req("web", spec("alpine")),
         )
         .unwrap_err();
