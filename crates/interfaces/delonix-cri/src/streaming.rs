@@ -243,7 +243,11 @@ async fn portforward_upgrade(
         {
             crate::spdy::PfNetns::NsPath(ns.into())
         } else {
-            match pod_sandbox_pid(st.containers.as_ref(), st.runtime.as_ref(), &p.pod_sandbox_id) {
+            match pod_sandbox_pid(
+                st.containers.as_ref(),
+                st.runtime.as_ref(),
+                &p.pod_sandbox_id,
+            ) {
                 Some(pid) => crate::spdy::PfNetns::Pid(pid),
                 None => {
                     return (
@@ -836,7 +840,14 @@ mod tests_sandbox_pid_identity {
         let mine = std::process::id() as i32;
         let real = delonix_linux::proc_starttime(mine).expect("own starttime is readable");
         let base = store_with(Some(mine), Some(real.wrapping_add(1)));
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "sandbox1"), None);
+        assert_eq!(
+            super::pod_sandbox_pid(
+                &crate::test_ops::StoreOps::new(base.path()),
+                &crate::test_ops::LinuxPort,
+                "sandbox1"
+            ),
+            None
+        );
     }
 
     /// The positive path, and it is a real one: same pid, same `starttime`.
@@ -847,7 +858,14 @@ mod tests_sandbox_pid_identity {
         let mine = std::process::id() as i32;
         let real = delonix_linux::proc_starttime(mine).expect("own starttime is readable");
         let base = store_with(Some(mine), Some(real));
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "sandbox1"), Some(mine));
+        assert_eq!(
+            super::pod_sandbox_pid(
+                &crate::test_ops::StoreOps::new(base.path()),
+                &crate::test_ops::LinuxPort,
+                "sandbox1"
+            ),
+            Some(mine)
+        );
     }
 
     /// A record written before `pid_starttime` existed carries `None`, and
@@ -858,14 +876,28 @@ mod tests_sandbox_pid_identity {
     fn a_legacy_record_without_starttime_still_resolves() {
         let mine = std::process::id() as i32;
         let base = store_with(Some(mine), None);
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "sandbox1"), Some(mine));
+        assert_eq!(
+            super::pod_sandbox_pid(
+                &crate::test_ops::StoreOps::new(base.path()),
+                &crate::test_ops::LinuxPort,
+                "sandbox1"
+            ),
+            Some(mine)
+        );
     }
 
     /// A sandbox with no pid at all (created, never started) has no netns.
     #[test]
     fn no_pid_is_none() {
         let base = store_with(None, None);
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "sandbox1"), None);
+        assert_eq!(
+            super::pod_sandbox_pid(
+                &crate::test_ops::StoreOps::new(base.path()),
+                &crate::test_ops::LinuxPort,
+                "sandbox1"
+            ),
+            None
+        );
     }
 
     /// An unknown sandbox is `None`, not a panic — the handler turns it into a
@@ -873,6 +905,13 @@ mod tests_sandbox_pid_identity {
     #[test]
     fn an_unknown_sandbox_is_none() {
         let base = store_with(Some(1), None);
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "does-not-exist"), None);
+        assert_eq!(
+            super::pod_sandbox_pid(
+                &crate::test_ops::StoreOps::new(base.path()),
+                &crate::test_ops::LinuxPort,
+                "does-not-exist"
+            ),
+            None
+        );
     }
 }

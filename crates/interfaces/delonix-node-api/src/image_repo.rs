@@ -172,9 +172,6 @@ mod tests {
         assert_eq!(get("sha256:bbb").unwrap().reference, "");
         // Unknown and empty references are refused.
         assert_eq!(get("nope").unwrap_err().code(), tonic::Code::NotFound);
-        assert_eq!(
-            get("").unwrap_err().code(),
-            tonic::Code::InvalidArgument
-        );
+        assert_eq!(get("").unwrap_err().code(), tonic::Code::InvalidArgument);
     }
 }

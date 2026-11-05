@@ -122,14 +122,14 @@ pub use linux_lifecycle::LinuxLifecycle;
 pub use net_ops::NetworkOps;
 pub use provider_reports::ProviderReports;
 pub use run_resolver::RunResolver;
-pub use storage_backend::CephStorage;
-pub use volume_store::VolumeStore;
 pub use service::{
     capacity, health, link_header, list_providers, node_info, openapi_document, router,
     router_with, NodeApi, OPENAPI_YAML,
 };
+pub use storage_backend::CephStorage;
 pub use store::StorePort;
 pub use vms::VmPort;
+pub use volume_store::VolumeStore;
 
 /// The node API's composition root: the ports this process registers before it
 /// serves anything, once.

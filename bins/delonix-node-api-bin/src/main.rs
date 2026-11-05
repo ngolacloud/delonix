@@ -435,10 +435,16 @@ impl ImageRepo for OciImages {
 struct HostProviders;
 
 impl ProviderReports for HostProviders {
-    fn proxmox_compute_report(&self, configured: bool) -> delonix_compute::capability::ProviderReport {
+    fn proxmox_compute_report(
+        &self,
+        configured: bool,
+    ) -> delonix_compute::capability::ProviderReport {
         delonix_provider_proxmox::capability_report(configured)
     }
-    fn proxmox_network_report(&self, configured: bool) -> delonix_compute::capability::ProviderReport {
+    fn proxmox_network_report(
+        &self,
+        configured: bool,
+    ) -> delonix_compute::capability::ProviderReport {
         delonix_provider_proxmox::network_capability_report(configured)
     }
     fn linux_compute_report(&self, measured: bool) -> delonix_compute::capability::ProviderReport {

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use axum::response::IntoResponse;
 use tonic::{Request, Response, Status};
 
+use crate::node;
 use crate::proto::v1::container_service_server::{ContainerService, ContainerServiceServer};
 use crate::proto::v1::image_service_server::{ImageService, ImageServiceServer};
 use crate::proto::v1::network_service_server::{NetworkService, NetworkServiceServer};
@@ -64,7 +65,6 @@ use crate::proto::v1::{
     CreateVolumeRequest, DeleteVolumeRequest, GetVolumeRequest, ListVolumesRequest,
     ListVolumesResponse, Volume,
 };
-use crate::node;
 
 /// The service. Its answers are computed from the engine's declarations and this
 /// host's probes at call time; the one piece of injected state is the VM port
@@ -334,7 +334,12 @@ impl NetworkService for NodeApi {
         let store = Arc::clone(&self.store);
         let linux = Arc::clone(&self.linux);
         blocking("network connect", move || {
-            crate::network_ops::connect_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
+            crate::network_ops::connect_in(
+                &node::state_root(),
+                store.as_ref(),
+                linux.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
@@ -1087,7 +1092,12 @@ impl ContainerService for NodeApi {
         let store = Arc::clone(&self.store);
         let linux = Arc::clone(&self.linux);
         blocking("container stats", move || {
-            crate::container_ops::stats_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
+            crate::container_ops::stats_in(
+                &node::state_root(),
+                store.as_ref(),
+                linux.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
