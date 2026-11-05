@@ -937,7 +937,6 @@ dependencies = [
  "delonix-sdn",
  "delonix-state",
  "delonix-telemetry",
- "delonix-volume",
  "http-body-util",
  "hyper",
  "hyper-util",

@@ -45,6 +45,33 @@ impl delonix_mgmt::EngineOps for EnginePorts {
     fn workload_series(&self) -> Vec<WorkloadSeries> {
         self.0.workload_series()
     }
+    fn list_volumes(&self) -> Result<Value, Error> {
+        self.0
+            .volumes()
+            .list()
+            .map(|v| serde_json::to_value(v).unwrap_or(Value::Null))
+    }
+    fn get_volume(&self, name: &str) -> Result<Value, Error> {
+        self.0
+            .volumes()
+            .inspect(name)
+            .map(|v| serde_json::to_value(v).unwrap_or(Value::Null))
+    }
+    fn create_volume(
+        &self,
+        name: &str,
+        driver: &str,
+        device: Option<String>,
+        options: Option<String>,
+    ) -> Result<Value, Error> {
+        self.0
+            .volumes()
+            .create_with(name, driver, device, options)
+            .map(|v| serde_json::to_value(v).unwrap_or(Value::Null))
+    }
+    fn remove_volume(&self, name: &str) -> Result<(), Error> {
+        self.0.volumes().remove(name)
+    }
 }
 
 /// A composed `Engine` rooted at `root` (infallible — only stores the path), for

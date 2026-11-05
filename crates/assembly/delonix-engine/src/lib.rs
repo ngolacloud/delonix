@@ -588,6 +588,34 @@ impl VolumeService<'_> {
             .map(|_| ())
             .map_err(Into::into)
     }
+
+    /// One named volume's full record.
+    pub fn inspect(&self, name: &str) -> delonix_model::Result<Volume> {
+        delonix_volume::VolumeStore::open(self.engine.root())
+            .and_then(|s| s.inspect(name))
+            .map_err(Into::into)
+    }
+
+    /// Create a named volume (`driver` defaults are the caller's; `device`/
+    /// `options` are the nfs/mount parameters). Returns the created record.
+    pub fn create_with(
+        &self,
+        name: &str,
+        driver: &str,
+        device: Option<String>,
+        options: Option<String>,
+    ) -> delonix_model::Result<Volume> {
+        delonix_volume::VolumeStore::open(self.engine.root())
+            .and_then(|s| s.create_with(name, driver, device, options))
+            .map_err(Into::into)
+    }
+
+    /// Remove a named volume.
+    pub fn remove(&self, name: &str) -> delonix_model::Result<()> {
+        delonix_volume::VolumeStore::open(self.engine.root())
+            .and_then(|s| s.remove(name))
+            .map_err(Into::into)
+    }
 }
 
 /// The network context's read use cases, bound to a mounted [`Engine`] (R3e).
