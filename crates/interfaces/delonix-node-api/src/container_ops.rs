@@ -100,6 +100,7 @@ fn parse_signal(spec: &str) -> Result<i32, Status> {
 pub fn stop_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &StopContainerRequest,
 ) -> Result<Container, Status> {
     let mut c = load(root, store, &req.name, &req.namespace)?;
@@ -108,11 +109,10 @@ pub fn stop_in(
         .as_ref()
         .map(|d| d.seconds.max(0) as u64)
         .unwrap_or(DEFAULT_GRACE_SECS);
-    // The linux edge still drives `delonix_linux::stop` (a later slice), but over
-    // the port's flock-guarded store (via `PortRepo`), not a named state adapter.
-    delonix_linux::stop(&crate::store::PortRepo(store), &mut c, grace)
-        .map_err(|e| status_of(&e.into()))?;
-    delonix_linux::reconcile_status(&mut c);
+    // The linux edge drives the stop through the `LinuxLifecycle` port, over the
+    // flock-guarded record store the port is handed — no named state/linux adapter.
+    linux.stop(store, &mut c, grace).map_err(|e| status_of(&e))?;
+    linux.reconcile_status(&mut c);
     Ok(crate::containers::message(&c))
 }
 
@@ -120,12 +120,13 @@ pub fn stop_in(
 pub fn kill_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &KillContainerRequest,
 ) -> Result<Container, Status> {
     let mut c = load(root, store, &req.name, &req.namespace)?;
     let sig = parse_signal(&req.signal)?;
-    delonix_linux::send_signal(&c, sig).map_err(|e| status_of(&e.into()))?;
-    delonix_linux::reconcile_status(&mut c);
+    linux.send_signal(&c, sig).map_err(|e| status_of(&e))?;
+    linux.reconcile_status(&mut c);
     Ok(crate::containers::message(&c))
 }
 
@@ -136,6 +137,7 @@ pub fn kill_in(
 pub fn delete_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &DeleteContainerRequest,
 ) -> Result<Operation, Status> {
     let target = format!("Container/{}", req.name);
@@ -160,16 +162,15 @@ pub fn delete_in(
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = delonix_linux::remove(&crate::store::PortRepo(store), &c, req.force)
-        .map(|()| String::new())
-        .map_err(|e| e.into());
+    let outcome = linux.remove(store, &c, req.force).map(|()| String::new());
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
     )?))
 }
 
 /// `Stats`: the container's live cgroup counters as the contract's
-/// `ContainerStats`. CPU and working-set come from `delonix_linux::container_usage`
+/// `ContainerStats`. CPU and working-set come from the
+/// [`crate::linux_lifecycle::LinuxLifecycle`] port's `container_usage`
 /// (best-effort — a stopped container reads back all-`None`, reported in
 /// `unmeasured`, never a fabricated zero). The configured memory limit, pids,
 /// network and writable-layer are not wired in this pass and are named in
@@ -178,10 +179,11 @@ pub fn delete_in(
 pub fn stats_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &StatsRequest,
 ) -> Result<ContainerStats, Status> {
     let c = load(root, store, &req.name, &req.namespace)?;
-    let usage = delonix_linux::container_usage(&c);
+    let usage = linux.container_usage(&c);
     let mut unmeasured = Vec::new();
     let cpu_usage_nanos = match usage.cpu_usage_usec {
         Some(us) => (us as i64).saturating_mul(1000),
@@ -255,10 +257,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let store = crate::store::LocalStore(root.to_path_buf());
+        let linux = crate::linux_lifecycle::LocalLinux;
         for status in [
             stop_in(
                 root,
                 &store,
+                &linux,
                 &StopContainerRequest {
                     name: "ghost".into(),
                     namespace: "default".into(),
@@ -269,6 +273,7 @@ mod tests {
             kill_in(
                 root,
                 &store,
+                &linux,
                 &KillContainerRequest {
                     name: "ghost".into(),
                     namespace: "default".into(),
@@ -279,6 +284,7 @@ mod tests {
             delete_in(
                 root,
                 &store,
+                &linux,
                 &DeleteContainerRequest {
                     name: "ghost".into(),
                     namespace: "default".into(),
@@ -299,6 +305,7 @@ mod tests {
         let err = stop_in(
             root,
             &crate::store::LocalStore(root.to_path_buf()),
+            &crate::linux_lifecycle::LocalLinux,
             &StopContainerRequest {
                 name: "db".into(),
                 namespace: "default".into(),
@@ -317,6 +324,7 @@ mod tests {
         let s = stats_in(
             root,
             &crate::store::LocalStore(root.to_path_buf()),
+            &crate::linux_lifecycle::LocalLinux,
             &StatsRequest {
                 name: "idle".into(),
                 namespace: "default".into(),
@@ -337,9 +345,11 @@ mod tests {
         let root = dir.path();
         seed(root, "0123456789abcdef", "web", "default");
         let store = crate::store::LocalStore(root.to_path_buf());
+        let linux = crate::linux_lifecycle::LocalLinux;
         let err = delete_in(
             root,
             &store,
+            &linux,
             &DeleteContainerRequest {
                 name: "web".into(),
                 namespace: "default".into(),
@@ -353,6 +363,7 @@ mod tests {
         assert!(crate::containers::get_in(
             root,
             &store,
+            &linux,
             &crate::proto::v1::GetContainerRequest {
                 name: "web".into(),
                 namespace: "default".into(),

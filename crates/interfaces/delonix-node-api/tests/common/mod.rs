@@ -13,8 +13,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use delonix_node_api::image_repo::StoredImage;
+use delonix_node_api::linux_lifecycle::{ContainerUsage, LimitUpdate, ResourceUpdate};
 use delonix_node_api::net_ops::NetRecord;
-use delonix_node_api::{ImageRepo, NetworkOps, ProviderReports, RunResolver, StorePort, VmPort};
+use delonix_node_api::store::PortRepo;
+use delonix_node_api::{
+    ImageRepo, LinuxLifecycle, NetworkOps, ProviderReports, RunResolver, StorePort, VmPort,
+};
 
 /// A [`VmPort`] over the `delonix-vm` adapter at a state root — the tests'
 /// stand-in for the engine the bin composes.
@@ -79,6 +83,94 @@ pub struct AdapterImages;
 /// The adapter-backed image port, as an `Arc` for `serve_blocking`.
 pub fn backing_images() -> Arc<dyn ImageRepo> {
     Arc::new(AdapterImages)
+}
+
+/// A [`LinuxLifecycle`] over the real `delonix-linux` adapter (R3d-i) — the tests'
+/// stand-in for the `delonix-linux`-backed port the bin composes. Production
+/// reaches the container lifecycle edge only through this port; the node-api crate
+/// names no linux adapter on this path, so this lives in the test harness over the
+/// `delonix-linux` dependency, exactly as [`AdapterImages`]/[`AdapterNet`] do. It
+/// mirrors `delonix-node-api-bin`'s `HostLinux`. The `stop`/`remove` verbs drive
+/// over the record store they are handed, bridged by [`PortRepo`].
+pub struct AdapterLinux;
+
+/// The adapter-backed container lifecycle port, as an `Arc` for `serve_blocking`.
+pub fn backing_linux() -> Arc<dyn LinuxLifecycle> {
+    Arc::new(AdapterLinux)
+}
+
+impl LinuxLifecycle for AdapterLinux {
+    fn reconcile_status(&self, c: &mut delonix_compute::Container) {
+        delonix_linux::reconcile_status(c);
+    }
+    fn container_usage(&self, c: &delonix_compute::Container) -> ContainerUsage {
+        let u = delonix_linux::container_usage(c);
+        ContainerUsage {
+            cpu_usage_usec: u.cpu_usage_usec,
+            mem_bytes: u.mem_bytes,
+        }
+    }
+    fn stop(
+        &self,
+        store: &dyn StorePort,
+        c: &mut delonix_compute::Container,
+        grace_secs: u64,
+    ) -> Result<(), delonix_model::Error> {
+        delonix_linux::stop(&PortRepo(store), c, grace_secs).map_err(Into::into)
+    }
+    fn send_signal(
+        &self,
+        c: &delonix_compute::Container,
+        signal: i32,
+    ) -> Result<(), delonix_model::Error> {
+        delonix_linux::send_signal(c, signal).map_err(Into::into)
+    }
+    fn remove(
+        &self,
+        store: &dyn StorePort,
+        c: &delonix_compute::Container,
+        force: bool,
+    ) -> Result<(), delonix_model::Error> {
+        delonix_linux::remove(&PortRepo(store), c, force).map_err(Into::into)
+    }
+    fn update_kube_resources(
+        &self,
+        c: &delonix_compute::Container,
+        u: &ResourceUpdate,
+    ) -> Result<LimitUpdate, delonix_model::Error> {
+        let du = delonix_linux::ResourceUpdate {
+            memory: u.memory.as_deref(),
+            cpus: u.cpus.as_deref(),
+            cpu_weight: u.cpu_weight.as_deref(),
+            cpuset: u.cpuset.as_deref(),
+            cpuset_mems: u.cpuset_mems.as_deref(),
+            hugepage_limits: &u.hugepage_limits,
+            unified: &u.unified,
+            oom_score_adj: u.oom_score_adj,
+        };
+        delonix_linux::update_kube_resources(c, &du)
+            .map(|l| match l {
+                delonix_linux::LimitUpdate::Applied => LimitUpdate::Applied,
+                delonix_linux::LimitUpdate::Deferred => LimitUpdate::Deferred,
+                delonix_linux::LimitUpdate::NotEnforced => LimitUpdate::NotEnforced,
+            })
+            .map_err(Into::into)
+    }
+    fn is_rootless(&self) -> bool {
+        delonix_linux::is_rootless()
+    }
+    fn cgroup_limits_apply(&self) -> bool {
+        delonix_linux::cgroup_limits_apply()
+    }
+    fn host_ncpu(&self) -> u64 {
+        delonix_linux::host_ncpu()
+    }
+    fn host_mem_bytes(&self) -> u64 {
+        delonix_linux::host_mem_bytes()
+    }
+    fn slice_path(&self) -> Option<String> {
+        delonix_linux::slice_path()
+    }
 }
 
 fn stored_image(store: &delonix_oci::ImageStore, img: &delonix_oci::Image) -> StoredImage {

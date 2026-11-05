@@ -79,6 +79,7 @@ pub struct NodeApi {
     net: Arc<dyn crate::net_ops::NetworkOps>,
     images: Arc<dyn crate::image_repo::ImageRepo>,
     providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
 }
 
 /// Runs a host probe off the runtime's workers: every `NodeService` answer
@@ -99,13 +100,13 @@ pub async fn node_info(
     vms: Arc<dyn crate::vms::VmPort>,
     net: Arc<dyn crate::net_ops::NetworkOps>,
     providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
 ) -> Result<NodeInfo, Status> {
     blocking("node info", move || {
-        node::node_info(&crate::providers::measured_reports(
-            &*vms,
-            &*net,
-            &*providers,
-        ))
+        node::node_info(
+            &crate::providers::measured_reports(&*vms, &*net, &*providers),
+            &*linux,
+        )
     })
     .await
 }
@@ -115,13 +116,13 @@ pub async fn health(
     vms: Arc<dyn crate::vms::VmPort>,
     net: Arc<dyn crate::net_ops::NetworkOps>,
     providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
 ) -> Result<Health, Status> {
     blocking("health", move || {
-        node::health(&crate::providers::measured_reports(
-            &*vms,
-            &*net,
-            &*providers,
-        ))
+        node::health(
+            &crate::providers::measured_reports(&*vms, &*net, &*providers),
+            &*linux,
+        )
     })
     .await
 }
@@ -130,8 +131,9 @@ pub async fn health(
 pub async fn capacity(
     vms: Arc<dyn crate::vms::VmPort>,
     store: Arc<dyn crate::store::StorePort>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
 ) -> Result<Capacity, Status> {
-    blocking("capacity", move || node::capacity(&*vms, &*store)).await
+    blocking("capacity", move || node::capacity(&*vms, &*store, &*linux)).await
 }
 
 /// `ListProviders`, the one function both encodings call (ADR-0050 D5).
@@ -191,6 +193,7 @@ impl NodeService for NodeApi {
                 Arc::clone(&self.vms),
                 Arc::clone(&self.net),
                 Arc::clone(&self.providers),
+                Arc::clone(&self.linux),
             )
             .await?,
         ))
@@ -205,6 +208,7 @@ impl NodeService for NodeApi {
                 Arc::clone(&self.vms),
                 Arc::clone(&self.net),
                 Arc::clone(&self.providers),
+                Arc::clone(&self.linux),
             )
             .await?,
         ))
@@ -215,7 +219,12 @@ impl NodeService for NodeApi {
         _req: Request<GetCapacityRequest>,
     ) -> Result<Response<Capacity>, Status> {
         Ok(Response::new(
-            capacity(Arc::clone(&self.vms), Arc::clone(&self.store)).await?,
+            capacity(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.store),
+                Arc::clone(&self.linux),
+            )
+            .await?,
         ))
     }
 
@@ -321,8 +330,9 @@ impl NetworkService for NodeApi {
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("network connect", move || {
-            crate::network_ops::connect_in(&node::state_root(), store.as_ref(), &req)
+            crate::network_ops::connect_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -334,8 +344,14 @@ impl NetworkService for NodeApi {
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("network disconnect", move || {
-            crate::network_ops::disconnect_in(&node::state_root(), store.as_ref(), &req)
+            crate::network_ops::disconnect_in(
+                &node::state_root(),
+                store.as_ref(),
+                linux.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
@@ -552,8 +568,9 @@ impl PodService for NodeApi {
     async fn get_pod(&self, req: Request<GetPodRequest>) -> Result<Response<Pod>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("pod", move || {
-            crate::pods::get_in(&node::state_root(), store.as_ref(), &req)
+            crate::pods::get_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -565,8 +582,9 @@ impl PodService for NodeApi {
     ) -> Result<Response<ListPodsResponse>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("pods", move || {
-            crate::pods::list_in(&node::state_root(), store.as_ref(), &req)
+            crate::pods::list_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -884,8 +902,9 @@ impl ContainerService for NodeApi {
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("container", move || {
-            crate::containers::get_in(&node::state_root(), store.as_ref(), &req)
+            crate::containers::get_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -897,8 +916,9 @@ impl ContainerService for NodeApi {
     ) -> Result<Response<ListContainersResponse>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("containers", move || {
-            crate::containers::list_in(&node::state_root(), store.as_ref(), &req)
+            crate::containers::list_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -934,8 +954,14 @@ impl ContainerService for NodeApi {
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("container update", move || {
-            crate::container_update::update_in(&node::state_root(), store.as_ref(), &req)
+            crate::container_update::update_in(
+                &node::state_root(),
+                store.as_ref(),
+                linux.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
@@ -947,8 +973,14 @@ impl ContainerService for NodeApi {
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("container delete", move || {
-            crate::container_ops::delete_in(&node::state_root(), store.as_ref(), &req)
+            crate::container_ops::delete_in(
+                &node::state_root(),
+                store.as_ref(),
+                linux.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
@@ -960,8 +992,14 @@ impl ContainerService for NodeApi {
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("container start", move || {
-            crate::container_launch::start_in(&node::state_root(), store.as_ref(), &req)
+            crate::container_launch::start_in(
+                &node::state_root(),
+                store.as_ref(),
+                linux.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
@@ -973,8 +1011,9 @@ impl ContainerService for NodeApi {
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("container stop", move || {
-            crate::container_ops::stop_in(&node::state_root(), store.as_ref(), &req)
+            crate::container_ops::stop_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -986,8 +1025,9 @@ impl ContainerService for NodeApi {
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("container kill", move || {
-            crate::container_ops::kill_in(&node::state_root(), store.as_ref(), &req)
+            crate::container_ops::kill_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -999,8 +1039,14 @@ impl ContainerService for NodeApi {
     ) -> Result<Response<WaitContainerResponse>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("container wait", move || {
-            crate::container_launch::wait_in(&node::state_root(), store.as_ref(), &req)
+            crate::container_launch::wait_in(
+                &node::state_root(),
+                store.as_ref(),
+                linux.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
@@ -1009,8 +1055,9 @@ impl ContainerService for NodeApi {
     async fn stats(&self, req: Request<StatsRequest>) -> Result<Response<ContainerStats>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         blocking("container stats", move || {
-            crate::container_ops::stats_in(&node::state_root(), store.as_ref(), &req)
+            crate::container_ops::stats_in(&node::state_root(), store.as_ref(), linux.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -1026,6 +1073,7 @@ impl ContainerService for NodeApi {
         let stream = crate::container_exec::serve(
             node::state_root(),
             Arc::clone(&self.store),
+            Arc::clone(&self.linux),
             req.into_inner(),
         )
         .await?;
@@ -1038,12 +1086,14 @@ impl ContainerService for NodeApi {
     async fn logs(&self, req: Request<LogsRequest>) -> Result<Response<Self::LogsStream>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let linux = Arc::clone(&self.linux);
         // The backlog read is file I/O; the follow task it spawns lands on the
         // runtime (a blocking-pool thread per poll), as `WatchEvents` does.
         let stream = blocking("container logs", move || {
             crate::container_logs::stream(
                 node::state_root(),
                 store,
+                linux,
                 req,
                 crate::container_logs::POLL,
             )
@@ -1071,6 +1121,7 @@ pub fn router() -> axum::Router {
         Arc::new(crate::net_ops::NoNet),
         Arc::new(crate::image_repo::NoImages),
         Arc::new(crate::provider_reports::NoProviderReports),
+        Arc::new(crate::linux_lifecycle::NoLinux),
     )
 }
 
@@ -1162,6 +1213,7 @@ pub fn router_with(
     net: Arc<dyn crate::net_ops::NetworkOps>,
     images: Arc<dyn crate::image_repo::ImageRepo>,
     providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
 ) -> axum::Router {
     use tonic::server::NamedService;
     let api = NodeApi {
@@ -1171,6 +1223,7 @@ pub fn router_with(
         net,
         images,
         providers,
+        linux,
     };
     // The gRPC service is mounted the way tonic's own `Routes` mounts it — one
     // wildcard route under the service name. Not through `Routes::into_axum_router`,

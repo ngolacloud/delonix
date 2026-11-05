@@ -79,11 +79,15 @@ fn read_delta(path: &Path, pos: u64) -> std::io::Result<(Vec<u8>, u64)> {
 
 /// Is the container still producing logs — i.e. still `Running`/`Paused` after
 /// a liveness reconcile? Stops the follow when it is not.
-fn still_live(store: &dyn crate::store::StorePort, id: &str) -> bool {
+fn still_live(
+    store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
+    id: &str,
+) -> bool {
     let Ok(mut c) = store.container_load(id) else {
         return false;
     };
-    delonix_linux::reconcile_status(&mut c);
+    linux.reconcile_status(&mut c);
     matches!(
         c.status,
         delonix_model::records::Status::Running | delonix_model::records::Status::Paused
@@ -95,6 +99,7 @@ fn still_live(store: &dyn crate::store::StorePort, id: &str) -> bool {
 pub fn stream(
     root: PathBuf,
     store: std::sync::Arc<dyn crate::store::StorePort>,
+    linux: std::sync::Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
     req: LogsRequest,
     poll: Duration,
 ) -> Result<tokio_stream::wrappers::ReceiverStream<Result<LogChunk, Status>>, Status> {
@@ -169,8 +174,12 @@ pub fn stream(
                 continue;
             }
             // Nothing new: stop once the container is no longer producing.
-            let (st, id2) = (std::sync::Arc::clone(&store), id.clone());
-            match tokio::task::spawn_blocking(move || still_live(&*st, &id2)).await {
+            let (st, li, id2) = (
+                std::sync::Arc::clone(&store),
+                std::sync::Arc::clone(&linux),
+                id.clone(),
+            );
+            match tokio::task::spawn_blocking(move || still_live(&*st, &*li, &id2)).await {
                 Ok(true) => {}
                 _ => return,
             }
@@ -221,6 +230,7 @@ mod tests {
         let err = stream(
             dir.path().to_path_buf(),
             std::sync::Arc::new(crate::store::LocalStore(dir.path().to_path_buf())),
+            std::sync::Arc::new(crate::linux_lifecycle::LocalLinux),
             LogsRequest {
                 container: "ghost".into(),
                 namespace: "default".into(),
@@ -242,6 +252,7 @@ mod tests {
         let err = stream(
             dir.path().to_path_buf(),
             std::sync::Arc::new(crate::store::LocalStore(dir.path().to_path_buf())),
+            std::sync::Arc::new(crate::linux_lifecycle::LocalLinux),
             LogsRequest {
                 container: "c".into(),
                 namespace: "default".into(),

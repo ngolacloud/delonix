@@ -559,10 +559,11 @@ fn load(
 pub fn start_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &StartContainerRequest,
 ) -> Result<Container, Status> {
     let mut c = load(root, store, &req.name, &req.namespace)?;
-    delonix_linux::reconcile_status(&mut c);
+    linux.reconcile_status(&mut c);
     if matches!(
         c.status,
         delonix_model::records::Status::Running | delonix_model::records::Status::Paused
@@ -576,7 +577,7 @@ pub fn start_in(
     // The start wrote the record (Running, with a pid); read it back and
     // reconcile liveness, the same view `GetContainer` gives.
     let mut started = load(root, store, &req.name, &req.namespace)?;
-    delonix_linux::reconcile_status(&mut started);
+    linux.reconcile_status(&mut started);
     Ok(crate::containers::message(&started))
 }
 
@@ -608,15 +609,17 @@ fn terminal_response(status: &delonix_model::records::Status) -> Option<WaitCont
 pub fn wait_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &WaitContainerRequest,
 ) -> Result<WaitContainerResponse, Status> {
-    wait_in_bounded(root, store, req, WAIT_CEILING, WAIT_POLL)
+    wait_in_bounded(root, store, linux, req, WAIT_CEILING, WAIT_POLL)
 }
 
 /// [`wait_in`] with the ceiling and poll injected (the tests' seam).
 fn wait_in_bounded(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &WaitContainerRequest,
     ceiling: Duration,
     poll: Duration,
@@ -624,7 +627,7 @@ fn wait_in_bounded(
     let deadline = Instant::now() + ceiling;
     loop {
         let mut c = load(root, store, &req.name, &req.namespace)?;
-        delonix_linux::reconcile_status(&mut c);
+        linux.reconcile_status(&mut c);
         if let Some(r) = terminal_response(&c.status) {
             return Ok(r);
         }
@@ -968,9 +971,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let store = crate::store::LocalStore(root.to_path_buf());
+        let linux = crate::linux_lifecycle::LocalLinux;
         let s = start_in(
             root,
             &store,
+            &linux,
             &StartContainerRequest {
                 name: "ghost".into(),
                 namespace: "default".into(),
@@ -981,6 +986,7 @@ mod tests {
         let w = wait_in(
             root,
             &store,
+            &linux,
             &WaitContainerRequest {
                 name: "ghost".into(),
                 namespace: "default".into(),
@@ -1007,9 +1013,11 @@ mod tests {
         c.status = delonix_model::records::Status::Stopped;
         store.save(&c).unwrap();
         let port = crate::store::LocalStore(root.to_path_buf());
+        let linux = crate::linux_lifecycle::LocalLinux;
         let r = wait_in(
             root,
             &port,
+            &linux,
             &WaitContainerRequest {
                 name: "done".into(),
                 namespace: "default".into(),
@@ -1033,6 +1041,7 @@ mod tests {
         let r = wait_in(
             root,
             &port,
+            &linux,
             &WaitContainerRequest {
                 name: "boom".into(),
                 namespace: "default".into(),

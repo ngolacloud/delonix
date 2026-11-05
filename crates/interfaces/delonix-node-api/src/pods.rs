@@ -110,6 +110,7 @@ fn grouped<'a>(
 pub fn list_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &ListPodsRequest,
 ) -> Result<ListPodsResponse, Status> {
     let selector = Selector::parse(&req.label_selector).map_err(Status::invalid_argument)?;
@@ -118,7 +119,7 @@ pub fn list_in(
     let after = crate::page::after(&page)?;
     let ns = ns_wanted(&req.namespace);
 
-    let all = records(root, store)?;
+    let all = records(root, store, linux)?;
     let by_pod = grouped(&all, ns, &selector);
     let mut names: Vec<&String> = by_pod
         .keys()
@@ -155,13 +156,14 @@ pub fn list_in(
 pub fn get_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &GetPodRequest,
 ) -> Result<Pod, Status> {
     if req.name.is_empty() {
         return Err(Status::invalid_argument("GetPod: name is required"));
     }
     let ns = ns_wanted(&req.namespace);
-    let all = records(root, store)?;
+    let all = records(root, store, linux)?;
     let members: Vec<&Record> = all
         .iter()
         .filter(|c| c.pod.as_deref() == Some(req.name.as_str()))

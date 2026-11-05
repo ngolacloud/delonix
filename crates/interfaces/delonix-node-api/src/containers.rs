@@ -6,9 +6,10 @@
 //! store, read through the record-store port), so a read is: find the record by
 //! name, then require its recorded `namespace` to match what was asked —
 //! exactly how [`crate::vms`] reads a VM. Liveness is refreshed in memory with
-//! `delonix_linux::reconcile_status` before the record is mapped, so a record
-//! whose init died since the last write reports `Exited`/`Dead`, not a stale
-//! `Running`. The refresh is NOT persisted here: a read must not write.
+//! the [`crate::linux_lifecycle::LinuxLifecycle`] port's `reconcile_status` before
+//! the record is mapped, so a record whose init died since the last write reports
+//! `Exited`/`Dead`, not a stale `Running`. The refresh is NOT persisted here: a
+//! read must not write.
 
 use std::path::Path;
 
@@ -127,7 +128,11 @@ pub fn message(c: &Record) -> Container {
 /// The container records under `root`, liveness-reconciled. A root where no
 /// container was ever created has no `containers/` directory — an empty list,
 /// which reading must not materialise.
-pub fn records(root: &Path, store: &dyn crate::store::StorePort) -> Result<Vec<Record>, Status> {
+pub fn records(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
+) -> Result<Vec<Record>, Status> {
     if !root.join("containers").is_dir() {
         return Ok(Vec::new());
     }
@@ -135,7 +140,7 @@ pub fn records(root: &Path, store: &dyn crate::store::StorePort) -> Result<Vec<R
         .container_list()
         .map_err(|e| crate::network_ops::status_of(&e))?;
     for c in &mut all {
-        delonix_linux::reconcile_status(c);
+        linux.reconcile_status(c);
     }
     Ok(all)
 }
@@ -144,6 +149,7 @@ pub fn records(root: &Path, store: &dyn crate::store::StorePort) -> Result<Vec<R
 pub fn get_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &GetContainerRequest,
 ) -> Result<Container, Status> {
     let wanted = requested_namespace(&req.namespace);
@@ -164,7 +170,7 @@ pub fn get_in(
     if c.namespace != wanted {
         return Err(missing());
     }
-    delonix_linux::reconcile_status(&mut c);
+    linux.reconcile_status(&mut c);
     Ok(message(&c))
 }
 
@@ -173,6 +179,7 @@ pub fn get_in(
 pub fn list_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &ListContainersRequest,
 ) -> Result<ListContainersResponse, Status> {
     let selector = Selector::parse(&req.label_selector).map_err(Status::invalid_argument)?;
@@ -180,7 +187,7 @@ pub fn list_in(
     let size = crate::page::size(&page)?;
     let after = crate::page::after(&page)?;
     let ns = requested_namespace(&req.namespace);
-    let mut all = records(root, store)?;
+    let mut all = records(root, store, linux)?;
     all.sort_by(|a, b| a.name.cmp(&b.name));
     let mut matching = all
         .iter()

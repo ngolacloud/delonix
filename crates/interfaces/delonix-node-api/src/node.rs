@@ -112,7 +112,10 @@ pub fn supported_workload_types(reports: &[ProviderReport]) -> Vec<String> {
 }
 
 /// `GetNodeInfo`.
-pub fn node_info(reports: &[ProviderReport]) -> NodeInfo {
+pub fn node_info(
+    reports: &[ProviderReport],
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
+) -> NodeInfo {
     NodeInfo {
         engine_version: env!("CARGO_PKG_VERSION").to_string(),
         engine_commit: env!("DELONIX_GIT_HASH").to_string(),
@@ -120,11 +123,11 @@ pub fn node_info(reports: &[ProviderReport]) -> NodeInfo {
         hostname: read_trimmed("/proc/sys/kernel/hostname").unwrap_or_default(),
         kernel: read_trimmed("/proc/sys/kernel/osrelease").unwrap_or_default(),
         arch: std::env::consts::ARCH.to_string(),
-        rootless: delonix_linux::is_rootless(),
+        rootless: linux.is_rootless(),
         // The engine writes cgroupfs itself and never asks systemd for units —
         // the same answer the CRI gives the kubelet (`RuntimeConfig`).
         cgroup_driver: "cgroupfs".to_string(),
-        cgroup_delegated: delonix_linux::cgroup_limits_apply(),
+        cgroup_delegated: linux.cgroup_limits_apply(),
         supported_workload_types: supported_workload_types(reports),
         links: vec![
             link("self", "/v1/node"),
@@ -303,10 +306,13 @@ pub fn worst(conditions: &[Condition]) -> ConditionStatus {
 }
 
 /// `GetHealth`.
-pub fn health(reports: &[ProviderReport]) -> Health {
+pub fn health(
+    reports: &[ProviderReport],
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
+) -> Health {
     health_from(
         store_writable(&state_root()),
-        delonix_linux::cgroup_limits_apply(),
+        linux.cgroup_limits_apply(),
         reports,
     )
 }
@@ -369,17 +375,21 @@ fn filesystem(role: &str, path: &Path) -> Option<FilesystemCapacity> {
 }
 
 /// `GetCapacity`.
-pub fn capacity(vms: &dyn crate::vms::VmPort, store: &dyn crate::store::StorePort) -> Capacity {
+pub fn capacity(
+    vms: &dyn crate::vms::VmPort,
+    store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
+) -> Capacity {
     let mut c = Capacity::default();
     let mut unmeasured: Vec<&str> = Vec::new();
-    let slice = delonix_linux::slice_path();
+    let slice = linux.slice_path();
     let limit = |file: &str| {
         slice
             .as_deref()
             .and_then(|s| cgroup_limit(&format!("{s}/{file}")))
     };
 
-    let ncpu = delonix_linux::host_ncpu() as i64;
+    let ncpu = linux.host_ncpu() as i64;
     if ncpu > 0 {
         c.cpu_millis_total = ncpu * 1000;
         match slice
@@ -394,7 +404,7 @@ pub fn capacity(vms: &dyn crate::vms::VmPort, store: &dyn crate::store::StorePor
         unmeasured.extend(["cpu_millis_total", "cpu_millis_allocatable"]);
     }
 
-    let mem = delonix_linux::host_mem_bytes() as i64;
+    let mem = linux.host_mem_bytes() as i64;
     if mem > 0 {
         c.memory_bytes_total = mem;
         match limit("memory.max") {
@@ -608,7 +618,10 @@ mod tests {
             "nothing written"
         );
         // Read-only for the owner (root ignores modes: only checked as non-root).
-        if !delonix_linux::is_rootless() {
+        // Through the crate's own `LocalLinux` port, so this test names no linux
+        // adapter directly either.
+        use crate::linux_lifecycle::LinuxLifecycle;
+        if !crate::linux_lifecycle::LocalLinux.is_rootless() {
             return;
         }
         let ro = dir.path().join("ro");

@@ -15,9 +15,12 @@ use delonix_compute::Vm;
 use delonix_engine::Engine;
 use delonix_model::Error;
 use delonix_node_api::image_repo::StoredImage;
+use delonix_node_api::linux_lifecycle::{ContainerUsage, LimitUpdate, ResourceUpdate};
 use delonix_node_api::net_ops::NetRecord;
+use delonix_node_api::store::PortRepo;
 use delonix_node_api::{
-    activation, ImageRepo, Listen, NetworkOps, ProviderReports, RunResolver, StorePort, VmPort,
+    activation, ImageRepo, LinuxLifecycle, Listen, NetworkOps, ProviderReports, RunResolver,
+    StorePort, VmPort,
 };
 
 /// The composition's VM reads, handed to the node API as its `VmPort` port
@@ -458,6 +461,89 @@ impl ProviderReports for HostProviders {
     }
 }
 
+/// The composition's container lifecycle edge, handed to the node API as its
+/// `LinuxLifecycle` port (ADR-0040 A5, R3d-i). The bin names the `delonix-linux`
+/// adapter directly — a bin may name an adapter (A1) — so the `delonix-node-api`
+/// interface no longer names it on the container read/write path. This Engine has
+/// no container service yet (PRE-R3h), so the port is backed by `delonix-linux`
+/// directly, exactly as `StateStore`/`SdnNet`/`OciImages` back the record store,
+/// the SDN and the image store; the `stop`/`remove` verbs drive over the record
+/// store this port is handed (bridged by `PortRepo`), the adapter's
+/// `ContainerUsage`/`ResourceUpdate`/`LimitUpdate` cross as the interface's own
+/// records, and the native linux error maps to the shared engine error the
+/// interface speaks.
+struct HostLinux;
+
+impl LinuxLifecycle for HostLinux {
+    fn reconcile_status(&self, c: &mut delonix_compute::Container) {
+        delonix_linux::reconcile_status(c);
+    }
+    fn container_usage(&self, c: &delonix_compute::Container) -> ContainerUsage {
+        let u = delonix_linux::container_usage(c);
+        ContainerUsage {
+            cpu_usage_usec: u.cpu_usage_usec,
+            mem_bytes: u.mem_bytes,
+        }
+    }
+    fn stop(
+        &self,
+        store: &dyn StorePort,
+        c: &mut delonix_compute::Container,
+        grace_secs: u64,
+    ) -> Result<(), Error> {
+        delonix_linux::stop(&PortRepo(store), c, grace_secs).map_err(Into::into)
+    }
+    fn send_signal(&self, c: &delonix_compute::Container, signal: i32) -> Result<(), Error> {
+        delonix_linux::send_signal(c, signal).map_err(Into::into)
+    }
+    fn remove(
+        &self,
+        store: &dyn StorePort,
+        c: &delonix_compute::Container,
+        force: bool,
+    ) -> Result<(), Error> {
+        delonix_linux::remove(&PortRepo(store), c, force).map_err(Into::into)
+    }
+    fn update_kube_resources(
+        &self,
+        c: &delonix_compute::Container,
+        u: &ResourceUpdate,
+    ) -> Result<LimitUpdate, Error> {
+        let du = delonix_linux::ResourceUpdate {
+            memory: u.memory.as_deref(),
+            cpus: u.cpus.as_deref(),
+            cpu_weight: u.cpu_weight.as_deref(),
+            cpuset: u.cpuset.as_deref(),
+            cpuset_mems: u.cpuset_mems.as_deref(),
+            hugepage_limits: &u.hugepage_limits,
+            unified: &u.unified,
+            oom_score_adj: u.oom_score_adj,
+        };
+        delonix_linux::update_kube_resources(c, &du)
+            .map(|l| match l {
+                delonix_linux::LimitUpdate::Applied => LimitUpdate::Applied,
+                delonix_linux::LimitUpdate::Deferred => LimitUpdate::Deferred,
+                delonix_linux::LimitUpdate::NotEnforced => LimitUpdate::NotEnforced,
+            })
+            .map_err(Into::into)
+    }
+    fn is_rootless(&self) -> bool {
+        delonix_linux::is_rootless()
+    }
+    fn cgroup_limits_apply(&self) -> bool {
+        delonix_linux::cgroup_limits_apply()
+    }
+    fn host_ncpu(&self) -> u64 {
+        delonix_linux::host_ncpu()
+    }
+    fn host_mem_bytes(&self) -> u64 {
+        delonix_linux::host_mem_bytes()
+    }
+    fn slice_path(&self) -> Option<String> {
+        delonix_linux::slice_path()
+    }
+}
+
 /// The `--version` line: binary name and the crate version, nothing else.
 fn version_line() -> String {
     format!("delonix-node-api {}", env!("CARGO_PKG_VERSION"))
@@ -594,6 +680,11 @@ fn run() -> Result<(), Error> {
     // record store, the SDN and the image store — and the interface names none of
     // the four adapters in `providers.rs`.
     let providers: Arc<dyn ProviderReports> = Arc::new(HostProviders);
+    // The container lifecycle edge, behind the `LinuxLifecycle` port (R3d-i):
+    // this Engine has no container service yet, so the bin backs it with
+    // `delonix-linux` directly — the same shape as the record store, the SDN and
+    // the image store — and the interface names no linux adapter on this path.
+    let linux: Arc<dyn LinuxLifecycle> = Arc::new(HostLinux);
     delonix_node_api::serve(
         listen,
         idle,
@@ -603,6 +694,7 @@ fn run() -> Result<(), Error> {
         net,
         images,
         providers,
+        linux,
     )
 }
 
