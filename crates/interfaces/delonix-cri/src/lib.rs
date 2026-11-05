@@ -11,6 +11,7 @@
 
 use delonix_host::peer_cred::peer_uid;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio_stream::StreamExt as _;
 use tonic::{Request, Response, Status};
 
@@ -39,23 +40,43 @@ fn st<E: std::fmt::Display>(e: E) -> Status {
     Status::internal(e.to_string())
 }
 
-/// An image-store error → gRPC `Status`, worded as the engine's shared class so
-/// the text the kubelet sees does not depend on which crate raised it.
-fn st_oci(e: delonix_oci::Error) -> Status {
-    st(delonix_model::Error::from(e))
-}
-
-/// Opens the image store at the given root.
-fn images(base: &PathBuf) -> Result<delonix_oci::ImageStore, Status> {
-    delonix_oci::ImageStore::open(base).map_err(st_oci)
+/// The composed engine's image use cases this CRI `ImageService` serves (R3h).
+/// The interface no longer names the `delonix-oci` adapter: the multicall mounts
+/// a `delonix-engine::Engine` and hands in an implementor, exactly as the mgmt/mcp
+/// servers receive their ports (ADR-0040 A5). Image records cross as a serialized
+/// summary (`{id, user, repo_tags, size}`) — the adapter's `Image` type is not
+/// nameable here, and the CRI proto mapping ([`to_cri_image`]) is this boundary's
+/// job. Errors arrive as the shared [`delonix_model::Error`], turned into a gRPC
+/// `Status` via [`st`].
+pub trait ImageOps: Send + Sync {
+    /// Every local image, each a `{id, user, repo_tags, size}` summary.
+    fn list_images(&self) -> Result<Vec<serde_json::Value>, delonix_model::Error>;
+    /// One image's summary by reference, or `None` if it is not stored.
+    fn image_status(
+        &self,
+        reference: &str,
+    ) -> Result<Option<serde_json::Value>, delonix_model::Error>;
+    /// Pull an image (optionally with resolved `(username, password)`); the id.
+    fn pull_image(
+        &self,
+        reference: &str,
+        creds: Option<(String, String)>,
+    ) -> Result<String, delonix_model::Error>;
+    /// Remove an image (the CRI contract is idempotent — the caller ignores a miss).
+    fn remove_image(&self, reference: &str) -> Result<(), delonix_model::Error>;
+    /// Total on-disk bytes of all image layers (CRI `ImageFsInfo`).
+    fn image_fs_used_bytes(&self) -> u64;
 }
 
 // ---------------------------------------------------------------------------
-// ImageService — fully functional over the Delonix engine.
+// ImageService — fully functional over the Delonix engine (R3h).
 // ---------------------------------------------------------------------------
 
 pub struct DelonixImage {
+    /// The state root, for the `ImageFsInfo` mountpoint label only — the image
+    /// reads/writes themselves go through `engine`.
     pub base: PathBuf,
+    pub engine: Arc<dyn ImageOps>,
 }
 
 #[tonic::async_trait]
@@ -64,10 +85,11 @@ impl ImageService for DelonixImage {
         &self,
         _req: Request<ListImagesRequest>,
     ) -> Result<Response<ListImagesResponse>, Status> {
-        let base = self.base.clone();
-        let list = tokio::task::spawn_blocking(move || images(&base)?.list().map_err(st_oci))
+        let engine = self.engine.clone();
+        let list = tokio::task::spawn_blocking(move || engine.list_images())
             .await
-            .map_err(st)??;
+            .map_err(st)?
+            .map_err(st)?;
         let images = list.iter().map(to_cri_image).collect();
         Ok(Response::new(ListImagesResponse { images }))
     }
@@ -77,8 +99,8 @@ impl ImageService for DelonixImage {
         req: Request<ImageStatusRequest>,
     ) -> Result<Response<ImageStatusResponse>, Status> {
         let name = req.into_inner().image.map(|s| s.image).unwrap_or_default();
-        let base = self.base.clone();
-        let found = tokio::task::spawn_blocking(move || images(&base).ok()?.resolve(&name).ok())
+        let engine = self.engine.clone();
+        let found = tokio::task::spawn_blocking(move || engine.image_status(&name).ok().flatten())
             .await
             .map_err(st)?;
         let image = found.as_ref().map(to_cri_image);
@@ -109,15 +131,13 @@ impl ImageService for DelonixImage {
             .auth
             .filter(|a| !a.username.is_empty())
             .map(|a| (a.username, a.password));
-        let base = self.base.clone();
-        let img = tokio::task::spawn_blocking(move || {
-            let store = images(&base)?;
-            delonix_oci::pull_from_registry_with_creds(&store, &name, creds).map_err(st_oci)
-        })
-        .await
-        .map_err(st)??;
+        let engine = self.engine.clone();
+        let image_ref = tokio::task::spawn_blocking(move || engine.pull_image(&name, creds))
+            .await
+            .map_err(st)?
+            .map_err(st)?;
         delonix_telemetry::metrics::inc_image_pulled();
-        Ok(Response::new(PullImageResponse { image_ref: img.id }))
+        Ok(Response::new(PullImageResponse { image_ref }))
     }
 
     async fn remove_image(
@@ -125,13 +145,11 @@ impl ImageService for DelonixImage {
         req: Request<RemoveImageRequest>,
     ) -> Result<Response<RemoveImageResponse>, Status> {
         let name = req.into_inner().image.map(|s| s.image).unwrap_or_default();
-        let base = self.base.clone();
+        let engine = self.engine.clone();
         // CRI: RemoveImage is IDEMPOTENT — removing a nonexistent image is success
         // (the kubelet calls it in GC cycles without guaranteeing it still exists).
         tokio::task::spawn_blocking(move || {
-            if let Ok(store) = images(&base) {
-                let _ = store.remove(&name);
-            }
+            let _ = engine.remove_image(&name);
         })
         .await
         .map_err(st)?;
@@ -142,16 +160,10 @@ impl ImageService for DelonixImage {
         &self,
         _req: Request<ImageFsInfoRequest>,
     ) -> Result<Response<ImageFsInfoResponse>, Status> {
-        let base = self.base.clone();
-        let used = tokio::task::spawn_blocking(move || {
-            images(&base)
-                .ok()
-                .and_then(|s| s.list().ok())
-                .map(|v| v.iter().map(layer_size).sum::<u64>())
-                .unwrap_or(0)
-        })
-        .await
-        .map_err(st)?;
+        let engine = self.engine.clone();
+        let used = tokio::task::spawn_blocking(move || engine.image_fs_used_bytes())
+            .await
+            .map_err(st)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as i64)
@@ -212,45 +224,39 @@ fn partition_refs(refs: &[String]) -> (Vec<String>, Vec<String>) {
     refs.iter().cloned().partition(|r| !r.contains('@'))
 }
 
-/// The store's [`delonix_oci::Image`] → the CRI `Image` message. Shared by
-/// `list_images` and `image_status` so the two cannot drift (they built the same
-/// struct inline, and `repo_digests` was missing from both).
-fn to_cri_image(i: &delonix_oci::Image) -> Image {
-    let (uid, username) = image_user(&i.config.user);
-    let (repo_tags, repo_digests) = partition_refs(&i.repo_tags);
+/// The engine's image summary (`{id, user, repo_tags, size}`) → the CRI `Image`
+/// message (R3h). Shared by `list_images` and `image_status` so the two cannot
+/// drift. The layer size and the store reads live in the engine now; this maps
+/// the composed fields onto the proto (splitting `repo_tags` into tags/digests
+/// and the OCI `user` into `uid`/`username`).
+fn to_cri_image(v: &serde_json::Value) -> Image {
+    let id = v
+        .get("id")
+        .and_then(|x| x.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let user = v.get("user").and_then(|x| x.as_str()).unwrap_or_default();
+    let (uid, username) = image_user(user);
+    let refs: Vec<String> = v
+        .get("repo_tags")
+        .and_then(|x| x.as_array())
+        .map(|a| a.iter().filter_map(|r| r.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let (repo_tags, repo_digests) = partition_refs(&refs);
+    let size = v.get("size").and_then(|x| x.as_u64()).unwrap_or(0);
     Image {
-        id: i.id.clone(),
+        id: id.clone(),
         repo_tags,
         repo_digests,
-        size: layer_size(i),
+        size,
         uid,
         username,
         spec: Some(ImageSpec {
-            image: i.id.clone(),
+            image: id,
             ..Default::default()
         }),
         ..Default::default()
     }
-}
-
-/// Size (bytes) of an image's layers, summing the CAS blobs.
-fn layer_size(img: &delonix_oci::Image) -> u64 {
-    let mut total = 0u64;
-    for l in &img.layers {
-        let hex = l.strip_prefix("sha256:").unwrap_or(l);
-        // the blob path is <root>/blobs/sha256/<hex>; we use the store via path.
-        if let Ok(meta) = std::fs::metadata(blob_path(img, hex)) {
-            total += meta.len();
-        }
-    }
-    total
-}
-
-fn blob_path(_img: &delonix_oci::Image, hex: &str) -> PathBuf {
-    delonix_oci::ImageStore::default_root()
-        .join("blobs")
-        .join("sha256")
-        .join(hex)
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +282,7 @@ async fn metrics_handler() -> impl axum::response::IntoResponse {
 /// lifts it and must be asked for.
 pub fn serve_blocking(
     base: PathBuf,
+    images: Arc<dyn ImageOps>,
     addr: &str,
     ceiling: CapCeiling,
 ) -> Result<(), delonix_model::Error> {
@@ -397,7 +404,10 @@ pub fn serve_blocking(
             tracing::info!("{line}");
         }
 
-        let img = DelonixImage { base: base.clone() };
+        let img = DelonixImage {
+            base: base.clone(),
+            engine: images,
+        };
         let rtsvc = runtime_svc::DelonixRuntime::new(base, streamer, ceiling);
         tonic::transport::Server::builder()
             .add_service(RuntimeServiceServer::new(rtsvc))

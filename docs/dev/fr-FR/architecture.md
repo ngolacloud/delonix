@@ -750,6 +750,7 @@ flowchart TB
   end
   subgraph bin["Binaries"]
     delonix_bin["delonix-bin"]
+    delonix_cri_bin["delonix-cri-bin"]
     delonix_mcp_bin["delonix-mcp-bin"]
     delonix_mgmt_bin["delonix-mgmt-bin"]
     delonix_node_api_bin["delonix-node-api-bin"]
@@ -791,11 +792,15 @@ flowchart TB
   delonix_cri --> delonix_linux
   delonix_cri --> delonix_model
   delonix_cri --> delonix_node
-  delonix_cri --> delonix_oci
   delonix_cri --> delonix_sdn
   delonix_cri --> delonix_security
   delonix_cri --> delonix_state
   delonix_cri --> delonix_telemetry
+  delonix_cri_bin --> delonix_cri
+  delonix_cri_bin --> delonix_engine
+  delonix_cri_bin --> delonix_host
+  delonix_cri_bin --> delonix_model
+  delonix_cri_bin --> delonix_telemetry
   delonix_engine --> delonix_compute
   delonix_engine --> delonix_linux
   delonix_engine --> delonix_model
@@ -924,6 +929,7 @@ flowchart TB
   class delonix_bin engine
   class delonix_compute block
   class delonix_cri iface
+  class delonix_cri_bin engine
   class delonix_engine assembly
   class delonix_host block
   class delonix_linux block
