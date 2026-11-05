@@ -110,6 +110,7 @@ fn start_of(first: Option<ExecRequest>) -> Result<ExecStart, Status> {
 fn resolve(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     name: &str,
     namespace: &str,
 ) -> Result<String, Status> {
@@ -127,7 +128,7 @@ fn resolve(
     if c.namespace != namespace {
         return Err(missing());
     }
-    delonix_linux::reconcile_status(&mut c);
+    linux.reconcile_status(&mut c);
     if !matches!(
         c.status,
         delonix_model::records::Status::Running | delonix_model::records::Status::Paused
@@ -192,18 +193,20 @@ fn command(root: &Path, args: &[String]) -> tokio::process::Command {
 pub async fn serve(
     root: PathBuf,
     store: Arc<dyn crate::store::StorePort>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
     mut inbound: Streaming<ExecRequest>,
 ) -> Result<ReceiverStream<Result<ExecResponse, Status>>, Status> {
     let first = inbound.message().await?;
     let start = start_of(first)?;
 
-    let (r, st, name, ns) = (
+    let (r, st, li, name, ns) = (
         root.clone(),
         Arc::clone(&store),
+        Arc::clone(&linux),
         start.container.clone(),
         requested_namespace(&start.namespace).to_string(),
     );
-    let id = tokio::task::spawn_blocking(move || resolve(&r, &*st, &name, &ns))
+    let id = tokio::task::spawn_blocking(move || resolve(&r, &*st, &*li, &name, &ns))
         .await
         .map_err(|e| Status::internal(format!("exec: resolving the container panicked: {e}")))??;
 
@@ -640,6 +643,7 @@ mod tests {
         let err = resolve(
             dir.path(),
             &crate::store::LocalStore(dir.path().to_path_buf()),
+            &crate::linux_lifecycle::LocalLinux,
             "ghost",
             "default",
         )

@@ -2,8 +2,9 @@
 //!
 //! The write half's one hot-path: rewrite a running container's cgroup limits
 //! without restarting it — `memory.max`, `cpu.max`, `cpu.weight`, `cpuset.cpus`.
-//! The write is [`delonix_linux::update_kube_resources`], the SAME function the
-//! CRI's `UpdateContainerResources` drives (ADR 0038 item 4), reused unchanged:
+//! The write is the [`crate::linux_lifecycle::LinuxLifecycle`] port's
+//! `update_kube_resources` — the SAME adapter function the CRI's
+//! `UpdateContainerResources` drives (ADR 0038 item 4), reused unchanged:
 //! a node-API container carries no kubelet systemd scope, so it takes that
 //! function's direct-cgroup-write branch, exactly as `container run` does.
 //!
@@ -219,6 +220,7 @@ fn load(
 pub fn update_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &UpdateContainerRequest,
 ) -> Result<Container, Status> {
     let mask = req
@@ -274,24 +276,27 @@ pub fn update_in(
 
     // Refresh liveness so the write targets the pid's real cgroup (and so a
     // container that died since the record was written is seen as stopped).
-    delonix_linux::reconcile_status(&mut c);
+    linux.reconcile_status(&mut c);
 
-    let update = delonix_linux::ResourceUpdate {
-        memory: plan.memory.as_deref(),
-        cpus: plan.cpus.as_deref(),
-        cpu_weight: plan.cpu_weight.as_deref(),
-        cpuset: plan.cpuset.as_deref(),
+    let update = crate::linux_lifecycle::ResourceUpdate {
+        memory: plan.memory.clone(),
+        cpus: plan.cpus.clone(),
+        cpu_weight: plan.cpu_weight.clone(),
+        cpuset: plan.cpuset.clone(),
         cpuset_mems: None,
-        hugepage_limits: &[],
-        unified: &[],
+        hugepage_limits: Vec::new(),
+        unified: Vec::new(),
         oom_score_adj: None,
     };
-    match delonix_linux::update_kube_resources(&c, &update).map_err(|e| status_of(&e.into()))? {
+    match linux
+        .update_kube_resources(&c, &update)
+        .map_err(|e| status_of(&e))?
+    {
         // The container looked alive but its cgroup was gone by the time we
         // wrote: the request is not in force and will not become so. The proto
         // has no field to carry that back, so it is logged (as the CRI's own
         // path does) rather than passed off as a clean success in silence.
-        delonix_linux::LimitUpdate::NotEnforced => tracing::warn!(
+        crate::linux_lifecycle::LimitUpdate::NotEnforced => tracing::warn!(
             container = %req.name,
             "UpdateContainer did not reach a live cgroup — the container looked alive and its \
              cgroup is gone; the record is updated but no live limit changed"
@@ -299,7 +304,8 @@ pub fn update_in(
         // Applied (live) or Deferred (stopped: the next start rebuilds the
         // cgroup from the record this call is about to persist). Both keep the
         // record as the full desired state.
-        delonix_linux::LimitUpdate::Applied | delonix_linux::LimitUpdate::Deferred => {}
+        crate::linux_lifecycle::LimitUpdate::Applied
+        | crate::linux_lifecycle::LimitUpdate::Deferred => {}
     }
 
     // The record is the full desired state: persist what this call changed so a

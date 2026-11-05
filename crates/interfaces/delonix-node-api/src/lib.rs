@@ -92,6 +92,7 @@ pub mod events;
 pub mod image_ops;
 pub mod image_repo;
 pub mod images;
+pub mod linux_lifecycle;
 pub mod net_ops;
 pub mod network_ops;
 pub mod networks;
@@ -115,6 +116,7 @@ pub mod volume_ops;
 pub mod volumes;
 
 pub use image_repo::ImageRepo;
+pub use linux_lifecycle::LinuxLifecycle;
 pub use net_ops::NetworkOps;
 pub use provider_reports::ProviderReports;
 pub use run_resolver::RunResolver;
@@ -169,6 +171,7 @@ pub fn serve_blocking(
     net: std::sync::Arc<dyn NetworkOps>,
     images: std::sync::Arc<dyn ImageRepo>,
     providers: std::sync::Arc<dyn ProviderReports>,
+    linux: std::sync::Arc<dyn LinuxLifecycle>,
 ) -> Result<(), Error> {
     serve_with(
         Listen::Path(addr.to_string()),
@@ -179,6 +182,7 @@ pub fn serve_blocking(
         net,
         images,
         providers,
+        linux,
     )
 }
 
@@ -196,6 +200,7 @@ pub fn serve(
     net: std::sync::Arc<dyn NetworkOps>,
     images: std::sync::Arc<dyn ImageRepo>,
     providers: std::sync::Arc<dyn ProviderReports>,
+    linux: std::sync::Arc<dyn LinuxLifecycle>,
 ) -> Result<(), Error> {
     serve_with(
         listen,
@@ -206,6 +211,7 @@ pub fn serve(
         net,
         images,
         providers,
+        linux,
     )
 }
 
@@ -218,6 +224,7 @@ fn serve_with(
     net: std::sync::Arc<dyn NetworkOps>,
     images: std::sync::Arc<dyn ImageRepo>,
     providers: std::sync::Arc<dyn ProviderReports>,
+    linux: std::sync::Arc<dyn LinuxLifecycle>,
 ) -> Result<(), Error> {
     compose();
     delonix_node::alloc_tuning::limit_malloc_arenas();
@@ -283,7 +290,7 @@ fn serve_with(
         };
         serve_listener(
             uds,
-            router_with(vms, store, run_resolver, net, images, providers),
+            router_with(vms, store, run_resolver, net, images, providers, linux),
             idle,
         )
         .await

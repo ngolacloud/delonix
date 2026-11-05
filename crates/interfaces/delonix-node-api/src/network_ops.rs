@@ -361,11 +361,13 @@ pub fn delete_with(
 pub fn connect_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &ConnectContainerRequest,
 ) -> Result<Container, Status> {
     membership(
         root,
         store,
+        linux,
         "connect",
         &req.network,
         &req.container,
@@ -380,11 +382,13 @@ pub fn connect_in(
 pub fn disconnect_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     req: &DisconnectContainerRequest,
 ) -> Result<Container, Status> {
     membership(
         root,
         store,
+        linux,
         "disconnect",
         &req.network,
         &req.container,
@@ -399,6 +403,7 @@ pub fn disconnect_in(
 fn membership(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
     verb: &str,
     network: &str,
     container: &str,
@@ -435,6 +440,7 @@ fn membership(
     crate::containers::get_in(
         root,
         store,
+        linux,
         &GetContainerRequest {
             name: container.to_string(),
             namespace: namespace.to_string(),
@@ -538,6 +544,7 @@ mod tests {
             connect_in(
                 dir.path(),
                 &crate::store::LocalStore(dir.path().to_path_buf()),
+                &crate::linux_lifecycle::LocalLinux,
                 &no_net
             )
             .unwrap_err()
@@ -554,6 +561,7 @@ mod tests {
             disconnect_in(
                 dir.path(),
                 &crate::store::LocalStore(dir.path().to_path_buf()),
+                &crate::linux_lifecycle::LocalLinux,
                 &no_container
             )
             .unwrap_err()
@@ -575,6 +583,7 @@ mod tests {
             connect_in(
                 dir.path(),
                 &crate::store::LocalStore(dir.path().to_path_buf()),
+                &crate::linux_lifecycle::LocalLinux,
                 &req
             )
             .unwrap_err()

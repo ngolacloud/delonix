@@ -70,8 +70,12 @@ pub trait StorePort: Send + Sync {
 /// [`delonix_model::ports::StateRepository`] the `delonix_linux` lifecycle verbs
 /// (`stop`/`remove`) take, so the interface can drive them without naming a store
 /// adapter. The generic `update`/`remove_unless` closures are forwarded to the
-/// port's `&mut dyn FnMut` methods (each applied once).
-pub(crate) struct PortRepo<'a>(pub &'a dyn StorePort);
+/// port's `&mut dyn FnMut` methods (each applied once). Public so the
+/// composition's `delonix-linux`-backed [`crate::linux_lifecycle::LinuxLifecycle`]
+/// (the bin's `HostLinux`, the harness's `AdapterLinux`) can bridge the store it
+/// is handed to the adapter's `stop`/`remove` without the interface naming a
+/// store adapter.
+pub struct PortRepo<'a>(pub &'a dyn StorePort);
 
 impl StateRepository<Container> for PortRepo<'_> {
     fn get(&self, id: &str) -> delonix_model::Result<Container> {
