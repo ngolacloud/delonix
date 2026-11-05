@@ -411,7 +411,7 @@ pub fn create_with_fn(
             "CreateVirtualMachine: name is required",
         ));
     }
-    if !delonix_vm::valid_vm_name(&req.name) {
+    if !delonix_compute::vm::valid_vm_name(&req.name) {
         return Err(Status::invalid_argument(format!(
             "CreateVirtualMachine: '{}' is not a valid virtual machine name",
             req.name
