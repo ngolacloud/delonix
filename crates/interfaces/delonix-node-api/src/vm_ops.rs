@@ -195,6 +195,7 @@ fn declared_subnet(root: &Path, network: &str) -> Result<Option<String>, Status>
 /// acknowledged, never inside the work closure.
 fn config_from_spec(
     root: &Path,
+    vms: &dyn crate::vms::VmPort,
     name: &str,
     namespace: Option<String>,
     spec: &VirtualMachineSpec,
@@ -213,7 +214,7 @@ fn config_from_spec(
     // "0 = image default, then 1" (the contract's own comment): look up the
     // image's own recommendation ONCE, reuse it for whichever of
     // vcpus/memory/backend the request left unspecified.
-    let image_defaults = delonix_vm::image_defaults(root, &spec.image);
+    let image_defaults = vms.image_defaults(&spec.image);
     let vcpus = match spec.vcpus {
         0 => image_defaults.as_ref().and_then(|d| d.vcpus).unwrap_or(1),
         n if n > 0 => n as u32,
@@ -234,7 +235,7 @@ fn config_from_spec(
         .or_else(|| image_defaults.and_then(|d| d.backend));
     Ok(VmConfig {
         name: name.to_string(),
-        disk: delonix_vm::store_image_disk(root, &spec.image),
+        disk: vms.store_image_disk(&spec.image),
         vcpus,
         memory,
         network_subnet,
@@ -326,13 +327,13 @@ fn stamp_metadata(
 /// deadline, are an error — the same DX-8503 class the CLI gives, because the
 /// contract this call made ("wait until reachable") was not kept, and the VM
 /// is left running either way (the timeout may just be too short).
-fn wait_until_reachable(root: &Path, name: &str) -> delonix_model::Result<()> {
+fn wait_until_reachable(vms: &dyn crate::vms::VmPort, name: &str) -> delonix_model::Result<()> {
     let deadline = Instant::now() + WAIT_TIMEOUT;
     let mut silent_at: Option<String> = None;
     loop {
-        if let Ok(vm) = delonix_vm::status(root, name) {
+        if let Ok(vm) = vms.status(name) {
             if let Some(ip) = vm.ip.clone().filter(|s| !s.is_empty()) {
-                let up = if delonix_vm::ip_is_predicted(&vm) {
+                let up = if vms.ip_is_predicted(&vm) {
                     match delonix_sdn::infra::sdn_reachable(
                         &vm.network,
                         &ip,
@@ -382,29 +383,17 @@ fn wait_until_reachable(root: &Path, name: &str) -> delonix_model::Result<()> {
     }
 }
 
-/// What `CreateVirtualMachine` does once it is acknowledged.
-type CreateWork<'a> = &'a dyn Fn(&Path, &str, &VmConfig, bool) -> delonix_model::Result<()>;
 /// What `DeleteVirtualMachine` does once it is acknowledged.
 type DeleteWork<'a> = &'a dyn Fn(&str, bool) -> delonix_model::Result<()>;
 
-fn create_work(root: &Path, name: &str, cfg: &VmConfig, wait: bool) -> delonix_model::Result<()> {
-    delonix_vm::create_with(root, cfg, &|_stage| {})?;
-    if wait {
-        wait_until_reachable(root, name)?;
-    }
-    Ok(())
-}
-
-/// `CreateVirtualMachine` under `root`.
-pub fn create_in(root: &Path, req: &CreateVirtualMachineRequest) -> Result<Operation, Status> {
-    create_with_fn(root, req, &create_work)
-}
-
-/// [`create_in`] with the work injected (the tests' seam).
-pub fn create_with_fn(
+/// `CreateVirtualMachine` under `root`, through the composed VM port
+/// (ADR-0040 A5): the create itself, the name-taken check, the undeclared-
+/// network refusal, the image/disk resolution and the rollback all reach the
+/// engine through `vms`, never the `delonix-vm` adapter from inside this crate.
+pub fn create_in(
     root: &Path,
+    vms: &dyn crate::vms::VmPort,
     req: &CreateVirtualMachineRequest,
-    work: CreateWork<'_>,
 ) -> Result<Operation, Status> {
     if req.name.is_empty() {
         return Err(Status::invalid_argument(
@@ -419,13 +408,13 @@ pub fn create_with_fn(
     }
     let namespace = namespace_of(&req.namespace);
     let spec = req.spec.clone().unwrap_or_default();
-    let cfg = config_from_spec(root, &req.name, namespace, &spec)?;
+    let cfg = config_from_spec(root, vms, &req.name, namespace, &spec)?;
     let target = format!("VirtualMachine/{}", req.name);
     let fp = create_fingerprint(&cfg, &req.labels, &req.annotations);
     if let Some(found) = operations::replay(root, "create", &target, &req.request_id, &fp)? {
         return Ok(operations::message(&found));
     }
-    if delonix_vm::exists(root, &req.name) {
+    if vms.exists(&req.name) {
         return Err(Status::already_exists(format!(
             "virtual machine '{}' already exists",
             req.name
@@ -434,7 +423,8 @@ pub fn create_with_fn(
     // A network this node never declared is `NOT_FOUND` now, not an operation
     // that is acknowledged and then fails inside — the engine makes the same
     // refusal before the overlay, this only moves it ahead of the `begin`.
-    delonix_vm::refuse_undeclared_network(&cfg).map_err(|e| status_of(&e.into()))?;
+    vms.refuse_undeclared_network(&cfg)
+        .map_err(|e| status_of(&e))?;
     let rec = match operations::begin(root, "create", &target, &req.request_id, &fp)? {
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
@@ -443,11 +433,14 @@ pub fn create_with_fn(
     let labels = req.labels.clone();
     let annotations = req.annotations.clone();
     let wait = req.wait_until_reachable;
-    let outcome = work(root, &name, &cfg, wait).and_then(|()| {
-        stamp_metadata(root, &name, &labels, &annotations).inspect_err(|_| {
-            let _ = delonix_vm::destroy(root, &name, true, true);
-        })
-    });
+    let outcome = vms
+        .create(&cfg)
+        .and_then(|()| if wait { wait_until_reachable(vms, &name) } else { Ok(()) })
+        .and_then(|()| {
+            stamp_metadata(root, &name, &labels, &annotations).inspect_err(|_| {
+                let _ = vms.destroy(&name, true, true);
+            })
+        });
     let outcome = outcome.map(|()| target_href(&req.namespace, &req.name));
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
@@ -500,7 +493,7 @@ pub fn delete_with_fn(
         return Err(missing());
     }
     if !req.etag.is_empty() {
-        let current = crate::vms::message(&vm)
+        let current = crate::vms::message(vms, &vm)
             .meta
             .map(|m| m.etag)
             .unwrap_or_default();
@@ -622,7 +615,7 @@ pub fn pause_in(
     missing_vm(vms, &req.name, &req.namespace)?;
     vms.pause(&req.name).map_err(|e| status_of(&e))?;
     let vm = vms.status(&req.name).map_err(|e| status_of(&e))?;
-    Ok(crate::vms::message(&vm))
+    Ok(crate::vms::message(vms, &vm))
 }
 
 pub fn resume_in(
@@ -632,7 +625,7 @@ pub fn resume_in(
     missing_vm(vms, &req.name, &req.namespace)?;
     vms.unpause(&req.name).map_err(|e| status_of(&e))?;
     let vm = vms.status(&req.name).map_err(|e| status_of(&e))?;
-    Ok(crate::vms::message(&vm))
+    Ok(crate::vms::message(vms, &vm))
 }
 
 /// `ListSnapshots`: the engine's `delonix_vm::snapshots` reports names only
@@ -921,7 +914,7 @@ mod tests {
             network: "cf-nope".into(),
             ..Default::default()
         }];
-        let err = create_in(dir.path(), &req).unwrap_err();
+        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &req).unwrap_err();
         assert_eq!(err.code(), tonic::Code::NotFound, "{err:?}");
         assert!(
             err.message().contains("'cf-nope'")
@@ -954,7 +947,7 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(req.spec.as_ref().unwrap().provider, remote);
-        let op = create_in(dir.path(), &req).unwrap();
+        let op = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &req).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32);
     }
 
@@ -984,7 +977,7 @@ mod tests {
     fn create_is_persisted_running_before_the_work_and_the_vm_reads_back_with_its_labels() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        let op = create_in(dir.path(), &create_req("web-1", "")).unwrap();
+        let op = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-1", "")).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32);
         assert_eq!(op.verb, "create");
         assert_eq!(op.target, "VirtualMachine/web-1");
@@ -1007,9 +1000,9 @@ mod tests {
     fn a_name_already_taken_is_refused_and_no_operation_is_written() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        create_in(dir.path(), &create_req("web-2", "")).unwrap();
+        create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-2", "")).unwrap();
         let before = operations_on_disk(dir.path());
-        let err = create_in(dir.path(), &create_req("web-2", "")).unwrap_err();
+        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-2", "")).unwrap_err();
         assert_eq!(err.code(), tonic::Code::AlreadyExists);
         assert_eq!(operations_on_disk(dir.path()), before);
     }
@@ -1018,8 +1011,8 @@ mod tests {
     fn the_same_create_sent_twice_boots_once() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        let first = create_in(dir.path(), &create_req("web-3", "rid-1")).unwrap();
-        let again = create_in(dir.path(), &create_req("web-3", "rid-1")).unwrap();
+        let first = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-3", "rid-1")).unwrap();
+        let again = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-3", "rid-1")).unwrap();
         assert_eq!(first.id, again.id);
         assert_eq!(again.state, OperationState::Succeeded as i32);
     }
@@ -1030,7 +1023,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut req = create_req("web-4", "");
         req.spec.as_mut().unwrap().image.clear();
-        let err = create_in(dir.path(), &req).unwrap_err();
+        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &req).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(!dir.path().join("vms").exists());
         assert_eq!(operations_on_disk(dir.path()), 0);
@@ -1046,7 +1039,7 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let err = create_in(dir.path(), &two_nets).unwrap_err();
+        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &two_nets).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
 
         let mut with_data = create_req("web-6", "");
@@ -1054,7 +1047,7 @@ mod tests {
             user_data: "#cloud-config\n".into(),
             ..Default::default()
         });
-        let err = create_in(dir.path(), &with_data).unwrap_err();
+        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &with_data).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
     }
 
@@ -1062,7 +1055,7 @@ mod tests {
     fn stop_keeps_the_record_and_delete_removes_it() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        create_in(dir.path(), &create_req("web-7", "")).unwrap();
+        create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-7", "")).unwrap();
         let stop = stop_in(
             dir.path(),
             &crate::vms::LocalVmReads(dir.path().to_path_buf()),
@@ -1103,7 +1096,7 @@ mod tests {
     fn a_vm_in_another_namespace_is_not_found_by_start_stop_or_delete() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        create_in(dir.path(), &create_req("web-8", "")).unwrap();
+        create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-8", "")).unwrap();
         let err = start_in(
             dir.path(),
             &crate::vms::LocalVmReads(dir.path().to_path_buf()),
@@ -1121,7 +1114,7 @@ mod tests {
     fn pause_and_resume_are_synchronous_and_report_the_vm_directly() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        create_in(dir.path(), &create_req("web-9", "")).unwrap();
+        create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-9", "")).unwrap();
         // This fake does not implement `pause`/`unpause` (the default is
         // "unsupported") — asserts the refusal is surfaced, not swallowed.
         let err = pause_in(
@@ -1188,6 +1181,7 @@ mod tests {
 
         let cfg = config_from_spec(
             dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             "web",
             None,
             &VirtualMachineSpec {
@@ -1215,6 +1209,7 @@ mod tests {
         // An EXPLICIT value still wins over the image, same as the CLI.
         let explicit = config_from_spec(
             dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             "web",
             None,
             &VirtualMachineSpec {
@@ -1232,6 +1227,7 @@ mod tests {
         // fixed default — this scenario was never the gap.
         let unregistered = config_from_spec(
             dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             "web",
             None,
             &VirtualMachineSpec {
@@ -1266,6 +1262,7 @@ mod tests {
         let on = |network: &str| {
             config_from_spec(
                 dir.path(),
+                &crate::vms::LocalVmReads(dir.path().to_path_buf()),
                 "web",
                 None,
                 &VirtualMachineSpec {
@@ -1317,6 +1314,7 @@ mod tests {
         for bad in ["../outside", "/etc/hostname", "a/b", "a b"] {
             let err = config_from_spec(
                 &root,
+                &crate::vms::LocalVmReads(root.clone()),
                 "web",
                 None,
                 &VirtualMachineSpec {

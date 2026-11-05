@@ -8,6 +8,8 @@
 //! it is there — the question the Cloud Hypervisor backend asks before it
 //! attaches a guest to a network.
 
+mod common;
+
 /// A SHORT socket path (`sun_path` is 108 bytes), removed on every exit.
 fn short_sock() -> (tempfile::TempDir, String) {
     let dir = tempfile::tempdir_in("/tmp").expect("a directory under /tmp");
@@ -26,7 +28,7 @@ fn serving_registers_the_vm_network_a_networked_create_needs() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"));
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing());
     });
     for _ in 0..200 {
         if std::path::Path::new(&sock).exists() {

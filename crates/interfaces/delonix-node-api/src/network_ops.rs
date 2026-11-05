@@ -170,10 +170,19 @@ pub fn delete_work(root: &Path, name: &str) -> delonix_model::Result<()> {
 /// cannot be read is an error, never "nothing is attached".
 pub fn dependents(root: &Path, name: &str, subnet: &str) -> delonix_model::Result<Vec<String>> {
     let containers = delonix_state::Store::open(root.join("containers"))?.list()?;
-    let vms: Vec<(String, String)> = delonix_vm::list(root)?
-        .into_iter()
-        .map(|v| (v.name, v.network))
-        .collect();
+    // The recorded (name, network) of every VM: a dependency check does not
+    // need the backend-reconciled state a read does, so it goes straight to the
+    // state layer (already a dependency) instead of the `delonix-vm` adapter. A
+    // root where no VM was ever created has no `vms/` dir — no dependents.
+    let vms: Vec<(String, String)> = if root.join("vms").is_dir() {
+        delonix_state::JsonStore::<delonix_compute::Vm>::open(root.join("vms"))?
+            .list()?
+            .into_iter()
+            .map(|v| (v.name, v.network))
+            .collect()
+    } else {
+        Vec::new()
+    };
     Ok(delonix_sdn::netops::dependents_of(
         name,
         subnet,

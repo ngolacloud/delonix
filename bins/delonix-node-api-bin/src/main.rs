@@ -75,6 +75,37 @@ impl VmPort for EngineVms {
             .map(|_| ())
             .map_err(Into::into)
     }
+
+    fn create(&self, cfg: &delonix_compute::vm_backend::VmConfig) -> Result<(), Error> {
+        self.0.vms().create(cfg).map(|_| ()).map_err(Into::into)
+    }
+
+    fn image_defaults(&self, reference: &str) -> Option<delonix_compute::ports::ImageDefaults> {
+        self.0.vms().image_defaults(reference)
+    }
+
+    fn store_image_disk(&self, reference: &str) -> String {
+        self.0.vms().store_image_disk(reference)
+    }
+
+    fn refuse_undeclared_network(
+        &self,
+        cfg: &delonix_compute::vm_backend::VmConfig,
+    ) -> Result<(), Error> {
+        self.0.vms().refuse_undeclared_network(cfg).map_err(Into::into)
+    }
+
+    fn ip_is_predicted(&self, vm: &Vm) -> bool {
+        self.0.vms().ip_is_predicted(vm)
+    }
+
+    fn provider_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        self.0.provider_reports()
+    }
+
+    fn declared_vm_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        self.0.declared_vm_reports()
+    }
 }
 
 /// The `--version` line: binary name and the crate version, nothing else.

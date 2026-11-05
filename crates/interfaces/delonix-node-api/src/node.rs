@@ -359,7 +359,7 @@ fn filesystem(role: &str, path: &Path) -> Option<FilesystemCapacity> {
 }
 
 /// `GetCapacity`.
-pub fn capacity() -> Capacity {
+pub fn capacity(vms: &dyn crate::vms::VmPort) -> Capacity {
     let mut c = Capacity::default();
     let mut unmeasured: Vec<&str> = Vec::new();
     let slice = delonix_linux::slice_path();
@@ -444,14 +444,15 @@ pub fn capacity() -> Capacity {
     match delonix_state::JsonStore::<delonix_compute::Vm>::open(root.join("vms"))
         .and_then(|s| s.list())
     {
-        Ok(vms) => {
-            c.vms_running = vms
+        Ok(records) => {
+            c.vms_running = records
                 .iter()
                 .filter(|v| LOCAL_VM_BACKENDS.contains(&v.backend.as_str()))
                 .filter(|v| {
-                    // Reconciled one by one, local backends only (a record
-                    // can say Running for a VM whose process died).
-                    delonix_vm::status(&root, &v.name)
+                    // Reconciled one by one through the composed port, local
+                    // backends only (a record can say Running for a VM whose
+                    // process died).
+                    vms.status(&v.name)
                         .map(|s| matches!(s.status, Status::Running))
                         .unwrap_or(false)
                 })

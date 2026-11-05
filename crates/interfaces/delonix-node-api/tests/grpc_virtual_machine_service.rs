@@ -16,6 +16,8 @@
 //! custom-verb REST templates (`:start`/`:stop`/`:pause`/`:resume`), and the
 //! nested snapshot paths — is actually reachable.
 
+mod common;
+
 use delonix_node_api::proto::v1::virtual_machine_service_client::VirtualMachineServiceClient;
 use delonix_node_api::proto::v1::{
     CreateSnapshotRequest, CreateVirtualMachineRequest, DeleteSnapshotRequest,
@@ -52,7 +54,7 @@ async fn virtual_machine_service_answers_over_grpc_without_touching_any_state() 
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"));
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing());
     });
     wait_for(&sock).await;
 
@@ -309,7 +311,7 @@ async fn console_is_not_served_yet() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"));
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing());
     });
     wait_for(&sock).await;
     let channel = tonic::transport::Endpoint::try_from("http://[::]:50051")
