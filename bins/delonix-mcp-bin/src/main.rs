@@ -89,6 +89,11 @@ impl delonix_mcp::EngineReads for EnginePorts {
     fn host_resources(&self) -> Value {
         self.0.host_resources()
     }
+
+    fn dash_summary(&self) -> Value {
+        // Cheap: no per-container netns reads, no disk walk (the two false flags).
+        serde_json::to_value(self.0.dash_summary(false, false)).unwrap_or(Value::Null)
+    }
 }
 
 fn usage() -> String {

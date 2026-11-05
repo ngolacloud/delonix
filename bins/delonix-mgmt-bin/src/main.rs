@@ -4,34 +4,26 @@
 //! `--addr` beats `DELONIX_API_ADDR`, which beats `unix:///run/delonix-mgmt.sock`.
 //! The state root is `DELONIX_ROOT` (set by `delonix`), else `/var/lib/delonix`.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use delonix_compute::Vm;
 use delonix_engine::Engine;
+use delonix_model::dash::DashSummary;
 use delonix_model::Error as EngineError;
+use delonix_telemetry::workload::WorkloadSeries;
 use serde_json::Value;
 
-/// The composed engine, handed to the management API as its port(s) (ADR-0040
-/// A5). The bin is the one place that names `delonix-engine`; the server receives
-/// the engine already mounted and never learns what composes it, so no
-/// `interface -> adapter` edge survives. VMs arrive as [`delonix_mgmt::VmView`];
-/// the image/volume/container/network use cases as [`delonix_mgmt::EngineOps`]
-/// (R3f). A value typed only inside an adapter is serialized here, so the port
-/// speaks the `serde_json::Value`s the server serves; native errors map to the
-/// shared engine error the interface already understands.
+/// The composed engine, handed to the management API as its [`delonix_mgmt::EngineOps`]
+/// port (ADR-0040 A5). The bin is the one place that names `delonix-engine`; the
+/// server receives the engine already mounted and never learns what composes it,
+/// so no `interface -> adapter` edge survives. A value typed only inside an
+/// adapter is serialized here, so the port speaks the `serde_json::Value`s the
+/// server serves; native errors map to the shared engine error the interface
+/// already understands. (VMs reach the engine through this port too, for the
+/// resource summary — the server no longer holds a standalone `VmView`.)
 struct EnginePorts(Engine);
-
-impl delonix_mgmt::VmView for EnginePorts {
-    fn list(&self) -> Result<Vec<Vm>, EngineError> {
-        self.0.vms().list().map_err(Into::into)
-    }
-
-    fn status(&self, name: &str) -> Result<Vm, EngineError> {
-        self.0.vms().status(name).map_err(Into::into)
-    }
-}
 
 impl delonix_mgmt::EngineOps for EnginePorts {
     fn list_images(&self) -> Result<Value, EngineError> {
@@ -47,6 +39,18 @@ impl delonix_mgmt::EngineOps for EnginePorts {
 
     fn image_sbom(&self, reference: &str) -> Result<Value, EngineError> {
         self.0.images().sbom(reference)
+    }
+
+    fn dash_summary(&self, include_network: bool, include_storage: bool) -> DashSummary {
+        self.0.dash_summary(include_network, include_storage)
+    }
+
+    fn container_net(&self) -> HashMap<String, (u64, u64)> {
+        self.0.container_net()
+    }
+
+    fn workload_series(&self) -> Vec<WorkloadSeries> {
+        self.0.workload_series()
     }
 }
 
@@ -82,10 +86,8 @@ fn run() -> Result<(), String> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/var/lib/delonix"));
     let engine = Engine::mount(base.clone()).map_err(|e| format!("mount engine: {e}"))?;
-    let ports = Arc::new(EnginePorts(engine));
-    let vms: Arc<dyn delonix_mgmt::VmView> = ports.clone();
-    let engine_ops: Arc<dyn delonix_mgmt::EngineOps> = ports;
-    delonix_mgmt::serve_blocking(base, vms, engine_ops, &addr).map_err(|e| e.to_string())
+    let engine_ops: Arc<dyn delonix_mgmt::EngineOps> = Arc::new(EnginePorts(engine));
+    delonix_mgmt::serve_blocking(base, engine_ops, &addr).map_err(|e| e.to_string())
 }
 
 fn main() -> ExitCode {

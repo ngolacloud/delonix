@@ -25,3 +25,8 @@ delonix-scanner = { workspace = true }
 # off `delonix-mgmt` into the engine; it builds the exporter's `WorkloadSeries`.
 delonix-telemetry = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# R3f-B: the resource-summary / workload-series tests moved here with the
+# collector; they write fixture cgroups and empty state roots under a tempdir.
+tempfile = { workspace = true }
