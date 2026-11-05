@@ -21,6 +21,9 @@ delonix-engine = { workspace = true }
 delonix-compute = { workspace = true }
 delonix-model = { workspace = true }
 delonix-telemetry = { workspace = true }
+# R3f: the `EngineOps` port serves adapter-typed reads (images, …) as JSON
+# values; the bin serializes them when implementing the port over the engine.
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
