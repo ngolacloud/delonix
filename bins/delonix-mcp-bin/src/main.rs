@@ -4,27 +4,90 @@
 //! Verbs: `serve [--transport stdio]` (the default transport, a child process of
 //! the AI client for one session, not a daemon), `doctor`, `capabilities`.
 
+use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use delonix_compute::Vm;
+use delonix_compute::{Container, Vm};
 use delonix_engine::Engine;
 use delonix_model::Error as EngineError;
+use serde_json::Value;
 
-/// The composition's VM service, handed to the MCP server as its `VmView` port
-/// (ADR-0040 A5). The bin is the one place that names `delonix-engine`; the
-/// server receives the engine already mounted and never learns what composes it.
-/// The native VM error is mapped here to the shared engine error the interface
-/// already understands.
-struct EngineVms(Engine);
+/// The composed engine, handed to the MCP server as its port(s) (ADR-0040 A5).
+/// The bin is the one place that names `delonix-engine`; the server receives the
+/// engine already mounted and never learns what composes it. VMs arrive as
+/// [`delonix_mcp::VmView`]; containers/volumes/network/host-resources as
+/// [`delonix_mcp::EngineReads`] (R3e). A value typed only inside an adapter (a
+/// usage sample, the SDN status) is serialized here, so the port speaks the
+/// `serde_json::Value`s the server serves; native errors are mapped to the shared
+/// engine error the interface already understands.
+struct EnginePorts(Engine);
 
-impl delonix_mcp::VmView for EngineVms {
+impl delonix_mcp::VmView for EnginePorts {
     fn list(&self) -> Result<Vec<Vm>, EngineError> {
         self.0.vms().list().map_err(Into::into)
     }
 
     fn status(&self, name: &str) -> Result<Vm, EngineError> {
         self.0.vms().status(name).map_err(Into::into)
+    }
+}
+
+impl delonix_mcp::EngineReads for EnginePorts {
+    fn list_containers(&self) -> Result<Vec<Container>, EngineError> {
+        self.0.containers().list()
+    }
+
+    fn load_container(&self, id_or_name: &str) -> Result<Container, EngineError> {
+        self.0.containers().load(id_or_name)
+    }
+
+    fn container_store_reachable(&self) -> Result<(), EngineError> {
+        self.0.containers().store_reachable()
+    }
+
+    fn reconcile_status(&self, c: &mut Container) {
+        self.0.containers().reconcile_status(c);
+    }
+
+    fn live_cgroup(&self, c: &Container) -> String {
+        self.0.containers().live_cgroup(c)
+    }
+
+    fn cgroup_sample(&self, cgroup: &Path) -> Value {
+        serde_json::to_value(self.0.containers().cgroup_sample(cgroup)).unwrap_or(Value::Null)
+    }
+
+    fn process_sample(&self, pid: i32) -> Value {
+        serde_json::to_value(self.0.containers().process_sample(pid)).unwrap_or(Value::Null)
+    }
+
+    fn process_started_at_unix(&self, pid: i32) -> Option<u64> {
+        self.0.containers().process_started_at_unix(pid)
+    }
+
+    fn list_volumes(&self) -> Result<Vec<Value>, EngineError> {
+        self.0.volumes().list().map(|vs| {
+            vs.into_iter()
+                .map(|v| serde_json::to_value(v).unwrap_or(Value::Null))
+                .collect()
+        })
+    }
+
+    fn volume_store_reachable(&self) -> Result<(), EngineError> {
+        self.0.volumes().store_reachable()
+    }
+
+    fn network_status(&self) -> Value {
+        serde_json::to_value(self.0.networks().status()).unwrap_or(Value::Null)
+    }
+
+    fn container_net_bytes(&self, id: &str) -> Option<(u64, u64)> {
+        self.0.networks().container_net_bytes(id)
+    }
+
+    fn host_resources(&self) -> Value {
+        self.0.host_resources()
     }
 }
 
@@ -55,16 +118,20 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             let base = delonix_mcp::state_root();
             let engine = Engine::mount(base.clone()).map_err(|e| format!("mount engine: {e}"))?;
-            let vms: Arc<dyn delonix_mcp::VmView> = Arc::new(EngineVms(engine));
+            let ports = Arc::new(EnginePorts(engine));
+            let vms: Arc<dyn delonix_mcp::VmView> = ports.clone();
+            let reads: Arc<dyn delonix_mcp::EngineReads> = ports;
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .map_err(|e| format!("mcp runtime: {e}"))?;
-            rt.block_on(delonix_mcp::serve_stdio(base, vms))
+            rt.block_on(delonix_mcp::serve_stdio(base, vms, reads))
         }
         Some("doctor") => {
             let base = delonix_mcp::state_root();
-            let checks = delonix_mcp::doctor_checks(&base);
+            let engine = Engine::mount(base.clone()).map_err(|e| format!("mount engine: {e}"))?;
+            let ports = EnginePorts(engine);
+            let checks = delonix_mcp::doctor_checks(&base, &ports);
             let mut report = String::new();
             let mut all_ok = true;
             for (name, ok, detail) in &checks {

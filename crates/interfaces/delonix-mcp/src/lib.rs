@@ -21,7 +21,6 @@ use std::sync::Arc;
 
 use delonix_compute::Container;
 use delonix_model::Error as EngineError;
-use delonix_state::Store;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
     ErrorCode, ErrorData, ReadResourceRequestParams, ReadResourceResult, Resource,
@@ -126,12 +125,6 @@ fn pretty(value: impl serde::Serialize) -> String {
     serde_json::to_string_pretty(&value).unwrap_or_else(|e| format!("{{\"error\": \"{e}\"}}"))
 }
 
-fn list_containers(base: &Path) -> Result<Vec<Container>, ErrorData> {
-    Store::open(base.join("containers"))
-        .and_then(|s| s.list())
-        .map_err(|e| from_engine_error(e.into()))
-}
-
 /// The composed engine's VM queries, as this server needs them (ADR-0040 A5).
 ///
 /// This is `delonix-mgmt`'s [`VmView`](delonix_mgmt::VmView), reused rather than
@@ -145,48 +138,105 @@ fn list_containers(base: &Path) -> Result<Vec<Container>, ErrorData> {
 /// shared [`EngineError`], turned into an MCP [`ErrorData`] via [`from_engine_error`].
 pub use delonix_mgmt::VmView;
 
+/// The composed engine's read use cases this server needs beyond VMs (R3e): the
+/// container store and the host metrics of a running workload, the named-volume
+/// store, the SDN status and per-container byte counters, and this host's
+/// resource snapshot with its advice. The bin mounts a [`delonix_engine::Engine`]
+/// and hands the server an implementor; the interface receives the engine already
+/// composed and never names `delonix-state`/`delonix-volume`/`delonix-sdn`/
+/// `delonix-linux` (an interface→adapter dependency is what the arch gate ratchets
+/// down — those adapters reach this crate as this port, like the VM backend does
+/// as [`VmView`]). Store errors arrive already mapped to the shared
+/// [`EngineError`], turned into an MCP [`ErrorData`] via [`from_engine_error`].
+///
+/// Values typed only inside an adapter (a usage sample, the SDN status, the
+/// resource report) cross as pretty-printable `serde_json::Value`s: this server's
+/// tool outputs are JSON text, not schema'd structured content (see the crate
+/// doc), so a value is exactly what it serves — no domain type is lost by the
+/// port that the interface could otherwise name.
+pub trait EngineReads: Send + Sync {
+    /// Every container this node has.
+    fn list_containers(&self) -> Result<Vec<Container>, EngineError>;
+    /// One container's full record, by name or id.
+    fn load_container(&self, id_or_name: &str) -> Result<Container, EngineError>;
+    /// Whether the container store is reachable (health/doctor), error kept for
+    /// the detail line.
+    fn container_store_reachable(&self) -> Result<(), EngineError>;
+    /// Reconcile a container's recorded status against its live process, in place.
+    fn reconcile_status(&self, c: &mut Container);
+    /// The cgroup path a running container's usage is read from.
+    fn live_cgroup(&self, c: &Container) -> String;
+    /// One cumulative-usage sample of the cgroup at `cgroup`.
+    fn cgroup_sample(&self, cgroup: &Path) -> serde_json::Value;
+    /// One cumulative-usage sample of a process by pid.
+    fn process_sample(&self, pid: i32) -> serde_json::Value;
+    /// The Unix start time of a pid, or `None` if it cannot be read.
+    fn process_started_at_unix(&self, pid: i32) -> Option<u64>;
+    /// Every named volume, each already serialized (the `Volume` type lives in the
+    /// adapter; its `"name"` field is what callers filter on).
+    fn list_volumes(&self) -> Result<Vec<serde_json::Value>, EngineError>;
+    /// Whether the volume store is reachable (health/doctor).
+    fn volume_store_reachable(&self) -> Result<(), EngineError>;
+    /// The SDN/holder infrastructure status.
+    fn network_status(&self) -> serde_json::Value;
+    /// A running container's cumulative rx/tx bytes, or `None` when it has no
+    /// netns of its own to read.
+    fn container_net_bytes(&self, id: &str) -> Option<(u64, u64)>;
+    /// This host's resource snapshot, advice and local-inference verdict, shaped
+    /// as the `resources.get` tool's published JSON (ADR-0025).
+    fn host_resources(&self) -> serde_json::Value;
+}
+
 fn list_vms(vms: &dyn VmView) -> Result<Vec<delonix_compute::Vm>, ErrorData> {
     vms.list().map_err(from_engine_error)
 }
 
-fn list_volumes(base: &Path) -> Result<Vec<delonix_volume::Volume>, ErrorData> {
-    delonix_volume::VolumeStore::open(base)
-        .and_then(|s| s.list())
-        .map_err(|e| from_engine_error(e.into()))
+fn list_containers(reads: &dyn EngineReads) -> Result<Vec<Container>, ErrorData> {
+    reads.list_containers().map_err(from_engine_error)
+}
+
+fn list_volumes(reads: &dyn EngineReads) -> Result<Vec<serde_json::Value>, ErrorData> {
+    reads.list_volumes().map_err(from_engine_error)
+}
+
+/// The `"name"` of a serialized volume, for filtering a list down to one.
+fn volume_name(v: &serde_json::Value) -> Option<&str> {
+    v.get("name").and_then(serde_json::Value::as_str)
 }
 
 fn list_kind(
-    base: &Path,
+    reads: &dyn EngineReads,
     vms: &dyn VmView,
     kind: ResourceKind,
 ) -> Result<serde_json::Value, ErrorData> {
     Ok(match kind {
-        ResourceKind::Container => serde_json::to_value(list_containers(base)?),
-        ResourceKind::Vm => serde_json::to_value(list_vms(vms)?),
-        ResourceKind::Volume => serde_json::to_value(list_volumes(base)?),
-    }
-    .unwrap_or(serde_json::Value::Null))
+        ResourceKind::Container => serde_json::to_value(list_containers(reads)?)
+            .unwrap_or(serde_json::Value::Null),
+        ResourceKind::Vm => {
+            serde_json::to_value(list_vms(vms)?).unwrap_or(serde_json::Value::Null)
+        }
+        ResourceKind::Volume => serde_json::Value::Array(list_volumes(reads)?),
+    })
 }
 
 fn get_kind(
-    base: &Path,
+    reads: &dyn EngineReads,
     vms: &dyn VmView,
     kind: ResourceKind,
     name: &str,
 ) -> Result<serde_json::Value, ErrorData> {
     match kind {
-        ResourceKind::Container => Store::open(base.join("containers"))
-            .and_then(|s| s.load(name))
+        ResourceKind::Container => reads
+            .load_container(name)
             .map(|c| serde_json::to_value(c).unwrap_or(serde_json::Value::Null))
-            .map_err(|e| from_engine_error(e.into())),
+            .map_err(from_engine_error),
         ResourceKind::Vm => vms
             .status(name)
             .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
             .map_err(from_engine_error),
-        ResourceKind::Volume => list_volumes(base)?
+        ResourceKind::Volume => list_volumes(reads)?
             .into_iter()
-            .find(|v| v.name == name)
-            .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+            .find(|v| volume_name(v) == Some(name))
             .ok_or_else(|| typed_err("NOT_FOUND", format!("no such volume: {name}"))),
     }
 }
@@ -269,17 +319,23 @@ struct AuditQueryParams {
 pub struct DelonixMcp {
     base: PathBuf,
     vms: Arc<dyn VmView>,
+    reads: Arc<dyn EngineReads>,
     principal: String,
     tasks: TaskRegistry,
     audit: Arc<AuditLog>,
 }
 
 impl DelonixMcp {
-    pub fn new(base: PathBuf, vms: Arc<dyn VmView>) -> std::io::Result<Self> {
+    pub fn new(
+        base: PathBuf,
+        vms: Arc<dyn VmView>,
+        reads: Arc<dyn EngineReads>,
+    ) -> std::io::Result<Self> {
         let audit = AuditLog::open(&base)?;
         Ok(Self {
             base,
             vms,
+            reads,
             principal: principal(),
             tasks: TaskRegistry::default(),
             audit: Arc::new(audit),
@@ -343,8 +399,8 @@ impl DelonixMcp {
         annotations(read_only_hint = true)
     )]
     fn runtime_health(&self) -> String {
-        let containers_ok = Store::open(self.base.join("containers")).is_ok();
-        let volumes_ok = delonix_volume::VolumeStore::open(&self.base).is_ok();
+        let containers_ok = self.reads.container_store_reachable().is_ok();
+        let volumes_ok = self.reads.volume_store_reachable().is_ok();
         let ok = containers_ok && volumes_ok;
         self.log("runtime.health", "ok", &json!({}), None, None, None);
         pretty(json!({
@@ -364,75 +420,14 @@ impl DelonixMcp {
         annotations(read_only_hint = true)
     )]
     fn resources_get(&self) -> String {
-        use delonix_linux::resource_advice as advice;
-        // The rules are NOT re-implemented here. An agent that disagrees with
-        // `delonix system resources` about the same host is worse than no
-        // agent: whoever reads the two has no way to tell which one is lying.
-        let snap = advice::collect(&self.base);
-        let findings = advice::advise(&snap);
-        let inference = advice::local_inference(&snap);
-        // Built before the `json!`: the macro reads a `[` in value position as
-        // a JSON array literal and chokes on the `.iter()` that follows.
-        let pressure: Vec<_> = [
-            ("cpu", snap.psi_cpu),
-            ("memory", snap.psi_memory),
-            ("io", snap.psi_io),
-        ]
-        .iter()
-        .map(|(r, p)| {
-            json!({
-                "resource": r,
-                "avg10": p.map(|p| p.avg10),
-                "avg60": p.map(|p| p.avg60),
-                "avg300": p.map(|p| p.avg300),
-            })
-        })
-        .collect();
+        // The rules are NOT re-implemented here, nor reached through the adapter:
+        // the composed engine answers with the SAME snapshot and finding ids
+        // `delonix system resources` prints (R3e). An agent that disagreed with
+        // the CLI about the same host would be worse than no agent — whoever read
+        // the two would have no way to tell which one was lying.
+        let body = self.reads.host_resources();
         self.log("resources.get", "ok", &json!({}), None, None, None);
-        pretty(json!({
-            "host": {
-                "cpus": snap.cpus,
-                "memory_bytes": snap.mem_total,
-                "memory_available_bytes": snap.mem_available,
-                "swap_bytes": snap.swap_total,
-                "swap_used_bytes": snap.swap_used,
-                "state_root_free_bytes": snap.disk_free,
-                "cpu_temperature_c": snap.cpu_temp_c,
-                "gpu": snap.gpu.as_ref().map(|g| json!({
-                    "name": g.name,
-                    "vram_total_mib": g.vram_total_mib,
-                    "vram_free_mib": g.vram_free_mib,
-                    "cdi_spec": g.cdi_spec,
-                    "drives_display": g.drives_display,
-                })),
-            },
-            "control": {
-                "rootless": snap.rootless,
-                "cgroup_base": snap.cgroup_base,
-                "delegated": snap.delegated,
-                "aggregate_slice": snap.aggregate_slice,
-            },
-            "pressure": pressure,
-            "advice": findings.iter().map(|f| json!({
-                "id": f.id,
-                "subject": f.subject,
-                "severity": f.severity.as_str(),
-                "class": f.class.as_str(),
-                // Rendered in English here: an MCP client gets the stable `id`
-                // for machines and a finished sentence for humans. The template
-                // and its holes are the CLI's business, because only the CLI
-                // knows which language to render them in.
-                "finding": f.finding.render(),
-                "action": f.action.as_ref().map(|a| a.render()).unwrap_or_default(),
-            })).collect::<Vec<_>>(),
-            // Whether this very node should be the one running the model that
-            // is reading this. It usually should not, and the reasons say why.
-            "local_inference": {
-                "verdict": inference.verdict.as_str(),
-                "largest_model_b_q4": inference.largest_model_b,
-                "reasons": inference.reasons,
-            },
-        }))
+        pretty(body)
     }
 
     #[tool(
@@ -446,7 +441,7 @@ impl DelonixMcp {
     ) -> Result<String, ErrorData> {
         let k = ResourceKind::parse(&kind)?;
         let args = json!({ "kind": kind });
-        match list_kind(&self.base, self.vms.as_ref(), k) {
+        match list_kind(self.reads.as_ref(), self.vms.as_ref(), k) {
             Ok(v) => {
                 self.log(
                     "resource.list",
@@ -483,7 +478,7 @@ impl DelonixMcp {
     ) -> Result<String, ErrorData> {
         let k = ResourceKind::parse(&kind)?;
         let args = json!({ "kind": kind, "name": name });
-        match get_kind(&self.base, self.vms.as_ref(), k, &name) {
+        match get_kind(self.reads.as_ref(), self.vms.as_ref(), k, &name) {
             Ok(v) => {
                 self.log("resource.get", "ok", &args, Some(name.clone()), None, None);
                 Ok(pretty(v))
@@ -512,7 +507,7 @@ impl DelonixMcp {
         Parameters(ResourceGetParams { kind, name }): Parameters<ResourceGetParams>,
     ) -> Result<String, ErrorData> {
         let k = ResourceKind::parse(&kind)?;
-        let record = get_kind(&self.base, self.vms.as_ref(), k, &name)?;
+        let record = get_kind(self.reads.as_ref(), self.vms.as_ref(), k, &name)?;
         let status = record
             .get("status")
             .cloned()
@@ -578,11 +573,11 @@ impl DelonixMcp {
         };
         let mut rows = Vec::new();
         if want_containers {
-            for c in list_containers(&self.base)? {
+            for c in list_containers(self.reads.as_ref())? {
                 if name.as_deref().is_some_and(|n| n != c.name && n != c.id) {
                     continue;
                 }
-                rows.push(container_usage_row(&c, include_network));
+                rows.push(container_usage_row(self.reads.as_ref(), &c, include_network));
             }
         }
         if want_vms {
@@ -590,7 +585,7 @@ impl DelonixMcp {
                 if name.as_deref().is_some_and(|n| n != vm.name) {
                     continue;
                 }
-                rows.push(vm_usage_row(&vm));
+                rows.push(vm_usage_row(self.reads.as_ref(), &vm));
             }
         }
         if let (Some(n), true) = (&name, rows.is_empty()) {
@@ -679,7 +674,7 @@ impl DelonixMcp {
         annotations(read_only_hint = true)
     )]
     fn network_inspect(&self) -> String {
-        let status = delonix_sdn::infra::status();
+        let status = self.reads.network_status();
         self.log("network.inspect", "ok", &json!({}), None, None, None);
         pretty(status)
     }
@@ -693,15 +688,14 @@ impl DelonixMcp {
         &self,
         Parameters(StorageInspectParams { name }): Parameters<StorageInspectParams>,
     ) -> Result<String, ErrorData> {
-        let volumes = list_volumes(&self.base)?;
+        let volumes = list_volumes(self.reads.as_ref())?;
         let args = json!({ "name": name });
         let result = match &name {
             Some(n) => volumes
                 .into_iter()
-                .find(|v| &v.name == n)
-                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+                .find(|v| volume_name(v) == Some(n.as_str()))
                 .ok_or_else(|| typed_err("NOT_FOUND", format!("no such volume: {n}")))?,
-            None => serde_json::to_value(volumes).unwrap_or(serde_json::Value::Null),
+            None => serde_json::Value::Array(volumes),
         };
         self.log("storage.inspect", "ok", &args, name, None, None);
         Ok(pretty(result))
@@ -892,11 +886,11 @@ impl DelonixMcp {
             ["runtime", "capabilities"] => Ok(pretty(capabilities_table())),
             ["resources", kind] => {
                 let k = ResourceKind::parse(kind)?;
-                Ok(pretty(list_kind(&self.base, self.vms.as_ref(), k)?))
+                Ok(pretty(list_kind(self.reads.as_ref(), self.vms.as_ref(), k)?))
             }
             ["resources", kind, name] => {
                 let k = ResourceKind::parse(kind)?;
-                Ok(pretty(get_kind(&self.base, self.vms.as_ref(), k, name)?))
+                Ok(pretty(get_kind(self.reads.as_ref(), self.vms.as_ref(), k, name)?))
             }
             ["schema", _kind] => Err(typed_err(
                 "NOT_IMPLEMENTED",
@@ -927,9 +921,13 @@ fn unsampled_reason(status: &delonix_model::records::Status, live: bool) -> Opti
     (!live).then(|| "the recorded pid no longer belongs to this workload".to_string())
 }
 
-fn container_usage_row(c: &Container, include_network: bool) -> serde_json::Value {
+fn container_usage_row(
+    reads: &dyn EngineReads,
+    c: &Container,
+    include_network: bool,
+) -> serde_json::Value {
     let mut c = c.clone();
-    delonix_linux::reconcile_status(&mut c);
+    reads.reconcile_status(&mut c);
     let base = json!({
         "kind": "container",
         "name": c.name,
@@ -941,12 +939,12 @@ fn container_usage_row(c: &Container, include_network: bool) -> serde_json::Valu
         return merge(base, json!({ "sampled": false, "reason": why }));
     }
     let pid = c.pid.unwrap_or_default();
-    let cgroup = delonix_linux::live_cgroup(&c);
-    let sample = delonix_linux::usage::cgroup_sample(Path::new(&cgroup));
+    let cgroup = reads.live_cgroup(&c);
+    let sample = reads.cgroup_sample(Path::new(&cgroup));
     let network = if !include_network {
         json!({ "measured": false, "reason": "not requested (include_network=false)" })
     } else {
-        match delonix_sdn::infra::container_net_bytes(&c.id) {
+        match reads.container_net_bytes(&c.id) {
             Some((rx, tx)) => json!({ "measured": true, "rx_bytes": rx, "tx_bytes": tx }),
             None => json!({
                 "measured": false,
@@ -960,7 +958,7 @@ fn container_usage_row(c: &Container, include_network: bool) -> serde_json::Valu
         json!({
             "sampled": true,
             "pid": pid,
-            "process_started_at_unix": delonix_linux::usage::process_started_at_unix(pid),
+            "process_started_at_unix": reads.process_started_at_unix(pid),
             "cgroup": cgroup,
             "usage": sample,
             "network": network,
@@ -968,7 +966,7 @@ fn container_usage_row(c: &Container, include_network: bool) -> serde_json::Valu
     )
 }
 
-fn vm_usage_row(vm: &delonix_compute::Vm) -> serde_json::Value {
+fn vm_usage_row(reads: &dyn EngineReads, vm: &delonix_compute::Vm) -> serde_json::Value {
     let base = json!({
         "kind": "vm",
         "name": vm.name,
@@ -1000,8 +998,8 @@ fn vm_usage_row(vm: &delonix_compute::Vm) -> serde_json::Value {
         json!({
             "sampled": true,
             "pid": pid,
-            "process_started_at_unix": delonix_linux::usage::process_started_at_unix(pid),
-            "usage": delonix_linux::usage::process_sample(pid),
+            "process_started_at_unix": reads.process_started_at_unix(pid),
+            "usage": reads.process_sample(pid),
             "limitations": [
                 "memory is the VMM process's resident set on this host, not the guest's own usage",
                 "cpu time includes the VMM's overhead, not only guest vCPU time",
@@ -1033,11 +1031,16 @@ pub fn capabilities_table() -> Vec<serde_json::Value> {
 }
 
 /// Doctor checks for `delonix mcp doctor` — no IAM/OAuth to check, there is none
-/// in this design (ADR-0025). `(check_name, ok, detail)`.
-pub fn doctor_checks(base: &Path) -> Vec<(&'static str, bool, String)> {
+/// in this design (ADR-0025). `(check_name, ok, detail)`. The store openability
+/// is asked of the composed engine through the [`EngineReads`] port (R3e), not of
+/// the adapter directly — the same reachability `runtime.health` reports.
+pub fn doctor_checks(
+    base: &Path,
+    reads: &dyn EngineReads,
+) -> Vec<(&'static str, bool, String)> {
     let mut checks = Vec::new();
 
-    let containers_ok = Store::open(base.join("containers")).map_err(EngineError::from);
+    let containers_ok = reads.container_store_reachable();
     checks.push((
         "container_store",
         containers_ok.is_ok(),
@@ -1047,7 +1050,7 @@ pub fn doctor_checks(base: &Path) -> Vec<(&'static str, bool, String)> {
         },
     ));
 
-    let volumes_ok = delonix_volume::VolumeStore::open(base);
+    let volumes_ok = reads.volume_store_reachable();
     checks.push((
         "volume_store",
         volumes_ok.is_ok(),
@@ -1113,8 +1116,12 @@ fn run_cli(base: &Path, args: Vec<String>) -> Result<(bool, String), ErrorData> 
 }
 
 /// Starts the MCP server on stdio and runs until the peer disconnects.
-pub async fn serve_stdio(base: PathBuf, vms: Arc<dyn VmView>) -> Result<(), String> {
-    let server = DelonixMcp::new(base, vms).map_err(|e| e.to_string())?;
+pub async fn serve_stdio(
+    base: PathBuf,
+    vms: Arc<dyn VmView>,
+    reads: Arc<dyn EngineReads>,
+) -> Result<(), String> {
+    let server = DelonixMcp::new(base, vms, reads).map_err(|e| e.to_string())?;
     let running = server.serve(stdio()).await.map_err(|e| e.to_string())?;
     running.waiting().await.map_err(|e| e.to_string())?;
     Ok(())
@@ -1123,6 +1130,80 @@ pub async fn serve_stdio(base: PathBuf, vms: Arc<dyn VmView>) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The [`EngineReads`] backing the tests run against: the SAME adapter reads
+    /// the `delonix-engine` composition makes in production, but reached directly
+    /// here so the usage-sampling and store behaviour is still exercised end to
+    /// end without this crate carrying the adapters in production. This is the
+    /// ONLY place `delonix-state`/`delonix-volume`/`delonix-sdn`/`delonix-linux`
+    /// are named in `delonix-mcp`, and it is `#[cfg(test)]` — the dev-dependency
+    /// counterpart of the bin's engine-backed `EnginePorts`. A root with no stores
+    /// answers empty, never erroring (the "nothing safe" an empty backing owes).
+    struct RealReads(PathBuf);
+
+    impl EngineReads for RealReads {
+        fn list_containers(&self) -> Result<Vec<Container>, EngineError> {
+            delonix_state::Store::open(self.0.join("containers"))
+                .and_then(|s| s.list())
+                .map_err(Into::into)
+        }
+        fn load_container(&self, id_or_name: &str) -> Result<Container, EngineError> {
+            delonix_state::Store::open(self.0.join("containers"))
+                .and_then(|s| s.load(id_or_name))
+                .map_err(Into::into)
+        }
+        fn container_store_reachable(&self) -> Result<(), EngineError> {
+            delonix_state::Store::open(self.0.join("containers"))
+                .map(|_| ())
+                .map_err(Into::into)
+        }
+        fn reconcile_status(&self, c: &mut Container) {
+            delonix_linux::reconcile_status(c);
+        }
+        fn live_cgroup(&self, c: &Container) -> String {
+            delonix_linux::live_cgroup(c)
+        }
+        fn cgroup_sample(&self, cgroup: &Path) -> serde_json::Value {
+            serde_json::to_value(delonix_linux::usage::cgroup_sample(cgroup))
+                .unwrap_or(serde_json::Value::Null)
+        }
+        fn process_sample(&self, pid: i32) -> serde_json::Value {
+            serde_json::to_value(delonix_linux::usage::process_sample(pid))
+                .unwrap_or(serde_json::Value::Null)
+        }
+        fn process_started_at_unix(&self, pid: i32) -> Option<u64> {
+            delonix_linux::usage::process_started_at_unix(pid)
+        }
+        fn list_volumes(&self) -> Result<Vec<serde_json::Value>, EngineError> {
+            delonix_volume::VolumeStore::open(&self.0)
+                .and_then(|s| s.list())
+                .map(|vs| {
+                    vs.into_iter()
+                        .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+                        .collect()
+                })
+                .map_err(Into::into)
+        }
+        fn volume_store_reachable(&self) -> Result<(), EngineError> {
+            delonix_volume::VolumeStore::open(&self.0)
+                .map(|_| ())
+                .map_err(Into::into)
+        }
+        fn network_status(&self) -> serde_json::Value {
+            serde_json::to_value(delonix_sdn::infra::status()).unwrap_or(serde_json::Value::Null)
+        }
+        fn container_net_bytes(&self, id: &str) -> Option<(u64, u64)> {
+            delonix_sdn::infra::container_net_bytes(id)
+        }
+        fn host_resources(&self) -> serde_json::Value {
+            // The `resources.get` shaping is the engine's and is covered where the
+            // engine is built; no test here drives this path, so the backing need
+            // only answer truthfully, not reproduce the published shape.
+            use delonix_linux::resource_advice as advice;
+            let snap = advice::collect(&self.0);
+            json!({ "advice_count": advice::advise(&snap).len() })
+        }
+    }
 
     #[test]
     fn resource_kind_accepts_singular_and_plural_and_rejects_unknown() {
@@ -1204,9 +1285,14 @@ mod tests {
     }
 
     /// The constructor used by tests that do not exercise the VM path: an engine
-    /// with no VMs.
+    /// with no VMs, reading through the real-adapter backing over `base`.
     fn server_at(base: PathBuf) -> DelonixMcp {
-        DelonixMcp::new(base, Arc::new(FakeVms(vec![]))).unwrap()
+        DelonixMcp::new(
+            base.clone(),
+            Arc::new(FakeVms(vec![])),
+            Arc::new(RealReads(base)),
+        )
+        .unwrap()
     }
 
     fn vm(
@@ -1240,7 +1326,7 @@ mod tests {
             vec![],
             "64M".into(),
         );
-        let row = container_usage_row(&c, false);
+        let row = container_usage_row(&RealReads(PathBuf::from("/nonexistent")), &c, false);
         assert_eq!(row["sampled"], false);
         assert!(
             row["reason"].as_str().unwrap().starts_with("not running"),
@@ -1255,7 +1341,10 @@ mod tests {
     #[test]
     fn a_running_vm_without_a_pid_says_the_backend_owns_its_numbers() {
         use delonix_model::records::Status;
-        let row = vm_usage_row(&vm("libvirt", Status::Running, None));
+        let row = vm_usage_row(
+            &RealReads(PathBuf::from("/nonexistent")),
+            &vm("libvirt", Status::Running, None),
+        );
         assert_eq!(row["sampled"], false);
         assert!(
             row["reason"]
@@ -1278,7 +1367,7 @@ mod tests {
             Some(std::process::id() as i32),
         );
         v.pid_starttime = Some(1);
-        let row = vm_usage_row(&v);
+        let row = vm_usage_row(&RealReads(PathBuf::from("/nonexistent")), &v);
         assert_eq!(row["sampled"], false);
         assert!(
             row["reason"]
@@ -1295,7 +1384,7 @@ mod tests {
         let me = std::process::id() as i32;
         let mut v = vm("cloud-hypervisor", Status::Running, Some(me));
         v.pid_starttime = delonix_node::proc_starttime(me);
-        let row = vm_usage_row(&v);
+        let row = vm_usage_row(&RealReads(PathBuf::from("/nonexistent")), &v);
         assert_eq!(row["sampled"], true, "{row}");
         assert_eq!(row["usage"]["basis"], "vmm_process");
         assert!(row["usage"]["memory_bytes"].as_u64().unwrap() > 0);
@@ -1318,6 +1407,7 @@ mod tests {
         let server = DelonixMcp::new(
             dir.path().to_path_buf(),
             Arc::new(FakeVms(vec![vm("cloud-hypervisor", Status::Running, None)])),
+            Arc::new(RealReads(dir.path().to_path_buf())),
         )
         .unwrap();
 
