@@ -133,6 +133,73 @@ impl delonix_cri::RuntimeOps for TestRuntime {
     }
 }
 
+/// The SDN/CNI port for the round-trip test (R3h-D). `status`/`version` only reach
+/// the leaf infra methods; the CNI-orchestration methods are stubs here because
+/// this test never drives the sandbox path (that is exercised live, not in a unit
+/// test), and keeping them inert avoids dragging a serializer into the test crate.
+struct TestNetwork;
+impl delonix_cri::NetworkOps for TestNetwork {
+    fn infra_status(&self) -> delonix_cri::InfraStatus {
+        let s = delonix_sdn::infra::status();
+        delonix_cri::InfraStatus {
+            up: s.up,
+            refcount: s.refcount,
+            holder_pid: s.holder_pid,
+            slirp_pid: s.slirp_pid,
+        }
+    }
+    fn root_network_ready(&self) -> Result<(), (String, String)> {
+        let dirs = delonix_sdn::cni::plugin_dirs();
+        match delonix_sdn::cni::readiness(
+            std::path::Path::new(delonix_sdn::cni::DEFAULT_CONF_DIR),
+            &dirs,
+        )
+        .not_ready(&dirs)
+        {
+            None => Ok(()),
+            Some((reason, message)) => Err((reason.to_string(), message)),
+        }
+    }
+    fn attached_refs_in(&self, base: &std::path::Path) -> Vec<String> {
+        delonix_sdn::infra::attached_refs_in(base)
+    }
+    fn orphan_ref_count(&self, attached: &[String], live: &[String]) -> usize {
+        let live: std::collections::HashSet<String> = live.iter().cloned().collect();
+        delonix_sdn::infra::orphan_refs(attached, &live).len()
+    }
+    fn cni_enabled(&self) -> bool {
+        delonix_sdn::cni::enabled_conf().is_some()
+    }
+    fn cni_resolve_conf(&self, _rootless: bool) -> delonix_cri::CniConfResult {
+        delonix_cri::CniConfResult::Disabled
+    }
+    fn cni_with_port_mappings(&self, conf_json: &str, _ports: &[delonix_cri::CniPort]) -> String {
+        conf_json.to_string()
+    }
+    fn cni_attach(
+        &self,
+        _pod: &str,
+        _rootless: bool,
+        _conf_json: &str,
+        _cni_args: Option<&str>,
+    ) -> Result<delonix_cri::CniAttached, String> {
+        Err("CNI attach is not exercised by the gRPC round-trip test".to_string())
+    }
+    fn cni_set_netns_sysctls(&self, _netns: &str, _sysctls: &[(String, String)]) -> Result<(), String> {
+        Ok(())
+    }
+    fn cni_detach(&self, _pod: &str, _rootless: bool, _conf_json: &str) {}
+    fn container_ip(&self, name: &str) -> String {
+        delonix_sdn::infra::container_ip(name)
+    }
+    fn publishable_proto(&self, name: &str) -> Option<&'static str> {
+        match delonix_sdn::Proto::parse(name).ok()? {
+            delonix_sdn::Proto::Tcp => Some("tcp"),
+            delonix_sdn::Proto::Udp => Some("udp"),
+        }
+    }
+}
+
 /// A SHORT socket path: `sun_path` is 108 bytes and an agent session's
 /// `$TMPDIR` is already past 90, so the directory lives in `/tmp` itself
 /// (`/tmp/.tmpXXXXXX/x.sock`, 22 bytes). The `TempDir` removes it on every
@@ -159,6 +226,7 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
             std::sync::Arc::new(NoImages),
             std::sync::Arc::new(NoContainers),
             std::sync::Arc::new(TestRuntime),
+            std::sync::Arc::new(TestNetwork),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );
@@ -298,6 +366,7 @@ async fn an_sctp_host_port_is_refused_over_grpc_and_leaves_nothing_behind() {
             std::sync::Arc::new(NoImages),
             std::sync::Arc::new(NoContainers),
             std::sync::Arc::new(TestRuntime),
+            std::sync::Arc::new(TestNetwork),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );
