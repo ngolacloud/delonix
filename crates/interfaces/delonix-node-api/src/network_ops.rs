@@ -7,14 +7,16 @@
 //! does not match, a network something is attached to — as the error itself.
 //! A failure of the work is the operation, `FAILED`, with the engine's code.
 //!
-//! The work is `delonix_sdn::netops` — the same two writes, rollback and
-//! in-use check the CLI goes through.
+//! The work goes through the composed [`crate::net_ops::NetworkOps`] port — the
+//! same two writes, rollback and in-use check the CLI's `delonix_sdn::netops`
+//! does, reached without this interface naming the SDN adapter (R3d-f).
 
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use tonic::Status;
 
+use crate::net_ops::NetworkOps;
 use crate::networks::NAMESPACE;
 use crate::operations::{self, Begun};
 use crate::proto::v1::{
@@ -86,11 +88,6 @@ fn check_namespace(namespace: &str) -> Result<(), Status> {
     )))
 }
 
-fn store(root: &Path) -> Result<delonix_sdn::NetworkStore, Status> {
-    delonix_sdn::NetworkStore::open(root)
-        .map_err(|e| Status::internal(format!("opening the network store: {e}")))
-}
-
 /// Whether `root` has a declarative record for `name`. Read without opening
 /// the store, which would create its directory.
 pub(crate) fn declared(root: &Path, name: &str) -> bool {
@@ -139,36 +136,45 @@ type DeleteWork<'a> = &'a dyn Fn(&Path, &str) -> delonix_model::Result<()>;
 /// Who is attached to a network: `(root, name, subnet)`.
 type Attached<'a> = &'a dyn Fn(&Path, &str, &str) -> delonix_model::Result<Vec<String>>;
 
-/// The real create: the bridge network, then its labels and annotations. A
-/// failure to write those removes the network again — a network created
-/// without the labels it was asked with would be handed back as a success.
-pub fn create_work(root: &Path, req: &CreateNetworkRequest) -> delonix_model::Result<()> {
-    let store = delonix_sdn::NetworkStore::open(root)?;
+/// The real create, through the composed port: the bridge network, then its
+/// labels and annotations. A failure to write those removes the network again —
+/// a network created without the labels it was asked with would be handed back
+/// as a success.
+pub fn create_work(
+    net: &dyn NetworkOps,
+    root: &Path,
+    req: &CreateNetworkRequest,
+) -> delonix_model::Result<()> {
     let cidr = req
         .spec
         .as_ref()
         .map(|s| s.ipv4_cidr.as_str())
         .filter(|c| !c.is_empty());
-    delonix_sdn::netops::create_bridge(&store, &req.name, cidr, |_| Ok(None))?;
+    net.create_bridge(root, &req.name, cidr)?;
     if req.labels.is_empty() && req.annotations.is_empty() {
         return Ok(());
     }
-    if let Err(e) = store.set_metadata(&req.name, &pairs(&req.labels), &pairs(&req.annotations)) {
-        let _ = delonix_sdn::netops::remove(&store, &req.name);
-        return Err(e.into());
+    if let Err(e) = net.set_metadata(
+        root,
+        &req.name,
+        &pairs(&req.labels),
+        &pairs(&req.annotations),
+    ) {
+        let _ = net.remove(root, &req.name);
+        return Err(e);
     }
     Ok(())
 }
 
-/// The real delete.
-pub fn delete_work(root: &Path, name: &str) -> delonix_model::Result<()> {
-    let store = delonix_sdn::NetworkStore::open(root)?;
-    Ok(delonix_sdn::netops::remove(&store, name)?)
+/// The real delete, through the composed port.
+pub fn delete_work(net: &dyn NetworkOps, root: &Path, name: &str) -> delonix_model::Result<()> {
+    net.remove(root, name)
 }
 
 /// Everything recorded as attached to `name`. Fails closed: a store that
 /// cannot be read is an error, never "nothing is attached".
 pub fn dependents(
+    net: &dyn NetworkOps,
     root: &Path,
     store: &dyn crate::store::StorePort,
     name: &str,
@@ -188,22 +194,22 @@ pub fn dependents(
     } else {
         Vec::new()
     };
-    Ok(delonix_sdn::netops::dependents_of(
-        name,
-        subnet,
-        &containers,
-        &vms,
-    ))
+    Ok(net.dependents_of(name, subnet, &containers, &vms))
 }
 
 /// `CreateNetwork` under `root`.
-pub fn create_in(root: &Path, req: &CreateNetworkRequest) -> Result<Operation, Status> {
-    create_with(root, req, &create_work)
+pub fn create_in(
+    root: &Path,
+    net: &dyn NetworkOps,
+    req: &CreateNetworkRequest,
+) -> Result<Operation, Status> {
+    create_with(root, net, req, &|r, rq| create_work(net, r, rq))
 }
 
 /// [`create_in`] with the work injected (the tests' seam).
 pub fn create_with(
     root: &Path,
+    net: &dyn NetworkOps,
     req: &CreateNetworkRequest,
     work: CreateWork<'_>,
 ) -> Result<Operation, Status> {
@@ -213,8 +219,8 @@ pub fn create_with(
     }
     // What is wrong with the request itself is refused before it is
     // acknowledged: a name or a subnet the engine would never accept.
-    let invalid = |e: delonix_sdn::Error| status_of(&e.into());
-    delonix_sdn::NetworkStore::validate_name(&req.name).map_err(invalid)?;
+    let invalid = |e: delonix_model::Error| status_of(&e);
+    net.validate_name(&req.name).map_err(invalid)?;
     let spec = req.spec.clone().unwrap_or_default();
     match NetworkTopology::try_from(spec.topology) {
         Ok(NetworkTopology::Unspecified | NetworkTopology::Bridge) => {}
@@ -247,7 +253,7 @@ pub fn create_with(
         ));
     }
     if !spec.ipv4_cidr.is_empty() {
-        delonix_sdn::NetworkStore::validate_subnet(&spec.ipv4_cidr).map_err(invalid)?;
+        net.validate_subnet(&spec.ipv4_cidr).map_err(invalid)?;
     }
     let target = format!("Network/{}", req.name);
     let fp = create_fingerprint(&spec, &req.labels, &req.annotations);
@@ -277,14 +283,22 @@ pub fn create_with(
 pub fn delete_in(
     root: &Path,
     store: &dyn crate::store::StorePort,
+    net: &dyn NetworkOps,
     req: &DeleteNetworkRequest,
 ) -> Result<Operation, Status> {
-    delete_with(root, req, &|r, n, s| dependents(r, store, n, s), &delete_work)
+    delete_with(
+        root,
+        net,
+        req,
+        &|r, n, s| dependents(net, r, store, n, s),
+        &|r, n| delete_work(net, r, n),
+    )
 }
 
 /// [`delete_in`] with the in-use check and the work injected.
 pub fn delete_with(
     root: &Path,
+    net: &dyn NetworkOps,
     req: &DeleteNetworkRequest,
     attached: Attached<'_>,
     work: DeleteWork<'_>,
@@ -306,12 +320,10 @@ pub fn delete_with(
     if req.name.is_empty() || !declared(root, &req.name) {
         return Err(missing());
     }
-    let net = store(root)?.get(&req.name).map_err(|_| missing())?;
+    let rec = net.get(root, &req.name).map_err(|_| missing())?;
     if !req.etag.is_empty() {
-        let realized = delonix_sdn::infra::network_list_in(root)
-            .iter()
-            .any(|d| d.name == net.name);
-        let current = crate::networks::message(&net, realized)
+        let realized = net.realized_names(root).iter().any(|n| n == &rec.name);
+        let current = crate::networks::message(net, &rec, realized)
             .meta
             .map(|m| m.etag)
             .unwrap_or_default();
@@ -322,7 +334,7 @@ pub fn delete_with(
             )));
         }
     }
-    let users = attached(root, &req.name, &net.subnet).map_err(|e| status_of(&e))?;
+    let users = attached(root, &req.name, &rec.subnet).map_err(|e| status_of(&e))?;
     if !users.is_empty() {
         return Err(status_of(&delonix_model::Error::coded(
             5307,
@@ -509,6 +521,10 @@ mod tests {
     use crate::proto::v1::{NetworkSpec, OperationState};
     use std::cell::Cell;
 
+    /// The crate's own `delonix-sdn`-backed port, the tests' stand-in for the
+    /// one the bin composes (`delonix-sdn` is a dev-dependency).
+    const NET: crate::net_ops::LocalNet = crate::net_ops::LocalNet;
+
     #[test]
     fn membership_requires_network_and_container() {
         let dir = tempfile::tempdir().unwrap();
@@ -637,7 +653,7 @@ mod tests {
             seen_running.set(list.operations.len() == 1);
             record_only(r, req)
         };
-        let op = create_with(&root, &create_req("lab", ""), &work).unwrap();
+        let op = create_with(&root, &NET, &create_req("lab", ""), &work).unwrap();
         assert!(
             seen_running.get(),
             "the operation was not on disk during the work"
@@ -648,23 +664,24 @@ mod tests {
         let target = op.links.iter().find(|l| l.rel == "target").unwrap();
         assert_eq!(target.href, "/v1/namespaces/default/networks/lab");
         // And the network reads back with the labels it was asked with.
-        let net = crate::networks::get_in(
+        let read = crate::networks::get_in(
             &root,
+            &NET,
             &crate::proto::v1::GetNetworkRequest {
                 name: "lab".into(),
                 namespace: String::new(),
             },
         )
         .unwrap();
-        assert_eq!(net.meta.unwrap().labels["app"], "web");
+        assert_eq!(read.meta.unwrap().labels["app"], "web");
     }
 
     #[test]
     fn a_name_already_taken_is_refused_and_no_operation_is_written() {
         let dir = tempfile::tempdir().unwrap();
-        create_with(dir.path(), &create_req("lab", ""), &record_only).unwrap();
+        create_with(dir.path(), &NET, &create_req("lab", ""), &record_only).unwrap();
         let before = operations_on_disk(dir.path());
-        let err = create_with(dir.path(), &create_req("lab", ""), &record_only).unwrap_err();
+        let err = create_with(dir.path(), &NET, &create_req("lab", ""), &record_only).unwrap_err();
         assert_eq!(err.code(), tonic::Code::AlreadyExists);
         assert_eq!(operations_on_disk(dir.path()), before);
     }
@@ -677,13 +694,13 @@ mod tests {
             runs.set(runs.get() + 1);
             record_only(r, req)
         };
-        let first = create_with(dir.path(), &create_req("lab", "rid-1"), &work).unwrap();
-        let again = create_with(dir.path(), &create_req("lab", "rid-1"), &work).unwrap();
+        let first = create_with(dir.path(), &NET, &create_req("lab", "rid-1"), &work).unwrap();
+        let again = create_with(dir.path(), &NET, &create_req("lab", "rid-1"), &work).unwrap();
         assert_eq!(runs.get(), 1);
         assert_eq!(first.id, again.id);
         assert_eq!(again.state, OperationState::Succeeded as i32);
         // The same request_id for another network is not a retry.
-        let err = create_with(dir.path(), &create_req("other", "rid-1"), &work).unwrap_err();
+        let err = create_with(dir.path(), &NET, &create_req("other", "rid-1"), &work).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
     }
 
@@ -695,7 +712,7 @@ mod tests {
                 "the holder is down".into(),
             ))
         };
-        let op = create_with(dir.path(), &create_req("lab", ""), &work).unwrap();
+        let op = create_with(dir.path(), &NET, &create_req("lab", ""), &work).unwrap();
         assert_eq!(op.state, OperationState::Failed as i32);
         let detail = op.error.unwrap();
         assert_eq!(detail.reason, "DX_UNAVAILABLE");
@@ -711,16 +728,17 @@ mod tests {
             topology: NetworkTopology::Overlay as i32,
             ..Default::default()
         });
-        let err = create_with(dir.path(), &overlay, &record_only).unwrap_err();
+        let err = create_with(dir.path(), &NET, &overlay, &record_only).unwrap_err();
         assert_eq!(err.code(), tonic::Code::Unimplemented);
 
         let mut elsewhere = create_req("lab", "");
         elsewhere.namespace = "team-a".into();
-        let err = create_with(dir.path(), &elsewhere, &record_only).unwrap_err();
+        let err = create_with(dir.path(), &NET, &elsewhere, &record_only).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
 
         for bad in ["", "../evil", "a/b", "bridge"] {
-            let err = create_with(dir.path(), &create_req(bad, ""), &record_only).unwrap_err();
+            let err =
+                create_with(dir.path(), &NET, &create_req(bad, ""), &record_only).unwrap_err();
             assert_eq!(err.code(), tonic::Code::InvalidArgument, "{bad}");
         }
         let mut subnet = create_req("lab", "");
@@ -728,7 +746,7 @@ mod tests {
             ipv4_cidr: "not-a-cidr".into(),
             ..Default::default()
         });
-        let err = create_with(dir.path(), &subnet, &record_only).unwrap_err();
+        let err = create_with(dir.path(), &NET, &subnet, &record_only).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         // Nothing was created and nothing was acknowledged.
         assert!(!dir.path().join("networks").exists());
@@ -738,24 +756,24 @@ mod tests {
     #[test]
     fn delete_removes_the_network_and_is_refused_when_it_is_missing() {
         let dir = tempfile::tempdir().unwrap();
-        create_with(dir.path(), &create_req("lab", ""), &record_only).unwrap();
-        let op = delete_with(dir.path(), &delete_req("lab"), &nobody, &forget).unwrap();
+        create_with(dir.path(), &NET, &create_req("lab", ""), &record_only).unwrap();
+        let op = delete_with(dir.path(), &NET, &delete_req("lab"), &nobody, &forget).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32);
         assert_eq!(op.verb, "delete");
         assert!(op.links.iter().all(|l| l.rel != "target"));
         assert!(!declared(dir.path(), "lab"));
 
-        let err = delete_with(dir.path(), &delete_req("lab"), &nobody, &forget).unwrap_err();
+        let err = delete_with(dir.path(), &NET, &delete_req("lab"), &nobody, &forget).unwrap_err();
         assert_eq!(err.code(), tonic::Code::NotFound);
     }
 
     #[test]
     fn a_network_in_use_is_refused_with_dx_5307_and_stays() {
         let dir = tempfile::tempdir().unwrap();
-        create_with(dir.path(), &create_req("lab", ""), &record_only).unwrap();
+        create_with(dir.path(), &NET, &create_req("lab", ""), &record_only).unwrap();
         let before = operations_on_disk(dir.path());
         let in_use = |_: &Path, _: &str, _: &str| Ok(vec!["container web".to_string()]);
-        let err = delete_with(dir.path(), &delete_req("lab"), &in_use, &forget).unwrap_err();
+        let err = delete_with(dir.path(), &NET, &delete_req("lab"), &in_use, &forget).unwrap_err();
         assert_eq!(err.code(), tonic::Code::FailedPrecondition);
         assert!(err.message().contains("container web"));
         // The class prefix is the REST encoding's to add, once.
@@ -772,11 +790,12 @@ mod tests {
     #[test]
     fn a_store_that_cannot_be_read_does_not_read_as_nothing_attached() {
         let dir = tempfile::tempdir().unwrap();
-        create_with(dir.path(), &create_req("lab", ""), &record_only).unwrap();
+        create_with(dir.path(), &NET, &create_req("lab", ""), &record_only).unwrap();
         let unreadable = |_: &Path, _: &str, _: &str| -> delonix_model::Result<Vec<String>> {
             Err(delonix_model::Error::PermissionDenied("containers/".into()))
         };
-        let err = delete_with(dir.path(), &delete_req("lab"), &unreadable, &forget).unwrap_err();
+        let err =
+            delete_with(dir.path(), &NET, &delete_req("lab"), &unreadable, &forget).unwrap_err();
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
         assert!(declared(dir.path(), "lab"));
     }
@@ -784,16 +803,17 @@ mod tests {
     #[test]
     fn a_stale_etag_is_a_failed_precondition_and_the_current_one_deletes() {
         let dir = tempfile::tempdir().unwrap();
-        create_with(dir.path(), &create_req("lab", ""), &record_only).unwrap();
+        create_with(dir.path(), &NET, &create_req("lab", ""), &record_only).unwrap();
         let mut stale = delete_req("lab");
         stale.etag = "0000000000000000".into();
-        let err = delete_with(dir.path(), &stale, &nobody, &forget).unwrap_err();
+        let err = delete_with(dir.path(), &NET, &stale, &nobody, &forget).unwrap_err();
         assert_eq!(err.code(), tonic::Code::FailedPrecondition);
         assert!(err.metadata().contains_key(STALE_ETAG_METADATA));
         assert!(declared(dir.path(), "lab"));
 
         let current = crate::networks::get_in(
             dir.path(),
+            &NET,
             &crate::proto::v1::GetNetworkRequest {
                 name: "lab".into(),
                 namespace: String::new(),
@@ -805,18 +825,18 @@ mod tests {
         .etag;
         let mut fresh = delete_req("lab");
         fresh.etag = current;
-        let op = delete_with(dir.path(), &fresh, &nobody, &forget).unwrap();
+        let op = delete_with(dir.path(), &NET, &fresh, &nobody, &forget).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32);
     }
 
     #[test]
     fn the_same_delete_sent_twice_is_answered_once_not_with_not_found() {
         let dir = tempfile::tempdir().unwrap();
-        create_with(dir.path(), &create_req("lab", ""), &record_only).unwrap();
+        create_with(dir.path(), &NET, &create_req("lab", ""), &record_only).unwrap();
         let mut req = delete_req("lab");
         req.request_id = "del-1".into();
-        let first = delete_with(dir.path(), &req, &nobody, &forget).unwrap();
-        let again = delete_with(dir.path(), &req, &nobody, &forget).unwrap();
+        let first = delete_with(dir.path(), &NET, &req, &nobody, &forget).unwrap();
+        let again = delete_with(dir.path(), &NET, &req, &nobody, &forget).unwrap();
         assert_eq!(first.id, again.id);
         assert_eq!(again.state, OperationState::Succeeded as i32);
     }
@@ -824,10 +844,10 @@ mod tests {
     #[test]
     fn force_is_refused_for_a_network() {
         let dir = tempfile::tempdir().unwrap();
-        create_with(dir.path(), &create_req("lab", ""), &record_only).unwrap();
+        create_with(dir.path(), &NET, &create_req("lab", ""), &record_only).unwrap();
         let mut req = delete_req("lab");
         req.force = true;
-        let err = delete_with(dir.path(), &req, &nobody, &forget).unwrap_err();
+        let err = delete_with(dir.path(), &NET, &req, &nobody, &forget).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(declared(dir.path(), "lab"));
     }

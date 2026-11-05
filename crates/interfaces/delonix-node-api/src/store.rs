@@ -167,7 +167,8 @@ impl LocalStore {
         delonix_state::Store::open(self.0.join("containers")).map_err(Into::into)
     }
     fn vms(&self) -> Result<delonix_state::JsonStore<delonix_compute::Vm>, delonix_model::Error> {
-        delonix_state::JsonStore::<delonix_compute::Vm>::open(self.0.join("vms")).map_err(Into::into)
+        delonix_state::JsonStore::<delonix_compute::Vm>::open(self.0.join("vms"))
+            .map_err(Into::into)
     }
 }
 

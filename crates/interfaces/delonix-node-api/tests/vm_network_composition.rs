@@ -38,7 +38,13 @@ fn the_composition_registers_the_vm_network_a_networked_create_needs() {
                 state_root: delonix_node_api::node::state_root(),
             },
         ));
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store(), common::backing_resolver());
+        let _ = delonix_node_api::serve_blocking(
+            &format!("unix://{s}"),
+            common::backing(),
+            common::backing_store(),
+            common::backing_resolver(),
+            common::backing_net(),
+        );
     });
     for _ in 0..200 {
         if std::path::Path::new(&sock).exists() {

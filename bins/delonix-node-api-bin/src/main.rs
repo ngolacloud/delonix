@@ -14,7 +14,8 @@ use std::sync::Arc;
 use delonix_compute::Vm;
 use delonix_engine::Engine;
 use delonix_model::Error;
-use delonix_node_api::{activation, Listen, RunResolver, StorePort, VmPort};
+use delonix_node_api::net_ops::NetRecord;
+use delonix_node_api::{activation, Listen, NetworkOps, RunResolver, StorePort, VmPort};
 
 /// The composition's VM reads, handed to the node API as its `VmPort` port
 /// (ADR-0040 A5). The bin is the one place that names `delonix-engine`: it mounts
@@ -92,7 +93,10 @@ impl VmPort for EngineVms {
         &self,
         cfg: &delonix_compute::vm_backend::VmConfig,
     ) -> Result<(), Error> {
-        self.0.vms().refuse_undeclared_network(cfg).map_err(Into::into)
+        self.0
+            .vms()
+            .refuse_undeclared_network(cfg)
+            .map_err(Into::into)
     }
 
     fn ip_is_predicted(&self, vm: &Vm) -> bool {
@@ -155,10 +159,7 @@ impl StorePort for StateStore {
             .and_then(|s| s.remove_unless(id, |c| keep(c)))
             .map_err(Into::into)
     }
-    fn container_claim_name(
-        &self,
-        name: &str,
-    ) -> Result<Box<dyn std::any::Any + Send>, Error> {
+    fn container_claim_name(&self, name: &str) -> Result<Box<dyn std::any::Any + Send>, Error> {
         delonix_state::Store::open(self.0.join("containers"))
             .and_then(|s| s.claim_name(name))
             .map(|c| Box::new(c) as Box<dyn std::any::Any + Send>)
@@ -169,11 +170,7 @@ impl StorePort for StateStore {
             .and_then(|s| s.list())
             .map_err(Into::into)
     }
-    fn vm_update(
-        &self,
-        name: &str,
-        f: &mut dyn FnMut(&mut Vm) -> bool,
-    ) -> Result<Vm, Error> {
+    fn vm_update(&self, name: &str, f: &mut dyn FnMut(&mut Vm) -> bool) -> Result<Vm, Error> {
         delonix_state::JsonStore::<Vm>::open(self.0.join("vms"))
             .and_then(|s| s.update(name, |vm| f(vm)))
             .map_err(Into::into)
@@ -242,6 +239,133 @@ impl RunResolver for HostResolver {
                 apparmor_disabled: &apparmor_disabled,
             },
         )
+    }
+}
+
+/// The composition's SDN, handed to the node API as its `NetworkOps` port
+/// (ADR-0040 A5, R3d-f). The bin names the `delonix-sdn` adapter directly — a
+/// bin may name an adapter (A1) — so the `delonix-node-api` interface no longer
+/// names it. This Engine has no network service yet (PRE-R3h), so the port is
+/// backed by `delonix-sdn` directly, exactly as `StateStore` backs the record
+/// store with `delonix-state`; the adapter's `Network` is summarised into the
+/// interface's [`NetRecord`], and the native SDN error maps to the shared engine
+/// error the interface speaks.
+struct SdnNet;
+
+/// `delonix-sdn`'s `Network` as the interface's summary record.
+fn net_record(n: &delonix_sdn::Network) -> NetRecord {
+    NetRecord {
+        name: n.name.clone(),
+        driver: n.driver.clone(),
+        subnet: n.subnet.clone(),
+        bridge: n.bridge.clone(),
+        gateway: n.gateway.clone(),
+        parent: n.parent.clone(),
+        vni: n.vni,
+        wg_ip: n.wg_ip.clone(),
+        peers: n.peers.clone(),
+        labels: n.labels.clone(),
+        annotations: n.annotations.clone(),
+    }
+}
+
+impl NetworkOps for SdnNet {
+    fn list(&self, root: &std::path::Path) -> Result<Vec<NetRecord>, Error> {
+        Ok(delonix_sdn::NetworkStore::open(root)?
+            .list()?
+            .iter()
+            .map(net_record)
+            .collect())
+    }
+    fn get(&self, root: &std::path::Path, name: &str) -> Result<NetRecord, Error> {
+        Ok(net_record(
+            &delonix_sdn::NetworkStore::open(root)?.get(name)?,
+        ))
+    }
+    fn set_metadata(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        labels: &[(String, Option<String>)],
+        annotations: &[(String, Option<String>)],
+    ) -> Result<(), Error> {
+        delonix_sdn::NetworkStore::open(root)?.set_metadata(name, labels, annotations)?;
+        Ok(())
+    }
+    fn validate_name(&self, name: &str) -> Result<(), Error> {
+        delonix_sdn::NetworkStore::validate_name(name)?;
+        Ok(())
+    }
+    fn validate_subnet(&self, cidr: &str) -> Result<(), Error> {
+        delonix_sdn::NetworkStore::validate_subnet(cidr)?;
+        Ok(())
+    }
+    fn create_bridge(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        subnet: Option<&str>,
+    ) -> Result<(), Error> {
+        let store = delonix_sdn::NetworkStore::open(root)?;
+        delonix_sdn::netops::create_bridge(&store, name, subnet, |_| Ok(None))?;
+        Ok(())
+    }
+    fn remove(&self, root: &std::path::Path, name: &str) -> Result<(), Error> {
+        let store = delonix_sdn::NetworkStore::open(root)?;
+        delonix_sdn::netops::remove(&store, name)?;
+        Ok(())
+    }
+    fn dependents_of(
+        &self,
+        name: &str,
+        subnet: &str,
+        containers: &[delonix_compute::Container],
+        vms: &[(String, String)],
+    ) -> Vec<String> {
+        delonix_sdn::netops::dependents_of(name, subnet, containers, vms)
+    }
+    fn realized_names(&self, root: &std::path::Path) -> Vec<String> {
+        delonix_sdn::infra::network_list_in(root)
+            .into_iter()
+            .map(|d| d.name)
+            .collect()
+    }
+    fn reachable(
+        &self,
+        network: &str,
+        ip: &str,
+        mac: &str,
+        timeout: std::time::Duration,
+    ) -> Option<bool> {
+        delonix_sdn::infra::sdn_reachable(network, ip, mac, timeout)
+    }
+    fn provider_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        vec![delonix_sdn::provider_report::report(
+            &delonix_sdn::provider_report::SdnHost::probe(),
+        )]
+    }
+    fn declared_provider_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
+        vec![delonix_sdn::provider_report::report(
+            &delonix_sdn::provider_report::SdnHost::ASSUMED,
+        )]
+    }
+    fn gateway_provider_ids(&self) -> Vec<String> {
+        delonix_sdn::gateway::gateway_provider_ids()
+            .into_iter()
+            .map(String::from)
+            .collect()
+    }
+    fn default_net(&self) -> &'static str {
+        delonix_sdn::DEFAULT_NET
+    }
+    fn parse_overlay_peer(&self, peer: &str) -> (String, Option<(String, String)>) {
+        delonix_sdn::parse_overlay_peer(peer)
+    }
+    fn expand_publish_range(&self, spec: &str) -> Result<Vec<String>, Error> {
+        delonix_sdn::expand_publish_range(spec).map_err(Into::into)
+    }
+    fn normalize_publish_spec(&self, spec: &str) -> Result<String, Error> {
+        delonix_sdn::normalize_publish_spec(spec).map_err(Into::into)
     }
 }
 
@@ -366,7 +490,11 @@ fn run() -> Result<(), Error> {
     delonix_compute::vm_registry::set_process_leaves(Box::new(delonix_linux::HostProcessLeaves));
     let engine = Engine::mount(root)?;
     let vms: Arc<dyn VmPort> = Arc::new(EngineVms(engine));
-    delonix_node_api::serve(listen, idle, vms, store, run_resolver)
+    // The SDN, behind the `NetworkOps` port (R3d-f): this Engine has no network
+    // service yet, so the bin backs it with `delonix-sdn` directly — the same
+    // shape as the record store — and the interface names no SDN adapter.
+    let net: Arc<dyn NetworkOps> = Arc::new(SdnNet);
+    delonix_node_api::serve(listen, idle, vms, store, run_resolver, net)
 }
 
 fn main() -> ExitCode {

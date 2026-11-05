@@ -76,6 +76,7 @@ pub struct NodeApi {
     vms: Arc<dyn crate::vms::VmPort>,
     store: Arc<dyn crate::store::StorePort>,
     run_resolver: Arc<dyn crate::run_resolver::RunResolver>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
 }
 
 /// Runs a host probe off the runtime's workers: every `NodeService` answer
@@ -92,17 +93,23 @@ async fn blocking<T: Send + 'static>(
 /// `GetNodeInfo`, the one function both encodings call. `vms` is the composed
 /// VM port (ADR-0040 A5): the measured provider reports come through it, never
 /// the `delonix-vm` adapter.
-pub async fn node_info(vms: Arc<dyn crate::vms::VmPort>) -> Result<NodeInfo, Status> {
+pub async fn node_info(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+) -> Result<NodeInfo, Status> {
     blocking("node info", move || {
-        node::node_info(&providers::measured_reports(&*vms))
+        node::node_info(&providers::measured_reports(&*vms, &*net))
     })
     .await
 }
 
 /// `GetHealth`, the one function both encodings call.
-pub async fn health(vms: Arc<dyn crate::vms::VmPort>) -> Result<Health, Status> {
+pub async fn health(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+) -> Result<Health, Status> {
     blocking("health", move || {
-        node::health(&providers::measured_reports(&*vms))
+        node::health(&providers::measured_reports(&*vms, &*net))
     })
     .await
 }
@@ -120,6 +127,7 @@ pub async fn capacity(
 /// (the same refusal `provider ls --kind ceph` gives), not an empty list.
 pub async fn list_providers(
     vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
     req: ListProvidersRequest,
 ) -> Result<ListProvidersResponse, Status> {
     let kind = match req.kind.as_str() {
@@ -133,7 +141,7 @@ pub async fn list_providers(
     };
     // The reports probe the host (binaries on the PATH, /dev/kvm, the holder):
     // blocking work, off the runtime's workers.
-    let reports = tokio::task::spawn_blocking(move || providers::measured_reports(&*vms))
+    let reports = tokio::task::spawn_blocking(move || providers::measured_reports(&*vms, &*net))
         .await
         .map_err(|e| Status::internal(format!("provider probe panicked: {e}")))?;
     let this = match &kind {
@@ -163,14 +171,18 @@ impl NodeService for NodeApi {
         &self,
         _req: Request<GetNodeInfoRequest>,
     ) -> Result<Response<NodeInfo>, Status> {
-        Ok(Response::new(node_info(Arc::clone(&self.vms)).await?))
+        Ok(Response::new(
+            node_info(Arc::clone(&self.vms), Arc::clone(&self.net)).await?,
+        ))
     }
 
     async fn get_health(
         &self,
         _req: Request<GetHealthRequest>,
     ) -> Result<Response<Health>, Status> {
-        Ok(Response::new(health(Arc::clone(&self.vms)).await?))
+        Ok(Response::new(
+            health(Arc::clone(&self.vms), Arc::clone(&self.net)).await?,
+        ))
     }
 
     async fn get_capacity(
@@ -187,7 +199,12 @@ impl NodeService for NodeApi {
         req: Request<ListProvidersRequest>,
     ) -> Result<Response<ListProvidersResponse>, Status> {
         Ok(Response::new(
-            list_providers(Arc::clone(&self.vms), req.into_inner()).await?,
+            list_providers(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.net),
+                req.into_inner(),
+            )
+            .await?,
         ))
     }
 
@@ -224,8 +241,9 @@ impl NetworkService for NodeApi {
         req: Request<GetNetworkRequest>,
     ) -> Result<Response<Network>, Status> {
         let req = req.into_inner();
+        let net = Arc::clone(&self.net);
         blocking("network", move || {
-            crate::networks::get_in(&node::state_root(), &req)
+            crate::networks::get_in(&node::state_root(), net.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -236,8 +254,9 @@ impl NetworkService for NodeApi {
         req: Request<ListNetworksRequest>,
     ) -> Result<Response<ListNetworksResponse>, Status> {
         let req = req.into_inner();
+        let net = Arc::clone(&self.net);
         blocking("networks", move || {
-            crate::networks::list_in(&node::state_root(), &req)
+            crate::networks::list_in(&node::state_root(), net.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -248,8 +267,9 @@ impl NetworkService for NodeApi {
         req: Request<CreateNetworkRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let net = Arc::clone(&self.net);
         blocking("network create", move || {
-            crate::network_ops::create_in(&node::state_root(), &req)
+            crate::network_ops::create_in(&node::state_root(), net.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -261,8 +281,9 @@ impl NetworkService for NodeApi {
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let net = Arc::clone(&self.net);
         blocking("network delete", move || {
-            crate::network_ops::delete_in(&node::state_root(), store.as_ref(), &req)
+            crate::network_ops::delete_in(&node::state_root(), store.as_ref(), net.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -622,8 +643,15 @@ impl VirtualMachineService for NodeApi {
         let req = req.into_inner();
         let vms = Arc::clone(&self.vms);
         let store = Arc::clone(&self.store);
+        let net = Arc::clone(&self.net);
         blocking("virtual machine create", move || {
-            crate::vm_ops::create_in(&node::state_root(), store.as_ref(), &*vms, &req)
+            crate::vm_ops::create_in(
+                &node::state_root(),
+                store.as_ref(),
+                &*vms,
+                net.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
@@ -857,11 +885,13 @@ impl ContainerService for NodeApi {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
         let run_resolver = Arc::clone(&self.run_resolver);
+        let net = Arc::clone(&self.net);
         blocking("container create", move || {
             crate::container_launch::create_in(
                 &node::state_root(),
                 store.as_ref(),
                 run_resolver.as_ref(),
+                net.as_ref(),
                 &req,
             )
         })
@@ -1009,6 +1039,7 @@ pub fn router() -> axum::Router {
         Arc::new(NoVms),
         Arc::new(crate::store::NoStore),
         Arc::new(crate::run_resolver::NoResolver),
+        Arc::new(crate::net_ops::NoNet),
     )
 }
 
@@ -1097,12 +1128,14 @@ pub fn router_with(
     vms: Arc<dyn crate::vms::VmPort>,
     store: Arc<dyn crate::store::StorePort>,
     run_resolver: Arc<dyn crate::run_resolver::RunResolver>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
 ) -> axum::Router {
     use tonic::server::NamedService;
     let api = NodeApi {
         vms,
         store,
         run_resolver,
+        net,
     };
     // The gRPC service is mounted the way tonic's own `Routes` mounts it — one
     // wildcard route under the service name. Not through `Routes::into_axum_router`,

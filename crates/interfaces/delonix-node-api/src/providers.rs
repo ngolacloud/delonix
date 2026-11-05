@@ -8,6 +8,7 @@
 //! this list disagrees — so a provider added to one side and not the other is
 //! a red test, not a server that quietly lists fewer providers than the CLI.
 
+use crate::net_ops::NetworkOps;
 use crate::proto::v1::{Capability, Condition, ConditionStatus, ProviderInfo};
 use crate::vms::VmPort;
 use delonix_compute::capability::{HealthStatus, ProviderReport, CATALOG_VERSION};
@@ -16,8 +17,9 @@ use delonix_compute::capability::{HealthStatus, ProviderReport, CATALOG_VERSION}
 /// the registry (plus Proxmox unconfigured when nobody registered it), the
 /// Linux provider three times — compute, network, storage — and Proxmox's own
 /// per-VM firewall as the second network provider. The VM backends come through
-/// the composed port (ADR-0040 A5), not the `delonix-vm` adapter directly.
-pub fn measured_reports(vms: &dyn VmPort) -> Vec<ProviderReport> {
+/// the composed VM port and the SDN provider through the composed network port
+/// (ADR-0040 A5), not the `delonix-vm`/`delonix-sdn` adapters directly.
+pub fn measured_reports(vms: &dyn VmPort, net: &dyn NetworkOps) -> Vec<ProviderReport> {
     let mut out = vms.provider_reports();
     let proxmox_configured = out.iter().any(|r| r.id == "proxmox");
     if !proxmox_configured {
@@ -26,9 +28,7 @@ pub fn measured_reports(vms: &dyn VmPort) -> Vec<ProviderReport> {
     out.push(delonix_linux::provider_report::report(
         &delonix_linux::provider_report::LinuxHost::probe(),
     ));
-    out.push(delonix_sdn::provider_report::report(
-        &delonix_sdn::provider_report::SdnHost::probe(),
-    ));
+    out.extend(net.provider_reports());
     // The node's own per-VM firewall (ADR-0052): the second network provider,
     // with the same configured flag as the VM backend — one target, two ports.
     out.push(delonix_provider_proxmox::network_capability_report(
@@ -38,22 +38,28 @@ pub fn measured_reports(vms: &dyn VmPort) -> Vec<ProviderReport> {
         &delonix_volume::provider_report::StorageHost::probe(),
     ));
     // The perimeter appliance (ADR-0059 D2), declared, same flag rule as Proxmox.
+    // Whether it is a gateway comes through the network port's registry view.
     out.push(delonix_provider_opnsense::capability_report(
-        delonix_sdn::gateway::gateway_provider_ids().contains(&delonix_provider_opnsense::ID),
+        net.gateway_provider_ids()
+            .iter()
+            .any(|id| id == delonix_provider_opnsense::ID),
     ));
     out
 }
 
 /// The same set, DECLARED: every host assumed complete, Proxmox assumed
 /// configured. Pure — what the equality test against the published matrix reads.
-/// The VM providers' declared reports come through the composed port, not the
-/// `delonix-vm` adapter directly.
-pub fn declared_reports(vms: &dyn VmPort) -> Vec<ProviderReport> {
+/// The VM providers' declared reports come through the composed VM port and the
+/// SDN provider through the composed network port, not the `delonix-vm`/
+/// `delonix-sdn` adapters directly.
+pub fn declared_reports(vms: &dyn VmPort, net: &dyn NetworkOps) -> Vec<ProviderReport> {
     let mut out = vms.declared_vm_reports();
     out.extend([
         delonix_provider_proxmox::capability_report(true),
         delonix_linux::provider_report::report(&delonix_linux::provider_report::LinuxHost::ASSUMED),
-        delonix_sdn::provider_report::report(&delonix_sdn::provider_report::SdnHost::ASSUMED),
+    ]);
+    out.extend(net.declared_provider_reports());
+    out.extend([
         delonix_provider_proxmox::network_capability_report(true),
         delonix_volume::provider_report::report(
             &delonix_volume::provider_report::StorageHost::ASSUMED,
@@ -110,6 +116,10 @@ mod tests {
         crate::vms::LocalVmReads(std::path::PathBuf::from("/"))
     }
 
+    /// The crate's `delonix-sdn`-backed network port (dev-dependency): the SDN
+    /// provider's declared report must be the real one for the matrix test.
+    const NET: crate::net_ops::LocalNet = crate::net_ops::LocalNet;
+
     /// The CLI publishes its composition as the matrix; this crate's must be
     /// the same set of (kind, id), or the socket lists fewer providers than
     /// `provider ls` for no reason anyone wrote down.
@@ -134,7 +144,7 @@ mod tests {
                 }
             }
         }
-        let ours: std::collections::BTreeSet<(String, String)> = declared_reports(&vms())
+        let ours: std::collections::BTreeSet<(String, String)> = declared_reports(&vms(), &NET)
             .iter()
             .map(|r| (r.kind.as_str().to_string(), r.id.to_string()))
             .collect();
@@ -148,7 +158,7 @@ mod tests {
     /// boolean is the reading of the state, never a second opinion.
     #[test]
     fn provider_info_carries_the_state_and_the_catalog_version() {
-        let r = declared_reports(&vms()).remove(1); // libvirt
+        let r = declared_reports(&vms(), &NET).remove(1); // libvirt
         let info = provider_info(&r);
         assert_eq!(info.id, "libvirt");
         assert_eq!(info.kind, "compute");
@@ -167,7 +177,7 @@ mod tests {
     /// (`naming=proto`), not camelCase.
     #[test]
     fn the_json_uses_proto_field_names() {
-        let info = provider_info(&declared_reports(&vms())[0]);
+        let info = provider_info(&declared_reports(&vms(), &NET)[0]);
         let v = serde_json::to_value(&info).unwrap();
         assert!(v.get("catalog_version").is_some(), "{v}");
         assert!(v["capabilities"][0].get("state").is_some());

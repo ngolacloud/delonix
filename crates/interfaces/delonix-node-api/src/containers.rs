@@ -127,10 +127,7 @@ pub fn message(c: &Record) -> Container {
 /// The container records under `root`, liveness-reconciled. A root where no
 /// container was ever created has no `containers/` directory — an empty list,
 /// which reading must not materialise.
-pub fn records(
-    root: &Path,
-    store: &dyn crate::store::StorePort,
-) -> Result<Vec<Record>, Status> {
+pub fn records(root: &Path, store: &dyn crate::store::StorePort) -> Result<Vec<Record>, Status> {
     if !root.join("containers").is_dir() {
         return Ok(Vec::new());
     }

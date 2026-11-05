@@ -20,7 +20,6 @@ delonix-host = { workspace = true }
 delonix-model = { workspace = true }
 delonix-provider-proxmox = { workspace = true }
 delonix-linux = { workspace = true }
-delonix-sdn = { workspace = true }
 delonix-volume = { workspace = true }
 delonix-storage = { workspace = true }
 delonix-pool-helper = { workspace = true }
@@ -57,6 +56,10 @@ delonix-vm = { workspace = true }
 # R3d-d — production no longer names it; kept for `store::LocalStore` test backing
 # and record seeding in the crate's own tests + integration tests.
 delonix-state = { workspace = true }
+# R3d-f — production no longer names the SDN adapter; it reaches it only through
+# the `NetworkOps` port the bin composes. Kept for `net_ops::LocalNet` and the
+# integration harness's `AdapterNet` test backings, and the matrix/parse tests.
+delonix-sdn = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }

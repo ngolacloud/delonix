@@ -91,6 +91,7 @@ pub mod docs;
 pub mod events;
 pub mod image_ops;
 pub mod images;
+pub mod net_ops;
 pub mod network_ops;
 pub mod networks;
 pub mod node;
@@ -111,11 +112,12 @@ pub mod vms;
 pub mod volume_ops;
 pub mod volumes;
 
+pub use net_ops::NetworkOps;
+pub use run_resolver::RunResolver;
 pub use service::{
     capacity, health, link_header, list_providers, node_info, openapi_document, router,
     router_with, NodeApi, OPENAPI_YAML,
 };
-pub use run_resolver::RunResolver;
 pub use store::StorePort;
 pub use vms::VmPort;
 
@@ -160,8 +162,16 @@ pub fn serve_blocking(
     vms: std::sync::Arc<dyn VmPort>,
     store: std::sync::Arc<dyn StorePort>,
     run_resolver: std::sync::Arc<dyn RunResolver>,
+    net: std::sync::Arc<dyn NetworkOps>,
 ) -> Result<(), Error> {
-    serve_with(Listen::Path(addr.to_string()), None, vms, store, run_resolver)
+    serve_with(
+        Listen::Path(addr.to_string()),
+        None,
+        vms,
+        store,
+        run_resolver,
+        net,
+    )
 }
 
 /// Serves the node API, blocking the calling thread, until `idle` (if given)
@@ -175,8 +185,9 @@ pub fn serve(
     vms: std::sync::Arc<dyn VmPort>,
     store: std::sync::Arc<dyn StorePort>,
     run_resolver: std::sync::Arc<dyn RunResolver>,
+    net: std::sync::Arc<dyn NetworkOps>,
 ) -> Result<(), Error> {
-    serve_with(listen, idle, vms, store, run_resolver)
+    serve_with(listen, idle, vms, store, run_resolver, net)
 }
 
 fn serve_with(
@@ -185,6 +196,7 @@ fn serve_with(
     vms: std::sync::Arc<dyn VmPort>,
     store: std::sync::Arc<dyn StorePort>,
     run_resolver: std::sync::Arc<dyn RunResolver>,
+    net: std::sync::Arc<dyn NetworkOps>,
 ) -> Result<(), Error> {
     compose();
     delonix_node::alloc_tuning::limit_malloc_arenas();
@@ -248,7 +260,7 @@ fn serve_with(
             }
             (Listen::Inherited(_), None) => unreachable!("an inherited listener is taken above"),
         };
-        serve_listener(uds, router_with(vms, store, run_resolver), idle).await
+        serve_listener(uds, router_with(vms, store, run_resolver, net), idle).await
     })
 }
 
