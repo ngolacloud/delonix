@@ -45,6 +45,7 @@ fn the_composition_registers_the_vm_network_a_networked_create_needs() {
             common::backing_resolver(),
             common::backing_net(),
             common::backing_images(),
+            common::backing_providers(),
         );
     });
     for _ in 0..200 {

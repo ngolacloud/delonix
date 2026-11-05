@@ -1043,6 +1043,8 @@ dependencies = [
  "delonix-node",
  "delonix-node-api",
  "delonix-oci",
+ "delonix-provider-opnsense",
+ "delonix-provider-proxmox",
  "delonix-sdn",
  "delonix-state",
  "delonix-telemetry",

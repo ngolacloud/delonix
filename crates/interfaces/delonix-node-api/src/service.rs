@@ -64,7 +64,7 @@ use crate::proto::v1::{
     CreateVolumeRequest, DeleteVolumeRequest, GetVolumeRequest, ListVolumesRequest,
     ListVolumesResponse, Volume,
 };
-use crate::{node, providers};
+use crate::node;
 
 /// The service. Its answers are computed from the engine's declarations and this
 /// host's probes at call time; the one piece of injected state is the VM port
@@ -78,6 +78,7 @@ pub struct NodeApi {
     run_resolver: Arc<dyn crate::run_resolver::RunResolver>,
     net: Arc<dyn crate::net_ops::NetworkOps>,
     images: Arc<dyn crate::image_repo::ImageRepo>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
 }
 
 /// Runs a host probe off the runtime's workers: every `NodeService` answer
@@ -97,9 +98,14 @@ async fn blocking<T: Send + 'static>(
 pub async fn node_info(
     vms: Arc<dyn crate::vms::VmPort>,
     net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
 ) -> Result<NodeInfo, Status> {
     blocking("node info", move || {
-        node::node_info(&providers::measured_reports(&*vms, &*net))
+        node::node_info(&crate::providers::measured_reports(
+            &*vms,
+            &*net,
+            &*providers,
+        ))
     })
     .await
 }
@@ -108,9 +114,14 @@ pub async fn node_info(
 pub async fn health(
     vms: Arc<dyn crate::vms::VmPort>,
     net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
 ) -> Result<Health, Status> {
     blocking("health", move || {
-        node::health(&providers::measured_reports(&*vms, &*net))
+        node::health(&crate::providers::measured_reports(
+            &*vms,
+            &*net,
+            &*providers,
+        ))
     })
     .await
 }
@@ -129,6 +140,7 @@ pub async fn capacity(
 pub async fn list_providers(
     vms: Arc<dyn crate::vms::VmPort>,
     net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
     req: ListProvidersRequest,
 ) -> Result<ListProvidersResponse, Status> {
     let kind = match req.kind.as_str() {
@@ -142,9 +154,11 @@ pub async fn list_providers(
     };
     // The reports probe the host (binaries on the PATH, /dev/kvm, the holder):
     // blocking work, off the runtime's workers.
-    let reports = tokio::task::spawn_blocking(move || providers::measured_reports(&*vms, &*net))
-        .await
-        .map_err(|e| Status::internal(format!("provider probe panicked: {e}")))?;
+    let reports = tokio::task::spawn_blocking(move || {
+        crate::providers::measured_reports(&*vms, &*net, &*providers)
+    })
+    .await
+    .map_err(|e| Status::internal(format!("provider probe panicked: {e}")))?;
     let this = match &kind {
         Some(k) => format!("/v1/providers?kind={k}"),
         None => "/v1/providers".to_string(),
@@ -154,7 +168,7 @@ pub async fn list_providers(
         providers: reports
             .iter()
             .filter(|r| kind.as_deref().is_none_or(|k| r.kind.as_str() == k))
-            .map(providers::provider_info)
+            .map(crate::providers::provider_info)
             .collect(),
     })
 }
@@ -173,7 +187,12 @@ impl NodeService for NodeApi {
         _req: Request<GetNodeInfoRequest>,
     ) -> Result<Response<NodeInfo>, Status> {
         Ok(Response::new(
-            node_info(Arc::clone(&self.vms), Arc::clone(&self.net)).await?,
+            node_info(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.net),
+                Arc::clone(&self.providers),
+            )
+            .await?,
         ))
     }
 
@@ -182,7 +201,12 @@ impl NodeService for NodeApi {
         _req: Request<GetHealthRequest>,
     ) -> Result<Response<Health>, Status> {
         Ok(Response::new(
-            health(Arc::clone(&self.vms), Arc::clone(&self.net)).await?,
+            health(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.net),
+                Arc::clone(&self.providers),
+            )
+            .await?,
         ))
     }
 
@@ -203,6 +227,7 @@ impl NodeService for NodeApi {
             list_providers(
                 Arc::clone(&self.vms),
                 Arc::clone(&self.net),
+                Arc::clone(&self.providers),
                 req.into_inner(),
             )
             .await?,
@@ -1045,6 +1070,7 @@ pub fn router() -> axum::Router {
         Arc::new(crate::run_resolver::NoResolver),
         Arc::new(crate::net_ops::NoNet),
         Arc::new(crate::image_repo::NoImages),
+        Arc::new(crate::provider_reports::NoProviderReports),
     )
 }
 
@@ -1135,6 +1161,7 @@ pub fn router_with(
     run_resolver: Arc<dyn crate::run_resolver::RunResolver>,
     net: Arc<dyn crate::net_ops::NetworkOps>,
     images: Arc<dyn crate::image_repo::ImageRepo>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
 ) -> axum::Router {
     use tonic::server::NamedService;
     let api = NodeApi {
@@ -1143,6 +1170,7 @@ pub fn router_with(
         run_resolver,
         net,
         images,
+        providers,
     };
     // The gRPC service is mounted the way tonic's own `Routes` mounts it — one
     // wildcard route under the service name. Not through `Routes::into_axum_router`,

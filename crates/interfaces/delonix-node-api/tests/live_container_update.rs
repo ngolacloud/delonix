@@ -78,6 +78,7 @@ async fn update_container_lowers_the_live_memory_max() {
             common::backing_resolver(),
             common::backing_net(),
             common::backing_images(),
+            common::backing_providers(),
         );
     });
     wait_for(&sock).await;

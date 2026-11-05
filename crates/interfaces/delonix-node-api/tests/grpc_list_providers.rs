@@ -40,6 +40,7 @@ async fn list_providers_answers_over_grpc_on_the_unix_socket() {
             common::backing_resolver(),
             common::backing_net(),
             common::backing_images(),
+            common::backing_providers(),
         );
     });
     wait_for(&sock).await;
@@ -350,7 +351,18 @@ async fn node_service_answers_as_json_and_publishes_its_openapi() {
 async fn list_providers_answers_as_json_on_the_rest_route() {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
-    let app = delonix_node_api::router();
+    // The `storage` kind's only provider — the volume adapter's `linux` report —
+    // comes through the composed `ProviderReports` port (R3d-h), so this REST
+    // test drives the router with the adapter-backed backing the bin composes,
+    // not the empty default `router()` (whose `NoProviderReports` is a placeholder).
+    let app = delonix_node_api::router_with(
+        common::backing(),
+        common::backing_store(),
+        common::backing_resolver(),
+        common::backing_net(),
+        common::backing_images(),
+        common::backing_providers(),
+    );
     let res = app
         .clone()
         .oneshot(

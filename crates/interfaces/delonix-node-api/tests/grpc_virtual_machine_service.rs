@@ -61,6 +61,7 @@ async fn virtual_machine_service_answers_over_grpc_without_touching_any_state() 
             common::backing_resolver(),
             common::backing_net(),
             common::backing_images(),
+            common::backing_providers(),
         );
     });
     wait_for(&sock).await;
@@ -325,6 +326,7 @@ async fn console_is_not_served_yet() {
             common::backing_resolver(),
             common::backing_net(),
             common::backing_images(),
+            common::backing_providers(),
         );
     });
     wait_for(&sock).await;

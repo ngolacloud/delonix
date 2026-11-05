@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use delonix_node_api::image_repo::StoredImage;
 use delonix_node_api::net_ops::NetRecord;
-use delonix_node_api::{ImageRepo, NetworkOps, RunResolver, StorePort, VmPort};
+use delonix_node_api::{ImageRepo, NetworkOps, ProviderReports, RunResolver, StorePort, VmPort};
 
 /// A [`VmPort`] over the `delonix-vm` adapter at a state root — the tests'
 /// stand-in for the engine the bin composes.
@@ -111,6 +111,59 @@ impl ImageRepo for AdapterImages {
     }
     fn strip_digest<'a>(&self, digest: &'a str) -> &'a str {
         delonix_oci::cas::strip(digest)
+    }
+}
+
+/// A [`ProviderReports`] over the four real adapters (R3d-h) — the tests'
+/// stand-in for the adapter-backed port the bin composes. Production reaches the
+/// Proxmox/Linux/volume/OPNsense reports only through this port; the node-api
+/// crate names no provider/host adapter in production, so this lives in the test
+/// harness over the `delonix-provider-proxmox`/`delonix-provider-opnsense`/
+/// `delonix-linux`/`delonix-volume` dev-dependencies, exactly as
+/// [`AdapterNet`]/[`AdapterImages`] do. It mirrors `delonix-node-api-bin`'s
+/// `HostProviders`, so the provider list a `ListProviders` test asserts carries
+/// the real Proxmox/Linux/volume/OPNsense ids.
+pub struct AdapterProviders;
+
+/// The adapter-backed capability-report port, as an `Arc` for `serve_blocking`.
+pub fn backing_providers() -> Arc<dyn ProviderReports> {
+    Arc::new(AdapterProviders)
+}
+
+impl ProviderReports for AdapterProviders {
+    fn proxmox_compute_report(
+        &self,
+        configured: bool,
+    ) -> delonix_compute::capability::ProviderReport {
+        delonix_provider_proxmox::capability_report(configured)
+    }
+    fn proxmox_network_report(
+        &self,
+        configured: bool,
+    ) -> delonix_compute::capability::ProviderReport {
+        delonix_provider_proxmox::network_capability_report(configured)
+    }
+    fn linux_compute_report(&self, measured: bool) -> delonix_compute::capability::ProviderReport {
+        let host = if measured {
+            delonix_linux::provider_report::LinuxHost::probe()
+        } else {
+            delonix_linux::provider_report::LinuxHost::ASSUMED
+        };
+        delonix_linux::provider_report::report(&host)
+    }
+    fn volume_storage_report(&self, measured: bool) -> delonix_compute::capability::ProviderReport {
+        let host = if measured {
+            delonix_volume::provider_report::StorageHost::probe()
+        } else {
+            delonix_volume::provider_report::StorageHost::ASSUMED
+        };
+        delonix_volume::provider_report::report(&host)
+    }
+    fn opnsense_report(&self, is_gateway: bool) -> delonix_compute::capability::ProviderReport {
+        delonix_provider_opnsense::capability_report(is_gateway)
+    }
+    fn opnsense_id(&self) -> &'static str {
+        delonix_provider_opnsense::ID
     }
 }
 
