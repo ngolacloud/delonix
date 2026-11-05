@@ -73,6 +73,66 @@ impl delonix_cri::ContainerOps for NoContainers {
     }
 }
 
+/// The runtime (Linux-mechanism) port the CRI server needs (R3h-C): since the
+/// interface no longer names `delonix-linux`, these transport tests hand in the
+/// same real-adapter-backed port the crate's own unit tests use, so the server's
+/// `is_rootless`/cgroup/capability paths are the genuine ones.
+struct TestRuntime;
+impl delonix_cri::RuntimeOps for TestRuntime {
+    fn is_rootless(&self) -> bool {
+        delonix_linux::is_rootless()
+    }
+    fn safe_to_signal(&self, pid: i32, starttime: Option<u64>) -> bool {
+        delonix_linux::safe_to_signal(pid, starttime)
+    }
+    fn leaf_controllers(&self) -> Vec<String> {
+        delonix_linux::leaf_controllers()
+    }
+    fn reconcile_status(&self, c: &mut delonix_compute::Container) -> bool {
+        delonix_linux::reconcile_status(c)
+    }
+    fn oom_killed_reason(&self) -> &'static str {
+        delonix_linux::OOM_KILLED
+    }
+    fn seccomp_validate(&self, json: &str) -> Result<(), String> {
+        delonix_linux::seccomp_profile::parse(json).map(|_| ())
+    }
+    fn update_kube_resources(
+        &self,
+        c: &delonix_compute::Container,
+        update: &delonix_cri::ResourceUpdateSpec<'_>,
+    ) -> Result<bool, delonix_model::Error> {
+        let u = delonix_linux::ResourceUpdate {
+            memory: update.memory,
+            cpus: update.cpus,
+            cpu_weight: update.cpu_weight,
+            cpuset: update.cpuset,
+            cpuset_mems: update.cpuset_mems,
+            hugepage_limits: update.hugepage_limits,
+            unified: update.unified,
+            oom_score_adj: update.oom_score_adj,
+        };
+        delonix_linux::update_kube_resources(c, &u)
+            .map(|lu| lu != delonix_linux::LimitUpdate::NotEnforced)
+            .map_err(delonix_model::Error::from)
+    }
+    fn all_caps_mask(&self) -> u64 {
+        delonix_linux::capabilities::all_caps_mask()
+    }
+    fn cap_bit(&self, name: &str) -> Option<u8> {
+        delonix_linux::capabilities::cap_num(name)
+    }
+    fn default_kept_mask(&self) -> u64 {
+        delonix_linux::capabilities::default_kept_mask()
+    }
+    fn names_from_mask(&self, mask: u64) -> Vec<&'static str> {
+        delonix_linux::capabilities::names_from_mask(mask)
+    }
+    fn resolve_cap_keep(&self, cap_drop: &[String], cap_add: &[String]) -> u64 {
+        delonix_linux::capabilities::resolve_cap_keep(cap_drop, cap_add)
+    }
+}
+
 /// A SHORT socket path: `sun_path` is 108 bytes and an agent session's
 /// `$TMPDIR` is already past 90, so the directory lives in `/tmp` itself
 /// (`/tmp/.tmpXXXXXX/x.sock`, 22 bytes). The `TempDir` removes it on every
@@ -98,6 +158,7 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
             b,
             std::sync::Arc::new(NoImages),
             std::sync::Arc::new(NoContainers),
+            std::sync::Arc::new(TestRuntime),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );
@@ -236,6 +297,7 @@ async fn an_sctp_host_port_is_refused_over_grpc_and_leaves_nothing_behind() {
             b,
             std::sync::Arc::new(NoImages),
             std::sync::Arc::new(NoContainers),
+            std::sync::Arc::new(TestRuntime),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );

@@ -342,7 +342,8 @@ fn hugepage_size_kb(page_size: &str) -> Option<u64> {
 ///
 /// Checked here, at `StartContainer` — before it answers success, not guessed
 /// at write time — against the controllers the container is ACTUALLY about to
-/// land in: [`delonix_linux::leaf_controllers`] when the sandbox has no
+/// land in: the engine's leaf controllers ([`crate::RuntimeOps::leaf_controllers`])
+/// when the sandbox has no
 /// kubelet `cgroup_parent` (the engine's own slice/leaf, the same destination
 /// `container run` uses), or that parent's own `cgroup.controllers`
 /// ([`parent_cgroup_controllers`]) when it does — the engine's slice is not
@@ -360,6 +361,7 @@ fn hugepage_size_kb(page_size: &str) -> Option<u64> {
 /// reading it at all).
 fn refuse_unenforceable_resources(
     r: &CriResources,
+    rt: &dyn crate::RuntimeOps,
     kube_cgroup_parent: Option<&str>,
 ) -> Result<(), Status> {
     validate_resource_paths(r)?;
@@ -377,7 +379,7 @@ fn refuse_unenforceable_resources(
     }
     let have: Vec<String> = match kube_cgroup_parent {
         Some(parent) => parent_cgroup_controllers(parent),
-        None => delonix_linux::leaf_controllers(),
+        None => rt.leaf_controllers(),
     };
     resources_decision(&wanted, &have)
 }
@@ -456,7 +458,8 @@ fn resources_decision(wanted: &[(String, String)], have: &[String]) -> Result<()
 }
 
 /// The controllers a kubelet-shaped `cgroup_parent` offers, read from its OWN
-/// `cgroup.controllers` — never [`delonix_linux::leaf_controllers`], which
+/// `cgroup.controllers` — never the engine's leaf controllers
+/// ([`crate::RuntimeOps::leaf_controllers`]), which
 /// answers about the engine's own slice/leaf, a different cgroup than the one
 /// a container with a `cgroup_parent` actually lands in (ADR 0038 item 1). An
 /// unparsable or unreadable parent answers "nothing available", which is the
@@ -936,7 +939,11 @@ fn strip_ansi(line: &str) -> String {
 /// reported state `Exited` with exit-code 0 → the kubelet (restartPolicy
 /// `OnFailure`) did NOT restart it. After reconciling, the crash becomes
 /// `Crashed` (137) and the kubelet reacts.
-fn load_reconciled(ops: &dyn crate::ContainerOps, cri_id: &str) -> Option<delonix_compute::Container> {
+fn load_reconciled(
+    ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
+    cri_id: &str,
+) -> Option<delonix_compute::Container> {
     // `update` (flock + re-reads under the lock), NOT `load`+`save`: this server
     // is CONCURRENT (the kubelet issues requests in parallel, each in a
     // `spawn_blocking`) and the CLI touches the same state. With the naive
@@ -945,16 +952,14 @@ fn load_reconciled(ops: &dyn crate::ContainerOps, cri_id: &str) -> Option<deloni
     // The engine's port keeps that locked read-modify-write (R3h): the closure
     // runs under the same `flock`, so `reconcile_status` stays the one write the
     // CRI issues to the container store.
-    ops.update(&format!("cri-{cri_id}"), &mut |c| {
-        delonix_linux::reconcile_status(c)
-    })
-    .ok()
+    ops.update(&format!("cri-{cri_id}"), &mut |c| rt.reconcile_status(c))
+        .ok()
 }
 
 /// The runtime state of a CRI container, read (and reconciled) from the `Store`.
-fn delonix_state(ops: &dyn crate::ContainerOps, cri_id: &str) -> i32 {
+fn delonix_state(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, cri_id: &str) -> i32 {
     use delonix_model::records::Status as S;
-    match load_reconciled(ops, cri_id) {
+    match load_reconciled(ops, rt, cri_id) {
         Some(c) => match c.status {
             S::Running if c.is_live() => ContainerState::ContainerRunning as i32,
             S::Running => ContainerState::ContainerExited as i32, // defensive (post-reconcile)
@@ -969,9 +974,9 @@ fn delonix_state(ops: &dyn crate::ContainerOps, cri_id: &str) -> i32 {
 /// The exit code of a CRI container (reconciled), or `None` if it is still
 /// running/created. Lets the kubelet see the true exit cause (137/143/n) and
 /// apply the `restartPolicy` — instead of assuming 0 (`Completed`) for everything.
-fn delonix_exit(ops: &dyn crate::ContainerOps, cri_id: &str) -> Option<i32> {
+fn delonix_exit(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, cri_id: &str) -> Option<i32> {
     use delonix_model::records::Status as S;
-    match load_reconciled(ops, cri_id)?.status {
+    match load_reconciled(ops, rt, cri_id)?.status {
         S::Failed(code) => Some(code),
         S::Stopped => Some(0),
         S::Crashed => Some(137),
@@ -980,10 +985,10 @@ fn delonix_exit(ops: &dyn crate::ContainerOps, cri_id: &str) -> Option<i32> {
 }
 
 /// Whether the kernel's OOM killer took this CRI container down (the engine
-/// records it on the cgroup before removing it — see `delonix_linux::OOM_KILLED`).
-fn delonix_oom_killed(ops: &dyn crate::ContainerOps, cri_id: &str) -> bool {
-    load_reconciled(ops, cri_id)
-        .is_some_and(|c| c.crash_reason.as_deref() == Some(delonix_linux::OOM_KILLED))
+/// records it on the cgroup before removing it — see [`crate::RuntimeOps::oom_killed_reason`]).
+fn delonix_oom_killed(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, cri_id: &str) -> bool {
+    load_reconciled(ops, rt, cri_id)
+        .is_some_and(|c| c.crash_reason.as_deref() == Some(rt.oom_killed_reason()))
 }
 
 /// Whether this CRI container's image declared a non-root `USER` the host
@@ -995,8 +1000,8 @@ fn delonix_oom_killed(ops: &dyn crate::ContainerOps, cri_id: &str) -> bool {
 /// to show it. `None` (container unknown) reads the same as `false` here —
 /// there is no fallback fact to report about a container that cannot be
 /// found, which is the state `container_status` reports on it either way.
-fn delonix_user_fallback_to_root(ops: &dyn crate::ContainerOps, cri_id: &str) -> bool {
-    load_reconciled(ops, cri_id).is_some_and(|c| c.user_fallback_to_root)
+fn delonix_user_fallback_to_root(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, cri_id: &str) -> bool {
+    load_reconciled(ops, rt, cri_id).is_some_and(|c| c.user_fallback_to_root)
 }
 
 /// The CRI `reason` for an exited container. `OOMKilled` is the string the
@@ -1061,6 +1066,7 @@ fn cni_k8s_args(namespace: &str, name: &str, uid: &str, infra_container_id: &str
 
 pub fn run_pod_sandbox(
     base: &Path,
+    rt: &dyn crate::RuntimeOps,
     req: RunPodSandboxRequest,
 ) -> Result<Response<RunPodSandboxResponse>, Status> {
     let cfg = req
@@ -1115,7 +1121,7 @@ pub fn run_pod_sandbox(
     // The CNI branches below never read it — they publish through the chain.
     let port_mappings = if host_network || delonix_sdn::cni::enabled_conf().is_some() {
         Vec::new()
-    } else if delonix_linux::is_rootless() {
+    } else if rt.is_rootless() {
         publishable_port_specs(&cfg.port_mappings)?
     } else {
         Vec::new()
@@ -1137,7 +1143,7 @@ pub fn run_pod_sandbox(
     if !host_network {
         let pod = format!("cri-{id}");
         let cni = delonix_sdn::cni::enabled_conf();
-        if let Some(conf) = cni.filter(|_| delonix_linux::is_rootless()) {
+        if let Some(conf) = cni.filter(|_| rt.is_rootless()) {
             refuse_chain_without_port_mappings(&conf, &asked_ports, &pod)?;
             // The capability argument travels INSIDE the conflist, so the
             // holder's control line keeps its shape (the JSON is hex-encoded and
@@ -1159,7 +1165,7 @@ pub fn run_pod_sandbox(
             // Kept so the DEL hands the plugins the identical config, which is
             // what the CNI spec asks of a runtime.
             cni_conf = conf_json;
-        } else if delonix_linux::is_rootless() {
+        } else if rt.is_rootless() {
             // ROOTLESS: the pod is a SHARED ingress netns (delonix0 + DHCP +
             // DNS + firewall); the sandbox's containers join via `--pod`.
             if let Some(why) = delonix_detached_why(base, &["net", "netns", "attach", &pod])? {
@@ -1318,6 +1324,7 @@ fn pod_netns_sysctls(pod: &[String]) -> Vec<(String, String)> {
 pub fn stop_pod_sandbox(
     base: &Path,
     ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
     id: String,
 ) -> Result<Response<StopPodSandboxResponse>, Status> {
     // The CRI contract: «if there are any running containers in the sandbox, they
@@ -1343,7 +1350,7 @@ pub fn stop_pod_sandbox(
         // Judged by the reconciled state, not by the exit status: stopping an
         // already-exited container is success, and a "stopped" process that is
         // still alive is not.
-        if load_reconciled(ops, &c.id).is_some_and(|k| {
+        if load_reconciled(ops, rt, &c.id).is_some_and(|k| {
             matches!(k.status, delonix_model::records::Status::Running) && k.is_live()
         }) {
             still_running.push(name);
@@ -1367,6 +1374,7 @@ pub fn stop_pod_sandbox(
 pub fn remove_pod_sandbox(
     base: &Path,
     ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
     id: String,
 ) -> Result<Response<RemovePodSandboxResponse>, Status> {
     // Same rule as `remove_container`: the record goes only AFTER the engine
@@ -1403,7 +1411,7 @@ pub fn remove_pod_sandbox(
                     let cj = serde_json::to_string(&conf).unwrap_or_default();
                     let _ = delonix_sdn::infra::cni_detach_container(&format!("cri-{id}"), &cj);
                 }
-            } else if delonix_linux::is_rootless() {
+            } else if rt.is_rootless() {
                 let _ = delonix(base, &["net", "netns", "detach", &format!("cri-{id}")]);
             }
             // No root branch without `cni_netns`: it used to run `pod rm cri-<id>`,
@@ -1472,6 +1480,7 @@ pub fn list_pod_sandbox(
 pub fn pod_sandbox_status(
     base: &Path,
     ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
     id: String,
 ) -> Result<Response<PodSandboxStatusResponse>, Status> {
     let r: SandboxRec = read_rec(&sb_dir(base), &id)?;
@@ -1481,7 +1490,7 @@ pub fn pod_sandbox_status(
     } else if !r.cni_ip.is_empty() {
         // CNI-configured sandbox: the IP came from the plugin's IPAM.
         r.cni_ip.clone()
-    } else if delonix_linux::is_rootless() {
+    } else if rt.is_rootless() {
         // ROOTLESS: IP of the pod's shared netns in the ingress (deterministic).
         delonix_sdn::infra::container_ip(&format!("cri-{}", r.id))
     } else {
@@ -1549,6 +1558,7 @@ pub fn pod_sandbox_status(
 
 pub fn create_container(
     base: &Path,
+    rt: &dyn crate::RuntimeOps,
     req: CreateContainerRequest,
     ceiling: crate::CapCeiling,
 ) -> Result<Response<CreateContainerResponse>, Status> {
@@ -1576,7 +1586,7 @@ pub fn create_container(
     // spec asked for and fails later for a reason that looks unrelated. In `clamp`
     // mode `rejected()` is empty by construction and the reduction happens at
     // start; see `cap_ceiling`.
-    let denied = ceiling.rejected(&cap_add, privileged);
+    let denied = ceiling.rejected(&cap_add, privileged, rt);
     if !denied.is_empty() {
         let asked = if privileged {
             "privileged: true".to_string()
@@ -1586,7 +1596,7 @@ pub fn create_container(
         tracing::warn!(
             denied = %denied.join(","),
             requested = %asked,
-            ceiling = %ceiling.describe(),
+            ceiling = %ceiling.describe(rt),
             "cri: capability request denied by the node ceiling"
         );
         return Err(Status::permission_denied(format!(
@@ -1594,7 +1604,7 @@ pub fn create_container(
              Lower the pod's securityContext, or widen {} on this node.",
             denied.join(", "),
             asked,
-            ceiling.describe(),
+            ceiling.describe(rt),
             crate::cap_ceiling::CEILING_ENV,
         )));
     }
@@ -1644,7 +1654,7 @@ pub fn create_container(
     if let Some(path) = &seccomp_profile_path {
         let json = std::fs::read_to_string(path)
             .map_err(|e| Status::invalid_argument(format!("seccomp profile {path}: {e}")))?;
-        delonix_linux::seccomp_profile::parse(&json)
+        rt.seccomp_validate(&json)
             .map_err(|e| Status::invalid_argument(format!("seccomp profile {path}: {e}")))?;
     }
     // AppArmor: the NEW field (`apparmor`, SecurityProfile) takes precedence; if it
@@ -1788,15 +1798,15 @@ pub fn create_container(
 /// Extracted from the middle of `start_container`'s argv building so that BOTH
 /// paths are testable, including the legacy one: "unchanged when there is no
 /// ceiling" is a claim that deserves a test, not a reading.
-fn cap_flags(rec: &ContainerRec, ceiling: crate::CapCeiling, id: &str) -> Vec<String> {
-    match ceiling.cap_args(&rec.cap_add, &rec.cap_drop, rec.privileged) {
+fn cap_flags(rec: &ContainerRec, ceiling: crate::CapCeiling, id: &str, rt: &dyn crate::RuntimeOps) -> Vec<String> {
+    match ceiling.cap_args(&rec.cap_add, &rec.cap_drop, rec.privileged, rt) {
         Some(capped) => {
             if ceiling_reduces(&capped, rec) {
                 tracing::warn!(
                     container = %id,
                     privileged = rec.privileged,
                     requested_add = %rec.cap_add.join(","),
-                    ceiling = %ceiling.describe(),
+                    ceiling = %ceiling.describe(rt),
                     effective = %capped
                         .chunks(2)
                         .filter(|p| p[0] == "--cap-add")
@@ -1869,6 +1879,7 @@ fn ceiling_reduces(capped: &[String], rec: &ContainerRec) -> bool {
 fn sandbox_shared_pid_anchor(
     base: &Path,
     ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
     sandbox_id: &str,
     self_id: &str,
 ) -> Option<i32> {
@@ -1884,7 +1895,7 @@ fn sandbox_shared_pid_anchor(
         }
     });
     members.into_iter().find_map(|c| {
-        load_reconciled(ops, &c.id)
+        load_reconciled(ops, rt, &c.id)
             .filter(delonix_compute::Container::is_live)
             .and_then(|lc| lc.pid)
     })
@@ -1908,8 +1919,8 @@ fn sandbox_shared_pid_anchor(
 /// without a running node. Rootless names the user-namespace privilege that is
 /// missing; root names it as unimplemented on this path, since the plumbing that
 /// wires the shared PID namespace only exists for the native pod network.
-fn shared_pid_host_cni_refusal(id: &str) -> String {
-    let reason = if delonix_linux::is_rootless() {
+fn shared_pid_host_cni_refusal(rt: &dyn crate::RuntimeOps, id: &str) -> String {
+    let reason = if rt.is_rootless() {
         "its members run with `--net host`, each in its own user namespace, which \
          does not own the pod's PID namespace — so the kernel refuses the join \
          (`setns(CLONE_NEWPID)` → EPERM)"
@@ -1941,6 +1952,7 @@ fn start_run_opts(
     ceiling: crate::CapCeiling,
     id: &str,
     env: Vec<String>,
+    rt: &dyn crate::RuntimeOps,
 ) -> delonix_compute::RunOpts {
     // The CLI's defaults for the fields this spec does not decide: the same run
     // specification `container run -d` builds.
@@ -2018,7 +2030,7 @@ fn start_run_opts(
     }
     // The node's capability ceiling decides; its answer is `--cap-add`/`--cap-drop`
     // pairs, read back into the two lists.
-    for pair in cap_flags(rec, ceiling, id).chunks(2) {
+    for pair in cap_flags(rec, ceiling, id, rt).chunks(2) {
         match (pair[0].as_str(), pair.get(1)) {
             ("--cap-add", Some(c)) => o.cap_add.push(c.clone()),
             ("--cap-drop", Some(c)) => o.cap_drop.push(c.clone()),
@@ -2084,6 +2096,7 @@ fn write_run_spec(
 pub fn start_container(
     base: &Path,
     ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
     id: String,
     ceiling: crate::CapCeiling,
 ) -> Result<Response<StartContainerResponse>, Status> {
@@ -2107,8 +2120,8 @@ pub fn start_container(
         .as_ref()
         .map(|sb| sb.cgroup_parent.as_str())
         .filter(|s| !s.is_empty());
-    refuse_unenforceable_resources(&rec.resources, kube_cgroup_parent)?;
-    let mut opts = start_run_opts(&rec, sandbox.as_ref(), ceiling, &id, env);
+    refuse_unenforceable_resources(&rec.resources, rt, kube_cgroup_parent)?;
+    let mut opts = start_run_opts(&rec, sandbox.as_ref(), ceiling, &id, env, rt);
     // k8s `shareProcessNamespace`: if the sandbox asked for a shared PID namespace,
     // join this member to the anchor's PID namespace — resolved HERE, not at write
     // time, because the anchor is whichever sibling is already live.
@@ -2125,11 +2138,11 @@ pub fn start_container(
     // peer — the gap is refused with the reason and the fix.
     if sandbox.as_ref().is_some_and(|sb| sb.shared_pid) {
         if opts.pod.is_some() {
-            let head = sandbox_shared_pid_anchor(base, ops, &rec.sandbox_id, &id);
+            let head = sandbox_shared_pid_anchor(base, ops, rt, &rec.sandbox_id, &id);
             apply_shared_pid(&mut opts, true, head);
         } else {
             return Err(Status::failed_precondition(shared_pid_host_cni_refusal(
-                &id,
+                rt, &id,
             )));
         }
     }
@@ -2209,7 +2222,7 @@ fn cpus_for_update(
 /// (does the leaf this container is actually in have the controller?), before
 /// any write. Then merges the request into the container's recorded resources
 /// ([`CriResources::merge_update`] — this call is partial, never a full
-/// replace) and applies it: [`delonix_linux::update_kube_resources`] dispatches
+/// replace) and applies it: [`crate::RuntimeOps::update_kube_resources`] dispatches
 /// to `SetUnitProperties` under a kubelet systemd scope or a direct cgroup
 /// write otherwise (ADR 0038 item 1's placement decides which).
 ///
@@ -2225,6 +2238,7 @@ fn cpus_for_update(
 pub fn update_container_resources(
     base: &Path,
     ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
     req: UpdateContainerResourcesRequest,
 ) -> Result<Response<UpdateContainerResourcesResponse>, Status> {
     let mut rec: ContainerRec = read_rec(&ct_dir(base), &req.container_id)?;
@@ -2234,7 +2248,7 @@ pub fn update_container_resources(
         .map(|sb| sb.cgroup_parent.as_str())
         .filter(|s| !s.is_empty());
     let asked = CriResources::from_cri(req.linux.as_ref());
-    refuse_unenforceable_resources(&asked, kube_cgroup_parent)?;
+    refuse_unenforceable_resources(&asked, rt, kube_cgroup_parent)?;
     let merged = rec.resources.merge_update(&asked);
 
     let id = format!("cri-{}", req.container_id);
@@ -2254,7 +2268,7 @@ pub fn update_container_resources(
     let oom_score_adj = (asked.oom_score_adj != 0)
         .then(|| merged.oom_score_adj.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
 
-    let update = delonix_linux::ResourceUpdate {
+    let update = crate::ResourceUpdateSpec {
         memory: memory.as_deref(),
         cpus: cpus.as_deref(),
         cpu_weight: cpu_weight.as_deref(),
@@ -2264,13 +2278,13 @@ pub fn update_container_resources(
         unified: &asked.unified,
         oom_score_adj,
     };
-    match delonix_linux::update_kube_resources(&container, &update) {
-        Ok(delonix_linux::LimitUpdate::NotEnforced) => tracing::warn!(
+    match rt.update_kube_resources(&container, &update) {
+        Ok(false) => tracing::warn!(
             container = %req.container_id,
             "cri: UpdateContainerResources did not reach a live cgroup — the \
              container looked alive and its cgroup is gone"
         ),
-        Ok(_) => {}
+        Ok(true) => {}
         Err(e) => return Err(Status::internal(e.to_string())),
     }
 
@@ -2319,6 +2333,7 @@ pub fn update_container_resources(
 pub fn stop_container(
     base: &Path,
     ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
     id: String,
     timeout: i64,
 ) -> Result<Response<StopContainerResponse>, Status> {
@@ -2358,7 +2373,7 @@ pub fn stop_container(
     // looking. If it is still alive, propagate an error → the kubelet retries (instead
     // of assuming it stopped and moving on to RemoveContainer on a still-running
     // process).
-    if let Some(c) = load_reconciled(ops, &id) {
+    if let Some(c) = load_reconciled(ops, rt, &id) {
         let alive = matches!(c.status, delonix_model::records::Status::Running) && c.is_live();
         if alive {
             tracing::warn!(container = %format!("cri-{id}"), "ainda a correr depois do stop — o kubelet vai repetir");
@@ -2392,7 +2407,7 @@ pub fn remove_container(
     Ok(Response::new(RemoveContainerResponse {}))
 }
 
-fn to_container(ops: &dyn crate::ContainerOps, r: &ContainerRec) -> Container {
+fn to_container(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, r: &ContainerRec) -> Container {
     Container {
         id: r.id.clone(),
         pod_sandbox_id: r.sandbox_id.clone(),
@@ -2405,7 +2420,7 @@ fn to_container(ops: &dyn crate::ContainerOps, r: &ContainerRec) -> Container {
             ..Default::default()
         }),
         image_ref: r.image.clone(),
-        state: delonix_state(ops, &r.id),
+        state: delonix_state(ops, rt, &r.id),
         created_at: r.created_at,
         labels: r.labels.clone(),
         annotations: r.annotations.clone(),
@@ -2439,12 +2454,13 @@ fn container_matches(c: &Container, f: &ContainerFilter) -> bool {
 pub fn list_containers(
     base: &Path,
     ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
     filter: Option<ContainerFilter>,
 ) -> Result<Response<ListContainersResponse>, Status> {
     let f = filter.unwrap_or_default();
     let containers = list_recs::<ContainerRec>(&ct_dir(base))
         .iter()
-        .map(|r| to_container(ops, r))
+        .map(|r| to_container(ops, rt, r))
         .filter(|c| container_matches(c, &f))
         .collect();
     Ok(Response::new(ListContainersResponse { containers }))
@@ -2453,13 +2469,14 @@ pub fn list_containers(
 pub fn container_status(
     base: &Path,
     ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
     id: String,
     verbose: bool,
 ) -> Result<Response<ContainerStatusResponse>, Status> {
     let mut r: ContainerRec = read_rec(&ct_dir(base), &id)?;
     // Real exit code (from the Store), so the kubelet sees the exit cause instead
     // of a fixed `0`. `finished_at`/`reason` follow along.
-    let exit = delonix_exit(ops, &r.id);
+    let exit = delonix_exit(ops, rt, &r.id);
     // Persist the finish time only the FIRST time an exit is observed — see the
     // BUG FIXED note on `ContainerRec::finished_at`. Best-effort: a failed write
     // here still reports a correct (just not yet durable) timestamp this call.
@@ -2482,7 +2499,7 @@ pub fn container_status(
             name: r.name.clone(),
             attempt: r.attempt,
         }),
-        state: delonix_state(ops, &r.id),
+        state: delonix_state(ops, rt, &r.id),
         created_at: r.created_at,
         started_at,
         finished_at: r.finished_at,
@@ -2493,7 +2510,7 @@ pub fn container_status(
         }),
         image_ref: r.image.clone(),
         log_path: r.log_path.clone(),
-        reason: exit_reason(exit, delonix_oom_killed(ops, &r.id)),
+        reason: exit_reason(exit, delonix_oom_killed(ops, rt, &r.id)),
         // Preserve the CreateContainer attributes — the conformance spec
         // `preserving container attributes` requires labels/annotations to come
         // back exactly as they were set; with `..Default::default()` they came empty.
@@ -2514,7 +2531,7 @@ pub fn container_status(
     if verbose {
         info.insert(
             "userFallbackToRoot".to_string(),
-            delonix_user_fallback_to_root(ops, &r.id).to_string(),
+            delonix_user_fallback_to_root(ops, rt, &r.id).to_string(),
         );
     }
     Ok(Response::new(ContainerStatusResponse {
@@ -3484,6 +3501,8 @@ fn publishable_port_specs(mappings: &[PortMapping]) -> Result<Vec<String>, Statu
 mod tests {
     use super::*;
 
+    const RT: &dyn crate::RuntimeOps = &crate::test_ops::LinuxPort;
+
     /// A container-store port over a test's on-disk root (R3h). The routed free
     /// functions take `&dyn ContainerOps`; the tests still seed `<base>/containers`
     /// with `delonix-state` directly (a dev-dependency), and this is the port that
@@ -3558,6 +3577,7 @@ mod tests {
             crate::CapCeiling::unlimited(),
             "abc",
             Vec::new(),
+            RT,
         );
         assert_eq!(
             o.memory.as_deref(),
@@ -3855,7 +3875,7 @@ mod tests {
     /// not depend on), and the escape hatch skips the probe outright.
     #[test]
     fn refuse_unenforceable_resources_is_a_noop_with_nothing_requested() {
-        assert!(refuse_unenforceable_resources(&CriResources::default(), None).is_ok());
+        assert!(refuse_unenforceable_resources(&CriResources::default(), RT, None).is_ok());
     }
 
     /// `parent_cgroup_controllers` resolves against the KUBELET PARENT's own
@@ -3891,6 +3911,7 @@ mod tests {
             crate::CapCeiling::unlimited(),
             "x",
             Vec::new(),
+            RT,
         );
         assert_eq!(
             o.kube_cgroup_parent.as_deref(),
@@ -3903,6 +3924,7 @@ mod tests {
             crate::CapCeiling::unlimited(),
             "x",
             Vec::new(),
+            RT,
         );
         assert!(bare.kube_cgroup_parent.is_none());
     }
@@ -3921,7 +3943,7 @@ mod tests {
             args: vec!["X".into()],
             ..Default::default()
         };
-        let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "x", Vec::new());
+        let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "x", Vec::new(), RT);
         // The override is carried as the entrypoint; the args are the command.
         assert_eq!(
             o.entrypoint.as_deref(),
@@ -3959,7 +3981,7 @@ mod tests {
             args: vec!["--ip-masq".into()],
             ..Default::default()
         };
-        let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "x", Vec::new());
+        let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "x", Vec::new(), RT);
         assert!(
             o.entrypoint.is_none(),
             "an empty command is not an override"
@@ -4107,6 +4129,7 @@ mod tests {
             crate::CapCeiling::unlimited(),
             "a",
             Vec::new(),
+            RT,
         );
         assert_eq!(
             o.readonly_path,
@@ -4129,6 +4152,7 @@ mod tests {
             crate::CapCeiling::unlimited(),
             "a",
             Vec::new(),
+            RT,
         );
         assert!(
             o.readonly_path.is_empty(),
@@ -4310,6 +4334,7 @@ mod tests {
             crate::CapCeiling::unlimited(),
             "abc",
             Vec::new(),
+            RT,
         );
         assert_eq!(o.net, "host", "hostNetwork has to be `--net host`");
         assert!(
@@ -4343,6 +4368,7 @@ mod tests {
             crate::CapCeiling::unlimited(),
             "xyz",
             Vec::new(),
+            RT,
         );
         assert_eq!(
             o.pod.as_deref(),
@@ -4377,6 +4403,7 @@ mod tests {
             crate::CapCeiling::unlimited(),
             "c3",
             Vec::new(),
+            RT,
         );
         assert_eq!(o.net, "host");
         assert!(o.pod.is_none());
@@ -4426,6 +4453,7 @@ mod tests {
             crate::CapCeiling::unlimited(),
             "c",
             Vec::new(),
+            RT,
         );
         assert_eq!(o.sysctl, ["kernel.shm_rmid_forced=1"]);
     }
@@ -4467,7 +4495,7 @@ mod tests {
             env_file0: path.clone(),
             ..Default::default()
         };
-        let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "abc", env);
+        let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "abc", env, RT);
         assert!(o
             .env
             .iter()
@@ -4488,9 +4516,9 @@ mod tests {
     fn create_container_recusa_o_que_o_tecto_do_no_proibe() {
         let base_dir = tmp_base();
         let base = base_dir.path();
-        let ceiling = crate::CapCeiling::parse("default,NET_ADMIN", "reject").unwrap();
+        let ceiling = crate::CapCeiling::parse("default,NET_ADMIN", "reject", RT).unwrap();
 
-        let err = create_container(base, req_with_caps(&["SYS_ADMIN"], false), ceiling)
+        let err = create_container(base, RT, req_with_caps(&["SYS_ADMIN"], false), ceiling)
             .expect_err("SYS_ADMIN está acima do tecto");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
         assert!(
@@ -4499,23 +4527,24 @@ mod tests {
             err.message()
         );
 
-        let err = create_container(base, req_with_caps(&[], true), ceiling)
+        let err = create_container(base, RT, req_with_caps(&[], true), ceiling)
             .expect_err("privileged pede tudo, o tecto não dá tudo");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
 
         // Within the ceiling → created normally.
-        create_container(base, req_with_caps(&["NET_ADMIN"], false), ceiling)
+        create_container(base, RT, req_with_caps(&["NET_ADMIN"], false), ceiling)
             .expect("NET_ADMIN está no tecto");
         // No ceiling → a privileged pod is created exactly as before.
         create_container(
             base,
+            RT,
             req_with_caps(&[], true),
             crate::CapCeiling::unlimited(),
         )
         .expect("sem tecto nada muda");
         // `clamp` mode never refuses; the reduction happens at start.
-        let clamp = crate::CapCeiling::parse("default", "clamp").unwrap();
-        create_container(base, req_with_caps(&["SYS_ADMIN"], true), clamp)
+        let clamp = crate::CapCeiling::parse("default", "clamp", RT).unwrap();
+        create_container(base, RT, req_with_caps(&["SYS_ADMIN"], true), clamp)
             .expect("clamp corta, não recusa");
     }
 
@@ -4529,31 +4558,32 @@ mod tests {
         let base_dir = tmp_base();
         let base = base_dir.path();
         // Exactly what the server builds when the variable and the flag are absent.
-        let unset = crate::CapCeiling::parse("", "").unwrap();
+        let unset = crate::CapCeiling::parse("", "", RT).unwrap();
 
-        let err = create_container(base, req_with_caps(&["SYS_ADMIN"], false), unset)
+        let err = create_container(base, RT, req_with_caps(&["SYS_ADMIN"], false), unset)
             .expect_err("SYS_ADMIN is above the default ceiling");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
         assert!(err.message().contains("SYS_ADMIN"), "{}", err.message());
 
-        let err = create_container(base, req_with_caps(&[], true), unset)
+        let err = create_container(base, RT, req_with_caps(&[], true), unset)
             .expect_err("privileged asks for everything");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
 
         // The default kept set, and nothing at all, are still admitted.
-        create_container(base, req_with_caps(&[], false), unset)
+        create_container(base, RT, req_with_caps(&[], false), unset)
             .expect("an ordinary pod is unaffected");
-        create_container(base, req_with_caps(&["NET_BIND_SERVICE"], false), unset)
+        create_container(base, RT, req_with_caps(&["NET_BIND_SERVICE"], false), unset)
             .expect("a capability the default set holds is not an escalation");
 
         // Widening is explicit.
-        let wider = crate::CapCeiling::parse("default,SYS_ADMIN", "").unwrap();
-        create_container(base, req_with_caps(&["SYS_ADMIN"], false), wider)
+        let wider = crate::CapCeiling::parse("default,SYS_ADMIN", "", RT).unwrap();
+        create_container(base, RT, req_with_caps(&["SYS_ADMIN"], false), wider)
             .expect("an explicit ceiling that names it allows it");
         create_container(
             base,
+            RT,
             req_with_caps(&["SYS_ADMIN"], false),
-            crate::CapCeiling::parse("all", "").unwrap(),
+            crate::CapCeiling::parse("all", "", RT).unwrap(),
         )
         .expect("an explicit `all` lifts the ceiling");
     }
@@ -4580,7 +4610,7 @@ mod tests {
 
         // An ordinary, unprivileged pod with no added capability: no ceiling
         // to speak of, and nothing elevated either — zero events.
-        create_container(base, req_with_caps(&[], false), unlimited)
+        create_container(base, RT, req_with_caps(&[], false), unlimited)
             .expect("an ordinary pod is admitted as before");
         assert_eq!(
             no_cap_ceiling_events(base),
@@ -4589,20 +4619,20 @@ mod tests {
         );
 
         // `privileged: true` with no ceiling at all: this is the gap.
-        create_container(base, req_with_caps(&[], true), unlimited)
+        create_container(base, RT, req_with_caps(&[], true), unlimited)
             .expect("still admitted — this gap never refuses, only records");
         assert_eq!(no_cap_ceiling_events(base), 1);
 
         // An explicit `capabilities.add` with no ceiling is the same gap.
-        create_container(base, req_with_caps(&["NET_ADMIN"], false), unlimited)
+        create_container(base, RT, req_with_caps(&["NET_ADMIN"], false), unlimited)
             .expect("still admitted");
         assert_eq!(no_cap_ceiling_events(base), 2);
 
         // With a REAL ceiling configured, even an elevated request records
         // nothing here — the node has an answer, whether it allows or
         // refuses this particular one.
-        let real = crate::CapCeiling::parse("default,NET_ADMIN", "reject").unwrap();
-        create_container(base, req_with_caps(&["NET_ADMIN"], false), real)
+        let real = crate::CapCeiling::parse("default,NET_ADMIN", "reject", RT).unwrap();
+        create_container(base, RT, req_with_caps(&["NET_ADMIN"], false), real)
             .expect("NET_ADMIN is within the real ceiling");
         assert_eq!(
             no_cap_ceiling_events(base),
@@ -4620,13 +4650,13 @@ mod tests {
         let unlimited = crate::CapCeiling::unlimited();
 
         let plain = ContainerRec::default();
-        assert!(cap_flags(&plain, unlimited, "x").is_empty());
+        assert!(cap_flags(&plain, unlimited, "x", RT).is_empty());
 
         let privileged = ContainerRec {
             privileged: true,
             ..Default::default()
         };
-        assert_eq!(cap_flags(&privileged, unlimited, "x"), ["--cap-add", "ALL"]);
+        assert_eq!(cap_flags(&privileged, unlimited, "x", RT), ["--cap-add", "ALL"]);
 
         let asks = ContainerRec {
             cap_add: vec!["CAP_NET_ADMIN".into()],
@@ -4634,7 +4664,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            cap_flags(&asks, unlimited, "x"),
+            cap_flags(&asks, unlimited, "x", RT),
             ["--cap-add", "NET_ADMIN", "--cap-drop", "CHOWN"],
             "o prefixo CAP_ é retirado, tal como sempre foi"
         );
@@ -4646,12 +4676,12 @@ mod tests {
     /// ceiling would be decorative.
     #[test]
     fn cap_flags_com_tecto_substituem_o_cap_add_all_do_privileged() {
-        let ceiling = crate::CapCeiling::parse("CHOWN,NET_ADMIN", "clamp").unwrap();
+        let ceiling = crate::CapCeiling::parse("CHOWN,NET_ADMIN", "clamp", RT).unwrap();
         let privileged = ContainerRec {
             privileged: true,
             ..Default::default()
         };
-        let flags = cap_flags(&privileged, ceiling, "x");
+        let flags = cap_flags(&privileged, ceiling, "x", RT);
         assert_eq!(
             flags,
             [
@@ -4795,12 +4825,12 @@ mod tests {
 
         // reconciles (Running+dead → Crashed) → exit 137 + state Exited.
         assert_eq!(
-            delonix_exit(&so(tmp), "abc"),
+            delonix_exit(&so(tmp), RT, "abc"),
             Some(137),
             "crash deve reportar 137, não 0"
         );
         assert_eq!(
-            delonix_state(&so(tmp), "abc"),
+            delonix_state(&so(tmp), RT, "abc"),
             ContainerState::ContainerExited as i32
         );
 
@@ -4808,11 +4838,11 @@ mod tests {
         let mut ok = c.clone();
         ok.status = delonix_model::records::Status::Stopped;
         store.save(&ok).unwrap();
-        assert_eq!(delonix_exit(&so(tmp), "abc"), Some(0));
+        assert_eq!(delonix_exit(&so(tmp), RT, "abc"), Some(0));
         let mut failed = c.clone();
         failed.status = delonix_model::records::Status::Failed(2);
         store.save(&failed).unwrap();
-        assert_eq!(delonix_exit(&so(tmp), "abc"), Some(2));
+        assert_eq!(delonix_exit(&so(tmp), RT, "abc"), Some(2));
     }
 
     /// BUG FIXED: `ContainerStatus.finished_at` used to be `now_ns()` recomputed on
@@ -4846,7 +4876,7 @@ mod tests {
         };
         write_rec(&ct_dir(tmp), "abc", &rec).unwrap();
 
-        let s1 = container_status(tmp, &so(tmp), "abc".into(), false)
+        let s1 = container_status(tmp, &so(tmp), RT, "abc".into(), false)
             .unwrap()
             .into_inner()
             .status
@@ -4861,7 +4891,7 @@ mod tests {
         );
 
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let s2 = container_status(tmp, &so(tmp), "abc".into(), false)
+        let s2 = container_status(tmp, &so(tmp), RT, "abc".into(), false)
             .unwrap()
             .into_inner()
             .status
@@ -4902,7 +4932,7 @@ mod tests {
         };
         write_rec(&ct_dir(tmp), "abc", &rec).unwrap();
 
-        let quiet = container_status(tmp, &so(tmp), "abc".into(), false)
+        let quiet = container_status(tmp, &so(tmp), RT, "abc".into(), false)
             .unwrap()
             .into_inner();
         assert!(
@@ -4910,7 +4940,7 @@ mod tests {
             "a non-verbose request must get an empty info map, per the CRI contract"
         );
 
-        let loud = container_status(tmp, &so(tmp), "abc".into(), true)
+        let loud = container_status(tmp, &so(tmp), RT, "abc".into(), true)
             .unwrap()
             .into_inner();
         assert_eq!(
@@ -4947,7 +4977,7 @@ mod tests {
         };
         write_rec(&ct_dir(tmp), "abc", &rec).unwrap();
 
-        let loud = container_status(tmp, &so(tmp), "abc".into(), true)
+        let loud = container_status(tmp, &so(tmp), RT, "abc".into(), true)
             .unwrap()
             .into_inner();
         assert_eq!(
@@ -5014,6 +5044,7 @@ mod tests {
         let got = list_containers(
             tmp,
             &so(tmp),
+            RT,
             Some(ContainerFilter {
                 pod_sandbox_id: "sbaaaa".into(),
                 ..Default::default()
@@ -5039,7 +5070,7 @@ mod tests {
         let tmp_dir = base_with_two_pods();
         let tmp = tmp_dir.path();
         assert_eq!(
-            list_containers(tmp, &so(tmp), None)
+            list_containers(tmp, &so(tmp), RT, None)
                 .unwrap()
                 .into_inner()
                 .containers
@@ -5047,7 +5078,7 @@ mod tests {
             3
         );
         assert_eq!(
-            list_containers(tmp, &so(tmp), Some(ContainerFilter::default()))
+            list_containers(tmp, &so(tmp), RT, Some(ContainerFilter::default()))
                 .unwrap()
                 .into_inner()
                 .containers
@@ -5121,7 +5152,7 @@ mod tests {
         )
         .unwrap();
 
-        let st = pod_sandbox_status(tmp, &so(tmp), "sbhost".into())
+        let st = pod_sandbox_status(tmp, &so(tmp), RT, "sbhost".into())
             .unwrap()
             .into_inner()
             .status
@@ -5211,7 +5242,7 @@ mod tests {
     /// privilege clause varies with rootless/root, so it is not asserted verbatim.
     #[test]
     fn the_shared_pid_refusal_on_host_cni_is_actionable() {
-        let msg = shared_pid_host_cni_refusal("ctr-abc");
+        let msg = shared_pid_host_cni_refusal(RT, "ctr-abc");
         assert!(msg.contains("ctr-abc"), "names the container: {msg}");
         assert!(
             msg.contains("shareProcessNamespace is not supported"),
@@ -5236,6 +5267,7 @@ mod tests {
         let got = list_containers(
             tmp,
             &so(tmp),
+            RT,
             Some(ContainerFilter {
                 label_selector: HashMap::from([(
                     "io.kubernetes.container.name".to_string(),
