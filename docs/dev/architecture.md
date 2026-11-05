@@ -774,7 +774,6 @@ flowchart TB
   delonix_cri --> delonix_host
   delonix_cri --> delonix_model
   delonix_cri --> delonix_node
-  delonix_cri --> delonix_sdn
   delonix_cri --> delonix_security
   delonix_cri --> delonix_telemetry
   delonix_cri_bin --> delonix_compute
@@ -783,6 +782,7 @@ flowchart TB
   delonix_cri_bin --> delonix_host
   delonix_cri_bin --> delonix_linux
   delonix_cri_bin --> delonix_model
+  delonix_cri_bin --> delonix_sdn
   delonix_cri_bin --> delonix_telemetry
   delonix_engine --> delonix_compute
   delonix_engine --> delonix_linux

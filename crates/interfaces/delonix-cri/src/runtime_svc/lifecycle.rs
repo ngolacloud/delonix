@@ -1067,6 +1067,7 @@ fn cni_k8s_args(namespace: &str, name: &str, uid: &str, infra_container_id: &str
 pub fn run_pod_sandbox(
     base: &Path,
     rt: &dyn crate::RuntimeOps,
+    net: &dyn crate::NetworkOps,
     req: RunPodSandboxRequest,
 ) -> Result<Response<RunPodSandboxResponse>, Status> {
     let cfg = req
@@ -1119,10 +1120,10 @@ pub fn run_pod_sandbox(
     // Computed before anything is created, so a transport that path cannot carry
     // is a refusal the kubelet shows on the pod and not a sandbox left behind.
     // The CNI branches below never read it — they publish through the chain.
-    let port_mappings = if host_network || delonix_sdn::cni::enabled_conf().is_some() {
+    let port_mappings = if host_network || net.cni_enabled() {
         Vec::new()
     } else if rt.is_rootless() {
-        publishable_port_specs(&cfg.port_mappings)?
+        publishable_port_specs(net, &cfg.port_mappings)?
     } else {
         Vec::new()
     };
@@ -1142,26 +1143,36 @@ pub fn run_pod_sandbox(
     let mut cni_conf = String::new();
     if !host_network {
         let pod = format!("cri-{id}");
-        let cni = delonix_sdn::cni::enabled_conf();
-        if let Some(conf) = cni.filter(|_| rt.is_rootless()) {
+        if rt.is_rootless() && net.cni_enabled() {
+            // ROOTLESS, opt-in CNI (`DELONIX_CNI=1` + conflist): the plugins run
+            // in the holder (owner of the netns), the netns is named `cri-<id>` so
+            // the sandbox's containers join via `--pod cri-<id>`. The chain crosses
+            // as opaque JSON through the port (R3h-D) — the interface no longer
+            // names the SDN adapter.
+            let conf = match net.cni_resolve_conf(true) {
+                crate::CniConfResult::Ready(conf) => conf,
+                // `cni_enabled()` is true, so the rootless resolve is always Ready;
+                // the other arms would be a contract break in the port.
+                _ => {
+                    return Err(Status::internal(format!(
+                        "CNI enabled but no usable conflist for sandbox {pod}"
+                    )))
+                }
+            };
             refuse_chain_without_port_mappings(&conf, &asked_ports, &pod)?;
             // The capability argument travels INSIDE the conflist, so the
             // holder's control line keeps its shape (the JSON is hex-encoded and
             // opaque to it) and the same bytes serve the `DEL`.
-            let conf = delonix_sdn::cni::with_port_mappings(&conf, &asked_ports);
-            let conf_json = serde_json::to_string(&conf)
-                .map_err(|e| Status::internal(format!("serializing conflist: {e}")))?;
+            let conf_json = net.cni_with_port_mappings(&conf.json, &asked_ports);
             // Same pod-identity keys as the ROOT path, carried over the holder's
             // control line (fifth hex token) so a pod-aware plugin (Cilium)
             // resolves the endpoint's identity here too — without them the
             // rootless sandbox would sit in `reserved:init`.
             let cni_args = cni_k8s_args(&md.namespace, &md.name, &md.uid, &pod);
-            match delonix_sdn::infra::cni_attach_container(&pod, &conf_json, Some(&cni_args)) {
-                Ok((_netns, cidr)) => {
-                    cni_ip = cidr.split('/').next().unwrap_or("").to_string();
-                }
-                Err(e) => return Err(Status::internal(format!("CNI ADD of sandbox {pod}: {e}"))),
-            }
+            let attached = net
+                .cni_attach(&pod, true, &conf_json, Some(&cni_args))
+                .map_err(|e| Status::internal(format!("CNI ADD of sandbox {pod}: {e}")))?;
+            cni_ip = attached.ip.split('/').next().unwrap_or("").to_string();
             // Kept so the DEL hands the plugins the identical config, which is
             // what the CNI spec asks of a runtime.
             cni_conf = conf_json;
@@ -1187,13 +1198,17 @@ pub fn run_pod_sandbox(
             // all (`control socket: No such file or directory`). The CRI in root
             // never had a working non-`hostNetwork` pod; `NetworkReady` pinned to
             // `BridgeMissing` hid it, because no such pod was ever scheduled.
-            let dirs = delonix_sdn::cni::plugin_dirs();
-            let conf = match super::root_cni_readiness(&dirs) {
-                delonix_sdn::cni::Readiness::Ready(conf) => conf,
-                other => {
-                    let (_, why) = other.not_ready(&dirs).unwrap_or_default();
+            let conf = match net.cni_resolve_conf(false) {
+                crate::CniConfResult::Ready(conf) => conf,
+                crate::CniConfResult::NotReady { message, .. } => {
                     return Err(Status::failed_precondition(format!(
-                        "cannot network the pod sandbox {pod}: {why}"
+                        "cannot network the pod sandbox {pod}: {message}"
+                    )));
+                }
+                // Root never disables CNI — the node's chain is always the plan.
+                crate::CniConfResult::Disabled => {
+                    return Err(Status::failed_precondition(format!(
+                        "cannot network the pod sandbox {pod}: no CNI chain configured"
                     )));
                 }
             };
@@ -1204,9 +1219,7 @@ pub fn run_pod_sandbox(
             // came up `Running` with a port that answered nothing, for every
             // transport. The capability argument goes into the conflist so the
             // same bytes serve the `ADD` here and the `DEL` later.
-            let conf = delonix_sdn::cni::with_port_mappings(&conf, &asked_ports);
-            let conf_json = serde_json::to_string(&conf)
-                .map_err(|e| Status::internal(format!("serializing conflist: {e}")))?;
+            let conf_json = net.cni_with_port_mappings(&conf.json, &asked_ports);
             // The pod-identity keys a CNI runtime owes a pod-aware plugin
             // (Cilium, Calico): without them the plugin cannot map this sandbox
             // to its Kubernetes pod, cannot read the pod's labels, and leaves
@@ -1215,29 +1228,19 @@ pub fn run_pod_sandbox(
             // are the kubelet's own (`K8S_POD_*`); `K8S_POD_INFRA_CONTAINER_ID`
             // is the sandbox id, which is also our `CNI_CONTAINERID` (`pod`).
             let cni_args = cni_k8s_args(&md.namespace, &md.name, &md.uid, &pod);
-            let cidr = delonix_sdn::cni::attach_named_netns(
-                &conf,
-                &pod,
-                &pod,
-                delonix_sdn::cni::DEFAULT_IFNAME,
-                Some(&cni_args),
-            )
-            .map_err(|e| Status::internal(format!("CNI ADD of sandbox {pod}: {e}")))?;
-            cni_ip = cidr.split('/').next().unwrap_or("").to_string();
+            let attached = net
+                .cni_attach(&pod, false, &conf_json, Some(&cni_args))
+                .map_err(|e| Status::internal(format!("CNI ADD of sandbox {pod}: {e}")))?;
+            cni_ip = attached.ip.split('/').next().unwrap_or("").to_string();
             if cni_ip.is_empty() {
                 // A pod without an address reads as networked and is not.
-                delonix_sdn::cni::detach_named_netns(
-                    Some(&conf),
-                    &pod,
-                    &pod,
-                    delonix_sdn::cni::DEFAULT_IFNAME,
-                );
+                net.cni_detach(&pod, false, &conf_json);
                 return Err(Status::internal(format!(
                     "CNI ADD of sandbox {pod} returned no IP address (network `{}`)",
                     conf.name
                 )));
             }
-            cni_netns = delonix_sdn::cni::named_netns_path(&pod);
+            cni_netns = attached.netns_path;
             // The pod's `net.*` sysctls belong to the pod's netns, and here the
             // containers join it with `--net host`, where the engine (rightly)
             // refuses `net.*`. So they are set HERE, once, on top of the two
@@ -1247,13 +1250,8 @@ pub fn run_pod_sandbox(
             // first, the kubeadm CoreDNS (uid 65532, `drop: ALL`) died on
             // `listen tcp :53: bind: permission denied` — measured 2026-09-15.
             let sysctls = pod_netns_sysctls(&sysctls);
-            if let Err(e) = delonix_sdn::cni::set_netns_sysctls(&cni_netns, &sysctls) {
-                delonix_sdn::cni::detach_named_netns(
-                    Some(&conf),
-                    &pod,
-                    &pod,
-                    delonix_sdn::cni::DEFAULT_IFNAME,
-                );
+            if let Err(e) = net.cni_set_netns_sysctls(&cni_netns, &sysctls) {
+                net.cni_detach(&pod, false, &conf_json);
                 return Err(Status::internal(format!(
                     "sysctls of the pod sandbox {pod}: {e}"
                 )));
@@ -1375,6 +1373,7 @@ pub fn remove_pod_sandbox(
     base: &Path,
     ops: &dyn crate::ContainerOps,
     rt: &dyn crate::RuntimeOps,
+    net: &dyn crate::NetworkOps,
     id: String,
 ) -> Result<Response<RemovePodSandboxResponse>, Status> {
     // Same rule as `remove_container`: the record goes only AFTER the engine
@@ -1396,21 +1395,13 @@ pub fn remove_pod_sandbox(
     if let Ok(sb) = read_rec::<SandboxRec>(&sb_dir(base), &id) {
         if !sb.host_network {
             if !sb.cni_netns.is_empty() {
-                // ROOT + CNI: the chain it was configured with, then the netns.
-                let pod = format!("cri-{id}");
-                let conf = delonix_sdn::cni::parse_config(&sb.cni_conf).ok();
-                delonix_sdn::cni::detach_named_netns(
-                    conf.as_ref(),
-                    &pod,
-                    &pod,
-                    delonix_sdn::cni::DEFAULT_IFNAME,
-                );
+                // ROOT + CNI: the chain it was configured with (the stored conf),
+                // then the netns — through the port (R3h-D).
+                net.cni_detach(&format!("cri-{id}"), false, &sb.cni_conf);
             } else if !sb.cni_ip.is_empty() {
-                // CNI-configured sandbox (rootless): plugin DEL in the holder.
-                if let Some(conf) = delonix_sdn::cni::enabled_conf() {
-                    let cj = serde_json::to_string(&conf).unwrap_or_default();
-                    let _ = delonix_sdn::infra::cni_detach_container(&format!("cri-{id}"), &cj);
-                }
+                // CNI-configured sandbox (rootless): plugin DEL in the holder,
+                // against the node's enabled conflist (resolved inside the port).
+                net.cni_detach(&format!("cri-{id}"), true, "");
             } else if rt.is_rootless() {
                 let _ = delonix(base, &["net", "netns", "detach", &format!("cri-{id}")]);
             }
@@ -1481,6 +1472,7 @@ pub fn pod_sandbox_status(
     base: &Path,
     ops: &dyn crate::ContainerOps,
     rt: &dyn crate::RuntimeOps,
+    net: &dyn crate::NetworkOps,
     id: String,
 ) -> Result<Response<PodSandboxStatusResponse>, Status> {
     let r: SandboxRec = read_rec(&sb_dir(base), &id)?;
@@ -1492,7 +1484,7 @@ pub fn pod_sandbox_status(
         r.cni_ip.clone()
     } else if rt.is_rootless() {
         // ROOTLESS: IP of the pod's shared netns in the ingress (deterministic).
-        delonix_sdn::infra::container_ip(&format!("cri-{}", r.id))
+        net.container_ip(&format!("cri-{}", r.id))
     } else {
         ops.load(&format!("pod-cri-{}", r.id))
             .ok()
@@ -3362,7 +3354,8 @@ fn cri_mount_specs(mounts: &[Mount]) -> Result<Vec<String>, Status> {
 /// `containerPort` — the shape an SCTP *Service* uses, since it goes through
 /// kube-proxy and not through a hostPort — untouched by the refusal below.
 ///
-/// **The transport is asked of [`delonix_sdn::Proto`], not decided here.** This
+/// **The transport is asked of the engine's SDN port
+/// ([`crate::NetworkOps::publishable_proto`]), not decided here.** This
 /// used to map `Protocol::Sctp` to the string `"sctp"` and an unknown protocol
 /// number to `"tcp"`, i.e. it held a second opinion about what the engine can
 /// publish — and it was wrong on both counts. Measured 2026-10-07:
@@ -3406,11 +3399,11 @@ fn cri_mount_specs(mounts: &[Mount]) -> Result<Vec<String>, Status> {
 /// never answered. Refused by name, with the fix, instead of a pod that looks
 /// healthy and is not reachable.
 fn refuse_chain_without_port_mappings(
-    conf: &delonix_sdn::cni::NetConfList,
-    asked: &[delonix_sdn::cni::PortMapping],
+    conf: &crate::CniConf,
+    asked: &[crate::CniPort],
     pod: &str,
 ) -> Result<(), Status> {
-    if asked.is_empty() || delonix_sdn::cni::publishes_host_ports(conf) {
+    if asked.is_empty() || conf.publishes_host_ports {
         return Ok(());
     }
     let ports: Vec<String> = asked
@@ -3453,11 +3446,11 @@ fn cri_proto_name(protocol: i32) -> String {
 /// the bind address in one place. Dropping it would publish on every interface a
 /// port the pod asked to keep on one — widening exposure in silence, which is the
 /// publish bug this engine already paid for from the other end.
-fn cri_port_mappings(mappings: &[PortMapping]) -> Vec<delonix_sdn::cni::PortMapping> {
+fn cri_port_mappings(mappings: &[PortMapping]) -> Vec<crate::CniPort> {
     mappings
         .iter()
         .filter(|m| m.host_port > 0 && m.container_port > 0)
-        .map(|m| delonix_sdn::cni::PortMapping {
+        .map(|m| crate::CniPort {
             host_port: m.host_port as u16,
             container_port: m.container_port as u16,
             protocol: cri_proto_name(m.protocol),
@@ -3466,14 +3459,17 @@ fn cri_port_mappings(mappings: &[PortMapping]) -> Vec<delonix_sdn::cni::PortMapp
         .collect()
 }
 
-fn publishable_port_specs(mappings: &[PortMapping]) -> Result<Vec<String>, Status> {
+fn publishable_port_specs(
+    net: &dyn crate::NetworkOps,
+    mappings: &[PortMapping],
+) -> Result<Vec<String>, Status> {
     let mut specs = Vec::new();
     for m in mappings {
         if m.host_port <= 0 || m.container_port <= 0 {
             continue;
         }
         let name = cri_proto_name(m.protocol);
-        let proto = delonix_sdn::Proto::parse(&name).map_err(|_| {
+        let proto = net.publishable_proto(&name).ok_or_else(|| {
             Status::failed_precondition(format!(
                 "cannot publish hostPort {}: this node does not implement {} \
                  publishing (the rootless datapath's `add_hostfwd` takes tcp or \
@@ -3483,10 +3479,6 @@ fn publishable_port_specs(mappings: &[PortMapping]) -> Result<Vec<String>, Statu
                 m.host_port, name
             ))
         })?;
-        let proto = match proto {
-            delonix_sdn::Proto::Tcp => "tcp",
-            delonix_sdn::Proto::Udp => "udp",
-        };
         // `host_ip` is deliberately left out of the spec: the engine's
         // publish already concentrates the bind address decision in one
         // place (spec > `DELONIX_PUBLISH_ADDR` > loopback), and a CRI
@@ -3502,6 +3494,7 @@ mod tests {
     use super::*;
 
     const RT: &dyn crate::RuntimeOps = &crate::test_ops::LinuxPort;
+    const NET: &dyn crate::NetworkOps = &crate::test_ops::NetPort;
 
     /// A container-store port over a test's on-disk root (R3h). The routed free
     /// functions take `&dyn ContainerOps`; the tests still seed `<base>/containers`
@@ -4205,11 +4198,19 @@ mod tests {
     /// with a port that answered nothing.
     #[test]
     fn a_cni_chain_that_cannot_publish_is_refused_with_the_fix() {
-        let conf = delonix_sdn::cni::parse_config(
-            r#"{"cniVersion":"1.0.0","name":"lab","plugins":[{"type":"bridge"}]}"#,
-        )
-        .unwrap();
-        let asked = vec![delonix_sdn::cni::PortMapping {
+        // Build the CRI's opaque `CniConf` from a real parsed chain (R3h-D): the
+        // refusal reads only `name` + `publishes_host_ports`, so the test proves
+        // the policy on the genuine adapter output, not on a stand-in.
+        let cni = |text: &str| {
+            let conf = delonix_sdn::cni::parse_config(text).unwrap();
+            crate::CniConf {
+                name: conf.name.clone(),
+                publishes_host_ports: delonix_sdn::cni::publishes_host_ports(&conf),
+                json: serde_json::to_string(&conf).unwrap(),
+            }
+        };
+        let conf = cni(r#"{"cniVersion":"1.0.0","name":"lab","plugins":[{"type":"bridge"}]}"#);
+        let asked = vec![crate::CniPort {
             host_port: 31080,
             container_port: 80,
             protocol: "tcp".into(),
@@ -4227,11 +4228,10 @@ mod tests {
         assert!(super::refuse_chain_without_port_mappings(&conf, &[], "cri-1").is_ok());
 
         // And a chain that DOES declare it is let through.
-        let ok = delonix_sdn::cni::parse_config(
+        let ok = cni(
             r#"{"cniVersion":"1.0.0","name":"lab","plugins":
                 [{"type":"bridge"},{"type":"portmap","capabilities":{"portMappings":true}}]}"#,
-        )
-        .unwrap();
+        );
         assert!(super::refuse_chain_without_port_mappings(&ok, &asked, "cri-1").is_ok());
     }
 
@@ -4249,7 +4249,7 @@ mod tests {
             host_port: 8080,
             host_ip: String::new(),
         };
-        let err = super::publishable_port_specs(&[m]).expect_err("sctp cannot be published");
+        let err = super::publishable_port_specs(NET, &[m]).expect_err("sctp cannot be published");
         assert_eq!(err.code(), tonic::Code::FailedPrecondition);
         let msg = err.message();
         // The port, the transport, and a way out — not a bare "unsupported".
@@ -4275,7 +4275,7 @@ mod tests {
             host_ip: String::new(),
         };
         assert_eq!(
-            super::publishable_port_specs(&[m])
+            super::publishable_port_specs(NET, &[m])
                 .expect("a bare containerPort is dropped, not refused"),
             Vec::<String>::new()
         );
@@ -4291,7 +4291,7 @@ mod tests {
             host_port: hp,
             host_ip: "10.0.0.1".into(),
         };
-        let specs = super::publishable_port_specs(&[
+        let specs = super::publishable_port_specs(NET, &[
             mk(Protocol::Tcp, 8080, 80),
             mk(Protocol::Udp, 5353, 53),
         ])
@@ -4310,7 +4310,7 @@ mod tests {
             host_port: 8080,
             host_ip: String::new(),
         };
-        let err = super::publishable_port_specs(&[m]).expect_err("99 is not a protocol");
+        let err = super::publishable_port_specs(NET, &[m]).expect_err("99 is not a protocol");
         assert_eq!(err.code(), tonic::Code::FailedPrecondition);
         assert!(err.message().contains("99"), "{}", err.message());
     }
@@ -5152,7 +5152,7 @@ mod tests {
         )
         .unwrap();
 
-        let st = pod_sandbox_status(tmp, &so(tmp), RT, "sbhost".into())
+        let st = pod_sandbox_status(tmp, &so(tmp), RT, NET, "sbhost".into())
             .unwrap()
             .into_inner()
             .status
