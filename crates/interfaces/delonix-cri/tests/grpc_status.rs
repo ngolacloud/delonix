@@ -20,6 +20,35 @@ use delonix_cri::cri::{
     RunPodSandboxRequest, StatusRequest, VersionRequest,
 };
 
+/// The image port the CRI server needs (R3h). These tests exercise only the
+/// RuntimeService (version/status/sandbox), so an empty image backing is enough —
+/// the real image path is served by the composed engine in `delonix serve cri`.
+struct NoImages;
+impl delonix_cri::ImageOps for NoImages {
+    fn list_images(&self) -> Result<Vec<serde_json::Value>, delonix_model::Error> {
+        Ok(Vec::new())
+    }
+    fn image_status(
+        &self,
+        _reference: &str,
+    ) -> Result<Option<serde_json::Value>, delonix_model::Error> {
+        Ok(None)
+    }
+    fn pull_image(
+        &self,
+        _reference: &str,
+        _creds: Option<(String, String)>,
+    ) -> Result<String, delonix_model::Error> {
+        Ok(String::new())
+    }
+    fn remove_image(&self, _reference: &str) -> Result<(), delonix_model::Error> {
+        Ok(())
+    }
+    fn image_fs_used_bytes(&self) -> u64 {
+        0
+    }
+}
+
 /// A SHORT socket path: `sun_path` is 108 bytes and an agent session's
 /// `$TMPDIR` is already past 90, so the directory lives in `/tmp` itself
 /// (`/tmp/.tmpXXXXXX/x.sock`, 22 bytes). The `TempDir` removes it on every
@@ -43,6 +72,7 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
     let servidor = std::thread::spawn(move || {
         let _ = delonix_cri::serve_blocking(
             b,
+            std::sync::Arc::new(NoImages),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );
@@ -179,6 +209,7 @@ async fn an_sctp_host_port_is_refused_over_grpc_and_leaves_nothing_behind() {
     let server = std::thread::spawn(move || {
         let _ = delonix_cri::serve_blocking(
             b,
+            std::sync::Arc::new(NoImages),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );

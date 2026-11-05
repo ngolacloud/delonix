@@ -86,6 +86,7 @@ LAYERS = {
     "delonix-mgmt": INTERFACE,  # replaced by delonix-node-api (P5)
     "delonix-mcp": INTERFACE,
     "delonix-bin": BIN,  # → delonix-cli (interfaces) + bins/delonix (P2)
+    "delonix-cri-bin": BIN,  # `delonix-cri`, run by `delonix serve cri` (ADR-0040 D2.4, R3h)
     "delonix-mcp-bin": BIN,  # `delonix-mcp`, run by `delonix mcp` (ADR-0040 D2.4 amended)
     "delonix-mgmt-bin": BIN,  # `delonix-mgmt`, run by `delonix serve api`
     "delonix-node-api": INTERFACE,  # the node contract on the socket (ADR-0040 P5); replaces delonix-mgmt
