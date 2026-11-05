@@ -9,9 +9,33 @@
 
 use std::os::fd::RawFd;
 use std::process::ExitCode;
+use std::sync::Arc;
 
+use delonix_compute::Vm;
+use delonix_engine::Engine;
 use delonix_model::Error;
-use delonix_node_api::{activation, Listen};
+use delonix_node_api::{activation, Listen, VmReads};
+
+/// The composition's VM reads, handed to the node API as its `VmReads` port
+/// (ADR-0040 A5). The bin is the one place that names `delonix-engine`: it mounts
+/// the `Engine` and the server receives it already composed, never learning what
+/// is underneath, so no `interface -> delonix-vm` edge survives on the VM read
+/// path. The native VM error maps to the shared engine error the interface speaks.
+struct EngineVms(Engine);
+
+impl VmReads for EngineVms {
+    fn list(&self) -> Result<Vec<Vm>, Error> {
+        self.0.vms().list().map_err(Into::into)
+    }
+
+    fn status(&self, name: &str) -> Result<Vm, Error> {
+        self.0.vms().status(name).map_err(Into::into)
+    }
+
+    fn exists(&self, name: &str) -> bool {
+        self.0.vms().exists(name)
+    }
+}
 
 /// The `--version` line: binary name and the crate version, nothing else.
 fn version_line() -> String {
@@ -109,14 +133,20 @@ fn run() -> Result<(), Error> {
     delonix_host::dispatch::check_version("delonix-node-api", env!("CARGO_PKG_VERSION"))
         .map_err(Error::Unavailable)?;
     let parsed = parse_args(&args)?;
+    let root = delonix_node_api::node::state_root();
     let (listen, idle) = resolve(
         &parsed,
         std::env::var("DELONIX_NODE_API_ADDR").ok(),
         std::env::var("DELONIX_NODE_API_IDLE_TIMEOUT").ok(),
         activation::from_env()?,
-        delonix_node_api::node::state_root(),
+        root.clone(),
     )?;
-    delonix_node_api::serve(listen, idle)
+    // Mount the engine and hand the server its VM port (ADR-0040 A5). The read
+    // path resolves off the engine; the write half of the VM lifecycle still
+    // reaches `delonix-vm` inside the interface until a later slice moves it.
+    let engine = Engine::mount(root)?;
+    let vms: Arc<dyn VmReads> = Arc::new(EngineVms(engine));
+    delonix_node_api::serve(listen, idle, vms)
 }
 
 fn main() -> ExitCode {

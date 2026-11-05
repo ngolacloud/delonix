@@ -15,6 +15,11 @@ delonix-model = { workspace = true }
 delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-node-api = { workspace = true }
+# The bin is the one layer that names the assembly: it mounts the `Engine` and
+# hands the node API a `VmReads` over it (ADR-0040 A5, R3d). `delonix-compute`
+# names the VM record the port speaks in.
+delonix-engine = { workspace = true }
+delonix-compute = { workspace = true }
 delonix-telemetry = { workspace = true }
 
 [dev-dependencies]

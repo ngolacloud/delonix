@@ -1035,6 +1035,8 @@ dependencies = [
 name = "delonix-node-api-bin"
 version = "0.1.0"
 dependencies = [
+ "delonix-compute",
+ "delonix-engine",
  "delonix-host",
  "delonix-model",
  "delonix-node",

@@ -110,9 +110,10 @@ pub mod volume_ops;
 pub mod volumes;
 
 pub use service::{
-    capacity, health, link_header, list_providers, node_info, openapi_document, router, NodeApi,
-    OPENAPI_YAML,
+    capacity, health, link_header, list_providers, node_info, openapi_document, router,
+    router_with, NodeApi, OPENAPI_YAML,
 };
+pub use vms::VmReads;
 
 /// The node API's composition root: the ports this process registers before it
 /// serves anything, once.
@@ -153,16 +154,31 @@ pub enum Listen {
 }
 
 /// Serves the node API on a unix socket, blocking the calling thread. `addr` is a
-/// path or `unix:///path`. Same pattern as `delonix_mgmt::serve_blocking`.
+/// path or `unix:///path`. Same pattern as `delonix_mgmt::serve_blocking`. Serves
+/// with no VM backend (the convenience for tests and simple callers); the bin's
+/// production entry is [`serve`], which injects the engine-backed VM port.
 pub fn serve_blocking(addr: &str) -> Result<(), Error> {
-    serve(Listen::Path(addr.to_string()), None)
+    serve_with(Listen::Path(addr.to_string()), None, service::no_vms())
 }
 
 /// Serves the node API, blocking the calling thread, until `idle` (if given)
 /// finds it idle — then returns `Ok`, which a socket-activated service reports
 /// as a clean exit (ADR-0040 P5). With `idle` `None`, or a zero timeout, it
-/// serves until killed.
-pub fn serve(listen: Listen, idle: Option<activation::IdleExit>) -> Result<(), Error> {
+/// serves until killed. `vms` is the composition's VM port (ADR-0040 A5):
+/// `delonix-node-api-bin` mounts the engine and passes an implementor.
+pub fn serve(
+    listen: Listen,
+    idle: Option<activation::IdleExit>,
+    vms: std::sync::Arc<dyn VmReads>,
+) -> Result<(), Error> {
+    serve_with(listen, idle, vms)
+}
+
+fn serve_with(
+    listen: Listen,
+    idle: Option<activation::IdleExit>,
+    vms: std::sync::Arc<dyn VmReads>,
+) -> Result<(), Error> {
     compose();
     delonix_node::alloc_tuning::limit_malloc_arenas();
     // An inherited descriptor is checked and taken before any thread exists.
@@ -225,7 +241,7 @@ pub fn serve(listen: Listen, idle: Option<activation::IdleExit>) -> Result<(), E
             }
             (Listen::Inherited(_), None) => unreachable!("an inherited listener is taken above"),
         };
-        serve_listener(uds, router(), idle).await
+        serve_listener(uds, router_with(vms), idle).await
     })
 }
 

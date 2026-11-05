@@ -965,7 +965,7 @@ mod tests {
         assert_eq!(target.href, "/v1/namespaces/default/virtualmachines/web-1");
 
         let vm = crate::vms::get_in(
-            dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             &crate::proto::v1::GetVirtualMachineRequest {
                 name: "web-1".into(),
                 namespace: String::new(),

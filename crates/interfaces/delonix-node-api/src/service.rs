@@ -1,6 +1,7 @@
 //! `NodeService` — what answers on the socket, gRPC and HTTP/JSON alike.
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 use axum::response::IntoResponse;
 use tonic::{Request, Response, Status};
@@ -65,10 +66,15 @@ use crate::proto::v1::{
 };
 use crate::{node, providers};
 
-/// The service. Stateless: every answer is computed from the engine's
-/// declarations and this host's probes at call time.
-#[derive(Clone, Default)]
-pub struct NodeApi;
+/// The service. Its answers are computed from the engine's declarations and this
+/// host's probes at call time; the one piece of injected state is the VM port
+/// (ADR-0040 A5), through which the VM reads reach the composed engine instead of
+/// the `delonix-vm` adapter. Cloned once per gRPC sub-service in [`router_with`]
+/// (an `Arc`, so every clone shares the one port).
+#[derive(Clone)]
+pub struct NodeApi {
+    vms: Arc<dyn crate::vms::VmReads>,
+}
 
 /// Runs a host probe off the runtime's workers: every `NodeService` answer
 /// reads files, cgroups and provider probes, which block.
@@ -567,11 +573,10 @@ impl VirtualMachineService for NodeApi {
         req: Request<GetVirtualMachineRequest>,
     ) -> Result<Response<VirtualMachine>, Status> {
         let req = req.into_inner();
-        blocking("virtual machine", move || {
-            crate::vms::get_in(&node::state_root(), &req)
-        })
-        .await?
-        .map(Response::new)
+        let vms = Arc::clone(&self.vms);
+        blocking("virtual machine", move || crate::vms::get_in(&*vms, &req))
+            .await?
+            .map(Response::new)
     }
 
     async fn list_virtual_machines(
@@ -579,8 +584,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<ListVirtualMachinesRequest>,
     ) -> Result<Response<ListVirtualMachinesResponse>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machines", move || {
-            crate::vms::list_in(&node::state_root(), &req)
+            crate::vms::list_in(&node::state_root(), &*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -938,7 +944,40 @@ impl ContainerService for NodeApi {
 /// underneath). Exposed for the in-process tests, which drive it with
 /// `tower::ServiceExt::oneshot`.
 pub fn router() -> axum::Router {
+    // The convenience builder: a server with an empty VM port, for tests and any
+    // caller that does not exercise the VM reads. Production mounts the engine
+    // through [`router_with`] (see `serve`).
+    router_with(Arc::new(NoVms))
+}
+
+/// A [`crate::vms::VmReads`] with no VMs — the empty backing [`router`] hands the
+/// server when no engine is injected. The VM read path is proven end-to-end
+/// through the engine in `delonix-node-api-bin`.
+struct NoVms;
+impl crate::vms::VmReads for NoVms {
+    fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error> {
+        Ok(Vec::new())
+    }
+    fn status(&self, name: &str) -> Result<delonix_compute::Vm, delonix_model::Error> {
+        Err(delonix_model::Error::VmNotFound(name.to_string()))
+    }
+    fn exists(&self, _name: &str) -> bool {
+        false
+    }
+}
+
+/// The empty VM port, for `serve_blocking` and callers that do not inject an
+/// engine. Production serves through `serve` with an engine-backed port.
+pub(crate) fn no_vms() -> Arc<dyn crate::vms::VmReads> {
+    Arc::new(NoVms)
+}
+
+/// Builds the router with the VM port the composition injects (ADR-0040 A5).
+/// `delonix-node-api-bin` passes an engine-backed [`crate::vms::VmReads`];
+/// [`router`] passes an empty one.
+pub fn router_with(vms: Arc<dyn crate::vms::VmReads>) -> axum::Router {
     use tonic::server::NamedService;
+    let api = NodeApi { vms };
     // The gRPC service is mounted the way tonic's own `Routes` mounts it — one
     // wildcard route under the service name. Not through `Routes::into_axum_router`,
     // whose fallback answers EVERY unknown path with HTTP 200 + `grpc-status: 12`:
@@ -952,45 +991,53 @@ pub fn router() -> axum::Router {
         .route("/docs/assets/:name", axum::routing::get(crate::docs::asset))
         .route_service(
             &format!("/{}/*rest", NodeServiceServer::<NodeApi>::NAME),
-            NodeServiceServer::new(NodeApi),
+            NodeServiceServer::new(api.clone()),
         )
         .route_service(
             &format!("/{}/*rest", NetworkServiceServer::<NodeApi>::NAME),
-            NetworkServiceServer::new(NodeApi),
+            NetworkServiceServer::new(api.clone()),
         )
         .route_service(
             &format!("/{}/*rest", VolumeServiceServer::<NodeApi>::NAME),
-            VolumeServiceServer::new(NodeApi),
+            VolumeServiceServer::new(api.clone()),
         )
         .route_service(
             &format!("/{}/*rest", ContainerServiceServer::<NodeApi>::NAME),
-            ContainerServiceServer::new(NodeApi),
+            ContainerServiceServer::new(api.clone()),
         )
         .route_service(
             &format!("/{}/*rest", OperationServiceServer::<NodeApi>::NAME),
-            OperationServiceServer::new(NodeApi),
+            OperationServiceServer::new(api.clone()),
         )
         .route_service(
             &format!("/{}/*rest", VirtualMachineServiceServer::<NodeApi>::NAME),
-            VirtualMachineServiceServer::new(NodeApi),
+            VirtualMachineServiceServer::new(api.clone()),
         )
         .route_service(
             &format!("/{}/*rest", StorageServiceServer::<NodeApi>::NAME),
-            StorageServiceServer::new(NodeApi),
+            StorageServiceServer::new(api.clone()),
         )
         .route_service(
             &format!("/{}/*rest", ImageServiceServer::<NodeApi>::NAME),
-            ImageServiceServer::new(NodeApi),
+            ImageServiceServer::new(api.clone()),
         )
         .route_service(
             &format!("/{}/*rest", PodServiceServer::<NodeApi>::NAME),
-            PodServiceServer::new(NodeApi),
+            PodServiceServer::new(api.clone()),
         )
         .route_service(
             &format!("/{}/*rest", StackServiceServer::<NodeApi>::NAME),
-            StackServiceServer::new(NodeApi),
+            StackServiceServer::new(api.clone()),
         )
-        .fallback(fallback)
+        .fallback({
+            // The REST transcode path needs the same `NodeApi` (with its VM port)
+            // the gRPC services hold; carry it into the fallback by capture.
+            let api = api.clone();
+            move |req: axum::extract::Request| {
+                let api = api.clone();
+                async move { fallback(api, req).await }
+            }
+        })
         .method_not_allowed_fallback(|req: axum::extract::Request| async move {
             let path = req.uri().path().to_string();
             method_not_allowed(req.method().as_str(), &path, &["GET"])
@@ -1006,6 +1053,7 @@ const MAX_BODY: usize = 1024 * 1024;
 /// not here yet — which is a different answer from a path the contract does
 /// not have (404).
 async fn rest(
+    api: &NodeApi,
     route: &'static crate::transcode::Route,
     vars: Vec<(&'static str, String)>,
     req: axum::extract::Request,
@@ -1050,26 +1098,22 @@ async fn rest(
             )?;
         }
         match route.service {
-            "NodeService" => transcode::dispatch_node_service(&NodeApi, route.rpc, input).await,
-            "NetworkService" => {
-                transcode::dispatch_network_service(&NodeApi, route.rpc, input).await
-            }
-            "VolumeService" => transcode::dispatch_volume_service(&NodeApi, route.rpc, input).await,
+            "NodeService" => transcode::dispatch_node_service(api, route.rpc, input).await,
+            "NetworkService" => transcode::dispatch_network_service(api, route.rpc, input).await,
+            "VolumeService" => transcode::dispatch_volume_service(api, route.rpc, input).await,
             "ContainerService" => {
-                transcode::dispatch_container_service(&NodeApi, route.rpc, input).await
+                transcode::dispatch_container_service(api, route.rpc, input).await
             }
             "OperationService" => {
-                transcode::dispatch_operation_service(&NodeApi, route.rpc, input).await
+                transcode::dispatch_operation_service(api, route.rpc, input).await
             }
             "VirtualMachineService" => {
-                transcode::dispatch_virtual_machine_service(&NodeApi, route.rpc, input).await
+                transcode::dispatch_virtual_machine_service(api, route.rpc, input).await
             }
-            "StorageService" => {
-                transcode::dispatch_storage_service(&NodeApi, route.rpc, input).await
-            }
-            "ImageService" => transcode::dispatch_image_service(&NodeApi, route.rpc, input).await,
-            "PodService" => transcode::dispatch_pod_service(&NodeApi, route.rpc, input).await,
-            "StackService" => transcode::dispatch_stack_service(&NodeApi, route.rpc, input).await,
+            "StorageService" => transcode::dispatch_storage_service(api, route.rpc, input).await,
+            "ImageService" => transcode::dispatch_image_service(api, route.rpc, input).await,
+            "PodService" => transcode::dispatch_pod_service(api, route.rpc, input).await,
+            "StackService" => transcode::dispatch_stack_service(api, route.rpc, input).await,
             _ => Err(transcode::not_served(route)),
         }
     };
@@ -1187,10 +1231,10 @@ fn with_etag(
 /// the wire-level UNIMPLEMENTED tonic would give; anyone else a 404 carrying a
 /// problem document (DX-4001, `application/problem+json`) — never a 200 with
 /// nothing in it.
-async fn fallback(req: axum::extract::Request) -> axum::response::Response {
+async fn fallback(api: NodeApi, req: axum::extract::Request) -> axum::response::Response {
     use crate::transcode::Resolved;
     match crate::transcode::resolve(req.method().as_str(), req.uri().path()) {
-        Resolved::Route(route, vars) => return rest(route, vars, req).await,
+        Resolved::Route(route, vars) => return rest(&api, route, vars, req).await,
         Resolved::OtherMethods(allow) => {
             return method_not_allowed(req.method().as_str(), req.uri().path(), &allow)
         }

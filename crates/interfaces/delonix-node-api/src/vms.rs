@@ -29,6 +29,48 @@ use crate::proto::v1::{
 };
 use crate::selector::Selector;
 
+/// The node's VM service as the reads this interface needs (ADR-0040 A5). The
+/// interface holds this port instead of calling the `delonix-vm` adapter
+/// directly: `delonix-node-api-bin` mounts a `delonix_engine::Engine` and hands
+/// the server an implementor, so the forbidden interface->assembly edge stays in
+/// the bin. Errors arrive as the shared [`delonix_model::Error`] the engine and
+/// this crate both speak. The write half of the VM lifecycle (create/start/stop/
+/// snapshot/…) moves onto the port in later slices as the `Engine` grows it.
+pub trait VmReads: Send + Sync {
+    /// Every VM the node has.
+    fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error>;
+    /// One VM's full record by name.
+    fn status(&self, name: &str) -> Result<delonix_compute::Vm, delonix_model::Error>;
+    /// Whether a VM of this name exists.
+    fn exists(&self, name: &str) -> bool;
+}
+
+/// A [`VmReads`] over the `delonix-vm` adapter at a root, for the in-crate tests
+/// that seed VMs directly and read them back through the port. Production reaches
+/// the port through `delonix-node-api-bin`'s engine-backed implementor, never
+/// this; it lives behind `#[cfg(test)]` so it is not a production backing.
+#[cfg(test)]
+pub(crate) struct LocalVmReads(pub std::path::PathBuf);
+
+#[cfg(test)]
+impl VmReads for LocalVmReads {
+    fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error> {
+        delonix_vm::list(&self.0).map_err(Into::into)
+    }
+    // `status`/`exists` are derived from `list` so the test backing names the
+    // `delonix-vm` adapter once: the engine does the per-VM reconciliation in
+    // production; for a seeded test store the record from `list` is the same.
+    fn status(&self, name: &str) -> Result<delonix_compute::Vm, delonix_model::Error> {
+        self.list()?
+            .into_iter()
+            .find(|v| v.name == name)
+            .ok_or_else(|| delonix_model::Error::VmNotFound(name.to_string()))
+    }
+    fn exists(&self, name: &str) -> bool {
+        self.status(name).is_ok()
+    }
+}
+
 /// Whether `namespace` is one a VM can be reported under: any explicit name
 /// (checked against the record itself below), the empty string (→ `default`),
 /// or `*` (every namespace).
@@ -56,11 +98,11 @@ fn timestamp_secs(secs: u64) -> pbjson_types::Timestamp {
 /// All records under `root`. A root where no VM was ever created has no
 /// `vms/` directory — that is an empty list, and reading must not create it
 /// (the same convention [`crate::networks::records`] follows).
-fn records(root: &Path) -> Result<Vec<delonix_compute::Vm>, Status> {
+fn records(root: &Path, vms: &dyn VmReads) -> Result<Vec<delonix_compute::Vm>, Status> {
     if !root.join("vms").is_dir() {
         return Ok(Vec::new());
     }
-    let mut all = delonix_vm::list(root).map_err(|e| crate::network_ops::status_of(&e.into()))?;
+    let mut all = vms.list().map_err(|e| crate::network_ops::status_of(&e))?;
     all.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(all)
 }
@@ -191,8 +233,8 @@ pub fn message(vm: &delonix_compute::Vm) -> VirtualMachine {
     }
 }
 
-/// `GetVirtualMachine` under `root`.
-pub fn get_in(root: &Path, req: &GetVirtualMachineRequest) -> Result<VirtualMachine, Status> {
+/// `GetVirtualMachine` through the VM port.
+pub fn get_in(vms: &dyn VmReads, req: &GetVirtualMachineRequest) -> Result<VirtualMachine, Status> {
     let wanted = requested_namespace(&req.namespace);
     let missing = || {
         Status::not_found(format!(
@@ -203,11 +245,11 @@ pub fn get_in(root: &Path, req: &GetVirtualMachineRequest) -> Result<VirtualMach
     if wanted == "*" {
         return Err(missing());
     }
-    let vm = delonix_vm::status(root, &req.name).map_err(|e| {
+    let vm = vms.status(&req.name).map_err(|e| {
         if e.is_not_found() {
             missing()
         } else {
-            crate::network_ops::status_of(&e.into())
+            crate::network_ops::status_of(&e)
         }
     })?;
     if vm.namespace != wanted {
@@ -220,6 +262,7 @@ pub fn get_in(root: &Path, req: &GetVirtualMachineRequest) -> Result<VirtualMach
 /// requested namespace, ordered by name, one page at a time.
 pub fn list_in(
     root: &Path,
+    vms: &dyn VmReads,
     req: &ListVirtualMachinesRequest,
 ) -> Result<ListVirtualMachinesResponse, Status> {
     let selector = Selector::parse(&req.label_selector).map_err(Status::invalid_argument)?;
@@ -227,7 +270,7 @@ pub fn list_in(
     let size = crate::page::size(&page)?;
     let after = crate::page::after(&page)?;
     let ns = requested_namespace(&req.namespace);
-    let all = records(root)?;
+    let all = records(root, vms)?;
     let mut matching = all
         .iter()
         .filter(|v| ns == "*" || v.namespace == ns)
@@ -420,8 +463,9 @@ mod tests {
     #[test]
     fn a_vm_is_reported_reconciled_with_its_namespace_and_predicted_address() {
         let (dir, _backend) = root();
+        let vms = LocalVmReads(dir.path().to_path_buf());
         let vm = get_in(
-            dir.path(),
+            &vms,
             &GetVirtualMachineRequest {
                 name: "web-a".into(),
                 namespace: String::new(),
@@ -452,7 +496,7 @@ mod tests {
         );
 
         let other_ns = get_in(
-            dir.path(),
+            &vms,
             &GetVirtualMachineRequest {
                 name: "web-a".into(),
                 namespace: "team-a".into(),
@@ -462,7 +506,7 @@ mod tests {
         assert_eq!(other_ns.code(), tonic::Code::NotFound);
 
         let db = get_in(
-            dir.path(),
+            &vms,
             &GetVirtualMachineRequest {
                 name: "db".into(),
                 namespace: "team-a".into(),
@@ -475,8 +519,10 @@ mod tests {
     #[test]
     fn list_filters_by_namespace_and_label_and_pages_by_name() {
         let (dir, _backend) = root();
+        let vms = LocalVmReads(dir.path().to_path_buf());
         let default_ns = list_in(
             dir.path(),
+            &vms,
             &ListVirtualMachinesRequest {
                 namespace: String::new(),
                 label_selector: String::new(),
@@ -495,6 +541,7 @@ mod tests {
 
         let all = list_in(
             dir.path(),
+            &vms,
             &ListVirtualMachinesRequest {
                 namespace: "*".into(),
                 ..Default::default()
@@ -505,6 +552,7 @@ mod tests {
 
         let first = list_in(
             dir.path(),
+            &vms,
             &ListVirtualMachinesRequest {
                 namespace: "*".into(),
                 page: Some(PageRequest {
@@ -520,6 +568,7 @@ mod tests {
         assert!(!token.is_empty());
         let second = list_in(
             dir.path(),
+            &vms,
             &ListVirtualMachinesRequest {
                 namespace: "*".into(),
                 page: Some(PageRequest {
@@ -534,12 +583,14 @@ mod tests {
 
         // A root where nothing was ever created: empty, and still not created.
         let empty = tempfile::tempdir().unwrap();
-        assert!(
-            list_in(empty.path(), &ListVirtualMachinesRequest::default())
-                .unwrap()
-                .virtual_machines
-                .is_empty()
-        );
+        assert!(list_in(
+            empty.path(),
+            &LocalVmReads(empty.path().to_path_buf()),
+            &ListVirtualMachinesRequest::default()
+        )
+        .unwrap()
+        .virtual_machines
+        .is_empty());
         assert!(!empty.path().join("vms").exists());
     }
 }
