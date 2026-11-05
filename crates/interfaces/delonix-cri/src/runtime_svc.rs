@@ -16,6 +16,11 @@ pub struct DelonixRuntime {
     /// handed down from here (and from the [`Streamer`](crate::streaming::Streamer),
     /// which owns a clone of the same `Arc` for its port-forward path).
     pub containers: std::sync::Arc<dyn crate::ContainerOps>,
+    /// The engine's Linux-mechanism port (R3h): `is_rootless`, the cgroup/process
+    /// guards, the reconcile and resource-update paths, and the capability
+    /// dictionary the ceiling computes against — all reached here instead of
+    /// through the `delonix-linux` adapter the interface no longer names.
+    pub runtime: std::sync::Arc<dyn crate::RuntimeOps>,
     pub streamer: crate::streaming::Streamer,
     /// Node-level upper bound on container capabilities (see [`crate::cap_ceiling`]).
     /// Carried on the service, not read from the environment where it is needed:
@@ -28,12 +33,14 @@ impl DelonixRuntime {
     pub fn new(
         base: PathBuf,
         containers: std::sync::Arc<dyn crate::ContainerOps>,
+        runtime: std::sync::Arc<dyn crate::RuntimeOps>,
         streamer: crate::streaming::Streamer,
         cap_ceiling: crate::CapCeiling,
     ) -> Self {
         Self {
             base,
             containers,
+            runtime,
             streamer,
             cap_ceiling,
         }
@@ -134,7 +141,7 @@ impl RuntimeService for DelonixRuntime {
         // `Ready` in K8s even without working networking. Now it actually checks,
         // in BOTH modes (rootless: holder+slirp alive via pidfiles; root: the
         // CNI chain the sandboxes are networked with — reads and stats only).
-        let network_ready = if delonix_linux::is_rootless() {
+        let network_ready = if self.runtime.is_rootless() {
             let st = delonix_sdn::infra::status();
             // DOWN-AND-UNUSED IS NOT BROKEN, and conflating the two deadlocks
             // the node. This engine is daemonless: the infra netns starts on
@@ -206,7 +213,10 @@ impl RuntimeService for DelonixRuntime {
         // wrote in a unit file is the one the running server parsed.
         let mut info = std::collections::HashMap::new();
         if verbose {
-            info.insert("capabilityCeiling".to_string(), self.cap_ceiling.describe());
+            info.insert(
+                "capabilityCeiling".to_string(),
+                self.cap_ceiling.describe(self.runtime.as_ref()),
+            );
         }
         Ok(Response::new(StatusResponse {
             status: Some(RuntimeStatus {
@@ -233,7 +243,8 @@ impl RuntimeService for DelonixRuntime {
         r: Request<RunPodSandboxRequest>,
     ) -> Result<Response<RunPodSandboxResponse>, Status> {
         let (base, req) = (self.base.clone(), r.into_inner());
-        blocking(move || lifecycle::run_pod_sandbox(&base, req)).await
+        let rt = self.runtime.clone();
+        blocking(move || lifecycle::run_pod_sandbox(&base, rt.as_ref(), req)).await
     }
     #[tracing::instrument(name = "cri.stop_pod_sandbox", skip_all, fields(
         pod = %r.get_ref().pod_sandbox_id,
@@ -244,7 +255,8 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<StopPodSandboxResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().pod_sandbox_id);
         let ops = self.containers.clone();
-        blocking(move || lifecycle::stop_pod_sandbox(&base, ops.as_ref(), id)).await
+        let rt = self.runtime.clone();
+        blocking(move || lifecycle::stop_pod_sandbox(&base, ops.as_ref(), rt.as_ref(), id)).await
     }
     #[tracing::instrument(name = "cri.remove_pod_sandbox", skip_all, fields(
         pod = %r.get_ref().pod_sandbox_id,
@@ -255,7 +267,8 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<RemovePodSandboxResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().pod_sandbox_id);
         let ops = self.containers.clone();
-        blocking(move || lifecycle::remove_pod_sandbox(&base, ops.as_ref(), id)).await
+        let rt = self.runtime.clone();
+        blocking(move || lifecycle::remove_pod_sandbox(&base, ops.as_ref(), rt.as_ref(), id)).await
     }
     #[tracing::instrument(name = "cri.pod_sandbox_status", skip_all, fields(
         pod = %r.get_ref().pod_sandbox_id,
@@ -266,7 +279,8 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<PodSandboxStatusResponse>, Status> {
         let (base, id) = (self.base.clone(), r.into_inner().pod_sandbox_id);
         let ops = self.containers.clone();
-        blocking(move || lifecycle::pod_sandbox_status(&base, ops.as_ref(), id)).await
+        let rt = self.runtime.clone();
+        blocking(move || lifecycle::pod_sandbox_status(&base, ops.as_ref(), rt.as_ref(), id)).await
     }
     #[tracing::instrument(name = "cri.list_pod_sandbox", skip_all)]
     async fn list_pod_sandbox(
@@ -286,7 +300,8 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<CreateContainerResponse>, Status> {
         let (base, req) = (self.base.clone(), r.into_inner());
         let ceiling = self.cap_ceiling;
-        blocking(move || lifecycle::create_container(&base, req, ceiling)).await
+        let rt = self.runtime.clone();
+        blocking(move || lifecycle::create_container(&base, rt.as_ref(), req, ceiling)).await
     }
     #[tracing::instrument(name = "cri.start_container", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -298,7 +313,8 @@ impl RuntimeService for DelonixRuntime {
         let (base, id) = (self.base.clone(), r.into_inner().container_id);
         let ceiling = self.cap_ceiling;
         let ops = self.containers.clone();
-        blocking(move || lifecycle::start_container(&base, ops.as_ref(), id, ceiling)).await
+        let rt = self.runtime.clone();
+        blocking(move || lifecycle::start_container(&base, ops.as_ref(), rt.as_ref(), id, ceiling)).await
     }
     #[tracing::instrument(name = "cri.stop_container", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -311,7 +327,8 @@ impl RuntimeService for DelonixRuntime {
         let req = r.into_inner();
         let (base, id, timeout) = (self.base.clone(), req.container_id, req.timeout);
         let ops = self.containers.clone();
-        blocking(move || lifecycle::stop_container(&base, ops.as_ref(), id, timeout)).await
+        let rt = self.runtime.clone();
+        blocking(move || lifecycle::stop_container(&base, ops.as_ref(), rt.as_ref(), id, timeout)).await
     }
     #[tracing::instrument(name = "cri.remove_container", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -331,7 +348,8 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<ListContainersResponse>, Status> {
         let (base, filter) = (self.base.clone(), r.into_inner().filter);
         let ops = self.containers.clone();
-        blocking(move || lifecycle::list_containers(&base, ops.as_ref(), filter)).await
+        let rt = self.runtime.clone();
+        blocking(move || lifecycle::list_containers(&base, ops.as_ref(), rt.as_ref(), filter)).await
     }
     #[tracing::instrument(name = "cri.container_status", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -343,7 +361,8 @@ impl RuntimeService for DelonixRuntime {
         let req = r.into_inner();
         let (base, id, verbose) = (self.base.clone(), req.container_id, req.verbose);
         let ops = self.containers.clone();
-        blocking(move || lifecycle::container_status(&base, ops.as_ref(), id, verbose)).await
+        let rt = self.runtime.clone();
+        blocking(move || lifecycle::container_status(&base, ops.as_ref(), rt.as_ref(), id, verbose)).await
     }
 
     async fn update_container_resources(
@@ -352,7 +371,11 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<UpdateContainerResourcesResponse>, Status> {
         let base = self.base.clone();
         let ops = self.containers.clone();
-        blocking(move || lifecycle::update_container_resources(&base, ops.as_ref(), r.into_inner())).await
+        let rt = self.runtime.clone();
+        blocking(move || {
+            lifecycle::update_container_resources(&base, ops.as_ref(), rt.as_ref(), r.into_inner())
+        })
+        .await
     }
 
     async fn reopen_container_log(
@@ -495,7 +518,7 @@ impl RuntimeService for DelonixRuntime {
             .and_then(|c| c.network_config)
             .map(|n| n.pod_cidr)
             .unwrap_or_default();
-        let cni = if delonix_linux::is_rootless() {
+        let cni = if self.runtime.is_rootless() {
             delonix_sdn::cni::enabled_conf().is_some()
         } else {
             // Root networks every pod through CNI (see `run_pod_sandbox`).
@@ -674,10 +697,21 @@ mod tests {
         let base = base_dir.path().to_path_buf();
         let ops: std::sync::Arc<dyn crate::ContainerOps> =
             std::sync::Arc::new(crate::test_ops::StoreOps::new(base.clone()));
-        let streamer =
-            crate::streaming::Streamer::new(base.clone(), ops.clone(), "127.0.0.1:0".to_string());
-        let svc =
-            DelonixRuntime::new(base.clone(), ops.clone(), streamer, crate::CapCeiling::unlimited());
+        let rt: std::sync::Arc<dyn crate::RuntimeOps> =
+            std::sync::Arc::new(crate::test_ops::LinuxPort);
+        let streamer = crate::streaming::Streamer::new(
+            base.clone(),
+            ops.clone(),
+            rt.clone(),
+            "127.0.0.1:0".to_string(),
+        );
+        let svc = DelonixRuntime::new(
+            base.clone(),
+            ops.clone(),
+            rt,
+            streamer,
+            crate::CapCeiling::unlimited(),
+        );
 
         // Pela MESMA regra e com o MESMO root que o serviço usa: refs VIVOS do
         // `base` deste serviço, não marcadores em disco nem um root do ambiente.
@@ -789,10 +823,13 @@ mod tests_runtime_config {
         let base = std::env::temp_dir();
         let ops: std::sync::Arc<dyn crate::ContainerOps> =
             std::sync::Arc::new(crate::test_ops::StoreOps::new(base.clone()));
+        let port: std::sync::Arc<dyn crate::RuntimeOps> =
+            std::sync::Arc::new(crate::test_ops::LinuxPort);
         let rt = super::DelonixRuntime::new(
             base.clone(),
             ops.clone(),
-            crate::streaming::Streamer::new(base, ops, "http://127.0.0.1:0".into()),
+            port.clone(),
+            crate::streaming::Streamer::new(base, ops, port, "http://127.0.0.1:0".into()),
             crate::CapCeiling::unlimited(),
         );
         let resp = rt

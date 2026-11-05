@@ -22,6 +22,10 @@ delonix-engine = { workspace = true }
 delonix-model = { workspace = true }
 # Container records cross the CRI's container port as this type (R3h).
 delonix-compute = { workspace = true }
+# R3h: the bin backs the CRI's Linux-mechanism port (`RuntimeOps`) with the
+# adapter directly — a bin may name an adapter (ADR-0040 A1), and this keeps the
+# `delonix-cri` interface itself free of `delonix-linux`.
+delonix-linux = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 

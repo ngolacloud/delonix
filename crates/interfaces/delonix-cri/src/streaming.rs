@@ -60,6 +60,10 @@ pub struct Streamer {
     /// A clone of the same `Arc` the [`DelonixRuntime`](crate::runtime_svc::DelonixRuntime)
     /// holds — cheap, and one store identity for the whole server.
     containers: Arc<dyn crate::ContainerOps>,
+    /// The engine's Linux-mechanism port (R3h): the port-forward path checks the
+    /// sandbox pid's signal-safety through here, not through the `delonix-linux`
+    /// adapter directly. A clone of the same `Arc` the `DelonixRuntime` holds.
+    runtime: Arc<dyn crate::RuntimeOps>,
     advertised: String, // e.g. "http://127.0.0.1:34567"
     execs: Arc<Mutex<HashMap<String, Pending>>>,
     pforwards: Arc<Mutex<HashMap<String, PfPending>>>,
@@ -77,11 +81,13 @@ impl Streamer {
     pub fn new(
         base: PathBuf,
         containers: Arc<dyn crate::ContainerOps>,
+        runtime: Arc<dyn crate::RuntimeOps>,
         advertised: String,
     ) -> Self {
         Self {
             base,
             containers,
+            runtime,
             advertised,
             execs: Arc::new(Mutex::new(HashMap::new())),
             pforwards: Arc::new(Mutex::new(HashMap::new())),
@@ -198,10 +204,13 @@ impl Streamer {
 /// sites, `reconcile_status` included) using the `pid_starttime` the record
 /// already carries. This call site was left on the weaker test; the record here
 /// is the same `Container`, so the same guard applies unchanged.
-fn pod_sandbox_pid(ops: &dyn crate::ContainerOps, sandbox_id: &str) -> Option<i32> {
+fn pod_sandbox_pid(
+    ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
+    sandbox_id: &str,
+) -> Option<i32> {
     let c = ops.load(&format!("pod-cri-{sandbox_id}")).ok()?;
-    c.pid
-        .filter(|p| delonix_linux::safe_to_signal(*p, c.pid_starttime))
+    c.pid.filter(|p| rt.safe_to_signal(*p, c.pid_starttime))
 }
 
 /// HTTP handler → SPDY upgrade for `PortForward`.
@@ -234,7 +243,7 @@ async fn portforward_upgrade(
         {
             crate::spdy::PfNetns::NsPath(ns.into())
         } else {
-            match pod_sandbox_pid(st.containers.as_ref(), &p.pod_sandbox_id) {
+            match pod_sandbox_pid(st.containers.as_ref(), st.runtime.as_ref(), &p.pod_sandbox_id) {
                 Some(pid) => crate::spdy::PfNetns::Pid(pid),
                 None => {
                     return (
@@ -827,7 +836,7 @@ mod tests_sandbox_pid_identity {
         let mine = std::process::id() as i32;
         let real = delonix_linux::proc_starttime(mine).expect("own starttime is readable");
         let base = store_with(Some(mine), Some(real.wrapping_add(1)));
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()),"sandbox1"), None);
+        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "sandbox1"), None);
     }
 
     /// The positive path, and it is a real one: same pid, same `starttime`.
@@ -838,7 +847,7 @@ mod tests_sandbox_pid_identity {
         let mine = std::process::id() as i32;
         let real = delonix_linux::proc_starttime(mine).expect("own starttime is readable");
         let base = store_with(Some(mine), Some(real));
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()),"sandbox1"), Some(mine));
+        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "sandbox1"), Some(mine));
     }
 
     /// A record written before `pid_starttime` existed carries `None`, and
@@ -849,14 +858,14 @@ mod tests_sandbox_pid_identity {
     fn a_legacy_record_without_starttime_still_resolves() {
         let mine = std::process::id() as i32;
         let base = store_with(Some(mine), None);
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()),"sandbox1"), Some(mine));
+        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "sandbox1"), Some(mine));
     }
 
     /// A sandbox with no pid at all (created, never started) has no netns.
     #[test]
     fn no_pid_is_none() {
         let base = store_with(None, None);
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()),"sandbox1"), None);
+        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "sandbox1"), None);
     }
 
     /// An unknown sandbox is `None`, not a panic — the handler turns it into a
@@ -864,6 +873,6 @@ mod tests_sandbox_pid_identity {
     #[test]
     fn an_unknown_sandbox_is_none() {
         let base = store_with(Some(1), None);
-        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()),"does-not-exist"), None);
+        assert_eq!(super::pod_sandbox_pid(&crate::test_ops::StoreOps::new(base.path()), &crate::test_ops::LinuxPort, "does-not-exist"), None);
     }
 }
