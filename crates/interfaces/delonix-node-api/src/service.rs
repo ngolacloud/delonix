@@ -73,7 +73,7 @@ use crate::{node, providers};
 /// (an `Arc`, so every clone shares the one port).
 #[derive(Clone)]
 pub struct NodeApi {
-    vms: Arc<dyn crate::vms::VmReads>,
+    vms: Arc<dyn crate::vms::VmPort>,
 }
 
 /// Runs a host probe off the runtime's workers: every `NodeService` answer
@@ -609,8 +609,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<DeleteVirtualMachineRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine delete", move || {
-            crate::vm_ops::delete_in(&node::state_root(), &req)
+            crate::vm_ops::delete_in(&node::state_root(), &*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -621,8 +622,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<StartVirtualMachineRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine start", move || {
-            crate::vm_ops::start_in(&node::state_root(), &req)
+            crate::vm_ops::start_in(&node::state_root(), &*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -633,8 +635,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<StopVirtualMachineRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine stop", move || {
-            crate::vm_ops::stop_in(&node::state_root(), &req)
+            crate::vm_ops::stop_in(&node::state_root(), &*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -645,8 +648,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<PauseVirtualMachineRequest>,
     ) -> Result<Response<VirtualMachine>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine pause", move || {
-            crate::vm_ops::pause_in(&node::state_root(), &req)
+            crate::vm_ops::pause_in(&*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -657,8 +661,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<ResumeVirtualMachineRequest>,
     ) -> Result<Response<VirtualMachine>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine resume", move || {
-            crate::vm_ops::resume_in(&node::state_root(), &req)
+            crate::vm_ops::resume_in(&*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -669,8 +674,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<CreateSnapshotRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine snapshot create", move || {
-            crate::vm_ops::create_snapshot_in(&node::state_root(), &req)
+            crate::vm_ops::create_snapshot_in(&node::state_root(), &*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -681,8 +687,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<ListSnapshotsRequest>,
     ) -> Result<Response<ListSnapshotsResponse>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine snapshots", move || {
-            crate::vm_ops::list_snapshots_in(&node::state_root(), &req)
+            crate::vm_ops::list_snapshots_in(&*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -693,8 +700,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<RestoreSnapshotRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine snapshot restore", move || {
-            crate::vm_ops::restore_snapshot_in(&node::state_root(), &req)
+            crate::vm_ops::restore_snapshot_in(&node::state_root(), &*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -705,8 +713,9 @@ impl VirtualMachineService for NodeApi {
         req: Request<DeleteSnapshotRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let vms = Arc::clone(&self.vms);
         blocking("virtual machine snapshot delete", move || {
-            crate::vm_ops::delete_snapshot_in(&node::state_root(), &req)
+            crate::vm_ops::delete_snapshot_in(&node::state_root(), &*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -950,11 +959,11 @@ pub fn router() -> axum::Router {
     router_with(Arc::new(NoVms))
 }
 
-/// A [`crate::vms::VmReads`] with no VMs — the empty backing [`router`] hands the
+/// A [`crate::vms::VmPort`] with no VMs — the empty backing [`router`] hands the
 /// server when no engine is injected. The VM read path is proven end-to-end
 /// through the engine in `delonix-node-api-bin`.
 struct NoVms;
-impl crate::vms::VmReads for NoVms {
+impl crate::vms::VmPort for NoVms {
     fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error> {
         Ok(Vec::new())
     }
@@ -964,18 +973,47 @@ impl crate::vms::VmReads for NoVms {
     fn exists(&self, _name: &str) -> bool {
         false
     }
+    // No VM exists, so every mutation on a named VM is NotFound; snapshots of a
+    // non-existent VM is the empty list, never an error.
+    fn start(&self, name: &str) -> Result<(), delonix_model::Error> {
+        Err(delonix_model::Error::VmNotFound(name.to_string()))
+    }
+    fn stop(&self, name: &str) -> Result<(), delonix_model::Error> {
+        Err(delonix_model::Error::VmNotFound(name.to_string()))
+    }
+    fn pause(&self, name: &str) -> Result<(), delonix_model::Error> {
+        Err(delonix_model::Error::VmNotFound(name.to_string()))
+    }
+    fn unpause(&self, name: &str) -> Result<(), delonix_model::Error> {
+        Err(delonix_model::Error::VmNotFound(name.to_string()))
+    }
+    fn snapshots(&self, _name: &str) -> Result<Vec<String>, delonix_model::Error> {
+        Ok(Vec::new())
+    }
+    fn snapshot(&self, name: &str, _snap: &str) -> Result<(), delonix_model::Error> {
+        Err(delonix_model::Error::VmNotFound(name.to_string()))
+    }
+    fn restore(&self, name: &str, _snap: &str) -> Result<(), delonix_model::Error> {
+        Err(delonix_model::Error::VmNotFound(name.to_string()))
+    }
+    fn delete_snapshot(&self, name: &str, _snap: &str) -> Result<(), delonix_model::Error> {
+        Err(delonix_model::Error::VmNotFound(name.to_string()))
+    }
+    fn destroy(&self, name: &str, _force: bool, _purge: bool) -> Result<(), delonix_model::Error> {
+        Err(delonix_model::Error::VmNotFound(name.to_string()))
+    }
 }
 
 /// The empty VM port, for `serve_blocking` and callers that do not inject an
 /// engine. Production serves through `serve` with an engine-backed port.
-pub(crate) fn no_vms() -> Arc<dyn crate::vms::VmReads> {
+pub(crate) fn no_vms() -> Arc<dyn crate::vms::VmPort> {
     Arc::new(NoVms)
 }
 
 /// Builds the router with the VM port the composition injects (ADR-0040 A5).
-/// `delonix-node-api-bin` passes an engine-backed [`crate::vms::VmReads`];
+/// `delonix-node-api-bin` passes an engine-backed [`crate::vms::VmPort`];
 /// [`router`] passes an empty one.
-pub fn router_with(vms: Arc<dyn crate::vms::VmReads>) -> axum::Router {
+pub fn router_with(vms: Arc<dyn crate::vms::VmPort>) -> axum::Router {
     use tonic::server::NamedService;
     let api = NodeApi { vms };
     // The gRPC service is mounted the way tonic's own `Routes` mounts it — one

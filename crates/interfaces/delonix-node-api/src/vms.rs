@@ -29,23 +29,51 @@ use crate::proto::v1::{
 };
 use crate::selector::Selector;
 
-/// The node's VM service as the reads this interface needs (ADR-0040 A5). The
-/// interface holds this port instead of calling the `delonix-vm` adapter
-/// directly: `delonix-node-api-bin` mounts a `delonix_engine::Engine` and hands
-/// the server an implementor, so the forbidden interface->assembly edge stays in
-/// the bin. Errors arrive as the shared [`delonix_model::Error`] the engine and
-/// this crate both speak. The write half of the VM lifecycle (create/start/stop/
-/// snapshot/…) moves onto the port in later slices as the `Engine` grows it.
-pub trait VmReads: Send + Sync {
+/// The node's VM service as this interface needs it (ADR-0040 A5). The interface
+/// holds this port instead of calling the `delonix-vm` adapter directly:
+/// `delonix-node-api-bin` mounts a `delonix_engine::Engine` and hands the server
+/// an implementor, so the forbidden interface->assembly edge stays in the bin.
+/// Errors arrive as the shared [`delonix_model::Error`] the engine and this crate
+/// both speak.
+///
+/// Covers the reads and the observe/control lifecycle the `Engine` exposes
+/// (start/stop/pause/snapshot/restore/destroy). `create` is the one VM use case
+/// still reached through `delonix-vm` inside the interface — it carries the
+/// `wait_until_reachable` poll and the `VmConfig`, and moves onto the port once
+/// the `Engine` grows it.
+pub trait VmPort: Send + Sync {
     /// Every VM the node has.
     fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error>;
     /// One VM's full record by name.
     fn status(&self, name: &str) -> Result<delonix_compute::Vm, delonix_model::Error>;
     /// Whether a VM of this name exists.
     fn exists(&self, name: &str) -> bool;
+    /// Start a stopped VM.
+    fn start(&self, name: &str) -> Result<(), delonix_model::Error>;
+    /// Stop a running VM, keeping its disk.
+    fn stop(&self, name: &str) -> Result<(), delonix_model::Error>;
+    /// Pause a running VM.
+    fn pause(&self, name: &str) -> Result<(), delonix_model::Error>;
+    /// Resume a paused VM.
+    fn unpause(&self, name: &str) -> Result<(), delonix_model::Error>;
+    /// The snapshot names a VM carries.
+    fn snapshots(&self, name: &str) -> Result<Vec<String>, delonix_model::Error>;
+    /// Take a named snapshot of a VM.
+    fn snapshot(&self, name: &str, snap: &str) -> Result<(), delonix_model::Error>;
+    /// Restore a VM to one of its snapshots.
+    fn restore(&self, name: &str, snap: &str) -> Result<(), delonix_model::Error>;
+    /// Delete one of a VM's snapshots.
+    fn delete_snapshot(&self, name: &str, snap: &str) -> Result<(), delonix_model::Error>;
+    /// End a VM; `purge_disks` releases its storage.
+    fn destroy(
+        &self,
+        name: &str,
+        force: bool,
+        purge_disks: bool,
+    ) -> Result<(), delonix_model::Error>;
 }
 
-/// A [`VmReads`] over the `delonix-vm` adapter at a root, for the in-crate tests
+/// A [`VmPort`] over the `delonix-vm` adapter at a root, for the in-crate tests
 /// that seed VMs directly and read them back through the port. Production reaches
 /// the port through `delonix-node-api-bin`'s engine-backed implementor, never
 /// this; it lives behind `#[cfg(test)]` so it is not a production backing.
@@ -53,13 +81,15 @@ pub trait VmReads: Send + Sync {
 pub(crate) struct LocalVmReads(pub std::path::PathBuf);
 
 #[cfg(test)]
-impl VmReads for LocalVmReads {
+impl VmPort for LocalVmReads {
     fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error> {
         delonix_vm::list(&self.0).map_err(Into::into)
     }
     // `status`/`exists` are derived from `list` so the test backing names the
-    // `delonix-vm` adapter once: the engine does the per-VM reconciliation in
-    // production; for a seeded test store the record from `list` is the same.
+    // `delonix-vm` adapter once for the reads: the engine does the per-VM
+    // reconciliation in production; for a seeded test store the record from
+    // `list` is the same. The mutations reach the adapter directly so the tests
+    // still exercise the seeded fake backend (e.g. a fake with no `pause`).
     fn status(&self, name: &str) -> Result<delonix_compute::Vm, delonix_model::Error> {
         self.list()?
             .into_iter()
@@ -68,6 +98,42 @@ impl VmReads for LocalVmReads {
     }
     fn exists(&self, name: &str) -> bool {
         self.status(name).is_ok()
+    }
+    fn start(&self, name: &str) -> Result<(), delonix_model::Error> {
+        delonix_vm::start(&self.0, name)
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+    fn stop(&self, name: &str) -> Result<(), delonix_model::Error> {
+        delonix_vm::stop(&self.0, name).map_err(Into::into)
+    }
+    fn pause(&self, name: &str) -> Result<(), delonix_model::Error> {
+        delonix_vm::pause(&self.0, name).map_err(Into::into)
+    }
+    fn unpause(&self, name: &str) -> Result<(), delonix_model::Error> {
+        delonix_vm::unpause(&self.0, name).map_err(Into::into)
+    }
+    fn snapshots(&self, name: &str) -> Result<Vec<String>, delonix_model::Error> {
+        delonix_vm::snapshots(&self.0, name).map_err(Into::into)
+    }
+    fn snapshot(&self, name: &str, snap: &str) -> Result<(), delonix_model::Error> {
+        delonix_vm::snapshot(&self.0, name, snap).map_err(Into::into)
+    }
+    fn restore(&self, name: &str, snap: &str) -> Result<(), delonix_model::Error> {
+        delonix_vm::restore(&self.0, name, snap).map_err(Into::into)
+    }
+    fn delete_snapshot(&self, name: &str, snap: &str) -> Result<(), delonix_model::Error> {
+        delonix_vm::delete_snapshot(&self.0, name, snap).map_err(Into::into)
+    }
+    fn destroy(
+        &self,
+        name: &str,
+        force: bool,
+        purge_disks: bool,
+    ) -> Result<(), delonix_model::Error> {
+        delonix_vm::destroy(&self.0, name, force, purge_disks)
+            .map(|_| ())
+            .map_err(Into::into)
     }
 }
 
@@ -98,7 +164,7 @@ fn timestamp_secs(secs: u64) -> pbjson_types::Timestamp {
 /// All records under `root`. A root where no VM was ever created has no
 /// `vms/` directory — that is an empty list, and reading must not create it
 /// (the same convention [`crate::networks::records`] follows).
-fn records(root: &Path, vms: &dyn VmReads) -> Result<Vec<delonix_compute::Vm>, Status> {
+fn records(root: &Path, vms: &dyn VmPort) -> Result<Vec<delonix_compute::Vm>, Status> {
     if !root.join("vms").is_dir() {
         return Ok(Vec::new());
     }
@@ -234,7 +300,7 @@ pub fn message(vm: &delonix_compute::Vm) -> VirtualMachine {
 }
 
 /// `GetVirtualMachine` through the VM port.
-pub fn get_in(vms: &dyn VmReads, req: &GetVirtualMachineRequest) -> Result<VirtualMachine, Status> {
+pub fn get_in(vms: &dyn VmPort, req: &GetVirtualMachineRequest) -> Result<VirtualMachine, Status> {
     let wanted = requested_namespace(&req.namespace);
     let missing = || {
         Status::not_found(format!(
@@ -262,7 +328,7 @@ pub fn get_in(vms: &dyn VmReads, req: &GetVirtualMachineRequest) -> Result<Virtu
 /// requested namespace, ordered by name, one page at a time.
 pub fn list_in(
     root: &Path,
-    vms: &dyn VmReads,
+    vms: &dyn VmPort,
     req: &ListVirtualMachinesRequest,
 ) -> Result<ListVirtualMachinesResponse, Status> {
     let selector = Selector::parse(&req.label_selector).map_err(Status::invalid_argument)?;

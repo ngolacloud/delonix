@@ -385,7 +385,7 @@ fn wait_until_reachable(root: &Path, name: &str) -> delonix_model::Result<()> {
 /// What `CreateVirtualMachine` does once it is acknowledged.
 type CreateWork<'a> = &'a dyn Fn(&Path, &str, &VmConfig, bool) -> delonix_model::Result<()>;
 /// What `DeleteVirtualMachine` does once it is acknowledged.
-type DeleteWork<'a> = &'a dyn Fn(&Path, &str, bool) -> delonix_model::Result<()>;
+type DeleteWork<'a> = &'a dyn Fn(&str, bool) -> delonix_model::Result<()>;
 
 fn create_work(root: &Path, name: &str, cfg: &VmConfig, wait: bool) -> delonix_model::Result<()> {
     delonix_vm::create_with(root, cfg, &|_stage| {})?;
@@ -393,12 +393,6 @@ fn create_work(root: &Path, name: &str, cfg: &VmConfig, wait: bool) -> delonix_m
         wait_until_reachable(root, name)?;
     }
     Ok(())
-}
-
-fn delete_work(root: &Path, name: &str, force: bool) -> delonix_model::Result<()> {
-    delonix_vm::destroy(root, name, force, true)
-        .map(|_destroyed| ())
-        .map_err(Into::into)
 }
 
 /// `CreateVirtualMachine` under `root`.
@@ -461,13 +455,20 @@ pub fn create_with_fn(
 }
 
 /// `DeleteVirtualMachine` under `root`.
-pub fn delete_in(root: &Path, req: &DeleteVirtualMachineRequest) -> Result<Operation, Status> {
-    delete_with_fn(root, req, &delete_work)
+pub fn delete_in(
+    root: &Path,
+    vms: &dyn crate::vms::VmPort,
+    req: &DeleteVirtualMachineRequest,
+) -> Result<Operation, Status> {
+    delete_with_fn(root, vms, req, &|name, force| {
+        vms.destroy(name, force, true)
+    })
 }
 
 /// [`delete_in`] with the work injected (the tests' seam).
 pub fn delete_with_fn(
     root: &Path,
+    vms: &dyn crate::vms::VmPort,
     req: &DeleteVirtualMachineRequest,
     work: DeleteWork<'_>,
 ) -> Result<Operation, Status> {
@@ -486,10 +487,10 @@ pub fn delete_with_fn(
             }
         ))
     };
-    if req.name.is_empty() || !delonix_vm::exists(root, &req.name) {
+    if req.name.is_empty() || !vms.exists(&req.name) {
         return Err(missing());
     }
-    let vm = delonix_vm::status(root, &req.name).map_err(|e| status_of(&e.into()))?;
+    let vm = vms.status(&req.name).map_err(|e| status_of(&e))?;
     let wanted = if req.namespace.is_empty() {
         "default"
     } else {
@@ -514,26 +515,30 @@ pub fn delete_with_fn(
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = work(root, &req.name, req.force).map(|()| String::new());
+    let outcome = work(&req.name, req.force).map(|()| String::new());
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
     )?))
 }
 
-type SimpleWork<'a> = &'a dyn Fn(&Path, &str) -> delonix_model::Result<()>;
+type SimpleWork<'a> = &'a dyn Fn(&str) -> delonix_model::Result<()>;
 
-fn missing_vm(root: &Path, name: &str, namespace: &str) -> Result<delonix_compute::Vm, Status> {
+fn missing_vm(
+    vms: &dyn crate::vms::VmPort,
+    name: &str,
+    namespace: &str,
+) -> Result<delonix_compute::Vm, Status> {
     let wanted = if namespace.is_empty() {
         "default"
     } else {
         namespace
     };
     let missing = || Status::not_found(format!("virtual machine '{name}' in namespace '{wanted}'"));
-    let vm = delonix_vm::status(root, name).map_err(|e| {
+    let vm = vms.status(name).map_err(|e| {
         if e.is_not_found() {
             missing()
         } else {
-            status_of(&e.into())
+            status_of(&e)
         }
     })?;
     if vm.namespace != wanted {
@@ -549,6 +554,7 @@ fn missing_vm(root: &Path, name: &str, namespace: &str) -> Result<delonix_comput
 /// of by four near-identical functions.
 fn verb_in(
     root: &Path,
+    vms: &dyn crate::vms::VmPort,
     verb: &str,
     name: &str,
     namespace: &str,
@@ -559,65 +565,73 @@ fn verb_in(
     if let Some(found) = operations::replay(root, verb, &target, request_id, "")? {
         return Ok(operations::message(&found));
     }
-    missing_vm(root, name, namespace)?;
+    missing_vm(vms, name, namespace)?;
     let rec = match operations::begin(root, verb, &target, request_id, "")? {
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = work(root, name).map(|()| target_href(namespace, name));
+    let outcome = work(name).map(|()| target_href(namespace, name));
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
     )?))
 }
 
 /// `StartVirtualMachine` under `root`.
-pub fn start_in(root: &Path, req: &StartVirtualMachineRequest) -> Result<Operation, Status> {
-    fn work(r: &Path, n: &str) -> delonix_model::Result<()> {
-        delonix_vm::start(r, n)?;
-        Ok(())
-    }
+pub fn start_in(
+    root: &Path,
+    vms: &dyn crate::vms::VmPort,
+    req: &StartVirtualMachineRequest,
+) -> Result<Operation, Status> {
     verb_in(
         root,
+        vms,
         "start",
         &req.name,
         &req.namespace,
         &req.request_id,
-        &work,
+        &|n| vms.start(n),
     )
 }
 
 /// `StopVirtualMachine` under `root`. Keeps the disk — [`delete_in`] is what
 /// releases it, the same distinction the contract's own comment on
 /// `StopVirtualMachine` draws.
-pub fn stop_in(root: &Path, req: &StopVirtualMachineRequest) -> Result<Operation, Status> {
-    fn work(r: &Path, n: &str) -> delonix_model::Result<()> {
-        delonix_vm::stop(r, n)?;
-        Ok(())
-    }
+pub fn stop_in(
+    root: &Path,
+    vms: &dyn crate::vms::VmPort,
+    req: &StopVirtualMachineRequest,
+) -> Result<Operation, Status> {
     verb_in(
         root,
+        vms,
         "stop",
         &req.name,
         &req.namespace,
         &req.request_id,
-        &work,
+        &|n| vms.stop(n),
     )
 }
 
 /// `PauseVirtualMachine`/`ResumeVirtualMachine`: synchronous (the contract
 /// answers `VirtualMachine`, not an `Operation` — there is nothing to poll),
 /// unlike every other mutation in this module.
-pub fn pause_in(root: &Path, req: &PauseVirtualMachineRequest) -> Result<VirtualMachine, Status> {
-    missing_vm(root, &req.name, &req.namespace)?;
-    delonix_vm::pause(root, &req.name).map_err(|e| status_of(&e.into()))?;
-    let vm = delonix_vm::status(root, &req.name).map_err(|e| status_of(&e.into()))?;
+pub fn pause_in(
+    vms: &dyn crate::vms::VmPort,
+    req: &PauseVirtualMachineRequest,
+) -> Result<VirtualMachine, Status> {
+    missing_vm(vms, &req.name, &req.namespace)?;
+    vms.pause(&req.name).map_err(|e| status_of(&e))?;
+    let vm = vms.status(&req.name).map_err(|e| status_of(&e))?;
     Ok(crate::vms::message(&vm))
 }
 
-pub fn resume_in(root: &Path, req: &ResumeVirtualMachineRequest) -> Result<VirtualMachine, Status> {
-    missing_vm(root, &req.name, &req.namespace)?;
-    delonix_vm::unpause(root, &req.name).map_err(|e| status_of(&e.into()))?;
-    let vm = delonix_vm::status(root, &req.name).map_err(|e| status_of(&e.into()))?;
+pub fn resume_in(
+    vms: &dyn crate::vms::VmPort,
+    req: &ResumeVirtualMachineRequest,
+) -> Result<VirtualMachine, Status> {
+    missing_vm(vms, &req.name, &req.namespace)?;
+    vms.unpause(&req.name).map_err(|e| status_of(&e))?;
+    let vm = vms.status(&req.name).map_err(|e| status_of(&e))?;
     Ok(crate::vms::message(&vm))
 }
 
@@ -626,12 +640,13 @@ pub fn resume_in(root: &Path, req: &ResumeVirtualMachineRequest) -> Result<Virtu
 /// are left at their zero value rather than guessed. Read, not a mutation:
 /// no operation is written.
 pub fn list_snapshots_in(
-    root: &Path,
+    vms: &dyn crate::vms::VmPort,
     req: &ListSnapshotsRequest,
 ) -> Result<ListSnapshotsResponse, Status> {
-    missing_vm(root, &req.virtual_machine, &req.namespace)?;
-    let names =
-        delonix_vm::snapshots(root, &req.virtual_machine).map_err(|e| status_of(&e.into()))?;
+    missing_vm(vms, &req.virtual_machine, &req.namespace)?;
+    let names = vms
+        .snapshots(&req.virtual_machine)
+        .map_err(|e| status_of(&e))?;
     Ok(ListSnapshotsResponse {
         snapshots: names
             .into_iter()
@@ -649,7 +664,11 @@ fn snapshot_target(vm: &str, snap: &str) -> String {
 }
 
 /// `CreateSnapshot` under `root`.
-pub fn create_snapshot_in(root: &Path, req: &CreateSnapshotRequest) -> Result<Operation, Status> {
+pub fn create_snapshot_in(
+    root: &Path,
+    vms: &dyn crate::vms::VmPort,
+    req: &CreateSnapshotRequest,
+) -> Result<Operation, Status> {
     if req.snapshot.is_empty() {
         return Err(Status::invalid_argument(
             "CreateSnapshot: snapshot is required",
@@ -659,13 +678,13 @@ pub fn create_snapshot_in(root: &Path, req: &CreateSnapshotRequest) -> Result<Op
     if let Some(found) = operations::replay(root, "create", &target, &req.request_id, "")? {
         return Ok(operations::message(&found));
     }
-    missing_vm(root, &req.virtual_machine, &req.namespace)?;
+    missing_vm(vms, &req.virtual_machine, &req.namespace)?;
     let rec = match operations::begin(root, "create", &target, &req.request_id, "")? {
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = delonix_vm::snapshot(root, &req.virtual_machine, &req.snapshot)
-        .map_err(Into::into)
+    let outcome = vms
+        .snapshot(&req.virtual_machine, &req.snapshot)
         .map(|()| String::new());
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
@@ -673,18 +692,22 @@ pub fn create_snapshot_in(root: &Path, req: &CreateSnapshotRequest) -> Result<Op
 }
 
 /// `RestoreSnapshot` under `root`.
-pub fn restore_snapshot_in(root: &Path, req: &RestoreSnapshotRequest) -> Result<Operation, Status> {
+pub fn restore_snapshot_in(
+    root: &Path,
+    vms: &dyn crate::vms::VmPort,
+    req: &RestoreSnapshotRequest,
+) -> Result<Operation, Status> {
     let target = snapshot_target(&req.virtual_machine, &req.snapshot);
     if let Some(found) = operations::replay(root, "restore", &target, &req.request_id, "")? {
         return Ok(operations::message(&found));
     }
-    missing_vm(root, &req.virtual_machine, &req.namespace)?;
+    missing_vm(vms, &req.virtual_machine, &req.namespace)?;
     let rec = match operations::begin(root, "restore", &target, &req.request_id, "")? {
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = delonix_vm::restore(root, &req.virtual_machine, &req.snapshot)
-        .map_err(Into::into)
+    let outcome = vms
+        .restore(&req.virtual_machine, &req.snapshot)
         .map(|()| target_href(&req.namespace, &req.virtual_machine));
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
@@ -692,18 +715,22 @@ pub fn restore_snapshot_in(root: &Path, req: &RestoreSnapshotRequest) -> Result<
 }
 
 /// `DeleteSnapshot` under `root`.
-pub fn delete_snapshot_in(root: &Path, req: &DeleteSnapshotRequest) -> Result<Operation, Status> {
+pub fn delete_snapshot_in(
+    root: &Path,
+    vms: &dyn crate::vms::VmPort,
+    req: &DeleteSnapshotRequest,
+) -> Result<Operation, Status> {
     let target = snapshot_target(&req.virtual_machine, &req.snapshot);
     if let Some(found) = operations::replay(root, "delete", &target, &req.request_id, "")? {
         return Ok(operations::message(&found));
     }
-    missing_vm(root, &req.virtual_machine, &req.namespace)?;
+    missing_vm(vms, &req.virtual_machine, &req.namespace)?;
     let rec = match operations::begin(root, "delete", &target, &req.request_id, "")? {
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = delonix_vm::delete_snapshot(root, &req.virtual_machine, &req.snapshot)
-        .map_err(Into::into)
+    let outcome = vms
+        .delete_snapshot(&req.virtual_machine, &req.snapshot)
         .map(|()| String::new());
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
@@ -1038,6 +1065,7 @@ mod tests {
         create_in(dir.path(), &create_req("web-7", "")).unwrap();
         let stop = stop_in(
             dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             &StopVirtualMachineRequest {
                 name: "web-7".into(),
                 ..Default::default()
@@ -1049,6 +1077,7 @@ mod tests {
 
         let delete = delete_in(
             dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             &DeleteVirtualMachineRequest {
                 name: "web-7".into(),
                 ..Default::default()
@@ -1060,6 +1089,7 @@ mod tests {
 
         let err = delete_in(
             dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             &DeleteVirtualMachineRequest {
                 name: "web-7".into(),
                 ..Default::default()
@@ -1076,6 +1106,7 @@ mod tests {
         create_in(dir.path(), &create_req("web-8", "")).unwrap();
         let err = start_in(
             dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             &StartVirtualMachineRequest {
                 name: "web-8".into(),
                 namespace: "team-a".into(),
@@ -1094,7 +1125,7 @@ mod tests {
         // This fake does not implement `pause`/`unpause` (the default is
         // "unsupported") — asserts the refusal is surfaced, not swallowed.
         let err = pause_in(
-            dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             &PauseVirtualMachineRequest {
                 name: "web-9".into(),
                 ..Default::default()
@@ -1110,6 +1141,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = create_snapshot_in(
             dir.path(),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
             &CreateSnapshotRequest {
                 virtual_machine: "nope".into(),
                 snapshot: "s1".into(),
