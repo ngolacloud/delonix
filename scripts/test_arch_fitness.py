@@ -272,6 +272,19 @@ class C1RestructuringRules(unittest.TestCase):
         self.assertEqual(n, 1)
         self.assertIn("delonix-cri -> delonix-linux (adapter)", where)
 
+    def test_cross_cutting_telemetry_adapter_is_exempt(self):
+        """Metrics/tracing is a concern every layer emits into, not a composable
+        mechanism — like the host adapter, an interface→`delonix-telemetry` edge
+        does not count (CROSS_CUTTING_ADAPTERS)."""
+        pkgs = {
+            "delonix-cri": _pkg("delonix-cri", ["delonix-telemetry", "delonix-linux"]),
+            "delonix-telemetry": _pkg("delonix-telemetry", []),
+            "delonix-linux": _pkg("delonix-linux", []),
+        }
+        n, where = g.interface_mechanism_deps(pkgs)
+        self.assertEqual(n, 1, "only the linux edge counts; telemetry is exempt")
+        self.assertNotIn("delonix-cri -> delonix-telemetry (adapter)", where)
+
     def test_a_provider_namer_outside_the_engine_is_counted_but_the_engine_is_not(self):
         pkgs = {
             "delonix-engine": _pkg("delonix-engine", ["delonix-provider-proxmox"]),
