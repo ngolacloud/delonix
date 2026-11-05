@@ -760,8 +760,8 @@ flowchart TB
   delonix_cri --> delonix_node
   delonix_cri --> delonix_sdn
   delonix_cri --> delonix_security
-  delonix_cri --> delonix_state
   delonix_cri --> delonix_telemetry
+  delonix_cri_bin --> delonix_compute
   delonix_cri_bin --> delonix_cri
   delonix_cri_bin --> delonix_engine
   delonix_cri_bin --> delonix_host
