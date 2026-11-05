@@ -39,6 +39,7 @@ async fn list_providers_answers_over_grpc_on_the_unix_socket() {
             common::backing_store(),
             common::backing_resolver(),
             common::backing_net(),
+            common::backing_images(),
         );
     });
     wait_for(&sock).await;

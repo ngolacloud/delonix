@@ -846,7 +846,6 @@ flowchart TB
   delonix_node_api --> delonix_linux
   delonix_node_api --> delonix_model
   delonix_node_api --> delonix_node
-  delonix_node_api --> delonix_oci
   delonix_node_api --> delonix_pool_helper
   delonix_node_api --> delonix_provider_ceph
   delonix_node_api --> delonix_provider_opnsense

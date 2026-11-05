@@ -4,10 +4,12 @@
 //! same ledger the network/volume/VM mutations use); what can be decided
 //! without touching anything is refused BEFORE an operation exists.
 //!
-//! **Delete** removes the image from the OCI store in-process
-//! (`ImageStore::remove`, the same `delonix rmi` makes) — a delete that reports
-//! success has removed the reference (an untag when other tags remain, the
-//! blobs when the last tag goes).
+//! **Delete** removes the image from the OCI store in-process (the
+//! [`crate::image_repo::ImageRepo`] port's `remove`, the same `delonix rmi`
+//! makes) — a delete that reports success has removed the reference (an untag
+//! when other tags remain, the blobs when the last tag goes). The interface
+//! names no `delonix-oci` adapter: the store arrives already composed through
+//! the port (R3d-g).
 //!
 //! **Pull** re-execs `delonix pull <reference>` in a fresh process: a pull is
 //! registry I/O and the CLI already composes the credential resolution and the
@@ -19,9 +21,9 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use delonix_oci::ImageStore;
 use tonic::Status;
 
+use crate::image_repo::ImageRepo;
 use crate::operations::{self, Begun};
 use crate::proto::v1::{
     BuildImageRequest, DeleteImageRequest, Operation, PullImageRequest, PushImageRequest,
@@ -40,7 +42,11 @@ fn image_href(reference: &str) -> String {
 
 /// `DeleteImage` — removes a reference from the OCI store (untag or, for the
 /// last tag, the image). In-process; no re-exec for a local store write.
-pub fn delete_in(root: &Path, req: &DeleteImageRequest) -> Result<Operation, Status> {
+pub fn delete_in(
+    root: &Path,
+    images: &dyn ImageRepo,
+    req: &DeleteImageRequest,
+) -> Result<Operation, Status> {
     if req.reference.is_empty() {
         return Err(Status::invalid_argument(
             "DeleteImage: reference is required",
@@ -55,17 +61,14 @@ pub fn delete_in(root: &Path, req: &DeleteImageRequest) -> Result<Operation, Sta
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = delete_work(root, &req.reference).map(|()| image_href(&req.reference));
+    let outcome = delete_work(root, images, &req.reference).map(|()| image_href(&req.reference));
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
     )?))
 }
 
-fn delete_work(root: &Path, reference: &str) -> delonix_model::Result<()> {
-    let store = ImageStore::open(root).map_err(delonix_model::Error::from)?;
-    store
-        .remove(reference)
-        .map_err(delonix_model::Error::from)?;
+fn delete_work(root: &Path, images: &dyn ImageRepo, reference: &str) -> delonix_model::Result<()> {
+    images.remove(root, reference)?;
     delonix_node::events::emit(root, "image", "remove", reference, reference, None);
     Ok(())
 }
