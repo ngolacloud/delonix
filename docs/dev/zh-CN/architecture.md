@@ -769,6 +769,7 @@ flowchart TB
   delonix_engine --> delonix_scanner
   delonix_engine --> delonix_sdn
   delonix_engine --> delonix_state
+  delonix_engine --> delonix_telemetry
   delonix_engine --> delonix_vm
   delonix_engine --> delonix_volume
   delonix_host --> delonix_model
