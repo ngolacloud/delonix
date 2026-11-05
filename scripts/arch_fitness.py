@@ -108,6 +108,17 @@ HOST_ADAPTER = {"delonix-host"}
 # interface→adapter/provider edge still does).
 R2_LIFTED_ADAPTERS = {"delonix-host", "delonix-pool-helper"}
 
+# Cross-cutting observability: metrics and tracing are a concern EVERY layer emits
+# into, not a mechanism the Engine is meant to compose away — the same status the
+# host adapter has for process/fs. An interface incrementing a counter
+# (`metrics::inc_*`) or serving `/metrics` (`metrics::encode`) is not coupled to a
+# composable policy; a port over a counter `++` would be ceremony that hides,
+# rather than removes, a dependency that belongs everywhere. So, like the host
+# adapter, it does not count against the interface→mechanism ratchet. (R3h left the
+# `delonix-cri` interface with this as its only remaining adapter edge once
+# oci/state/linux/sdn moved behind Engine ports.)
+CROSS_CUTTING_ADAPTERS = {"delonix-telemetry"}
+
 # Which layers each layer may depend on. The direction, in one place.
 ALLOWED = {
     FOUNDATION: {FOUNDATION},
@@ -455,13 +466,17 @@ def interface_mechanism_deps(pkgs: dict[str, dict]) -> tuple[int, list[str]]:
     Engine is meant to compose away. (The delonix-node split moved dispatch/
     peer_cred there — the interfaces already used them when they lived in the
     node context, which this ratchet never counted, so counting them now would
-    read corrected classification as new coupling.)"""
+    read corrected classification as new coupling.)
+
+    Cross-cutting observability (`delonix-telemetry`, CROSS_CUTTING_ADAPTERS) is
+    exempt for the same reason the host adapter is: metrics/tracing is a concern
+    every layer emits into, not a composable mechanism."""
     where: list[str] = []
     for name, pkg in sorted(pkgs.items()):
         if LAYERS.get(name) != INTERFACE:
             continue
         for dep in pkg["dependencies"]:
-            if dep["name"] in R2_LIFTED_ADAPTERS:
+            if dep["name"] in R2_LIFTED_ADAPTERS or dep["name"] in CROSS_CUTTING_ADAPTERS:
                 continue
             if dep["kind"] is None and LAYERS.get(dep["name"]) in (ADAPTER, PROVIDER):
                 where.append(f"{name} -> {dep['name']} ({LAYERS[dep['name']]})")
