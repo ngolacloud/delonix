@@ -1232,8 +1232,12 @@ B」这样的问题，而要理解「为什么」，请阅读上文按层划分�
   delonix_cri --&gt; delonix_state
   delonix_cri --&gt; delonix_telemetry
   delonix_engine --&gt; delonix_compute
+  delonix_engine --&gt; delonix_linux
   delonix_engine --&gt; delonix_model
+  delonix_engine --&gt; delonix_sdn
+  delonix_engine --&gt; delonix_state
   delonix_engine --&gt; delonix_vm
+  delonix_engine --&gt; delonix_volume
   delonix_host --&gt; delonix_model
   delonix_linux --&gt; delonix_compute
   delonix_linux --&gt; delonix_model
@@ -1241,13 +1245,9 @@ B」这样的问题，而要理解「为什么」，请阅读上文按层划分�
   delonix_linux --&gt; delonix_state
   delonix_mcp --&gt; delonix_compute
   delonix_mcp --&gt; delonix_host
-  delonix_mcp --&gt; delonix_linux
   delonix_mcp --&gt; delonix_mgmt
   delonix_mcp --&gt; delonix_model
   delonix_mcp --&gt; delonix_node
-  delonix_mcp --&gt; delonix_sdn
-  delonix_mcp --&gt; delonix_state
-  delonix_mcp --&gt; delonix_volume
   delonix_mcp_bin --&gt; delonix_compute
   delonix_mcp_bin --&gt; delonix_engine
   delonix_mcp_bin --&gt; delonix_host

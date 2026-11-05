@@ -16,7 +16,11 @@ use std::path::{Path, PathBuf};
 use delonix_compute::capability::ProviderReport;
 use delonix_compute::ports::ImageDefaults;
 use delonix_compute::vm_backend::VmConfig;
-use delonix_compute::Vm;
+use delonix_compute::{Container, Vm};
+use delonix_linux::usage::UsageSample;
+use delonix_sdn::infra::InfraStatus;
+use delonix_volume::Volume;
+use serde_json::json;
 
 // The VM service's result is the compute VM error (re-exported by delonix-vm).
 // As more contexts' services land here, the engine presents each through its own
@@ -67,6 +71,106 @@ impl Engine {
             vmc::cloud_hypervisor_report(&vmc::CloudHypervisorHost::ASSUMED),
             vmc::libvirt_report(&vmc::LibvirtHost::ASSUMED),
         ]
+    }
+
+    /// The container context's read use cases: the container store and the host
+    /// metrics that describe a running container's process (R3e). An interface
+    /// calls `engine.containers()` instead of the `delonix-state`/`delonix-linux`
+    /// adapters it used to name directly.
+    pub fn containers(&self) -> ContainerService<'_> {
+        ContainerService { engine: self }
+    }
+
+    /// The storage context's named-volume reads (R3e): what the interfaces used to
+    /// reach through the `delonix-volume` adapter.
+    pub fn volumes(&self) -> VolumeService<'_> {
+        VolumeService { engine: self }
+    }
+
+    /// The network context's read use cases (R3e): the SDN infra status and a
+    /// running container's cumulative byte counters, formerly the interfaces'
+    /// direct `delonix-sdn` dependency.
+    pub fn networks(&self) -> NetworkService<'_> {
+        NetworkService { engine: self }
+    }
+
+    /// This host's resource snapshot, the capacity/pressure advice that follows,
+    /// and whether this node should run a local model — the body `delonix system
+    /// resources` and the MCP `resources.get` tool both answer with (R3e). Built
+    /// here, where the `delonix-linux` advice rules and their rendered findings
+    /// are nameable, so an interface serves one composed JSON value instead of
+    /// reaching the adapter and re-deriving the same finding ids a second way.
+    ///
+    /// The shape is the MCP tool's published contract (ADR-0025): the snapshot
+    /// keys (`memory_bytes`, …), the `pressure` array, and each advice line with
+    /// its stable `DLX-RES-nnn` id and its sentence rendered in English. Changing
+    /// a key here changes that contract.
+    pub fn host_resources(&self) -> serde_json::Value {
+        use delonix_linux::resource_advice as advice;
+        let snap = advice::collect(self.root());
+        let findings = advice::advise(&snap);
+        let inference = advice::local_inference(&snap);
+        // Built before the `json!`: the macro reads a `[` in value position as a
+        // JSON array literal and chokes on the `.iter()` that follows.
+        let pressure: Vec<_> = [
+            ("cpu", snap.psi_cpu),
+            ("memory", snap.psi_memory),
+            ("io", snap.psi_io),
+        ]
+        .iter()
+        .map(|(r, p)| {
+            json!({
+                "resource": r,
+                "avg10": p.map(|p| p.avg10),
+                "avg60": p.map(|p| p.avg60),
+                "avg300": p.map(|p| p.avg300),
+            })
+        })
+        .collect();
+        json!({
+            "host": {
+                "cpus": snap.cpus,
+                "memory_bytes": snap.mem_total,
+                "memory_available_bytes": snap.mem_available,
+                "swap_bytes": snap.swap_total,
+                "swap_used_bytes": snap.swap_used,
+                "state_root_free_bytes": snap.disk_free,
+                "cpu_temperature_c": snap.cpu_temp_c,
+                "gpu": snap.gpu.as_ref().map(|g| json!({
+                    "name": g.name,
+                    "vram_total_mib": g.vram_total_mib,
+                    "vram_free_mib": g.vram_free_mib,
+                    "cdi_spec": g.cdi_spec,
+                    "drives_display": g.drives_display,
+                })),
+            },
+            "control": {
+                "rootless": snap.rootless,
+                "cgroup_base": snap.cgroup_base,
+                "delegated": snap.delegated,
+                "aggregate_slice": snap.aggregate_slice,
+            },
+            "pressure": pressure,
+            "advice": findings.iter().map(|f| json!({
+                "id": f.id,
+                "subject": f.subject,
+                "severity": f.severity.as_str(),
+                "class": f.class.as_str(),
+                // Rendered in English here: an MCP client gets the stable `id`
+                // for machines and a finished sentence for humans. The template
+                // and its holes are the CLI's business, because only the CLI
+                // knows which language to render them in.
+                "finding": f.finding.render(),
+                "action": f.action.as_ref().map(|a| a.render()).unwrap_or_default(),
+            })).collect::<Vec<_>>(),
+            // Whether this very node should be the one running the model that
+            // is reading this. It usually should not, and the reasons say why.
+            "local_inference": {
+                "verdict": inference.verdict.as_str(),
+                "largest_model_b_q4": inference.largest_model_b,
+                "reasons": inference.reasons,
+            },
+        })
     }
 }
 
@@ -169,6 +273,104 @@ impl VmService<'_> {
     /// nobody can vouch for.
     pub fn ip_is_predicted(&self, vm: &Vm) -> bool {
         delonix_vm::ip_is_predicted(vm)
+    }
+}
+
+/// The container context's reads, bound to a mounted [`Engine`] (R3e). The store
+/// queries and the host metrics arrive through here instead of an interface
+/// naming `delonix-state`/`delonix-linux`. Errors are the shared
+/// [`delonix_model::Error`] every surface already maps.
+pub struct ContainerService<'a> {
+    engine: &'a Engine,
+}
+
+impl ContainerService<'_> {
+    fn store(&self) -> delonix_model::Result<delonix_state::Store> {
+        delonix_state::Store::open(self.engine.root().join("containers")).map_err(Into::into)
+    }
+
+    /// Every container this node has.
+    pub fn list(&self) -> delonix_model::Result<Vec<Container>> {
+        self.store()?.list().map_err(Into::into)
+    }
+
+    /// One container's full record, by name or id (prefix).
+    pub fn load(&self, id_or_name: &str) -> delonix_model::Result<Container> {
+        self.store()?.load(id_or_name).map_err(Into::into)
+    }
+
+    /// Whether the container store is reachable — the openability a health or
+    /// doctor check reports, with the open error kept for its detail line.
+    pub fn store_reachable(&self) -> delonix_model::Result<()> {
+        self.store().map(|_| ())
+    }
+
+    /// Reconcile a container's recorded status against its live process, in place.
+    pub fn reconcile_status(&self, c: &mut Container) {
+        delonix_linux::reconcile_status(c);
+    }
+
+    /// The cgroup path a running container's usage is read from.
+    pub fn live_cgroup(&self, c: &Container) -> String {
+        delonix_linux::live_cgroup(c)
+    }
+
+    /// One cumulative-usage sample of the cgroup at `dir`.
+    pub fn cgroup_sample(&self, dir: &Path) -> UsageSample {
+        delonix_linux::usage::cgroup_sample(dir)
+    }
+
+    /// One cumulative-usage sample of a process by pid (the VMM basis a VM row
+    /// reports from).
+    pub fn process_sample(&self, pid: i32) -> UsageSample {
+        delonix_linux::usage::process_sample(pid)
+    }
+
+    /// The Unix start time of a pid, or `None` if it cannot be read.
+    pub fn process_started_at_unix(&self, pid: i32) -> Option<u64> {
+        delonix_linux::usage::process_started_at_unix(pid)
+    }
+}
+
+/// The storage context's named-volume reads, bound to a mounted [`Engine`] (R3e).
+pub struct VolumeService<'a> {
+    engine: &'a Engine,
+}
+
+impl VolumeService<'_> {
+    /// Every named volume this node has.
+    pub fn list(&self) -> delonix_model::Result<Vec<Volume>> {
+        delonix_volume::VolumeStore::open(self.engine.root())
+            .and_then(|s| s.list())
+            .map_err(Into::into)
+    }
+
+    /// Whether the volume store is reachable (the health/doctor openability check).
+    pub fn store_reachable(&self) -> delonix_model::Result<()> {
+        delonix_volume::VolumeStore::open(self.engine.root())
+            .map(|_| ())
+            .map_err(Into::into)
+    }
+}
+
+/// The network context's read use cases, bound to a mounted [`Engine`] (R3e).
+pub struct NetworkService<'a> {
+    engine: &'a Engine,
+}
+
+impl NetworkService<'_> {
+    /// The SDN/holder infrastructure status (bridges, firewall, ingress).
+    pub fn status(&self) -> InfraStatus {
+        let _ = self.engine;
+        delonix_sdn::infra::status()
+    }
+
+    /// A running container's cumulative received/transmitted bytes across its own
+    /// network namespace, or `None` when it has none to read (host/none network,
+    /// or the holder is unreachable).
+    pub fn container_net_bytes(&self, id: &str) -> Option<(u64, u64)> {
+        let _ = self.engine;
+        delonix_sdn::infra::container_net_bytes(id)
     }
 }
 

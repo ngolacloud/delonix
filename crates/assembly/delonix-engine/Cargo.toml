@@ -8,3 +8,13 @@ license.workspace = true
 delonix-model = { workspace = true }
 delonix-compute = { workspace = true }
 delonix-vm = { workspace = true }
+# The read-side adapters the engine composes away for the interfaces (R3e): the
+# container/secret store, the named-volume store, the SDN infra view, and the
+# host container/process metrics. Assembly may depend on an adapter (A1); an
+# interface may not, which is the edge this move pays down (`delonix-mcp` held
+# all four directly before R3e).
+delonix-state = { workspace = true }
+delonix-volume = { workspace = true }
+delonix-sdn = { workspace = true }
+delonix-linux = { workspace = true }
+serde_json = { workspace = true }

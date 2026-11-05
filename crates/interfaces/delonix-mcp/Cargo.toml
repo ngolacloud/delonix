@@ -14,16 +14,9 @@ delonix-compute = { workspace = true }
 delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-model = { workspace = true }
-delonix-state = { workspace = true }
-delonix-volume = { workspace = true }
-delonix-sdn = { workspace = true }
 # Reused for its Prometheus-shaped runtime summary (`dashstats::collect`) so
 # `runtime.info`/`metrics.query` do not re-derive the same counts a second way.
 delonix-mgmt = { workspace = true }
-# For `resources.get`: the snapshot and the advice rules, so an agent and the
-# CLI answer with the SAME finding ids. Already in this crate's dependency
-# graph through `delonix-mgmt`; named directly because it is used directly.
-delonix-linux = { workspace = true }
 
 rmcp = { workspace = true, features = ["server", "transport-io", "macros", "schemars"] }
 schemars = { workspace = true, features = ["derive"] }
@@ -35,6 +28,16 @@ sha2 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# R3e: the container/volume/network/metrics reads reach production through the
+# `EngineReads` port the bin mounts over `delonix-engine`; this crate no longer
+# names these adapters in production. The tests keep a real-adapter backing for
+# the port (so the usage-sampling behaviour is still exercised end to end), which
+# is the ONLY reason these four stay in the dependency graph at all — as
+# dev-dependencies, the same pattern the other interfaces use for their ports.
+delonix-state = { workspace = true }
+delonix-volume = { workspace = true }
+delonix-sdn = { workspace = true }
+delonix-linux = { workspace = true }
 
 [lints]
 workspace = true
