@@ -716,7 +716,7 @@ the holder, on <code>virbr0</code> in the host's network namespace.</p>
 </tr>
 <tr>
 <td><code>delonix-cri</code></td>
-<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/bin/delonix-cri.rs" target="_blank" rel="noopener"><code>crates/<wbr>interfaces/<wbr>delonix-cri/<wbr>src/<wbr>bin/<wbr>delonix-cri.<wbr>rs</code></a> → <code>delonix_cri::<wbr>serve_blocking</code></td>
+<td><code>crates/<wbr>interfaces/<wbr>delonix-cri/<wbr>src/<wbr>bin/<wbr>delonix-cri.<wbr>rs</code> → <code>delonix_cri::<wbr>serve_blocking</code></td>
 <td>a service (typically a systemd unit). <code>delonix serve cri</code> <code>exec</code>s it (<code>cmd/<wbr>serve.<wbr>rs::<wbr>exec_server</code>)</td>
 </tr>
 <tr>
@@ -1203,6 +1203,7 @@ answer "does A depend on B", and read the per-layer figures above to understand 
   end
   subgraph bin[&quot;Binaries&quot;]
     delonix_bin[&quot;delonix-bin&quot;]
+    delonix_cri_bin[&quot;delonix-cri-bin&quot;]
     delonix_mcp_bin[&quot;delonix-mcp-bin&quot;]
     delonix_mgmt_bin[&quot;delonix-mgmt-bin&quot;]
     delonix_node_api_bin[&quot;delonix-node-api-bin&quot;]
@@ -1244,11 +1245,15 @@ answer "does A depend on B", and read the per-layer figures above to understand 
   delonix_cri --&gt; delonix_linux
   delonix_cri --&gt; delonix_model
   delonix_cri --&gt; delonix_node
-  delonix_cri --&gt; delonix_oci
   delonix_cri --&gt; delonix_sdn
   delonix_cri --&gt; delonix_security
   delonix_cri --&gt; delonix_state
   delonix_cri --&gt; delonix_telemetry
+  delonix_cri_bin --&gt; delonix_cri
+  delonix_cri_bin --&gt; delonix_engine
+  delonix_cri_bin --&gt; delonix_host
+  delonix_cri_bin --&gt; delonix_model
+  delonix_cri_bin --&gt; delonix_telemetry
   delonix_engine --&gt; delonix_compute
   delonix_engine --&gt; delonix_linux
   delonix_engine --&gt; delonix_model
@@ -1378,6 +1383,7 @@ answer "does A depend on B", and read the per-layer figures above to understand 
   class delonix_bin engine
   class delonix_compute block
   class delonix_cri iface
+  class delonix_cri_bin engine
   class delonix_engine assembly
   class delonix_host block
   class delonix_linux block

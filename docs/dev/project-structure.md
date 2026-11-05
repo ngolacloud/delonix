@@ -56,6 +56,7 @@ Start at the root and follow the dependencies inward:
 ├── bins/
 │   ├── delonix/                  the `delonix` CLI (+ templates, pt.po catalogue)
 │   ├── delonix-mgmt-bin/         the `delonix-mgmt` binary
+│   ├── delonix-cri-bin/          the `delonix-cri` binary
 │   ├── delonix-node-api-bin/     the `delonix-node-api` binary
 │   ├── delonix-storage-helper/   the `delonix-storage-helper` binary (root, per connection)
 │   └── delonix-mcp-bin/          the `delonix-mcp` binary
@@ -129,6 +130,7 @@ The crate list, each crate's layer and who depends on whom are generated facts i
 | `bins/` | Binary crates. Each composes one interface (enforced by `arch_fitness.py`). | Every CLI-visible feature. | [Architecture](architecture.md) |
 | `bins/delonix/` | The `delonix` CLI: `src/main.rs`, one module per command group in `src/cmd/`, the Portuguese message catalogue `data/pt.po`, the `init` project templates in `templates/`, `build.rs`, and `tests/architecture.rs`. | Every feature with a command, flag or message. | [Coding conventions](coding-conventions.md) |
 | `bins/delonix-mgmt-bin/` | The `delonix-mgmt` binary: a thin `main.rs` over `delonix-mgmt`. | Rarely; the logic lives in the interface crate. | [The crates](crates.md) |
+| `bins/delonix-cri-bin/` | The `delonix-cri` binary: mounts the engine and hands the CRI server its image port (ADR-0040 A5, R3h); run by `delonix serve cri`. | Rarely; the logic lives in `delonix-cri`. | `docs/adr/0040-engine-restructuring.md` |
 | `bins/delonix-node-api-bin/` | The `delonix-node-api` binary: a thin `main.rs` over `delonix-node-api` (the node contract on a unix socket, ADR-0040 P5). | Rarely; the logic lives in the interface crate. | `docs/adr/0050-libvirt-linux-providers-capability-catalog.md` |
 | `bins/delonix-mcp-bin/` | The `delonix-mcp` binary: a thin `main.rs` over `delonix-mcp`. | Rarely; the logic lives in the interface crate. | `docs/adr/0025-mcp-local-ai-control-surface.md` |
 | `bins/delonix-storage-helper/` | The `delonix-storage-helper` binary: the privileged storage pool helper (ADR-0067 D3, P1). systemd starts it once per connection on `delonix-storage-helper.socket`; it serves one request within `/etc/delonix/storage-pools.yaml`, and is also the administrator's `create-pool`/`destroy-pool`. Units in `dist/`. | When the helper's protocol or its units change; the request grammar lives in `delonix-storage::helper`. | `docs/adr/0067-storage-pools.md` |

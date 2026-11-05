@@ -818,7 +818,6 @@ dependencies = [
  "delonix-linux",
  "delonix-model",
  "delonix-node",
- "delonix-oci",
  "delonix-sdn",
  "delonix-security",
  "delonix-state",
@@ -837,6 +836,20 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tower 0.5.3",
+ "tracing",
+]
+
+[[package]]
+name = "delonix-cri-bin"
+version = "0.1.0"
+dependencies = [
+ "delonix-cri",
+ "delonix-engine",
+ "delonix-host",
+ "delonix-model",
+ "delonix-telemetry",
+ "serde_json",
+ "tempfile",
  "tracing",
 ]
 

@@ -1,0 +1,31 @@
+[package]
+name = "delonix-cri-bin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# `delonix-cri` — the CRI server's own executable (ADR-0040 D2.4: one
+# long-running role per binary). People reach it as `delonix serve cri`, which
+# execs this binary. The bin is the one layer allowed to name the assembly: it
+# mounts the `Engine` and hands the server its image port (ADR-0040 A5, R3h), so
+# `delonix-cri` (the interface) never names the `delonix-oci` adapter.
+[[bin]]
+name = "delonix-cri"
+path = "src/main.rs"
+
+[dependencies]
+delonix-cri = { workspace = true }
+delonix-host = { workspace = true }
+delonix-telemetry = { workspace = true }
+# The bin composes the engine and hands the CRI server its image use cases.
+delonix-engine = { workspace = true }
+delonix-model = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+# `version_flag.rs` runs the built binary in a temp state root.
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

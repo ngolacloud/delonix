@@ -1,14 +1,14 @@
 {
   "self_exec_sites": 35,
-  "library_prints": 109,
+  "library_prints": 108,
   "env_writes": 23,
   "shared_error_imports": 3,
   "raw_error_variant_matches": 0,
   "context_spawns": 0,
   "cli_context_lines": 118328,
-  "interface_mechanism_deps": 15,
+  "interface_mechanism_deps": 14,
   "provider_namers": 17,
-  "bin_crates": 5,
+  "bin_crates": 6,
   "inter_context_violations": 2,
   "domain_app_refs": 13
 }
