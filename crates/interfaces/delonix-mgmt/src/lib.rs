@@ -29,7 +29,6 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use delonix_host::peer_cred::peer_uid;
 use delonix_model::Error;
-use delonix_oci::ImageStore;
 use delonix_state::Store;
 use delonix_volume::VolumeStore;
 
@@ -51,16 +50,45 @@ struct AppState {
     /// `delonix-vm` adapter (ADR-0040 A5): the bin composes the engine and hands
     /// in this `VmView`, so the dashstats VM counts/series resolve off the port.
     vms: Arc<dyn VmView>,
+    /// The rest of the composed engine's use cases this API serves, as a port
+    /// (R3f). Same shape as `vms`: the bin mounts a `delonix-engine::Engine` and
+    /// hands in an implementor, so the image/volume/container/network endpoints
+    /// resolve through the composition instead of this interface naming the
+    /// `delonix-oci`/`delonix-volume`/`delonix-state`/`delonix-sdn`/`delonix-linux`
+    /// adapters directly (the edge the arch gate ratchets down).
+    engine: Arc<dyn EngineOps>,
+}
+
+/// The composed engine's use cases the management API serves, beyond VMs (R3f).
+/// Grows one group of methods per adapter edge lifted off this interface onto the
+/// `delonix-engine` assembly. Reads return a domain value where one exists below
+/// the interface layer, or a pretty-printable `serde_json::Value` where the only
+/// type is the adapter's own (the handler serializes it either way); mutations
+/// return what the endpoint echoes. Every result carries the shared
+/// [`Error`](delonix_model::Error) the HTTP layer already maps.
+pub trait EngineOps: Send + Sync {
+    // --- images (delonix-oci / delonix-scanner) ---
+    /// Every local image, serialized (`Image` is the adapter's type).
+    fn list_images(&self) -> Result<serde_json::Value, Error>;
+    /// Remove an image by tag or id; returns the store's `untagged:`/`deleted:` line.
+    fn remove_image(&self, reference: &str) -> Result<String, Error>;
+    /// The SBOM of an image, serialized (`Package` is the scanner's type).
+    fn image_sbom(&self, reference: &str) -> Result<serde_json::Value, Error>;
 }
 
 /// Starts the management API listening on a unix socket (blocking). `addr` accepts
 /// a path or `unix:///path`. Same pattern as `delonix-cri::serve_blocking`.
-pub fn serve_blocking(base: PathBuf, vms: Arc<dyn VmView>, addr: &str) -> Result<(), Error> {
+pub fn serve_blocking(
+    base: PathBuf,
+    vms: Arc<dyn VmView>,
+    engine: Arc<dyn EngineOps>,
+    addr: &str,
+) -> Result<(), Error> {
     // The CLI the mutations run: never this process's own executable, which is the
     // API server (`delonix serve api` runs `delonix-mgmt`) and would serve again
     // instead of running the command.
     let bin = delonix_host::dispatch::cli_bin();
-    serve_blocking_with(base, bin, vms, addr)
+    serve_blocking_with(base, bin, vms, engine, addr)
 }
 
 /// Like [`serve_blocking`], but with the CLI binary explicit (for tests).
@@ -68,6 +96,7 @@ pub fn serve_blocking_with(
     base: PathBuf,
     bin: PathBuf,
     vms: Arc<dyn VmView>,
+    engine: Arc<dyn EngineOps>,
     addr: &str,
 ) -> Result<(), Error> {
     let path = addr.strip_prefix("unix://").unwrap_or(addr).to_string();
@@ -102,7 +131,7 @@ pub fn serve_blocking_with(
             base.clone(),
             Arc::clone(&vms),
         ));
-        serve_over_uds(uds, router(AppState { base, bin, vms })).await
+        serve_over_uds(uds, router(AppState { base, bin, vms, engine })).await
     })
 }
 
@@ -424,6 +453,23 @@ fn err_response(e: Error) -> Response {
         other => (StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
     };
     (code, Json(serde_json::json!({ "error": msg, "code": dx }))).into_response()
+}
+
+/// Runs a synchronous engine-port call on a blocking thread (the engine's reads
+/// and store mutations are synchronous; they must not block the async executor),
+/// mapping a join failure to the shared error. The port pattern (R3f) replacing
+/// the per-adapter `with_*_store` helpers below as each edge moves to the engine.
+async fn blocking<T, F>(f: F) -> Result<T, Error>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, Error> + Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| Error::Runtime {
+            context: "join",
+            message: e.to_string(),
+        })?
 }
 
 /// Runs a synchronous `VolumeStore` operation on a blocking thread (the store
@@ -799,26 +845,9 @@ async fn run_container(State(s): State<AppState>, Json(spec): Json<RunSpecBody>)
 
 // ---- Images (list + rmi) ---------------------------------------------------
 
-/// Runs a synchronous `ImageStore` operation on a blocking thread. The store
-/// resolves `<base>/images` internally (it receives the base, like the `VolumeStore`).
-async fn with_image_store<T, F>(base: PathBuf, f: F) -> Result<T, Error>
-where
-    T: Send + 'static,
-    F: FnOnce(&ImageStore) -> Result<T, delonix_oci::Error> + Send + 'static,
-{
-    tokio::task::spawn_blocking(move || -> Result<T, Error> {
-        let store = ImageStore::open(&base)?;
-        Ok(f(&store)?)
-    })
-    .await
-    .map_err(|e| Error::Runtime {
-        context: "join",
-        message: e.to_string(),
-    })?
-}
-
 async fn list_images(State(s): State<AppState>) -> Response {
-    match with_image_store(s.base, |store| store.list()).await {
+    let engine = s.engine.clone();
+    match blocking(move || engine.list_images()).await {
         Ok(imgs) => Json(imgs).into_response(),
         Err(e) => err_response(e),
     }
@@ -835,7 +864,8 @@ async fn delete_image(State(s): State<AppState>, Query(q): Query<RefQuery>) -> R
     if q.reference.is_empty() {
         return err_response(Error::Invalid("empty image reference".to_string()));
     }
-    match with_image_store(s.base, move |store| store.remove(&q.reference)).await {
+    let engine = s.engine.clone();
+    match blocking(move || engine.remove_image(&q.reference)).await {
         // `remove` returns "untagged: …" or "deleted: …" — return it as-is.
         Ok(result) => Json(serde_json::json!({ "result": result })).into_response(),
         Err(e) => err_response(e),
@@ -976,14 +1006,11 @@ async fn sbom_image(State(s): State<AppState>, Query(q): Query<RefQuery>) -> Res
         return err_response(Error::Invalid("empty image reference".to_string()));
     }
     // SBOM is a LIBRARY call (it reads the layers from the CAS, runs nothing) — like
-    // the volume/container reads. 404 if the image doesn't exist locally.
-    let out = with_image_store(s.base, move |store| {
-        let img = store.resolve(&q.reference)?;
-        // `extract` fails → the image exists but has no readable package manager (empty
-        // list), just as the old handler distinguished it from "not found".
-        Ok(delonix_scanner::extract_sbom(store, &img).unwrap_or_default())
-    })
-    .await;
+    // the volume/container reads. 404 if the image doesn't exist locally. The
+    // engine resolves the image and extracts the SBOM; this interface no longer
+    // names the image store or the scanner (R3f).
+    let engine = s.engine.clone();
+    let out = blocking(move || engine.image_sbom(&q.reference)).await;
     match out {
         Ok(pkgs) => Json(pkgs).into_response(),
         Err(e) => err_response(e),
@@ -1526,6 +1553,32 @@ mod tests {
         }
     }
 
+    /// The [`EngineOps`] the tests run against: the SAME adapter reads/mutations
+    /// the `delonix-engine` composition makes in production, reached directly over
+    /// a state root so the endpoints are still exercised end to end without this
+    /// crate carrying the adapters in production. The dev-dependency counterpart
+    /// of the bin's engine-backed `EnginePorts`, and the only place these adapters
+    /// are named in `delonix-mgmt` once an edge has moved (always `#[cfg(test)]`).
+    struct RealEngine(PathBuf);
+
+    impl EngineOps for RealEngine {
+        fn list_images(&self) -> Result<serde_json::Value, Error> {
+            let store = delonix_oci::ImageStore::open(&self.0)?;
+            let imgs = store.list()?;
+            Ok(serde_json::to_value(imgs).unwrap_or(serde_json::Value::Null))
+        }
+        fn remove_image(&self, reference: &str) -> Result<String, Error> {
+            let store = delonix_oci::ImageStore::open(&self.0)?;
+            Ok(store.remove(reference)?)
+        }
+        fn image_sbom(&self, reference: &str) -> Result<serde_json::Value, Error> {
+            let store = delonix_oci::ImageStore::open(&self.0)?;
+            let img = store.resolve(reference)?;
+            let pkgs = delonix_scanner::extract_sbom(&store, &img).unwrap_or_default();
+            Ok(serde_json::to_value(pkgs).unwrap_or(serde_json::Value::Null))
+        }
+    }
+
     fn test_state() -> (AppState, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         (
@@ -1535,6 +1588,7 @@ mod tests {
                 // the unit tests cover only the validation (refusal BEFORE the exec).
                 bin: PathBuf::from("/bin/false"),
                 vms: Arc::new(NoVms),
+                engine: Arc::new(RealEngine(dir.path().to_path_buf())),
             },
             dir,
         )

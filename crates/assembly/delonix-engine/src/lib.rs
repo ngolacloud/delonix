@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use delonix_compute::capability::ProviderReport;
 use delonix_compute::{Container, Vm};
 use delonix_linux::usage::UsageSample;
+use delonix_oci::{Image, ImageStore};
 use delonix_sdn::infra::InfraStatus;
 use delonix_volume::Volume;
 use serde_json::json;
@@ -77,6 +78,15 @@ impl Engine {
     /// direct `delonix-sdn` dependency.
     pub fn networks(&self) -> NetworkService<'_> {
         NetworkService { engine: self }
+    }
+
+    /// The image context's read use cases (R3f): the local image store and the
+    /// SBOM a scanner derives from an image's layers. What `delonix-mgmt`'s image
+    /// endpoints used to reach through the `delonix-oci`/`delonix-scanner`
+    /// adapters directly. (Pull and build are not here: they run the engine CLI,
+    /// not a library call — the interface keeps shelling out for those.)
+    pub fn images(&self) -> ImageService<'_> {
+        ImageService { engine: self }
     }
 
     /// This host's resource snapshot, the capacity/pressure advice that follows,
@@ -323,6 +333,58 @@ impl NetworkService<'_> {
     pub fn container_net_bytes(&self, id: &str) -> Option<(u64, u64)> {
         let _ = self.engine;
         delonix_sdn::infra::container_net_bytes(id)
+    }
+}
+
+/// The image context's reads, bound to a mounted [`Engine`] (R3f). Errors are the
+/// shared [`delonix_model::Error`]; the native `delonix-oci` error maps into it in
+/// the adapter, so every surface sees one error vocabulary.
+pub struct ImageService<'a> {
+    engine: &'a Engine,
+}
+
+impl ImageService<'_> {
+    // `delonix_oci::Error` converts into BOTH `delonix_model::Error` and
+    // `delonix_scanner::Error` (the scanner builds on the image store), so the
+    // bare `Into::into` is ambiguous here — name the target explicitly.
+    fn store(&self) -> delonix_model::Result<ImageStore> {
+        ImageStore::open(self.engine.root()).map_err(delonix_model::Error::from)
+    }
+
+    /// Every image in the local store.
+    pub fn list(&self) -> delonix_model::Result<Vec<Image>> {
+        self.store()?.list().map_err(delonix_model::Error::from)
+    }
+
+    /// How many images are stored — best-effort (`0` on an unreadable store, the
+    /// same degradation the dashboard summary expects).
+    pub fn count(&self) -> u64 {
+        self.store()
+            .and_then(|s| s.list().map_err(delonix_model::Error::from))
+            .map(|l| l.len() as u64)
+            .unwrap_or(0)
+    }
+
+    /// Remove an image (tag or id); returns the human line the store reports
+    /// (`untagged: …` / `deleted: …`).
+    pub fn remove(&self, reference: &str) -> delonix_model::Result<String> {
+        self.store()?
+            .remove(reference)
+            .map_err(delonix_model::Error::from)
+    }
+
+    /// The SBOM (installed packages) a scanner reads from an image's layers,
+    /// already serialized — the `Package` type lives in the scanner adapter and
+    /// the caller only serves the list. An image that exists but exposes no
+    /// readable package manager is an empty list, not an error (the store's
+    /// `resolve` is what distinguishes "no such image").
+    pub fn sbom(&self, reference: &str) -> delonix_model::Result<serde_json::Value> {
+        let store = self.store()?;
+        let img = store
+            .resolve(reference)
+            .map_err(delonix_model::Error::from)?;
+        let pkgs = delonix_scanner::extract_sbom(&store, &img).unwrap_or_default();
+        Ok(serde_json::to_value(pkgs).unwrap_or(serde_json::Value::Null))
     }
 }
 

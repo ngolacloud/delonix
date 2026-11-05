@@ -782,6 +782,8 @@ flowchart TB
   delonix_engine --> delonix_compute
   delonix_engine --> delonix_linux
   delonix_engine --> delonix_model
+  delonix_engine --> delonix_oci
+  delonix_engine --> delonix_scanner
   delonix_engine --> delonix_sdn
   delonix_engine --> delonix_state
   delonix_engine --> delonix_vm
@@ -809,7 +811,6 @@ flowchart TB
   delonix_mgmt --> delonix_model
   delonix_mgmt --> delonix_node
   delonix_mgmt --> delonix_oci
-  delonix_mgmt --> delonix_scanner
   delonix_mgmt --> delonix_sdn
   delonix_mgmt --> delonix_state
   delonix_mgmt --> delonix_telemetry
