@@ -70,6 +70,8 @@ async fn the_container_lifecycle_runs_end_to_end_over_grpc() {
             common::backing_images(),
             common::backing_providers(),
             common::backing_linux(),
+            common::backing_volumes(),
+            common::backing_ceph(),
         );
     });
     wait_for(&sock).await;

@@ -108,11 +108,13 @@ pub mod selector;
 mod service;
 pub mod stacks;
 pub mod storage;
+pub mod storage_backend;
 pub mod store;
 pub mod transcode;
 pub mod vm_ops;
 pub mod vms;
 pub mod volume_ops;
+pub mod volume_store;
 pub mod volumes;
 
 pub use image_repo::ImageRepo;
@@ -120,6 +122,8 @@ pub use linux_lifecycle::LinuxLifecycle;
 pub use net_ops::NetworkOps;
 pub use provider_reports::ProviderReports;
 pub use run_resolver::RunResolver;
+pub use storage_backend::CephStorage;
+pub use volume_store::VolumeStore;
 pub use service::{
     capacity, health, link_header, list_providers, node_info, openapi_document, router,
     router_with, NodeApi, OPENAPI_YAML,
@@ -138,13 +142,14 @@ pub use vms::VmPort;
 /// here names no adapter: the Ceph storage-pool drivers (ADR-0081), through
 /// which `CreateVolume` with a `spec.provision` naming a `ceph-rbd`/`cephfs`
 /// pool allocates. Idempotent; the first registration in a process wins.
-pub fn compose() {
+pub fn compose(ceph: &dyn CephStorage) {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         // The Ceph storage-pool drivers (ADR-0081): `CreateVolume` with a
         // `spec.provision` naming a `ceph-rbd`/`cephfs` pool allocates through
-        // them. Registering does no I/O.
-        storage::register_pool_drivers();
+        // them. The drivers come from the `CephStorage` port the bin composes
+        // (R3d-j) — the interface names no adapter. Registering does no I/O.
+        storage::register_pool_drivers(ceph);
     });
 }
 
@@ -172,6 +177,8 @@ pub fn serve_blocking(
     images: std::sync::Arc<dyn ImageRepo>,
     providers: std::sync::Arc<dyn ProviderReports>,
     linux: std::sync::Arc<dyn LinuxLifecycle>,
+    volumes: std::sync::Arc<dyn VolumeStore>,
+    ceph: std::sync::Arc<dyn CephStorage>,
 ) -> Result<(), Error> {
     serve_with(
         Listen::Path(addr.to_string()),
@@ -183,6 +190,8 @@ pub fn serve_blocking(
         images,
         providers,
         linux,
+        volumes,
+        ceph,
     )
 }
 
@@ -201,6 +210,8 @@ pub fn serve(
     images: std::sync::Arc<dyn ImageRepo>,
     providers: std::sync::Arc<dyn ProviderReports>,
     linux: std::sync::Arc<dyn LinuxLifecycle>,
+    volumes: std::sync::Arc<dyn VolumeStore>,
+    ceph: std::sync::Arc<dyn CephStorage>,
 ) -> Result<(), Error> {
     serve_with(
         listen,
@@ -212,6 +223,8 @@ pub fn serve(
         images,
         providers,
         linux,
+        volumes,
+        ceph,
     )
 }
 
@@ -225,8 +238,10 @@ fn serve_with(
     images: std::sync::Arc<dyn ImageRepo>,
     providers: std::sync::Arc<dyn ProviderReports>,
     linux: std::sync::Arc<dyn LinuxLifecycle>,
+    volumes: std::sync::Arc<dyn VolumeStore>,
+    ceph: std::sync::Arc<dyn CephStorage>,
 ) -> Result<(), Error> {
-    compose();
+    compose(ceph.as_ref());
     delonix_node::alloc_tuning::limit_malloc_arenas();
     // An inherited descriptor is checked and taken before any thread exists.
     let inherited = match &listen {
@@ -290,7 +305,17 @@ fn serve_with(
         };
         serve_listener(
             uds,
-            router_with(vms, store, run_resolver, net, images, providers, linux),
+            router_with(
+                vms,
+                store,
+                run_resolver,
+                net,
+                images,
+                providers,
+                linux,
+                volumes,
+                ceph,
+            ),
             idle,
         )
         .await

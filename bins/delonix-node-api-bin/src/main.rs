@@ -17,10 +17,14 @@ use delonix_model::Error;
 use delonix_node_api::image_repo::StoredImage;
 use delonix_node_api::linux_lifecycle::{ContainerUsage, LimitUpdate, ResourceUpdate};
 use delonix_node_api::net_ops::NetRecord;
+use delonix_node_api::storage_backend::{
+    BucketRecord, CephHealth, CephIdentity, RgwFault, StoragePoolDriver, UserRecord,
+};
 use delonix_node_api::store::PortRepo;
+use delonix_node_api::volume_store::{OwnedVolumeRecord, VolumeRecord, VolumeUsage};
 use delonix_node_api::{
-    activation, ImageRepo, LinuxLifecycle, Listen, NetworkOps, ProviderReports, RunResolver,
-    StorePort, VmPort,
+    activation, CephStorage, ImageRepo, LinuxLifecycle, Listen, NetworkOps, ProviderReports,
+    RunResolver, StorePort, VmPort, VolumeStore,
 };
 
 /// The composition's VM reads, handed to the node API as its `VmPort` port
@@ -544,6 +548,201 @@ impl LinuxLifecycle for HostLinux {
     }
 }
 
+/// The composition's volume store, handed to the node API as its `VolumeStore`
+/// port (ADR-0040 A5, R3d-j). The bin names the `delonix-volume` adapter
+/// directly (a bin may name an adapter, A1), so the `delonix-node-api` interface
+/// no longer names it. This Engine has no volume service yet (PRE-R3h), so the
+/// port is backed by `delonix-volume` directly, exactly as `StateStore`/`SdnNet`
+/// back the record store and the SDN; the adapter's `Volume`/`OwnedVolume` are
+/// summarised into the interface's records.
+struct HostVolumes;
+
+/// `delonix-volume`'s `Volume` as the interface's summary record.
+fn volume_record(v: &delonix_volume::Volume) -> VolumeRecord {
+    VolumeRecord {
+        name: v.name.clone(),
+        mountpoint: v.mountpoint.clone(),
+        created_unix: v.created_unix,
+        driver: v.driver.clone(),
+        device: v.device.clone(),
+        options: v.options.clone(),
+        quota_bytes: v.quota_bytes,
+        alert_pct: v.alert_pct,
+        labels: v.labels.clone(),
+        annotations: v.annotations.clone(),
+        parent: v.parent.clone(),
+        pool: v.pool.clone(),
+    }
+}
+
+impl VolumeStore for HostVolumes {
+    fn list_all(&self, root: &std::path::Path) -> Result<Vec<OwnedVolumeRecord>, Error> {
+        Ok(delonix_volume::VolumeStore::open(root)?
+            .list_all()?
+            .into_iter()
+            .map(|o| OwnedVolumeRecord {
+                namespace: o.namespace,
+                volume: volume_record(&o.volume),
+            })
+            .collect())
+    }
+    fn measure(&self, path: &std::path::Path) -> VolumeUsage {
+        let u = delonix_volume::measure(path);
+        VolumeUsage {
+            bytes: u.bytes,
+            complete: u.is_complete(),
+        }
+    }
+    fn is_network_driver(&self, driver: &str) -> bool {
+        delonix_volume::is_network_driver(driver)
+    }
+    fn validate_name(&self, name: &str) -> Result<(), Error> {
+        delonix_volume::VolumeStore::validate_name(name)?;
+        Ok(())
+    }
+    fn create_local(&self, root: &std::path::Path, name: &str) -> Result<(), Error> {
+        delonix_volume::VolumeStore::open(root)?.create_with(name, "local", None, None)?;
+        Ok(())
+    }
+    fn register_in_pool(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        mountpoint: &std::path::Path,
+        size_bytes: u64,
+        alert_pct: Option<u8>,
+        pool: &str,
+    ) -> Result<(), Error> {
+        delonix_volume::VolumeStore::open(root)?
+            .register_in_pool(name, mountpoint, size_bytes, alert_pct, pool)?;
+        Ok(())
+    }
+    fn set_quota(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        quota: Option<u64>,
+        alert_pct: Option<u8>,
+    ) -> Result<(), Error> {
+        delonix_volume::VolumeStore::open(root)?.set_quota(name, quota, alert_pct, false)?;
+        Ok(())
+    }
+    fn set_metadata(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        labels: &[(String, Option<String>)],
+        annotations: &[(String, Option<String>)],
+    ) -> Result<(), Error> {
+        delonix_volume::VolumeStore::open(root)?.set_metadata(name, labels, annotations)?;
+        Ok(())
+    }
+    fn remove(
+        &self,
+        root: &std::path::Path,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> Result<(), Error> {
+        let store = match namespace {
+            Some(ns) => delonix_volume::VolumeStore::open_scoped(root, ns),
+            None => delonix_volume::VolumeStore::open(root),
+        }?;
+        store.remove_with(name, None)?;
+        Ok(())
+    }
+}
+
+/// The composition's Ceph cluster, handed to the node API as its `CephStorage`
+/// port (ADR-0040 A5, R3d-j, ADR-0081). The bin names the `delonix-provider-ceph`
+/// adapter directly (A1), so the interface no longer names it. The Ceph tools
+/// run through the same `delonix-volume` `SystemRun` the local drivers use.
+struct CephStore;
+
+fn ceph_ctx(ident: &CephIdentity) -> delonix_provider_ceph::ceph::CephCtx {
+    delonix_provider_ceph::ceph::CephCtx {
+        conf: ident.conf.clone(),
+        user: ident.user.clone(),
+    }
+}
+
+fn ceph_run() -> Arc<delonix_volume::pool_exec::SystemRun> {
+    Arc::new(delonix_volume::pool_exec::SystemRun)
+}
+
+fn rgw_gateway(conf: Option<&std::path::Path>) -> delonix_provider_ceph::rgw::Rgw {
+    delonix_provider_ceph::rgw::Rgw::new(ceph_run(), conf.map(std::path::Path::to_path_buf))
+}
+
+fn rgw_fault(e: delonix_provider_ceph::RgwError) -> RgwFault {
+    match e {
+        delonix_provider_ceph::RgwError::Unavailable(m) => RgwFault::Unavailable(m),
+        delonix_provider_ceph::RgwError::Undetermined(m) => RgwFault::Undetermined(m),
+        delonix_provider_ceph::RgwError::NotFound(m) => RgwFault::NotFound(m),
+    }
+}
+
+impl CephStorage for CephStore {
+    fn cluster_health(&self, ident: &CephIdentity) -> Option<CephHealth> {
+        delonix_provider_ceph::cluster_health(&*ceph_run(), &ceph_ctx(ident)).map(|h| CephHealth {
+            status: h.status,
+            fsid: h.fsid,
+            mons: h.mons,
+            osds_up: h.osds_up,
+            osds_in: h.osds_in,
+            pools: h.pools,
+        })
+    }
+    fn list_rbd_images(&self, ident: &CephIdentity, rados: &str) -> Result<Vec<String>, String> {
+        delonix_provider_ceph::rbd::list_images(&*ceph_run(), &ceph_ctx(ident), rados)
+    }
+    fn list_cephfs_subvolumes(
+        &self,
+        ident: &CephIdentity,
+        fs: &str,
+    ) -> Result<Vec<String>, String> {
+        delonix_provider_ceph::cephfs::list_subvolumes(&*ceph_run(), &ceph_ctx(ident), fs)
+    }
+    fn list_buckets(
+        &self,
+        conf: Option<&std::path::Path>,
+        uid: Option<&str>,
+    ) -> Result<Vec<String>, RgwFault> {
+        rgw_gateway(conf).list_buckets(uid).map_err(rgw_fault)
+    }
+    fn bucket_stats(
+        &self,
+        conf: Option<&std::path::Path>,
+        bucket: &str,
+    ) -> Result<BucketRecord, RgwFault> {
+        let b = rgw_gateway(conf).bucket_stats(bucket).map_err(rgw_fault)?;
+        Ok(BucketRecord {
+            name: b.name,
+            owner: b.owner,
+            objects: b.objects,
+            size_bytes: b.size_bytes,
+        })
+    }
+    fn ensure_user(
+        &self,
+        conf: Option<&std::path::Path>,
+        uid: &str,
+        display_name: &str,
+    ) -> Result<UserRecord, RgwFault> {
+        let u = rgw_gateway(conf)
+            .ensure_user(uid, display_name)
+            .map_err(rgw_fault)?;
+        Ok(UserRecord {
+            uid: u.uid,
+            display_name: u.display_name,
+            access_key: u.access_key,
+            secret_key: u.secret_key,
+        })
+    }
+    fn drivers(&self, mount_root: std::path::PathBuf) -> Vec<Arc<dyn StoragePoolDriver>> {
+        delonix_provider_ceph::drivers(ceph_run(), mount_root)
+    }
+}
+
 /// The `--version` line: binary name and the crate version, nothing else.
 fn version_line() -> String {
     format!("delonix-node-api {}", env!("CARGO_PKG_VERSION"))
@@ -685,6 +884,14 @@ fn run() -> Result<(), Error> {
     // `delonix-linux` directly — the same shape as the record store, the SDN and
     // the image store — and the interface names no linux adapter on this path.
     let linux: Arc<dyn LinuxLifecycle> = Arc::new(HostLinux);
+    // The volume store, behind the `VolumeStore` port (R3d-j): this Engine has no
+    // volume service yet, so the bin backs it with `delonix-volume` directly —
+    // the same shape as the record store, the SDN and the OCI store — and the
+    // interface names no volume adapter.
+    let volumes: Arc<dyn VolumeStore> = Arc::new(HostVolumes);
+    // The Ceph cluster, behind the `CephStorage` port (R3d-j): backed by
+    // `delonix-provider-ceph` directly, so the interface names no Ceph adapter.
+    let ceph: Arc<dyn CephStorage> = Arc::new(CephStore);
     delonix_node_api::serve(
         listen,
         idle,
@@ -695,6 +902,8 @@ fn run() -> Result<(), Error> {
         images,
         providers,
         linux,
+        volumes,
+        ceph,
     )
 }
 

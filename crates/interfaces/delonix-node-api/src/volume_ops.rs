@@ -32,18 +32,23 @@
 
 use std::path::Path;
 
-use delonix_volume::VolumeStore;
 use tonic::Status;
 
 use crate::network_ops::{stale_etag, status_of};
 use crate::operations::{self, Begun};
 use crate::proto::v1::{volume_spec, CreateVolumeRequest, DeleteVolumeRequest, Operation};
+use crate::storage_backend::CephStorage;
+use crate::volume_store::VolumeStore;
 use crate::volumes::{self, Entry, DEFAULT_NAMESPACE};
 
-/// What `CreateVolume` does once it is acknowledged.
-type CreateWork<'a> = &'a dyn Fn(&Path, &CreateVolumeRequest) -> delonix_model::Result<()>;
-/// What `DeleteVolume` does once it is acknowledged: `(root, entry)`.
-type DeleteWork<'a> = &'a dyn Fn(&Path, &Entry) -> delonix_model::Result<()>;
+/// What `CreateVolume` does once it is acknowledged: `(volume store, Ceph, root,
+/// request)`.
+type CreateWork<'a> =
+    &'a dyn Fn(&dyn VolumeStore, &dyn CephStorage, &Path, &CreateVolumeRequest) -> delonix_model::Result<()>;
+/// What `DeleteVolume` does once it is acknowledged: `(volume store, Ceph, root,
+/// entry)`.
+type DeleteWork<'a> =
+    &'a dyn Fn(&dyn VolumeStore, &dyn CephStorage, &Path, &Entry) -> delonix_model::Result<()>;
 
 fn target_href(namespace: &str, name: &str) -> String {
     format!(
@@ -111,8 +116,12 @@ fn create_fingerprint(
 /// failure after the volume exists removes it again — a volume handed back
 /// without the quota or labels it was asked with would be reported as a
 /// success it is not.
-pub fn create_work(root: &Path, req: &CreateVolumeRequest) -> delonix_model::Result<()> {
-    let store = VolumeStore::open(root).map_err(engine)?;
+pub fn create_work(
+    vols: &dyn VolumeStore,
+    ceph: &dyn CephStorage,
+    root: &Path,
+    req: &CreateVolumeRequest,
+) -> delonix_model::Result<()> {
     let spec = req.spec.clone().unwrap_or_default();
     // Validated before the operation was acknowledged.
     let (quota, alert) = quota_of(&spec).unwrap_or_default();
@@ -121,14 +130,10 @@ pub fn create_work(root: &Path, req: &CreateVolumeRequest) -> delonix_model::Res
     // releases it and the reader reports where it lives.
     if let Some(prov) = &spec.provision {
         let size = quota.unwrap_or_default();
-        let alloc = crate::storage::provision_allocate(root, &req.name, size, prov)?;
-        store
-            .register_in_pool(&req.name, &alloc.path, size, alert, &prov.provider)
-            .map_err(engine)?;
+        let alloc = crate::storage::provision_allocate(ceph, root, &req.name, size, prov)?;
+        vols.register_in_pool(root, &req.name, &alloc.path, size, alert, &prov.provider)?;
         if !req.labels.is_empty() || !req.annotations.is_empty() {
-            store
-                .set_metadata(&req.name, &pairs(&req.labels), &pairs(&req.annotations))
-                .map_err(engine)?;
+            vols.set_metadata(root, &req.name, &pairs(&req.labels), &pairs(&req.annotations))?;
         }
         delonix_node::events::emit(
             root,
@@ -140,52 +145,42 @@ pub fn create_work(root: &Path, req: &CreateVolumeRequest) -> delonix_model::Res
         );
         return Ok(());
     }
-    store
-        .create_with(&req.name, "local", None, None)
-        .map_err(engine)?;
+    vols.create_local(root, &req.name)?;
     let rest = || -> delonix_model::Result<()> {
         if quota.is_some() || alert.is_some() {
-            store
-                .set_quota(&req.name, quota, alert, false)
-                .map_err(engine)?;
+            vols.set_quota(root, &req.name, quota, alert)?;
         }
         if !req.labels.is_empty() || !req.annotations.is_empty() {
-            store
-                .set_metadata(&req.name, &pairs(&req.labels), &pairs(&req.annotations))
-                .map_err(engine)?;
+            vols.set_metadata(root, &req.name, &pairs(&req.labels), &pairs(&req.annotations))?;
         }
         Ok(())
     };
     if let Err(e) = rest() {
-        let _ = store.remove(&req.name);
+        let _ = vols.remove(root, None, &req.name);
         return Err(e);
     }
     delonix_node::events::emit(root, "volume", "create", &req.name, &req.name, None);
     Ok(())
 }
 
-fn engine(e: delonix_volume::Error) -> delonix_model::Error {
-    e.into()
-}
-
 /// The real delete: the store removes the data first and the record last,
 /// and stops at the first failure — so an `Ok` here is a volume gone.
-pub(crate) fn delete_work(root: &Path, entry: &Entry) -> delonix_model::Result<()> {
-    let store = if entry.scoped {
-        VolumeStore::open_scoped(root, &entry.namespace)
-    } else {
-        VolumeStore::open(root)
-    }
-    .map_err(engine)?;
+pub(crate) fn delete_work(
+    vols: &dyn VolumeStore,
+    ceph: &dyn CephStorage,
+    root: &Path,
+    entry: &Entry,
+) -> delonix_model::Result<()> {
     let name = &entry.volume.name;
     // A pool volume's data is given back to its pool FIRST — the record is what
     // says which pool holds it, so it goes last (ADR-0067). A release that
     // fails stops the delete: a record removed with the object still in the
     // pool would orphan it.
     if let Some(pool) = entry.volume.pool.as_deref() {
-        crate::storage::provision_release(root, pool, name)?;
+        crate::storage::provision_release(ceph, root, pool, name)?;
     }
-    store.remove_with(name, None).map_err(engine)?;
+    let namespace = entry.scoped.then(|| entry.namespace.as_str());
+    vols.remove(root, namespace, name)?;
     delonix_node::events::emit(root, "volume", "remove", name, name, None);
     Ok(())
 }
@@ -194,6 +189,7 @@ pub(crate) fn delete_work(root: &Path, entry: &Entry) -> delonix_model::Result<(
 /// of it. Fails closed — a store that cannot be read is an error, never
 /// "nobody". The same two checks `delonix volume rm` makes.
 pub(crate) fn users_of(
+    vols: &dyn VolumeStore,
     root: &Path,
     store: &dyn crate::store::StorePort,
     entry: &Entry,
@@ -212,7 +208,7 @@ pub(crate) fn users_of(
             out.push(format!("container {}", c.name));
         }
     }
-    for other in volumes::entries(root)? {
+    for other in volumes::entries(vols, root)? {
         // Self is excluded by mountpoint: a name is not unique across
         // namespaces, the path on disk is.
         if other.volume.mountpoint == entry.volume.mountpoint {
@@ -226,12 +222,19 @@ pub(crate) fn users_of(
 }
 
 /// `CreateVolume` under `root`.
-pub fn create_in(root: &Path, req: &CreateVolumeRequest) -> Result<Operation, Status> {
-    create_with(root, req, &create_work)
+pub fn create_in(
+    vols: &dyn VolumeStore,
+    ceph: &dyn CephStorage,
+    root: &Path,
+    req: &CreateVolumeRequest,
+) -> Result<Operation, Status> {
+    create_with(vols, ceph, root, req, &create_work)
 }
 
 /// [`create_in`] with the work injected (the tests' seam).
 pub fn create_with(
+    vols: &dyn VolumeStore,
+    ceph: &dyn CephStorage,
     root: &Path,
     req: &CreateVolumeRequest,
     work: CreateWork<'_>,
@@ -239,7 +242,7 @@ pub fn create_with(
     if req.name.is_empty() {
         return Err(Status::invalid_argument("CreateVolume: name is required"));
     }
-    VolumeStore::validate_name(&req.name).map_err(|e| status_of(&e.into()))?;
+    vols.validate_name(&req.name).map_err(|e| status_of(&e))?;
     let spec = req.spec.clone().unwrap_or_default();
     match &spec.source {
         None | Some(volume_spec::Source::Local(_)) => {}
@@ -262,7 +265,7 @@ pub fn create_with(
     // declared (ADR-0067, ADR-0081): resolved and sized here, before an
     // operation exists; allocated by `create_work` once it does.
     if let Some(prov) = &spec.provision {
-        crate::storage::check_provision(prov, spec.quota_bytes)?;
+        crate::storage::check_provision(ceph, prov, spec.quota_bytes)?;
     }
     if !matches!(req.namespace.as_str(), "" | DEFAULT_NAMESPACE) {
         return Err(Status::unimplemented(format!(
@@ -288,7 +291,7 @@ pub fn create_with(
     // Any volume reported under this name in `default` — the unscoped root or
     // the namespace's own sub-tree — makes the name taken: a second one would
     // be the "exists twice" state every reader refuses.
-    if volumes::entries(root)?
+    if volumes::entries(vols, root)?
         .iter()
         .any(|e| e.namespace == DEFAULT_NAMESPACE && e.volume.name == req.name)
     {
@@ -301,7 +304,7 @@ pub fn create_with(
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = work(root, req).map(|()| target_href(DEFAULT_NAMESPACE, &req.name));
+    let outcome = work(vols, ceph, root, req).map(|()| target_href(DEFAULT_NAMESPACE, &req.name));
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
     )?))
@@ -309,15 +312,19 @@ pub fn create_with(
 
 /// `DeleteVolume` under `root`.
 pub fn delete_in(
+    vols: &dyn VolumeStore,
+    ceph: &dyn CephStorage,
     root: &Path,
     store: &dyn crate::store::StorePort,
     req: &DeleteVolumeRequest,
 ) -> Result<Operation, Status> {
-    delete_with(root, store, req, &delete_work)
+    delete_with(vols, ceph, root, store, req, &delete_work)
 }
 
 /// [`delete_in`] with the work injected (the tests' seam).
 pub(crate) fn delete_with(
+    vols: &dyn VolumeStore,
+    ceph: &dyn CephStorage,
     root: &Path,
     store: &dyn crate::store::StorePort,
     req: &DeleteVolumeRequest,
@@ -329,7 +336,7 @@ pub(crate) fn delete_with(
     if let Some(found) = operations::replay(root, "delete", &target, &req.request_id, "")? {
         return Ok(operations::message(&found));
     }
-    let entry = volumes::find(root, &req.namespace, &req.name)?;
+    let entry = volumes::find(vols, root, &req.namespace, &req.name)?;
     if req.destroy_remote {
         return Err(Status::unimplemented(
             "DeleteVolume: destroy_remote is in the contract and this engine does not destroy \
@@ -338,7 +345,7 @@ pub(crate) fn delete_with(
         ));
     }
     let v = &entry.volume;
-    if delonix_volume::is_network_driver(&v.driver) {
+    if vols.is_network_driver(&v.driver) {
         return Err(Status::unimplemented(format!(
             "DeleteVolume: volume '{}' is a {} share, whose mount and credentials file the CLI \
              removes with it; this engine does not do that on the node API yet (`delonix volume \
@@ -356,7 +363,7 @@ pub(crate) fn delete_with(
         }
     }
     if !req.force {
-        let users = users_of(root, store, &entry)?;
+        let users = users_of(vols, root, store, &entry)?;
         if !users.is_empty() {
             return Err(status_of(&delonix_model::Error::coded(
                 5203,
@@ -374,8 +381,8 @@ pub(crate) fn delete_with(
     // process); a volume that owns its own data directory has to be readable
     // to the end, or the delete would stop half way.
     if v.parent.is_none() && v.pool.is_none() {
-        let usage = delonix_volume::measure(Path::new(&v.mountpoint));
-        if !usage.is_complete() {
+        let usage = vols.measure(Path::new(&v.mountpoint));
+        if !usage.complete {
             return Err(status_of(&delonix_model::Error::coded(
                 6205,
                 delonix_model::Error::Unavailable(format!(
@@ -390,7 +397,7 @@ pub(crate) fn delete_with(
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = work(root, &entry).map(|()| String::new());
+    let outcome = work(vols, ceph, root, &entry).map(|()| String::new());
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
     )?))
@@ -402,7 +409,17 @@ mod tests {
     use crate::proto::v1::{
         GetVolumeRequest, ListOperationsRequest, OperationState, RemoteShare, ShareOf, VolumeSpec,
     };
+    use crate::storage_backend::NoCeph;
+    use crate::volume_store::LocalVolumes;
     use std::path::PathBuf;
+
+    /// The crate-test volume port: the real `delonix-volume` adapter behind the
+    /// [`VolumeStore`] port, the stand-in for the port a bin composes.
+    const V: &LocalVolumes = &LocalVolumes;
+    /// The crate-test Ceph port: the benign default. These tests create and
+    /// delete LOCAL volumes, which never touch the provisioning path, so the
+    /// Ceph port is never exercised (the live-Ceph test uses `LocalCeph`).
+    const C: &NoCeph = &NoCeph;
 
     fn create_req(name: &str, request_id: &str) -> CreateVolumeRequest {
         CreateVolumeRequest {
@@ -433,6 +450,7 @@ mod tests {
 
     fn get(root: &Path, name: &str) -> Result<crate::proto::v1::Volume, Status> {
         volumes::get_in(
+            V,
             root,
             &GetVolumeRequest {
                 namespace: String::new(),
@@ -446,7 +464,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let seen_running = std::cell::Cell::new(false);
-        let work = |r: &Path, req: &CreateVolumeRequest| {
+        let work = |vols: &dyn VolumeStore, ceph: &dyn CephStorage, r: &Path, req: &CreateVolumeRequest| {
             let list = operations::list_in(
                 r,
                 &ListOperationsRequest {
@@ -456,9 +474,9 @@ mod tests {
             )
             .unwrap();
             seen_running.set(list.operations.len() == 1);
-            create_work(r, req)
+            create_work(vols, ceph, r, req)
         };
-        let op = create_with(root, &create_req("data", ""), &work).unwrap();
+        let op = create_with(V, C, root, &create_req("data", ""), &work).unwrap();
         assert!(
             seen_running.get(),
             "the operation was not on disk during the work"
@@ -481,16 +499,16 @@ mod tests {
     fn the_same_create_sent_twice_is_answered_once_and_a_reused_request_id_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        let first = create_in(root, &create_req("data", "req-1")).unwrap();
-        let again = create_in(root, &create_req("data", "req-1")).unwrap();
+        let first = create_in(V, C, root, &create_req("data", "req-1")).unwrap();
+        let again = create_in(V, C, root, &create_req("data", "req-1")).unwrap();
         assert_eq!(first.id, again.id);
         assert_eq!(operations_on_disk(root), 1);
         let mut other = create_req("data", "req-1");
         other.spec.as_mut().unwrap().quota_bytes = 2 << 30;
-        let refused = create_in(root, &other).unwrap_err();
+        let refused = create_in(V, C, root, &other).unwrap_err();
         assert_eq!(refused.code(), tonic::Code::AlreadyExists);
         // Without a request_id, the second create finds the name taken.
-        let taken = create_in(root, &create_req("data", "")).unwrap_err();
+        let taken = create_in(V, C, root, &create_req("data", "")).unwrap_err();
         assert_eq!(taken.code(), tonic::Code::AlreadyExists);
         assert_eq!(operations_on_disk(root), 1);
     }
@@ -502,7 +520,7 @@ mod tests {
         let with = |f: &dyn Fn(&mut CreateVolumeRequest)| {
             let mut r = create_req("data", "");
             f(&mut r);
-            create_in(root, &r).unwrap_err().code()
+            create_in(V, C, root, &r).unwrap_err().code()
         };
         use tonic::Code;
         assert_eq!(with(&|r| r.name = "../x".into()), Code::InvalidArgument);
@@ -552,9 +570,9 @@ mod tests {
     fn a_delete_that_succeeds_has_removed_the_volume_and_its_data() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        create_in(root, &create_req("data", "")).unwrap();
+        create_in(V, C, root, &create_req("data", "")).unwrap();
         let mount = PathBuf::from(
-            VolumeStore::open(root)
+            delonix_volume::VolumeStore::open(root)
                 .unwrap()
                 .inspect("data")
                 .unwrap()
@@ -562,6 +580,8 @@ mod tests {
         );
         std::fs::write(mount.join("f"), b"12345").unwrap();
         let op = delete_in(
+            V,
+            C,
             root,
             &crate::store::LocalStore(root.to_path_buf()),
             &delete_req("data"),
@@ -575,6 +595,8 @@ mod tests {
         );
         // Sent again, a delete of what is gone is NotFound, not a second success.
         let gone = delete_in(
+            V,
+            C,
             root,
             &crate::store::LocalStore(root.to_path_buf()),
             &delete_req("data"),
@@ -587,8 +609,8 @@ mod tests {
     fn a_volume_a_container_mounts_or_a_share_uses_is_not_deleted_without_force() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        create_in(root, &create_req("data", "")).unwrap();
-        let mount = VolumeStore::open(root)
+        create_in(V, C, root, &create_req("data", "")).unwrap();
+        let mount = delonix_volume::VolumeStore::open(root)
             .unwrap()
             .inspect("data")
             .unwrap()
@@ -611,6 +633,8 @@ mod tests {
             .save(&c)
             .unwrap();
         let refused = delete_in(
+            V,
+            C,
             root,
             &crate::store::LocalStore(root.to_path_buf()),
             &delete_req("data"),
@@ -638,7 +662,7 @@ mod tests {
         // With force, it goes.
         let mut forced = delete_req("data");
         forced.force = true;
-        let op = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &forced).unwrap();
+        let op = delete_in(V, C, root, &crate::store::LocalStore(root.to_path_buf()), &forced).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32, "{op:?}");
         assert!(get(root, "data").is_err());
     }
@@ -647,12 +671,12 @@ mod tests {
     fn a_stale_etag_is_refused_and_the_current_one_deletes() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        create_in(root, &create_req("data", "")).unwrap();
+        create_in(V, C, root, &create_req("data", "")).unwrap();
         let etag = get(root, "data").unwrap().meta.unwrap().etag;
         let mut stale = delete_req("data");
         stale.etag = "not-it".into();
         let refused =
-            delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &stale).unwrap_err();
+            delete_in(V, C, root, &crate::store::LocalStore(root.to_path_buf()), &stale).unwrap_err();
         assert_eq!(refused.code(), tonic::Code::FailedPrecondition);
         assert!(refused
             .metadata()
@@ -661,6 +685,8 @@ mod tests {
         let mut current = delete_req("data");
         current.etag = etag;
         let op = delete_in(
+            V,
+            C,
             root,
             &crate::store::LocalStore(root.to_path_buf()),
             &current,
@@ -677,9 +703,9 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        create_in(root, &create_req("data", "")).unwrap();
+        create_in(V, C, root, &create_req("data", "")).unwrap();
         let mount = PathBuf::from(
-            VolumeStore::open(root)
+            delonix_volume::VolumeStore::open(root)
                 .unwrap()
                 .inspect("data")
                 .unwrap()
@@ -706,6 +732,8 @@ mod tests {
             return;
         }
         let refused = delete_in(
+            V,
+            C,
             root,
             &crate::store::LocalStore(root.to_path_buf()),
             &delete_req("data"),
@@ -729,16 +757,16 @@ mod tests {
     fn a_network_volume_and_destroy_remote_are_refused_by_name() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        create_in(root, &create_req("data", "")).unwrap();
+        create_in(V, C, root, &create_req("data", "")).unwrap();
         let mut remote = delete_req("data");
         remote.destroy_remote = true;
         assert_eq!(
-            delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &remote)
+            delete_in(V, C, root, &crate::store::LocalStore(root.to_path_buf()), &remote)
                 .unwrap_err()
                 .code(),
             tonic::Code::Unimplemented
         );
-        let store = VolumeStore::open(root).unwrap();
+        let store = delonix_volume::VolumeStore::open(root).unwrap();
         let mut nas = store.inspect("data").unwrap();
         nas.name = "nas".into();
         nas.driver = "nfs".into();
@@ -747,6 +775,8 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("meta.json"), serde_json::to_vec(&nas).unwrap()).unwrap();
         let refused = delete_in(
+            V,
+            C,
             root,
             &crate::store::LocalStore(root.to_path_buf()),
             &delete_req("nas"),
@@ -830,9 +860,12 @@ mod tests {
         .unwrap();
         std::env::set_var(delonix_storage::allowlist::PATH_ENV, &pools);
 
+        // The live Ceph port over the real adapter (production `SystemRun`): its
+        // `drivers()` are what the registration consumes.
+        let ceph = crate::storage_backend::LocalCeph;
         // Consume the registration `Once` with the production `SystemRun`, then
         // replace `ceph-rbd` with a driver that runs the tools through sudo.
-        crate::storage::register_pool_drivers();
+        crate::storage::register_pool_drivers(&ceph);
         delonix_storage::registry::register(Arc::new(delonix_provider_ceph::RbdDriver::new(
             Arc::new(SudoRun),
         )))
@@ -854,6 +887,8 @@ mod tests {
 
         // Clear anything a prior aborted run left: the record, then the image.
         let _ = delete_in(
+            V,
+            &ceph,
             root,
             &crate::store::LocalStore(root.to_path_buf()),
             &delete_req(name),
@@ -870,7 +905,7 @@ mod tests {
             .output();
 
         // --- provision ---
-        let op = create_in(root, &req).unwrap();
+        let op = create_in(V, &ceph, root, &req).unwrap();
         assert_eq!(
             op.state,
             OperationState::Succeeded as i32,
@@ -878,7 +913,7 @@ mod tests {
         );
 
         // The record names the pool and points at a mapped block device.
-        let rec = VolumeStore::open(root).unwrap().inspect(name).unwrap();
+        let rec = delonix_volume::VolumeStore::open(root).unwrap().inspect(name).unwrap();
         assert_eq!(
             rec.pool.as_deref(),
             Some("ceph-rbd"),
@@ -898,6 +933,8 @@ mod tests {
 
         // --- release ---
         let op = delete_in(
+            V,
+            &ceph,
             root,
             &crate::store::LocalStore(root.to_path_buf()),
             &delete_req(name),

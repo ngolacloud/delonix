@@ -80,6 +80,8 @@ pub struct NodeApi {
     images: Arc<dyn crate::image_repo::ImageRepo>,
     providers: Arc<dyn crate::provider_reports::ProviderReports>,
     linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    volumes: Arc<dyn crate::volume_store::VolumeStore>,
+    ceph: Arc<dyn crate::storage_backend::CephStorage>,
 }
 
 /// Runs a host probe off the runtime's workers: every `NodeService` answer
@@ -362,8 +364,9 @@ impl NetworkService for NodeApi {
 impl VolumeService for NodeApi {
     async fn get_volume(&self, req: Request<GetVolumeRequest>) -> Result<Response<Volume>, Status> {
         let req = req.into_inner();
+        let volumes = Arc::clone(&self.volumes);
         blocking("volume", move || {
-            crate::volumes::get_in(&node::state_root(), &req)
+            crate::volumes::get_in(volumes.as_ref(), &node::state_root(), &req)
         })
         .await?
         .map(Response::new)
@@ -374,8 +377,9 @@ impl VolumeService for NodeApi {
         req: Request<ListVolumesRequest>,
     ) -> Result<Response<ListVolumesResponse>, Status> {
         let req = req.into_inner();
+        let volumes = Arc::clone(&self.volumes);
         blocking("volumes", move || {
-            crate::volumes::list_in(&node::state_root(), &req)
+            crate::volumes::list_in(volumes.as_ref(), &node::state_root(), &req)
         })
         .await?
         .map(Response::new)
@@ -386,8 +390,10 @@ impl VolumeService for NodeApi {
         req: Request<CreateVolumeRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let volumes = Arc::clone(&self.volumes);
+        let ceph = Arc::clone(&self.ceph);
         blocking("volume create", move || {
-            crate::volume_ops::create_in(&node::state_root(), &req)
+            crate::volume_ops::create_in(volumes.as_ref(), ceph.as_ref(), &node::state_root(), &req)
         })
         .await?
         .map(Response::new)
@@ -399,8 +405,16 @@ impl VolumeService for NodeApi {
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
         let store = Arc::clone(&self.store);
+        let volumes = Arc::clone(&self.volumes);
+        let ceph = Arc::clone(&self.ceph);
         blocking("volume delete", move || {
-            crate::volume_ops::delete_in(&node::state_root(), store.as_ref(), &req)
+            crate::volume_ops::delete_in(
+                volumes.as_ref(),
+                ceph.as_ref(),
+                &node::state_root(),
+                store.as_ref(),
+                &req,
+            )
         })
         .await?
         .map(Response::new)
@@ -414,9 +428,12 @@ impl StorageService for NodeApi {
         req: Request<GetCephStatusRequest>,
     ) -> Result<Response<CephStatus>, Status> {
         let req = req.into_inner();
-        blocking("ceph status", move || crate::storage::ceph_status(&req))
-            .await?
-            .map(Response::new)
+        let ceph = Arc::clone(&self.ceph);
+        blocking("ceph status", move || {
+            crate::storage::ceph_status(ceph.as_ref(), &req)
+        })
+        .await?
+        .map(Response::new)
     }
 
     async fn list_rbd_images(
@@ -424,9 +441,12 @@ impl StorageService for NodeApi {
         req: Request<ListRbdImagesRequest>,
     ) -> Result<Response<ListRbdImagesResponse>, Status> {
         let req = req.into_inner();
-        blocking("rbd images", move || crate::storage::list_rbd_images(&req))
-            .await?
-            .map(Response::new)
+        let ceph = Arc::clone(&self.ceph);
+        blocking("rbd images", move || {
+            crate::storage::list_rbd_images(ceph.as_ref(), &req)
+        })
+        .await?
+        .map(Response::new)
     }
 
     async fn list_cephfs_subvolumes(
@@ -434,8 +454,9 @@ impl StorageService for NodeApi {
         req: Request<ListCephfsSubvolumesRequest>,
     ) -> Result<Response<ListCephfsSubvolumesResponse>, Status> {
         let req = req.into_inner();
+        let ceph = Arc::clone(&self.ceph);
         blocking("cephfs subvolumes", move || {
-            crate::storage::list_cephfs_subvolumes(&req)
+            crate::storage::list_cephfs_subvolumes(ceph.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -446,9 +467,12 @@ impl StorageService for NodeApi {
         req: Request<ListObjectStoreBucketsRequest>,
     ) -> Result<Response<ListObjectStoreBucketsResponse>, Status> {
         let req = req.into_inner();
-        blocking("rgw buckets", move || crate::storage::list_buckets(&req))
-            .await?
-            .map(Response::new)
+        let ceph = Arc::clone(&self.ceph);
+        blocking("rgw buckets", move || {
+            crate::storage::list_buckets(ceph.as_ref(), &req)
+        })
+        .await?
+        .map(Response::new)
     }
 
     async fn get_object_store_bucket(
@@ -456,9 +480,12 @@ impl StorageService for NodeApi {
         req: Request<GetObjectStoreBucketRequest>,
     ) -> Result<Response<ObjectStoreBucket>, Status> {
         let req = req.into_inner();
-        blocking("rgw bucket", move || crate::storage::get_bucket(&req))
-            .await?
-            .map(Response::new)
+        let ceph = Arc::clone(&self.ceph);
+        blocking("rgw bucket", move || {
+            crate::storage::get_bucket(ceph.as_ref(), &req)
+        })
+        .await?
+        .map(Response::new)
     }
 
     async fn create_object_store_user(
@@ -466,9 +493,12 @@ impl StorageService for NodeApi {
         req: Request<CreateObjectStoreUserRequest>,
     ) -> Result<Response<ObjectStoreUser>, Status> {
         let req = req.into_inner();
-        blocking("rgw user", move || crate::storage::create_user(&req))
-            .await?
-            .map(Response::new)
+        let ceph = Arc::clone(&self.ceph);
+        blocking("rgw user", move || {
+            crate::storage::create_user(ceph.as_ref(), &req)
+        })
+        .await?
+        .map(Response::new)
     }
 }
 
@@ -1122,6 +1152,8 @@ pub fn router() -> axum::Router {
         Arc::new(crate::image_repo::NoImages),
         Arc::new(crate::provider_reports::NoProviderReports),
         Arc::new(crate::linux_lifecycle::NoLinux),
+        Arc::new(crate::volume_store::NoVolumes),
+        Arc::new(crate::storage_backend::NoCeph),
     )
 }
 
@@ -1214,6 +1246,8 @@ pub fn router_with(
     images: Arc<dyn crate::image_repo::ImageRepo>,
     providers: Arc<dyn crate::provider_reports::ProviderReports>,
     linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    volumes: Arc<dyn crate::volume_store::VolumeStore>,
+    ceph: Arc<dyn crate::storage_backend::CephStorage>,
 ) -> axum::Router {
     use tonic::server::NamedService;
     let api = NodeApi {
@@ -1224,6 +1258,8 @@ pub fn router_with(
         images,
         providers,
         linux,
+        volumes,
+        ceph,
     };
     // The gRPC service is mounted the way tonic's own `Routes` mounts it — one
     // wildcard route under the service name. Not through `Routes::into_axum_router`,

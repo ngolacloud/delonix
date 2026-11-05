@@ -339,6 +339,11 @@ OVERSIZE_ALLOWLIST = {
     "delonix-provider-proxmox": "R5 split plan for delonix-provider-proxmox (ADR pending)",
     "delonix-sdn": "R5 split plan for the SDN adapter (ADR pending)",
     "delonix-linux": "R5 split plan for the container runtime adapter (ADR pending)",
+    # R3d routed the mechanism edges behind ports (ADR-0040 A5); the port records
+    # the interface re-declares (image/linux/volume/ceph summaries) are what push
+    # it over. R3h moves the container/image/volume services into the Engine, so
+    # the routing + records shrink back out of the interface (ADR-0040, ADR-0081).
+    "delonix-node-api": "R3h moves the services into the Engine; the port records shrink out (ADR-0040)",
 }
 
 # Imports that make a `domain/` module impure (C1 #2). A pure domain is types and
