@@ -6,7 +6,7 @@
   "raw_error_variant_matches": 0,
   "context_spawns": 0,
   "cli_context_lines": 118329,
-  "interface_mechanism_deps": 18,
+  "interface_mechanism_deps": 16,
   "provider_namers": 17,
   "bin_crates": 5,
   "inter_context_violations": 2,

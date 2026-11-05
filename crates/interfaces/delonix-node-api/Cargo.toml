@@ -17,8 +17,6 @@ delonix-compute = { workspace = true }
 delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-model = { workspace = true }
-delonix-linux = { workspace = true }
-delonix-volume = { workspace = true }
 delonix-storage = { workspace = true }
 delonix-pool-helper = { workspace = true }
 tonic = { workspace = true }
@@ -71,6 +69,15 @@ delonix-provider-opnsense = { workspace = true }
 # `CephStorage` port the bin composes. Kept for `storage_backend::LocalCeph`, the
 # live-Ceph test and the integration harness's `AdapterCeph` test backing.
 delonix-provider-ceph = { workspace = true }
+# R3d-h/i/j — production no longer names the Linux or volume adapters: the
+# container lifecycle goes through the `LinuxLifecycle` port, the volume store
+# through `VolumeStore`, and the provider reports through `ProviderReports`, all
+# composed by the bin. Kept for the crate's `#[cfg(test)] LocalLinux`/
+# `LocalVolumes`/`LocalProviders` backings and the integration harness's
+# `AdapterLinux`/`AdapterVolumes` — no `interface -> delonix-linux`/`-volume`
+# edge survives in the graph.
+delonix-linux = { workspace = true }
+delonix-volume = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }
