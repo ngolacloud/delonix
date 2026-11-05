@@ -83,6 +83,7 @@ async fn a_pod_shares_a_named_volume_between_its_members_over_grpc() {
             common::backing_store(),
             common::backing_resolver(),
             common::backing_net(),
+            common::backing_images(),
         );
     });
     wait_for(&sock).await;

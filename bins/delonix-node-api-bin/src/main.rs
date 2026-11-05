@@ -14,8 +14,11 @@ use std::sync::Arc;
 use delonix_compute::Vm;
 use delonix_engine::Engine;
 use delonix_model::Error;
+use delonix_node_api::image_repo::StoredImage;
 use delonix_node_api::net_ops::NetRecord;
-use delonix_node_api::{activation, Listen, NetworkOps, RunResolver, StorePort, VmPort};
+use delonix_node_api::{
+    activation, ImageRepo, Listen, NetworkOps, RunResolver, StorePort, VmPort,
+};
 
 /// The composition's VM reads, handed to the node API as its `VmPort` port
 /// (ADR-0040 A5). The bin is the one place that names `delonix-engine`: it mounts
@@ -369,6 +372,51 @@ impl NetworkOps for SdnNet {
     }
 }
 
+/// The composition's OCI image store, handed to the node API as its `ImageRepo`
+/// port (ADR-0040 A5, R3d-g). The bin names the `delonix-oci` adapter directly —
+/// a bin may name an adapter (A1) — so the `delonix-node-api` interface no longer
+/// names it. This Engine has no image service yet (PRE-R3h), so the port is
+/// backed by `delonix-oci` directly, exactly as `StateStore`/`SdnNet` back the
+/// record store and the SDN; the adapter's `Image` is summarised into the
+/// interface's [`StoredImage`] (its layer blobs summed to the on-disk size), and
+/// the native OCI error maps to the shared engine error the interface speaks.
+struct OciImages;
+
+/// `delonix-oci`'s `Image` as the interface's summary record, with the on-disk
+/// size summed from its layer blobs in the CAS (`stat`, never reading them).
+fn stored_image(store: &delonix_oci::ImageStore, img: &delonix_oci::Image) -> StoredImage {
+    let mut size: u64 = 0;
+    for layer in &img.layers {
+        if let Ok(meta) = std::fs::metadata(store.cas().path(layer)) {
+            size += meta.len();
+        }
+    }
+    StoredImage {
+        id: img.id.clone(),
+        repo_tags: img.repo_tags.clone(),
+        created_unix: img.created_unix,
+        size_bytes: size as i64,
+    }
+}
+
+impl ImageRepo for OciImages {
+    fn list(&self, root: &std::path::Path) -> Result<Vec<StoredImage>, Error> {
+        let store = delonix_oci::ImageStore::open(root)?;
+        Ok(store
+            .list()?
+            .iter()
+            .map(|img| stored_image(&store, img))
+            .collect())
+    }
+    fn remove(&self, root: &std::path::Path, reference: &str) -> Result<(), Error> {
+        delonix_oci::ImageStore::open(root)?.remove(reference)?;
+        Ok(())
+    }
+    fn strip_digest<'a>(&self, digest: &'a str) -> &'a str {
+        delonix_oci::cas::strip(digest)
+    }
+}
+
 /// The `--version` line: binary name and the crate version, nothing else.
 fn version_line() -> String {
     format!("delonix-node-api {}", env!("CARGO_PKG_VERSION"))
@@ -494,7 +542,12 @@ fn run() -> Result<(), Error> {
     // service yet, so the bin backs it with `delonix-sdn` directly — the same
     // shape as the record store — and the interface names no SDN adapter.
     let net: Arc<dyn NetworkOps> = Arc::new(SdnNet);
-    delonix_node_api::serve(listen, idle, vms, store, run_resolver, net)
+    // The OCI image store, behind the `ImageRepo` port (R3d-g): this Engine has
+    // no image service yet, so the bin backs it with `delonix-oci` directly —
+    // the same shape as the record store and the SDN — and the interface names
+    // no OCI adapter.
+    let images: Arc<dyn ImageRepo> = Arc::new(OciImages);
+    delonix_node_api::serve(listen, idle, vms, store, run_resolver, net, images)
 }
 
 fn main() -> ExitCode {

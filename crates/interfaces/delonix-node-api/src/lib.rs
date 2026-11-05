@@ -90,6 +90,7 @@ pub mod containers;
 pub mod docs;
 pub mod events;
 pub mod image_ops;
+pub mod image_repo;
 pub mod images;
 pub mod net_ops;
 pub mod network_ops;
@@ -112,6 +113,7 @@ pub mod vms;
 pub mod volume_ops;
 pub mod volumes;
 
+pub use image_repo::ImageRepo;
 pub use net_ops::NetworkOps;
 pub use run_resolver::RunResolver;
 pub use service::{
@@ -163,6 +165,7 @@ pub fn serve_blocking(
     store: std::sync::Arc<dyn StorePort>,
     run_resolver: std::sync::Arc<dyn RunResolver>,
     net: std::sync::Arc<dyn NetworkOps>,
+    images: std::sync::Arc<dyn ImageRepo>,
 ) -> Result<(), Error> {
     serve_with(
         Listen::Path(addr.to_string()),
@@ -171,6 +174,7 @@ pub fn serve_blocking(
         store,
         run_resolver,
         net,
+        images,
     )
 }
 
@@ -186,8 +190,9 @@ pub fn serve(
     store: std::sync::Arc<dyn StorePort>,
     run_resolver: std::sync::Arc<dyn RunResolver>,
     net: std::sync::Arc<dyn NetworkOps>,
+    images: std::sync::Arc<dyn ImageRepo>,
 ) -> Result<(), Error> {
-    serve_with(listen, idle, vms, store, run_resolver, net)
+    serve_with(listen, idle, vms, store, run_resolver, net, images)
 }
 
 fn serve_with(
@@ -197,6 +202,7 @@ fn serve_with(
     store: std::sync::Arc<dyn StorePort>,
     run_resolver: std::sync::Arc<dyn RunResolver>,
     net: std::sync::Arc<dyn NetworkOps>,
+    images: std::sync::Arc<dyn ImageRepo>,
 ) -> Result<(), Error> {
     compose();
     delonix_node::alloc_tuning::limit_malloc_arenas();
@@ -260,7 +266,12 @@ fn serve_with(
             }
             (Listen::Inherited(_), None) => unreachable!("an inherited listener is taken above"),
         };
-        serve_listener(uds, router_with(vms, store, run_resolver, net), idle).await
+        serve_listener(
+            uds,
+            router_with(vms, store, run_resolver, net, images),
+            idle,
+        )
+        .await
     })
 }
 

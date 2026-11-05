@@ -77,6 +77,7 @@ pub struct NodeApi {
     store: Arc<dyn crate::store::StorePort>,
     run_resolver: Arc<dyn crate::run_resolver::RunResolver>,
     net: Arc<dyn crate::net_ops::NetworkOps>,
+    images: Arc<dyn crate::image_repo::ImageRepo>,
 }
 
 /// Runs a host probe off the runtime's workers: every `NodeService` answer
@@ -435,8 +436,9 @@ impl ImageService for NodeApi {
     // Read half served from the OCI image store, in-process (no re-exec).
     async fn get_image(&self, req: Request<GetImageRequest>) -> Result<Response<Image>, Status> {
         let req = req.into_inner();
+        let images = Arc::clone(&self.images);
         blocking("image", move || {
-            crate::images::get_in(&node::state_root(), &req)
+            crate::images::get_in(&node::state_root(), images.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -447,8 +449,9 @@ impl ImageService for NodeApi {
         req: Request<ListImagesRequest>,
     ) -> Result<Response<ListImagesResponse>, Status> {
         let req = req.into_inner();
+        let images = Arc::clone(&self.images);
         blocking("images", move || {
-            crate::images::list_in(&node::state_root(), &req)
+            crate::images::list_in(&node::state_root(), images.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -473,8 +476,9 @@ impl ImageService for NodeApi {
         req: Request<DeleteImageRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let images = Arc::clone(&self.images);
         blocking("image delete", move || {
-            crate::image_ops::delete_in(&node::state_root(), &req)
+            crate::image_ops::delete_in(&node::state_root(), images.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -1040,6 +1044,7 @@ pub fn router() -> axum::Router {
         Arc::new(crate::store::NoStore),
         Arc::new(crate::run_resolver::NoResolver),
         Arc::new(crate::net_ops::NoNet),
+        Arc::new(crate::image_repo::NoImages),
     )
 }
 
@@ -1129,6 +1134,7 @@ pub fn router_with(
     store: Arc<dyn crate::store::StorePort>,
     run_resolver: Arc<dyn crate::run_resolver::RunResolver>,
     net: Arc<dyn crate::net_ops::NetworkOps>,
+    images: Arc<dyn crate::image_repo::ImageRepo>,
 ) -> axum::Router {
     use tonic::server::NamedService;
     let api = NodeApi {
@@ -1136,6 +1142,7 @@ pub fn router_with(
         store,
         run_resolver,
         net,
+        images,
     };
     // The gRPC service is mounted the way tonic's own `Routes` mounts it — one
     // wildcard route under the service name. Not through `Routes::into_axum_router`,

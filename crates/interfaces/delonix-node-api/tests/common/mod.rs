@@ -12,8 +12,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use delonix_node_api::image_repo::StoredImage;
 use delonix_node_api::net_ops::NetRecord;
-use delonix_node_api::{NetworkOps, RunResolver, StorePort, VmPort};
+use delonix_node_api::{ImageRepo, NetworkOps, RunResolver, StorePort, VmPort};
 
 /// A [`VmPort`] over the `delonix-vm` adapter at a state root — the tests'
 /// stand-in for the engine the bin composes.
@@ -65,6 +66,52 @@ pub struct AdapterNet;
 /// The adapter-backed network port, as an `Arc` for `serve_blocking`.
 pub fn backing_net() -> Arc<dyn NetworkOps> {
     Arc::new(AdapterNet)
+}
+
+/// An [`ImageRepo`] over the real `delonix-oci` adapter at a state root (R3d-g)
+/// — the tests' stand-in for the `delonix-oci`-backed port the bin composes.
+/// Production reaches the OCI image store only through this port; the node-api
+/// crate names no OCI adapter, so this lives in the test harness over the
+/// `delonix-oci` dev-dependency, exactly as [`AdapterNet`]/[`AdapterStore`] do.
+/// It mirrors `delonix-node-api-bin`'s `OciImages`.
+pub struct AdapterImages;
+
+/// The adapter-backed image port, as an `Arc` for `serve_blocking`.
+pub fn backing_images() -> Arc<dyn ImageRepo> {
+    Arc::new(AdapterImages)
+}
+
+fn stored_image(store: &delonix_oci::ImageStore, img: &delonix_oci::Image) -> StoredImage {
+    let mut size: u64 = 0;
+    for layer in &img.layers {
+        if let Ok(meta) = std::fs::metadata(store.cas().path(layer)) {
+            size += meta.len();
+        }
+    }
+    StoredImage {
+        id: img.id.clone(),
+        repo_tags: img.repo_tags.clone(),
+        created_unix: img.created_unix,
+        size_bytes: size as i64,
+    }
+}
+
+impl ImageRepo for AdapterImages {
+    fn list(&self, root: &std::path::Path) -> Result<Vec<StoredImage>, delonix_model::Error> {
+        let store = delonix_oci::ImageStore::open(root)?;
+        Ok(store
+            .list()?
+            .iter()
+            .map(|img| stored_image(&store, img))
+            .collect())
+    }
+    fn remove(&self, root: &std::path::Path, reference: &str) -> Result<(), delonix_model::Error> {
+        delonix_oci::ImageStore::open(root)?.remove(reference)?;
+        Ok(())
+    }
+    fn strip_digest<'a>(&self, digest: &'a str) -> &'a str {
+        delonix_oci::cas::strip(digest)
+    }
 }
 
 fn net_record(n: &delonix_sdn::Network) -> NetRecord {

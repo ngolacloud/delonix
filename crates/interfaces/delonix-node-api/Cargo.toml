@@ -14,7 +14,6 @@ repository.workspace = true
 
 [dependencies]
 delonix-compute = { workspace = true }
-delonix-oci = { workspace = true }
 delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-model = { workspace = true }
@@ -60,6 +59,10 @@ delonix-state = { workspace = true }
 # the `NetworkOps` port the bin composes. Kept for `net_ops::LocalNet` and the
 # integration harness's `AdapterNet` test backings, and the matrix/parse tests.
 delonix-sdn = { workspace = true }
+# R3d-g — production no longer names the OCI adapter; it reaches the image store
+# only through the `ImageRepo` port the bin composes. Kept for the integration
+# harness's `AdapterImages` test backing over the real store.
+delonix-oci = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }
