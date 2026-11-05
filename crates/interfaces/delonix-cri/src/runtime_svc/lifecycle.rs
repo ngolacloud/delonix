@@ -682,9 +682,8 @@ fn st<E: std::fmt::Display>(e: E) -> Status {
 /// etcd, `Exited (0)` in the engine, sandbox and CRI record gone — invisible to the
 /// kubelet, and `rm -f` on it by hand afterwards worked first time. The store is
 /// the thing to ask, not a sentence about it.
-fn engine_has(base: &Path, cri_id: &str) -> Option<bool> {
-    let store = delonix_state::Store::open(base.join("containers")).ok()?;
-    match store.load(&format!("cri-{cri_id}")) {
+fn engine_has(ops: &dyn crate::ContainerOps, cri_id: &str) -> Option<bool> {
+    match ops.load(&format!("cri-{cri_id}")) {
         Ok(_) => Some(true),
         Err(e) if e.is_not_found() => Some(false),
         Err(_) => None,
@@ -695,7 +694,7 @@ fn engine_has(base: &Path, cri_id: &str) -> Option<bool> {
 /// when the container is really gone — which also makes it idempotent: a container
 /// that never existed is gone too. A failed `rm` is logged with its stderr even when
 /// the container turns out to be gone, so the cause is never swallowed again.
-fn engine_remove(base: &Path, cri_id: &str) -> Result<(), Status> {
+fn engine_remove(base: &Path, ops: &dyn crate::ContainerOps, cri_id: &str) -> Result<(), Status> {
     let name = format!("cri-{cri_id}");
     let out = delonix(base, &["container", "rm", "-f", &name])?;
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -703,7 +702,7 @@ fn engine_remove(base: &Path, cri_id: &str) -> Result<(), Status> {
     if !out.status.success() {
         tracing::warn!(container = %name, status = %out.status, stderr = %stderr, "container rm -f failed");
     }
-    match engine_has(base, cri_id) {
+    match engine_has(ops, cri_id) {
         Some(false) => Ok(()),
         Some(true) => Err(Status::internal(format!(
             "removal of '{name}' failed, the engine still has it (record preserved for retry): {stderr}"
@@ -937,24 +936,25 @@ fn strip_ansi(line: &str) -> String {
 /// reported state `Exited` with exit-code 0 → the kubelet (restartPolicy
 /// `OnFailure`) did NOT restart it. After reconciling, the crash becomes
 /// `Crashed` (137) and the kubelet reacts.
-fn load_reconciled(base: &Path, cri_id: &str) -> Option<delonix_compute::Container> {
-    let store = delonix_state::Store::open(base.join("containers")).ok()?;
+fn load_reconciled(ops: &dyn crate::ContainerOps, cri_id: &str) -> Option<delonix_compute::Container> {
     // `update` (flock + re-reads under the lock), NOT `load`+`save`: this server
     // is CONCURRENT (the kubelet issues requests in parallel, each in a
     // `spawn_blocking`) and the CLI touches the same state. With the naive
     // pattern, two simultaneous reconciles lost writes — measured: 24 concurrent
     // updates → 1 survivor (see `store::tests::update_concorrente_nao_perde_escritas`).
-    store
-        .update(&format!("cri-{cri_id}"), |c| {
-            delonix_linux::reconcile_status(c)
-        })
-        .ok()
+    // The engine's port keeps that locked read-modify-write (R3h): the closure
+    // runs under the same `flock`, so `reconcile_status` stays the one write the
+    // CRI issues to the container store.
+    ops.update(&format!("cri-{cri_id}"), &mut |c| {
+        delonix_linux::reconcile_status(c)
+    })
+    .ok()
 }
 
 /// The runtime state of a CRI container, read (and reconciled) from the `Store`.
-fn delonix_state(base: &Path, cri_id: &str) -> i32 {
+fn delonix_state(ops: &dyn crate::ContainerOps, cri_id: &str) -> i32 {
     use delonix_model::records::Status as S;
-    match load_reconciled(base, cri_id) {
+    match load_reconciled(ops, cri_id) {
         Some(c) => match c.status {
             S::Running if c.is_live() => ContainerState::ContainerRunning as i32,
             S::Running => ContainerState::ContainerExited as i32, // defensive (post-reconcile)
@@ -969,9 +969,9 @@ fn delonix_state(base: &Path, cri_id: &str) -> i32 {
 /// The exit code of a CRI container (reconciled), or `None` if it is still
 /// running/created. Lets the kubelet see the true exit cause (137/143/n) and
 /// apply the `restartPolicy` — instead of assuming 0 (`Completed`) for everything.
-fn delonix_exit(base: &Path, cri_id: &str) -> Option<i32> {
+fn delonix_exit(ops: &dyn crate::ContainerOps, cri_id: &str) -> Option<i32> {
     use delonix_model::records::Status as S;
-    match load_reconciled(base, cri_id)?.status {
+    match load_reconciled(ops, cri_id)?.status {
         S::Failed(code) => Some(code),
         S::Stopped => Some(0),
         S::Crashed => Some(137),
@@ -981,8 +981,8 @@ fn delonix_exit(base: &Path, cri_id: &str) -> Option<i32> {
 
 /// Whether the kernel's OOM killer took this CRI container down (the engine
 /// records it on the cgroup before removing it — see `delonix_linux::OOM_KILLED`).
-fn delonix_oom_killed(base: &Path, cri_id: &str) -> bool {
-    load_reconciled(base, cri_id)
+fn delonix_oom_killed(ops: &dyn crate::ContainerOps, cri_id: &str) -> bool {
+    load_reconciled(ops, cri_id)
         .is_some_and(|c| c.crash_reason.as_deref() == Some(delonix_linux::OOM_KILLED))
 }
 
@@ -995,8 +995,8 @@ fn delonix_oom_killed(base: &Path, cri_id: &str) -> bool {
 /// to show it. `None` (container unknown) reads the same as `false` here —
 /// there is no fallback fact to report about a container that cannot be
 /// found, which is the state `container_status` reports on it either way.
-fn delonix_user_fallback_to_root(base: &Path, cri_id: &str) -> bool {
-    load_reconciled(base, cri_id).is_some_and(|c| c.user_fallback_to_root)
+fn delonix_user_fallback_to_root(ops: &dyn crate::ContainerOps, cri_id: &str) -> bool {
+    load_reconciled(ops, cri_id).is_some_and(|c| c.user_fallback_to_root)
 }
 
 /// The CRI `reason` for an exited container. `OOMKilled` is the string the
@@ -1317,6 +1317,7 @@ fn pod_netns_sysctls(pod: &[String]) -> Vec<(String, String)> {
 
 pub fn stop_pod_sandbox(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     id: String,
 ) -> Result<Response<StopPodSandboxResponse>, Status> {
     // The CRI contract: «if there are any running containers in the sandbox, they
@@ -1342,7 +1343,7 @@ pub fn stop_pod_sandbox(
         // Judged by the reconciled state, not by the exit status: stopping an
         // already-exited container is success, and a "stopped" process that is
         // still alive is not.
-        if load_reconciled(base, &c.id).is_some_and(|k| {
+        if load_reconciled(ops, &c.id).is_some_and(|k| {
             matches!(k.status, delonix_model::records::Status::Running) && k.is_live()
         }) {
             still_running.push(name);
@@ -1365,6 +1366,7 @@ pub fn stop_pod_sandbox(
 
 pub fn remove_pod_sandbox(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     id: String,
 ) -> Result<Response<RemovePodSandboxResponse>, Status> {
     // Same rule as `remove_container`: the record goes only AFTER the engine
@@ -1378,7 +1380,7 @@ pub fn remove_pod_sandbox(
         if c.sandbox_id != id {
             continue;
         }
-        engine_remove(base, &c.id)
+        engine_remove(base, ops, &c.id)
             .map_err(|e| Status::internal(format!("sandbox {id}: {}", e.message())))?;
         remove_rec(&ct_dir(base), &c.id);
     }
@@ -1469,6 +1471,7 @@ pub fn list_pod_sandbox(
 
 pub fn pod_sandbox_status(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     id: String,
 ) -> Result<Response<PodSandboxStatusResponse>, Status> {
     let r: SandboxRec = read_rec(&sb_dir(base), &id)?;
@@ -1482,9 +1485,8 @@ pub fn pod_sandbox_status(
         // ROOTLESS: IP of the pod's shared netns in the ingress (deterministic).
         delonix_sdn::infra::container_ip(&format!("cri-{}", r.id))
     } else {
-        delonix_state::Store::open(base.join("containers"))
+        ops.load(&format!("pod-cri-{}", r.id))
             .ok()
-            .and_then(|s| s.load(&format!("pod-cri-{}", r.id)).ok())
             .and_then(|c| c.ip)
             .unwrap_or_default()
     };
@@ -1864,7 +1866,12 @@ fn ceiling_reduces(capped: &[String], rec: &ContainerRec) -> bool {
 /// anchor's PID namespace (and the kernel keeps a namespace alive while ANY member
 /// is), a successor that joins a surviving sibling still lands in the same one.
 /// `None` means no live peer yet — this container IS the anchor and keeps its own.
-fn sandbox_shared_pid_anchor(base: &Path, sandbox_id: &str, self_id: &str) -> Option<i32> {
+fn sandbox_shared_pid_anchor(
+    base: &Path,
+    ops: &dyn crate::ContainerOps,
+    sandbox_id: &str,
+    self_id: &str,
+) -> Option<i32> {
     let mut members: Vec<ContainerRec> = list_recs::<ContainerRec>(&ct_dir(base))
         .into_iter()
         .filter(|c| c.sandbox_id == sandbox_id && c.id != self_id && c.started)
@@ -1877,7 +1884,7 @@ fn sandbox_shared_pid_anchor(base: &Path, sandbox_id: &str, self_id: &str) -> Op
         }
     });
     members.into_iter().find_map(|c| {
-        load_reconciled(base, &c.id)
+        load_reconciled(ops, &c.id)
             .filter(delonix_compute::Container::is_live)
             .and_then(|lc| lc.pid)
     })
@@ -2076,6 +2083,7 @@ fn write_run_spec(
 
 pub fn start_container(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     id: String,
     ceiling: crate::CapCeiling,
 ) -> Result<Response<StartContainerResponse>, Status> {
@@ -2117,7 +2125,7 @@ pub fn start_container(
     // peer — the gap is refused with the reason and the fix.
     if sandbox.as_ref().is_some_and(|sb| sb.shared_pid) {
         if opts.pod.is_some() {
-            let head = sandbox_shared_pid_anchor(base, &rec.sandbox_id, &id);
+            let head = sandbox_shared_pid_anchor(base, ops, &rec.sandbox_id, &id);
             apply_shared_pid(&mut opts, true, head);
         } else {
             return Err(Status::failed_precondition(shared_pid_host_cni_refusal(
@@ -2216,6 +2224,7 @@ fn cpus_for_update(
 /// back to the kubelet.
 pub fn update_container_resources(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     req: UpdateContainerResourcesRequest,
 ) -> Result<Response<UpdateContainerResourcesResponse>, Status> {
     let mut rec: ContainerRec = read_rec(&ct_dir(base), &req.container_id)?;
@@ -2228,9 +2237,8 @@ pub fn update_container_resources(
     refuse_unenforceable_resources(&asked, kube_cgroup_parent)?;
     let merged = rec.resources.merge_update(&asked);
 
-    let store = delonix_state::Store::open(base.join("containers")).map_err(st)?;
     let id = format!("cri-{}", req.container_id);
-    let container = store.load(&id).map_err(st)?;
+    let container = ops.load(&id).map_err(st)?;
 
     // What THIS request actually asked to change — recomputed from the full
     // MERGED pair for cpus (never just `asked`'s own cpu_quota/cpu_period),
@@ -2267,9 +2275,10 @@ pub fn update_container_resources(
     }
 
     // Persisted regardless of liveness — see the function doc for why a
-    // stopped container is a normal case here, not an error.
-    store
-        .update(&id, |c| {
+    // stopped container is a normal case here, not an error. Through the port's
+    // locked read-modify-write (R3h), the same `flock` semantics as before: a
+    // concurrent reconcile cannot lose this update.
+    ops.update(&id, &mut |c| {
             if let Some(m) = &memory {
                 c.memory_max = m.clone();
             }
@@ -2309,6 +2318,7 @@ pub fn update_container_resources(
 
 pub fn stop_container(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     id: String,
     timeout: i64,
 ) -> Result<Response<StopContainerResponse>, Status> {
@@ -2348,7 +2358,7 @@ pub fn stop_container(
     // looking. If it is still alive, propagate an error → the kubelet retries (instead
     // of assuming it stopped and moving on to RemoveContainer on a still-running
     // process).
-    if let Some(c) = load_reconciled(base, &id) {
+    if let Some(c) = load_reconciled(ops, &id) {
         let alive = matches!(c.status, delonix_model::records::Status::Running) && c.is_live();
         if alive {
             tracing::warn!(container = %format!("cri-{id}"), "ainda a correr depois do stop — o kubelet vai repetir");
@@ -2362,6 +2372,7 @@ pub fn stop_container(
 
 pub fn remove_container(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     id: String,
 ) -> Result<Response<RemoveContainerResponse>, Status> {
     // Registado pela mesma razão que o `StopContainer`: sem isto, a sequência
@@ -2373,7 +2384,7 @@ pub fn remove_container(
     // that no longer exists counts as removed.
     // The engine's store is the verdict (not a phrase on stderr), and the env file
     // written for this container goes with it (#322).
-    engine_remove(base, &id)?;
+    engine_remove(base, ops, &id)?;
     if valid_cri_id(&id) {
         let _ = std::fs::remove_file(env_path(base, &id));
     }
@@ -2381,7 +2392,7 @@ pub fn remove_container(
     Ok(Response::new(RemoveContainerResponse {}))
 }
 
-fn to_container(base: &Path, r: &ContainerRec) -> Container {
+fn to_container(ops: &dyn crate::ContainerOps, r: &ContainerRec) -> Container {
     Container {
         id: r.id.clone(),
         pod_sandbox_id: r.sandbox_id.clone(),
@@ -2394,7 +2405,7 @@ fn to_container(base: &Path, r: &ContainerRec) -> Container {
             ..Default::default()
         }),
         image_ref: r.image.clone(),
-        state: delonix_state(base, &r.id),
+        state: delonix_state(ops, &r.id),
         created_at: r.created_at,
         labels: r.labels.clone(),
         annotations: r.annotations.clone(),
@@ -2427,12 +2438,13 @@ fn container_matches(c: &Container, f: &ContainerFilter) -> bool {
 
 pub fn list_containers(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     filter: Option<ContainerFilter>,
 ) -> Result<Response<ListContainersResponse>, Status> {
     let f = filter.unwrap_or_default();
     let containers = list_recs::<ContainerRec>(&ct_dir(base))
         .iter()
-        .map(|r| to_container(base, r))
+        .map(|r| to_container(ops, r))
         .filter(|c| container_matches(c, &f))
         .collect();
     Ok(Response::new(ListContainersResponse { containers }))
@@ -2440,13 +2452,14 @@ pub fn list_containers(
 
 pub fn container_status(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     id: String,
     verbose: bool,
 ) -> Result<Response<ContainerStatusResponse>, Status> {
     let mut r: ContainerRec = read_rec(&ct_dir(base), &id)?;
     // Real exit code (from the Store), so the kubelet sees the exit cause instead
     // of a fixed `0`. `finished_at`/`reason` follow along.
-    let exit = delonix_exit(base, &r.id);
+    let exit = delonix_exit(ops, &r.id);
     // Persist the finish time only the FIRST time an exit is observed — see the
     // BUG FIXED note on `ContainerRec::finished_at`. Best-effort: a failed write
     // here still reports a correct (just not yet durable) timestamp this call.
@@ -2469,7 +2482,7 @@ pub fn container_status(
             name: r.name.clone(),
             attempt: r.attempt,
         }),
-        state: delonix_state(base, &r.id),
+        state: delonix_state(ops, &r.id),
         created_at: r.created_at,
         started_at,
         finished_at: r.finished_at,
@@ -2480,7 +2493,7 @@ pub fn container_status(
         }),
         image_ref: r.image.clone(),
         log_path: r.log_path.clone(),
-        reason: exit_reason(exit, delonix_oom_killed(base, &r.id)),
+        reason: exit_reason(exit, delonix_oom_killed(ops, &r.id)),
         // Preserve the CreateContainer attributes — the conformance spec
         // `preserving container attributes` requires labels/annotations to come
         // back exactly as they were set; with `..Default::default()` they came empty.
@@ -2501,7 +2514,7 @@ pub fn container_status(
     if verbose {
         info.insert(
             "userFallbackToRoot".to_string(),
-            delonix_user_fallback_to_root(base, &r.id).to_string(),
+            delonix_user_fallback_to_root(ops, &r.id).to_string(),
         );
     }
     Ok(Response::new(ContainerStatusResponse {
@@ -2658,12 +2671,8 @@ fn cg_field(cgroup: &str, file: &str, key: &str) -> u64 {
 }
 
 /// The cgroup of a CRI container (`cri-<id>`), via Delonix's `Store`.
-fn container_cgroup(base: &Path, cri_id: &str) -> Option<String> {
-    let store = delonix_state::Store::open(base.join("containers")).ok()?;
-    store
-        .load(&format!("cri-{cri_id}"))
-        .ok()
-        .map(|c| c.cgroup())
+fn container_cgroup(ops: &dyn crate::ContainerOps, cri_id: &str) -> Option<String> {
+    ops.load(&format!("cri-{cri_id}")).ok().map(|c| c.cgroup())
 }
 
 /// Sums the `VmRSS` (bytes) of all the cgroup's processes, reading `/proc`. It's
@@ -2712,8 +2721,8 @@ struct ContainerCgroupMetrics {
     swap_bytes: u64,
 }
 
-fn container_cgroup_metrics(base: &Path, id: &str) -> ContainerCgroupMetrics {
-    let cg = container_cgroup(base, id);
+fn container_cgroup_metrics(ops: &dyn crate::ContainerOps, id: &str) -> ContainerCgroupMetrics {
+    let cg = container_cgroup(ops, id);
     match &cg {
         Some(cg) => {
             let cpu_us = cg_field(cg, "cpu.stat", "usage_usec");
@@ -2761,12 +2770,12 @@ fn container_cgroup_metrics(base: &Path, id: &str) -> ContainerCgroupMetrics {
 /// eviction manager got no summary stats at all: node-pressure eviction, the
 /// kubelet's last line of node protection, was off on every node this runtime
 /// served (measured 2026-09-15, k8s 1.36.4).
-fn writable_layer_dir(base: &Path, cri_id: &str) -> Option<PathBuf> {
+fn writable_layer_dir(base: &Path, ops: &dyn crate::ContainerOps, cri_id: &str) -> Option<PathBuf> {
+    // The record read moves behind the port (R3h); `root` stays only to build the
+    // writable-layer path, which is `<base>/containers/<real id>` — the same place
+    // the engine's store keeps the layer, addressed by the resolved id.
     let root = base.join("containers");
-    let c = delonix_state::Store::open(&root)
-        .ok()?
-        .load(&format!("cri-{cri_id}"))
-        .ok()?;
+    let c = ops.load(&format!("cri-{cri_id}")).ok()?;
     let dir = root.join(&c.id);
     let upper = dir.join("upper");
     if upper.is_dir() {
@@ -2812,8 +2821,13 @@ fn dir_usage(dir: &Path) -> (u64, u64) {
 /// The CRI `writable_layer` of a container: a mountpoint the kubelet can `stat`
 /// and the usage measured there. A container the engine no longer knows reports
 /// the engine root (which exists) with zero usage, instead of a path that fails.
-fn writable_layer_usage(base: &Path, cri_id: &str, ts: i64) -> FilesystemUsage {
-    let (mountpoint, (bytes, inodes)) = match writable_layer_dir(base, cri_id) {
+fn writable_layer_usage(
+    base: &Path,
+    ops: &dyn crate::ContainerOps,
+    cri_id: &str,
+    ts: i64,
+) -> FilesystemUsage {
+    let (mountpoint, (bytes, inodes)) = match writable_layer_dir(base, ops, cri_id) {
         Some(d) => {
             let usage = dir_usage(&d);
             (d, usage)
@@ -2831,7 +2845,7 @@ fn writable_layer_usage(base: &Path, cri_id: &str, ts: i64) -> FilesystemUsage {
 }
 
 /// Builds a container's real metrics from its cgroup v2.
-fn container_stats_for(base: &Path, r: &ContainerRec) -> ContainerStats {
+fn container_stats_for(base: &Path, ops: &dyn crate::ContainerOps, r: &ContainerRec) -> ContainerStats {
     let ts = now_ns();
     let ContainerCgroupMetrics {
         cpu_ns,
@@ -2841,7 +2855,7 @@ fn container_stats_for(base: &Path, r: &ContainerRec) -> ContainerStats {
         pgfault,
         pgmajfault,
         swap_bytes,
-    } = container_cgroup_metrics(base, &r.id);
+    } = container_cgroup_metrics(ops, &r.id);
     ContainerStats {
         attributes: Some(ContainerAttributes {
             id: r.id.clone(),
@@ -2866,7 +2880,7 @@ fn container_stats_for(base: &Path, r: &ContainerRec) -> ContainerStats {
             page_faults: u64v(pgfault),
             major_page_faults: u64v(pgmajfault),
         }),
-        writable_layer: Some(writable_layer_usage(base, &r.id, ts)),
+        writable_layer: Some(writable_layer_usage(base, ops, &r.id, ts)),
         swap: Some(SwapUsage {
             timestamp: ts,
             swap_available_bytes: u64v(0),
@@ -2877,16 +2891,18 @@ fn container_stats_for(base: &Path, r: &ContainerRec) -> ContainerStats {
 
 pub fn container_stats(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     id: String,
 ) -> Result<Response<ContainerStatsResponse>, Status> {
     let r: ContainerRec = read_rec(&ct_dir(base), &id)?;
     Ok(Response::new(ContainerStatsResponse {
-        stats: Some(container_stats_for(base, &r)),
+        stats: Some(container_stats_for(base, ops, &r)),
     }))
 }
 
 pub fn list_container_stats(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     filter: Option<ContainerStatsFilter>,
 ) -> Result<Response<ListContainerStatsResponse>, Status> {
     // `label_selector` was DROPPED. The filter has three fields and only two
@@ -2907,18 +2923,18 @@ pub fn list_container_stats(
                     .iter()
                     .all(|(k, v)| r.labels.get(k).is_some_and(|got| got == v))
         })
-        .map(|r| container_stats_for(base, &r))
+        .map(|r| container_stats_for(base, ops, &r))
         .collect();
     Ok(Response::new(ListContainerStatsResponse { stats }))
 }
 
 /// Metrics of a pod sandbox: aggregates the sandbox's containers (cpu/memory).
-fn pod_sandbox_stats_for(base: &Path, sb: &SandboxRec) -> PodSandboxStats {
+fn pod_sandbox_stats_for(base: &Path, ops: &dyn crate::ContainerOps, sb: &SandboxRec) -> PodSandboxStats {
     let ts = now_ns();
     let conts: Vec<ContainerStats> = list_recs::<ContainerRec>(&ct_dir(base))
         .into_iter()
         .filter(|r| r.sandbox_id == sb.id)
-        .map(|r| container_stats_for(base, &r))
+        .map(|r| container_stats_for(base, ops, &r))
         .collect();
     let sum = |pick: &dyn Fn(&ContainerStats) -> u64| conts.iter().map(pick).sum::<u64>();
     let cpu_ns = sum(&|c| {
@@ -2982,23 +2998,25 @@ fn pod_sandbox_stats_for(base: &Path, sb: &SandboxRec) -> PodSandboxStats {
 
 pub fn pod_sandbox_stats(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     id: String,
 ) -> Result<Response<PodSandboxStatsResponse>, Status> {
     let sb: SandboxRec = read_rec(&sb_dir(base), &id)?;
     Ok(Response::new(PodSandboxStatsResponse {
-        stats: Some(pod_sandbox_stats_for(base, &sb)),
+        stats: Some(pod_sandbox_stats_for(base, ops, &sb)),
     }))
 }
 
 pub fn list_pod_sandbox_stats(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
     filter: Option<PodSandboxStatsFilter>,
 ) -> Result<Response<ListPodSandboxStatsResponse>, Status> {
     let fid = filter.map(|f| f.id).unwrap_or_default();
     let stats = list_recs::<SandboxRec>(&sb_dir(base))
         .into_iter()
         .filter(|s| fid.is_empty() || s.id == fid)
-        .map(|s| pod_sandbox_stats_for(base, &s))
+        .map(|s| pod_sandbox_stats_for(base, ops, &s))
         .collect();
     Ok(Response::new(ListPodSandboxStatsResponse { stats }))
 }
@@ -3081,8 +3099,8 @@ pub fn list_metric_descriptors() -> Result<Response<ListMetricDescriptorsRespons
     Ok(Response::new(ListMetricDescriptorsResponse { descriptors }))
 }
 
-fn container_metrics_for(base: &Path, r: &ContainerRec) -> ContainerMetrics {
-    let m = container_cgroup_metrics(base, &r.id);
+fn container_metrics_for(ops: &dyn crate::ContainerOps, r: &ContainerRec) -> ContainerMetrics {
+    let m = container_cgroup_metrics(ops, &r.id);
     let values = [m.cpu_ns, m.working_set_bytes, m.usage_bytes, m.rss_bytes];
     let metrics = CONTAINER_METRICS
         .iter()
@@ -3105,6 +3123,7 @@ fn container_metrics_for(base: &Path, r: &ContainerRec) -> ContainerMetrics {
 
 pub fn list_pod_sandbox_metrics(
     base: &Path,
+    ops: &dyn crate::ContainerOps,
 ) -> Result<Response<ListPodSandboxMetricsResponse>, Status> {
     let pod_metrics = list_recs::<SandboxRec>(&sb_dir(base))
         .into_iter()
@@ -3112,7 +3131,7 @@ pub fn list_pod_sandbox_metrics(
             let container_metrics: Vec<ContainerMetrics> = list_recs::<ContainerRec>(&ct_dir(base))
                 .into_iter()
                 .filter(|r| r.sandbox_id == sb.id)
-                .map(|r| container_metrics_for(base, &r))
+                .map(|r| container_metrics_for(ops, &r))
                 .collect();
             // The pod-level totals are the same sum-of-containers
             // `pod_sandbox_stats_for` computes — just re-derived from
@@ -3464,6 +3483,14 @@ fn publishable_port_specs(mappings: &[PortMapping]) -> Result<Vec<String>, Statu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A container-store port over a test's on-disk root (R3h). The routed free
+    /// functions take `&dyn ContainerOps`; the tests still seed `<base>/containers`
+    /// with `delonix-state` directly (a dev-dependency), and this is the port that
+    /// reads it back — the same `<base>/containers` the engine's own port opens.
+    fn so(base: &std::path::Path) -> crate::test_ops::StoreOps {
+        crate::test_ops::StoreOps::new(base)
+    }
 
     /// The CNI_ARGS a pod-aware plugin needs, in the kubelet's spelling and
     /// order; this is what was MISSING and left Cilium pods in `reserved:init`.
@@ -4705,7 +4732,7 @@ mod tests {
         std::fs::create_dir_all(upper.join("var")).unwrap();
         std::fs::write(upper.join("var").join("data"), vec![7u8; 64 * 1024]).unwrap();
 
-        let fs = writable_layer_usage(tmp, "abc", 1);
+        let fs = writable_layer_usage(tmp, &so(tmp), "abc", 1);
         let mp = fs.fs_id.unwrap().mountpoint;
         assert_eq!(mp, upper.to_string_lossy());
         assert!(
@@ -4716,7 +4743,7 @@ mod tests {
         assert_eq!(fs.inodes_used.unwrap().value, 3, "upper, var, data");
 
         // Unknown to the engine: a path that exists, and no invented usage.
-        let gone = writable_layer_usage(tmp, "nope", 1);
+        let gone = writable_layer_usage(tmp, &so(tmp), "nope", 1);
         assert_eq!(gone.fs_id.unwrap().mountpoint, tmp.to_string_lossy());
         assert_eq!(gone.used_bytes.unwrap().value, 0);
     }
@@ -4737,14 +4764,14 @@ mod tests {
             String::new(),
         );
         store.save(&c).unwrap();
-        assert_eq!(engine_has(tmp, "bfc39487ccd4adf6"), Some(true));
-        assert_eq!(engine_has(tmp, "0000000000000000"), Some(false));
+        assert_eq!(engine_has(&so(tmp), "bfc39487ccd4adf6"), Some(true));
+        assert_eq!(engine_has(&so(tmp), "0000000000000000"), Some(false));
 
         // A store that cannot be read (here: `containers` is a file) is unknown.
         let broken = tmp.join("broken");
         std::fs::create_dir_all(&broken).unwrap();
         std::fs::write(broken.join("containers"), b"not a directory").unwrap();
-        assert_eq!(engine_has(&broken, "bfc39487ccd4adf6"), None);
+        assert_eq!(engine_has(&so(&broken), "bfc39487ccd4adf6"), None);
     }
 
     #[test]
@@ -4768,12 +4795,12 @@ mod tests {
 
         // reconciles (Running+dead → Crashed) → exit 137 + state Exited.
         assert_eq!(
-            delonix_exit(tmp, "abc"),
+            delonix_exit(&so(tmp), "abc"),
             Some(137),
             "crash deve reportar 137, não 0"
         );
         assert_eq!(
-            delonix_state(tmp, "abc"),
+            delonix_state(&so(tmp), "abc"),
             ContainerState::ContainerExited as i32
         );
 
@@ -4781,11 +4808,11 @@ mod tests {
         let mut ok = c.clone();
         ok.status = delonix_model::records::Status::Stopped;
         store.save(&ok).unwrap();
-        assert_eq!(delonix_exit(tmp, "abc"), Some(0));
+        assert_eq!(delonix_exit(&so(tmp), "abc"), Some(0));
         let mut failed = c.clone();
         failed.status = delonix_model::records::Status::Failed(2);
         store.save(&failed).unwrap();
-        assert_eq!(delonix_exit(tmp, "abc"), Some(2));
+        assert_eq!(delonix_exit(&so(tmp), "abc"), Some(2));
     }
 
     /// BUG FIXED: `ContainerStatus.finished_at` used to be `now_ns()` recomputed on
@@ -4819,7 +4846,7 @@ mod tests {
         };
         write_rec(&ct_dir(tmp), "abc", &rec).unwrap();
 
-        let s1 = container_status(tmp, "abc".into(), false)
+        let s1 = container_status(tmp, &so(tmp), "abc".into(), false)
             .unwrap()
             .into_inner()
             .status
@@ -4834,7 +4861,7 @@ mod tests {
         );
 
         std::thread::sleep(std::time::Duration::from_millis(5));
-        let s2 = container_status(tmp, "abc".into(), false)
+        let s2 = container_status(tmp, &so(tmp), "abc".into(), false)
             .unwrap()
             .into_inner()
             .status
@@ -4875,7 +4902,7 @@ mod tests {
         };
         write_rec(&ct_dir(tmp), "abc", &rec).unwrap();
 
-        let quiet = container_status(tmp, "abc".into(), false)
+        let quiet = container_status(tmp, &so(tmp), "abc".into(), false)
             .unwrap()
             .into_inner();
         assert!(
@@ -4883,7 +4910,7 @@ mod tests {
             "a non-verbose request must get an empty info map, per the CRI contract"
         );
 
-        let loud = container_status(tmp, "abc".into(), true)
+        let loud = container_status(tmp, &so(tmp), "abc".into(), true)
             .unwrap()
             .into_inner();
         assert_eq!(
@@ -4920,7 +4947,7 @@ mod tests {
         };
         write_rec(&ct_dir(tmp), "abc", &rec).unwrap();
 
-        let loud = container_status(tmp, "abc".into(), true)
+        let loud = container_status(tmp, &so(tmp), "abc".into(), true)
             .unwrap()
             .into_inner();
         assert_eq!(
@@ -4986,6 +5013,7 @@ mod tests {
         let tmp = tmp_dir.path();
         let got = list_containers(
             tmp,
+            &so(tmp),
             Some(ContainerFilter {
                 pod_sandbox_id: "sbaaaa".into(),
                 ..Default::default()
@@ -5011,7 +5039,7 @@ mod tests {
         let tmp_dir = base_with_two_pods();
         let tmp = tmp_dir.path();
         assert_eq!(
-            list_containers(tmp, None)
+            list_containers(tmp, &so(tmp), None)
                 .unwrap()
                 .into_inner()
                 .containers
@@ -5019,7 +5047,7 @@ mod tests {
             3
         );
         assert_eq!(
-            list_containers(tmp, Some(ContainerFilter::default()))
+            list_containers(tmp, &so(tmp), Some(ContainerFilter::default()))
                 .unwrap()
                 .into_inner()
                 .containers
@@ -5093,7 +5121,7 @@ mod tests {
         )
         .unwrap();
 
-        let st = pod_sandbox_status(tmp, "sbhost".into())
+        let st = pod_sandbox_status(tmp, &so(tmp), "sbhost".into())
             .unwrap()
             .into_inner()
             .status
@@ -5207,6 +5235,7 @@ mod tests {
         let tmp = tmp_dir.path();
         let got = list_containers(
             tmp,
+            &so(tmp),
             Some(ContainerFilter {
                 label_selector: HashMap::from([(
                     "io.kubernetes.container.name".to_string(),
@@ -5265,7 +5294,7 @@ mod tests {
             "descriptor names must be unique and cover both tables"
         );
 
-        let pods = list_pod_sandbox_metrics(tmp)
+        let pods = list_pod_sandbox_metrics(tmp, &so(tmp))
             .unwrap()
             .into_inner()
             .pod_metrics;
@@ -5320,7 +5349,7 @@ mod tests {
             .unwrap();
         }
 
-        let pods = list_pod_sandbox_metrics(tmp)
+        let pods = list_pod_sandbox_metrics(tmp, &so(tmp))
             .unwrap()
             .into_inner()
             .pod_metrics;

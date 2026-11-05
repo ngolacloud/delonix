@@ -584,6 +584,22 @@ impl ContainerService<'_> {
         self.store()?.load(id_or_name).map_err(Into::into)
     }
 
+    /// **Safe read-modify-write** of one container under its exclusive `flock`
+    /// (R3h): re-reads the record ALREADY under the lock, applies `f`, writes —
+    /// one critical section between processes. `f` returns `false` to abort the
+    /// write (nothing changes); the returned container is the final state (or the
+    /// one read, if it aborted). NOT `load` + mutate + `save`, which loses writes
+    /// when the concurrent CRI and the CLI touch the same container at once —
+    /// the only write the CRI issues to the container store goes through here.
+    pub fn update<F>(&self, id_or_name: &str, f: F) -> delonix_model::Result<Container>
+    where
+        F: FnOnce(&mut Container) -> bool,
+    {
+        self.store()?
+            .update(id_or_name, f)
+            .map_err(delonix_model::Error::from)
+    }
+
     /// Whether the container store is reachable — the openability a health or
     /// doctor check reports, with the open error kept for its detail line.
     pub fn store_reachable(&self) -> delonix_model::Result<()> {
@@ -960,6 +976,54 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let eng = Engine::mount(dir.path().to_path_buf()).unwrap();
         assert!(eng.workload_series().is_empty());
+    }
+
+    /// The container write path the CRI depends on (R3h): `update` applies the
+    /// closure to the record and persists it, and a closure that returns `false`
+    /// changes nothing. The locking itself is proved by the concurrent-update test
+    /// in `delonix-state`; here the point is that the engine's port forwards to
+    /// that read-modify-write faithfully, including the abort case the CRI's
+    /// reconcile relies on.
+    #[test]
+    fn container_update_persists_a_change_and_an_aborting_closure_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let eng = Engine::mount(dir.path().to_path_buf()).unwrap();
+        // Seed one record straight into the store (the engine's port has no
+        // `create`; the CRI seeds through its own path, delonix-state here).
+        let store = delonix_state::Store::open(dir.path().join("containers")).unwrap();
+        let mut c = Container::new(
+            "cri-abc".to_string(),
+            "cri-abc".to_string(),
+            "img".to_string(),
+            vec!["/sh".to_string()],
+            "64m".to_string(),
+        );
+        c.pid = Some(7);
+        store.save(&c).unwrap();
+
+        // A writing closure is applied and persisted.
+        let after = eng
+            .containers()
+            .update("cri-abc", |c| {
+                c.pid = Some(42);
+                true
+            })
+            .unwrap();
+        assert_eq!(after.pid, Some(42));
+        assert_eq!(eng.containers().load("cri-abc").unwrap().pid, Some(42));
+
+        // A closure returning `false` aborts the WRITE: nothing is persisted. The
+        // record on disk is still the one the closure read (42), even though the
+        // returned value carries the discarded in-place mutation — the on-disk
+        // invariant is what the CRI's reconcile depends on.
+        let _ = eng
+            .containers()
+            .update("cri-abc", |c| {
+                c.pid = Some(99);
+                false
+            })
+            .unwrap();
+        assert_eq!(eng.containers().load("cri-abc").unwrap().pid, Some(42));
     }
 
     /// `dir_size` descends the whole tree and counts what `du` counts, delegating
