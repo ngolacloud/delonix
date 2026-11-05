@@ -11,13 +11,21 @@
 //! dependencies become this crate's (assembly may depend on a provider; an
 //! adapter may not).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use delonix_compute::capability::ProviderReport;
 use delonix_compute::{Container, Vm};
+use delonix_linux::pressure::{self, CgroupSeries, Why};
 use delonix_linux::usage::UsageSample;
+use delonix_model::dash::DashSummary;
+use delonix_model::records::Status;
 use delonix_oci::{Image, ImageStore};
 use delonix_sdn::infra::InfraStatus;
+use delonix_telemetry::workload::{
+    CpuThrottle, MemoryEvents, Pressure as WorkloadPressure, Stall, Unavailable, WorkloadKind,
+    WorkloadSeries,
+};
 use delonix_volume::Volume;
 use serde_json::json;
 
@@ -166,6 +174,273 @@ impl Engine {
                 "reasons": inference.reasons,
             },
         })
+    }
+
+    /// A point-in-time [`DashSummary`] — engine-wide counts, cgroup memory, and
+    /// (optionally) per-container network totals and the per-area disk walk
+    /// (R3f-B). The single place that aggregates "how much is this node using",
+    /// composed from the engine's own services instead of an interface reaching
+    /// the stores directly; `delonix-mgmt`'s `/metrics`+`/v1/dash` and
+    /// `delonix-mcp`'s `runtime.info`/`metrics.query` both answer with it.
+    ///
+    /// Best-effort throughout: a store that doesn't open counts as empty/zero
+    /// (this must never fail a scrape or a dashboard render over one missing
+    /// store). `include_network` enters each running container's netns (one
+    /// `nsenter` per container); `include_storage` walks several store areas (over
+    /// a minute on a heavy host) — a tight-budget caller passes `false` and shows
+    /// the last background value.
+    pub fn dash_summary(&self, include_network: bool, include_storage: bool) -> DashSummary {
+        let root = self.root();
+        let mut containers_running = 0u64;
+        let mut containers_total = 0u64;
+        let mut running_ids: Vec<String> = Vec::new();
+        if let Ok(store) = delonix_state::Store::open(root.join("containers")) {
+            if let Ok(list) = store.list() {
+                containers_total = list.len() as u64;
+                for mut c in list {
+                    delonix_linux::reconcile_status(&mut c);
+                    if c.status == Status::Running {
+                        containers_running += 1;
+                        running_ids.push(c.id.clone());
+                    }
+                }
+            }
+        }
+
+        let vm_list = self.vms().list().unwrap_or_default();
+        let vms_running = vm_list
+            .iter()
+            .filter(|v| v.status == Status::Running)
+            .count() as u64;
+        let vms_total = vm_list.len() as u64;
+
+        let networks_total = delonix_sdn::NetworkStore::open(root)
+            .and_then(|s| s.list())
+            .map(|l| l.len() as u64)
+            .unwrap_or(0);
+        let volumes_total = delonix_volume::VolumeStore::open(root)
+            .and_then(|s| s.list())
+            .map(|l| l.len() as u64)
+            .unwrap_or(0);
+        let images_total = self.images().count();
+        let secrets_total = delonix_state::SecretStore::open(root)
+            .map(|s| s.list().len() as u64)
+            .unwrap_or(0);
+
+        let (memory_bytes_limit, memory_bytes_used, ..) = delonix_linux::slice_budget();
+
+        let (network_rx_bytes, network_tx_bytes, network_unmeasured_containers) = if include_network
+        {
+            let mut rx = 0u64;
+            let mut tx = 0u64;
+            let mut unmeasured = 0u64;
+            for id in &running_ids {
+                match delonix_sdn::infra::container_net_bytes(id) {
+                    Some((r, t)) => {
+                        rx += r;
+                        tx += t;
+                    }
+                    // `--net host`/`--net none` containers have no netns to
+                    // inspect — count them, don't silently treat as zero traffic.
+                    None => unmeasured += 1,
+                }
+            }
+            (Some(rx), Some(tx), unmeasured)
+        } else {
+            (None, None, 0)
+        };
+
+        let (
+            storage_bytes_images,
+            storage_bytes_volumes,
+            storage_bytes_vm_images,
+            storage_bytes_containers,
+        ) = if include_storage {
+            (
+                Some(dir_size(&root.join("blobs")) + dir_size(&root.join("layers"))),
+                Some(dir_size(&root.join("volumes"))),
+                Some(dir_size(&root.join("vm-images"))),
+                Some(dir_size(&root.join("containers"))),
+            )
+        } else {
+            (None, None, None, None)
+        };
+
+        DashSummary {
+            containers_running,
+            containers_total,
+            vms_running,
+            vms_total,
+            networks_total,
+            volumes_total,
+            images_total,
+            secrets_total,
+            memory_bytes_used,
+            memory_bytes_limit,
+            network_rx_bytes,
+            network_tx_bytes,
+            network_unmeasured_containers,
+            storage_bytes_images,
+            storage_bytes_volumes,
+            storage_bytes_vm_images,
+            storage_bytes_containers,
+        }
+    }
+
+    /// Per-container cumulative network rx/tx bytes, keyed by container id, for
+    /// every RUNNING container (R3f-B). One `nsenter`+`cat` per container — never
+    /// on a tick budget; the interface serves this from a slow background refresh.
+    pub fn container_net(&self) -> HashMap<String, (u64, u64)> {
+        let mut out = HashMap::new();
+        if let Ok(store) = delonix_state::Store::open(self.root().join("containers")) {
+            if let Ok(list) = store.list() {
+                for mut c in list {
+                    delonix_linux::reconcile_status(&mut c);
+                    if c.status == Status::Running {
+                        if let Some(bytes) = delonix_sdn::infra::container_net_bytes(&c.id) {
+                            out.insert(c.id.clone(), bytes);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Per-workload contention series (CPU throttling, pressure, OOM) for every
+    /// running container and VM, read from cgroup v2 with no new privilege (R3f-B).
+    /// A container is read from its own live cgroup; a VM only when its VMM is
+    /// alone in its cgroup. Per-CONTAINER network is left `None` here — the
+    /// interface overlays it from its background-refreshed cache to keep the
+    /// inline scrape path free of netns enters — while a Cloud Hypervisor VM's tap
+    /// bytes are one read away and attached here.
+    pub fn workload_series(&self) -> Vec<WorkloadSeries> {
+        let mut out = Vec::new();
+        if let Ok(store) = delonix_state::Store::open(self.root().join("containers")) {
+            if let Ok(list) = store.list() {
+                for mut c in list {
+                    delonix_linux::reconcile_status(&mut c);
+                    if c.status == Status::Running {
+                        let dir = PathBuf::from(delonix_linux::live_cgroup(&c));
+                        out.push(workload_series_one(
+                            WorkloadKind::Container,
+                            &c.id,
+                            &c.name,
+                            Ok(dir),
+                        ));
+                    }
+                }
+            }
+        }
+        for vm in self.vms().list().unwrap_or_default() {
+            if vm.status != Status::Running {
+                continue;
+            }
+            let cgroup = match vm.pid {
+                Some(pid) => {
+                    pressure::vmm_cgroup(Path::new("/proc"), Path::new("/sys/fs/cgroup"), pid)
+                }
+                None => Err(Why::CgroupMissing),
+            };
+            let mut ws = workload_series_one(WorkloadKind::Vm, &vm.name, &vm.name, cgroup);
+            if vm.backend == "cloud-hypervisor" {
+                if let Some((rx, tx)) = delonix_sdn::infra::vm_tap_net_bytes(&vm.tap) {
+                    ws.net_rx_bytes = Some(rx);
+                    ws.net_tx_bytes = Some(tx);
+                }
+            }
+            out.push(ws);
+        }
+        out
+    }
+}
+
+/// Recursive disk usage of a directory, `du`-style (allocated blocks, hardlink-
+/// deduplicated). Zero on any unreadable path — a summary must never fail over
+/// one missing directory.
+fn dir_size(p: &Path) -> u64 {
+    delonix_volume::measure(p).bytes
+}
+
+/// Reads one workload's series from `cgroup` (or records why there is none) and
+/// converts them to the exporter's [`WorkloadSeries`]. Every group that could not
+/// be read becomes an [`Unavailable`] entry instead of a value.
+fn workload_series_one(
+    kind: WorkloadKind,
+    id: &str,
+    name: &str,
+    // Fully qualified: this crate's bare `Result` is `delonix_vm::Result` (a
+    // one-argument alias re-exported at the top), not `std::result::Result`.
+    cgroup: std::result::Result<PathBuf, Why>,
+) -> WorkloadSeries {
+    let read = match cgroup {
+        Ok(dir) => pressure::read_cgroup(&dir),
+        Err(why) => CgroupSeries::unavailable(why),
+    };
+    let mut unavailable = Vec::new();
+    let cpu_usage_usec = take("cpu_usage", read.cpu_usage_usec, &mut unavailable);
+    let memory_current_bytes = take("memory_current", read.memory_current, &mut unavailable);
+    let cpu_throttle =
+        take("cpu_throttle", read.cpu_throttle, &mut unavailable).map(|c| CpuThrottle {
+            nr_periods: c.nr_periods,
+            nr_throttled: c.nr_throttled,
+            throttled_usec: c.throttled_usec,
+        });
+    let cpu_pressure = take("cpu_pressure", read.cpu_pressure, &mut unavailable).map(to_pressure);
+    let memory_pressure =
+        take("memory_pressure", read.memory_pressure, &mut unavailable).map(to_pressure);
+    let io_pressure = take("io_pressure", read.io_pressure, &mut unavailable).map(to_pressure);
+    let memory_events =
+        take("memory_events", read.memory_events, &mut unavailable).map(|m| MemoryEvents {
+            oom: m.oom,
+            oom_kill: m.oom_kill,
+        });
+    WorkloadSeries {
+        kind,
+        id: id.to_string(),
+        name: name.to_string(),
+        cpu_usage_usec,
+        memory_current_bytes,
+        // Network is NOT a cgroup read: it needs a netns enter, too costly for the
+        // inline scrape path. The interface fills container net from its cache;
+        // left `None` here (a Cloud Hypervisor VM's tap is attached by the caller).
+        net_rx_bytes: None,
+        net_tx_bytes: None,
+        cpu_throttle,
+        cpu_pressure,
+        memory_pressure,
+        io_pressure,
+        memory_events,
+        unavailable,
+    }
+}
+
+/// A group that could not be read becomes `None` plus its reason.
+fn take<T>(
+    group: &'static str,
+    r: std::result::Result<T, Why>,
+    unavailable: &mut Vec<Unavailable>,
+) -> Option<T> {
+    match r {
+        Ok(v) => Some(v),
+        Err(why) => {
+            unavailable.push(Unavailable {
+                group,
+                reason: why.as_str(),
+            });
+            None
+        }
+    }
+}
+
+fn to_pressure(p: pressure::Pressure) -> WorkloadPressure {
+    let stall = |l: pressure::StallLine| Stall {
+        avg10_percent: l.avg10_percent,
+        total_usec: l.total_usec,
+    };
+    WorkloadPressure {
+        some: stall(p.some),
+        full: p.full.map(stall),
     }
 }
 
