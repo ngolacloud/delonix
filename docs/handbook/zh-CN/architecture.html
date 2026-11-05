@@ -709,7 +709,7 @@ classDef store fill:#2390c8,stroke:#17618a,color:#ffffff
 </tr>
 <tr>
 <td><code>delonix-cri</code></td>
-<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/bin/delonix-cri.rs" target="_blank" rel="noopener"><code>crates/<wbr>interfaces/<wbr>delonix-cri/<wbr>src/<wbr>bin/<wbr>delonix-cri.<wbr>rs</code></a> → <code>delonix_cri::<wbr>serve_blocking</code></td>
+<td><code>crates/<wbr>interfaces/<wbr>delonix-cri/<wbr>src/<wbr>bin/<wbr>delonix-cri.<wbr>rs</code> → <code>delonix_cri::<wbr>serve_blocking</code></td>
 <td>一个服务（通常是一个 systemd unit）。<code>delonix serve cri</code> 会对它执行 <code>exec</code>（<code>cmd/<wbr>serve.<wbr>rs::<wbr>exec_server</code>）</td>
 </tr>
 <tr>
@@ -1185,6 +1185,7 @@ B」这样的问题，而要理解「为什么」，请阅读上文按层划分�
   end
   subgraph bin[&quot;Binaries&quot;]
     delonix_bin[&quot;delonix-bin&quot;]
+    delonix_cri_bin[&quot;delonix-cri-bin&quot;]
     delonix_mcp_bin[&quot;delonix-mcp-bin&quot;]
     delonix_mgmt_bin[&quot;delonix-mgmt-bin&quot;]
     delonix_node_api_bin[&quot;delonix-node-api-bin&quot;]
@@ -1226,11 +1227,15 @@ B」这样的问题，而要理解「为什么」，请阅读上文按层划分�
   delonix_cri --&gt; delonix_linux
   delonix_cri --&gt; delonix_model
   delonix_cri --&gt; delonix_node
-  delonix_cri --&gt; delonix_oci
   delonix_cri --&gt; delonix_sdn
   delonix_cri --&gt; delonix_security
   delonix_cri --&gt; delonix_state
   delonix_cri --&gt; delonix_telemetry
+  delonix_cri_bin --&gt; delonix_cri
+  delonix_cri_bin --&gt; delonix_engine
+  delonix_cri_bin --&gt; delonix_host
+  delonix_cri_bin --&gt; delonix_model
+  delonix_cri_bin --&gt; delonix_telemetry
   delonix_engine --&gt; delonix_compute
   delonix_engine --&gt; delonix_linux
   delonix_engine --&gt; delonix_model
@@ -1360,6 +1365,7 @@ B」这样的问题，而要理解「为什么」，请阅读上文按层划分�
   class delonix_bin engine
   class delonix_compute block
   class delonix_cri iface
+  class delonix_cri_bin engine
   class delonix_engine assembly
   class delonix_host block
   class delonix_linux block

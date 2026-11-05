@@ -4,12 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# `delonix-cri` — servidor CRI (`runtime.v1`), instalado dentro do guest de uma
-# VM (ex.: a imagem dourada `delonix image --vm build`) para o kubelet falar
-# com o `delonix-runtime` em vez de containerd/CRI-O. Ver `dist/delonix-cri.service`.
-[[bin]]
-name = "delonix-cri"
-path = "src/bin/delonix-cri.rs"
+# `delonix-cri` — the CRI server (`runtime.v1`) library. Its executable lives in
+# the `delonix-cri-bin` crate (ADR-0040 D2.4: the bin composes the engine and
+# hands this server its ports; an interface crate names no assembly). R3h moved
+# the binary out of this crate for exactly that composition.
 
 [dependencies]
 delonix-node = { workspace = true }
@@ -19,7 +17,6 @@ delonix-state = { workspace = true }
 delonix-telemetry = { workspace = true }
 delonix-compute = { workspace = true }
 delonix-linux = { workspace = true }
-delonix-oci = { workspace = true }
 delonix-sdn = { workspace = true }
 delonix-security = { workspace = true }
 tonic = { workspace = true }

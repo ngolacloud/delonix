@@ -36,6 +36,7 @@ members = [
     "crates/adapters/delonix-telemetry",
     "bins/delonix-mcp-bin",
     "bins/delonix-mgmt-bin",
+    "bins/delonix-cri-bin",
     "crates/interfaces/delonix-node-api",
     "bins/delonix-node-api-bin",
     "bins/delonix-storage-helper",

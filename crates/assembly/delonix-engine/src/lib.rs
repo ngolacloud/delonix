@@ -799,6 +799,74 @@ impl ImageService<'_> {
         let pkgs = delonix_scanner::extract_sbom(&store, &img).unwrap_or_default();
         Ok(serde_json::to_value(pkgs).unwrap_or(serde_json::Value::Null))
     }
+
+    /// Pull an image from its registry, optionally with `(username, password)`
+    /// the caller resolved (a Pod's `imagePullSecrets`); returns the stored id
+    /// (R3h). The CRI `PullImage` path, composed away from `delonix-oci`.
+    pub fn pull(
+        &self,
+        reference: &str,
+        creds: Option<(String, String)>,
+    ) -> delonix_model::Result<String> {
+        let store = self.store()?;
+        delonix_oci::pull_from_registry_with_creds(&store, reference, creds)
+            .map(|img| img.id)
+            .map_err(delonix_model::Error::from)
+    }
+
+    /// The CRI-shaped summary of every local image — `id`, the OCI config `user`,
+    /// the reference list (`repo_tags`, which the CRI boundary later splits into
+    /// tags/digests) and the on-disk layer size (R3h). The `Image` type stays in
+    /// the adapter; an interface serves these fields without naming it.
+    pub fn image_summaries(&self) -> delonix_model::Result<serde_json::Value> {
+        let imgs = self.store()?.list().map_err(delonix_model::Error::from)?;
+        Ok(serde_json::Value::Array(
+            imgs.iter().map(image_summary).collect(),
+        ))
+    }
+
+    /// The summary of one image by reference, or `None` if it is not stored.
+    pub fn image_status(&self, reference: &str) -> delonix_model::Result<Option<serde_json::Value>> {
+        Ok(self
+            .store()?
+            .resolve(reference)
+            .ok()
+            .map(|img| image_summary(&img)))
+    }
+
+    /// Total on-disk bytes of all image layers (the CRI `ImageFsInfo` usage).
+    /// Best-effort — `0` on an unreadable store, as the CRI caller expects.
+    pub fn image_fs_used_bytes(&self) -> u64 {
+        self.store()
+            .and_then(|s| s.list().map_err(delonix_model::Error::from))
+            .map(|imgs| imgs.iter().map(image_layer_size).sum())
+            .unwrap_or(0)
+    }
+}
+
+/// `{id, user, repo_tags, size}` of one image — the fields the CRI `Image`
+/// message is built from, in a form an interface can name (R3h).
+fn image_summary(img: &Image) -> serde_json::Value {
+    json!({
+        "id": img.id,
+        "user": img.config.user,
+        "repo_tags": img.repo_tags,
+        "size": image_layer_size(img),
+    })
+}
+
+/// On-disk size of an image's layer blobs, summed from the CAS. Mirrors the
+/// CRI's historical path exactly: `<default_root>/blobs/sha256/<hex>` per layer,
+/// `fs::metadata().len()`, skipping anything unreadable.
+fn image_layer_size(img: &Image) -> u64 {
+    let root = ImageStore::default_root().join("blobs").join("sha256");
+    img.layers
+        .iter()
+        .map(|l| {
+            let hex = l.strip_prefix("sha256:").unwrap_or(l);
+            std::fs::metadata(root.join(hex)).map(|m| m.len()).unwrap_or(0)
+        })
+        .sum()
 }
 
 #[cfg(test)]
