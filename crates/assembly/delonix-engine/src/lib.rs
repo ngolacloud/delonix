@@ -684,6 +684,69 @@ impl NetworkService<'_> {
         let _ = self.engine;
         delonix_sdn::infra::container_net_bytes(id)
     }
+
+    /// The IPv4 a MAC was leased on a network, or `None` if the network has none
+    /// (R3f-E). Deterministic, no state.
+    pub fn dhcp_ip_for_mac(&self, net: &str, mac: &str) -> Option<String> {
+        let _ = self.engine;
+        delonix_sdn::infra::dhcp_ip_for_mac(net, mac)
+    }
+
+    /// The IPv6 equivalent (v6 is off by default in this engine).
+    pub fn dhcp_ip6_for_mac(&self, net: &str, mac: &str) -> Option<String> {
+        let _ = self.engine;
+        delonix_sdn::infra::dhcp_ip6_for_mac(net, mac)
+    }
+
+    /// The IP a container has on the default network (derived from its id).
+    pub fn container_ip(&self, id: &str) -> String {
+        let _ = self.engine;
+        delonix_sdn::infra::container_ip(id)
+    }
+
+    /// Every DECLARED network on this node.
+    pub fn network_list(&self) -> Vec<delonix_sdn::infra::NetDef> {
+        let _ = self.engine;
+        delonix_sdn::infra::network_list()
+    }
+
+    /// One declared network by name, or `None`.
+    pub fn network_get(&self, name: &str) -> Option<delonix_sdn::infra::NetDef> {
+        let _ = self.engine;
+        delonix_sdn::infra::network_get(name)
+    }
+
+    /// Whether `ip` parses as a valid address — the input guard a DNAT rule needs
+    /// before a published port reaches the mechanism.
+    pub fn valid_container_ip(&self, ip: &str) -> bool {
+        let _ = self.engine;
+        delonix_sdn::Cidr::parse_addr(ip).is_some()
+    }
+
+    /// Rate-limit a running container's bandwidth (tc/tbf).
+    pub fn set_net_rate(
+        &self,
+        id: &str,
+        rate_bit: u64,
+        burst_bytes: u64,
+    ) -> delonix_model::Result<()> {
+        let _ = self.engine;
+        delonix_sdn::infra::set_net_rate(id, rate_bit, burst_bytes)
+            .map_err(delonix_model::Error::from)
+    }
+
+    /// Publish a container port through the ingress (a DNAT rule + holder fwd).
+    pub fn publish_port(&self, container_ip: &str, spec: &str) -> delonix_model::Result<()> {
+        let _ = self.engine;
+        delonix_sdn::infra::publish_port(container_ip, spec).map_err(delonix_model::Error::from)
+    }
+
+    /// Withdraw a published host port. Best-effort (no result): a 200 means "ran",
+    /// not "removed" — the record drop is the durable half (see `ContainerService`).
+    pub fn unpublish_port(&self, host_port: &str) {
+        let _ = self.engine;
+        delonix_sdn::infra::unpublish_port(host_port)
+    }
 }
 
 /// The image context's reads, bound to a mounted [`Engine`] (R3f). Errors are the
