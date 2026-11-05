@@ -132,6 +132,161 @@ impl delonix_cri::RuntimeOps for EnginePorts {
     }
 }
 
+/// A CRI [`CniPort`](delonix_cri::CniPort) → the adapter's `cni::PortMapping`.
+fn to_sdn_ports(ports: &[delonix_cri::CniPort]) -> Vec<delonix_sdn::cni::PortMapping> {
+    ports
+        .iter()
+        .map(|p| delonix_sdn::cni::PortMapping {
+            host_port: p.host_port,
+            container_port: p.container_port,
+            protocol: p.protocol.clone(),
+            host_ip: p.host_ip.clone(),
+        })
+        .collect()
+}
+
+/// The adapter's resolved chain → the CRI's opaque [`CniConf`](delonix_cri::CniConf).
+fn conf_to_cni(conf: &delonix_sdn::cni::NetConfList) -> delonix_cri::CniConf {
+    delonix_cri::CniConf {
+        name: conf.name.clone(),
+        publishes_host_ports: delonix_sdn::cni::publishes_host_ports(conf),
+        json: serde_json::to_string(conf).unwrap_or_default(),
+    }
+}
+
+impl delonix_cri::NetworkOps for EnginePorts {
+    // The SDN/CNI-mechanism port (R3h-D): the bin backs it with `delonix-sdn`
+    // directly (a bin may name an adapter, ADR-0040 A1), so the `delonix-cri`
+    // interface names no SDN type. The CRI keeps its networking policy; only the
+    // leaf mechanism crosses, with the CNI chain as opaque JSON.
+    fn infra_status(&self) -> delonix_cri::InfraStatus {
+        let s = delonix_sdn::infra::status();
+        delonix_cri::InfraStatus {
+            up: s.up,
+            refcount: s.refcount,
+            holder_pid: s.holder_pid,
+            slirp_pid: s.slirp_pid,
+        }
+    }
+    fn root_network_ready(&self) -> Result<(), (String, String)> {
+        let dirs = delonix_sdn::cni::plugin_dirs();
+        let r = delonix_sdn::cni::readiness(
+            std::path::Path::new(delonix_sdn::cni::DEFAULT_CONF_DIR),
+            &dirs,
+        );
+        match r.not_ready(&dirs) {
+            None => Ok(()),
+            Some((reason, message)) => Err((reason.to_string(), message)),
+        }
+    }
+    fn attached_refs_in(&self, base: &std::path::Path) -> Vec<String> {
+        delonix_sdn::infra::attached_refs_in(base)
+    }
+    fn orphan_ref_count(&self, attached: &[String], live: &[String]) -> usize {
+        let live: std::collections::HashSet<String> = live.iter().cloned().collect();
+        delonix_sdn::infra::orphan_refs(attached, &live).len()
+    }
+    fn cni_enabled(&self) -> bool {
+        delonix_sdn::cni::enabled_conf().is_some()
+    }
+    fn cni_resolve_conf(&self, rootless: bool) -> delonix_cri::CniConfResult {
+        if rootless {
+            match delonix_sdn::cni::enabled_conf() {
+                Some(conf) => delonix_cri::CniConfResult::Ready(conf_to_cni(&conf)),
+                None => delonix_cri::CniConfResult::Disabled,
+            }
+        } else {
+            let dirs = delonix_sdn::cni::plugin_dirs();
+            match delonix_sdn::cni::readiness(
+                std::path::Path::new(delonix_sdn::cni::DEFAULT_CONF_DIR),
+                &dirs,
+            ) {
+                delonix_sdn::cni::Readiness::Ready(conf) => {
+                    delonix_cri::CniConfResult::Ready(conf_to_cni(&conf))
+                }
+                other => {
+                    let (reason, message) = other.not_ready(&dirs).unwrap_or_default();
+                    delonix_cri::CniConfResult::NotReady {
+                        reason: reason.to_string(),
+                        message,
+                    }
+                }
+            }
+        }
+    }
+    fn cni_with_port_mappings(&self, conf_json: &str, ports: &[delonix_cri::CniPort]) -> String {
+        match delonix_sdn::cni::parse_config(conf_json) {
+            Ok(conf) => {
+                let mapped = delonix_sdn::cni::with_port_mappings(&conf, &to_sdn_ports(ports));
+                serde_json::to_string(&mapped).unwrap_or_else(|_| conf_json.to_string())
+            }
+            Err(_) => conf_json.to_string(),
+        }
+    }
+    fn cni_attach(
+        &self,
+        pod: &str,
+        rootless: bool,
+        conf_json: &str,
+        cni_args: Option<&str>,
+    ) -> Result<delonix_cri::CniAttached, String> {
+        if rootless {
+            let (netns, cidr) = delonix_sdn::infra::cni_attach_container(pod, conf_json, cni_args)
+                .map_err(|e| e.to_string())?;
+            Ok(delonix_cri::CniAttached {
+                ip: cidr,
+                netns_path: netns,
+            })
+        } else {
+            let conf = delonix_sdn::cni::parse_config(conf_json).map_err(|e| e.to_string())?;
+            let cidr = delonix_sdn::cni::attach_named_netns(
+                &conf,
+                pod,
+                pod,
+                delonix_sdn::cni::DEFAULT_IFNAME,
+                cni_args,
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(delonix_cri::CniAttached {
+                ip: cidr,
+                netns_path: delonix_sdn::cni::named_netns_path(pod),
+            })
+        }
+    }
+    fn cni_set_netns_sysctls(
+        &self,
+        netns_path: &str,
+        sysctls: &[(String, String)],
+    ) -> Result<(), String> {
+        delonix_sdn::cni::set_netns_sysctls(netns_path, sysctls).map_err(|e| e.to_string())
+    }
+    fn cni_detach(&self, pod: &str, rootless: bool, conf_json: &str) {
+        if rootless {
+            if let Some(conf) = delonix_sdn::cni::enabled_conf() {
+                let cj = serde_json::to_string(&conf).unwrap_or_default();
+                let _ = delonix_sdn::infra::cni_detach_container(pod, &cj);
+            }
+        } else {
+            let conf = delonix_sdn::cni::parse_config(conf_json).ok();
+            delonix_sdn::cni::detach_named_netns(
+                conf.as_ref(),
+                pod,
+                pod,
+                delonix_sdn::cni::DEFAULT_IFNAME,
+            );
+        }
+    }
+    fn container_ip(&self, name: &str) -> String {
+        delonix_sdn::infra::container_ip(name)
+    }
+    fn publishable_proto(&self, name: &str) -> Option<&'static str> {
+        match delonix_sdn::Proto::parse(name).ok()? {
+            delonix_sdn::Proto::Tcp => Some("tcp"),
+            delonix_sdn::Proto::Udp => Some("udp"),
+        }
+    }
+}
+
 /// Ends the process with `code`, saying why on stderr and in the log. The one
 /// place this binary writes to the terminal.
 fn exit_with(code: i32, message: &str) -> ! {
@@ -212,7 +367,8 @@ fn main() {
     let ports = Arc::new(EnginePorts(engine));
     let images: Arc<dyn delonix_cri::ImageOps> = ports.clone();
     let containers: Arc<dyn delonix_cri::ContainerOps> = ports.clone();
-    let runtime: Arc<dyn delonix_cri::RuntimeOps> = ports;
+    let runtime: Arc<dyn delonix_cri::RuntimeOps> = ports.clone();
+    let network: Arc<dyn delonix_cri::NetworkOps> = ports;
 
     // Resolved through the engine's capability dictionary (the port), so a
     // malformed value REFUSES TO START — a security bound a typo could silently
@@ -223,7 +379,9 @@ fn main() {
     };
 
     tracing::info!(%addr, root = %base.display(), "delonix-cri starting");
-    if let Err(e) = delonix_cri::serve_blocking(base, images, containers, runtime, &addr, ceiling) {
+    if let Err(e) =
+        delonix_cri::serve_blocking(base, images, containers, runtime, network, &addr, ceiling)
+    {
         exit_with(1, &e.to_string());
     }
 }

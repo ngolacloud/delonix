@@ -21,6 +21,10 @@ pub struct DelonixRuntime {
     /// dictionary the ceiling computes against — all reached here instead of
     /// through the `delonix-linux` adapter the interface no longer names.
     pub runtime: std::sync::Arc<dyn crate::RuntimeOps>,
+    /// The engine's SDN/CNI-mechanism port (R3h-D): the infra-plane liveness, the
+    /// CNI attach/detach and the pod IP — reached here instead of through the
+    /// `delonix-sdn` adapter the interface no longer names.
+    pub network: std::sync::Arc<dyn crate::NetworkOps>,
     pub streamer: crate::streaming::Streamer,
     /// Node-level upper bound on container capabilities (see [`crate::cap_ceiling`]).
     /// Carried on the service, not read from the environment where it is needed:
@@ -34,6 +38,7 @@ impl DelonixRuntime {
         base: PathBuf,
         containers: std::sync::Arc<dyn crate::ContainerOps>,
         runtime: std::sync::Arc<dyn crate::RuntimeOps>,
+        network: std::sync::Arc<dyn crate::NetworkOps>,
         streamer: crate::streaming::Streamer,
         cap_ceiling: crate::CapCeiling,
     ) -> Self {
@@ -41,6 +46,7 @@ impl DelonixRuntime {
             base,
             containers,
             runtime,
+            network,
             streamer,
             cap_ceiling,
         }
@@ -142,7 +148,7 @@ impl RuntimeService for DelonixRuntime {
         // in BOTH modes (rootless: holder+slirp alive via pidfiles; root: the
         // CNI chain the sandboxes are networked with — reads and stats only).
         let network_ready = if self.runtime.is_rootless() {
-            let st = delonix_sdn::infra::status();
+            let st = self.network.infra_status();
             // DOWN-AND-UNUSED IS NOT BROKEN, and conflating the two deadlocks
             // the node. This engine is daemonless: the infra netns starts on
             // DEMAND, when the first workload needs it. Reporting `NetworkReady:
@@ -173,7 +179,8 @@ impl RuntimeService for DelonixRuntime {
             // usa — mesma regra, um só dono. Se a lista de containers não puder
             // ser lida, usa-se o `refcount` cru: é o comportamento anterior, e
             // um erro de leitura não pode passar por "não há workloads".
-            let vivos = live_attached_refs(&self.base, self.containers.as_ref()).unwrap_or(st.refcount);
+            let vivos = live_attached_refs(&self.base, self.containers.as_ref(), self.network.as_ref())
+                .unwrap_or(st.refcount);
             if network_ready_rootless(st.up, vivos) {
                 cond("NetworkReady", true, "", "")
             } else {
@@ -200,11 +207,9 @@ impl RuntimeService for DelonixRuntime {
             // `/sys/class/net`. Measured 2026-09-15 on a kubeadm node (VM,
             // k8s 1.36.4) with `/etc/cni/net.d/10-bridge.conflist`: node
             // `NotReady` with `BridgeMissing` forever, CoreDNS `Pending`.
-            let dirs = delonix_sdn::cni::plugin_dirs();
-            let r = root_cni_readiness(&dirs);
-            match r.not_ready(&dirs) {
-                None => cond("NetworkReady", true, "", ""),
-                Some((reason, message)) => cond("NetworkReady", false, reason, &message),
+            match self.network.root_network_ready() {
+                Ok(()) => cond("NetworkReady", true, "", ""),
+                Err((reason, message)) => cond("NetworkReady", false, &reason, &message),
             }
         };
         // `info` is only populated for a verbose request (CRI contract). The
@@ -244,7 +249,8 @@ impl RuntimeService for DelonixRuntime {
     ) -> Result<Response<RunPodSandboxResponse>, Status> {
         let (base, req) = (self.base.clone(), r.into_inner());
         let rt = self.runtime.clone();
-        blocking(move || lifecycle::run_pod_sandbox(&base, rt.as_ref(), req)).await
+        let net = self.network.clone();
+        blocking(move || lifecycle::run_pod_sandbox(&base, rt.as_ref(), net.as_ref(), req)).await
     }
     #[tracing::instrument(name = "cri.stop_pod_sandbox", skip_all, fields(
         pod = %r.get_ref().pod_sandbox_id,
@@ -268,7 +274,11 @@ impl RuntimeService for DelonixRuntime {
         let (base, id) = (self.base.clone(), r.into_inner().pod_sandbox_id);
         let ops = self.containers.clone();
         let rt = self.runtime.clone();
-        blocking(move || lifecycle::remove_pod_sandbox(&base, ops.as_ref(), rt.as_ref(), id)).await
+        let net = self.network.clone();
+        blocking(move || {
+            lifecycle::remove_pod_sandbox(&base, ops.as_ref(), rt.as_ref(), net.as_ref(), id)
+        })
+        .await
     }
     #[tracing::instrument(name = "cri.pod_sandbox_status", skip_all, fields(
         pod = %r.get_ref().pod_sandbox_id,
@@ -280,7 +290,11 @@ impl RuntimeService for DelonixRuntime {
         let (base, id) = (self.base.clone(), r.into_inner().pod_sandbox_id);
         let ops = self.containers.clone();
         let rt = self.runtime.clone();
-        blocking(move || lifecycle::pod_sandbox_status(&base, ops.as_ref(), rt.as_ref(), id)).await
+        let net = self.network.clone();
+        blocking(move || {
+            lifecycle::pod_sandbox_status(&base, ops.as_ref(), rt.as_ref(), net.as_ref(), id)
+        })
+        .await
     }
     #[tracing::instrument(name = "cri.list_pod_sandbox", skip_all)]
     async fn list_pod_sandbox(
@@ -519,7 +533,7 @@ impl RuntimeService for DelonixRuntime {
             .map(|n| n.pod_cidr)
             .unwrap_or_default();
         let cni = if self.runtime.is_rootless() {
-            delonix_sdn::cni::enabled_conf().is_some()
+            self.network.cni_enabled()
         } else {
             // Root networks every pod through CNI (see `run_pod_sandbox`).
             true
@@ -608,17 +622,6 @@ fn engine_cgroup_driver() -> CgroupDriver {
 
 pub mod lifecycle;
 
-/// The CNI chain a ROOT CRI networks its pods with, and whether it can run.
-///
-/// One function behind `status` (`NetworkReady`) and `run_pod_sandbox`, so the
-/// condition the kubelet reads is the same fact the sandbox path acts on.
-fn root_cni_readiness(dirs: &[std::path::PathBuf]) -> delonix_sdn::cni::Readiness {
-    delonix_sdn::cni::readiness(
-        std::path::Path::new(delonix_sdn::cni::DEFAULT_CONF_DIR),
-        dirs,
-    )
-}
-
 /// Is the rootless network plane ready? **Pure**, so the rule can be tested
 /// without an infra namespace — see `network_ready_distingue_ocio_de_avaria`.
 fn network_ready_rootless(up: bool, refcount: i64) -> bool {
@@ -632,7 +635,11 @@ fn network_ready_rootless(up: bool, refcount: i64) -> bool {
 /// leitura como "zero workloads" seria a armadilha que este repo já catalogou
 /// (um `read_dir` que falha não é um directório vazio), e aqui declararia o nó
 /// saudável precisamente quando não se sabe nada.
-fn live_attached_refs(base: &std::path::Path, ops: &dyn crate::ContainerOps) -> Option<i64> {
+fn live_attached_refs(
+    base: &std::path::Path,
+    ops: &dyn crate::ContainerOps,
+    net: &dyn crate::NetworkOps,
+) -> Option<i64> {
     // Os marcadores vêm do MESMO root que o store de containers — o `base` deste
     // serviço. A primeira versão usava o `attached_refs()` sem argumento, que
     // resolve o root do AMBIENTE: num servidor normal coincidem, mas com um
@@ -644,7 +651,7 @@ fn live_attached_refs(base: &std::path::Path, ops: &dyn crate::ContainerOps) -> 
     // host com marcadores reais, tocava e dava 0 por subtracção. Um teste que
     // passa por acidente é pior que nenhum — foi apagado, e a assimetria que
     // ele expôs está agora corrigida em vez de só documentada.
-    let attached = delonix_sdn::infra::attached_refs_in(base);
+    let attached = net.attached_refs_in(base);
     if attached.is_empty() {
         return Some(0);
     }
@@ -653,14 +660,14 @@ fn live_attached_refs(base: &std::path::Path, ops: &dyn crate::ContainerOps) -> 
     // gap the free-standing `Store::open(base)` here opened (it read `<base>`, the
     // parent of the store, so it counted nothing). The markers still come from
     // `attached_refs_in(base)`; only the store read moved behind the port.
-    let live: std::collections::HashSet<String> = ops
+    let live: Vec<String> = ops
         .list()
         .ok()?
         .into_iter()
         .filter(|c| c.is_live())
         .map(|c| c.id)
         .collect();
-    let orfaos = delonix_sdn::infra::orphan_refs(&attached, &live).len();
+    let orfaos = net.orphan_ref_count(&attached, &live);
     Some((attached.len() - orfaos) as i64)
 }
 
@@ -699,6 +706,8 @@ mod tests {
             std::sync::Arc::new(crate::test_ops::StoreOps::new(base.clone()));
         let rt: std::sync::Arc<dyn crate::RuntimeOps> =
             std::sync::Arc::new(crate::test_ops::LinuxPort);
+        let net: std::sync::Arc<dyn crate::NetworkOps> =
+            std::sync::Arc::new(crate::test_ops::NetPort);
         let streamer = crate::streaming::Streamer::new(
             base.clone(),
             ops.clone(),
@@ -709,6 +718,7 @@ mod tests {
             base.clone(),
             ops.clone(),
             rt,
+            net.clone(),
             streamer,
             crate::CapCeiling::unlimited(),
         );
@@ -717,7 +727,7 @@ mod tests {
         // `base` deste serviço, não marcadores em disco nem um root do ambiente.
         // Com o `refcount` cru aqui, o teste chumbaria em qualquer host com
         // fantasmas — seria o teste a codificar o defeito que a mudança fecha.
-        let vivos = live_attached_refs(&base, ops.as_ref()).unwrap_or(st.refcount);
+        let vivos = live_attached_refs(&base, ops.as_ref(), net.as_ref()).unwrap_or(st.refcount);
         let esperado = network_ready_rootless(st.up, vivos);
 
         let resp = svc
@@ -825,10 +835,13 @@ mod tests_runtime_config {
             std::sync::Arc::new(crate::test_ops::StoreOps::new(base.clone()));
         let port: std::sync::Arc<dyn crate::RuntimeOps> =
             std::sync::Arc::new(crate::test_ops::LinuxPort);
+        let net: std::sync::Arc<dyn crate::NetworkOps> =
+            std::sync::Arc::new(crate::test_ops::NetPort);
         let rt = super::DelonixRuntime::new(
             base.clone(),
             ops.clone(),
             port.clone(),
+            net,
             crate::streaming::Streamer::new(base, ops, port, "http://127.0.0.1:0".into()),
             crate::CapCeiling::unlimited(),
         );

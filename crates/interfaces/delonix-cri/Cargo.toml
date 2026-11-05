@@ -15,7 +15,6 @@ delonix-host = { workspace = true }
 delonix-model = { workspace = true }
 delonix-telemetry = { workspace = true }
 delonix-compute = { workspace = true }
-delonix-sdn = { workspace = true }
 delonix-security = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
@@ -47,6 +46,10 @@ delonix-state = { workspace = true }
 # porta `RuntimeOps` do Engine). Fica aqui só para o backing de testes
 # `test_ops::LinuxPort` e os testes que chamam o dicionário/mecanismo reais.
 delonix-linux = { workspace = true }
+# R3h-D: a produção já não nomeia o `delonix-sdn` (as suas operações passam pela
+# porta `NetworkOps`). Fica aqui só para o backing de testes `test_ops::NetPort`
+# e os testes que montam/parseiam conflists reais.
+delonix-sdn = { workspace = true }
 
 [lints]
 workspace = true
