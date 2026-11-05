@@ -23,7 +23,7 @@ fuzz_target!(|data: &[u8]| {
     for line in text.lines().take(8) {
         let _ = delonix_compute::pod::parse_add_host(line);
         let _ = delonix_compute::vm_backend::parse_mem_mib(line);
-        let _ = delonix_node::dispatch::parse_idle_timeout(line);
+        let _ = delonix_host::dispatch::parse_idle_timeout(line);
     }
     let opts: Vec<String> = text.lines().take(16).map(str::to_string).collect();
     let _ = delonix_compute::run::parse_security_opts(&opts);

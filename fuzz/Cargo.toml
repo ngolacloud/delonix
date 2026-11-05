@@ -26,6 +26,12 @@ path = "../crates/foundation/delonix-model"
 [dependencies.delonix-node]
 path = "../crates/contexts/delonix-node"
 
+# R2b moved the host adapter mechanism (dispatch/atomic/flock/peer_cred) out of
+# delonix-node into delonix-host; the run_options target reaches parse_idle_timeout
+# through it.
+[dependencies.delonix-host]
+path = "../crates/adapters/delonix-host"
+
 [dependencies.delonix-compute]
 path = "../crates/contexts/delonix-compute"
 
