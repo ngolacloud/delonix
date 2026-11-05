@@ -855,6 +855,7 @@ dependencies = [
  "delonix-vm",
  "delonix-volume",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -928,12 +929,11 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "delonix-compute",
+ "delonix-engine",
  "delonix-host",
- "delonix-linux",
  "delonix-model",
  "delonix-node",
  "delonix-oci",
- "delonix-scanner",
  "delonix-sdn",
  "delonix-state",
  "delonix-telemetry",

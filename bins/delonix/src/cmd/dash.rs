@@ -218,17 +218,12 @@ impl DashData {
     /// `tui::render`.
     pub fn collect(scope: DashScope) -> Result<DashData> {
         let root = state_root();
-        let summary = delonix_mgmt::dashstats::collect(
-            &root,
-            &crate::cmd::engine_vms::vm_view(&root),
-            true,
-            true,
-        );
+        let engine = crate::cmd::engine_vms::engine(&root);
+        let summary = engine.dash_summary(true, true);
         // Per-container network breakdown: same expensive-collection budget
         // as the aggregate TRAFFIC tile above (a one-shot `--once`/`--json`
-        // caller already accepts a slow full collect — see `collect`'s doc
-        // comment on `dashstats`).
-        let per_container_net = delonix_mgmt::dashstats::collect_container_net(&root);
+        // caller already accepts a slow full collect).
+        let per_container_net = engine.container_net();
         Self::collect_with(scope, &root, summary, &per_container_net)
     }
 
@@ -879,12 +874,7 @@ mod tui {
         // left to clean up). From here on, ALL exit paths restore the
         // terminal (the central `render` function does the cleanup once at
         // the end).
-        let cheap = delonix_mgmt::dashstats::collect(
-            &root,
-            &crate::cmd::engine_vms::vm_view(&root),
-            false,
-            false,
-        );
+        let cheap = crate::cmd::engine_vms::engine(&root).dash_summary(false, false);
         let empty_net = HashMap::new();
         let data = DashData::collect_with(scope, &root, cheap.clone(), &empty_net)?;
 
@@ -917,8 +907,7 @@ mod tui {
                 // terminal), so either way it just keeps showing the last known
                 // values. The mgmt loop, which HAS a log, distinguishes them.
                 let full = delonix_mgmt::dashstats::collect_with_timeout(
-                    &root,
-                    Arc::new(crate::cmd::engine_vms::vm_view(&root)),
+                    crate::cmd::engine_vms::ports(&root),
                     true,
                     true,
                     COLLECT_TIMEOUT,
@@ -928,7 +917,7 @@ mod tui {
                 // timeout — a stuck netns read here must not also freeze the
                 // unrelated network/storage totals above.
                 let net = delonix_mgmt::dashstats::collect_container_net_with_timeout(
-                    &root,
+                    crate::cmd::engine_vms::ports(&root),
                     COLLECT_TIMEOUT,
                 )
                 .ok();
@@ -1264,12 +1253,8 @@ mod tui {
 
             // Collect every ~1s (not every frame).
             if last.elapsed() >= Duration::from_secs(1) {
-                let mut summary = delonix_mgmt::dashstats::collect(
-                    &root,
-                    &crate::cmd::engine_vms::vm_view(&root),
-                    false,
-                    false,
-                );
+                let mut summary =
+                    crate::cmd::engine_vms::engine(&root).dash_summary(false, false);
                 let mut per_container_net = HashMap::new();
                 if let Ok(slow) = shared.lock() {
                     summary.network_rx_bytes = slow.summary.network_rx_bytes;

@@ -723,4 +723,119 @@ mod tests {
         // proves the VM service is wired to the composition without a host VM.
         assert!(eng.vms().list().map(|v| v.is_empty()).unwrap_or(true));
     }
+
+    // --- resource summary (moved from delonix-mgmt's dashstats in R3f-B) ---
+
+    #[test]
+    fn dash_summary_over_an_empty_root_does_not_panic_and_is_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let eng = Engine::mount(dir.path().to_path_buf()).unwrap();
+        let s = eng.dash_summary(true, true);
+        assert_eq!(s.containers_running, 0);
+        assert_eq!(s.containers_total, 0);
+        assert_eq!(s.vms_total, 0);
+        assert_eq!(s.storage_bytes_images, Some(0));
+        assert_eq!(s.network_rx_bytes, Some(0));
+    }
+
+    #[test]
+    fn dash_summary_without_network_or_storage_leaves_those_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let eng = Engine::mount(dir.path().to_path_buf()).unwrap();
+        let s = eng.dash_summary(false, false);
+        assert_eq!(s.network_rx_bytes, None);
+        assert_eq!(s.network_tx_bytes, None);
+        assert_eq!(s.storage_bytes_images, None);
+        assert_eq!(s.storage_bytes_containers, None);
+    }
+
+    #[test]
+    fn workload_series_on_an_empty_root_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let eng = Engine::mount(dir.path().to_path_buf()).unwrap();
+        assert!(eng.workload_series().is_empty());
+    }
+
+    /// `dir_size` descends the whole tree and counts what `du` counts, delegating
+    /// to `delonix_volume::measure` (allocated blocks, `(dev, ino)` dedup), so the
+    /// assertion is on behaviour, not a filesystem-specific byte count.
+    #[test]
+    fn dir_size_sums_recursively_and_zeroes_a_missing_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a"), b"12345").unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("b"), b"1234567890").unwrap();
+        let total = dir_size(dir.path());
+        let only_sub = dir_size(&dir.path().join("sub"));
+        assert!(total > 0);
+        assert!(total > only_sub);
+        assert_eq!(dir_size(&dir.path().join("does-not-exist")), 0);
+    }
+
+    /// REGRESSION: the disk tiles must not count an inode once per hardlink.
+    #[test]
+    fn dir_size_does_not_count_hardlinks_more_than_once() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("original"), vec![0u8; 64 * 1024]).unwrap();
+        let one = dir_size(dir.path());
+        for i in 0..5 {
+            std::fs::hard_link(dir.path().join("original"), dir.path().join(format!("l{i}")))
+                .unwrap();
+        }
+        assert_eq!(dir_size(dir.path()), one, "6 names of one inode counted as 6 files");
+    }
+
+    const PSI: &str = "some avg10=12.50 avg60=3.00 avg300=1.00 total=4500000\n\
+        full avg10=2.25 avg60=0.50 avg300=0.10 total=500000\n";
+
+    fn write_cgroup_file(dir: &Path, name: &str, body: &str) {
+        std::fs::write(dir.join(name), body).unwrap();
+    }
+
+    fn fixture_cgroup() -> tempfile::TempDir {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path();
+        write_cgroup_file(p, "cgroup.controllers", "cpu memory io pids\n");
+        write_cgroup_file(
+            p,
+            "cpu.stat",
+            "usage_usec 9500000\nnr_periods 200\nnr_throttled 50\nthrottled_usec 1500000\n",
+        );
+        write_cgroup_file(p, "cpu.pressure", PSI);
+        write_cgroup_file(p, "memory.pressure", PSI);
+        write_cgroup_file(p, "io.pressure", PSI);
+        write_cgroup_file(p, "memory.events.local", "low 0\nhigh 0\nmax 4\noom 2\noom_kill 1\n");
+        write_cgroup_file(p, "memory.current", "4194304\n");
+        d
+    }
+
+    #[test]
+    fn the_exporter_renders_a_fixture_cgroup_with_the_workload_labels() {
+        let d = fixture_cgroup();
+        let ws =
+            workload_series_one(WorkloadKind::Container, "c1", "web", Ok(d.path().to_path_buf()));
+        assert!(ws.unavailable.is_empty(), "{:?}", ws.unavailable);
+        let out = delonix_telemetry::workload::render(&[ws]);
+        let l = r#"kind="container",id="c1",name="web""#;
+        for want in [
+            format!("delonix_workload_cpu_usage_seconds_total{{{l}}} 9.5"),
+            format!("delonix_workload_memory_current_bytes{{{l}}} 4194304"),
+            format!("delonix_workload_cpu_throttled_seconds_total{{{l}}} 1.5"),
+            format!("delonix_workload_memory_oom_kills_total{{{l}}} 1"),
+        ] {
+            assert!(out.contains(&want), "missing `{want}` in:\n{out}");
+        }
+        assert!(!out.contains("series_unavailable"), "{out}");
+    }
+
+    #[test]
+    fn a_workload_without_a_readable_cgroup_exports_only_reasons() {
+        let ws = workload_series_one(WorkloadKind::Vm, "vm1", "vm1", Err(Why::SharedCgroup));
+        assert_eq!(ws.unavailable.len(), 7);
+        assert!(ws.unavailable.iter().all(|u| u.reason == "shared_cgroup"));
+        let out = delonix_telemetry::workload::render(&[ws]);
+        assert_eq!(out.matches("series_unavailable{").count(), 7, "{out}");
+        assert!(!out.contains("delonix_workload_cpu_"), "{out}");
+    }
 }

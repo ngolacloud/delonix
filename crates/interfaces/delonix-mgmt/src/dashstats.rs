@@ -1,29 +1,34 @@
-//! Shared resource-summary collector — the SINGLE place that aggregates
-//! "how much is this engine using right now" (container/VM counts, cgroup
-//! memory, network bytes, disk usage per area). Three consumers share this
-//! exact function so none of them can drift from each other:
+//! Scrape-path plumbing for the resource summary. The AGGREGATION itself moved
+//! to the `delonix-engine` assembly in R3f-B (`Engine::dash_summary`/
+//! `container_net`/`workload_series`): this interface no longer reaches the
+//! `delonix-state`/`delonix-linux`/`delonix-sdn`/`delonix-volume`/`delonix-oci`
+//! adapters. What stays here is the half that is genuinely the SCRAPE's concern,
+//! not the engine's:
 //!
-//!  * `delonix-mgmt`'s `GET /metrics` (Prometheus gauges) and `GET /v1/dash`
-//!    (JSON) — this crate, see `lib.rs`.
-//!  * `delonix dash` (the TUI/`--once`/`--json` CLI) — `delonix-bin`
-//!    depends on `delonix-mgmt` (not the other way around), so it calls
-//!    straight into [`collect`] instead of re-implementing the aggregation.
+//!  * the VM port ([`VmView`]) this crate shares with `delonix-mcp`;
+//!  * the wall-clock ceiling + circuit breaker ([`collect_with_timeout`],
+//!    [`run_bounded`]) that keep a hung I/O path from freezing the `/metrics`
+//!    background refresh or leaking threads;
+//!  * the Prometheus gauge publishers ([`publish_to_metrics`],
+//!    [`publish_workloads_to_metrics`]) — reading the summary's fields and the
+//!    workload series into the shared `delonix-telemetry` registry;
+//!  * the per-container network cache the workload series overlay reads
+//!    ([`workload_series_with_net_cache`]).
 //!
-//! Lives here (not in the foundation or a context) because it needs the store/
-//! cgroup/netns access of `delonix-linux`/`delonix-sdn`/`delonix-oci`/
-//! `delonix-volume` — adapters a lower layer cannot depend on. VMs arrive
-//! through the [`VmView`] port instead of a direct `delonix-vm` dependency
-//! (ADR-0040 A5): the assembly composes the VM service and the bin hands it in.
+//! Consumers call the engine through the [`EngineOps`](crate::EngineOps) port
+//! (`delonix-mgmt`, `delonix-mcp`) or the composed `Engine` directly (the
+//! `delonix` CLI's `dash`/`system`); `DashSummary` is re-exported here unchanged
+//! so their type references keep resolving.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
-use delonix_linux::pressure::{self, CgroupSeries, Why};
-use delonix_model::records::Status;
+use delonix_telemetry::workload::{WorkloadKind, WorkloadSeries};
 
-/// Read-only view of the node's VMs — the one VM use case this collector needs.
+pub use delonix_model::dash::DashSummary;
+
+/// Read-only view of the node's VMs — the one VM use case a collector needs.
 /// The interface holds this port instead of calling the `delonix-vm` adapter
 /// directly (ADR-0040 A5): the `delonix-engine` assembly composes the service
 /// and the bin hands it in, so no `interface -> adapter` edge survives. Shared
@@ -35,218 +40,6 @@ pub trait VmView: Send + Sync {
     fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error>;
     /// One VM's full record by name.
     fn status(&self, name: &str) -> Result<delonix_compute::Vm, delonix_model::Error>;
-}
-use delonix_telemetry::workload::{
-    CpuThrottle, MemoryEvents, Pressure as WorkloadPressure, Stall, Unavailable, WorkloadKind,
-    WorkloadSeries,
-};
-
-/// A point-in-time snapshot of engine-wide resource usage. `Serialize` so it
-/// is BOTH the body of `GET /v1/dash` and the payload of `delonix dash --json`.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct DashSummary {
-    pub containers_running: u64,
-    pub containers_total: u64,
-    pub vms_running: u64,
-    pub vms_total: u64,
-    pub networks_total: u64,
-    pub volumes_total: u64,
-    pub images_total: u64,
-    pub secrets_total: u64,
-    /// `memory.current` of the whole Delonix cgroup slice, in bytes.
-    pub memory_bytes_used: u64,
-    /// `memory.max` of the whole Delonix cgroup slice, in bytes (0 = unlimited/unknown — cgroup v2 reports the literal string `"max"`, which doesn't parse as a number).
-    pub memory_bytes_limit: u64,
-    /// Sum of received bytes across ALL of every running container's interfaces (not just the primary one — a `--net-connect`ed container's `eth1` counts too), cumulative since each interface's creation. `None` when the caller opted out of the netns reads (see [`collect`]'s `include_network`) — a real "0 bytes" is `Some(0)`, not `None`.
-    pub network_rx_bytes: Option<u64>,
-    pub network_tx_bytes: Option<u64>,
-    /// How many of `containers_running` did NOT contribute to the sum above
-    /// (always `0` when `network_rx_bytes`/`tx_bytes` are `None`, since then
-    /// nothing was attempted at all). BUG FOUND (code review): a container
-    /// on `--net host`/`--net none` has no netns for `container_net_bytes`
-    /// to inspect, so it returns `None` there — this used to be folded into
-    /// the sum as a silent "+0", making the total look complete and
-    /// authoritative when it was actually a partial measurement on any host
-    /// mixing network modes. Surfaced explicitly instead so a caller can
-    /// show "N containers not measured" rather than a falsely-precise number.
-    pub network_unmeasured_containers: u64,
-    /// `None` when the caller opted out of the directory walk (see
-    /// [`collect`]'s `include_storage`) — MEASURED on a real host with 49
-    /// containers (several full `kindest/node` rootfs copies): 68 GiB,
-    /// **over a minute** of disk I/O. Never safe to compute inline on a
-    /// request/tick with a latency budget.
-    pub storage_bytes_images: Option<u64>,
-    pub storage_bytes_volumes: Option<u64>,
-    pub storage_bytes_vm_images: Option<u64>,
-    pub storage_bytes_containers: Option<u64>,
-}
-
-/// Recursive disk usage of a directory, `du`-style. Zero on any unreadable
-/// path (a summary must never fail a scrape over one missing directory).
-///
-/// BUG FIXED HERE — this was a **third private copy** of the same walk
-/// (alongside `delonix-volume`'s `dir_usage` and `cmd/system.rs::dir_size`),
-/// and all three shared the same two defects: they summed the *apparent* size
-/// (`m.len()`) and never deduplicated hardlinks, while calling themselves
-/// `du`-style. Measured against `du` on a real ~94 GiB store, that came out
-/// **+4.9 %**.
-///
-/// The old note here justified duplicating rather than sharing, on the grounds
-/// that `delonix-mgmt` cannot depend on the `-bin` crate. True, but beside the
-/// point: the corrected walk lives in **`delonix-volume`**, which this crate
-/// already depends on (see `collect`'s `VolumeStore` use) and which exports
-/// `measure` for exactly this reason. Routing through it removes the drift
-/// instead of fixing the same bug in three places.
-fn dir_size(p: &Path) -> u64 {
-    delonix_volume::measure(p).bytes
-}
-
-/// Collects a fresh [`DashSummary`]. Best-effort throughout: a store that
-/// doesn't open counts as empty/zero (this must never fail a scrape or a
-/// dashboard render over one missing/corrupt store).
-///
-/// `include_network`: per-container network totals require entering EACH
-/// running container's netns to read `/proc/net/dev`
-/// (`delonix_sdn::infra::container_net_bytes`, one `nsenter`+`cat` per
-/// container) — real cost with many containers.
-///
-/// `include_storage`: a full recursive walk of `blobs`/`layers`/`volumes`/
-/// `vm-images`/`containers` under `root` — MEASURED at over a minute on a
-/// host with heavy containers (see the field doc on [`DashSummary`]).
-///
-/// Callers on a tight budget (an HTTP request handler, a TUI tick) MUST pass
-/// `false` for whichever of these they can't afford synchronously, and
-/// display the last known value from a slower background refresh instead —
-/// see `cmd/dash.rs`'s TUI (a background thread) and this crate's `lib.rs`
-/// (a background tokio task) for the two real callers of that pattern.
-/// One-shot callers with no latency budget (`--once`/`--json`, a human
-/// hitting `/v1/dash`) should pass `true` for both.
-pub fn collect(
-    root: &Path,
-    vms: &dyn VmView,
-    include_network: bool,
-    include_storage: bool,
-) -> DashSummary {
-    let mut containers_running = 0u64;
-    let mut containers_total = 0u64;
-    let mut running_ids: Vec<String> = Vec::new();
-    if let Ok(store) = delonix_state::Store::open(root.join("containers")) {
-        if let Ok(list) = store.list() {
-            containers_total = list.len() as u64;
-            for mut c in list {
-                delonix_linux::reconcile_status(&mut c);
-                if c.status == Status::Running {
-                    containers_running += 1;
-                    running_ids.push(c.id.clone());
-                }
-            }
-        }
-    }
-
-    let vm_list = vms.list().unwrap_or_default();
-    let vms_running = vm_list
-        .iter()
-        .filter(|v| v.status == Status::Running)
-        .count() as u64;
-    let vms_total = vm_list.len() as u64;
-
-    let networks_total = delonix_sdn::NetworkStore::open(root)
-        .and_then(|s| s.list())
-        .map(|l| l.len() as u64)
-        .unwrap_or(0);
-    let volumes_total = delonix_volume::VolumeStore::open(root)
-        .and_then(|s| s.list())
-        .map(|l| l.len() as u64)
-        .unwrap_or(0);
-    let images_total = delonix_oci::ImageStore::open(root)
-        .and_then(|s| s.list())
-        .map(|l| l.len() as u64)
-        .unwrap_or(0);
-    let secrets_total = delonix_state::SecretStore::open(root)
-        .map(|s| s.list().len() as u64)
-        .unwrap_or(0);
-
-    let (memory_bytes_limit, memory_bytes_used, ..) = delonix_linux::slice_budget();
-
-    let (network_rx_bytes, network_tx_bytes, network_unmeasured_containers) = if include_network {
-        let mut rx = 0u64;
-        let mut tx = 0u64;
-        let mut unmeasured = 0u64;
-        for id in &running_ids {
-            match delonix_sdn::infra::container_net_bytes(id) {
-                Some((r, t)) => {
-                    rx += r;
-                    tx += t;
-                }
-                // `--net host`/`--net none` containers have no netns to
-                // inspect (see the field doc on `network_unmeasured_containers`)
-                // — count them, don't silently treat as zero traffic.
-                None => unmeasured += 1,
-            }
-        }
-        (Some(rx), Some(tx), unmeasured)
-    } else {
-        (None, None, 0)
-    };
-
-    let (
-        storage_bytes_images,
-        storage_bytes_volumes,
-        storage_bytes_vm_images,
-        storage_bytes_containers,
-    ) = if include_storage {
-        (
-            Some(dir_size(&root.join("blobs")) + dir_size(&root.join("layers"))),
-            Some(dir_size(&root.join("volumes"))),
-            Some(dir_size(&root.join("vm-images"))),
-            Some(dir_size(&root.join("containers"))),
-        )
-    } else {
-        (None, None, None, None)
-    };
-
-    DashSummary {
-        containers_running,
-        containers_total,
-        vms_running,
-        vms_total,
-        networks_total,
-        volumes_total,
-        images_total,
-        secrets_total,
-        memory_bytes_used,
-        memory_bytes_limit,
-        network_rx_bytes,
-        network_tx_bytes,
-        network_unmeasured_containers,
-        storage_bytes_images,
-        storage_bytes_volumes,
-        storage_bytes_vm_images,
-        storage_bytes_containers,
-    }
-}
-
-/// Per-container cumulative network rx/tx bytes (bytes since each
-/// interface's creation), keyed by container id, for every RUNNING
-/// container. Same cost profile as `collect`'s `include_network` totals —
-/// one `nsenter`+`cat` per container — so this must never be called on a
-/// tick budget; see [`collect_container_net_with_timeout`] and
-/// `cmd/dash.rs`'s slow background refresh for the real caller.
-pub fn collect_container_net(root: &Path) -> std::collections::HashMap<String, (u64, u64)> {
-    let mut out = std::collections::HashMap::new();
-    if let Ok(store) = delonix_state::Store::open(root.join("containers")) {
-        if let Ok(list) = store.list() {
-            for mut c in list {
-                delonix_linux::reconcile_status(&mut c);
-                if c.status == Status::Running {
-                    if let Some(bytes) = delonix_sdn::infra::container_net_bytes(&c.id) {
-                        out.insert(c.id.clone(), bytes);
-                    }
-                }
-            }
-        }
-    }
-    out
 }
 
 /// Outcome of a bounded collection — three distinct states, because the
@@ -294,7 +87,7 @@ impl Default for InFlight {
 /// Clears the latch when the worker leaves `work` — by return OR by unwind.
 ///
 /// The `Drop` matters: with a bare `store(false)` after the call, a panicking
-/// `collect` would leave the latch stuck at `true` and every future attempt
+/// collection would leave the latch stuck at `true` and every future attempt
 /// would be `Skipped` forever. That trades a thread leak for a permanently
 /// dead metric, which is worse — the breaker must only ever trip on a real
 /// hang.
@@ -318,13 +111,6 @@ impl Drop for InFlightGuard {
 /// 120s deadline + 30s sleep, so a genuinely stuck operation leaked a thread
 /// every ~150s — ~576 per day, each one parked in the same syscall, growing
 /// without limit until the process runs out of threads.
-///
-/// The original note argued "leaking one more thread per attempt is the lesser
-/// problem". That holds for a transient stall; it does not hold for a
-/// PERMANENT one, and permanent is the realistic case: the documented trigger
-/// is an unresponsive NFS mount, and NFS/CIFS/WebDAV volumes are a
-/// first-class feature of this engine (`delonix_volume::is_network_driver`).
-/// A NAS that goes away is an ordinary operational event, not an edge case.
 ///
 /// With the latch, the leak is bounded at **exactly one thread** for as long
 /// as the hang lasts, however long that is; the moment the underlying
@@ -354,21 +140,19 @@ fn run_bounded<T: Send + 'static>(
 /// single expensive collection in flight at a time.
 static COLLECT_IN_FLIGHT: InFlight = InFlight::new();
 
-/// Like [`collect`], but with a hard wall-clock ceiling AND a circuit breaker
-/// so a permanently-hung I/O path cannot leak an unbounded number of threads.
-/// See [`run_bounded`] for both mechanisms and why each is needed.
+/// The composed engine's [`dash_summary`](crate::EngineOps::dash_summary), but
+/// with a hard wall-clock ceiling AND a circuit breaker so a permanently-hung
+/// I/O path cannot leak an unbounded number of threads. See [`run_bounded`] for
+/// both mechanisms and why each is needed. The port is cloned into the worker
+/// thread (it must outlive this frame), so callers pass an owned `Arc`.
 pub fn collect_with_timeout(
-    root: &Path,
-    vms: Arc<dyn VmView>,
+    engine: Arc<dyn crate::EngineOps>,
     include_network: bool,
     include_storage: bool,
     timeout: Duration,
 ) -> Bounded<DashSummary> {
-    // Owned `Arc` (not a borrow): `run_bounded` moves `work` into a `'static`
-    // worker thread, so the VM port must outlive this stack frame.
-    let root = root.to_path_buf();
     run_bounded(&COLLECT_IN_FLIGHT, timeout, move || {
-        collect(&root, &*vms, include_network, include_storage)
+        engine.dash_summary(include_network, include_storage)
     })
 }
 
@@ -377,24 +161,23 @@ pub fn collect_with_timeout(
 /// unrelated `DashSummary` collection, and vice-versa.
 static CONTAINER_NET_IN_FLIGHT: InFlight = InFlight::new();
 
-/// Bounded/circuit-broken form of [`collect_container_net`] — same two
-/// mechanisms as [`collect_with_timeout`] (see [`run_bounded`]).
+/// Bounded/circuit-broken form of [`container_net`](crate::EngineOps::container_net)
+/// — same two mechanisms as [`collect_with_timeout`] (see [`run_bounded`]).
 pub fn collect_container_net_with_timeout(
-    root: &Path,
+    engine: Arc<dyn crate::EngineOps>,
     timeout: Duration,
-) -> Bounded<std::collections::HashMap<String, (u64, u64)>> {
-    let root = root.to_path_buf();
+) -> Bounded<HashMap<String, (u64, u64)>> {
     run_bounded(&CONTAINER_NET_IN_FLIGHT, timeout, move || {
-        collect_container_net(&root)
+        engine.container_net()
     })
 }
 
 /// Pushes a [`DashSummary`] into the shared Prometheus registry
 /// (`delonix_telemetry::metrics`). Fields collected as `None` (an
 /// `include_network`/`include_storage` opt-out) simply leave that gauge at
-/// its last-published value — callers are expected to publish the cheap
-/// fields often and the expensive ones from a slower background refresh
-/// (see `collect`'s doc comment), so a gauge is stale, never wrong-and-zero.
+/// its last-published value — callers publish the cheap fields often and the
+/// expensive ones from a slower background refresh, so a gauge is stale, never
+/// wrong-and-zero.
 pub fn publish_to_metrics(s: &DashSummary) {
     delonix_telemetry::metrics::set_containers(s.containers_running, s.containers_total);
     delonix_telemetry::metrics::set_vms(s.vms_running, s.vms_total);
@@ -415,19 +198,19 @@ pub fn publish_to_metrics(s: &DashSummary) {
 /// Last-known per-container network bytes (`id -> (rx, tx)`), refreshed by the
 /// background loop (`spawn_expensive_metrics_refresh`) via
 /// [`publish_container_net_cache`] and merged into the inline per-workload
-/// snapshot by [`collect_workload_series`].
+/// snapshot by [`workload_series_with_net_cache`].
 ///
 /// WHY A CACHE (and not read inline like cpu/mem): a container's rx/tx live in
 /// its netns, reachable only by an `nsenter`+`cat` per container — the exact
-/// cost the `/metrics` handler keeps OFF the scrape path (it already passes
-/// `include_network=false` to [`collect`]; see `lib.rs::metrics`). So network
-/// follows the aggregate's pattern: refreshed on the slow background cadence and
-/// served stale-but-never-wrong, while cpu/mem stay fresh-every-scrape.
+/// cost the `/metrics` handler keeps OFF the scrape path. So network follows the
+/// aggregate's pattern: refreshed on the slow background cadence and served
+/// stale-but-never-wrong, while cpu/mem stay fresh-every-scrape.
 static CONTAINER_NET_CACHE: LazyLock<Mutex<HashMap<String, (u64, u64)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Replaces the per-container network cache read by [`collect_workload_series`].
-/// Called from the background refresh loop with the latest netns reads.
+/// Replaces the per-container network cache read by
+/// [`workload_series_with_net_cache`]. Called from the background refresh loop
+/// with the latest netns reads.
 pub fn publish_container_net_cache(map: HashMap<String, (u64, u64)>) {
     *CONTAINER_NET_CACHE
         .lock()
@@ -442,148 +225,25 @@ fn container_net_from_cache(id: &str) -> Option<(u64, u64)> {
         .copied()
 }
 
-/// Per-workload contention series (CPU throttling, pressure, OOM) for every
-/// RUNNING container and VM, read from cgroup v2 files with no new privilege.
-/// Three to five small file reads per workload, so it is safe on a scrape.
-///
-/// Per-workload network bytes are attached from [`CONTAINER_NET_CACHE`] (the
-/// background loop fills it) — NOT read here, to keep this inline-on-scrape path
-/// free of netns enters. A container absent from the cache (host/none netns, or
-/// not yet sampled) simply carries no network sample.
-///
-/// A container is read from its own live cgroup. A VM is read only when its
-/// VMM is alone in its cgroup (see [`delonix_linux::pressure::vmm_cgroup`]);
-/// the engine creates no cgroup for a VMM, so on most hosts a VM's series are
-/// absent with reason `shared_cgroup` rather than a whole session's numbers
-/// under the VM's name.
-pub fn collect_workload_series(root: &Path, vms: &dyn VmView) -> Vec<WorkloadSeries> {
-    let mut out = Vec::new();
-    if let Ok(store) = delonix_state::Store::open(root.join("containers")) {
-        if let Ok(list) = store.list() {
-            for mut c in list {
-                delonix_linux::reconcile_status(&mut c);
-                if c.status == Status::Running {
-                    let dir = std::path::PathBuf::from(delonix_linux::live_cgroup(&c));
-                    let mut ws = workload_series(WorkloadKind::Container, &c.id, &c.name, Ok(dir));
-                    if let Some((rx, tx)) = container_net_from_cache(&c.id) {
-                        ws.net_rx_bytes = Some(rx);
-                        ws.net_tx_bytes = Some(tx);
-                    }
-                    out.push(ws);
-                }
-            }
-        }
-    }
-    for vm in vms.list().unwrap_or_default() {
-        if vm.status != Status::Running {
-            continue;
-        }
-        let cgroup = match vm.pid {
-            Some(pid) => pressure::vmm_cgroup(Path::new("/proc"), Path::new("/sys/fs/cgroup"), pid),
-            None => Err(Why::CgroupMissing),
-        };
-        let mut ws = workload_series(WorkloadKind::Vm, &vm.name, &vm.name, cgroup);
-        // Per-VM network, like the per-container series: Cloud Hypervisor attaches
-        // the VM's tap in the ingress holder's netns, so its rx/tx is one
-        // `nsenter`+read away (`vm_tap_net_bytes`, which also makes the host→guest
-        // swap). libvirt VMs sit on `virbr0` in the host netns and carry no tap
-        // name here (the `tap` field holds the net MODE), so they are left
-        // unmeasured — a `domifstat` path, not this one. This runs on the slow
-        // background refresh (`collect_workload_series` caller), off the request path.
-        if vm.backend == "cloud-hypervisor" {
-            if let Some((rx, tx)) = delonix_sdn::infra::vm_tap_net_bytes(&vm.tap) {
+/// The engine's [`workload_series`](crate::EngineOps::workload_series) with each
+/// CONTAINER's network bytes overlaid from the background-refreshed cache. The
+/// engine leaves container net `None` to keep the inline scrape path free of
+/// netns enters (a Cloud Hypervisor VM's tap bytes are already filled there).
+pub fn workload_series_with_net_cache(engine: &dyn crate::EngineOps) -> Vec<WorkloadSeries> {
+    let mut series = engine.workload_series();
+    for ws in &mut series {
+        if matches!(ws.kind, WorkloadKind::Container) {
+            if let Some((rx, tx)) = container_net_from_cache(&ws.id) {
                 ws.net_rx_bytes = Some(rx);
                 ws.net_tx_bytes = Some(tx);
             }
         }
-        out.push(ws);
     }
-    out
+    series
 }
 
-/// Reads one workload's series from `cgroup` (or records why there is none)
-/// and converts them to the exporter's types. Every group that could not be
-/// read becomes an [`Unavailable`] entry instead of a value.
-pub fn workload_series(
-    kind: WorkloadKind,
-    id: &str,
-    name: &str,
-    cgroup: Result<std::path::PathBuf, Why>,
-) -> WorkloadSeries {
-    let read = match cgroup {
-        Ok(dir) => pressure::read_cgroup(&dir),
-        Err(why) => CgroupSeries::unavailable(why),
-    };
-    let mut unavailable = Vec::new();
-    let cpu_usage_usec = take("cpu_usage", read.cpu_usage_usec, &mut unavailable);
-    let memory_current_bytes = take("memory_current", read.memory_current, &mut unavailable);
-    let cpu_throttle =
-        take("cpu_throttle", read.cpu_throttle, &mut unavailable).map(|c| CpuThrottle {
-            nr_periods: c.nr_periods,
-            nr_throttled: c.nr_throttled,
-            throttled_usec: c.throttled_usec,
-        });
-    let cpu_pressure = take("cpu_pressure", read.cpu_pressure, &mut unavailable).map(to_pressure);
-    let memory_pressure =
-        take("memory_pressure", read.memory_pressure, &mut unavailable).map(to_pressure);
-    let io_pressure = take("io_pressure", read.io_pressure, &mut unavailable).map(to_pressure);
-    let memory_events =
-        take("memory_events", read.memory_events, &mut unavailable).map(|m| MemoryEvents {
-            oom: m.oom,
-            oom_kill: m.oom_kill,
-        });
-    WorkloadSeries {
-        kind,
-        id: id.to_string(),
-        name: name.to_string(),
-        cpu_usage_usec,
-        memory_current_bytes,
-        // Network is NOT a cgroup read: it needs a netns enter, too costly for
-        // the inline scrape path (see the module note on the cache). The caller
-        // fills these from the background-refreshed cache; left `None` here.
-        net_rx_bytes: None,
-        net_tx_bytes: None,
-        cpu_throttle,
-        cpu_pressure,
-        memory_pressure,
-        io_pressure,
-        memory_events,
-        unavailable,
-    }
-}
-
-/// A group that could not be read becomes `None` plus its reason.
-fn take<T>(
-    group: &'static str,
-    r: Result<T, Why>,
-    unavailable: &mut Vec<Unavailable>,
-) -> Option<T> {
-    match r {
-        Ok(v) => Some(v),
-        Err(why) => {
-            unavailable.push(Unavailable {
-                group,
-                reason: why.as_str(),
-            });
-            None
-        }
-    }
-}
-
-fn to_pressure(p: pressure::Pressure) -> WorkloadPressure {
-    let stall = |l: pressure::StallLine| Stall {
-        avg10_percent: l.avg10_percent,
-        total_usec: l.total_usec,
-    };
-    WorkloadPressure {
-        some: stall(p.some),
-        full: p.full.map(stall),
-    }
-}
-
-/// Pushes the per-workload series into the shared Prometheus registry. Unlike
-/// [`publish_to_metrics`] this replaces the whole set, so a workload that
-/// stopped is no longer exported.
+/// Pushes the per-workload series into the shared Prometheus registry. Replaces
+/// the whole set, so a workload that stopped is no longer exported.
 pub fn publish_workloads_to_metrics(series: Vec<WorkloadSeries>) {
     delonix_telemetry::metrics::publish_workloads(series);
 }
@@ -591,102 +251,6 @@ pub fn publish_workloads_to_metrics(series: Vec<WorkloadSeries>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A `VmView` with no VMs — the collector's numbers for an empty node do
-    /// not depend on the VM port, so these tests inject this instead of a real
-    /// engine. VM-aware collection is proved end-to-end through the bin.
-    struct NoVms;
-    impl VmView for NoVms {
-        fn list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error> {
-            Ok(Vec::new())
-        }
-        fn status(&self, name: &str) -> Result<delonix_compute::Vm, delonix_model::Error> {
-            Err(delonix_model::Error::VmNotFound(name.to_string()))
-        }
-    }
-
-    #[test]
-    fn collect_sobre_root_vazio_nao_rebenta_e_da_zeros() {
-        let dir = tempfile::tempdir().unwrap();
-        let s = collect(dir.path(), &NoVms, true, true);
-        assert_eq!(s.containers_running, 0);
-        assert_eq!(s.containers_total, 0);
-        assert_eq!(s.vms_total, 0);
-        assert_eq!(s.storage_bytes_images, Some(0));
-        assert_eq!(s.network_rx_bytes, Some(0));
-    }
-
-    #[test]
-    fn collect_sem_include_network_nem_storage_devolve_none() {
-        let dir = tempfile::tempdir().unwrap();
-        let s = collect(dir.path(), &NoVms, false, false);
-        assert_eq!(s.network_rx_bytes, None);
-        assert_eq!(s.network_tx_bytes, None);
-        assert_eq!(s.storage_bytes_images, None);
-        assert_eq!(s.storage_bytes_containers, None);
-    }
-
-    /// The two tests below both drive the PROCESS-WIDE `COLLECT_IN_FLIGHT`
-    /// latch, so they cannot run concurrently — that interference is the
-    /// circuit breaker working as designed, not a test artifact (any two
-    /// concurrent `collect_with_timeout` callers in one process behave exactly
-    /// this way). Serialize them, and wait for the latch to actually clear
-    /// before handing over: a test that only takes the mutex would still race
-    /// the previous test's worker thread on its way out.
-    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// Blocks until no collection is in flight, so the next test starts from a
-    /// clean latch.
-    fn wait_for_idle_latch() {
-        for _ in 0..500 {
-            if !COLLECT_IN_FLIGHT
-                .0
-                .load(std::sync::atomic::Ordering::SeqCst)
-            {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("a latch de colheita nunca ficou livre");
-    }
-
-    #[test]
-    fn collect_with_timeout_devolve_some_dentro_do_prazo() {
-        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        wait_for_idle_latch();
-        let dir = tempfile::tempdir().unwrap();
-        let s = collect_with_timeout(
-            dir.path(),
-            Arc::new(NoVms),
-            true,
-            true,
-            Duration::from_secs(10),
-        );
-        assert!(matches!(s, Bounded::Done(_)));
-    }
-
-    /// Doesn't (and can't, without a way to inject an artificially hung
-    /// `collect`) exercise the ACTUAL timeout firing — it proves the ceiling
-    /// itself is real: `collect` on an empty tempdir is fast, so a timeout far
-    /// shorter than that must still return in time and `TimedOut` must be a
-    /// real, reachable outcome of the function's own logic, not dead code.
-    #[test]
-    fn collect_with_timeout_expira_se_o_prazo_e_zero() {
-        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        wait_for_idle_latch();
-        let dir = tempfile::tempdir().unwrap();
-        let s = collect_with_timeout(
-            dir.path(),
-            Arc::new(NoVms),
-            true,
-            true,
-            Duration::from_nanos(1),
-        );
-        assert!(matches!(s, Bounded::TimedOut));
-        // O worker desta colheita ainda está a correr (só o PRAZO expirou);
-        // espera que largue a latch antes de devolver o mutex.
-        wait_for_idle_latch();
-    }
 
     /// REGRESSION (unbounded resource leak): while a worker is STILL STUCK,
     /// further attempts must be `Skipped` without spawning anything.
@@ -696,11 +260,6 @@ mod tests {
     /// volume leaked one parked thread per cycle (~576/day) until the process
     /// ran out of threads. Removing the `swap` guard in `run_bounded` makes the
     /// spawn counter below come out at 5 instead of 1, and this test fails.
-    ///
-    /// Uses `run_bounded` directly with its OWN latch (not the shared
-    /// `COLLECT_IN_FLIGHT`) so it neither disturbs nor is disturbed by the
-    /// other tests running in parallel, and so the "work" can be made to hang
-    /// deliberately — something `collect` itself offers no way to inject.
     #[test]
     fn run_bounded_nao_lanca_uma_2a_thread_enquanto_a_1a_esta_presa() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -788,176 +347,5 @@ mod tests {
             matches!(run_bounded(&TEST_FLAG, deadline, || 9u32), Bounded::Done(9))
         });
         assert!(rearmed, "um pânico no worker deixou o disjuntor preso");
-    }
-
-    /// `dir_size` desce a árvore toda e conta o que o `du` conta.
-    ///
-    /// Não fixa mais o total exacto em bytes aparentes (`5 + 10 == 15`): essa
-    /// asserção codificava a semântica ERRADA que este walk tinha — soma de
-    /// `m.len()` sem deduplicação de hardlinks. Agora delega em
-    /// `delonix_volume::measure` (blocos alocados, dedup por `(dev, ino)`), por
-    /// isso o total depende do tamanho de bloco do filesystem e o que se afirma
-    /// é o comportamento, não um número de um sistema de ficheiros em concreto.
-    #[test]
-    fn dir_size_soma_recursivamente() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a"), b"12345").unwrap();
-        let sub = dir.path().join("sub");
-        std::fs::create_dir(&sub).unwrap();
-        std::fs::write(sub.join("b"), b"1234567890").unwrap();
-
-        let total = dir_size(dir.path());
-        let only_root = dir_size(&dir.path().join("sub"));
-        assert!(total > 0, "a árvore não pode medir zero");
-        assert!(
-            total > only_root,
-            "o total ({total}) tem de incluir o ficheiro da raiz além do da subpasta ({only_root})"
-        );
-        // Um caminho inexistente continua a valer zero (nunca falha um scrape).
-        assert_eq!(dir_size(&dir.path().join("nao-existe")), 0);
-    }
-
-    /// REGRESSION: o `system df`/dashboard não pode contar N vezes um ficheiro
-    /// com N hardlinks. Esta era a MESMA classe de erro que a quota de volumes
-    /// tinha, em três cópias privadas do mesmo walk — agora há só uma.
-    #[test]
-    fn dir_size_nao_conta_hardlinks_varias_vezes() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("original"), vec![0u8; 64 * 1024]).unwrap();
-        let one = dir_size(dir.path());
-        for i in 0..5 {
-            std::fs::hard_link(
-                dir.path().join("original"),
-                dir.path().join(format!("l{i}")),
-            )
-            .unwrap();
-        }
-        assert_eq!(
-            dir_size(dir.path()),
-            one,
-            "6 nomes do mesmo inode contaram como 6 ficheiros"
-        );
-    }
-
-    fn write(dir: &Path, name: &str, body: &str) {
-        std::fs::write(dir.join(name), body).unwrap();
-    }
-
-    const PSI: &str = "some avg10=12.50 avg60=3.00 avg300=1.00 total=4500000\n\
-        full avg10=2.25 avg60=0.50 avg300=0.10 total=500000\n";
-
-    fn fixture_cgroup() -> tempfile::TempDir {
-        let d = tempfile::tempdir().unwrap();
-        let p = d.path();
-        write(p, "cgroup.controllers", "cpu memory io pids\n");
-        write(
-            p,
-            "cpu.stat",
-            "usage_usec 9500000\nnr_periods 200\nnr_throttled 50\nthrottled_usec 1500000\n",
-        );
-        write(p, "cpu.pressure", PSI);
-        write(p, "memory.pressure", PSI);
-        write(p, "io.pressure", PSI);
-        write(
-            p,
-            "memory.events.local",
-            "low 0\nhigh 0\nmax 4\noom 2\noom_kill 1\n",
-        );
-        write(p, "memory.current", "4194304\n");
-        d
-    }
-
-    #[test]
-    fn the_exporter_renders_a_fixture_cgroup_with_the_workload_labels() {
-        let d = fixture_cgroup();
-        let ws = workload_series(
-            WorkloadKind::Container,
-            "c1",
-            "web",
-            Ok(d.path().to_path_buf()),
-        );
-        assert!(ws.unavailable.is_empty(), "{:?}", ws.unavailable);
-        let out = delonix_telemetry::workload::render(&[ws]);
-        let l = r#"kind="container",id="c1",name="web""#;
-        for want in [
-            format!("delonix_workload_cpu_usage_seconds_total{{{l}}} 9.5"),
-            format!("delonix_workload_memory_current_bytes{{{l}}} 4194304"),
-            format!("delonix_workload_cpu_periods_total{{{l}}} 200"),
-            format!("delonix_workload_cpu_throttled_periods_total{{{l}}} 50"),
-            format!("delonix_workload_cpu_throttled_seconds_total{{{l}}} 1.5"),
-            format!(
-                r#"delonix_workload_pressure_avg10_percent{{{l},resource="cpu",stall="some"}} 12.5"#
-            ),
-            format!(
-                r#"delonix_workload_pressure_avg10_percent{{{l},resource="memory",stall="full"}} 2.25"#
-            ),
-            format!(
-                r#"delonix_workload_pressure_stall_seconds_total{{{l},resource="io",stall="some"}} 4.5"#
-            ),
-            format!("delonix_workload_memory_oom_events_total{{{l}}} 2"),
-            format!("delonix_workload_memory_oom_kills_total{{{l}}} 1"),
-        ] {
-            assert!(out.contains(&want), "missing `{want}` in:\n{out}");
-        }
-        assert!(!out.contains("series_unavailable"), "{out}");
-    }
-
-    #[test]
-    fn a_missing_pressure_file_gives_no_series_and_the_reason() {
-        let d = fixture_cgroup();
-        std::fs::remove_file(d.path().join("io.pressure")).unwrap();
-        let ws = workload_series(
-            WorkloadKind::Container,
-            "c1",
-            "web",
-            Ok(d.path().to_path_buf()),
-        );
-        assert_eq!(ws.io_pressure, None);
-        let out = delonix_telemetry::workload::render(&[ws]);
-        assert!(!out.contains(r#"resource="io""#), "{out}");
-        assert!(out.contains(r#"resource="cpu""#));
-        assert!(
-            out.contains(r#"group="io_pressure",reason="file_missing"} 1"#),
-            "{out}"
-        );
-        // Only the group that is missing is reported.
-        assert_eq!(out.matches("series_unavailable{").count(), 1, "{out}");
-    }
-
-    #[test]
-    fn a_workload_without_a_readable_cgroup_exports_only_reasons() {
-        let ws = workload_series(WorkloadKind::Vm, "vm1", "vm1", Err(Why::SharedCgroup));
-        // cpu_usage, memory_current, cpu_throttle, cpu/memory/io pressure, memory_events.
-        assert_eq!(ws.unavailable.len(), 7);
-        assert!(ws.unavailable.iter().all(|u| u.reason == "shared_cgroup"));
-        let out = delonix_telemetry::workload::render(&[ws]);
-        assert_eq!(out.matches("series_unavailable{").count(), 7, "{out}");
-        assert!(out.contains(r#"kind="vm",id="vm1",name="vm1""#));
-        assert!(!out.contains("delonix_workload_cpu_"), "{out}");
-    }
-
-    #[test]
-    fn a_cgroup_v1_style_directory_is_named_as_such() {
-        // cpu.stat of a v1 hierarchy (no cgroup.controllers, `throttled_time`).
-        let d = tempfile::tempdir().unwrap();
-        write(
-            d.path(),
-            "cpu.stat",
-            "nr_periods 1\nnr_throttled 0\nthrottled_time 0\n",
-        );
-        let ws = workload_series(
-            WorkloadKind::Container,
-            "c1",
-            "web",
-            Ok(d.path().to_path_buf()),
-        );
-        assert_eq!(ws.cpu_throttle, None);
-        assert!(ws.unavailable.iter().all(|u| u.reason == "not_cgroup_v2"));
-    }
-
-    #[test]
-    fn collect_workload_series_on_an_empty_root_is_empty() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(collect_workload_series(dir.path(), &NoVms).is_empty());
     }
 }

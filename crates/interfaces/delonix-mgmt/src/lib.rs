@@ -28,8 +28,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use delonix_host::peer_cred::peer_uid;
+use delonix_model::dash::DashSummary;
 use delonix_model::Error;
 use delonix_state::Store;
+use delonix_telemetry::workload::WorkloadSeries;
 use delonix_volume::VolumeStore;
 
 /// Shared state of the handlers.
@@ -46,16 +48,14 @@ struct AppState {
     /// exists because that logic lives in a crate with no `[lib]` target, and
     /// ADR-0041 (Proposed) plans moving these mutations onto library calls.
     bin: PathBuf,
-    /// The node's VM service as a read-only port. The interface never names the
-    /// `delonix-vm` adapter (ADR-0040 A5): the bin composes the engine and hands
-    /// in this `VmView`, so the dashstats VM counts/series resolve off the port.
-    vms: Arc<dyn VmView>,
-    /// The rest of the composed engine's use cases this API serves, as a port
-    /// (R3f). Same shape as `vms`: the bin mounts a `delonix-engine::Engine` and
-    /// hands in an implementor, so the image/volume/container/network endpoints
+    /// The composed engine's use cases this API serves, as a port (ADR-0040 A5,
+    /// R3f). The bin mounts a `delonix-engine::Engine` and hands in an
+    /// implementor, so the image/volume/container/network/summary endpoints
     /// resolve through the composition instead of this interface naming the
     /// `delonix-oci`/`delonix-volume`/`delonix-state`/`delonix-sdn`/`delonix-linux`
-    /// adapters directly (the edge the arch gate ratchets down).
+    /// adapters directly (the edge the arch gate ratchets down). VMs reach the
+    /// engine through this same port for the summary; the standalone `VmView` is
+    /// now only the reexport `delonix-mcp` reuses, no longer held here.
     engine: Arc<dyn EngineOps>,
 }
 
@@ -74,13 +74,22 @@ pub trait EngineOps: Send + Sync {
     fn remove_image(&self, reference: &str) -> Result<String, Error>;
     /// The SBOM of an image, serialized (`Package` is the scanner's type).
     fn image_sbom(&self, reference: &str) -> Result<serde_json::Value, Error>;
+
+    // --- resource summary (delonix-state/linux/sdn/volume/oci, R3f-B) ---
+    /// A fresh [`DashSummary`] — engine-wide counts, cgroup memory, and
+    /// optionally per-container network totals and the per-area disk walk.
+    fn dash_summary(&self, include_network: bool, include_storage: bool) -> DashSummary;
+    /// Per-container cumulative rx/tx bytes, keyed by id, for the slow refresh.
+    fn container_net(&self) -> std::collections::HashMap<String, (u64, u64)>;
+    /// Per-workload contention series for the Prometheus workload exporter
+    /// (per-container network is left `None` — the caller overlays its cache).
+    fn workload_series(&self) -> Vec<WorkloadSeries>;
 }
 
 /// Starts the management API listening on a unix socket (blocking). `addr` accepts
 /// a path or `unix:///path`. Same pattern as `delonix-cri::serve_blocking`.
 pub fn serve_blocking(
     base: PathBuf,
-    vms: Arc<dyn VmView>,
     engine: Arc<dyn EngineOps>,
     addr: &str,
 ) -> Result<(), Error> {
@@ -88,14 +97,13 @@ pub fn serve_blocking(
     // API server (`delonix serve api` runs `delonix-mgmt`) and would serve again
     // instead of running the command.
     let bin = delonix_host::dispatch::cli_bin();
-    serve_blocking_with(base, bin, vms, engine, addr)
+    serve_blocking_with(base, bin, engine, addr)
 }
 
 /// Like [`serve_blocking`], but with the CLI binary explicit (for tests).
 pub fn serve_blocking_with(
     base: PathBuf,
     bin: PathBuf,
-    vms: Arc<dyn VmView>,
     engine: Arc<dyn EngineOps>,
     addr: &str,
 ) -> Result<(), Error> {
@@ -129,9 +137,9 @@ pub fn serve_blocking_with(
         eprintln!("delonix-mgmt (management API) listening on unix://{path}");
         tokio::spawn(spawn_expensive_metrics_refresh(
             base.clone(),
-            Arc::clone(&vms),
+            Arc::clone(&engine),
         ));
-        serve_over_uds(uds, router(AppState { base, bin, vms, engine })).await
+        serve_over_uds(uds, router(AppState { base, bin, engine })).await
     })
 }
 
@@ -145,13 +153,14 @@ pub fn serve_blocking_with(
 /// fresh on every `/metrics` request (see `metrics()`) — only this slow half
 /// is decoupled. Runs for the lifetime of the process; best-effort (a
 /// collection panic/slow disk on one tick never stops the next one).
-async fn spawn_expensive_metrics_refresh(base: PathBuf, vms: Arc<dyn VmView>) {
-    // BUG FOUND (code review): this used to `.await` `dashstats::collect`
-    // with no ceiling at all — a genuinely stuck disk/netns operation (not
-    // just "slow", an actual hang) would freeze this loop, and every
-    // expensive gauge, for the remaining lifetime of the process. Bounded
-    // with `collect_with_timeout`; see its own doc comment for why the
-    // worker thread is leaked rather than cancelled on a timeout.
+async fn spawn_expensive_metrics_refresh(base: PathBuf, engine: Arc<dyn EngineOps>) {
+    let _ = base; // the engine port already carries the state root
+    // BUG FOUND (code review): this used to `.await` the collection with no
+    // ceiling at all — a genuinely stuck disk/netns operation (not just "slow",
+    // an actual hang) would freeze this loop, and every expensive gauge, for the
+    // remaining lifetime of the process. Bounded with `collect_with_timeout`; see
+    // its own doc comment for why the worker thread is leaked rather than
+    // cancelled on a timeout.
     const COLLECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
     loop {
         // Per-container network bytes for the per-workload series
@@ -161,19 +170,18 @@ async fn spawn_expensive_metrics_refresh(base: PathBuf, vms: Arc<dyn VmView>) {
         // scrape path (each read is an `nsenter` per container). Served stale
         // from the cache between cycles — never read on a scrape.
         {
-            let base = base.clone();
+            let engine = Arc::clone(&engine);
             let net = tokio::task::spawn_blocking(move || {
-                dashstats::collect_container_net_with_timeout(&base, COLLECT_TIMEOUT)
+                dashstats::collect_container_net_with_timeout(engine, COLLECT_TIMEOUT)
             })
             .await;
             if let Ok(dashstats::Bounded::Done(map)) = net {
                 dashstats::publish_container_net_cache(map);
             }
         }
-        let base = base.clone();
-        let vms = Arc::clone(&vms);
+        let engine = Arc::clone(&engine);
         let summary = tokio::task::spawn_blocking(move || {
-            dashstats::collect_with_timeout(&base, vms, true, true, COLLECT_TIMEOUT)
+            dashstats::collect_with_timeout(engine, true, true, COLLECT_TIMEOUT)
         })
         .await;
         match summary {
@@ -359,12 +367,11 @@ async fn ping() -> &'static str {
 /// they are attached from the cache the background refresh fills — stale by up
 /// to its interval, never read on the scrape itself.
 async fn metrics(State(s): State<AppState>) -> impl IntoResponse {
-    let base = s.base.clone();
-    let vms = Arc::clone(&s.vms);
+    let engine = Arc::clone(&s.engine);
     let collected = tokio::task::spawn_blocking(move || {
         (
-            dashstats::collect(&base, &*vms, false, false),
-            dashstats::collect_workload_series(&base, &*vms),
+            engine.dash_summary(false, false),
+            dashstats::workload_series_with_net_cache(&*engine),
         )
     })
     .await;
@@ -389,9 +396,8 @@ async fn metrics(State(s): State<AppState>) -> impl IntoResponse {
 /// doc comment) — a client with a request timeout shorter than that should
 /// use `/metrics` instead, which is always fast.
 async fn dash_summary(State(s): State<AppState>) -> Response {
-    match tokio::task::spawn_blocking(move || dashstats::collect(&s.base, &*s.vms, true, true))
-        .await
-    {
+    let engine = Arc::clone(&s.engine);
+    match tokio::task::spawn_blocking(move || engine.dash_summary(true, true)).await {
         Ok(summary) => Json(summary).into_response(),
         Err(e) => err_response(Error::Runtime {
             context: "join",
@@ -1543,52 +1549,48 @@ mod tests {
     /// A `VmView` with no VMs — these handler tests exercise the volume/
     /// container/validation routes, none of which read VMs; the VM port is
     /// proven through the engine in the cross-process e2e.
-    struct NoVms;
-    impl VmView for NoVms {
-        fn list(&self) -> Result<Vec<delonix_compute::Vm>, Error> {
-            Ok(Vec::new())
-        }
-        fn status(&self, name: &str) -> Result<delonix_compute::Vm, Error> {
-            Err(Error::VmNotFound(name.to_string()))
-        }
-    }
-
-    /// The [`EngineOps`] the tests run against: the SAME adapter reads/mutations
-    /// the `delonix-engine` composition makes in production, reached directly over
-    /// a state root so the endpoints are still exercised end to end without this
-    /// crate carrying the adapters in production. The dev-dependency counterpart
-    /// of the bin's engine-backed `EnginePorts`, and the only place these adapters
-    /// are named in `delonix-mgmt` once an edge has moved (always `#[cfg(test)]`).
-    struct RealEngine(PathBuf);
+    /// The [`EngineOps`] the tests run against: a REAL `delonix-engine::Engine`
+    /// mounted over the test's state root (a dev-dependency — the arch gate
+    /// ignores dev/build deps, so this interface→assembly edge is test-only and
+    /// uncounted). Every endpoint is thus exercised against the same composition
+    /// the bin wires in production, with no re-implemented fake to drift.
+    struct RealEngine(delonix_engine::Engine);
 
     impl EngineOps for RealEngine {
         fn list_images(&self) -> Result<serde_json::Value, Error> {
-            let store = delonix_oci::ImageStore::open(&self.0)?;
-            let imgs = store.list()?;
-            Ok(serde_json::to_value(imgs).unwrap_or(serde_json::Value::Null))
+            self.0
+                .images()
+                .list()
+                .map(|imgs| serde_json::to_value(imgs).unwrap_or(serde_json::Value::Null))
         }
         fn remove_image(&self, reference: &str) -> Result<String, Error> {
-            let store = delonix_oci::ImageStore::open(&self.0)?;
-            Ok(store.remove(reference)?)
+            self.0.images().remove(reference)
         }
         fn image_sbom(&self, reference: &str) -> Result<serde_json::Value, Error> {
-            let store = delonix_oci::ImageStore::open(&self.0)?;
-            let img = store.resolve(reference)?;
-            let pkgs = delonix_scanner::extract_sbom(&store, &img).unwrap_or_default();
-            Ok(serde_json::to_value(pkgs).unwrap_or(serde_json::Value::Null))
+            self.0.images().sbom(reference)
+        }
+        fn dash_summary(&self, include_network: bool, include_storage: bool) -> DashSummary {
+            self.0.dash_summary(include_network, include_storage)
+        }
+        fn container_net(&self) -> std::collections::HashMap<String, (u64, u64)> {
+            self.0.container_net()
+        }
+        fn workload_series(&self) -> Vec<WorkloadSeries> {
+            self.0.workload_series()
         }
     }
 
     fn test_state() -> (AppState, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
+        let engine = delonix_engine::Engine::mount(dir.path().to_path_buf())
+            .expect("Engine::mount only stores the root");
         (
             AppState {
                 base: dir.path().to_path_buf(),
                 // `/bin/false`: the real mutations are proven in the cross-process e2e;
                 // the unit tests cover only the validation (refusal BEFORE the exec).
                 bin: PathBuf::from("/bin/false"),
-                vms: Arc::new(NoVms),
-                engine: Arc::new(RealEngine(dir.path().to_path_buf())),
+                engine: Arc::new(RealEngine(engine)),
             },
             dir,
         )
