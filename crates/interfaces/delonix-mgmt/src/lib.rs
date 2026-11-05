@@ -32,7 +32,6 @@ use delonix_model::dash::DashSummary;
 use delonix_model::Error;
 use delonix_state::Store;
 use delonix_telemetry::workload::WorkloadSeries;
-use delonix_volume::VolumeStore;
 
 /// Shared state of the handlers.
 #[derive(Clone)]
@@ -84,6 +83,22 @@ pub trait EngineOps: Send + Sync {
     /// Per-workload contention series for the Prometheus workload exporter
     /// (per-container network is left `None` — the caller overlays its cache).
     fn workload_series(&self) -> Vec<WorkloadSeries>;
+
+    // --- volumes (delonix-volume, R3f-C) ---
+    /// Every named volume, serialized (`Volume` is the adapter's type).
+    fn list_volumes(&self) -> Result<serde_json::Value, Error>;
+    /// One named volume by name, serialized.
+    fn get_volume(&self, name: &str) -> Result<serde_json::Value, Error>;
+    /// Create a named volume; returns the created record, serialized.
+    fn create_volume(
+        &self,
+        name: &str,
+        driver: &str,
+        device: Option<String>,
+        options: Option<String>,
+    ) -> Result<serde_json::Value, Error>;
+    /// Remove a named volume.
+    fn remove_volume(&self, name: &str) -> Result<(), Error>;
 }
 
 /// Starts the management API listening on a unix socket (blocking). `addr` accepts
@@ -478,26 +493,10 @@ where
         })?
 }
 
-/// Runs a synchronous `VolumeStore` operation on a blocking thread (the store
-/// is synchronous; it must not block the async executor).
-async fn with_store<T, F>(base: PathBuf, f: F) -> Result<T, Error>
-where
-    T: Send + 'static,
-    F: FnOnce(&VolumeStore) -> Result<T, delonix_volume::Error> + Send + 'static,
-{
-    tokio::task::spawn_blocking(move || -> Result<T, Error> {
-        let store = VolumeStore::open(&base)?;
-        Ok(f(&store)?)
-    })
-    .await
-    .map_err(|e| Error::Runtime {
-        context: "join",
-        message: e.to_string(),
-    })?
-}
 
 async fn list_volumes(State(s): State<AppState>) -> Response {
-    match with_store(s.base, |store| store.list()).await {
+    let engine = s.engine.clone();
+    match blocking(move || engine.list_volumes()).await {
         Ok(vols) => Json(vols).into_response(),
         Err(e) => err_response(e),
     }
@@ -507,7 +506,8 @@ async fn get_volume(State(s): State<AppState>, Path(name): Path<String>) -> Resp
     if !valid_name(&name) {
         return invalid_name();
     }
-    match with_store(s.base, move |store| store.inspect(&name)).await {
+    let engine = s.engine.clone();
+    match blocking(move || engine.get_volume(&name)).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => err_response(e),
     }
@@ -530,11 +530,8 @@ async fn create_volume(State(s): State<AppState>, Json(b): Json<CreateVolumeBody
         return invalid_name();
     }
     let driver = b.driver.unwrap_or_else(|| "local".to_string());
-    match with_store(s.base, move |store| {
-        store.create_with(&b.name, &driver, b.device, b.options)
-    })
-    .await
-    {
+    let engine = s.engine.clone();
+    match blocking(move || engine.create_volume(&b.name, &driver, b.device, b.options)).await {
         Ok(v) => (StatusCode::CREATED, Json(v)).into_response(),
         Err(e) => err_response(e),
     }
@@ -544,7 +541,8 @@ async fn delete_volume(State(s): State<AppState>, Path(name): Path<String>) -> R
     if !valid_name(&name) {
         return invalid_name();
     }
-    match with_store(s.base, move |store| store.remove(&name)).await {
+    let engine = s.engine.clone();
+    match blocking(move || engine.remove_volume(&name)).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err_response(e),
     }
@@ -1577,6 +1575,33 @@ mod tests {
         }
         fn workload_series(&self) -> Vec<WorkloadSeries> {
             self.0.workload_series()
+        }
+        fn list_volumes(&self) -> Result<serde_json::Value, Error> {
+            self.0
+                .volumes()
+                .list()
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+        fn get_volume(&self, name: &str) -> Result<serde_json::Value, Error> {
+            self.0
+                .volumes()
+                .inspect(name)
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+        fn create_volume(
+            &self,
+            name: &str,
+            driver: &str,
+            device: Option<String>,
+            options: Option<String>,
+        ) -> Result<serde_json::Value, Error> {
+            self.0
+                .volumes()
+                .create_with(name, driver, device, options)
+                .map(|v| serde_json::to_value(v).unwrap_or(serde_json::Value::Null))
+        }
+        fn remove_volume(&self, name: &str) -> Result<(), Error> {
+            self.0.volumes().remove(name)
         }
     }
 
