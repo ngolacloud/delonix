@@ -12,7 +12,6 @@ delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-model = { workspace = true }
 delonix-telemetry = { workspace = true }
-delonix-sdn = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros", "sync"] }
 serde = { workspace = true }
@@ -32,9 +31,10 @@ http-body-util = { workspace = true }
 # image store directly through `delonix-oci` for the image-endpoint test.
 delonix-engine = { workspace = true }
 delonix-oci = { workspace = true }
-# R3f-D: production routes container reads through the port; the tests seed the
-# container store directly to drive the publish-persistence paths.
+# R3f-D/E: production routes container/network use cases through the port; the
+# tests seed the container store and a network directly to drive the handlers.
 delonix-state = { workspace = true }
+delonix-sdn = { workspace = true }
 
 [lints]
 workspace = true
