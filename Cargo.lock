@@ -849,6 +849,7 @@ dependencies = [
  "delonix-host",
  "delonix-linux",
  "delonix-model",
+ "delonix-sdn",
  "delonix-telemetry",
  "serde_json",
  "tempfile",

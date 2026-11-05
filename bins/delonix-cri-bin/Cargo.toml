@@ -26,6 +26,9 @@ delonix-compute = { workspace = true }
 # adapter directly — a bin may name an adapter (ADR-0040 A1), and this keeps the
 # `delonix-cri` interface itself free of `delonix-linux`.
 delonix-linux = { workspace = true }
+# R3h-D: likewise, the bin backs the CRI's SDN/CNI port (`NetworkOps`) with the
+# `delonix-sdn` adapter directly, so the interface names no SDN type.
+delonix-sdn = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 
