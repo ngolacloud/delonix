@@ -944,8 +944,9 @@ mod tests {
 
     #[test]
     fn a_mounted_engine_exposes_its_root_and_the_vm_service() {
-        let eng = Engine::mount("/tmp/delonix-engine-test-root").expect("mount");
-        assert_eq!(eng.root(), Path::new("/tmp/delonix-engine-test-root"));
+        let dir = tempfile::tempdir().unwrap();
+        let eng = Engine::mount(dir.path().to_path_buf()).expect("mount");
+        assert_eq!(eng.root(), dir.path());
         // `list` over a root with no vms dir is an empty list, not an error:
         // proves the VM service is wired to the composition without a host VM.
         assert!(eng.vms().list().map(|v| v.is_empty()).unwrap_or(true));
