@@ -13,9 +13,7 @@ delonix-host = { workspace = true }
 delonix-model = { workspace = true }
 delonix-state = { workspace = true }
 delonix-telemetry = { workspace = true }
-delonix-linux = { workspace = true }
 delonix-volume = { workspace = true }
-delonix-oci = { workspace = true }
 delonix-sdn = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros", "sync"] }
@@ -30,10 +28,12 @@ libc = { workspace = true }
 tempfile = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
-# R3f: the image/scan endpoints reach production through the `EngineOps` port the
-# bin mounts over `delonix-engine`; this crate no longer names the SBOM scanner in
-# production. The test's real-adapter `RealEngine` backing keeps it exercised.
-delonix-scanner = { workspace = true }
+# R3f: production serves every engine use case through the `EngineOps` port. The
+# tests back that port with a real `delonix-engine::Engine` (the arch gate ignores
+# dev-deps, so this test-only interface→assembly edge is uncounted), and seed the
+# image store directly through `delonix-oci` for the image-endpoint test.
+delonix-engine = { workspace = true }
+delonix-oci = { workspace = true }
 
 [lints]
 workspace = true
