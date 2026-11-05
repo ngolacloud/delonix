@@ -181,7 +181,12 @@ fn check_request_id(request_id: &str) -> Result<(), Status> {
 
 fn write(root: &Path, rec: &Record) -> Result<(), Status> {
     let bytes = serde_json::to_vec_pretty(rec).map_err(|e| io("encoding", e))?;
-    delonix_state::write_atomic(&path(root, &rec.id), &bytes).map_err(|e| io("writing", e))
+    // R3d-d: the operation-log's atomic write goes straight to delonix-host (an
+    // already-named prod dep) — exactly what the state adapter's `write_atomic`
+    // did internally — so the interface no longer names that adapter here, and
+    // without threading a store through `begin`/`finish`/`replay` (which every
+    // mutation verb shares) into image_ops/pod_ops/stacks.
+    delonix_host::write_atomic_mode(&path(root, &rec.id), &bytes, None).map_err(|e| io("writing", e))
 }
 
 fn read(root: &Path, id: &str) -> Result<Option<Record>, Status> {

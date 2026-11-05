@@ -20,6 +20,10 @@ delonix-node-api = { workspace = true }
 # names the VM record the port speaks in.
 delonix-engine = { workspace = true }
 delonix-compute = { workspace = true }
+# R3d-d: the bin backs the node API's `StorePort` with the `delonix-state` adapter
+# directly (a bin may name an adapter, ADR-0040 A1), so the interface no longer
+# opens the record store itself.
+delonix-state = { workspace = true }
 delonix-telemetry = { workspace = true }
 
 [dev-dependencies]

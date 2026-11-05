@@ -103,6 +103,7 @@ pub mod selector;
 mod service;
 pub mod stacks;
 pub mod storage;
+pub mod store;
 pub mod transcode;
 pub mod vm_ops;
 pub mod vms;
@@ -113,6 +114,7 @@ pub use service::{
     capacity, health, link_header, list_providers, node_info, openapi_document, router,
     router_with, NodeApi, OPENAPI_YAML,
 };
+pub use store::StorePort;
 pub use vms::VmPort;
 
 /// The node API's composition root: the ports this process registers before it
@@ -167,8 +169,12 @@ pub enum Listen {
 /// shape as `delonix_mgmt::serve_blocking`, which already takes its VM view). A
 /// test passes an adapter-backed port for the VM reads and provider reports it
 /// drives; the bin's production entry is [`serve`], which injects the engine.
-pub fn serve_blocking(addr: &str, vms: std::sync::Arc<dyn VmPort>) -> Result<(), Error> {
-    serve_with(Listen::Path(addr.to_string()), None, vms)
+pub fn serve_blocking(
+    addr: &str,
+    vms: std::sync::Arc<dyn VmPort>,
+    store: std::sync::Arc<dyn StorePort>,
+) -> Result<(), Error> {
+    serve_with(Listen::Path(addr.to_string()), None, vms, store)
 }
 
 /// Serves the node API, blocking the calling thread, until `idle` (if given)
@@ -180,14 +186,16 @@ pub fn serve(
     listen: Listen,
     idle: Option<activation::IdleExit>,
     vms: std::sync::Arc<dyn VmPort>,
+    store: std::sync::Arc<dyn StorePort>,
 ) -> Result<(), Error> {
-    serve_with(listen, idle, vms)
+    serve_with(listen, idle, vms, store)
 }
 
 fn serve_with(
     listen: Listen,
     idle: Option<activation::IdleExit>,
     vms: std::sync::Arc<dyn VmPort>,
+    store: std::sync::Arc<dyn StorePort>,
 ) -> Result<(), Error> {
     compose();
     delonix_node::alloc_tuning::limit_malloc_arenas();
@@ -251,7 +259,7 @@ fn serve_with(
             }
             (Listen::Inherited(_), None) => unreachable!("an inherited listener is taken above"),
         };
-        serve_listener(uds, router_with(vms), idle).await
+        serve_listener(uds, router_with(vms, store), idle).await
     })
 }
 

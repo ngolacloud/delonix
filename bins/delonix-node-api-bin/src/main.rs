@@ -14,7 +14,7 @@ use std::sync::Arc;
 use delonix_compute::Vm;
 use delonix_engine::Engine;
 use delonix_model::Error;
-use delonix_node_api::{activation, Listen, VmPort};
+use delonix_node_api::{activation, Listen, StorePort, VmPort};
 
 /// The composition's VM reads, handed to the node API as its `VmPort` port
 /// (ADR-0040 A5). The bin is the one place that names `delonix-engine`: it mounts
@@ -105,6 +105,78 @@ impl VmPort for EngineVms {
 
     fn declared_vm_reports(&self) -> Vec<delonix_compute::capability::ProviderReport> {
         self.0.declared_vm_reports()
+    }
+}
+
+/// The composition's record store, handed to the node API as its `StorePort`
+/// (ADR-0040 A5, R3d-d). The bin names the `delonix-state` adapter directly — a
+/// bin may name an adapter (A1) — so the `delonix-node-api` interface no longer
+/// opens the store itself. Rooted at the node's state root, it serves the
+/// container store, the VM record store and the operation-log's atomic write; the
+/// native state error maps to the shared engine error the interface speaks.
+struct StateStore(std::path::PathBuf);
+
+impl StorePort for StateStore {
+    fn container_list(&self) -> Result<Vec<delonix_compute::Container>, Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.list())
+            .map_err(Into::into)
+    }
+    fn container_load(&self, id_or_name: &str) -> Result<delonix_compute::Container, Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.load(id_or_name))
+            .map_err(Into::into)
+    }
+    fn container_save(&self, c: &delonix_compute::Container) -> Result<(), Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.save(c))
+            .map_err(Into::into)
+    }
+    fn container_update(
+        &self,
+        id: &str,
+        f: &mut dyn FnMut(&mut delonix_compute::Container) -> bool,
+    ) -> Result<delonix_compute::Container, Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.update(id, |c| f(c)))
+            .map_err(Into::into)
+    }
+    fn container_remove(&self, id: &str) -> Result<(), Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.remove(id))
+            .map_err(Into::into)
+    }
+    fn container_remove_unless(
+        &self,
+        id: &str,
+        keep: &mut dyn FnMut(&delonix_compute::Container) -> bool,
+    ) -> Result<Option<delonix_compute::Container>, Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.remove_unless(id, |c| keep(c)))
+            .map_err(Into::into)
+    }
+    fn container_claim_name(
+        &self,
+        name: &str,
+    ) -> Result<Box<dyn std::any::Any + Send>, Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.claim_name(name))
+            .map(|c| Box::new(c) as Box<dyn std::any::Any + Send>)
+            .map_err(Into::into)
+    }
+    fn vm_list(&self) -> Result<Vec<Vm>, Error> {
+        delonix_state::JsonStore::<Vm>::open(self.0.join("vms"))
+            .and_then(|s| s.list())
+            .map_err(Into::into)
+    }
+    fn vm_update(
+        &self,
+        name: &str,
+        f: &mut dyn FnMut(&mut Vm) -> bool,
+    ) -> Result<Vm, Error> {
+        delonix_state::JsonStore::<Vm>::open(self.0.join("vms"))
+            .and_then(|s| s.update(name, |vm| f(vm)))
+            .map_err(Into::into)
     }
 }
 
@@ -215,9 +287,10 @@ fn run() -> Result<(), Error> {
     // Mount the engine and hand the server its VM port (ADR-0040 A5). The read
     // path resolves off the engine; the write half of the VM lifecycle still
     // reaches `delonix-vm` inside the interface until a later slice moves it.
+    let store: Arc<dyn StorePort> = Arc::new(StateStore(root.clone()));
     let engine = Engine::mount(root)?;
     let vms: Arc<dyn VmPort> = Arc::new(EngineVms(engine));
-    delonix_node_api::serve(listen, idle, vms)
+    delonix_node_api::serve(listen, idle, vms, store)
 }
 
 fn main() -> ExitCode {

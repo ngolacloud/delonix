@@ -107,18 +107,21 @@ fn start_of(first: Option<ExecRequest>) -> Result<ExecStart, Status> {
 /// id the CLI re-exec targets, the same identity rule the rest of the service
 /// reads with. `NotFound` when it is absent or in another namespace,
 /// `FailedPrecondition` when it is not running (an `exec` has nothing to enter).
-fn resolve(root: &Path, name: &str, namespace: &str) -> Result<String, Status> {
+fn resolve(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    name: &str,
+    namespace: &str,
+) -> Result<String, Status> {
     let missing = || Status::not_found(format!("container '{name}' in namespace '{namespace}'"));
     if namespace == "*" || !root.join("containers").is_dir() {
         return Err(missing());
     }
-    let store = delonix_state::Store::open(root.join("containers"))
-        .map_err(|e| crate::network_ops::status_of(&e.into()))?;
-    let mut c = store.load(name).map_err(|e| {
+    let mut c = store.container_load(name).map_err(|e| {
         if e.is_not_found() {
             missing()
         } else {
-            crate::network_ops::status_of(&e.into())
+            crate::network_ops::status_of(&e)
         }
     })?;
     if c.namespace != namespace {
@@ -188,17 +191,19 @@ fn command(root: &Path, args: &[String]) -> tokio::process::Command {
 /// child; the rest of `inbound` is the live stdin, consumed by the pump.
 pub async fn serve(
     root: PathBuf,
+    store: Arc<dyn crate::store::StorePort>,
     mut inbound: Streaming<ExecRequest>,
 ) -> Result<ReceiverStream<Result<ExecResponse, Status>>, Status> {
     let first = inbound.message().await?;
     let start = start_of(first)?;
 
-    let (r, name, ns) = (
+    let (r, st, name, ns) = (
         root.clone(),
+        Arc::clone(&store),
         start.container.clone(),
         requested_namespace(&start.namespace).to_string(),
     );
-    let id = tokio::task::spawn_blocking(move || resolve(&r, &name, &ns))
+    let id = tokio::task::spawn_blocking(move || resolve(&r, &*st, &name, &ns))
         .await
         .map_err(|e| Status::internal(format!("exec: resolving the container panicked: {e}")))??;
 
@@ -632,7 +637,13 @@ mod tests {
     #[tokio::test]
     async fn exec_into_a_missing_container_is_not_found() {
         let dir = tempfile::tempdir().unwrap();
-        let err = resolve(dir.path(), "ghost", "default").unwrap_err();
+        let err = resolve(
+            dir.path(),
+            &crate::store::LocalStore(dir.path().to_path_buf()),
+            "ghost",
+            "default",
+        )
+        .unwrap_err();
         assert_eq!(err.code(), tonic::Code::NotFound);
     }
 }

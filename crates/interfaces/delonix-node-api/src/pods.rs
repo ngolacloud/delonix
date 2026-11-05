@@ -107,14 +107,18 @@ fn grouped<'a>(
 }
 
 /// `ListPods` — every pod of the namespace, derived from the container records.
-pub fn list_in(root: &Path, req: &ListPodsRequest) -> Result<ListPodsResponse, Status> {
+pub fn list_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &ListPodsRequest,
+) -> Result<ListPodsResponse, Status> {
     let selector = Selector::parse(&req.label_selector).map_err(Status::invalid_argument)?;
     let page = req.page.clone().unwrap_or_default();
     let size = crate::page::size(&page)?;
     let after = crate::page::after(&page)?;
     let ns = ns_wanted(&req.namespace);
 
-    let all = records(root)?;
+    let all = records(root, store)?;
     let by_pod = grouped(&all, ns, &selector);
     let mut names: Vec<&String> = by_pod
         .keys()
@@ -148,12 +152,16 @@ pub fn list_in(root: &Path, req: &ListPodsRequest) -> Result<ListPodsResponse, S
 }
 
 /// `GetPod` — one pod by name, derived from its member records.
-pub fn get_in(root: &Path, req: &GetPodRequest) -> Result<Pod, Status> {
+pub fn get_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &GetPodRequest,
+) -> Result<Pod, Status> {
     if req.name.is_empty() {
         return Err(Status::invalid_argument("GetPod: name is required"));
     }
     let ns = ns_wanted(&req.namespace);
-    let all = records(root)?;
+    let all = records(root, store)?;
     let members: Vec<&Record> = all
         .iter()
         .filter(|c| c.pod.as_deref() == Some(req.name.as_str()))

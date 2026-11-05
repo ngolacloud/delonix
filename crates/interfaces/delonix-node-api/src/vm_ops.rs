@@ -295,12 +295,12 @@ fn create_fingerprint(
 /// was asked with would be reporting a different resource as a success, the
 /// same reasoning [`crate::network_ops::create_work`] already applies.
 ///
-/// Goes straight to `delonix_state::JsonStore` (already a direct dependency
-/// of this crate) rather than through `delonix-vm`, which exposes no
-/// labels/annotations setter of its own — the CLI does not have one either
-/// (a VM's labels are only ever written by the declarative reconciler).
+/// Goes through the record-store port's locked `vm_update` (R3d-d) rather than
+/// through `delonix-vm`, which exposes no labels/annotations setter of its own
+/// — the CLI does not have one either (a VM's labels are only ever written by
+/// the declarative reconciler).
 fn stamp_metadata(
-    root: &Path,
+    store: &dyn crate::store::StorePort,
     name: &str,
     labels: &std::collections::HashMap<String, String>,
     annotations: &std::collections::HashMap<String, String>,
@@ -308,10 +308,7 @@ fn stamp_metadata(
     if labels.is_empty() && annotations.is_empty() {
         return Ok(());
     }
-    let store = delonix_state::JsonStore::<delonix_compute::Vm>::open(root.join("vms"))?;
-    let labels = labels.clone();
-    let annotations = annotations.clone();
-    store.update(name, move |vm| {
+    store.vm_update(name, &mut |vm| {
         vm.labels = labels.clone().into_iter().collect();
         vm.annotations = annotations.clone().into_iter().collect();
         true
@@ -392,6 +389,7 @@ type DeleteWork<'a> = &'a dyn Fn(&str, bool) -> delonix_model::Result<()>;
 /// engine through `vms`, never the `delonix-vm` adapter from inside this crate.
 pub fn create_in(
     root: &Path,
+    store: &dyn crate::store::StorePort,
     vms: &dyn crate::vms::VmPort,
     req: &CreateVirtualMachineRequest,
 ) -> Result<Operation, Status> {
@@ -437,7 +435,7 @@ pub fn create_in(
         .create(&cfg)
         .and_then(|()| if wait { wait_until_reachable(vms, &name) } else { Ok(()) })
         .and_then(|()| {
-            stamp_metadata(root, &name, &labels, &annotations).inspect_err(|_| {
+            stamp_metadata(store, &name, &labels, &annotations).inspect_err(|_| {
                 let _ = vms.destroy(&name, true, true);
             })
         });
@@ -914,7 +912,7 @@ mod tests {
             network: "cf-nope".into(),
             ..Default::default()
         }];
-        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &req).unwrap_err();
+        let err = create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&req).unwrap_err();
         assert_eq!(err.code(), tonic::Code::NotFound, "{err:?}");
         assert!(
             err.message().contains("'cf-nope'")
@@ -947,7 +945,7 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(req.spec.as_ref().unwrap().provider, remote);
-        let op = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &req).unwrap();
+        let op = create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&req).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32);
     }
 
@@ -977,7 +975,7 @@ mod tests {
     fn create_is_persisted_running_before_the_work_and_the_vm_reads_back_with_its_labels() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        let op = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-1", "")).unwrap();
+        let op = create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&create_req("web-1", "")).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32);
         assert_eq!(op.verb, "create");
         assert_eq!(op.target, "VirtualMachine/web-1");
@@ -1000,9 +998,9 @@ mod tests {
     fn a_name_already_taken_is_refused_and_no_operation_is_written() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-2", "")).unwrap();
+        create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&create_req("web-2", "")).unwrap();
         let before = operations_on_disk(dir.path());
-        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-2", "")).unwrap_err();
+        let err = create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&create_req("web-2", "")).unwrap_err();
         assert_eq!(err.code(), tonic::Code::AlreadyExists);
         assert_eq!(operations_on_disk(dir.path()), before);
     }
@@ -1011,8 +1009,8 @@ mod tests {
     fn the_same_create_sent_twice_boots_once() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        let first = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-3", "rid-1")).unwrap();
-        let again = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-3", "rid-1")).unwrap();
+        let first = create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&create_req("web-3", "rid-1")).unwrap();
+        let again = create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&create_req("web-3", "rid-1")).unwrap();
         assert_eq!(first.id, again.id);
         assert_eq!(again.state, OperationState::Succeeded as i32);
     }
@@ -1023,7 +1021,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut req = create_req("web-4", "");
         req.spec.as_mut().unwrap().image.clear();
-        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &req).unwrap_err();
+        let err = create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&req).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
         assert!(!dir.path().join("vms").exists());
         assert_eq!(operations_on_disk(dir.path()), 0);
@@ -1039,7 +1037,7 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &two_nets).unwrap_err();
+        let err = create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&two_nets).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
 
         let mut with_data = create_req("web-6", "");
@@ -1047,7 +1045,7 @@ mod tests {
             user_data: "#cloud-config\n".into(),
             ..Default::default()
         });
-        let err = create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &with_data).unwrap_err();
+        let err = create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&with_data).unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
     }
 
@@ -1055,7 +1053,7 @@ mod tests {
     fn stop_keeps_the_record_and_delete_removes_it() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-7", "")).unwrap();
+        create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&create_req("web-7", "")).unwrap();
         let stop = stop_in(
             dir.path(),
             &crate::vms::LocalVmReads(dir.path().to_path_buf()),
@@ -1096,7 +1094,7 @@ mod tests {
     fn a_vm_in_another_namespace_is_not_found_by_start_stop_or_delete() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-8", "")).unwrap();
+        create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&create_req("web-8", "")).unwrap();
         let err = start_in(
             dir.path(),
             &crate::vms::LocalVmReads(dir.path().to_path_buf()),
@@ -1114,7 +1112,7 @@ mod tests {
     fn pause_and_resume_are_synchronous_and_report_the_vm_directly() {
         seeded();
         let dir = tempfile::tempdir().unwrap();
-        create_in(dir.path(), &crate::vms::LocalVmReads(dir.path().to_path_buf()), &create_req("web-9", "")).unwrap();
+        create_in(dir.path(), &crate::store::LocalStore(dir.path().to_path_buf()), &crate::vms::LocalVmReads(dir.path().to_path_buf()),&create_req("web-9", "")).unwrap();
         // This fake does not implement `pause`/`unpause` (the default is
         // "unsupported") — asserts the refusal is surfaced, not swallowed.
         let err = pause_in(

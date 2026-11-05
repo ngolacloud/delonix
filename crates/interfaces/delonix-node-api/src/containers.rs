@@ -3,7 +3,7 @@
 //! to stop shelling out to `delonix container ls`/`inspect`).
 //!
 //! A container's name is unique at the NODE level (one flat `containers/`
-//! store, read by `delonix_state::Store`), so a read is: find the record by
+//! store, read through the record-store port), so a read is: find the record by
 //! name, then require its recorded `namespace` to match what was asked —
 //! exactly how [`crate::vms`] reads a VM. Liveness is refreshed in memory with
 //! `delonix_linux::reconcile_status` before the record is mapped, so a record
@@ -127,15 +127,16 @@ pub fn message(c: &Record) -> Container {
 /// The container records under `root`, liveness-reconciled. A root where no
 /// container was ever created has no `containers/` directory — an empty list,
 /// which reading must not materialise.
-pub fn records(root: &Path) -> Result<Vec<Record>, Status> {
+pub fn records(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+) -> Result<Vec<Record>, Status> {
     if !root.join("containers").is_dir() {
         return Ok(Vec::new());
     }
-    let store = delonix_state::Store::open(root.join("containers"))
-        .map_err(|e| crate::network_ops::status_of(&e.into()))?;
     let mut all = store
-        .list()
-        .map_err(|e| crate::network_ops::status_of(&e.into()))?;
+        .container_list()
+        .map_err(|e| crate::network_ops::status_of(&e))?;
     for c in &mut all {
         delonix_linux::reconcile_status(c);
     }
@@ -143,7 +144,11 @@ pub fn records(root: &Path) -> Result<Vec<Record>, Status> {
 }
 
 /// `GetContainer` under `root`.
-pub fn get_in(root: &Path, req: &GetContainerRequest) -> Result<Container, Status> {
+pub fn get_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &GetContainerRequest,
+) -> Result<Container, Status> {
     let wanted = requested_namespace(&req.namespace);
     let missing = || Status::not_found(format!("container '{}' in namespace '{wanted}'", req.name));
     if wanted == "*" {
@@ -152,13 +157,11 @@ pub fn get_in(root: &Path, req: &GetContainerRequest) -> Result<Container, Statu
     if !root.join("containers").is_dir() {
         return Err(missing());
     }
-    let store = delonix_state::Store::open(root.join("containers"))
-        .map_err(|e| crate::network_ops::status_of(&e.into()))?;
-    let mut c = store.load(&req.name).map_err(|e| {
+    let mut c = store.container_load(&req.name).map_err(|e| {
         if e.is_not_found() {
             missing()
         } else {
-            crate::network_ops::status_of(&e.into())
+            crate::network_ops::status_of(&e)
         }
     })?;
     if c.namespace != wanted {
@@ -170,13 +173,17 @@ pub fn get_in(root: &Path, req: &GetContainerRequest) -> Result<Container, Statu
 
 /// `ListContainers` under `root`: filtered by `label_selector` and the
 /// requested namespace, ordered by name, one page at a time.
-pub fn list_in(root: &Path, req: &ListContainersRequest) -> Result<ListContainersResponse, Status> {
+pub fn list_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &ListContainersRequest,
+) -> Result<ListContainersResponse, Status> {
     let selector = Selector::parse(&req.label_selector).map_err(Status::invalid_argument)?;
     let page = req.page.clone().unwrap_or_default();
     let size = crate::page::size(&page)?;
     let after = crate::page::after(&page)?;
     let ns = requested_namespace(&req.namespace);
-    let mut all = records(root)?;
+    let mut all = records(root, store)?;
     all.sort_by(|a, b| a.name.cmp(&b.name));
     let mut matching = all
         .iter()

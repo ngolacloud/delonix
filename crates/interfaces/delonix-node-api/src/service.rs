@@ -74,6 +74,7 @@ use crate::{node, providers};
 #[derive(Clone)]
 pub struct NodeApi {
     vms: Arc<dyn crate::vms::VmPort>,
+    store: Arc<dyn crate::store::StorePort>,
 }
 
 /// Runs a host probe off the runtime's workers: every `NodeService` answer
@@ -106,8 +107,11 @@ pub async fn health(vms: Arc<dyn crate::vms::VmPort>) -> Result<Health, Status> 
 }
 
 /// `GetCapacity`, the one function both encodings call.
-pub async fn capacity(vms: Arc<dyn crate::vms::VmPort>) -> Result<Capacity, Status> {
-    blocking("capacity", move || node::capacity(&*vms)).await
+pub async fn capacity(
+    vms: Arc<dyn crate::vms::VmPort>,
+    store: Arc<dyn crate::store::StorePort>,
+) -> Result<Capacity, Status> {
+    blocking("capacity", move || node::capacity(&*vms, &*store)).await
 }
 
 /// `ListProviders`, the one function both encodings call (ADR-0050 D5).
@@ -172,7 +176,9 @@ impl NodeService for NodeApi {
         &self,
         _req: Request<GetCapacityRequest>,
     ) -> Result<Response<Capacity>, Status> {
-        Ok(Response::new(capacity(Arc::clone(&self.vms)).await?))
+        Ok(Response::new(
+            capacity(Arc::clone(&self.vms), Arc::clone(&self.store)).await?,
+        ))
     }
 
     async fn list_providers(
@@ -253,8 +259,9 @@ impl NetworkService for NodeApi {
         req: Request<DeleteNetworkRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("network delete", move || {
-            crate::network_ops::delete_in(&node::state_root(), &req)
+            crate::network_ops::delete_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -265,8 +272,9 @@ impl NetworkService for NodeApi {
         req: Request<ConnectContainerRequest>,
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("network connect", move || {
-            crate::network_ops::connect_in(&node::state_root(), &req)
+            crate::network_ops::connect_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -277,8 +285,9 @@ impl NetworkService for NodeApi {
         req: Request<DisconnectContainerRequest>,
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("network disconnect", move || {
-            crate::network_ops::disconnect_in(&node::state_root(), &req)
+            crate::network_ops::disconnect_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -325,8 +334,9 @@ impl VolumeService for NodeApi {
         req: Request<DeleteVolumeRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("volume delete", move || {
-            crate::volume_ops::delete_in(&node::state_root(), &req)
+            crate::volume_ops::delete_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -490,8 +500,9 @@ impl PodService for NodeApi {
     // Read half derived from the container records (a pod is its members).
     async fn get_pod(&self, req: Request<GetPodRequest>) -> Result<Response<Pod>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("pod", move || {
-            crate::pods::get_in(&node::state_root(), &req)
+            crate::pods::get_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -502,8 +513,9 @@ impl PodService for NodeApi {
         req: Request<ListPodsRequest>,
     ) -> Result<Response<ListPodsResponse>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("pods", move || {
-            crate::pods::list_in(&node::state_root(), &req)
+            crate::pods::list_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -608,8 +620,9 @@ impl VirtualMachineService for NodeApi {
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
         let vms = Arc::clone(&self.vms);
+        let store = Arc::clone(&self.store);
         blocking("virtual machine create", move || {
-            crate::vm_ops::create_in(&node::state_root(), &*vms, &req)
+            crate::vm_ops::create_in(&node::state_root(), store.as_ref(), &*vms, &req)
         })
         .await?
         .map(Response::new)
@@ -812,8 +825,9 @@ impl ContainerService for NodeApi {
         req: Request<GetContainerRequest>,
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("container", move || {
-            crate::containers::get_in(&node::state_root(), &req)
+            crate::containers::get_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -824,8 +838,9 @@ impl ContainerService for NodeApi {
         req: Request<ListContainersRequest>,
     ) -> Result<Response<ListContainersResponse>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("containers", move || {
-            crate::containers::list_in(&node::state_root(), &req)
+            crate::containers::list_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -839,11 +854,12 @@ impl ContainerService for NodeApi {
         req: Request<CreateContainerRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("container create", move || {
             let root = node::state_root();
             let images = delonix_oci::ImageStore::open(&root)
                 .map_err(|e| crate::network_ops::status_of(&e.into()))?;
-            crate::container_launch::create_in(&root, &images, &req)
+            crate::container_launch::create_in(&root, store.as_ref(), &images, &req)
         })
         .await?
         .map(Response::new)
@@ -854,8 +870,9 @@ impl ContainerService for NodeApi {
         req: Request<UpdateContainerRequest>,
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("container update", move || {
-            crate::container_update::update_in(&node::state_root(), &req)
+            crate::container_update::update_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -866,8 +883,9 @@ impl ContainerService for NodeApi {
         req: Request<DeleteContainerRequest>,
     ) -> Result<Response<Operation>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("container delete", move || {
-            crate::container_ops::delete_in(&node::state_root(), &req)
+            crate::container_ops::delete_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -878,8 +896,9 @@ impl ContainerService for NodeApi {
         req: Request<StartContainerRequest>,
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("container start", move || {
-            crate::container_launch::start_in(&node::state_root(), &req)
+            crate::container_launch::start_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -890,8 +909,9 @@ impl ContainerService for NodeApi {
         req: Request<StopContainerRequest>,
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("container stop", move || {
-            crate::container_ops::stop_in(&node::state_root(), &req)
+            crate::container_ops::stop_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -902,8 +922,9 @@ impl ContainerService for NodeApi {
         req: Request<KillContainerRequest>,
     ) -> Result<Response<Container>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("container kill", move || {
-            crate::container_ops::kill_in(&node::state_root(), &req)
+            crate::container_ops::kill_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -914,8 +935,9 @@ impl ContainerService for NodeApi {
         req: Request<WaitContainerRequest>,
     ) -> Result<Response<WaitContainerResponse>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("container wait", move || {
-            crate::container_launch::wait_in(&node::state_root(), &req)
+            crate::container_launch::wait_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -923,8 +945,9 @@ impl ContainerService for NodeApi {
 
     async fn stats(&self, req: Request<StatsRequest>) -> Result<Response<ContainerStats>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         blocking("container stats", move || {
-            crate::container_ops::stats_in(&node::state_root(), &req)
+            crate::container_ops::stats_in(&node::state_root(), store.as_ref(), &req)
         })
         .await?
         .map(Response::new)
@@ -937,7 +960,12 @@ impl ContainerService for NodeApi {
         &self,
         req: Request<tonic::Streaming<ExecRequest>>,
     ) -> Result<Response<Self::ExecStream>, Status> {
-        let stream = crate::container_exec::serve(node::state_root(), req.into_inner()).await?;
+        let stream = crate::container_exec::serve(
+            node::state_root(),
+            Arc::clone(&self.store),
+            req.into_inner(),
+        )
+        .await?;
         Ok(Response::new(Box::pin(stream)))
     }
 
@@ -946,10 +974,16 @@ impl ContainerService for NodeApi {
 
     async fn logs(&self, req: Request<LogsRequest>) -> Result<Response<Self::LogsStream>, Status> {
         let req = req.into_inner();
+        let store = Arc::clone(&self.store);
         // The backlog read is file I/O; the follow task it spawns lands on the
         // runtime (a blocking-pool thread per poll), as `WatchEvents` does.
         let stream = blocking("container logs", move || {
-            crate::container_logs::stream(node::state_root(), req, crate::container_logs::POLL)
+            crate::container_logs::stream(
+                node::state_root(),
+                store,
+                req,
+                crate::container_logs::POLL,
+            )
         })
         .await??;
         Ok(Response::new(Box::pin(stream)))
@@ -967,7 +1001,7 @@ pub fn router() -> axum::Router {
     // The convenience builder: a server with an empty VM port, for tests and any
     // caller that does not exercise the VM reads. Production mounts the engine
     // through [`router_with`] (see `serve`).
-    router_with(Arc::new(NoVms))
+    router_with(Arc::new(NoVms), Arc::new(crate::store::NoStore))
 }
 
 /// A [`crate::vms::VmPort`] with no VMs — the empty backing [`router`] hands the
@@ -1051,9 +1085,12 @@ impl crate::vms::VmPort for NoVms {
 /// Builds the router with the VM port the composition injects (ADR-0040 A5).
 /// `delonix-node-api-bin` passes an engine-backed [`crate::vms::VmPort`];
 /// [`router`] passes an empty one.
-pub fn router_with(vms: Arc<dyn crate::vms::VmPort>) -> axum::Router {
+pub fn router_with(
+    vms: Arc<dyn crate::vms::VmPort>,
+    store: Arc<dyn crate::store::StorePort>,
+) -> axum::Router {
     use tonic::server::NamedService;
-    let api = NodeApi { vms };
+    let api = NodeApi { vms, store };
     // The gRPC service is mounted the way tonic's own `Routes` mounts it — one
     // wildcard route under the service name. Not through `Routes::into_axum_router`,
     // whose fallback answers EVERY unknown path with HTTP 200 + `grpc-status: 12`:

@@ -79,11 +79,8 @@ fn read_delta(path: &Path, pos: u64) -> std::io::Result<(Vec<u8>, u64)> {
 
 /// Is the container still producing logs — i.e. still `Running`/`Paused` after
 /// a liveness reconcile? Stops the follow when it is not.
-fn still_live(root: &Path, id: &str) -> bool {
-    let Ok(store) = delonix_state::Store::open(root.join("containers")) else {
-        return false;
-    };
-    let Ok(mut c) = store.load(id) else {
+fn still_live(store: &dyn crate::store::StorePort, id: &str) -> bool {
+    let Ok(mut c) = store.container_load(id) else {
         return false;
     };
     delonix_linux::reconcile_status(&mut c);
@@ -97,6 +94,7 @@ fn still_live(root: &Path, id: &str) -> bool {
 /// `follow` — every append until the container stops.
 pub fn stream(
     root: PathBuf,
+    store: std::sync::Arc<dyn crate::store::StorePort>,
     req: LogsRequest,
     poll: Duration,
 ) -> Result<tokio_stream::wrappers::ReceiverStream<Result<LogChunk, Status>>, Status> {
@@ -116,13 +114,11 @@ pub fn stream(
     if ns == "*" || !root.join("containers").is_dir() {
         return Err(missing());
     }
-    let store = delonix_state::Store::open(root.join("containers"))
-        .map_err(|e| crate::network_ops::status_of(&e.into()))?;
-    let c = store.load(&req.container).map_err(|e| {
+    let c = store.container_load(&req.container).map_err(|e| {
         if e.is_not_found() {
             missing()
         } else {
-            crate::network_ops::status_of(&e.into())
+            crate::network_ops::status_of(&e)
         }
     })?;
     if c.namespace != ns {
@@ -173,8 +169,8 @@ pub fn stream(
                 continue;
             }
             // Nothing new: stop once the container is no longer producing.
-            let (r, id2) = (root.clone(), id.clone());
-            match tokio::task::spawn_blocking(move || still_live(&r, &id2)).await {
+            let (st, id2) = (std::sync::Arc::clone(&store), id.clone());
+            match tokio::task::spawn_blocking(move || still_live(&*st, &id2)).await {
                 Ok(true) => {}
                 _ => return,
             }
@@ -224,6 +220,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = stream(
             dir.path().to_path_buf(),
+            std::sync::Arc::new(crate::store::LocalStore(dir.path().to_path_buf())),
             LogsRequest {
                 container: "ghost".into(),
                 namespace: "default".into(),
@@ -244,6 +241,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = stream(
             dir.path().to_path_buf(),
+            std::sync::Arc::new(crate::store::LocalStore(dir.path().to_path_buf())),
             LogsRequest {
                 container: "c".into(),
                 namespace: "default".into(),

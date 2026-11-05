@@ -168,15 +168,20 @@ pub fn delete_work(root: &Path, name: &str) -> delonix_model::Result<()> {
 
 /// Everything recorded as attached to `name`. Fails closed: a store that
 /// cannot be read is an error, never "nothing is attached".
-pub fn dependents(root: &Path, name: &str, subnet: &str) -> delonix_model::Result<Vec<String>> {
-    let containers = delonix_state::Store::open(root.join("containers"))?.list()?;
+pub fn dependents(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    name: &str,
+    subnet: &str,
+) -> delonix_model::Result<Vec<String>> {
+    let containers = store.container_list()?;
     // The recorded (name, network) of every VM: a dependency check does not
-    // need the backend-reconciled state a read does, so it goes straight to the
-    // state layer (already a dependency) instead of the `delonix-vm` adapter. A
-    // root where no VM was ever created has no `vms/` dir — no dependents.
+    // need the backend-reconciled state a read does, so it goes through the
+    // record-store port instead of the `delonix-vm` adapter. A root where no VM
+    // was ever created has no `vms/` dir — no dependents.
     let vms: Vec<(String, String)> = if root.join("vms").is_dir() {
-        delonix_state::JsonStore::<delonix_compute::Vm>::open(root.join("vms"))?
-            .list()?
+        store
+            .vm_list()?
             .into_iter()
             .map(|v| (v.name, v.network))
             .collect()
@@ -269,8 +274,12 @@ pub fn create_with(
 }
 
 /// `DeleteNetwork` under `root`.
-pub fn delete_in(root: &Path, req: &DeleteNetworkRequest) -> Result<Operation, Status> {
-    delete_with(root, req, &dependents, &delete_work)
+pub fn delete_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &DeleteNetworkRequest,
+) -> Result<Operation, Status> {
+    delete_with(root, req, &|r, n, s| dependents(r, store, n, s), &delete_work)
 }
 
 /// [`delete_in`] with the in-use check and the work injected.
@@ -337,9 +346,14 @@ pub fn delete_with(
 /// `ConnectContainer` — hot-attaches a RUNNING container to a second network
 /// (`delonix network connect <network> <container>`). Returns the updated
 /// [`Container`] (`GetContainer` of the now multi-homed container).
-pub fn connect_in(root: &Path, req: &ConnectContainerRequest) -> Result<Container, Status> {
+pub fn connect_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &ConnectContainerRequest,
+) -> Result<Container, Status> {
     membership(
         root,
+        store,
         "connect",
         &req.network,
         &req.container,
@@ -351,9 +365,14 @@ pub fn connect_in(root: &Path, req: &ConnectContainerRequest) -> Result<Containe
 /// `DisconnectContainer` — detaches a container from an extra network
 /// (`delonix network disconnect <network> <container>`). Returns the updated
 /// [`Container`].
-pub fn disconnect_in(root: &Path, req: &DisconnectContainerRequest) -> Result<Container, Status> {
+pub fn disconnect_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &DisconnectContainerRequest,
+) -> Result<Container, Status> {
     membership(
         root,
+        store,
         "disconnect",
         &req.network,
         &req.container,
@@ -367,6 +386,7 @@ pub fn disconnect_in(root: &Path, req: &DisconnectContainerRequest) -> Result<Co
 /// in-process fork. On success the container is read back and returned.
 fn membership(
     root: &Path,
+    store: &dyn crate::store::StorePort,
     verb: &str,
     network: &str,
     container: &str,
@@ -402,6 +422,7 @@ fn membership(
     // The contract returns the resource; read it back under its namespace.
     crate::containers::get_in(
         root,
+        store,
         &GetContainerRequest {
             name: container.to_string(),
             namespace: namespace.to_string(),
@@ -498,7 +519,13 @@ mod tests {
             ipv4_address: String::new(),
         };
         assert_eq!(
-            connect_in(dir.path(), &no_net).unwrap_err().code(),
+            connect_in(
+                dir.path(),
+                &crate::store::LocalStore(dir.path().to_path_buf()),
+                &no_net
+            )
+            .unwrap_err()
+            .code(),
             tonic::Code::InvalidArgument
         );
         let no_container = DisconnectContainerRequest {
@@ -508,7 +535,13 @@ mod tests {
             ipv4_address: String::new(),
         };
         assert_eq!(
-            disconnect_in(dir.path(), &no_container).unwrap_err().code(),
+            disconnect_in(
+                dir.path(),
+                &crate::store::LocalStore(dir.path().to_path_buf()),
+                &no_container
+            )
+            .unwrap_err()
+            .code(),
             tonic::Code::InvalidArgument
         );
     }
@@ -523,7 +556,13 @@ mod tests {
             ipv4_address: "10.0.0.5".into(),
         };
         assert_eq!(
-            connect_in(dir.path(), &req).unwrap_err().code(),
+            connect_in(
+                dir.path(),
+                &crate::store::LocalStore(dir.path().to_path_buf()),
+                &req
+            )
+            .unwrap_err()
+            .code(),
             tonic::Code::Unimplemented
         );
     }

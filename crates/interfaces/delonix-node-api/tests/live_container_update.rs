@@ -71,7 +71,7 @@ async fn update_container_lowers_the_live_memory_max() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing());
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store());
     });
     wait_for(&sock).await;
 

@@ -16,14 +16,24 @@ use crate::proto::v1::{
     ApiRoot, Capacity, Condition, ConditionStatus, FilesystemCapacity, Health, Link, NodeInfo,
 };
 
-/// The engine's state root: the parent of the container store's default root
-/// (`$DELONIX_ROOT`, else the rootless/root default) — the one rule
-/// `delonix_state::Store` already owns.
+/// The engine's state root: `$DELONIX_ROOT`, else the rootless (`$XDG_DATA_HOME`/
+/// `$HOME/.local/share`) or root (`/var/lib/delonix`) default. This is the node's
+/// own copy of the delonix-wide root convention (the same rule the CLI bins and
+/// the adapter apply); R3d-d stopped resolving it through `delonix_state::Store`
+/// so the interface no longer names the adapter for a value that is pure env/uid.
 pub fn state_root() -> PathBuf {
-    delonix_state::Store::default_root()
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_default()
+    if let Some(root) = std::env::var_os("DELONIX_ROOT") {
+        return PathBuf::from(root);
+    }
+    // SAFETY: geteuid() is always safe and does not fail.
+    if unsafe { libc::geteuid() } != 0 {
+        let base = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+            .unwrap_or_else(|| PathBuf::from("."));
+        return base.join("delonix");
+    }
+    PathBuf::from("/var/lib/delonix")
 }
 
 /// The contract's API identity (ADR-0042 D1).
@@ -359,7 +369,7 @@ fn filesystem(role: &str, path: &Path) -> Option<FilesystemCapacity> {
 }
 
 /// `GetCapacity`.
-pub fn capacity(vms: &dyn crate::vms::VmPort) -> Capacity {
+pub fn capacity(vms: &dyn crate::vms::VmPort, store: &dyn crate::store::StorePort) -> Capacity {
     let mut c = Capacity::default();
     let mut unmeasured: Vec<&str> = Vec::new();
     let slice = delonix_linux::slice_path();
@@ -431,7 +441,7 @@ pub fn capacity(vms: &dyn crate::vms::VmPort) -> Capacity {
         }
     }
 
-    match delonix_state::Store::open(root.join("containers")).and_then(|s| s.list()) {
+    match store.container_list() {
         Ok(cs) => {
             c.containers_running = cs
                 .iter()
@@ -441,9 +451,7 @@ pub fn capacity(vms: &dyn crate::vms::VmPort) -> Capacity {
         Err(_) => unmeasured.push("containers_running"),
     }
 
-    match delonix_state::JsonStore::<delonix_compute::Vm>::open(root.join("vms"))
-        .and_then(|s| s.list())
-    {
+    match store.vm_list() {
         Ok(records) => {
             c.vms_running = records
                 .iter()
