@@ -17,4 +17,8 @@ delonix-state = { workspace = true }
 delonix-volume = { workspace = true }
 delonix-sdn = { workspace = true }
 delonix-linux = { workspace = true }
+# R3f: the image store and the SBOM scanner, composed away for `delonix-mgmt`'s
+# image/scan endpoints the same way (an interface may not name an adapter).
+delonix-oci = { workspace = true }
+delonix-scanner = { workspace = true }
 serde_json = { workspace = true }
