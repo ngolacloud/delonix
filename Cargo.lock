@@ -851,6 +851,7 @@ dependencies = [
  "delonix-scanner",
  "delonix-sdn",
  "delonix-state",
+ "delonix-telemetry",
  "delonix-vm",
  "delonix-volume",
  "serde_json",
