@@ -192,32 +192,35 @@ pub fn plan_update(paths: &[String], resources: Option<&Resources>) -> Result<Pl
 /// match — the identity rule the whole service reads with.
 fn load(
     root: &Path,
+    store: &dyn crate::store::StorePort,
     name: &str,
     namespace: &str,
-) -> Result<(delonix_state::Store, Record), Status> {
+) -> Result<Record, Status> {
     let wanted = requested_namespace(namespace);
     let missing = || Status::not_found(format!("container '{name}' in namespace '{wanted}'"));
     if wanted == "*" || !root.join("containers").is_dir() {
         return Err(missing());
     }
-    let store =
-        delonix_state::Store::open(root.join("containers")).map_err(|e| status_of(&e.into()))?;
-    let c = store.load(name).map_err(|e| {
+    let c = store.container_load(name).map_err(|e| {
         if e.is_not_found() {
             missing()
         } else {
-            status_of(&e.into())
+            status_of(&e)
         }
     })?;
     if c.namespace != wanted {
         return Err(missing());
     }
-    Ok((store, c))
+    Ok(c)
 }
 
 /// `UpdateContainer`: resize the live cgroup from `container.spec.resources`,
 /// masked by `update_mask`, then answer with the updated [`Container`].
-pub fn update_in(root: &Path, req: &UpdateContainerRequest) -> Result<Container, Status> {
+pub fn update_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &UpdateContainerRequest,
+) -> Result<Container, Status> {
     let mask = req
         .update_mask
         .as_ref()
@@ -252,7 +255,7 @@ pub fn update_in(root: &Path, req: &UpdateContainerRequest) -> Result<Container,
         .and_then(|s| s.resources.as_ref());
     let plan = plan_update(&mask.paths, resources)?;
 
-    let (store, mut c) = load(root, &req.name, &req.namespace)?;
+    let mut c = load(root, store, &req.name, &req.namespace)?;
 
     // Optimistic concurrency: `container.meta.etag`, when carried, must still be
     // the record's current etag — the same check `DeleteContainer` makes.
@@ -313,7 +316,7 @@ pub fn update_in(root: &Path, req: &UpdateContainerRequest) -> Result<Container,
     if plan.cpuset.is_some() {
         c.cpuset = plan.cpuset.clone();
     }
-    store.save(&c).map_err(|e| status_of(&e.into()))?;
+    store.container_save(&c).map_err(|e| status_of(&e))?;
 
     Ok(crate::containers::message(&c))
 }

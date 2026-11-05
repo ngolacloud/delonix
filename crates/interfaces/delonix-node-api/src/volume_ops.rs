@@ -193,11 +193,15 @@ pub(crate) fn delete_work(root: &Path, entry: &Entry) -> delonix_model::Result<(
 /// Who uses `entry`: containers that mount its data, and shares carved out
 /// of it. Fails closed — a store that cannot be read is an error, never
 /// "nobody". The same two checks `delonix volume rm` makes.
-pub(crate) fn users_of(root: &Path, entry: &Entry) -> Result<Vec<String>, Status> {
+pub(crate) fn users_of(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    entry: &Entry,
+) -> Result<Vec<String>, Status> {
     let mount = Path::new(&entry.volume.mountpoint);
     let mut out = Vec::new();
-    let containers = delonix_state::Store::open(root.join("containers"))
-        .and_then(|s| s.list())
+    let containers = store
+        .container_list()
         .map_err(|e| Status::internal(format!("reading the containers: {e}")))?;
     for c in containers {
         let uses = c
@@ -304,13 +308,18 @@ pub fn create_with(
 }
 
 /// `DeleteVolume` under `root`.
-pub fn delete_in(root: &Path, req: &DeleteVolumeRequest) -> Result<Operation, Status> {
-    delete_with(root, req, &delete_work)
+pub fn delete_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &DeleteVolumeRequest,
+) -> Result<Operation, Status> {
+    delete_with(root, store, req, &delete_work)
 }
 
 /// [`delete_in`] with the work injected (the tests' seam).
 pub(crate) fn delete_with(
     root: &Path,
+    store: &dyn crate::store::StorePort,
     req: &DeleteVolumeRequest,
     work: DeleteWork<'_>,
 ) -> Result<Operation, Status> {
@@ -347,7 +356,7 @@ pub(crate) fn delete_with(
         }
     }
     if !req.force {
-        let users = users_of(root, &entry)?;
+        let users = users_of(root, store, &entry)?;
         if !users.is_empty() {
             return Err(status_of(&delonix_model::Error::coded(
                 5203,
@@ -552,7 +561,7 @@ mod tests {
                 .mountpoint,
         );
         std::fs::write(mount.join("f"), b"12345").unwrap();
-        let op = delete_in(root, &delete_req("data")).unwrap();
+        let op = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &delete_req("data")).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32, "{op:?}");
         assert_eq!(get(root, "data").unwrap_err().code(), tonic::Code::NotFound);
         assert!(
@@ -560,7 +569,7 @@ mod tests {
             "the delete reported success and left the data"
         );
         // Sent again, a delete of what is gone is NotFound, not a second success.
-        let gone = delete_in(root, &delete_req("data")).unwrap_err();
+        let gone = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &delete_req("data")).unwrap_err();
         assert_eq!(gone.code(), tonic::Code::NotFound);
     }
 
@@ -591,7 +600,7 @@ mod tests {
             .unwrap()
             .save(&c)
             .unwrap();
-        let refused = delete_in(root, &delete_req("data")).unwrap_err();
+        let refused = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &delete_req("data")).unwrap_err();
         assert_eq!(refused.code(), tonic::Code::FailedPrecondition);
         assert_eq!(
             refused
@@ -614,7 +623,7 @@ mod tests {
         // With force, it goes.
         let mut forced = delete_req("data");
         forced.force = true;
-        let op = delete_in(root, &forced).unwrap();
+        let op = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &forced).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32, "{op:?}");
         assert!(get(root, "data").is_err());
     }
@@ -627,7 +636,7 @@ mod tests {
         let etag = get(root, "data").unwrap().meta.unwrap().etag;
         let mut stale = delete_req("data");
         stale.etag = "not-it".into();
-        let refused = delete_in(root, &stale).unwrap_err();
+        let refused = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &stale).unwrap_err();
         assert_eq!(refused.code(), tonic::Code::FailedPrecondition);
         assert!(refused
             .metadata()
@@ -635,7 +644,7 @@ mod tests {
             .is_some());
         let mut current = delete_req("data");
         current.etag = etag;
-        let op = delete_in(root, &current).unwrap();
+        let op = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &current).unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32);
     }
 
@@ -675,7 +684,7 @@ mod tests {
         if std::fs::read_dir(&locked).is_ok() {
             return;
         }
-        let refused = delete_in(root, &delete_req("data")).unwrap_err();
+        let refused = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &delete_req("data")).unwrap_err();
         drop(unlock);
         assert_eq!(refused.code(), tonic::Code::Unavailable, "{refused:?}");
         assert_eq!(
@@ -698,7 +707,7 @@ mod tests {
         let mut remote = delete_req("data");
         remote.destroy_remote = true;
         assert_eq!(
-            delete_in(root, &remote).unwrap_err().code(),
+            delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &remote).unwrap_err().code(),
             tonic::Code::Unimplemented
         );
         let store = VolumeStore::open(root).unwrap();
@@ -709,7 +718,7 @@ mod tests {
         let d = store.volume_dir("nas");
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("meta.json"), serde_json::to_vec(&nas).unwrap()).unwrap();
-        let refused = delete_in(root, &delete_req("nas")).unwrap_err();
+        let refused = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &delete_req("nas")).unwrap_err();
         assert_eq!(refused.code(), tonic::Code::Unimplemented);
         assert!(
             refused.message().contains("delonix volume rm nas"),
@@ -811,7 +820,7 @@ mod tests {
         };
 
         // Clear anything a prior aborted run left: the record, then the image.
-        let _ = delete_in(root, &delete_req(name));
+        let _ = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &delete_req(name));
         let _ = std::process::Command::new("sudo")
             .args([
                 "-n",
@@ -851,7 +860,7 @@ mod tests {
         assert!(get(root, name).is_ok(), "the volume reads back");
 
         // --- release ---
-        let op = delete_in(root, &delete_req(name)).unwrap();
+        let op = delete_in(root, &crate::store::LocalStore(root.to_path_buf()), &delete_req(name)).unwrap();
         assert_eq!(
             op.state,
             OperationState::Succeeded as i32,

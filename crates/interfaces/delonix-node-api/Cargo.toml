@@ -25,7 +25,6 @@ delonix-volume = { workspace = true }
 delonix-storage = { workspace = true }
 delonix-pool-helper = { workspace = true }
 delonix-provider-ceph = { workspace = true }
-delonix-state = { workspace = true }
 delonix-provider-opnsense = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
@@ -55,6 +54,9 @@ sha2 = { workspace = true }
 # seed VM backends and build an adapter-backed port directly, so it is a
 # dev-dependency — no `interface -> delonix-vm` edge survives in the graph.
 delonix-vm = { workspace = true }
+# R3d-d — production no longer names it; kept for `store::LocalStore` test backing
+# and record seeding in the crate's own tests + integration tests.
+delonix-state = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }

@@ -2,7 +2,8 @@
 //! `KillContainer` and `DeleteContainer`.
 //!
 //! The work is `delonix_linux` (`stop`/`send_signal`/`remove`) over the same
-//! `delonix_state::Store` the CLI drives — no shelling out. `Stop` and `Kill`
+//! record store the CLI drives (reached through the port) — no shelling out.
+//! `Stop` and `Kill`
 //! are synchronous and answer with the updated `Container` (the resource, like
 //! a VM `Pause`/`Resume`); `Delete` answers with an [`Operation`] persisted in
 //! the ledger before the work starts, replayable by `request_id`, exactly as
@@ -36,35 +37,32 @@ fn requested_namespace(namespace: &str) -> &str {
     }
 }
 
-fn store(root: &Path) -> Result<delonix_state::Store, Status> {
-    delonix_state::Store::open(root.join("containers")).map_err(|e| status_of(&e.into()))
-}
-
 /// Load a container by name under `root`, requiring its recorded namespace to
 /// match what was asked — the same identity rule [`crate::containers`] reads
-/// with.
+/// with. The record store is reached through the [`crate::store::StorePort`]
+/// (R3d-d); `root` stays for the filesystem check only.
 fn load(
     root: &Path,
+    store: &dyn crate::store::StorePort,
     name: &str,
     namespace: &str,
-) -> Result<(delonix_state::Store, Record), Status> {
+) -> Result<Record, Status> {
     let wanted = requested_namespace(namespace);
     let missing = || Status::not_found(format!("container '{name}' in namespace '{wanted}'"));
     if wanted == "*" || !root.join("containers").is_dir() {
         return Err(missing());
     }
-    let s = store(root)?;
-    let c = s.load(name).map_err(|e| {
+    let c = store.container_load(name).map_err(|e| {
         if e.is_not_found() {
             missing()
         } else {
-            status_of(&e.into())
+            status_of(&e)
         }
     })?;
     if c.namespace != wanted {
         return Err(missing());
     }
-    Ok((s, c))
+    Ok(c)
 }
 
 /// A signal name (`SIGTERM`, `TERM`) or number (`15`) → its number. Kept local
@@ -99,21 +97,32 @@ fn parse_signal(spec: &str) -> Result<i32, Status> {
 }
 
 /// `StopContainer`: graceful stop, then the updated record.
-pub fn stop_in(root: &Path, req: &StopContainerRequest) -> Result<Container, Status> {
-    let (s, mut c) = load(root, &req.name, &req.namespace)?;
+pub fn stop_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &StopContainerRequest,
+) -> Result<Container, Status> {
+    let mut c = load(root, store, &req.name, &req.namespace)?;
     let grace = req
         .grace_period
         .as_ref()
         .map(|d| d.seconds.max(0) as u64)
         .unwrap_or(DEFAULT_GRACE_SECS);
-    delonix_linux::stop(&s, &mut c, grace).map_err(|e| status_of(&e.into()))?;
+    // The linux edge still drives `delonix_linux::stop` (a later slice), but over
+    // the port's flock-guarded store (via `PortRepo`), not a named state adapter.
+    delonix_linux::stop(&crate::store::PortRepo(store), &mut c, grace)
+        .map_err(|e| status_of(&e.into()))?;
     delonix_linux::reconcile_status(&mut c);
     Ok(crate::containers::message(&c))
 }
 
 /// `KillContainer`: send one signal, then the updated record.
-pub fn kill_in(root: &Path, req: &KillContainerRequest) -> Result<Container, Status> {
-    let (_s, mut c) = load(root, &req.name, &req.namespace)?;
+pub fn kill_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &KillContainerRequest,
+) -> Result<Container, Status> {
+    let mut c = load(root, store, &req.name, &req.namespace)?;
     let sig = parse_signal(&req.signal)?;
     delonix_linux::send_signal(&c, sig).map_err(|e| status_of(&e.into()))?;
     delonix_linux::reconcile_status(&mut c);
@@ -124,13 +133,17 @@ pub fn kill_in(root: &Path, req: &KillContainerRequest) -> Result<Container, Sta
 /// `request_id`. `force` stops a running container first (the engine's
 /// `remove` does); without it, removing a running container is the engine's
 /// refusal, as the operation's `FAILED`.
-pub fn delete_in(root: &Path, req: &DeleteContainerRequest) -> Result<Operation, Status> {
+pub fn delete_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &DeleteContainerRequest,
+) -> Result<Operation, Status> {
     let target = format!("Container/{}", req.name);
     // Before "not found", which the first request itself made true.
     if let Some(found) = operations::replay(root, "delete", &target, &req.request_id, "")? {
         return Ok(operations::message(&found));
     }
-    let (s, c) = load(root, &req.name, &req.namespace)?;
+    let c = load(root, store, &req.name, &req.namespace)?;
     if !req.etag.is_empty() {
         let current = crate::containers::message(&c)
             .meta
@@ -147,7 +160,7 @@ pub fn delete_in(root: &Path, req: &DeleteContainerRequest) -> Result<Operation,
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,
     };
-    let outcome = delonix_linux::remove(&s, &c, req.force)
+    let outcome = delonix_linux::remove(&crate::store::PortRepo(store), &c, req.force)
         .map(|()| String::new())
         .map_err(|e| e.into());
     Ok(operations::message(&operations::finish(
@@ -162,8 +175,12 @@ pub fn delete_in(root: &Path, req: &DeleteContainerRequest) -> Result<Operation,
 /// network and writable-layer are not wired in this pass and are named in
 /// `unmeasured` so a client distinguishes "zero" from "not measured". The
 /// counters are cumulative: the client computes the rate across two reads.
-pub fn stats_in(root: &Path, req: &StatsRequest) -> Result<ContainerStats, Status> {
-    let (_s, c) = load(root, &req.name, &req.namespace)?;
+pub fn stats_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &StatsRequest,
+) -> Result<ContainerStats, Status> {
+    let c = load(root, store, &req.name, &req.namespace)?;
     let usage = delonix_linux::container_usage(&c);
     let mut unmeasured = Vec::new();
     let cpu_usage_nanos = match usage.cpu_usage_usec {
@@ -237,9 +254,11 @@ mod tests {
     fn a_missing_container_is_not_found_on_every_write_verb() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        let store = crate::store::LocalStore(root.to_path_buf());
         for status in [
             stop_in(
                 root,
+                &store,
                 &StopContainerRequest {
                     name: "ghost".into(),
                     namespace: "default".into(),
@@ -249,6 +268,7 @@ mod tests {
             .unwrap_err(),
             kill_in(
                 root,
+                &store,
                 &KillContainerRequest {
                     name: "ghost".into(),
                     namespace: "default".into(),
@@ -258,6 +278,7 @@ mod tests {
             .unwrap_err(),
             delete_in(
                 root,
+                &store,
                 &DeleteContainerRequest {
                     name: "ghost".into(),
                     namespace: "default".into(),
@@ -277,6 +298,7 @@ mod tests {
         seed(root, "a1b2c3d4e5f60718", "db", "team-a");
         let err = stop_in(
             root,
+            &crate::store::LocalStore(root.to_path_buf()),
             &StopContainerRequest {
                 name: "db".into(),
                 namespace: "default".into(),
@@ -294,6 +316,7 @@ mod tests {
         seed(root, "0123456789abcdef", "idle", "default");
         let s = stats_in(
             root,
+            &crate::store::LocalStore(root.to_path_buf()),
             &StatsRequest {
                 name: "idle".into(),
                 namespace: "default".into(),
@@ -313,8 +336,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         seed(root, "0123456789abcdef", "web", "default");
+        let store = crate::store::LocalStore(root.to_path_buf());
         let err = delete_in(
             root,
+            &store,
             &DeleteContainerRequest {
                 name: "web".into(),
                 namespace: "default".into(),
@@ -327,6 +352,7 @@ mod tests {
         // The record is still there — nothing was removed.
         assert!(crate::containers::get_in(
             root,
+            &store,
             &crate::proto::v1::GetContainerRequest {
                 name: "web".into(),
                 namespace: "default".into(),

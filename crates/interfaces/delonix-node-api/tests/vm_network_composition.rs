@@ -28,7 +28,7 @@ fn serving_registers_the_vm_network_a_networked_create_needs() {
     let (_sock_dir, sock) = short_sock();
     let s = sock.clone();
     std::thread::spawn(move || {
-        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing());
+        let _ = delonix_node_api::serve_blocking(&format!("unix://{s}"), common::backing(), common::backing_store());
     });
     for _ in 0..200 {
         if std::path::Path::new(&sock).exists() {

@@ -387,16 +387,18 @@ fn resolve(
 
 /// Whether a container of this name already exists at the node (the store is
 /// flat, so the name alone is the identity).
-fn name_taken(root: &Path, name: &str) -> Result<bool, Status> {
+fn name_taken(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    name: &str,
+) -> Result<bool, Status> {
     if !root.join("containers").is_dir() {
         return Ok(false);
     }
-    let store =
-        delonix_state::Store::open(root.join("containers")).map_err(|e| status_of(&e.into()))?;
-    match store.load(name) {
+    match store.container_load(name) {
         Ok(_) => Ok(true),
         Err(e) if e.is_not_found() => Ok(false),
-        Err(e) => Err(status_of(&e.into())),
+        Err(e) => Err(status_of(&e)),
     }
 }
 
@@ -421,6 +423,7 @@ fn create_fingerprint(req: &CreateContainerRequest, spec: &ContainerSpec) -> Str
 /// persist it `Created`. If `start` was asked, launch it (the re-exec).
 fn create_work(
     root: &Path,
+    store: &dyn crate::store::StorePort,
     images: &delonix_oci::ImageStore,
     req: &CreateContainerRequest,
     o: &delonix_compute::RunOpts,
@@ -471,8 +474,7 @@ fn create_work(
     for (k, v) in &req.annotations {
         c.annotations.insert(k.clone(), v.clone());
     }
-    let store = delonix_state::Store::open(root.join("containers"))?;
-    store.save(&c)?;
+    store.container_save(&c)?;
     if req.start {
         // The same re-exec `StartContainer` uses: the fork-safe launch of the
         // record just written. A failed start fails the operation — but the
@@ -489,6 +491,7 @@ fn create_work(
 /// replayable by `request_id`.
 pub fn create_in(
     root: &Path,
+    store: &dyn crate::store::StorePort,
     images: &delonix_oci::ImageStore,
     req: &CreateContainerRequest,
 ) -> Result<Operation, Status> {
@@ -519,12 +522,10 @@ pub fn create_in(
     // same-name creates across processes (delonix is daemonless); it is released
     // when `_name_claim` drops at the end of this function.
     let claim_ns = requested_namespace(&req.namespace);
-    let store =
-        delonix_state::Store::open(root.join("containers")).map_err(|e| status_of(&e.into()))?;
     let _name_claim = store
-        .claim_name(&format!("{claim_ns}.{}", req.name))
-        .map_err(|e| status_of(&e.into()))?;
-    if name_taken(root, &req.name)? {
+        .container_claim_name(&format!("{claim_ns}.{}", req.name))
+        .map_err(|e| status_of(&e))?;
+    if name_taken(root, store, &req.name)? {
         return Err(Status::already_exists(format!(
             "container '{}' already exists",
             req.name
@@ -535,7 +536,7 @@ pub fn create_in(
         Begun::New(rec) => rec,
     };
     let namespace = requested_namespace(&req.namespace).to_string();
-    let outcome = create_work(root, images, req, &o)
+    let outcome = create_work(root, store, images, req, &o)
         .map(|_id| format!("/v1/namespaces/{namespace}/containers/{}", req.name));
     Ok(operations::message(&operations::finish(
         root, rec, outcome,
@@ -587,19 +588,22 @@ fn launch(root: &Path, id: &str) -> Result<(), String> {
 
 /// Load a container by name under `root`, requiring its recorded namespace to
 /// match — the identity rule the whole service reads with.
-fn load(root: &Path, name: &str, namespace: &str) -> Result<Record, Status> {
+fn load(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    name: &str,
+    namespace: &str,
+) -> Result<Record, Status> {
     let wanted = requested_namespace(namespace);
     let missing = || Status::not_found(format!("container '{name}' in namespace '{wanted}'"));
     if wanted == "*" || !root.join("containers").is_dir() {
         return Err(missing());
     }
-    let store =
-        delonix_state::Store::open(root.join("containers")).map_err(|e| status_of(&e.into()))?;
-    let c = store.load(name).map_err(|e| {
+    let c = store.container_load(name).map_err(|e| {
         if e.is_not_found() {
             missing()
         } else {
-            status_of(&e.into())
+            status_of(&e)
         }
     })?;
     if c.namespace != wanted {
@@ -611,8 +615,12 @@ fn load(root: &Path, name: &str, namespace: &str) -> Result<Record, Status> {
 /// `StartContainer`: launch a `Created`/stopped container, then its updated
 /// record. The launch is a re-exec (see [`launch`]); the record it reads and
 /// updates is the one on disk, which this reads back once the start returned.
-pub fn start_in(root: &Path, req: &StartContainerRequest) -> Result<Container, Status> {
-    let mut c = load(root, &req.name, &req.namespace)?;
+pub fn start_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &StartContainerRequest,
+) -> Result<Container, Status> {
+    let mut c = load(root, store, &req.name, &req.namespace)?;
     delonix_linux::reconcile_status(&mut c);
     if matches!(
         c.status,
@@ -626,7 +634,7 @@ pub fn start_in(root: &Path, req: &StartContainerRequest) -> Result<Container, S
     launch(root, &c.id).map_err(Status::internal)?;
     // The start wrote the record (Running, with a pid); read it back and
     // reconcile liveness, the same view `GetContainer` gives.
-    let mut started = load(root, &req.name, &req.namespace)?;
+    let mut started = load(root, store, &req.name, &req.namespace)?;
     delonix_linux::reconcile_status(&mut started);
     Ok(crate::containers::message(&started))
 }
@@ -656,20 +664,25 @@ fn terminal_response(status: &delonix_model::records::Status) -> Option<WaitCont
 /// state, up to [`WAIT_CEILING`]. A container still running at the ceiling is
 /// `DEADLINE_EXCEEDED`, not a false exit code — the client sends the request
 /// again to keep waiting.
-pub fn wait_in(root: &Path, req: &WaitContainerRequest) -> Result<WaitContainerResponse, Status> {
-    wait_in_bounded(root, req, WAIT_CEILING, WAIT_POLL)
+pub fn wait_in(
+    root: &Path,
+    store: &dyn crate::store::StorePort,
+    req: &WaitContainerRequest,
+) -> Result<WaitContainerResponse, Status> {
+    wait_in_bounded(root, store, req, WAIT_CEILING, WAIT_POLL)
 }
 
 /// [`wait_in`] with the ceiling and poll injected (the tests' seam).
 fn wait_in_bounded(
     root: &Path,
+    store: &dyn crate::store::StorePort,
     req: &WaitContainerRequest,
     ceiling: Duration,
     poll: Duration,
 ) -> Result<WaitContainerResponse, Status> {
     let deadline = Instant::now() + ceiling;
     loop {
-        let mut c = load(root, &req.name, &req.namespace)?;
+        let mut c = load(root, store, &req.name, &req.namespace)?;
         delonix_linux::reconcile_status(&mut c);
         if let Some(r) = terminal_response(&c.status) {
             return Ok(r);
@@ -961,8 +974,9 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let images = delonix_oci::ImageStore::open(dir.path()).unwrap();
+        let store = crate::store::LocalStore(dir.path().to_path_buf());
         for bad in ["-leading", "has.dot", "a b", ""] {
-            let err = create_in(dir.path(), &images, &req(bad, spec("alpine"))).unwrap_err();
+            let err = create_in(dir.path(), &store, &images, &req(bad, spec("alpine"))).unwrap_err();
             assert_eq!(err.code(), tonic::Code::InvalidArgument, "{bad}");
         }
     }
@@ -983,7 +997,13 @@ mod tests {
         c.namespace = "default".into();
         store.save(&c).unwrap();
         let images = delonix_oci::ImageStore::open(root).unwrap();
-        let err = create_in(root, &images, &req("web", spec("alpine"))).unwrap_err();
+        let err = create_in(
+            root,
+            &crate::store::LocalStore(root.to_path_buf()),
+            &images,
+            &req("web", spec("alpine")),
+        )
+        .unwrap_err();
         assert_eq!(err.code(), tonic::Code::AlreadyExists);
     }
 
@@ -991,8 +1011,10 @@ mod tests {
     fn start_and_wait_on_a_missing_container_are_not_found() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        let store = crate::store::LocalStore(root.to_path_buf());
         let s = start_in(
             root,
+            &store,
             &StartContainerRequest {
                 name: "ghost".into(),
                 namespace: "default".into(),
@@ -1002,6 +1024,7 @@ mod tests {
         assert_eq!(s.code(), tonic::Code::NotFound);
         let w = wait_in(
             root,
+            &store,
             &WaitContainerRequest {
                 name: "ghost".into(),
                 namespace: "default".into(),
@@ -1027,8 +1050,10 @@ mod tests {
         // Stopped: no live process, so `reconcile_status` leaves it terminal.
         c.status = delonix_model::records::Status::Stopped;
         store.save(&c).unwrap();
+        let port = crate::store::LocalStore(root.to_path_buf());
         let r = wait_in(
             root,
+            &port,
             &WaitContainerRequest {
                 name: "done".into(),
                 namespace: "default".into(),
@@ -1051,6 +1076,7 @@ mod tests {
         store.save(&f).unwrap();
         let r = wait_in(
             root,
+            &port,
             &WaitContainerRequest {
                 name: "boom".into(),
                 namespace: "default".into(),

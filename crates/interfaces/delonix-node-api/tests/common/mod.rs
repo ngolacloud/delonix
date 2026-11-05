@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use delonix_node_api::VmPort;
+use delonix_node_api::{StorePort, VmPort};
 
 /// A [`VmPort`] over the `delonix-vm` adapter at a state root — the tests'
 /// stand-in for the engine the bin composes.
@@ -23,6 +23,86 @@ pub struct AdapterVms(pub PathBuf);
 /// to refuse or answer `NotFound` before anything is written.
 pub fn backing() -> Arc<dyn VmPort> {
     Arc::new(AdapterVms(delonix_node_api::node::state_root()))
+}
+
+/// A [`StorePort`] over the `delonix-state` adapter at a state root (R3d-d) —
+/// the tests' stand-in for the engine-backed record store the bin composes.
+/// Production reaches the record store only through this port; the node-api
+/// crate itself names no store adapter, so this lives in the test harness over
+/// the `delonix-state` dev-dependency, exactly as [`AdapterVms`] does for VMs.
+pub struct AdapterStore(pub PathBuf);
+
+/// The adapter-backed record-store port over this host's real state root, as an
+/// `Arc` for `serve_blocking`.
+pub fn backing_store() -> Arc<dyn StorePort> {
+    Arc::new(AdapterStore(delonix_node_api::node::state_root()))
+}
+
+impl StorePort for AdapterStore {
+    fn container_list(&self) -> Result<Vec<delonix_compute::Container>, delonix_model::Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.list())
+            .map_err(Into::into)
+    }
+    fn container_load(
+        &self,
+        id_or_name: &str,
+    ) -> Result<delonix_compute::Container, delonix_model::Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.load(id_or_name))
+            .map_err(Into::into)
+    }
+    fn container_save(&self, c: &delonix_compute::Container) -> Result<(), delonix_model::Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.save(c))
+            .map_err(Into::into)
+    }
+    fn container_update(
+        &self,
+        id: &str,
+        f: &mut dyn FnMut(&mut delonix_compute::Container) -> bool,
+    ) -> Result<delonix_compute::Container, delonix_model::Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.update(id, |c| f(c)))
+            .map_err(Into::into)
+    }
+    fn container_remove(&self, id: &str) -> Result<(), delonix_model::Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.remove(id))
+            .map_err(Into::into)
+    }
+    fn container_remove_unless(
+        &self,
+        id: &str,
+        keep: &mut dyn FnMut(&delonix_compute::Container) -> bool,
+    ) -> Result<Option<delonix_compute::Container>, delonix_model::Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.remove_unless(id, |c| keep(c)))
+            .map_err(Into::into)
+    }
+    fn container_claim_name(
+        &self,
+        name: &str,
+    ) -> Result<Box<dyn std::any::Any + Send>, delonix_model::Error> {
+        delonix_state::Store::open(self.0.join("containers"))
+            .and_then(|s| s.claim_name(name))
+            .map(|c| Box::new(c) as Box<dyn std::any::Any + Send>)
+            .map_err(Into::into)
+    }
+    fn vm_list(&self) -> Result<Vec<delonix_compute::Vm>, delonix_model::Error> {
+        delonix_state::JsonStore::<delonix_compute::Vm>::open(self.0.join("vms"))
+            .and_then(|s| s.list())
+            .map_err(Into::into)
+    }
+    fn vm_update(
+        &self,
+        name: &str,
+        f: &mut dyn FnMut(&mut delonix_compute::Vm) -> bool,
+    ) -> Result<delonix_compute::Vm, delonix_model::Error> {
+        delonix_state::JsonStore::<delonix_compute::Vm>::open(self.0.join("vms"))
+            .and_then(|s| s.update(name, |vm| f(vm)))
+            .map_err(Into::into)
+    }
 }
 
 impl VmPort for AdapterVms {
