@@ -68,6 +68,34 @@ pub trait ImageOps: Send + Sync {
     fn image_fs_used_bytes(&self) -> u64;
 }
 
+/// The composed engine's container-store use cases this CRI RuntimeService reads
+/// and reconciles through (R3h). The interface no longer names the `delonix-state`
+/// adapter: the multicall mounts a `delonix-engine::Engine` and hands in an
+/// implementor, exactly as it does for images (ADR-0040 A5). Records cross as the
+/// shared [`delonix_compute::Container`]; errors as the shared
+/// [`delonix_model::Error`] every surface already maps to a gRPC `Status`.
+///
+/// `update` is the engine's **safe read-modify-write** under an exclusive `flock`
+/// (re-read under the lock): the ONE write path the concurrent CRI issues to the
+/// container store. It is object-safe — the closure crosses as `&mut dyn FnMut`
+/// (a `dyn ContainerOps` cannot carry a generic method), and the implementor
+/// forwards it to the engine's generic `update`.
+pub trait ContainerOps: Send + Sync {
+    /// Every container this node has.
+    fn list(&self) -> Result<Vec<delonix_compute::Container>, delonix_model::Error>;
+    /// One container's full record, by name or id (prefix); the prefixed CRI
+    /// names (`cri-<id>`, `pod-cri-<id>`) resolve here exactly as on the store.
+    fn load(&self, id_or_name: &str)
+        -> Result<delonix_compute::Container, delonix_model::Error>;
+    /// Locked read-modify-write: `f` mutates the record re-read under the lock and
+    /// returns `false` to abort the write. The final (or read) record comes back.
+    fn update(
+        &self,
+        id_or_name: &str,
+        f: &mut dyn FnMut(&mut delonix_compute::Container) -> bool,
+    ) -> Result<delonix_compute::Container, delonix_model::Error>;
+}
+
 // ---------------------------------------------------------------------------
 // ImageService — fully functional over the Delonix engine (R3h).
 // ---------------------------------------------------------------------------
@@ -283,6 +311,7 @@ async fn metrics_handler() -> impl axum::response::IntoResponse {
 pub fn serve_blocking(
     base: PathBuf,
     images: Arc<dyn ImageOps>,
+    containers: Arc<dyn ContainerOps>,
     addr: &str,
     ceiling: CapCeiling,
 ) -> Result<(), delonix_model::Error> {
@@ -359,7 +388,8 @@ pub fn serve_blocking(
                 message: e.to_string(),
             })?;
         let advertised = format!("http://127.0.0.1:{stream_port}");
-        let streamer = streaming::Streamer::new(base.clone(), advertised.clone());
+        let streamer =
+            streaming::Streamer::new(base.clone(), containers.clone(), advertised.clone());
         eprintln!("delonix-cri: streaming (exec/attach) at {advertised}");
         let app = streamer.clone().router();
         tokio::spawn(async move {
@@ -408,7 +438,7 @@ pub fn serve_blocking(
             base: base.clone(),
             engine: images,
         };
-        let rtsvc = runtime_svc::DelonixRuntime::new(base, streamer, ceiling);
+        let rtsvc = runtime_svc::DelonixRuntime::new(base, containers, streamer, ceiling);
         tonic::transport::Server::builder()
             .add_service(RuntimeServiceServer::new(rtsvc))
             .add_service(ImageServiceServer::new(img))
@@ -419,6 +449,54 @@ pub fn serve_blocking(
                 message: e.to_string(),
             })
     })
+}
+
+/// A [`ContainerOps`] backed by a real on-disk `delonix-state` store, for the
+/// crate's own tests only (R3h). The server never builds this — in production the
+/// multicall hands in the engine's port — but the unit tests seed records with
+/// `delonix-state` (a dev-dependency) and need a port that reads the SAME place
+/// the engine's `ContainerService` does: `<base>/containers`. Keeping the backing
+/// here, not in each test module, means one definition of "the store the port
+/// speaks to".
+#[cfg(test)]
+pub(crate) mod test_ops {
+    use super::ContainerOps;
+    use std::path::PathBuf;
+
+    pub(crate) struct StoreOps {
+        base: PathBuf,
+    }
+
+    impl StoreOps {
+        pub(crate) fn new(base: impl Into<PathBuf>) -> Self {
+            Self { base: base.into() }
+        }
+
+        fn store(&self) -> Result<delonix_state::Store, delonix_model::Error> {
+            delonix_state::Store::open(self.base.join("containers")).map_err(Into::into)
+        }
+    }
+
+    impl ContainerOps for StoreOps {
+        fn list(&self) -> Result<Vec<delonix_compute::Container>, delonix_model::Error> {
+            self.store()?.list().map_err(Into::into)
+        }
+        fn load(
+            &self,
+            id_or_name: &str,
+        ) -> Result<delonix_compute::Container, delonix_model::Error> {
+            self.store()?.load(id_or_name).map_err(Into::into)
+        }
+        fn update(
+            &self,
+            id_or_name: &str,
+            f: &mut dyn FnMut(&mut delonix_compute::Container) -> bool,
+        ) -> Result<delonix_compute::Container, delonix_model::Error> {
+            self.store()?
+                .update(id_or_name, |c| f(c))
+                .map_err(delonix_model::Error::from)
+        }
+    }
 }
 
 #[cfg(test)]

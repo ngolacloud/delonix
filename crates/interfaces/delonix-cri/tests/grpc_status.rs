@@ -49,6 +49,30 @@ impl delonix_cri::ImageOps for NoImages {
     }
 }
 
+/// The container port the CRI server needs (R3h). These tests seed no containers
+/// and exercise only version/status/sandbox-list/metrics, so an empty backing is
+/// enough — `status` lists live refs through it and gets `Ok(vec![])`; the real
+/// store path is served by the composed engine in `delonix serve cri`.
+struct NoContainers;
+impl delonix_cri::ContainerOps for NoContainers {
+    fn list(&self) -> Result<Vec<delonix_compute::Container>, delonix_model::Error> {
+        Ok(Vec::new())
+    }
+    fn load(
+        &self,
+        id_or_name: &str,
+    ) -> Result<delonix_compute::Container, delonix_model::Error> {
+        Err(delonix_model::Error::NotFound(id_or_name.to_string()))
+    }
+    fn update(
+        &self,
+        id_or_name: &str,
+        _f: &mut dyn FnMut(&mut delonix_compute::Container) -> bool,
+    ) -> Result<delonix_compute::Container, delonix_model::Error> {
+        Err(delonix_model::Error::NotFound(id_or_name.to_string()))
+    }
+}
+
 /// A SHORT socket path: `sun_path` is 108 bytes and an agent session's
 /// `$TMPDIR` is already past 90, so the directory lives in `/tmp` itself
 /// (`/tmp/.tmpXXXXXX/x.sock`, 22 bytes). The `TempDir` removes it on every
@@ -73,6 +97,7 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
         let _ = delonix_cri::serve_blocking(
             b,
             std::sync::Arc::new(NoImages),
+            std::sync::Arc::new(NoContainers),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );
@@ -210,6 +235,7 @@ async fn an_sctp_host_port_is_refused_over_grpc_and_leaves_nothing_behind() {
         let _ = delonix_cri::serve_blocking(
             b,
             std::sync::Arc::new(NoImages),
+            std::sync::Arc::new(NoContainers),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );

@@ -13,7 +13,6 @@ license.workspace = true
 delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-model = { workspace = true }
-delonix-state = { workspace = true }
 delonix-telemetry = { workspace = true }
 delonix-compute = { workspace = true }
 delonix-linux = { workspace = true }
@@ -42,6 +41,9 @@ tonic-build = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 tempfile = { workspace = true }
 hyper-util = { workspace = true, features = ["tokio"] }
+# R3h: a produção já não nomeia o `delonix-state`; fica aqui só para o SEEDING dos
+# testes (o backing `test_ops::StoreOps` e os testes que gravam records em disco).
+delonix-state = { workspace = true }
 
 [lints]
 workspace = true
