@@ -4,6 +4,7 @@
 pub use error::{redact_known, Error, ErrorContext, Result};
 
 pub mod codes;
+pub mod dash;
 pub mod error;
 pub mod exitcode;
 pub mod names;

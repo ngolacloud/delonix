@@ -21,4 +21,7 @@ delonix-linux = { workspace = true }
 # image/scan endpoints the same way (an interface may not name an adapter).
 delonix-oci = { workspace = true }
 delonix-scanner = { workspace = true }
+# R3f-B: the resource-summary collector (`dash_summary`/`workload_series`) moved
+# off `delonix-mgmt` into the engine; it builds the exporter's `WorkloadSeries`.
+delonix-telemetry = { workspace = true }
 serde_json = { workspace = true }
