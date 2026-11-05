@@ -13,7 +13,6 @@ delonix-host = { workspace = true }
 delonix-model = { workspace = true }
 delonix-state = { workspace = true }
 delonix-telemetry = { workspace = true }
-delonix-volume = { workspace = true }
 delonix-sdn = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros", "sync"] }
