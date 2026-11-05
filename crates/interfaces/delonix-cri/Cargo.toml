@@ -15,7 +15,6 @@ delonix-host = { workspace = true }
 delonix-model = { workspace = true }
 delonix-telemetry = { workspace = true }
 delonix-compute = { workspace = true }
-delonix-linux = { workspace = true }
 delonix-sdn = { workspace = true }
 delonix-security = { workspace = true }
 tonic = { workspace = true }
@@ -44,6 +43,10 @@ hyper-util = { workspace = true, features = ["tokio"] }
 # R3h: a produção já não nomeia o `delonix-state`; fica aqui só para o SEEDING dos
 # testes (o backing `test_ops::StoreOps` e os testes que gravam records em disco).
 delonix-state = { workspace = true }
+# R3h-C: a produção já não nomeia o `delonix-linux` (as suas operações passam pela
+# porta `RuntimeOps` do Engine). Fica aqui só para o backing de testes
+# `test_ops::LinuxPort` e os testes que chamam o dicionário/mecanismo reais.
+delonix-linux = { workspace = true }
 
 [lints]
 workspace = true

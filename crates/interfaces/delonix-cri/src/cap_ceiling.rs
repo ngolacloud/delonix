@@ -36,7 +36,7 @@
 //! | unset / empty | **`default`** — the safe ceiling (next row) |
 //! | `all` | **no ceiling**, by explicit choice: a `privileged: true` pod gets every capability |
 //! | `none` | no capabilities at all, for anyone |
-//! | `default` | exactly the engine's default kept set ([`delonix_linux::capabilities::KEPT_CAPS`]) |
+//! | `default` | exactly the engine's default kept set (see [`RuntimeOps::default_kept_mask`]) |
 //! | `default,NET_ADMIN,…` | the default set plus the named ones |
 //! | `CHOWN,NET_BIND_SERVICE,…` | exactly the named ones (`CAP_` prefix optional, case-insensitive) |
 //!
@@ -76,9 +76,7 @@
 //! A malformed value makes the server REFUSE TO START. A typo that quietly
 //! resolved to "no ceiling" is the exact failure this module exists to prevent.
 
-use delonix_linux::capabilities::{
-    all_caps_mask, cap_num, default_kept_mask, names_from_mask, resolve_cap_keep,
-};
+use crate::RuntimeOps;
 
 /// Environment variable that carries the ceiling itself.
 pub const CEILING_ENV: &str = "DELONIX_CRI_CAP_CEILING";
@@ -123,21 +121,15 @@ pub struct CapCeiling {
     mode: CeilingMode,
 }
 
-impl Default for CapCeiling {
-    /// The safe ceiling. A type that is "unlimited" by default would put the
-    /// permissive posture one forgotten argument away.
-    fn default() -> Self {
-        Self::node_default()
-    }
-}
-
 impl CapCeiling {
     /// The ceiling a node gets when nobody configured one: the engine's default
-    /// kept set ([`delonix_linux::capabilities::KEPT_CAPS`]), enforced in
-    /// `reject` mode. Computed from the engine's own list, never a second copy.
-    pub fn node_default() -> Self {
+    /// kept set (see [`RuntimeOps::default_kept_mask`]), enforced in `reject` mode.
+    /// Computed from the engine's own list through the port, never a second copy —
+    /// which is why there is no `Default` impl: the safe ceiling needs the engine's
+    /// capability dictionary, not a free-standing constant a `default()` could reach.
+    pub fn node_default(caps: &dyn RuntimeOps) -> Self {
         Self {
-            mask: Some(default_kept_mask()),
+            mask: Some(caps.default_kept_mask()),
             mode: CeilingMode::Reject,
         }
     }
@@ -152,13 +144,15 @@ impl CapCeiling {
     }
 
     /// Parses a ceiling spec and a mode. See the module docs for the grammar.
-    pub fn parse(spec: &str, mode: &str) -> Result<Self, String> {
+    /// `caps` is the engine's capability dictionary (R3h): the spec is resolved
+    /// against the engine's own names and default set, never a local copy.
+    pub fn parse(spec: &str, mode: &str, caps: &dyn RuntimeOps) -> Result<Self, String> {
         let mode = CeilingMode::parse(mode)?;
         let spec = spec.trim();
         if spec.is_empty() {
             // Unset or blank: the safe default, never "no ceiling".
             return Ok(Self {
-                mask: Some(default_kept_mask()),
+                mask: Some(caps.default_kept_mask()),
                 mode,
             });
         }
@@ -177,8 +171,8 @@ impl CapCeiling {
                 // is spellable at all — an empty value means "unset", which is
                 // the default ceiling, not this one.
                 "none" => {}
-                "default" => mask |= default_kept_mask(),
-                _ => match cap_num(tok) {
+                "default" => mask |= caps.default_kept_mask(),
+                _ => match caps.cap_bit(tok) {
                     Some(n) => mask |= 1u64 << n,
                     None => {
                         return Err(format!(
@@ -205,10 +199,11 @@ impl CapCeiling {
 
     /// Reads the ceiling from the environment (`DELONIX_CRI_CAP_CEILING` /
     /// `DELONIX_CRI_CAP_CEILING_MODE`).
-    pub fn from_env() -> Result<Self, String> {
+    pub fn from_env(caps: &dyn RuntimeOps) -> Result<Self, String> {
         Self::parse(
             &std::env::var(CEILING_ENV).unwrap_or_default(),
             &std::env::var(MODE_ENV).unwrap_or_default(),
+            caps,
         )
     }
 
@@ -218,13 +213,13 @@ impl CapCeiling {
     }
 
     /// One-line description for the startup banner and the `status` verbose info.
-    pub fn describe(&self) -> String {
+    pub fn describe(&self, caps: &dyn RuntimeOps) -> String {
         match self.mask {
             None => "none (unlimited)".to_string(),
             Some(0) => format!("no capabilities (mode={})", self.mode.as_str()),
             Some(m) => format!(
                 "{} (mode={})",
-                names_from_mask(m).join(","),
+                caps.names_from_mask(m).join(","),
                 self.mode.as_str()
             ),
         }
@@ -236,7 +231,7 @@ impl CapCeiling {
     /// has, and this node's only LOCAL barrier is off — an admission controller
     /// that bounds it lives in another process, which this socket does not see.
     /// A ceiling in force, the default included, is the ordinary info line.
-    pub fn startup_banner(&self) -> (String, bool) {
+    pub fn startup_banner(&self, caps: &dyn RuntimeOps) -> (String, bool) {
         if self.is_unlimited() {
             (
                 "no capability ceiling (DELONIX_CRI_CAP_CEILING=all) — a privileged pod gets \
@@ -245,7 +240,10 @@ impl CapCeiling {
                 true,
             )
         } else {
-            (format!("capability ceiling: {}", self.describe()), false)
+            (
+                format!("capability ceiling: {}", self.describe(caps)),
+                false,
+            )
         }
     }
 
@@ -257,7 +255,12 @@ impl CapCeiling {
     /// is what the CRI translation makes of it — and is reported by the names it
     /// would gain beyond the ceiling, so the error says what was actually denied
     /// instead of just repeating the word "privileged".
-    pub fn rejected(&self, cap_add: &[String], privileged: bool) -> Vec<&'static str> {
+    pub fn rejected(
+        &self,
+        cap_add: &[String],
+        privileged: bool,
+        caps: &dyn RuntimeOps,
+    ) -> Vec<&'static str> {
         let Some(mask) = self.mask else {
             return Vec::new();
         };
@@ -266,14 +269,14 @@ impl CapCeiling {
         }
         let wants_all = privileged || cap_add.iter().any(|c| c.eq_ignore_ascii_case("all"));
         let requested = if wants_all {
-            all_caps_mask()
+            caps.all_caps_mask()
         } else {
             cap_add
                 .iter()
-                .filter_map(|c| cap_num(c))
+                .filter_map(|c| caps.cap_bit(c))
                 .fold(0u64, |m, n| m | (1u64 << n))
         };
-        names_from_mask(requested & !mask)
+        caps.names_from_mask(requested & !mask)
     }
 
     /// The `--cap-*` arguments `start_container` should emit, or `None` to keep
@@ -281,17 +284,18 @@ impl CapCeiling {
     ///
     /// With a ceiling in force the form is always `--cap-drop ALL` followed by one
     /// `--cap-add` per capability of the final set. That final set is computed
-    /// with the ENGINE's own [`resolve_cap_keep`], not with a second
+    /// with the ENGINE's own [`RuntimeOps::resolve_cap_keep`], not with a second
     /// implementation of the same rules: whatever the engine would have granted,
     /// intersected with the ceiling. `--cap-drop ALL` + explicit adds resolves
-    /// back to precisely that mask (there is a round-trip test for it in
-    /// `delonix_linux::capabilities`), so the clamp cannot drift from the
-    /// engine's semantics as `--cap-add`/`--cap-drop` handling evolves.
+    /// back to precisely that mask (there is a round-trip test for it in the
+    /// engine's capability adapter), so the clamp cannot drift from the engine's
+    /// semantics as `--cap-add`/`--cap-drop` handling evolves.
     pub fn cap_args(
         &self,
         cap_add: &[String],
         cap_drop: &[String],
         privileged: bool,
+        caps: &dyn RuntimeOps,
     ) -> Option<Vec<String>> {
         let mask = self.mask?;
         // Character-for-character the engine's own branch in `spawn`:
@@ -301,12 +305,12 @@ impl CapCeiling {
         // `resolve_cap_keep(drop, ["ALL"])` looks equivalent and is not — this
         // clamp must predict what the engine grants, not what it arguably should.
         let granted = if privileged {
-            all_caps_mask()
+            caps.all_caps_mask()
         } else {
-            resolve_cap_keep(cap_drop, cap_add)
+            caps.resolve_cap_keep(cap_drop, cap_add)
         };
         let mut args = vec!["--cap-drop".to_string(), "ALL".to_string()];
-        for name in names_from_mask(granted & mask) {
+        for name in caps.names_from_mask(granted & mask) {
             args.push("--cap-add".to_string());
             args.push(name.to_string());
         }
@@ -318,6 +322,11 @@ impl CapCeiling {
 mod tests {
     use super::*;
 
+    /// The engine's real capability dictionary, through the port (R3h). The tests
+    /// run against the GENUINE rules the server delegates to, not a stand-in — a
+    /// local copy could pass the test and still drift from the engine.
+    const CAPS: &dyn RuntimeOps = &crate::test_ops::LinuxPort;
+
     fn s(v: &[&str]) -> Vec<String> {
         v.iter().map(|x| x.to_string()).collect()
     }
@@ -326,10 +335,10 @@ mod tests {
     #[test]
     fn only_an_explicit_all_means_no_ceiling() {
         for spec in ["all", "ALL", "default,all"] {
-            let c = CapCeiling::parse(spec, "").unwrap();
+            let c = CapCeiling::parse(spec, "", CAPS).unwrap();
             assert!(c.is_unlimited(), "spec {spec:?} must lift the ceiling");
-            assert_eq!(c.cap_args(&s(&["NET_ADMIN"]), &[], true), None);
-            assert!(c.rejected(&s(&["SYS_ADMIN"]), true).is_empty());
+            assert_eq!(c.cap_args(&s(&["NET_ADMIN"]), &[], true, CAPS), None);
+            assert!(c.rejected(&s(&["SYS_ADMIN"]), true, CAPS).is_empty());
         }
     }
 
@@ -339,25 +348,25 @@ mod tests {
     #[test]
     fn an_unset_or_blank_value_is_the_default_ceiling() {
         for spec in ["", "   ", "\t"] {
-            let c = CapCeiling::parse(spec, "").unwrap();
+            let c = CapCeiling::parse(spec, "", CAPS).unwrap();
             assert!(!c.is_unlimited(), "spec {spec:?} must not lift the ceiling");
-            assert_eq!(c, CapCeiling::node_default());
-            assert_eq!(c, CapCeiling::default());
+            assert_eq!(c, CapCeiling::node_default(CAPS));
             // A non-privileged pod asking for SYS_ADMIN is refused...
-            assert_eq!(c.rejected(&s(&["SYS_ADMIN"]), false), vec!["SYS_ADMIN"]);
+            assert_eq!(c.rejected(&s(&["SYS_ADMIN"]), false, CAPS), vec!["SYS_ADMIN"]);
             // ...and so is `privileged: true`.
-            assert!(c.rejected(&[], true).contains(&"SYS_ADMIN"));
+            assert!(c.rejected(&[], true, CAPS).contains(&"SYS_ADMIN"));
             // A pod that asks for nothing keeps exactly the engine's default set.
-            let args = c.cap_args(&[], &[], false).unwrap();
+            let args = c.cap_args(&[], &[], false, CAPS).unwrap();
             let added: Vec<String> = args[2..].chunks(2).map(|p| p[1].clone()).collect();
-            let want: Vec<String> = names_from_mask(default_kept_mask())
+            let want: Vec<String> = CAPS
+                .names_from_mask(CAPS.default_kept_mask())
                 .into_iter()
                 .map(String::from)
                 .collect();
             assert_eq!(added, want);
             // A capability the default set already holds is not an escalation.
             assert!(c
-                .rejected(&s(&["NET_BIND_SERVICE", "CHOWN"]), false)
+                .rejected(&s(&["NET_BIND_SERVICE", "CHOWN"]), false, CAPS)
                 .is_empty());
         }
     }
@@ -366,22 +375,22 @@ mod tests {
     /// same request through.
     #[test]
     fn an_explicit_wider_ceiling_allows_what_the_default_refuses() {
-        let default = CapCeiling::parse("", "").unwrap();
-        let wider = CapCeiling::parse("default,SYS_ADMIN", "").unwrap();
+        let default = CapCeiling::parse("", "", CAPS).unwrap();
+        let wider = CapCeiling::parse("default,SYS_ADMIN", "", CAPS).unwrap();
         assert_eq!(
-            default.rejected(&s(&["SYS_ADMIN"]), false),
+            default.rejected(&s(&["SYS_ADMIN"]), false, CAPS),
             vec!["SYS_ADMIN"]
         );
-        assert!(wider.rejected(&s(&["SYS_ADMIN"]), false).is_empty());
-        assert!(CapCeiling::parse("all", "")
+        assert!(wider.rejected(&s(&["SYS_ADMIN"]), false, CAPS).is_empty());
+        assert!(CapCeiling::parse("all", "", CAPS)
             .unwrap()
-            .rejected(&s(&["SYS_ADMIN"]), true)
+            .rejected(&s(&["SYS_ADMIN"]), true, CAPS)
             .is_empty());
         // The mode still applies on its own to the default ceiling.
-        assert!(!CapCeiling::parse("", "clamp").unwrap().is_unlimited());
-        assert!(CapCeiling::parse("", "clamp")
+        assert!(!CapCeiling::parse("", "clamp", CAPS).unwrap().is_unlimited());
+        assert!(CapCeiling::parse("", "clamp", CAPS)
             .unwrap()
-            .rejected(&s(&["SYS_ADMIN"]), false)
+            .rejected(&s(&["SYS_ADMIN"]), false, CAPS)
             .is_empty());
     }
 
@@ -392,22 +401,22 @@ mod tests {
     fn valor_invalido_e_erro_nunca_tecto_vazio() {
         for bad in ["NET_ADMINN", "sys admin", "CAP_", ",,", "cap_net_adminx"] {
             assert!(
-                CapCeiling::parse(bad, "").is_err(),
+                CapCeiling::parse(bad, "", CAPS).is_err(),
                 "spec {bad:?} devia ser recusada"
             );
         }
-        assert!(CapCeiling::parse("CHOWN", "wide-open").is_err());
+        assert!(CapCeiling::parse("CHOWN", "wide-open", CAPS).is_err());
         // ...and a valid one is accepted with either separator or casing.
-        let c = CapCeiling::parse("cap_chown net_admin,SETUID", "clamp").unwrap();
-        assert_eq!(c.describe(), "CHOWN,SETUID,NET_ADMIN (mode=clamp)");
+        let c = CapCeiling::parse("cap_chown net_admin,SETUID", "clamp", CAPS).unwrap();
+        assert_eq!(c.describe(CAPS), "CHOWN,SETUID,NET_ADMIN (mode=clamp)");
     }
 
     #[test]
     fn none_e_um_tecto_vazio_nao_a_ausencia_de_tecto() {
-        let c = CapCeiling::parse("none", "").unwrap();
+        let c = CapCeiling::parse("none", "", CAPS).unwrap();
         assert!(!c.is_unlimited());
         assert_eq!(
-            c.cap_args(&[], &[], false),
+            c.cap_args(&[], &[], false, CAPS),
             Some(s(&["--cap-drop", "ALL"])),
             "com tecto vazio o container não fica com capability nenhuma"
         );
@@ -417,9 +426,9 @@ mod tests {
     fn tecto_reduz_o_baseline_sem_erro_nenhum() {
         // A pod that asks for NOTHING still gets the engine's default set; the
         // ceiling lowers it, and that is never an error.
-        let c = CapCeiling::parse("CHOWN,NET_BIND_SERVICE,SYS_ADMIN", "").unwrap();
-        assert!(c.rejected(&[], false).is_empty());
-        let args = c.cap_args(&[], &[], false).unwrap();
+        let c = CapCeiling::parse("CHOWN,NET_BIND_SERVICE,SYS_ADMIN", "", CAPS).unwrap();
+        assert!(c.rejected(&[], false, CAPS).is_empty());
+        let args = c.cap_args(&[], &[], false, CAPS).unwrap();
         assert_eq!(
             args,
             s(&[
@@ -436,17 +445,17 @@ mod tests {
 
     #[test]
     fn modo_reject_nomeia_as_capabilities_negadas() {
-        let c = CapCeiling::parse("default,NET_ADMIN", "reject").unwrap();
+        let c = CapCeiling::parse("default,NET_ADMIN", "reject", CAPS).unwrap();
         assert!(
-            c.rejected(&s(&["NET_ADMIN"]), false).is_empty(),
+            c.rejected(&s(&["NET_ADMIN"]), false, CAPS).is_empty(),
             "NET_ADMIN está no tecto"
         );
         assert_eq!(
-            c.rejected(&s(&["NET_ADMIN", "CAP_SYS_ADMIN", "sys_module"]), false),
+            c.rejected(&s(&["NET_ADMIN", "CAP_SYS_ADMIN", "sys_module"]), false, CAPS),
             vec!["SYS_MODULE", "SYS_ADMIN"]
         );
         // `privileged` is reported by what it would actually gain.
-        let denied = c.rejected(&[], true);
+        let denied = c.rejected(&[], true, CAPS);
         assert!(denied.contains(&"SYS_ADMIN") && denied.contains(&"MKNOD"));
         assert!(
             !denied.contains(&"CHOWN") && !denied.contains(&"NET_ADMIN"),
@@ -456,9 +465,9 @@ mod tests {
 
     #[test]
     fn modo_clamp_nao_recusa_e_corta_o_privileged() {
-        let c = CapCeiling::parse("default,NET_ADMIN", "clamp").unwrap();
-        assert!(c.rejected(&[], true).is_empty(), "clamp nunca recusa");
-        let args = c.cap_args(&[], &[], true).unwrap();
+        let c = CapCeiling::parse("default,NET_ADMIN", "clamp", CAPS).unwrap();
+        assert!(c.rejected(&[], true, CAPS).is_empty(), "clamp nunca recusa");
+        let args = c.cap_args(&[], &[], true, CAPS).unwrap();
         assert_eq!(args[0], "--cap-drop");
         assert_eq!(args[1], "ALL");
         let added: Vec<&str> = args[2..]
@@ -476,8 +485,8 @@ mod tests {
     /// asking for less than the bound must get less, not the bound.
     #[test]
     fn cap_drop_do_pod_continua_a_valer_por_baixo_do_tecto() {
-        let c = CapCeiling::parse("default", "clamp").unwrap();
-        let args = c.cap_args(&[], &s(&["CHOWN"]), false).unwrap();
+        let c = CapCeiling::parse("default", "clamp", CAPS).unwrap();
+        let args = c.cap_args(&[], &s(&["CHOWN"]), false, CAPS).unwrap();
         let added: Vec<&str> = args[2..].chunks(2).map(|p| p[1].as_str()).collect();
         assert!(!added.contains(&"CHOWN"), "o pod pediu para largar CHOWN");
         assert!(added.contains(&"SETUID"));
@@ -490,9 +499,9 @@ mod tests {
     /// and the code had been written to match it.
     #[test]
     fn privileged_ignora_o_cap_drop_como_no_motor() {
-        let c = CapCeiling::parse("CHOWN,NET_ADMIN", "clamp").unwrap();
+        let c = CapCeiling::parse("CHOWN,NET_ADMIN", "clamp", CAPS).unwrap();
         assert_eq!(
-            c.cap_args(&[], &s(&["ALL"]), true),
+            c.cap_args(&[], &s(&["ALL"]), true, CAPS),
             Some(s(&[
                 "--cap-drop",
                 "ALL",
@@ -508,9 +517,9 @@ mod tests {
     /// back to exactly the mask we intended, or the ceiling would be advisory.
     #[test]
     fn os_flags_emitidos_resolvem_para_o_conjunto_pretendido() {
-        let c = CapCeiling::parse("default,NET_ADMIN", "clamp").unwrap();
+        let c = CapCeiling::parse("default,NET_ADMIN", "clamp", CAPS).unwrap();
         let args = c
-            .cap_args(&s(&["SYS_ADMIN", "NET_ADMIN"]), &[], false)
+            .cap_args(&s(&["SYS_ADMIN", "NET_ADMIN"]), &[], false, CAPS)
             .unwrap();
         // Replay the argv the way `cmd_run` would.
         let mut add = Vec::new();
@@ -524,14 +533,14 @@ mod tests {
                 other => panic!("flag inesperada {other}"),
             }
         }
-        let got = resolve_cap_keep(&drop, &add);
-        let want = default_kept_mask() | (1u64 << 12); // + NET_ADMIN, sem SYS_ADMIN
+        let got = CAPS.resolve_cap_keep(&drop, &add);
+        let want = CAPS.default_kept_mask() | (1u64 << 12); // + NET_ADMIN, sem SYS_ADMIN
         assert_eq!(
             got,
             want,
             "got {:?} want {:?}",
-            names_from_mask(got),
-            names_from_mask(want)
+            CAPS.names_from_mask(got),
+            CAPS.names_from_mask(want)
         );
     }
 
@@ -539,20 +548,20 @@ mod tests {
     /// the default included, is info.
     #[test]
     fn the_startup_banner_warns_only_when_the_ceiling_is_lifted() {
-        let (msg, warn) = CapCeiling::unlimited().startup_banner();
+        let (msg, warn) = CapCeiling::unlimited().startup_banner(CAPS);
         assert!(warn, "no ceiling must warn");
         assert!(
             msg.contains("no capability ceiling") && msg.contains("DELONIX_CRI_CAP_CEILING"),
             "the warning names the fix: {msg}"
         );
 
-        let (msg, warn) = CapCeiling::default().startup_banner();
+        let (msg, warn) = CapCeiling::node_default(CAPS).startup_banner(CAPS);
         assert!(!warn, "the default ceiling is not a warning");
         assert!(msg.starts_with("capability ceiling:") && msg.contains("CHOWN"));
 
-        let (msg, warn) = CapCeiling::parse("CHOWN", "reject")
+        let (msg, warn) = CapCeiling::parse("CHOWN", "reject", CAPS)
             .unwrap()
-            .startup_banner();
+            .startup_banner(CAPS);
         assert!(!warn, "a ceiling in force is not a warning");
         assert!(
             msg.starts_with("capability ceiling:") && msg.contains("CHOWN"),

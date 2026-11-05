@@ -71,6 +71,67 @@ impl delonix_cri::ContainerOps for EnginePorts {
     }
 }
 
+impl delonix_cri::RuntimeOps for EnginePorts {
+    // The Linux-mechanism port (R3h). These are the adapter's own stateless
+    // host/cgroup primitives and its capability dictionary: the bin backs them
+    // with `delonix-linux` directly (a bin may name an adapter, ADR-0040 A1), so
+    // the `delonix-cri` interface names no adapter type of its own.
+    fn is_rootless(&self) -> bool {
+        delonix_linux::is_rootless()
+    }
+    fn safe_to_signal(&self, pid: i32, starttime: Option<u64>) -> bool {
+        delonix_linux::safe_to_signal(pid, starttime)
+    }
+    fn leaf_controllers(&self) -> Vec<String> {
+        delonix_linux::leaf_controllers()
+    }
+    fn reconcile_status(&self, c: &mut delonix_compute::Container) -> bool {
+        delonix_linux::reconcile_status(c)
+    }
+    fn oom_killed_reason(&self) -> &'static str {
+        delonix_linux::OOM_KILLED
+    }
+    fn seccomp_validate(&self, json: &str) -> Result<(), String> {
+        delonix_linux::seccomp_profile::parse(json).map(|_| ())
+    }
+    fn update_kube_resources(
+        &self,
+        c: &delonix_compute::Container,
+        update: &delonix_cri::ResourceUpdateSpec<'_>,
+    ) -> Result<bool, EngineError> {
+        let u = delonix_linux::ResourceUpdate {
+            memory: update.memory,
+            cpus: update.cpus,
+            cpu_weight: update.cpu_weight,
+            cpuset: update.cpuset,
+            cpuset_mems: update.cpuset_mems,
+            hugepage_limits: update.hugepage_limits,
+            unified: update.unified,
+            oom_score_adj: update.oom_score_adj,
+        };
+        // `NotEnforced` → `false` (no live cgroup); applied/deferred → `true`. The
+        // adapter's `Result` error becomes the shared `delonix_model::Error`.
+        delonix_linux::update_kube_resources(c, &u)
+            .map(|lu| lu != delonix_linux::LimitUpdate::NotEnforced)
+            .map_err(EngineError::from)
+    }
+    fn all_caps_mask(&self) -> u64 {
+        delonix_linux::capabilities::all_caps_mask()
+    }
+    fn cap_bit(&self, name: &str) -> Option<u8> {
+        delonix_linux::capabilities::cap_num(name)
+    }
+    fn default_kept_mask(&self) -> u64 {
+        delonix_linux::capabilities::default_kept_mask()
+    }
+    fn names_from_mask(&self, mask: u64) -> Vec<&'static str> {
+        delonix_linux::capabilities::names_from_mask(mask)
+    }
+    fn resolve_cap_keep(&self, cap_drop: &[String], cap_add: &[String]) -> u64 {
+        delonix_linux::capabilities::resolve_cap_keep(cap_drop, cap_add)
+    }
+}
+
 /// Ends the process with `code`, saying why on stderr and in the log. The one
 /// place this binary writes to the terminal.
 fn exit_with(code: i32, message: &str) -> ! {
@@ -141,23 +202,28 @@ fn main() {
     let mode = flag(&args, "cap-ceiling-mode")
         .or_else(|| std::env::var(delonix_cri::cap_ceiling::MODE_ENV).ok())
         .unwrap_or_default();
-    let ceiling = match delonix_cri::CapCeiling::parse(&spec, &mode) {
-        Ok(c) => c,
-        Err(e) => fail(&e),
-    };
-
-    // The bin mounts the composed engine ONCE and hands the server both ports:
-    // the same `Arc` is the image port and the container port (R3h).
+    // The bin mounts the composed engine ONCE and hands the server all three
+    // ports from the same `Arc`: the image port, the container port and the
+    // Linux-mechanism port (R3h).
     let engine = match Engine::mount(base.clone()) {
         Ok(e) => e,
         Err(e) => fail(&format!("mount engine: {e}")),
     };
     let ports = Arc::new(EnginePorts(engine));
     let images: Arc<dyn delonix_cri::ImageOps> = ports.clone();
-    let containers: Arc<dyn delonix_cri::ContainerOps> = ports;
+    let containers: Arc<dyn delonix_cri::ContainerOps> = ports.clone();
+    let runtime: Arc<dyn delonix_cri::RuntimeOps> = ports;
+
+    // Resolved through the engine's capability dictionary (the port), so a
+    // malformed value REFUSES TO START — a security bound a typo could silently
+    // turn into "unlimited" is the exact failure this prevents.
+    let ceiling = match delonix_cri::CapCeiling::parse(&spec, &mode, runtime.as_ref()) {
+        Ok(c) => c,
+        Err(e) => fail(&e),
+    };
 
     tracing::info!(%addr, root = %base.display(), "delonix-cri starting");
-    if let Err(e) = delonix_cri::serve_blocking(base, images, containers, &addr, ceiling) {
+    if let Err(e) = delonix_cri::serve_blocking(base, images, containers, runtime, &addr, ceiling) {
         exit_with(1, &e.to_string());
     }
 }
