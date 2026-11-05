@@ -19,10 +19,10 @@
 
 use std::path::Path;
 
-use delonix_volume::{OwnedVolume, VolumeStore};
 use tonic::Status;
 
 use crate::page;
+use crate::volume_store::{OwnedVolumeRecord, VolumeRecord, VolumeStore};
 use crate::proto::v1::{
     volume_spec, Condition, ConditionStatus, GetVolumeRequest, ListVolumesRequest,
     ListVolumesResponse, LocalVolume, PageResponse, RemoteProtocol, RemoteShare, ResourceMeta,
@@ -38,7 +38,7 @@ pub const DEFAULT_NAMESPACE: &str = "default";
 pub(crate) struct Entry {
     pub(crate) namespace: String,
     pub(crate) scoped: bool,
-    pub(crate) volume: delonix_volume::Volume,
+    pub(crate) volume: VolumeRecord,
 }
 
 impl Entry {
@@ -57,18 +57,16 @@ impl Entry {
 /// Every volume under `root`, as reported. A state root that never had a
 /// volume has no `volumes/` directory: an empty list, and reading does not
 /// create it.
-pub(crate) fn entries(root: &Path) -> Result<Vec<Entry>, Status> {
+pub(crate) fn entries(vols: &dyn VolumeStore, root: &Path) -> Result<Vec<Entry>, Status> {
     if !root.join("volumes").is_dir() {
         return Ok(Vec::new());
     }
-    let store = VolumeStore::open(root)
-        .map_err(|e| Status::internal(format!("opening the volume store: {e}")))?;
-    let all = store
-        .list_all()
+    let all = vols
+        .list_all(root)
         .map_err(|e| Status::internal(format!("listing volumes: {e}")))?;
     let mut out: Vec<Entry> = all
         .into_iter()
-        .map(|OwnedVolume { namespace, volume }| Entry {
+        .map(|OwnedVolumeRecord { namespace, volume }| Entry {
             scoped: namespace.is_some(),
             namespace: namespace.unwrap_or_else(|| DEFAULT_NAMESPACE.to_string()),
             volume,
@@ -110,7 +108,7 @@ fn condition(kind: &str, status: ConditionStatus, reason: &str, message: String)
 
 /// The contract's source for a record: a share of another volume, a remote
 /// share, or local data.
-fn source(v: &delonix_volume::Volume) -> volume_spec::Source {
+fn source(v: &VolumeRecord) -> volume_spec::Source {
     if let Some(parent) = &v.parent {
         return volume_spec::Source::ShareOf(ShareOf {
             parent_volume: parent.clone(),
@@ -221,13 +219,18 @@ pub(crate) fn etag_of(e: &Entry) -> String {
 /// The one volume `name` names in `namespace` (`""` is `default`), the way
 /// `GetVolume` resolves it: not found, or refused when the unscoped store and
 /// the namespace's own sub-tree both have it.
-pub(crate) fn find(root: &Path, namespace: &str, name: &str) -> Result<Entry, Status> {
+pub(crate) fn find(
+    vols: &dyn VolumeStore,
+    root: &Path,
+    namespace: &str,
+    name: &str,
+) -> Result<Entry, Status> {
     let ns = wanted(namespace).unwrap_or("*");
     let missing = || Status::not_found(format!("volume '{name}' in namespace '{ns}'"));
     if ns == "*" || name.is_empty() {
         return Err(missing());
     }
-    let mut found: Vec<Entry> = entries(root)?
+    let mut found: Vec<Entry> = entries(vols, root)?
         .into_iter()
         .filter(|e| e.namespace == ns && e.volume.name == name)
         .collect();
@@ -242,10 +245,14 @@ pub(crate) fn find(root: &Path, namespace: &str, name: &str) -> Result<Entry, St
 }
 
 /// `GetVolume` under `root`, with its usage measured.
-pub fn get_in(root: &Path, req: &GetVolumeRequest) -> Result<Volume, Status> {
-    let entry = find(root, &req.namespace, &req.name)?;
-    let usage = delonix_volume::measure(Path::new(&entry.volume.mountpoint));
-    let measured = if usage.is_complete() {
+pub fn get_in(
+    vols: &dyn VolumeStore,
+    root: &Path,
+    req: &GetVolumeRequest,
+) -> Result<Volume, Status> {
+    let entry = find(vols, root, &req.namespace, &req.name)?;
+    let usage = vols.measure(Path::new(&entry.volume.mountpoint));
+    let measured = if usage.complete {
         Measured::Yes(usage.bytes)
     } else {
         Measured::Unreadable(usage.bytes)
@@ -255,13 +262,17 @@ pub fn get_in(root: &Path, req: &GetVolumeRequest) -> Result<Volume, Status> {
 
 /// `ListVolumes` under `root`: filtered by `label_selector`, ordered by
 /// namespace and name, one page at a time, usage not measured.
-pub fn list_in(root: &Path, req: &ListVolumesRequest) -> Result<ListVolumesResponse, Status> {
+pub fn list_in(
+    vols: &dyn VolumeStore,
+    root: &Path,
+    req: &ListVolumesRequest,
+) -> Result<ListVolumesResponse, Status> {
     let selector = Selector::parse(&req.label_selector).map_err(Status::invalid_argument)?;
     let page_req = req.page.clone().unwrap_or_default();
     let size = page::size(&page_req)?;
     let after = page::after(&page_req)?;
     let ns = wanted(&req.namespace);
-    let all = entries(root)?;
+    let all = entries(vols, root)?;
     let mut matching = all
         .iter()
         .filter(|e| ns.is_none_or(|n| e.namespace == n))
@@ -298,12 +309,16 @@ mod tests {
     use super::*;
     use crate::proto::v1::PageRequest;
 
+    /// The crate-test volume port: the real `delonix-volume` adapter behind the
+    /// [`VolumeStore`] port, the stand-in for the port a bin composes.
+    const V: &crate::volume_store::LocalVolumes = &crate::volume_store::LocalVolumes;
+
     /// A store with: `data` and `logs` in the root (`data` labelled, with a
     /// quota and 5 bytes written), an NFS volume `nas`, and a share `db` of
     /// `data` in namespace `team-a`.
     fn root() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
-        let store = VolumeStore::open(dir.path()).unwrap();
+        let store = delonix_volume::VolumeStore::open(dir.path()).unwrap();
         let data = store.create("data").unwrap();
         std::fs::write(Path::new(&data.mountpoint).join("f"), b"12345").unwrap();
         store
@@ -313,7 +328,7 @@ mod tests {
             .set_quota("data", Some(2 << 30), Some(80), false)
             .unwrap();
         store.create("logs").unwrap();
-        let write = |s: &VolumeStore, v: &delonix_volume::Volume| {
+        let write = |s: &delonix_volume::VolumeStore, v: &delonix_volume::Volume| {
             let d = s.volume_dir(&v.name);
             std::fs::create_dir_all(&d).unwrap();
             std::fs::write(d.join("meta.json"), serde_json::to_vec(v).unwrap()).unwrap();
@@ -334,6 +349,7 @@ mod tests {
 
     fn list(root: &Path, ns: &str, selector: &str, size: i32, token: &str) -> ListVolumesResponse {
         list_in(
+            V,
             root,
             &ListVolumesRequest {
                 namespace: ns.into(),
@@ -376,6 +392,7 @@ mod tests {
     fn a_get_measures_the_usage_and_a_list_says_it_did_not() {
         let dir = root();
         let got = get_in(
+            V,
             dir.path(),
             &GetVolumeRequest {
                 name: "data".into(),
@@ -417,6 +434,7 @@ mod tests {
         let dir = root();
         let get = || {
             get_in(
+                V,
                 dir.path(),
                 &GetVolumeRequest {
                     name: "data".into(),
@@ -426,7 +444,7 @@ mod tests {
             .unwrap()
         };
         let before = get();
-        let store = VolumeStore::open(dir.path()).unwrap();
+        let store = delonix_volume::VolumeStore::open(dir.path()).unwrap();
         let mp = store.inspect("data").unwrap().mountpoint;
         std::fs::write(Path::new(&mp).join("g"), b"more").unwrap();
         let after_write = get();
@@ -445,6 +463,7 @@ mod tests {
     fn a_remote_volume_and_a_share_say_what_they_are() {
         let dir = root();
         let nas = get_in(
+            V,
             dir.path(),
             &GetVolumeRequest {
                 name: "nas".into(),
@@ -465,6 +484,7 @@ mod tests {
             other => panic!("expected a remote share, got {other:?}"),
         }
         let db = get_in(
+            V,
             dir.path(),
             &GetVolumeRequest {
                 name: "db".into(),
@@ -478,6 +498,7 @@ mod tests {
         }
         // A share lives in its namespace, not in default.
         let err = get_in(
+            V,
             dir.path(),
             &GetVolumeRequest {
                 name: "db".into(),
@@ -491,7 +512,7 @@ mod tests {
     #[test]
     fn a_name_in_the_root_and_in_the_default_subtree_is_listed_twice_and_refused_by_name() {
         let dir = root();
-        let store = VolumeStore::open(dir.path()).unwrap();
+        let store = delonix_volume::VolumeStore::open(dir.path()).unwrap();
         let scoped = store.scoped("default").unwrap();
         let mut twin = store.inspect("logs").unwrap();
         twin.parent = Some("data".into());
@@ -502,6 +523,7 @@ mod tests {
         let listed = names(&list(dir.path(), "", "", 0, ""));
         assert_eq!(listed.iter().filter(|n| *n == "default/logs").count(), 2);
         let err = get_in(
+            V,
             dir.path(),
             &GetVolumeRequest {
                 name: "logs".into(),
@@ -539,6 +561,7 @@ mod tests {
         let next = first.links.iter().find(|l| l.rel == "next").unwrap();
         assert!(next.href.starts_with("/v1/namespaces/*/volumes?label_selector=app%21%3Dweb&page.page_size=1&page.page_token="), "{}", next.href);
         let err = list_in(
+            V,
             dir.path(),
             &ListVolumesRequest {
                 namespace: String::new(),

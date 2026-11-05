@@ -42,6 +42,8 @@ async fn list_providers_answers_over_grpc_on_the_unix_socket() {
             common::backing_images(),
             common::backing_providers(),
             common::backing_linux(),
+            common::backing_volumes(),
+            common::backing_ceph(),
         );
     });
     wait_for(&sock).await;
@@ -364,6 +366,8 @@ async fn list_providers_answers_as_json_on_the_rest_route() {
         common::backing_images(),
         common::backing_providers(),
         common::backing_linux(),
+        common::backing_volumes(),
+        common::backing_ceph(),
     );
     let res = app
         .clone()

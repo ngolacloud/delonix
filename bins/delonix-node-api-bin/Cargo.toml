@@ -36,6 +36,9 @@ delonix-sdn = { workspace = true }
 # Proxmox/OPNsense providers in `providers.rs`.
 delonix-provider-proxmox = { workspace = true }
 delonix-provider-opnsense = { workspace = true }
+# R3d-j — bin backs the node API's `CephStorage` port with the Ceph adapter
+# directly (A1), so the interface no longer names it.
+delonix-provider-ceph = { workspace = true }
 delonix-telemetry = { workspace = true }
 
 [dev-dependencies]

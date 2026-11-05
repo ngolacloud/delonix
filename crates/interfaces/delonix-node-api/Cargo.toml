@@ -21,7 +21,6 @@ delonix-linux = { workspace = true }
 delonix-volume = { workspace = true }
 delonix-storage = { workspace = true }
 delonix-pool-helper = { workspace = true }
-delonix-provider-ceph = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }
 pbjson = { workspace = true }
@@ -65,10 +64,13 @@ delonix-oci = { workspace = true }
 # their capability reports only through the `ProviderReports` port the bin
 # composes. Kept for `provider_reports::LocalProviders` (the crate's own matrix/
 # parse tests) and the integration harness's `AdapterProviders` test backing.
-# `delonix-linux`/`delonix-volume` stay in `[dependencies]`: the lifecycle/store
-# code still names them in production.
 delonix-provider-proxmox = { workspace = true }
 delonix-provider-opnsense = { workspace = true }
+# R3d-j — production no longer names the Ceph adapter; it reaches the cluster
+# (health, RBD/CephFS listings, RGW, pool drivers) only through the
+# `CephStorage` port the bin composes. Kept for `storage_backend::LocalCeph`, the
+# live-Ceph test and the integration harness's `AdapterCeph` test backing.
+delonix-provider-ceph = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }

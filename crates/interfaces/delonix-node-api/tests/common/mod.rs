@@ -15,9 +15,14 @@ use std::sync::Arc;
 use delonix_node_api::image_repo::StoredImage;
 use delonix_node_api::linux_lifecycle::{ContainerUsage, LimitUpdate, ResourceUpdate};
 use delonix_node_api::net_ops::NetRecord;
+use delonix_node_api::storage_backend::{
+    BucketRecord, CephHealth, CephIdentity, RgwFault, StoragePoolDriver, UserRecord,
+};
 use delonix_node_api::store::PortRepo;
+use delonix_node_api::volume_store::{OwnedVolumeRecord, VolumeRecord, VolumeUsage};
 use delonix_node_api::{
-    ImageRepo, LinuxLifecycle, NetworkOps, ProviderReports, RunResolver, StorePort, VmPort,
+    CephStorage, ImageRepo, LinuxLifecycle, NetworkOps, ProviderReports, RunResolver, StorePort,
+    VmPort, VolumeStore,
 };
 
 /// A [`VmPort`] over the `delonix-vm` adapter at a state root — the tests'
@@ -256,6 +261,215 @@ impl ProviderReports for AdapterProviders {
     }
     fn opnsense_id(&self) -> &'static str {
         delonix_provider_opnsense::ID
+    }
+}
+
+/// A [`VolumeStore`] over the real `delonix-volume` adapter (R3d-j) — the tests'
+/// stand-in for the `delonix-volume`-backed port the bin composes. Production
+/// reaches the volume store only through this port; the node-api crate names no
+/// volume adapter on this path, so this lives in the test harness, exactly as
+/// [`AdapterImages`]/[`AdapterNet`] do. It mirrors `delonix-node-api-bin`'s
+/// `HostVolumes`.
+pub struct AdapterVolumes;
+
+/// The adapter-backed volume port, as an `Arc` for `serve_blocking`.
+pub fn backing_volumes() -> Arc<dyn VolumeStore> {
+    Arc::new(AdapterVolumes)
+}
+
+fn volume_record(v: &delonix_volume::Volume) -> VolumeRecord {
+    VolumeRecord {
+        name: v.name.clone(),
+        mountpoint: v.mountpoint.clone(),
+        created_unix: v.created_unix,
+        driver: v.driver.clone(),
+        device: v.device.clone(),
+        options: v.options.clone(),
+        quota_bytes: v.quota_bytes,
+        alert_pct: v.alert_pct,
+        labels: v.labels.clone(),
+        annotations: v.annotations.clone(),
+        parent: v.parent.clone(),
+        pool: v.pool.clone(),
+    }
+}
+
+impl VolumeStore for AdapterVolumes {
+    fn list_all(
+        &self,
+        root: &std::path::Path,
+    ) -> Result<Vec<OwnedVolumeRecord>, delonix_model::Error> {
+        Ok(delonix_volume::VolumeStore::open(root)?
+            .list_all()?
+            .into_iter()
+            .map(|o| OwnedVolumeRecord {
+                namespace: o.namespace,
+                volume: volume_record(&o.volume),
+            })
+            .collect())
+    }
+    fn measure(&self, path: &std::path::Path) -> VolumeUsage {
+        let u = delonix_volume::measure(path);
+        VolumeUsage {
+            bytes: u.bytes,
+            complete: u.is_complete(),
+        }
+    }
+    fn is_network_driver(&self, driver: &str) -> bool {
+        delonix_volume::is_network_driver(driver)
+    }
+    fn validate_name(&self, name: &str) -> Result<(), delonix_model::Error> {
+        delonix_volume::VolumeStore::validate_name(name)?;
+        Ok(())
+    }
+    fn create_local(&self, root: &std::path::Path, name: &str) -> Result<(), delonix_model::Error> {
+        delonix_volume::VolumeStore::open(root)?.create_with(name, "local", None, None)?;
+        Ok(())
+    }
+    fn register_in_pool(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        mountpoint: &std::path::Path,
+        size_bytes: u64,
+        alert_pct: Option<u8>,
+        pool: &str,
+    ) -> Result<(), delonix_model::Error> {
+        delonix_volume::VolumeStore::open(root)?
+            .register_in_pool(name, mountpoint, size_bytes, alert_pct, pool)?;
+        Ok(())
+    }
+    fn set_quota(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        quota: Option<u64>,
+        alert_pct: Option<u8>,
+    ) -> Result<(), delonix_model::Error> {
+        delonix_volume::VolumeStore::open(root)?.set_quota(name, quota, alert_pct, false)?;
+        Ok(())
+    }
+    fn set_metadata(
+        &self,
+        root: &std::path::Path,
+        name: &str,
+        labels: &[(String, Option<String>)],
+        annotations: &[(String, Option<String>)],
+    ) -> Result<(), delonix_model::Error> {
+        delonix_volume::VolumeStore::open(root)?.set_metadata(name, labels, annotations)?;
+        Ok(())
+    }
+    fn remove(
+        &self,
+        root: &std::path::Path,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> Result<(), delonix_model::Error> {
+        let store = match namespace {
+            Some(ns) => delonix_volume::VolumeStore::open_scoped(root, ns),
+            None => delonix_volume::VolumeStore::open(root),
+        }?;
+        store.remove_with(name, None)?;
+        Ok(())
+    }
+}
+
+/// A [`CephStorage`] over the real `delonix-provider-ceph` adapter (R3d-j) — the
+/// tests' stand-in for the `delonix-provider-ceph`-backed port the bin composes.
+/// Production reaches the Ceph cluster only through this port; the node-api crate
+/// names no Ceph adapter, so this lives in the test harness over the
+/// `delonix-provider-ceph` dev-dependency. It mirrors `delonix-node-api-bin`'s
+/// `CephStore`. The integration tests that use it drive refusals (no cluster is
+/// present), so no live cluster is required.
+pub struct AdapterCeph;
+
+/// The adapter-backed Ceph port, as an `Arc` for `serve_blocking`.
+pub fn backing_ceph() -> Arc<dyn CephStorage> {
+    Arc::new(AdapterCeph)
+}
+
+fn ceph_ctx(ident: &CephIdentity) -> delonix_provider_ceph::ceph::CephCtx {
+    delonix_provider_ceph::ceph::CephCtx {
+        conf: ident.conf.clone(),
+        user: ident.user.clone(),
+    }
+}
+
+fn ceph_run() -> Arc<delonix_volume::pool_exec::SystemRun> {
+    Arc::new(delonix_volume::pool_exec::SystemRun)
+}
+
+fn rgw_gateway(conf: Option<&std::path::Path>) -> delonix_provider_ceph::rgw::Rgw {
+    delonix_provider_ceph::rgw::Rgw::new(ceph_run(), conf.map(std::path::Path::to_path_buf))
+}
+
+fn rgw_fault(e: delonix_provider_ceph::RgwError) -> RgwFault {
+    match e {
+        delonix_provider_ceph::RgwError::Unavailable(m) => RgwFault::Unavailable(m),
+        delonix_provider_ceph::RgwError::Undetermined(m) => RgwFault::Undetermined(m),
+        delonix_provider_ceph::RgwError::NotFound(m) => RgwFault::NotFound(m),
+    }
+}
+
+impl CephStorage for AdapterCeph {
+    fn cluster_health(&self, ident: &CephIdentity) -> Option<CephHealth> {
+        delonix_provider_ceph::cluster_health(&*ceph_run(), &ceph_ctx(ident)).map(|h| CephHealth {
+            status: h.status,
+            fsid: h.fsid,
+            mons: h.mons,
+            osds_up: h.osds_up,
+            osds_in: h.osds_in,
+            pools: h.pools,
+        })
+    }
+    fn list_rbd_images(&self, ident: &CephIdentity, rados: &str) -> Result<Vec<String>, String> {
+        delonix_provider_ceph::rbd::list_images(&*ceph_run(), &ceph_ctx(ident), rados)
+    }
+    fn list_cephfs_subvolumes(
+        &self,
+        ident: &CephIdentity,
+        fs: &str,
+    ) -> Result<Vec<String>, String> {
+        delonix_provider_ceph::cephfs::list_subvolumes(&*ceph_run(), &ceph_ctx(ident), fs)
+    }
+    fn list_buckets(
+        &self,
+        conf: Option<&std::path::Path>,
+        uid: Option<&str>,
+    ) -> Result<Vec<String>, RgwFault> {
+        rgw_gateway(conf).list_buckets(uid).map_err(rgw_fault)
+    }
+    fn bucket_stats(
+        &self,
+        conf: Option<&std::path::Path>,
+        bucket: &str,
+    ) -> Result<BucketRecord, RgwFault> {
+        let b = rgw_gateway(conf).bucket_stats(bucket).map_err(rgw_fault)?;
+        Ok(BucketRecord {
+            name: b.name,
+            owner: b.owner,
+            objects: b.objects,
+            size_bytes: b.size_bytes,
+        })
+    }
+    fn ensure_user(
+        &self,
+        conf: Option<&std::path::Path>,
+        uid: &str,
+        display_name: &str,
+    ) -> Result<UserRecord, RgwFault> {
+        let u = rgw_gateway(conf)
+            .ensure_user(uid, display_name)
+            .map_err(rgw_fault)?;
+        Ok(UserRecord {
+            uid: u.uid,
+            display_name: u.display_name,
+            access_key: u.access_key,
+            secret_key: u.secret_key,
+        })
+    }
+    fn drivers(&self, mount_root: std::path::PathBuf) -> Vec<Arc<dyn StoragePoolDriver>> {
+        delonix_provider_ceph::drivers(ceph_run(), mount_root)
     }
 }
 
