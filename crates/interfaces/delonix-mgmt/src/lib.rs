@@ -30,7 +30,6 @@ use axum::{Json, Router};
 use delonix_host::peer_cred::peer_uid;
 use delonix_model::dash::DashSummary;
 use delonix_model::Error;
-use delonix_state::Store;
 use delonix_telemetry::workload::WorkloadSeries;
 
 /// Shared state of the handlers.
@@ -99,6 +98,16 @@ pub trait EngineOps: Send + Sync {
     ) -> Result<serde_json::Value, Error>;
     /// Remove a named volume.
     fn remove_volume(&self, name: &str) -> Result<(), Error>;
+
+    // --- containers (delonix-state, R3f-D) ---
+    /// Every container record (`Container` is a context type the interface names).
+    fn list_containers(&self) -> Result<Vec<delonix_compute::Container>, Error>;
+    /// One container record by id or name.
+    fn get_container(&self, id: &str) -> Result<delonix_compute::Container, Error>;
+    /// Record a published-port spec on the container holding `ip` (best-effort).
+    fn record_published_port(&self, ip: &str, spec: &str) -> Result<(), Error>;
+    /// Drop a publication from whichever record claims it.
+    fn forget_published_port(&self, ip: Option<&str>, spec_or_port: &str) -> Result<(), Error>;
 }
 
 /// Starts the management API listening on a unix socket (blocking). `addr` accepts
@@ -550,27 +559,9 @@ async fn delete_volume(State(s): State<AppState>, Path(name): Path<String>) -> R
 
 // ---- Containers (read) -----------------------------------------------------
 
-/// Runs a synchronous container `Store` operation on a blocking thread.
-/// The store lives at `<base>/containers` (same resolution the CLI uses in
-/// `util::open_stores`).
-async fn with_container_store<T, F>(base: PathBuf, f: F) -> Result<T, Error>
-where
-    T: Send + 'static,
-    F: FnOnce(&Store) -> Result<T, delonix_state::Error> + Send + 'static,
-{
-    tokio::task::spawn_blocking(move || -> Result<T, Error> {
-        let store = Store::open(base.join("containers"))?;
-        Ok(f(&store)?)
-    })
-    .await
-    .map_err(|e| Error::Runtime {
-        context: "join",
-        message: e.to_string(),
-    })?
-}
-
 async fn list_containers(State(s): State<AppState>) -> Response {
-    match with_container_store(s.base, |store| store.list()).await {
+    let engine = s.engine.clone();
+    match blocking(move || engine.list_containers()).await {
         Ok(cs) => Json(cs).into_response(),
         Err(e) => err_response(e),
     }
@@ -582,7 +573,8 @@ async fn get_container(State(s): State<AppState>, Path(id): Path<String>) -> Res
     if !valid_name(&id) {
         return err_response(Error::Invalid("invalid container id".to_string()));
     }
-    match with_container_store(s.base, move |store| store.load(&id)).await {
+    let engine = s.engine.clone();
+    match blocking(move || engine.get_container(&id)).await {
         Ok(c) => Json(c).into_response(),
         Err(e) => err_response(e),
     }
@@ -1217,7 +1209,7 @@ async fn publish_port(State(s): State<AppState>, Json(b): Json<PublishBody>) -> 
     // published-but-unrecorded one is exactly the bug being fixed.
     let ip = b.container_ip.clone();
     let spec = b.spec.clone();
-    if let Err(e) = record_published_port(s.base.clone(), ip.clone(), spec.clone()).await {
+    if let Err(e) = record_published_port(s.engine.clone(), ip.clone(), spec.clone()).await {
         return err_response(e);
     }
     let r = tokio::task::spawn_blocking(move || {
@@ -1229,7 +1221,7 @@ async fn publish_port(State(s): State<AppState>, Json(b): Json<PublishBody>) -> 
         Ok(Err(e)) => {
             // The publication failed, so the record must not keep claiming it —
             // otherwise the next start would replay a port the operator never got.
-            let _ = forget_published_port(s.base, Some(ip), spec).await;
+            let _ = forget_published_port(s.engine.clone(), Some(ip), spec).await;
             err_response(e.into())
         }
         Err(e) => err_response(Error::Runtime {
@@ -1246,20 +1238,12 @@ async fn publish_port(State(s): State<AppState>, Json(b): Json<PublishBody>) -> 
 /// publication itself still proceeds — refusing it would break a caller that
 /// works today, and this function exists to record what it can, not to become a
 /// second admission gate.
-async fn record_published_port(base: PathBuf, ip: String, spec: String) -> Result<(), Error> {
-    with_container_store(base, move |store| {
-        for mut c in store.list()? {
-            if c.ip.as_deref() == Some(ip.as_str()) {
-                if !c.ports.contains(&spec) {
-                    c.ports.push(spec.clone());
-                    store.save(&c)?;
-                }
-                return Ok(());
-            }
-        }
-        Ok(())
-    })
-    .await
+async fn record_published_port(
+    engine: Arc<dyn EngineOps>,
+    ip: String,
+    spec: String,
+) -> Result<(), Error> {
+    blocking(move || engine.record_published_port(&ip, &spec)).await
 }
 
 /// Drops a publication from whichever record claims it.
@@ -1268,31 +1252,11 @@ async fn record_published_port(base: PathBuf, ip: String, spec: String) -> Resul
 /// DELETE route knows only the host port, so it matches on that alone — which is
 /// correct, because a host port can only be published once at a time.
 async fn forget_published_port(
-    base: PathBuf,
+    engine: Arc<dyn EngineOps>,
     ip: Option<String>,
     spec_or_port: String,
 ) -> Result<(), Error> {
-    with_container_store(base, move |store| {
-        let wanted_port = delonix_sdn::parse_publish(&spec_or_port)
-            .map(|(hp, _, _)| hp)
-            .unwrap_or_else(|_| spec_or_port.clone());
-        for mut c in store.list()? {
-            if ip.is_some() && c.ip != ip {
-                continue;
-            }
-            let before = c.ports.len();
-            c.ports.retain(|s| {
-                delonix_sdn::parse_publish(s)
-                    .map(|(hp, _, _)| hp != wanted_port)
-                    .unwrap_or(true)
-            });
-            if c.ports.len() != before {
-                store.save(&c)?;
-            }
-        }
-        Ok(())
-    })
-    .await
+    blocking(move || engine.forget_published_port(ip.as_deref(), &spec_or_port)).await
 }
 
 /// `DELETE /v1/net/publish/:host_port` — retira a publicação de um porto.
@@ -1308,7 +1272,7 @@ async fn unpublish_port(State(s): State<AppState>, Path(host_port): Path<String>
     }
     // Mirror of the publish path: drop the desired state too, or the next start
     // would faithfully republish a port the operator has just asked to remove.
-    let _ = forget_published_port(s.base, None, host_port.clone()).await;
+    let _ = forget_published_port(s.engine.clone(), None, host_port.clone()).await;
     let r =
         tokio::task::spawn_blocking(move || delonix_sdn::infra::unpublish_port(&host_port)).await;
     match r {
@@ -1541,6 +1505,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
+    use delonix_state::Store;
     use http_body_util::BodyExt;
     use tower::ServiceExt; // oneshot
 
@@ -1603,6 +1568,22 @@ mod tests {
         fn remove_volume(&self, name: &str) -> Result<(), Error> {
             self.0.volumes().remove(name)
         }
+        fn list_containers(&self) -> Result<Vec<delonix_compute::Container>, Error> {
+            self.0.containers().list()
+        }
+        fn get_container(&self, id: &str) -> Result<delonix_compute::Container, Error> {
+            self.0.containers().load(id)
+        }
+        fn record_published_port(&self, ip: &str, spec: &str) -> Result<(), Error> {
+            self.0.containers().record_published_port(ip, spec)
+        }
+        fn forget_published_port(
+            &self,
+            ip: Option<&str>,
+            spec_or_port: &str,
+        ) -> Result<(), Error> {
+            self.0.containers().forget_published_port(ip, spec_or_port)
+        }
     }
 
     fn test_state() -> (AppState, tempfile::TempDir) {
@@ -1652,7 +1633,7 @@ mod tests {
         let store = ctr_com_ip(&st.base, "aaaa1111bbbb2222", "10.210.0.5");
 
         record_published_port(
-            st.base.clone(),
+            st.engine.clone(),
             "10.210.0.5".to_string(),
             "18099:80".to_string(),
         )
@@ -1676,7 +1657,7 @@ mod tests {
         let store = ctr_com_ip(&st.base, "cccc3333dddd4444", "10.210.0.6");
         for _ in 0..3 {
             record_published_port(
-                st.base.clone(),
+                st.engine.clone(),
                 "10.210.0.6".to_string(),
                 "18100:80".to_string(),
             )
@@ -1694,7 +1675,7 @@ mod tests {
         let (st, _d) = test_state();
         let store = ctr_com_ip(&st.base, "eeee5555ffff6666", "10.210.0.7");
         record_published_port(
-            st.base.clone(),
+            st.engine.clone(),
             "10.210.99.99".to_string(),
             "18101:80".to_string(),
         )
@@ -1710,7 +1691,7 @@ mod tests {
         let (st, _d) = test_state();
         let store = ctr_com_ip(&st.base, "7777aaaa8888bbbb", "10.210.0.8");
         record_published_port(
-            st.base.clone(),
+            st.engine.clone(),
             "10.210.0.8".to_string(),
             "18102:80".to_string(),
         )

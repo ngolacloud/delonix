@@ -615,6 +615,53 @@ impl ContainerService<'_> {
     pub fn process_started_at_unix(&self, pid: i32) -> Option<u64> {
         delonix_linux::usage::process_started_at_unix(pid)
     }
+
+    /// Record a published-port `spec` on the container whose IP is `ip` (R3f-D).
+    /// Silent when no record owns the IP — the ingress addresses workloads by IP
+    /// and nothing guarantees one of ours holds it (a VM, a foreign netns); this
+    /// records what it can, it is not a second admission gate.
+    pub fn record_published_port(&self, ip: &str, spec: &str) -> delonix_model::Result<()> {
+        let store = self.store()?;
+        for mut c in store.list().map_err(delonix_model::Error::from)? {
+            if c.ip.as_deref() == Some(ip) {
+                if !c.ports.iter().any(|p| p == spec) {
+                    c.ports.push(spec.to_string());
+                    store.save(&c).map_err(delonix_model::Error::from)?;
+                }
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
+    /// Drop a publication from whichever record claims it (R3f-D). `ip` narrows
+    /// the search when known (the rollback path); the DELETE route knows only the
+    /// host port and matches on that alone (a host port is published once).
+    pub fn forget_published_port(
+        &self,
+        ip: Option<&str>,
+        spec_or_port: &str,
+    ) -> delonix_model::Result<()> {
+        let store = self.store()?;
+        let wanted_port = delonix_sdn::parse_publish(spec_or_port)
+            .map(|(hp, _, _)| hp)
+            .unwrap_or_else(|_| spec_or_port.to_string());
+        for mut c in store.list().map_err(delonix_model::Error::from)? {
+            if ip.is_some() && c.ip.as_deref() != ip {
+                continue;
+            }
+            let before = c.ports.len();
+            c.ports.retain(|s| {
+                delonix_sdn::parse_publish(s)
+                    .map(|(hp, _, _)| hp != wanted_port)
+                    .unwrap_or(true)
+            });
+            if c.ports.len() != before {
+                store.save(&c).map_err(delonix_model::Error::from)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The storage context's named-volume reads, bound to a mounted [`Engine`] (R3e).
