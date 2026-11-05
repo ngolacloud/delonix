@@ -96,6 +96,75 @@ pub trait ContainerOps: Send + Sync {
     ) -> Result<delonix_compute::Container, delonix_model::Error>;
 }
 
+/// A CRI-local mirror of the engine's Linux resource-update input (R3h): the same
+/// fields as the adapter's native update struct, in std types only, so the
+/// interface names no adapter type. `update_container_resources` fills it from the
+/// CRI request and the multicall maps it back across [`RuntimeOps::update_kube_resources`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ResourceUpdateSpec<'a> {
+    pub memory: Option<&'a str>,
+    pub cpus: Option<&'a str>,
+    pub cpu_weight: Option<&'a str>,
+    pub cpuset: Option<&'a str>,
+    pub cpuset_mems: Option<&'a str>,
+    pub hugepage_limits: &'a [(String, u64)],
+    pub unified: &'a [(String, String)],
+    pub oom_score_adj: Option<i32>,
+}
+
+/// The composed engine's **Linux mechanism** use cases this CRI server routes
+/// through (R3h). The interface no longer names the `delonix-linux` adapter: the
+/// multicall mounts the engine and hands in an implementor, exactly as it does for
+/// images and the container store (ADR-0040 A5). Everything that crosses is a std
+/// type or the shared [`delonix_compute::Container`]; no adapter type is nameable
+/// here. It splits into two groups — the host/cgroup process primitives the
+/// lifecycle needs, and the capability dictionary the node ceiling
+/// ([`cap_ceiling`]) computes against, so the ceiling never keeps a second copy of
+/// the engine's own capability rules.
+pub trait RuntimeOps: Send + Sync {
+    /// Whether this node runs rootless (no root; inside a user namespace).
+    fn is_rootless(&self) -> bool;
+    /// Whether `pid` — recorded together with `starttime` — is still the exact
+    /// process we recorded (the PID-reuse guard before a signal or a `setns`).
+    fn safe_to_signal(&self, pid: i32, starttime: Option<u64>) -> bool;
+    /// The cgroup v2 leaf controllers the engine's slice delegates (default set),
+    /// ensuring the slice exists as a side effect.
+    fn leaf_controllers(&self) -> Vec<String>;
+    /// Reconcile a container record's status against kernel reality, in place;
+    /// `true` when the record changed — the signal the locked `update` closure
+    /// uses to decide whether to persist.
+    fn reconcile_status(&self, c: &mut delonix_compute::Container) -> bool;
+    /// The `crash_reason` marker the engine writes when the OOM killer took a
+    /// container down (compared against a record's `crash_reason`).
+    fn oom_killed_reason(&self) -> &'static str;
+    /// Validate an OCI seccomp profile JSON, fail-closed; the error text on reject.
+    fn seccomp_validate(&self, json: &str) -> Result<(), String>;
+    /// Apply a kube resource update to a container's live cgroup. `Ok(true)` when it
+    /// reached a live cgroup (applied or deferred), `Ok(false)` when it did not
+    /// (the container looked alive but its cgroup is gone — `NotEnforced`).
+    fn update_kube_resources(
+        &self,
+        c: &delonix_compute::Container,
+        update: &ResourceUpdateSpec<'_>,
+    ) -> Result<bool, delonix_model::Error>;
+
+    // -- capability dictionary (the node ceiling, `cap_ceiling`, computes against
+    //    the engine's own rules; never a second copy) --
+
+    /// Mask of every capability the kernel has (`/proc/sys/kernel/cap_last_cap`).
+    fn all_caps_mask(&self) -> u64;
+    /// Bit number of a capability name (`CAP_` prefix optional, case-insensitive),
+    /// or `None` for an unknown name.
+    fn cap_bit(&self, name: &str) -> Option<u8>;
+    /// The engine's default kept-capability set, as a mask.
+    fn default_kept_mask(&self) -> u64;
+    /// The capability names of a mask, in the engine's canonical order.
+    fn names_from_mask(&self, mask: u64) -> Vec<&'static str>;
+    /// The mask the engine would grant for the given `--cap-drop`/`--cap-add`
+    /// (its own resolution rule, so a clamp cannot drift from it).
+    fn resolve_cap_keep(&self, cap_drop: &[String], cap_add: &[String]) -> u64;
+}
+
 // ---------------------------------------------------------------------------
 // ImageService — fully functional over the Delonix engine (R3h).
 // ---------------------------------------------------------------------------
@@ -306,12 +375,15 @@ async fn metrics_handler() -> impl axum::response::IntoResponse {
 }
 
 /// Serves the CRI socket with the node's capability ceiling in force. See
-/// [`cap_ceiling`] — [`CapCeiling::default`] is the safe ceiling; [`CapCeiling::unlimited`]
-/// lifts it and must be asked for.
+/// [`cap_ceiling`] — [`CapCeiling::node_default`] is the safe ceiling; [`CapCeiling::unlimited`]
+/// lifts it and must be asked for. `runtime` is the engine's Linux-mechanism port
+/// (R3h): the server reaches `is_rootless`, the cgroup/process primitives and the
+/// capability dictionary through it, never through the adapter directly.
 pub fn serve_blocking(
     base: PathBuf,
     images: Arc<dyn ImageOps>,
     containers: Arc<dyn ContainerOps>,
+    runtime: Arc<dyn RuntimeOps>,
     addr: &str,
     ceiling: CapCeiling,
 ) -> Result<(), delonix_model::Error> {
@@ -388,8 +460,12 @@ pub fn serve_blocking(
                 message: e.to_string(),
             })?;
         let advertised = format!("http://127.0.0.1:{stream_port}");
-        let streamer =
-            streaming::Streamer::new(base.clone(), containers.clone(), advertised.clone());
+        let streamer = streaming::Streamer::new(
+            base.clone(),
+            containers.clone(),
+            runtime.clone(),
+            advertised.clone(),
+        );
         eprintln!("delonix-cri: streaming (exec/attach) at {advertised}");
         let app = streamer.clone().router();
         tokio::spawn(async move {
@@ -421,7 +497,7 @@ pub fn serve_blocking(
         // for `delonix serve cri`; the journal, for `delonix-cri.service`): a
         // ceiling that is in force but invisible would be diagnosed as "the
         // runtime dropped my capabilities for no reason".
-        let (banner, is_warning) = ceiling.startup_banner();
+        let (banner, is_warning) = ceiling.startup_banner(runtime.as_ref());
         let line = if is_warning {
             format!("delonix-cri: WARNING: {banner}")
         } else {
@@ -438,7 +514,7 @@ pub fn serve_blocking(
             base: base.clone(),
             engine: images,
         };
-        let rtsvc = runtime_svc::DelonixRuntime::new(base, containers, streamer, ceiling);
+        let rtsvc = runtime_svc::DelonixRuntime::new(base, containers, runtime, streamer, ceiling);
         tonic::transport::Server::builder()
             .add_service(RuntimeServiceServer::new(rtsvc))
             .add_service(ImageServiceServer::new(img))
@@ -495,6 +571,69 @@ pub(crate) mod test_ops {
             self.store()?
                 .update(id_or_name, |c| f(c))
                 .map_err(delonix_model::Error::from)
+        }
+    }
+
+    /// A [`RuntimeOps`](super::RuntimeOps) backed by the real `delonix-linux` adapter
+    /// (a dev-dependency), for the crate's own tests only (R3h). The server never
+    /// builds this — in production the multicall hands in the engine's port — but
+    /// the unit tests exercise the SAME Linux mechanism the engine delegates to, so
+    /// the capability dictionary and the process/cgroup guards under test are the
+    /// genuine ones, not a stand-in that could drift from them.
+    pub(crate) struct LinuxPort;
+
+    impl super::RuntimeOps for LinuxPort {
+        fn is_rootless(&self) -> bool {
+            delonix_linux::is_rootless()
+        }
+        fn safe_to_signal(&self, pid: i32, starttime: Option<u64>) -> bool {
+            delonix_linux::safe_to_signal(pid, starttime)
+        }
+        fn leaf_controllers(&self) -> Vec<String> {
+            delonix_linux::leaf_controllers()
+        }
+        fn reconcile_status(&self, c: &mut delonix_compute::Container) -> bool {
+            delonix_linux::reconcile_status(c)
+        }
+        fn oom_killed_reason(&self) -> &'static str {
+            delonix_linux::OOM_KILLED
+        }
+        fn seccomp_validate(&self, json: &str) -> Result<(), String> {
+            delonix_linux::seccomp_profile::parse(json).map(|_| ())
+        }
+        fn update_kube_resources(
+            &self,
+            c: &delonix_compute::Container,
+            update: &super::ResourceUpdateSpec<'_>,
+        ) -> Result<bool, delonix_model::Error> {
+            let u = delonix_linux::ResourceUpdate {
+                memory: update.memory,
+                cpus: update.cpus,
+                cpu_weight: update.cpu_weight,
+                cpuset: update.cpuset,
+                cpuset_mems: update.cpuset_mems,
+                hugepage_limits: update.hugepage_limits,
+                unified: update.unified,
+                oom_score_adj: update.oom_score_adj,
+            };
+            delonix_linux::update_kube_resources(c, &u)
+                .map(|lu| lu != delonix_linux::LimitUpdate::NotEnforced)
+                .map_err(delonix_model::Error::from)
+        }
+        fn all_caps_mask(&self) -> u64 {
+            delonix_linux::capabilities::all_caps_mask()
+        }
+        fn cap_bit(&self, name: &str) -> Option<u8> {
+            delonix_linux::capabilities::cap_num(name)
+        }
+        fn default_kept_mask(&self) -> u64 {
+            delonix_linux::capabilities::default_kept_mask()
+        }
+        fn names_from_mask(&self, mask: u64) -> Vec<&'static str> {
+            delonix_linux::capabilities::names_from_mask(mask)
+        }
+        fn resolve_cap_keep(&self, cap_drop: &[String], cap_add: &[String]) -> u64 {
+            delonix_linux::capabilities::resolve_cap_keep(cap_drop, cap_add)
         }
     }
 }
