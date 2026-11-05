@@ -185,6 +185,11 @@ pub trait EngineReads: Send + Sync {
     /// This host's resource snapshot, advice and local-inference verdict, shaped
     /// as the `resources.get` tool's published JSON (ADR-0025).
     fn host_resources(&self) -> serde_json::Value;
+    /// The engine-wide resource summary (counts, cgroup memory), serialized — the
+    /// same `DashSummary` the engine composes for `delonix-mgmt`'s dashboard,
+    /// which `runtime.info`/`metrics.query` serve. Cheap: no netns/disk walk
+    /// (R3f-B replaces the old `delonix_mgmt::dashstats::collect` call here).
+    fn dash_summary(&self) -> serde_json::Value;
 }
 
 fn list_vms(vms: &dyn VmView) -> Result<Vec<delonix_compute::Vm>, ErrorData> {
@@ -383,7 +388,7 @@ impl DelonixMcp {
         annotations(read_only_hint = true)
     )]
     fn runtime_info(&self) -> String {
-        let summary = delonix_mgmt::dashstats::collect(&self.base, self.vms.as_ref(), false, false);
+        let summary = self.reads.dash_summary();
         self.log("runtime.info", "ok", &json!({}), None, None, None);
         pretty(json!({
             "version": env!("CARGO_PKG_VERSION"),
@@ -534,7 +539,7 @@ impl DelonixMcp {
         annotations(read_only_hint = true)
     )]
     fn metrics_query(&self) -> String {
-        let summary = delonix_mgmt::dashstats::collect(&self.base, self.vms.as_ref(), false, false);
+        let summary = self.reads.dash_summary();
         self.log("metrics.query", "ok", &json!({}), None, None, None);
         pretty(summary)
     }
@@ -1202,6 +1207,15 @@ mod tests {
             use delonix_linux::resource_advice as advice;
             let snap = advice::collect(&self.0);
             json!({ "advice_count": advice::advise(&snap).len() })
+        }
+        fn dash_summary(&self) -> serde_json::Value {
+            // The summary is the engine's `dash_summary`, composed and tested
+            // where the engine is built; `runtime.info`/`metrics.query` are not
+            // exercised by these tests, so this backing returns the empty-node
+            // shape over its own stores rather than reproducing the aggregation.
+            let containers = self.list_containers().map(|c| c.len()).unwrap_or(0);
+            let volumes = self.list_volumes().map(|v| v.len()).unwrap_or(0);
+            json!({ "containers_total": containers, "volumes_total": volumes })
         }
     }
 

@@ -1708,8 +1708,7 @@ fn cmd_resources(output: super::output::OutputFormat, strict: bool) -> Result<()
 fn cmd_metrics(output: super::output::OutputFormat) -> Result<()> {
     let root = state_root();
     let output = super::config::resolve_output(&root, output);
-    let summary =
-        delonix_mgmt::dashstats::collect(&root, &super::engine_vms::vm_view(&root), true, true);
+    let summary = super::engine_vms::engine(&root).dash_summary(true, true);
     if output == super::output::OutputFormat::Json {
         let out = serde_json::to_string_pretty(&summary)
             .map_err(|e| Error::Invalid(format!("system metrics: {e}")))?;

@@ -814,10 +814,8 @@ flowchart TB
   delonix_mcp_bin --> delonix_telemetry
   delonix_mgmt --> delonix_compute
   delonix_mgmt --> delonix_host
-  delonix_mgmt --> delonix_linux
   delonix_mgmt --> delonix_model
   delonix_mgmt --> delonix_node
-  delonix_mgmt --> delonix_oci
   delonix_mgmt --> delonix_sdn
   delonix_mgmt --> delonix_state
   delonix_mgmt --> delonix_telemetry
