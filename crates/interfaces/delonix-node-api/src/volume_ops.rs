@@ -193,7 +193,7 @@ pub(crate) fn delete_work(
     if let Some(pool) = entry.volume.pool.as_deref() {
         crate::storage::provision_release(ceph, root, pool, name)?;
     }
-    let namespace = entry.scoped.then(|| entry.namespace.as_str());
+    let namespace = entry.scoped.then_some(entry.namespace.as_str());
     vols.remove(root, namespace, name)?;
     delonix_node::events::emit(root, "volume", "remove", name, name, None);
     Ok(())

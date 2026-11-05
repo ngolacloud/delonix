@@ -168,6 +168,7 @@ pub enum Listen {
 /// shape as `delonix_mgmt::serve_blocking`, which already takes its VM view). A
 /// test passes an adapter-backed port for the VM reads and provider reports it
 /// drives; the bin's production entry is [`serve`], which injects the engine.
+#[allow(clippy::too_many_arguments)]
 pub fn serve_blocking(
     addr: &str,
     vms: std::sync::Arc<dyn VmPort>,
@@ -200,6 +201,7 @@ pub fn serve_blocking(
 /// as a clean exit (ADR-0040 P5). With `idle` `None`, or a zero timeout, it
 /// serves until killed. `vms` is the composition's VM port (ADR-0040 A5):
 /// `delonix-node-api-bin` mounts the engine and passes an implementor.
+#[allow(clippy::too_many_arguments)]
 pub fn serve(
     listen: Listen,
     idle: Option<activation::IdleExit>,
@@ -228,6 +230,7 @@ pub fn serve(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn serve_with(
     listen: Listen,
     idle: Option<activation::IdleExit>,

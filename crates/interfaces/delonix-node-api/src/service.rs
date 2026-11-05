@@ -1248,6 +1248,7 @@ impl crate::vms::VmPort for NoVms {
 /// Builds the router with the VM port the composition injects (ADR-0040 A5).
 /// `delonix-node-api-bin` passes an engine-backed [`crate::vms::VmPort`];
 /// [`router`] passes an empty one.
+#[allow(clippy::too_many_arguments)]
 pub fn router_with(
     vms: Arc<dyn crate::vms::VmPort>,
     store: Arc<dyn crate::store::StorePort>,
