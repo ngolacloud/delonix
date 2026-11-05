@@ -845,8 +845,13 @@ name = "delonix-engine"
 version = "0.1.0"
 dependencies = [
  "delonix-compute",
+ "delonix-linux",
  "delonix-model",
+ "delonix-sdn",
+ "delonix-state",
  "delonix-vm",
+ "delonix-volume",
+ "serde_json",
 ]
 
 [[package]]

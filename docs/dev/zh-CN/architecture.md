@@ -763,8 +763,12 @@ flowchart TB
   delonix_cri --> delonix_state
   delonix_cri --> delonix_telemetry
   delonix_engine --> delonix_compute
+  delonix_engine --> delonix_linux
   delonix_engine --> delonix_model
+  delonix_engine --> delonix_sdn
+  delonix_engine --> delonix_state
   delonix_engine --> delonix_vm
+  delonix_engine --> delonix_volume
   delonix_host --> delonix_model
   delonix_linux --> delonix_compute
   delonix_linux --> delonix_model
@@ -772,13 +776,9 @@ flowchart TB
   delonix_linux --> delonix_state
   delonix_mcp --> delonix_compute
   delonix_mcp --> delonix_host
-  delonix_mcp --> delonix_linux
   delonix_mcp --> delonix_mgmt
   delonix_mcp --> delonix_model
   delonix_mcp --> delonix_node
-  delonix_mcp --> delonix_sdn
-  delonix_mcp --> delonix_state
-  delonix_mcp --> delonix_volume
   delonix_mcp_bin --> delonix_compute
   delonix_mcp_bin --> delonix_engine
   delonix_mcp_bin --> delonix_host
