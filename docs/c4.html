@@ -392,11 +392,11 @@ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hi
 <h1>Arquitectura — Delonix Engine</h1>
 <p>Modelo C4 (Contexto → Contentores → Componentes) e system design funcional do
 <strong>Delonix Engine</strong>: motor de containers e microVMs <strong>daemonless, rootless-first,
-kernel-native</strong>, em Rust (35 crates, workspace <code>crates/</code>). Este documento é canónico
+kernel-native</strong>, em Rust (39 crates, workspace <code>crates/</code>). Este documento é canónico
 e mantido contra o código — cada afirmação estrutural tem a referência do
 crate/ficheiro onde foi confirmada. Onde há limites, eles aparecem nos diagramas,
 não escondidos em rodapés.</p>
-<p>Convenção de nomes: <code>delonix</code> é o binário CLI (crate <code>delonix-runtime-bin</code>);
+<p>Convenção de nomes: <code>delonix</code> é o binário CLI (crate <code>delonix-bin</code>);
 <code>delonix-cri</code> é o binário servidor CRI (crate <code>delonix-cri</code>); "holder" é o processo
 que detém o network namespace de infra-estrutura do ingress rootless
 (<code>crates/adapters/delonix-sdn/src/infra.rs</code>).</p>
@@ -423,7 +423,7 @@ hipervisores locais.</p>
     DLX -- &quot;download validado por SHA256SUMS&quot; --&gt; UBU
 </pre>
 <ul>
-<li>CLI: <code>bins/delonix-runtime-bin/src/main.rs</code> (grupos <code>Container</code>/<code>Image</code>/<code>Build</code>/
+<li>CLI: <code>bins/delonix/src/main.rs</code> (grupos <code>Container</code>/<code>Image</code>/<code>Build</code>/
   <code>Vm</code>/<code>Volumes</code>/<code>Network</code>/<code>Stack</code>/<code>Cluster</code>, um módulo por grupo em <code>src/cmd/</code>).</li>
 <li>CRI: <code>crates/interfaces/delonix-cri/src/bin/delonix-cri.rs</code> → <code>serve_blocking</code> num socket
   unix (<code>DELONIX_CRI_ADDR</code>, default <code>unix:///run/delonix-cri.sock</code>), o endpoint do
@@ -431,7 +431,7 @@ hipervisores locais.</p>
 <li>Registos OCI: <code>crates/adapters/delonix-oci/src/registry.rs</code> (<code>pull_from_registry_with_creds</code>,
   <code>push_to_registry</code>, <code>push_oci_artifact</code>/<code>pull_oci_artifact</code> — este par com
   verificação de digest do blob contra o manifesto).</li>
-<li>Hosts SSH: <code>bins/delonix-runtime-bin/src/cmd/remote.rs</code> (shell-out a <code>ssh</code>/<code>scp</code>
+<li>Hosts SSH: <code>bins/delonix/src/cmd/remote.rs</code> (shell-out a <code>ssh</code>/<code>scp</code>
   do sistema, <code>sudo -n</code> remoto).</li>
 <li>Hipervisores: <code>crates/adapters/delonix-vm/src/lib.rs</code> (trait <code>VmBackend</code>, implementações
   <code>CloudHypervisorBackend</code> e <code>LibvirtBackend</code>).</li>
@@ -491,7 +491,7 @@ JSON, não um socket de daemon.</p>
 <tbody>
 <tr>
 <td><code>delonix</code> (CLI)</td>
-<td><code>bins/delonix-runtime-bin/src/main.rs</code></td>
+<td><code>bins/delonix/src/main.rs</code></td>
 <td>um comando; em foreground faz <code>waitpid</code> do container e sai</td>
 </tr>
 <tr>
@@ -521,7 +521,7 @@ JSON, não um socket de daemon.</p>
 </tr>
 <tr>
 <td>watcher <code>--rm</code></td>
-<td><code>spawn_rm_watcher</code> (<code>bins/delonix-runtime-bin/src/cmd/container.rs</code>) — só em <code>run -d --rm</code></td>
+<td><code>spawn_rm_watcher</code> (<code>bins/delonix/src/cmd/container.rs</code>) — só em <code>run -d --rm</code></td>
 <td>até o container terminar; faz a mesma limpeza do <code>rm -f</code></td>
 </tr>
 <tr>
@@ -544,11 +544,11 @@ leitura — <code>reconcile_status</code> (<code>crates/adapters/delonix-linux/s
 de PID) e reclassifica <code>Running</code>→<code>Crashed</code>/<code>Paused</code>. O CRI chama-o em
 <code>load_reconciled</code> antes de responder ao kubelet.</p>
 <hr />
-<h2>C4 — Nível 3: Componentes (os 35 crates)</h2>
+<h2>C4 — Nível 3: Componentes (os 39 crates)</h2>
 <p>Setas = dependências <strong>reais</strong>, confirmadas nos <code>Cargo.toml</code> de <code>crates/*/</code> e nos
 <code>use delonix_*</code> dos <code>src/</code>. Não há ciclos; <code>delonix-model</code> é a raiz comum.</p>
 <pre class="mermaid">graph TB
-    BIN[&quot;delonix-runtime-bin&lt;br&gt;CLI delonix — um modulo por grupo em src/cmd&lt;br&gt;manifesto e apply, cluster kubeadm, imagens VM douradas&quot;]
+    BIN[&quot;delonix-bin&lt;br&gt;CLI delonix — um modulo por grupo em src/cmd&lt;br&gt;manifesto e apply, cluster kubeadm, imagens VM douradas&quot;]
     CRI[&quot;delonix-cri&lt;br&gt;servidor CRI runtime.v1 — ImageService e RuntimeService&lt;br&gt;modulos: runtime_svc, lifecycle, streaming, spdy&quot;]
     RT[&quot;delonix-linux&lt;br&gt;motor de containers: clone e namespaces, setup_rootfs,&lt;br&gt;cgroups v2, seccomp, caps, exec, log shim, reconcile_status&quot;]
     NET[&quot;delonix-sdn&lt;br&gt;SDN rootless: modulo infra — holder netns, slirp unico,&lt;br&gt;publish e DNAT, DNS e DHCP; cni, wg WireGuard, discover&quot;]
@@ -560,14 +560,14 @@ de PID) e reclassifica <code>Running</code>→<code>Crashed</code>/<code>Paused<
     MGMT[&quot;delonix-mgmt&lt;br&gt;API de gestao LOCAL (HTTP+JSON num socket unix, so o proprio uid)&lt;br&gt;expoe as metricas partilhadas em /metrics&quot;]
     TEL[&quot;delonix-telemetry&lt;br&gt;observabilidade: logging estruturado, spans OpenTelemetry/OTLP&lt;br&gt;e o registo Prometheus partilhado (saiu do core na P3)&quot;]
     SCAN[&quot;delonix-scanner&lt;br&gt;SBOM e varredura de CVE — image scan&lt;br&gt;e a imposicao de scan-on-pull&quot;]
-    SEC[&quot;delonix-security-runtime&lt;br&gt;decisoes de seguranca do no: politica, admissao&lt;br&gt;unica (container E VM), evento, score, redaccao&lt;br&gt;(ADR-0026) — puro, sem sensores e sem inquilino&quot;]
+    SEC[&quot;delonix-security&lt;br&gt;decisoes de seguranca do no: politica, admissao&lt;br&gt;unica (container E VM), evento, score, redaccao&lt;br&gt;(ADR-0026) — puro, sem sensores e sem inquilino&quot;]
     RULES[&quot;delonix-net-rules&lt;br&gt;regras de rede PURAS, ZERO dependencias — Cidr, nome de bridge,&lt;br&gt;IPAM dentro de um prefixo, leitura de taxas, o PolicyIr (ADR-0059 D6); partilhado com o PaaS&quot;]
     CHV[&quot;delonix-provider-cloud-hypervisor&lt;br&gt;backend VmBackend Cloud Hypervisor (microVM por processo, api-socket)&lt;br&gt;(ADR-0044 P4b.4c) — saiu do delonix-vm, que o regista&quot;]
     LVIRT[&quot;delonix-provider-libvirt&lt;br&gt;backend VmBackend libvirt/KVM (QEMU via virsh)&lt;br&gt;(ADR-0044 P4b.4b) — saiu do delonix-vm, que o regista&quot;]
-    PVE[&quot;delonix-proxmox&lt;br&gt;backend VmBackend REMOTO contra a API de UM no Proxmox VE&lt;br&gt;(ADR-0008) — fora do delonix-vm por trazer cliente HTTP&quot;]
-    NAS[&quot;delonix-truenas&lt;br&gt;provisiona dataset, quota, permissoes e export numa NAS&lt;br&gt;pela API do TrueNAS (ADR-0009) — mesma razao de crate a parte&quot;]
-    OPN[&quot;delonix-opnsense&lt;br&gt;GatewayProvider REMOTO contra a API REST de UMA appliance OPNsense&lt;br&gt;(ADR-0051) — fora do delonix-sdn por trazer cliente HTTP&quot;]
-    PDNS[&quot;delonix-powerdns&lt;br&gt;cliente minimo da API de UM servidor PowerDNS, com a credencial&lt;br&gt;do PROPRIO motor (ADR-0064 D6) — remove os registos de gateway que o no deixa&quot;]
+    PVE[&quot;delonix-provider-proxmox&lt;br&gt;backend VmBackend REMOTO contra a API de UM no Proxmox VE&lt;br&gt;(ADR-0008) — fora do delonix-vm por trazer cliente HTTP&quot;]
+    NAS[&quot;delonix-provider-truenas&lt;br&gt;provisiona dataset, quota, permissoes e export numa NAS&lt;br&gt;pela API do TrueNAS (ADR-0009) — mesma razao de crate a parte&quot;]
+    OPN[&quot;delonix-provider-opnsense&lt;br&gt;GatewayProvider REMOTO contra a API REST de UMA appliance OPNsense&lt;br&gt;(ADR-0051) — fora do delonix-sdn por trazer cliente HTTP&quot;]
+    PDNS[&quot;delonix-provider-powerdns&lt;br&gt;cliente minimo da API de UM servidor PowerDNS, com a credencial&lt;br&gt;do PROPRIO motor (ADR-0064 D6) — remove os registos de gateway que o no deixa&quot;]
     MODEL[&quot;delonix-model&lt;br&gt;modelo partilhado PURO (foundation, ADR-0040) —&lt;br&gt;o Error e o dicionario DX-CDNN, Status, ContainerFw,&lt;br&gt;typestate, o modelo do segredo e os nomes gerados&quot;]
     STACK[&quot;delonix-stack&lt;br&gt;contexto Stack (ADR-0040): tabela de Kinds,&lt;br&gt;reconciliador de 3 vias, Condition, revisões&quot;]
     COMPUTE[&quot;delonix-compute&lt;br&gt;contexto Compute (ADR-0040): a especificacao&lt;br&gt;de execucao unica (RunOpts) que as entradas traduzem&quot;]
@@ -583,6 +583,10 @@ de PID) e reclassifica <code>Running</code>→<code>Crashed</code>/<code>Paused<
     CEPH[&quot;delonix-provider-ceph&lt;br&gt;suporte Ceph nativo (ADR-0081): quatro superficies de um cluster&lt;br&gt;pela porta Run do storage (RADOS status, RBD StoragePoolDriver de bloco,&lt;br&gt;CephFS por subvolume, RGW S3) — nunca a linkar librados&quot;]
     STORHELPER[&quot;delonix-storage-helper&lt;br&gt;o helper PRIVILEGIADO dos pools (ADR-0067 D3, P1): um processo&lt;br&gt;por ligacao no delonix-storage-helper.socket, SO_PEERCRED + allowUsers;&lt;br&gt;tambem o create-pool/destroy-pool do administrador&quot;]
     MCP[&quot;delonix-mcp&lt;br&gt;servidor MCP (ADR-0025) — superficie de IA LOCAL, sem inquilino&lt;br&gt;stdio-only; tools chamam Store/dominio, nunca shell arbitrario&quot;]
+    ENGINE[&quot;delonix-engine&lt;br&gt;raiz de composicao unica (ADR-0040 D1/A5, camada assembly):&lt;br&gt;escolhe o adaptador e o provider de cada porta e expoe um Engine&lt;br&gt;com um servico por contexto — a interface recebe-o ja montado (A5)&quot;]
+    HOST[&quot;delonix-host&lt;br&gt;adaptador do host (ADR-0040 R2): o mecanismo de processo-e-ficheiro&lt;br&gt;partilhado — escrita atomica, flock, contrato de dispatch e o peer cred&lt;br&gt;do socket local; adaptador de que os outros podem depender (A1)&quot;]
+    POOLHELPER[&quot;delonix-pool-helper&lt;br&gt;o protocolo do helper PRIVILEGIADO de pools (ADR-0067 D3, ADR-0040 R2c):&lt;br&gt;as operacoes que precisam de root cruzam para o delonix-storage-helper&quot;]
+    CRIBIN[&quot;delonix-cri-bin&lt;br&gt;o executavel delonix-cri, que `delonix serve cri` executa&lt;br&gt;(monta o Engine e serve o CRI runtime.v1)&quot;]
 
     BIN --&gt; RT
     BIN --&gt; IMG
@@ -717,13 +721,33 @@ de PID) e reclassifica <code>Running</code>→<code>Crashed</code>/<code>Paused<
     MCP --&gt; VOL
     MCP --&gt; NET
     MCP --&gt; MGMT
+
+    ENGINE --&gt; COMPUTE
+    ENGINE --&gt; VM2
+    ENGINE --&gt; STATECRATE
+    ENGINE --&gt; VOL
+    ENGINE --&gt; NET
+    ENGINE --&gt; RT
+    ENGINE --&gt; IMG
+    ENGINE --&gt; SCAN
+    ENGINE --&gt; MCP
+    ENGINE --&gt; MGMT
+    ENGINE --&gt; TEL
+    ENGINE --&gt; MODEL
+    HOST --&gt; MODEL
+    POOLHELPER --&gt; STORCTX
+    POOLHELPER --&gt; MODEL
+    CRIBIN --&gt; CRI
+    CRIBIN --&gt; ENGINE
+    CRIBIN --&gt; HOST
+    CRIBIN --&gt; TEL
 </pre>
 <p>Notas de leitura do grafo (todas verificadas):</p>
 <ul>
-<li><strong><code>delonix-runtime-bin</code> DEPENDE de <code>delonix-cri</code></strong> — uma versão anterior deste
+<li><strong><code>delonix-bin</code> DEPENDE de <code>delonix-cri</code></strong> — uma versão anterior deste
   documento afirmava o contrário («são dois binários independentes»), e isso deixou de
   ser verdade quando o <code>delonix serve cri</code> passou a servir o CRI a partir da própria
-  CLI. Confirmado em <code>bins/delonix-runtime-bin/Cargo.toml:21</code>. O <code>delonix-cri</code>
+  CLI. Confirmado em <code>bins/delonix/Cargo.toml:21</code>. O <code>delonix-cri</code>
   continua a ter o seu <code>[[bin]]</code> próprio, e é a razão de o <code>hyper</code>/<code>tonic</code>/<code>tokio-rustls</code>
   já estarem na árvore do <code>-bin</code> sem custo novo de supply-chain (ver a secção do
   proxy L7 no <code>AGENTS.md</code>). O CRI, por sua vez, <strong>não</strong> depende de <code>delonix-vm</code> nem de
@@ -748,7 +772,7 @@ de PID) e reclassifica <code>Running</code>→<code>Crashed</code>/<code>Paused<
   salto de rede — e um modo de falha novo — para calcular o que os dois lados já sabem
   calcular; e duas implementações que TÊM de concordar são duas que um dia não
   concordam. O <code>delonix-sdn</code> re-exporta tudo, portanto nenhum consumidor mudou.</li>
-<li><strong><code>delonix-proxmox</code>, <code>delonix-truenas</code> e <code>delonix-opnsense</code> estão fora dos crates de
+<li><strong><code>delonix-provider-proxmox</code>, <code>delonix-provider-truenas</code> e <code>delonix-provider-opnsense</code> estão fora dos crates de
   motor de propósito, e pela mesma razão escrita nos três <code>Cargo.toml</code></strong>: trazem um
   cliente HTTP (<code>reqwest</code>), e um crate de motor não cresce um. O <code>delonix-vm</code> tem quatro
   dependências, o <code>delonix-volume</code> três e o <code>delonix-sdn</code> cinco — meter lá o cliente para
@@ -757,13 +781,13 @@ de PID) e reclassifica <code>Running</code>→<code>Crashed</code>/<code>Paused<
   <code>GatewayProvider</code> do OPNsense (ADR-0051) implementa a porta do contexto <code>delonix-networking</code>
   (ADR-0059 F2a; até lá vivia no <code>delonix-sdn</code>), os dois a partir de fora, e <strong>registam-se</strong> (<code>register_backend</code>/<code>register_gateway_provider</code>), com
   o alvo conhecido só pelo <code>-bin</code>, não pelo motor.</li>
-<li><strong><code>delonix-powerdns</code> está fora pela mesma razão</strong> (ADR-0064 D6): fala com UM servidor
+<li><strong><code>delonix-provider-powerdns</code> está fora pela mesma razão</strong> (ADR-0064 D6): fala com UM servidor
   PowerDNS, com a credencial que o operador dá ao MOTOR no <code>providers.yaml</code>, para remover
   os registos de gateway que o nó Proxmox escreve e nunca remove. Depende só do
   <code>delonix-model</code>; quem sabe QUE registos são é o contexto <code>delonix-networking</code>
   (<code>gateway_records</code>) e o provider (<code>DnsProvider::reverse_zone</code>), e quem os liga é o <code>-bin</code>.</li>
-<li><strong>Nada depende de <code>delonix-proxmox</code>, <code>delonix-truenas</code> nem <code>delonix-opnsense</code> a não ser
-  o <code>-bin</code> e, no caso do <code>delonix-proxmox</code>, o <code>delonix-node-api</code></strong> (que o lista entre os
+<li><strong>Nada depende de <code>delonix-provider-proxmox</code>, <code>delonix-provider-truenas</code> nem <code>delonix-provider-opnsense</code> a não ser
+  o <code>-bin</code> e, no caso do <code>delonix-provider-proxmox</code>, o <code>delonix-node-api</code></strong> (que o lista entre os
   providers do nó, como o <code>delonix provider ls</code> faz) — são folhas do grafo, e é o que permite que um alvo remoto mal configurado
   avise e siga em vez de parar um <code>container ls</code>.</li>
 <li><strong><code>delonix-mcp</code> fica fora dos oito crates de motor dependency-clean, pela MESMA razão
@@ -789,7 +813,7 @@ de PID) e reclassifica <code>Running</code>→<code>Crashed</code>/<code>Paused<
 <li><code>delonix-state::{secret,cred_vault}</code> — Secret Manager do runtime
     (<code>--secret</code>/<code>--secret-files</code>; os valores decifrados só tocam um tmpfs dentro do
     namespace do container — <code>write_secret_files</code> em <code>crates/adapters/delonix-linux/src/lib.rs</code>);</li>
-<li><code>delonix-runtime-bin::cmd::{cluster,k8s_recipes,vmimage,remote}</code> — o plano de
+<li><code>delonix-bin::cmd::{cluster,k8s_recipes,vmimage,remote}</code> — o plano de
     cluster kubeadm (fluxo d, abaixo).</li>
 </ul>
 <hr />
@@ -798,7 +822,7 @@ de PID) e reclassifica <code>Running</code>→<code>Crashed</code>/<code>Paused<
 <p>Com <code>-p</code> e sem rede custom, o container deixa de partilhar a rede do host e ganha um
 netns próprio servido por um <code>slirp4netns</code> dedicado — o comportamento do
 <code>docker run -p</code> no modelo rootless do Podman (<code>cmd_run</code> em
-<code>bins/delonix-runtime-bin/src/cmd/container.rs</code>; <code>spawn</code> em
+<code>bins/delonix/src/cmd/container.rs</code>; <code>spawn</code> em
 <code>crates/adapters/delonix-linux/src/lib.rs</code>; <code>slirp_attach</code> em <code>crates/adapters/delonix-sdn/src/lib.rs</code>).</p>
 <pre class="mermaid">sequenceDiagram
     participant U as operador
@@ -905,7 +929,7 @@ documentada no cabeçalho de <code>lifecycle.rs</code>).</p>
 <code>crictl logs</code> lerem directamente o ficheiro. <code>exec</code>/<code>attach</code>/<code>port-forward</code> do
 kubectl passam por <code>streaming.rs</code>/<code>spdy.rs</code> (servidor de streaming próprio, SPDY).</p>
 <h3>(d) <code>cluster kubeadm</code> — da imagem dourada ao cluster</h3>
-<p>Duas camadas com a mesma fundação (<code>bins/delonix-runtime-bin/src/cmd/cluster.rs</code>):
+<p>Duas camadas com a mesma fundação (<code>bins/delonix/src/cmd/cluster.rs</code>):
 <code>cluster apply -f cloud.yaml</code> faz o bootstrap kubeadm em hosts <strong>já vivos</strong>;
 <code>cluster kubeadm --name N --control-plane 1 --workers M</code> provisiona primeiro as VMs
 (imagem dourada) e depois chama a <strong>mesma</strong> <code>apply_one</code> (<code>provision_and_apply</code> —
@@ -952,7 +976,7 @@ diagramas acima.</p>
    não a consegue abrir. O mecanismo certo já existe no motor — re-exec via
    <code>nsenter … ip netns exec</code> + <code>RunSpec.inherit_userns</code>
    (<code>crates/adapters/delonix-linux/src/lib.rs</code>) — mas hoje só é usado pelo próprio holder;
-   não há nenhum caminho em <code>delonix-linux</code>/<code>delonix-runtime-bin</code> que o faça para
+   não há nenhum caminho em <code>delonix-linux</code>/<code>delonix-bin</code> que o faça para
    um <code>container run</code> normal. Fechar isto é trabalho do motor, não da CLI.</li>
 <li><strong><code>delonix build</code> é single-stage.</strong> Um Dockerfile/Delonixfile com <code>FROM … AS x</code>
    seguido doutro <code>FROM</code> é recusado com erro claro (<code>cmd/build.rs</code>); multi-stage
