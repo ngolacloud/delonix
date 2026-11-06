@@ -5243,6 +5243,12 @@ msgstr "os processos a correr dentro de um container"
 msgid "give a container a new name"
 msgstr "dá um novo nome a um container"
 
+msgid "the layers of an image, base to top"
+msgstr "as camadas de uma imagem, da base ao topo"
+
+msgid "drop one name from an image, keeping its content"
+msgstr "larga um nome de uma imagem, mantendo o conteúdo"
+
 msgid "authenticate to a registry, reading the token from stdin (never an argument)"
 msgstr "autenticar num registry, lendo o token do stdin (nunca de um argumento)"
 

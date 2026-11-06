@@ -301,6 +301,22 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["ps", "container rename"],
     },
     Entry {
+        path: "history",
+        group: "Artifacts",
+        examples: &[
+            ("the layers of an image, base to top", "delonix history nginx:latest"),
+        ],
+        see_also: &["image history", "image describe"],
+    },
+    Entry {
+        path: "untag",
+        group: "Artifacts",
+        examples: &[
+            ("drop one name from an image, keeping its content", "delonix untag app:old"),
+        ],
+        see_also: &["tag", "image untag", "rmi"],
+    },
+    Entry {
         path: "cluster",
         group: "Clusters",
         examples: &[

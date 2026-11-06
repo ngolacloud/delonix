@@ -112,7 +112,9 @@ Concretamente, garante-se:
 > rename` trocam só o executável. `update` NÃO entrou na raiz: o `docker update`
 > é de LIMITES de recursos, ao passo que o `container update` do Delonix é de
 > reconfiguração a quente (portas/volumes/largura de banda) — semânticas
-> distintas, pelo que fica só na forma de grupo.
+> distintas, pelo que fica só na forma de grupo. Entraram ainda as duas de
+> imagem `history` (alias de `image history`, como `docker history`) e `untag`
+> (alias de `image untag`, como `podman untag`).
 >
 > **Comandos genéricos: política de resolução, nunca adivinhação.** Três nomes
 > da tabela colidem com significados que este motor já tinha ou que seriam

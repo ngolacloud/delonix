@@ -2393,6 +2393,8 @@ _ROOT_VERB_ALIASES = {
     "commit": ("container", "container commit"),
     "top": ("container", "container top"),
     "rename": ("container", "container rename"),
+    "history": ("image", "image history"),
+    "untag": ("image", "image untag"),
 }
 
 
