@@ -367,6 +367,30 @@ jobs:
           else
             gh release create "$TAG" dist-release/* --title "$TAG" --generate-notes
           fi
+      # Post-publish: prove the PUBLISHED release holds up end to end — the
+      # signature verifies against the pubkey embedded in install.sh, every file
+      # matches its digest in the signed SHA256SUMS, the SBOM rides INSIDE that
+      # manifest, and SLSA provenance verifies against the runner's OIDC
+      # identity. Closes G1e of the go/no-go
+      # (reports/go-nogo-alta-criticidade-20261101/): until now those three facts
+      # were "PASS by design", never checked against the real artifacts —
+      # install.sh verifies ONE asset a user downloads, release_verify.py is a
+      # different thing (evidence-rot of the maturity table). Run with --tag, so
+      # it re-downloads what was actually PUBLISHED, not the local dist-release.
+      # Fail-closed. minisign and gh are already installed/authenticated by this
+      # job. Only runs when the release IS signed; before the key exists the
+      # release ships unsigned (the step above ends with a warning) and there is
+      # no signature to verify.
+      - name: Verify the published artifacts (closes G1e)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PUB=$(grep -oP '^MINISIGN_PUBKEY="\K[^"]+' scripts/install.sh)
+          if [ "$PUB" = "__POR_PREENCHER__" ]; then
+            echo "::notice::release is unsigned (key not configured yet) — skipping published-artifact verification; see docs/SECURITY-RELEASES.md"
+            exit 0
+          fi
+          python3 scripts/verify_release_assets.py --tag "$TAG" --repo "$GITHUB_REPOSITORY"
       # Documentação DINÂMICA por release: o apêndice docs/RELEASES.md (features
       # por release) regenera-se das notas e é comitado no main — a doc nunca
       # fica atrás da release. [skip ci] evita re-disparar a CI por isto.
