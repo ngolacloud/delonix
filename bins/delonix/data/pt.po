@@ -1626,6 +1626,71 @@ msgstr "sem tag: {name}"
 msgid "Layers of an image (digest + size), from base to top."
 msgstr "Layers de uma imagem (digest + tamanho), da base para o topo."
 
+msgid "Show how two images differ at the layer level."
+msgstr "Mostra como duas imagens diferem ao nível dos layers."
+
+msgid ""
+"Show how two images differ at the layer level.\n"
+"\n"
+"Lists the layer blobs only in the first image, only in the second, and the "
+"ones they share, read straight from the stored records (the same layer set "
+"`image history` prints). Read-only — nothing is pulled. Podman has `podman "
+"image diff`; Docker does not."
+msgstr ""
+"Mostra como duas imagens diferem ao nível dos layers.\n"
+"\n"
+"Lista os blobs de layer que só estão na primeira imagem, só na segunda, e os "
+"que partilham, lidos directamente dos registos guardados (o mesmo conjunto de "
+"layers que o `image history` imprime). Só de leitura — nada é puxado. O Podman "
+"tem `podman image diff`; o Docker não."
+
+msgid "Layer stack of one image, base to top, as an indented tree."
+msgstr "Pilha de layers de uma imagem, da base ao topo, como uma árvore indentada."
+
+msgid ""
+"Layer stack of one image, base to top, as an indented tree.\n"
+"\n"
+"Like `podman image tree`, trimmed to what the record holds: an indented list "
+"of the image's layers with each blob's size, base at the top and the newest "
+"layer at the bottom. Same data source as `image history`, read-only."
+msgstr ""
+"Pilha de layers de uma imagem, da base ao topo, como uma árvore indentada.\n"
+"\n"
+"Como o `podman image tree`, reduzido ao que o registo guarda: uma lista "
+"indentada dos layers da imagem com o tamanho de cada blob, a base no topo e o "
+"layer mais recente em baixo. A mesma fonte de dados do `image history`, só de "
+"leitura."
+
+msgid "Comparing {a} and {b} by layer"
+msgstr "A comparar {a} e {b} por layer"
+
+msgid "Only in {image} ({n}):"
+msgstr "Só em {image} ({n}):"
+
+msgid "Shared ({n}):"
+msgstr "Partilhados ({n}):"
+
+msgid "{name} ({id})  {size}"
+msgstr "{name} ({id})  {size}"
+
+msgid "<no layers>"
+msgstr "<sem layers>"
+
+msgid "Layers (base -> top):"
+msgstr "Layers (base -> topo):"
+
+msgid "which layers two images keep apart and which they share"
+msgstr "que layers duas imagens mantêm à parte e quais partilham"
+
+msgid "confirm a rebuild only added layers on top of the same base"
+msgstr "confirmar que uma reconstrução só acrescentou layers sobre a mesma base"
+
+msgid "the layer stack of an image, base to top, as an indented tree"
+msgstr "a pilha de layers de uma imagem, da base ao topo, como uma árvore indentada"
+
+msgid "read where the weight sits before trimming the Dockerfile"
+msgstr "ver onde está o peso antes de aparar o Dockerfile"
+
 msgid "Verify the cosign signature of a local image against a public key."
 msgstr "Verifica a assinatura cosign de uma imagem local contra uma chave pública."
 

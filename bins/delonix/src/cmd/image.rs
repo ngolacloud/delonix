@@ -314,6 +314,28 @@ pub enum ImageCmd {
         #[arg(add = ArgValueCandidates::new(super::complete::images))]
         image: String,
     },
+    /// Show how two images differ at the layer level.
+    ///
+    /// Lists the layer blobs only in the first image, only in the second, and
+    /// the ones they share, read straight from the stored records (the same
+    /// layer set `image history` prints). Read-only — nothing is pulled.
+    /// Podman has `podman image diff`; Docker does not.
+    Diff {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        image_a: String,
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        image_b: String,
+    },
+    /// Layer stack of one image, base to top, as an indented tree.
+    ///
+    /// Like `podman image tree`, trimmed to what the record holds: an indented
+    /// list of the image's layers with each blob's size, base at the top and
+    /// the newest layer at the bottom. Same data source as `image history`,
+    /// read-only.
+    Tree {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        image: String,
+    },
     /// Verify the cosign signature of a local image against a public key.
     Verify {
         #[arg(add = ArgValueCandidates::new(super::complete::images))]
@@ -449,6 +471,11 @@ pub enum ImageCmd {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
         file: Option<PathBuf>,
     },
+    /// Build an image from a Dockerfile or Delonixfile.
+    // A pure alias of the root `delonix build`: same `BuildArgs`, same handler,
+    // same build engine. It only adds the Docker/Podman muscle-memory of typing
+    // the verb under the `image` group.
+    Build(super::build::BuildArgs),
     /// Authenticate to an OCI registry.
     ///
     /// Stores the credentials in `<root>/auth.json`, docker/podman format.
@@ -523,6 +550,8 @@ pub fn run(action: ImageCmd) -> Result<()> {
         ImageCmd::Describe { names } => cmd_describe(&images, &names),
         ImageCmd::Tag(TagArgs { source, target }) => cmd_tag(&images, &source, &target),
         ImageCmd::History { image } => cmd_history(&images, &image),
+        ImageCmd::Diff { image_a, image_b } => cmd_diff(&images, &image_a, &image_b),
+        ImageCmd::Tree { image } => cmd_tree(&images, &image),
         ImageCmd::Verify { image, key } => cmd_verify(&images, &image, &key),
         ImageCmd::Sign { image, key, force } => cmd_sign(&images, &image, key.as_deref(), force),
         ImageCmd::Scan {
@@ -563,6 +592,10 @@ pub fn run(action: ImageCmd) -> Result<()> {
             let docs = manifest::load(&path)?;
             apply(&docs)
         }
+        // A pure alias of the root `delonix build`: forward to the one build
+        // handler so there is a single build engine. The stores opened above go
+        // unused on this arm — `build::run` opens its own, like the root verb.
+        ImageCmd::Build(args) => super::build::run(args),
         ImageCmd::Push(PushArgs { name, target }) => cmd_push(&images, &name, target.as_deref()),
         ImageCmd::Login { .. } | ImageCmd::Logout { .. } => {
             unreachable!("tratados acima")
@@ -798,6 +831,110 @@ fn cmd_history(images: &ImageStore, image: &str) -> Result<()> {
         ]);
     }
     t.print();
+    Ok(())
+}
+
+/// Size of one layer blob in the CAS, `0` when it cannot be read — the same
+/// best-effort rule `cmd_history`/`describe_one` already use, so a layer whose
+/// blob is gone still appears instead of aborting the whole listing.
+fn layer_blob_size(images: &ImageStore, digest: &str) -> u64 {
+    std::fs::metadata(images.cas().path(digest))
+        .map(|m| m.len())
+        .unwrap_or(0)
+}
+
+/// `image diff` — the layer sets of two images, split into only-in-A,
+/// only-in-B and shared. Works off `Image::layers` (the blob digests, base to
+/// top), the same data `image history` prints — it is the only ancestry the
+/// record holds (the uncompressed `diff_ids` live in the raw config blob, not
+/// in `ImageConfig`), and it is enough to answer "how do these two differ".
+fn cmd_diff(images: &ImageStore, image_a: &str, image_b: &str) -> Result<()> {
+    let a = images.resolve(image_a)?;
+    let b = images.resolve(image_b)?;
+    let set_b: std::collections::HashSet<&str> = b.layers.iter().map(String::as_str).collect();
+    let set_a: std::collections::HashSet<&str> = a.layers.iter().map(String::as_str).collect();
+
+    let only_a: Vec<&String> = a.layers.iter().filter(|l| !set_b.contains(l.as_str())).collect();
+    let only_b: Vec<&String> = b.layers.iter().filter(|l| !set_a.contains(l.as_str())).collect();
+    // Preserve A's base-to-top order for the shared set so the listing reads
+    // like a stack, not a hash dump.
+    let shared: Vec<&String> = a.layers.iter().filter(|l| set_b.contains(l.as_str())).collect();
+
+    println!(
+        "{}",
+        super::po::tf(
+            "Comparing {a} and {b} by layer",
+            &[("a", image_a), ("b", image_b)],
+        )
+    );
+    let print_section = |label: String, layers: &[&String]| {
+        println!("{label}");
+        if layers.is_empty() {
+            println!("  <none>");
+            return;
+        }
+        for l in layers {
+            println!("  {}  {}", l, super::output::fmt_size(layer_blob_size(images, l)));
+        }
+    };
+    print_section(
+        super::po::tf(
+            "Only in {image} ({n}):",
+            &[("image", image_a), ("n", &only_a.len().to_string())],
+        ),
+        &only_a,
+    );
+    print_section(
+        super::po::tf(
+            "Only in {image} ({n}):",
+            &[("image", image_b), ("n", &only_b.len().to_string())],
+        ),
+        &only_b,
+    );
+    print_section(
+        super::po::tf("Shared ({n}):", &[("n", &shared.len().to_string())]),
+        &shared,
+    );
+    Ok(())
+}
+
+/// `image tree` — the layer stack of one image, base to top, indented. Reuses
+/// `Image::layers` (what `image history` lists); deeper ancestry (a graph of
+/// parent images) is not something the record keeps, so this stays a single
+/// image's layer list, which is what `podman image tree` shows for an image
+/// with no cached children.
+fn cmd_tree(images: &ImageStore, image: &str) -> Result<()> {
+    let img = images.resolve(image)?;
+    let total = image_size(images, &img)
+        .map(super::output::fmt_size)
+        .unwrap_or_else(|| "<unknown>".into());
+    println!(
+        "{}",
+        super::po::tf(
+            "{name} ({id})  {size}",
+            &[
+                ("name", image),
+                ("id", &img.short_id()),
+                ("size", &total),
+            ],
+        )
+    );
+    if img.layers.is_empty() {
+        println!("  {}", super::po::t("<no layers>"));
+        return Ok(());
+    }
+    println!("{}", super::po::t("Layers (base -> top):"));
+    let last = img.layers.len() - 1;
+    for (i, dg) in img.layers.iter().enumerate() {
+        // A box-drawing connector makes the stack read as a tree at a glance;
+        // the last layer gets the corner, the rest the tee.
+        let branch = if i == last { "└──" } else { "├──" };
+        println!(
+            "  {branch} {}  {}",
+            super::output::truncate(dg, 23),
+            super::output::fmt_size(layer_blob_size(images, dg)),
+        );
+    }
     Ok(())
 }
 
