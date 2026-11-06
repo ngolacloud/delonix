@@ -506,6 +506,9 @@ enum Cmd {
         /// stale plan — refused before anything is written.
         #[arg(long = "plan-digest", value_name = "DIGEST")]
         plan_digest: Vec<String>,
+        /// Apply a saved plan from `stack plan -o json`: its change digests gate the apply exactly as `--plan-digest` (ADR-0088 A5). `-f` stays the input.
+        #[arg(long = "plan", value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+        plan: Option<std::path::PathBuf>,
     },
     /// Show what an apply would change, and change nothing.
     Plan {
@@ -630,6 +633,9 @@ enum Cmd {
         /// `terraform plan -detailed-exitcode` contract, for a CI drift gate.
         #[arg(long)]
         detailed_exitcode: bool,
+        /// Re-apply the manifest to reconcile the drift away, instead of only reporting it (needs a manifest).
+        #[arg(long)]
+        correct: bool,
     },
     /// Score what you already have against what this engine serves.
     ///
@@ -1947,6 +1953,7 @@ fn run() -> Result<()> {
             reboot,
             prune,
             plan_digest,
+            plan,
         } => cmd::stack::run(cmd::stack::StackCmd::Apply {
             name,
             file,
@@ -1955,6 +1962,7 @@ fn run() -> Result<()> {
             reboot,
             prune,
             plan_digest,
+            plan,
         }),
         Cmd::Plan {
             file,
@@ -2013,7 +2021,8 @@ fn run() -> Result<()> {
             stack,
             output,
             detailed_exitcode,
-        } => cmd::drift::cmd_drift(file, stack, output, detailed_exitcode),
+            correct,
+        } => cmd::drift::cmd_drift(file, stack, output, detailed_exitcode, correct),
         Cmd::Migrate { action } => cmd::migrate::run(action),
         Cmd::Config { action } => cmd::config::run(action),
         Cmd::Stack { action } => cmd::stack::run(action),

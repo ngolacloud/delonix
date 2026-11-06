@@ -39,7 +39,7 @@
 # EN: No `spec`: no over-allocation (maxRatio 1.0, allocated sizes never exceed
 #     capacity) and an alert at 80% usage.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: StoragePool
 metadata:
   name: fast          # PT: tem de existir no allowlist do nó | EN: must exist in the node's allowlist
@@ -56,7 +56,7 @@ spec: {}
 #     `alertPct` is the pool-usage % above which an allocation warns (1..=99,
 #     default 80). A pool at ≥95% usage refuses ANY new volume.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: StoragePool
 metadata:
   name: bulk

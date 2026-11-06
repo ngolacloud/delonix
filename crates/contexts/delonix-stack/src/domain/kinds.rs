@@ -69,7 +69,15 @@ pub const STORAGE_POOL: &str = "StoragePool";
 pub const VOLUME: &str = "Volume";
 /// An S3-compatible object store (ADR-0081): either provisioned on the node's
 /// Ceph Object Gateway, or a reference to a foreign S3 store.
-pub const OBJECT_STORAGE: &str = "ObjectStorage";
+///
+/// Renamed to **`Bucket`** by the catalog v1 (ADR-0086 D3; the remeasurement's
+/// `ObjectStorage → Bucket` conversion). The identifier stays `OBJECT_STORAGE`
+/// on purpose: a rename here is "one line + one alias arm + one test row, not a
+/// sweep" (see the module header), so the dozens of `k::OBJECT_STORAGE` call
+/// sites and the `objectstorage` module keep their handle while the *spelling a
+/// user writes* becomes `Bucket`. `ObjectStorage` keeps loading as a silent
+/// alias (`KIND_ALIASES`).
+pub const OBJECT_STORAGE: &str = "Bucket";
 pub const IMAGE: &str = "Image";
 pub const APP: &str = "App";
 pub const VM: &str = "VirtualMachine";
@@ -78,10 +86,50 @@ pub const VM: &str = "VirtualMachine";
 pub const SYSTEM_CONTAINER: &str = "SystemContainer";
 pub const CONTAINER: &str = "Container";
 pub const POD: &str = "Pod";
+/// The Kind written for a container service (ADR-0086 D4). Lowers at load into
+/// its `replicas` `Pod` INSTANCES — the Pod is the instance it creates, not a
+/// thing written by hand — so it has no apply of its own (see `cmd::application`).
+pub const APPLICATION: &str = "Application";
+/// A run-to-completion workload (ADR-0086 D3). Lowers to one `Pod` whose
+/// `restartPolicy` defaults to `OnFailure` — retried until it succeeds (see
+/// `cmd::job`).
+pub const JOB: &str = "Job";
 pub const INGRESS: &str = "Ingress";
 pub const FIREWALL_POLICY: &str = "NetworkPolicy";
 pub const NETWORK_ACCESS_RULE: &str = "NetworkAccessRule";
-pub const NETWORK_GATEWAY: &str = "NetworkGateway";
+/// The networking edge a `GatewayProvider` realizes (ADR-0051/0059).
+///
+/// Renamed to **`Router`** by the catalog v1 (ADR-0086 D3; the remeasurement's
+/// `NetworkGateway → Router` conversion — `Router` is the catalog's name for
+/// the connectivity edge, leaving `Gateway` for the Gateway-API entry point of
+/// D4). As with `OBJECT_STORAGE`, the identifier stays `NETWORK_GATEWAY` so the
+/// `network_gateway` module and every `k::NETWORK_GATEWAY` call site keep their
+/// handle; only the spelling becomes `Router`, and `NetworkGateway` keeps
+/// loading as a silent alias (`KIND_ALIASES`).
+pub const NETWORK_GATEWAY: &str = "Router";
+/// A single address claimed from an `IPPool` (ADR-0086 D3, D4c). **Reserved**:
+/// declared at `v1beta1` with no apply of its own yet — the ledger today is the
+/// `IPPool`; the claim-as-a-Kind lands in a later phase under ADR-0090.
+pub const IP_ADDRESS: &str = "IPAddress";
+/// A point-in-time copy of a `Volume` or `VirtualMachine` (ADR-0086 D3, D5d).
+/// **Reserved**: declared at `v1beta1` with no apply of its own yet — snapshots
+/// today are imperative (`vm snapshot`); the declarative Kind, its retention and
+/// its `Bucket` destination land in a later phase under ADR-0090.
+pub const SNAPSHOT: &str = "Snapshot";
+/// Non-secret configuration data a workload consumes — the ConfigMap-shaped
+/// sibling of `Secret` (ADR-0086 D3). **Reserved**: declared at `v1beta1` with
+/// no apply of its own yet. Today non-secret data rides on `Secret`; the
+/// cleartext store and its mount/env projection land in a later phase under
+/// ADR-0090 (it is NOT lowered into `Secret` — that would encrypt data the
+/// writer chose to keep in the clear).
+pub const CONFIG: &str = "Config";
+/// This node, as a resource one can read back (ADR-0086 D3, D7). **Reserved**:
+/// declared at `v1beta1` with no apply of its own yet — the capacity is already
+/// served by `NodeService.GetCapacity`, but what a declarative `kind: Node`
+/// writes (labels, taints, schedulability) is deliberately left for the phase
+/// that builds the uniform read-back surface (ResourceService, ADR-0087/0090).
+/// Node-scoped, like the other node resources of D7.
+pub const NODE: &str = "Node";
 pub const HTTP_ROUTE: &str = "HTTPRoute";
 pub const GATEWAY: &str = "Gateway";
 pub const SERVICE: &str = "Service";
@@ -184,6 +232,21 @@ pub enum Form {
     /// not. So it is announced, not rewritten, and a future major removes it
     /// once manifests have moved.
     Sunset(&'static str),
+    /// Declared in the catalog but with no apply of its own yet. The name,
+    /// group and version are reserved at `v1beta1` — a group born beta is
+    /// *expected* to hold Kinds that are not live yet (ADR-0086 D2: `v1`
+    /// requires every Kind of the group proven live over two releases, which is
+    /// precisely what a `Reserved` Kind is not). It survives nothing and lowers
+    /// to nothing: it is out of the stack cycle, never applied, never observable,
+    /// and its typed schema is deliberately absent (an `untyped_hint` says so).
+    ///
+    /// Distinct from `Sunset` (which HAS an apply and is on its way out) and from
+    /// `Sugar` (which is rewritten into a target that does the work): a
+    /// `Reserved` Kind has no target and no work — the work is a later campaign
+    /// phase. `IPAddress` and `Snapshot` are the first two (ADR-0086 D3, built in
+    /// phases 7–11 under ADR-0090); promoting their group to `v1` is refused by
+    /// the gate until they are live.
+    Reserved,
 }
 
 impl Form {
@@ -203,8 +266,9 @@ impl Form {
             Form::Sugar(k) | Form::Compat(k) => Some(k),
             // `Sunset` is deliberately not here: it does not lower, it is
             // merely announced. Its successor is checked by the same test,
-            // through `successor`.
-            Form::Primary | Form::Aggregate | Form::Sunset(_) => None,
+            // through `successor`. `Reserved` lowers to nothing — it has no
+            // target at all, which is what separates it from `Sunset`.
+            Form::Primary | Form::Aggregate | Form::Sunset(_) | Form::Reserved => None,
         }
     }
 }
@@ -310,7 +374,7 @@ const FACTS: &[KindFacts] = &[
         kind: RUNTIME_POLICY,
         plural: "runtimepolicies",
         short: &["policy"],
-        api_version: "security.delonix.io/v1alpha1",
+        api_version: "policy.delonix.io/v1beta1",
         domain: Domain::Security,
         form: Form::Primary,
         in_stack: true,
@@ -327,7 +391,7 @@ const FACTS: &[KindFacts] = &[
         kind: SECRET,
         plural: "secrets",
         short: &["sec"],
-        api_version: "core.delonix.io/v1alpha1",
+        api_version: "core.delonix.io/v1beta1",
         domain: Domain::Artifact,
         form: Form::Primary,
         in_stack: true,
@@ -345,7 +409,7 @@ const FACTS: &[KindFacts] = &[
         kind: NETWORK,
         plural: "networks",
         short: &["net"],
-        api_version: "networking.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetConnectivity,
         form: Form::Primary,
         in_stack: true,
@@ -359,7 +423,7 @@ const FACTS: &[KindFacts] = &[
         kind: NETWORK_ROUTE,
         plural: "networkroutes",
         short: &["nr"],
-        api_version: "networking.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetConnectivity,
         form: Form::Primary,
         in_stack: true,
@@ -373,7 +437,7 @@ const FACTS: &[KindFacts] = &[
         kind: NETWORK_ZONE,
         plural: "networkzones",
         short: &["nz"],
-        api_version: "networking.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetConnectivity,
         // Superseded by `Network` + `spec.provider.proxmox` (ADR-0070): the
         // networks naming a zone are folded into this Kind's document at load,
@@ -397,7 +461,7 @@ const FACTS: &[KindFacts] = &[
         kind: STORAGE_POOL,
         plural: "storagepools",
         short: &["sp"],
-        api_version: "storage.delonix.io/v1alpha1",
+        api_version: "storage.delonix.io/v1beta1",
         domain: Domain::Storage,
         form: Form::Primary,
         in_stack: true,
@@ -413,7 +477,7 @@ const FACTS: &[KindFacts] = &[
         kind: VOLUME,
         plural: "volumes",
         short: &["vol"],
-        api_version: "storage.delonix.io/v1alpha1",
+        api_version: "storage.delonix.io/v1beta1",
         domain: Domain::Storage,
         form: Form::Primary,
         in_stack: true,
@@ -427,9 +491,9 @@ const FACTS: &[KindFacts] = &[
     },
     KindFacts {
         kind: OBJECT_STORAGE,
-        plural: "objectstorages",
-        short: &[],
-        api_version: "storage.delonix.io/v1alpha1",
+        plural: "buckets",
+        short: &["bkt"],
+        api_version: "storage.delonix.io/v1beta1",
         domain: Domain::Storage,
         form: Form::Primary,
         in_stack: true,
@@ -447,7 +511,7 @@ const FACTS: &[KindFacts] = &[
         kind: IMAGE,
         plural: "images",
         short: &["img"],
-        api_version: "artifact.delonix.io/v1alpha1",
+        api_version: "core.delonix.io/v1beta1",
         domain: Domain::Artifact,
         form: Form::Primary,
         in_stack: true,
@@ -463,7 +527,7 @@ const FACTS: &[KindFacts] = &[
         kind: APP,
         plural: "apps",
         short: &[],
-        api_version: "artifact.delonix.io/v1alpha1",
+        api_version: "core.delonix.io/v1beta1",
         domain: Domain::Artifact,
         form: Form::Primary,
         in_stack: true,
@@ -479,7 +543,7 @@ const FACTS: &[KindFacts] = &[
         kind: VM,
         plural: "virtualmachines",
         short: &["vm"],
-        api_version: "compute.delonix.io/v1alpha1",
+        api_version: "compute.delonix.io/v1beta1",
         domain: Domain::Compute,
         form: Form::Primary,
         in_stack: true,
@@ -493,7 +557,12 @@ const FACTS: &[KindFacts] = &[
         kind: SYSTEM_CONTAINER,
         plural: "systemcontainers",
         short: &["sc"],
-        api_version: "compute.delonix.io/v1alpha1",
+        // A provider-specific Kind (ADR-0086 D6): it lives in the `proxmox`
+        // provider group with its own version, NOT a domain group — which keeps
+        // the six domain groups free of provider specifics (ADR-0070/0071). The
+        // first provider-group Kind; `v1alpha1` because the provider track moves
+        // on its own cadence, independent of the domain groups' `v1beta1`.
+        api_version: "proxmox.delonix.io/v1alpha1",
         domain: Domain::Compute,
         form: Form::Primary,
         in_stack: true,
@@ -511,9 +580,13 @@ const FACTS: &[KindFacts] = &[
         kind: CONTAINER,
         plural: "containers",
         short: &[],
-        api_version: "compute.delonix.io/v1alpha1",
+        api_version: "compute.delonix.io/v1beta1",
         domain: Domain::Compute,
-        form: Form::Sunset(POD),
+        // ADR-0086 D4: the sunset successor is `Application` (not `Pod`) — the
+        // service Kind a single container becomes with `replicas: 1`. Announced,
+        // not rewritten (`Sunset`), so a `kind: Container` still applies as a
+        // Container; the announcement points at `Application`.
+        form: Form::Sunset(APPLICATION),
         in_stack: true,
         stack_group: "containers",
         converges: true,
@@ -525,7 +598,7 @@ const FACTS: &[KindFacts] = &[
         kind: POD,
         plural: "pods",
         short: &["po"],
-        api_version: "compute.delonix.io/v1alpha1",
+        api_version: "compute.delonix.io/v1beta1",
         domain: Domain::Compute,
         form: Form::Primary,
         in_stack: true,
@@ -544,7 +617,7 @@ const FACTS: &[KindFacts] = &[
         kind: SERVICE,
         plural: "services",
         short: &["svc"],
-        api_version: "networking.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetConnectivity,
         form: Form::Primary,
         in_stack: true,
@@ -558,7 +631,7 @@ const FACTS: &[KindFacts] = &[
         kind: INGRESS,
         plural: "ingresses",
         short: &["ing"],
-        api_version: "gateway.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetExposure,
         form: Form::Compat(HTTP_ROUTE),
         in_stack: true,
@@ -572,7 +645,7 @@ const FACTS: &[KindFacts] = &[
         kind: FIREWALL_POLICY,
         plural: "networkpolicies",
         short: &["np"],
-        api_version: "networking.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetPolicy,
         form: Form::Primary,
         in_stack: true,
@@ -586,7 +659,7 @@ const FACTS: &[KindFacts] = &[
         kind: NETWORK_ACCESS_RULE,
         plural: "networkaccessrules",
         short: &["nar"],
-        api_version: "networking.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetPolicy,
         form: Form::Primary,
         in_stack: true,
@@ -601,10 +674,10 @@ const FACTS: &[KindFacts] = &[
     },
     KindFacts {
         kind: NETWORK_GATEWAY,
-        plural: "networkgateways",
-        short: &["ngw"],
-        api_version: "networking.delonix.io/v1alpha1",
-        domain: Domain::NetPolicy,
+        plural: "routers",
+        short: &["rtr"],
+        api_version: "networking.delonix.io/v1beta1",
+        domain: Domain::NetConnectivity,
         form: Form::Primary,
         in_stack: true,
         stack_group: "networkGateways",
@@ -624,7 +697,7 @@ const FACTS: &[KindFacts] = &[
         kind: IPPOOL,
         plural: "ippools",
         short: &["pool"],
-        api_version: "networking.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetExposure,
         form: Form::Primary,
         in_stack: true,
@@ -638,7 +711,7 @@ const FACTS: &[KindFacts] = &[
         kind: HTTP_ROUTE,
         plural: "httproutes",
         short: &["hr"],
-        api_version: "gateway.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetExposure,
         form: Form::Primary,
         in_stack: true,
@@ -652,7 +725,7 @@ const FACTS: &[KindFacts] = &[
         kind: GATEWAY,
         plural: "gateways",
         short: &["gw"],
-        api_version: "gateway.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetExposure,
         form: Form::Primary,
         in_stack: true,
@@ -671,7 +744,7 @@ const FACTS: &[KindFacts] = &[
         kind: GITOPS_SOURCE,
         plural: "gitopssources",
         short: &["gos"],
-        api_version: "gitops.delonix.io/v1alpha1",
+        api_version: "core.delonix.io/v1beta1",
         domain: Domain::Composition,
         form: Form::Primary,
         in_stack: true,
@@ -686,10 +759,44 @@ const FACTS: &[KindFacts] = &[
     // --- Not resources of the stack: they become one of the above, or are not
     // local resources at all. ---
     KindFacts {
+        // ADR-0086 D4: the service Kind. Lowers at load into its `replicas` `Pod`
+        // INSTANCES (`cmd::application`), so like `Workload` it is out of the stack
+        // cycle and not observable — the Pods it becomes are.
+        kind: APPLICATION,
+        plural: "applications",
+        short: &[],
+        api_version: "compute.delonix.io/v1beta1",
+        domain: Domain::Compute,
+        form: Form::Sugar(POD),
+        in_stack: false,
+        stack_group: "applications",
+        converges: false,
+        teardown: false,
+        namespaced: Namespaced::Always,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
+        // ADR-0086 D3: run-to-completion. Lowers to one `Pod` (`cmd::job`), so
+        // like `Application`/`Workload` it is out of the stack cycle and not
+        // observable — the Pod it becomes is.
+        kind: JOB,
+        plural: "jobs",
+        short: &[],
+        api_version: "compute.delonix.io/v1beta1",
+        domain: Domain::Compute,
+        form: Form::Sugar(POD),
+        in_stack: false,
+        stack_group: "jobs",
+        converges: false,
+        teardown: false,
+        namespaced: Namespaced::Always,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
         kind: WORKLOAD,
         plural: "workloads",
         short: &["wl"],
-        api_version: "compute.delonix.io/v1alpha1",
+        api_version: "compute.delonix.io/v1beta1",
         domain: Domain::Compute,
         form: Form::Sugar(WORKLOAD_LOWERS_TO),
         in_stack: false,
@@ -704,7 +811,7 @@ const FACTS: &[KindFacts] = &[
         kind: DEPENDENCY,
         plural: "dependencies",
         short: &["dep"],
-        api_version: "networking.delonix.io/v1alpha1",
+        api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetPolicy,
         form: Form::Sugar(FIREWALL_POLICY),
         in_stack: false,
@@ -718,10 +825,93 @@ const FACTS: &[KindFacts] = &[
         presence: Presence::Declarative,
     },
     KindFacts {
+        // ADR-0086 D3/D4c. RESERVED: the name, group and version are reserved at
+        // `v1beta1`; there is no apply yet (the `IPPool` is the live ledger). So
+        // it is out of the stack cycle, has no group, and is not observable — the
+        // claim-as-a-Kind lands in a later phase under ADR-0090.
+        kind: IP_ADDRESS,
+        plural: "ipaddresses",
+        short: &["ip"],
+        api_version: "networking.delonix.io/v1beta1",
+        domain: Domain::NetExposure,
+        form: Form::Reserved,
+        in_stack: false,
+        stack_group: "",
+        converges: false,
+        teardown: false,
+        // Provisional: a reserved Kind has no apply to honor the field. Settled
+        // when the apply lands (ADR-0090). `Never` keeps it out of the
+        // namespaced-Kinds message until then, rather than advertising a scope it
+        // does not yet enforce.
+        namespaced: Namespaced::Never,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
+        // ADR-0086 D3/D5d. RESERVED: declared at `v1beta1` with no apply yet —
+        // snapshots today are imperative (`vm snapshot`). The declarative Kind,
+        // its retention and its `Bucket` destination land in a later phase under
+        // ADR-0090. Out of the stack cycle, no group, not observable.
+        kind: SNAPSHOT,
+        plural: "snapshots",
+        short: &["snap"],
+        api_version: "storage.delonix.io/v1beta1",
+        domain: Domain::Storage,
+        form: Form::Reserved,
+        in_stack: false,
+        stack_group: "",
+        converges: false,
+        teardown: false,
+        // Provisional, as for `IPAddress` above: `Never` until the apply exists.
+        namespaced: Namespaced::Never,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
+        // ADR-0086 D3. RESERVED: the ConfigMap-shaped sibling of `Secret`,
+        // declared at `v1beta1` with no apply yet — non-secret data rides on
+        // `Secret` today. Out of the stack cycle, no group, not observable; the
+        // cleartext store lands in a later phase under ADR-0090.
+        kind: CONFIG,
+        plural: "configs",
+        short: &["cfg"],
+        api_version: "core.delonix.io/v1beta1",
+        // Consumed by a workload, like `Secret` and `Image` beside it.
+        domain: Domain::Artifact,
+        form: Form::Reserved,
+        in_stack: false,
+        stack_group: "",
+        converges: false,
+        teardown: false,
+        // Will be namespaced like `Secret` when it has an apply; `Never` until
+        // then keeps it out of the namespaced-Kinds message (see `IPAddress`).
+        namespaced: Namespaced::Never,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
+        // ADR-0086 D3/D7. RESERVED: this node as a readable resource, declared at
+        // `v1beta1` with no apply yet — `NodeService.GetCapacity` already serves
+        // the capacity, but the declarative Kind's read-back/labels/taints land
+        // with the ResourceService (ADR-0087/0090). Node-scoped (D7), out of the
+        // stack cycle, no group, not observable.
+        kind: NODE,
+        plural: "nodes",
+        short: &[],
+        api_version: "core.delonix.io/v1beta1",
+        // The compute host itself — the substrate the compute Kinds run on.
+        domain: Domain::Compute,
+        form: Form::Reserved,
+        in_stack: false,
+        stack_group: "",
+        converges: false,
+        teardown: false,
+        // Genuinely node-scoped (D7), not merely provisional like the others.
+        namespaced: Namespaced::Never,
+        presence: Presence::NotObservable,
+    },
+    KindFacts {
         kind: STACK,
         plural: "stacks",
         short: &[],
-        api_version: "core.delonix.io/v1alpha1",
+        api_version: "core.delonix.io/v1beta1",
         domain: Domain::Composition,
         form: Form::Aggregate,
         in_stack: false,
@@ -744,7 +934,7 @@ const FACTS: &[KindFacts] = &[
         // get clusters` — the exact command documented — failed with "no such
         // resource kind 'clusters'", a real regression shipped in v1.0.0.
         short: &["kc", "clusters"],
-        api_version: "infrastructure.delonix.io/v1alpha1",
+        api_version: "cluster.delonix.io/v1beta1",
         domain: Domain::Composition,
         form: Form::Primary,
         // Deliberately outside the stack cycle: it is a remote procedure over
@@ -839,6 +1029,11 @@ pub fn stack_group_absent_reason(kind: &str) -> Option<&'static str> {
              exist, not a resource of this node, so `stack apply` never runs it — grouping \
              it would promise an apply that does not happen"
         }
+        IP_ADDRESS | SNAPSHOT | CONFIG | NODE => {
+            "a Reserved Kind has no apply yet (ADR-0086 D3, built under ADR-0090), so \
+             `stack apply` never runs it — grouping it would promise an apply that does \
+             not happen"
+        }
         _ => return None,
     })
 }
@@ -885,6 +1080,29 @@ pub fn namespaced_kinds() -> Vec<&'static str> {
         .collect();
     out.sort_unstable();
     out
+}
+
+/// The Kinds that are node-scoped — they carry no namespace, because they are a
+/// property of the node itself and not of any one tenant (ADR-0086 D7). Every
+/// OTHER Kind is namespaced, and its name is unique WITHIN the namespace.
+///
+/// This const is the source of truth for the first half of D7; the second — the
+/// name-unique-per-namespace relayout, where the store key (`vms/<name>.json`)
+/// and the pod netns (`pod-<name>`) become namespace-qualified, reversing
+/// ADR-0069 Pending #2 — is a structural change still to land (it touches the
+/// live VM adapter and needs a VM-capable environment to prove). Until then this
+/// list guards the node-scoped set from drift (`is_node_scoped` and the test),
+/// so the decision is recorded where the relayout will read it.
+pub const D7_NODE_SCOPED: &[&str] = &[NODE, STORAGE_POOL, IPPOOL, NETWORK_GATEWAY, RUNTIME_POLICY];
+
+/// Whether a Kind is node-scoped per ADR-0086 D7. The membership is the
+/// decision (`D7_NODE_SCOPED`); `Node` is on the list even though it is still
+/// `Form::Reserved` (declared, no apply yet), because being a node resource is
+/// about WHAT it is, not whether its apply is built. The test cross-checks that
+/// every Kind on the list really carries `Namespaced::Never`, so the list and
+/// the table cannot disagree.
+pub fn is_node_scoped(kind: &str) -> bool {
+    facts(kind).is_some_and(|f| D7_NODE_SCOPED.contains(&f.kind))
 }
 
 // There is deliberately no `is_declarative(kind)` helper. `stack wait` decides
@@ -995,6 +1213,13 @@ mod tests {
             (INGRESS, "ingress"),
             (VM, "vms"),
             (FIREWALL_POLICY, "firewallPolicies"),
+            // Renamed by the catalog v1 (ADR-0086 D3): the Kind is now `Bucket`/
+            // `Router`, but the Stack group keeps its published key so existing
+            // Stacks keep loading — the same treatment the three above got, where
+            // the group key (`vms`, `ingress`, `firewallPolicies`) stays put
+            // while the Kind's own plural moved on.
+            (OBJECT_STORAGE, "objectStorages"),
+            (NETWORK_GATEWAY, "networkGateways"),
         ];
         for f in all().filter(|f| !f.stack_group.is_empty()) {
             if KEPT.contains(&(f.kind, f.stack_group)) {
@@ -1108,6 +1333,36 @@ mod tests {
                 f.presence,
                 Presence::NotObservable,
                 "{} é aplicado pelo stack e não tem presença — cairia no «unsupported kind»",
+                f.kind
+            );
+        }
+    }
+
+    /// ADR-0086 D7: exactly the Kinds in `D7_NODE_SCOPED` are node-scoped, and
+    /// each really carries `Namespaced::Never` in the table. This locks the
+    /// first (and today true) half of D7 — the node-scoped set — from drift: a
+    /// node resource accidentally made namespaced, or a tenant Kind slipped into
+    /// the node-scoped list. The second half (every OTHER Kind namespaced, name
+    /// unique per namespace, the `vms/<name>.json`/`pod-<name>` relayout that
+    /// reverses ADR-0069 #2) is a structural change still to land and is NOT
+    /// asserted here.
+    #[test]
+    fn the_d7_node_scoped_set_is_exactly_the_node_resources() {
+        for k in D7_NODE_SCOPED {
+            assert_eq!(
+                facts(k).unwrap().namespaced,
+                Namespaced::Never,
+                "{k} is in D7_NODE_SCOPED but the table does not mark it node-scoped"
+            );
+            assert!(is_node_scoped(k), "{k}");
+        }
+        // Nothing OUTSIDE the list answers `is_node_scoped` — the helper is the
+        // list, so a sixth node resource has to be added here on purpose.
+        for f in all() {
+            assert_eq!(
+                is_node_scoped(f.kind),
+                D7_NODE_SCOPED.contains(&f.kind),
+                "{} disagrees with D7_NODE_SCOPED",
                 f.kind
             );
         }

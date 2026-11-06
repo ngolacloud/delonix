@@ -12,14 +12,21 @@
 FROM rust:__TEMPLATE_VERSION__-slim AS build
 WORKDIR /src
 # Cache dependencies: a manifest-only layer that only rebuilds when they change.
+# No `|| true`: a real dependency error must fail HERE, not hide until the next
+# stage (Phase-0 hygiene). Reproducibility wants `--locked`, which needs a
+# COMMITTED Cargo.lock the scaffold does not yet ship — see docs/services.md;
+# once the project commits its lock, add it to the COPY and pass `--locked`.
 COPY Cargo.toml ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs && echo "" > src/lib.rs \
-    && cargo build --release --quiet || true
+    && cargo build --release --quiet
 COPY . /src
-RUN cargo build --release --locked --quiet 2>/dev/null || cargo build --release --quiet
+# Prefer the lock when present; the error is VISIBLE (no `2>/dev/null`) so a lock
+# mismatch is not silently dropped, and the fallback keeps a lock-less scaffold
+# building until it commits one.
+RUN cargo build --release --locked --quiet || cargo build --release --quiet
 RUN cp "target/release/__NAME__" /usr/local/bin/__NAME__
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 # CA roots for the outbound webhook over https, and curl for the healthcheck.
 # An unprivileged user for the service (uid 10001): it owns nothing in the image
 # and writes only to the manifest's tmpfs.

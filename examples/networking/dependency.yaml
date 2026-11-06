@@ -33,12 +33,12 @@
 # ── 0. Recursos de apoio INLINE — a rede e os workloads ──────────────────────
 #      Supporting resources INLINE — the network and the workloads
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: appnet }
 spec: { driver: bridge }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: db }
 spec:
@@ -49,7 +49,7 @@ spec:
       env:
         - { name: POSTGRES_PASSWORD, value: example }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: cache }
 spec:
@@ -58,7 +58,7 @@ spec:
     - name: cache
       image: "redis:7-alpine"
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: app }
 spec:
@@ -68,7 +68,7 @@ spec:
       image: "alpine:3.19"
       command: ["sleep", "infinity"]
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: worker }
 spec:
@@ -81,7 +81,7 @@ spec:
 # ── 1. todos os campos, `to` como um nome único — app alcança db só em TCP/5432
 #      every field, `to` as a single name — app may reach db on TCP/5432 only
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Dependency
 metadata: { name: app-knows-db }
 spec:
@@ -93,7 +93,7 @@ spec:
 # ── 2. `to` como LISTA — uma declaração protege dois alvos de uma vez ────────
 #      `to` as a LIST — one declaration protecting two targets at once
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Dependency
 metadata: { name: app-knows-cache }
 spec:
@@ -108,7 +108,7 @@ spec:
 # PT: Fundido com o documento 1, db aceita app (5432/tcp) E worker (qualquer porta/proto).
 # EN: Merged with document 1, db accepts app (5432/tcp) AND worker (any port, any proto).
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Dependency
 metadata: { name: worker-knows-db }
 spec:

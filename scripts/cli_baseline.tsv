@@ -134,6 +134,7 @@
 ~	logout
 ~	logs
 =	man
+~	manifest convert
 ~	manifest render
 ~	manifest schema
 ~	manifest validate

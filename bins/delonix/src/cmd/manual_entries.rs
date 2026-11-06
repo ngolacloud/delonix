@@ -120,8 +120,8 @@ pub static ENTRIES: &[Entry] = &[
         group: "Artifacts",
         examples: &[
             ("the common case — repository and tag", "delonix pull postgres:16"),
-            ("a registry other than Docker Hub — write it out in the reference", "delonix pull ghcr.io/angolardevops/kaeso-odoo:18"),
-            ("refuse the image unless it carries a cosign signature made by this key", "delonix pull --verify cosign.pub ghcr.io/angolardevops/app:1.2.0"),
+            ("a registry other than Docker Hub — write it out in the reference", "delonix pull ghcr.io/ngolacloud/kaeso-odoo:18"),
+            ("refuse the image unless it carries a cosign signature made by this key", "delonix pull --verify cosign.pub ghcr.io/ngolacloud/app:1.2.0"),
         ],
         see_also: &["image pull", "image ls", "run"],
     },
@@ -177,7 +177,7 @@ pub static ENTRIES: &[Entry] = &[
         group: "Artifacts",
         examples: &[
             ("a second name for the same content — nothing is copied", "delonix tag postgres:16 db:stable"),
-            ("the shape a locally-built image needs before it can be pushed to your registry", "delonix tag kaeso-odoo:18 ghcr.io/angolardevops/kaeso-odoo:18"),
+            ("the shape a locally-built image needs before it can be pushed to your registry", "delonix tag kaeso-odoo:18 ghcr.io/ngolacloud/kaeso-odoo:18"),
         ],
         see_also: &["push", "images", "image tag"],
     },
@@ -203,8 +203,8 @@ pub static ENTRIES: &[Entry] = &[
         path: "push",
         group: "Artifacts",
         examples: &[
-            ("publish under the image's own reference", "delonix push ghcr.io/angolardevops/app:1.2.0"),
-            ("publish a locally-named image under another reference, without tagging it first", "delonix push kaeso-odoo:18 ghcr.io/angolardevops/kaeso-odoo:18"),
+            ("publish under the image's own reference", "delonix push ghcr.io/ngolacloud/app:1.2.0"),
+            ("publish a locally-named image under another reference, without tagging it first", "delonix push kaeso-odoo:18 ghcr.io/ngolacloud/kaeso-odoo:18"),
         ],
         see_also: &["tag", "images", "image push"],
     },
@@ -1071,6 +1071,15 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["manifest validate", "explain", "api-resources"],
     },
     Entry {
+        path: "manifest convert",
+        group: "manifest",
+        examples: &[
+            ("rewrite an old manifest to the catalog-v1 apiVersions (ADR-0086)", "delonix manifest convert -f delonix-manifest.yaml"),
+            ("rewrite the file in place instead of printing it", "delonix manifest convert -f delonix-manifest.yaml --write"),
+        ],
+        see_also: &["manifest validate", "manifest render", "apply"],
+    },
+    Entry {
         path: "get",
         group: "Resources",
         examples: &[
@@ -1197,8 +1206,8 @@ pub static ENTRIES: &[Entry] = &[
         group: "Lifecycle",
         examples: &[
             ("the common case — repository and tag", "delonix image pull postgres:16"),
-            ("a registry other than Docker Hub — write it out in the reference", "delonix image pull ghcr.io/angolardevops/kaeso-odoo:18"),
-            ("refuse the image unless it carries a cosign signature made by this key", "delonix image pull --verify cosign.pub ghcr.io/angolardevops/app:1.2.0"),
+            ("a registry other than Docker Hub — write it out in the reference", "delonix image pull ghcr.io/ngolacloud/kaeso-odoo:18"),
+            ("refuse the image unless it carries a cosign signature made by this key", "delonix image pull --verify cosign.pub ghcr.io/ngolacloud/app:1.2.0"),
         ],
         see_also: &["image ls", "image scan", "image verify", "vm image pull"],
     },
@@ -1206,8 +1215,8 @@ pub static ENTRIES: &[Entry] = &[
         path: "image push",
         group: "Lifecycle",
         examples: &[
-            ("publish under the image's own reference", "delonix image push ghcr.io/angolardevops/app:1.2.0"),
-            ("publish a locally-named image under another reference, without tagging it first", "delonix image push kaeso-odoo:18 ghcr.io/angolardevops/kaeso-odoo:18"),
+            ("publish under the image's own reference", "delonix image push ghcr.io/ngolacloud/app:1.2.0"),
+            ("publish a locally-named image under another reference, without tagging it first", "delonix image push kaeso-odoo:18 ghcr.io/ngolacloud/kaeso-odoo:18"),
         ],
         see_also: &["image login", "image tag", "vm image push"],
     },
@@ -1310,7 +1319,7 @@ pub static ENTRIES: &[Entry] = &[
         examples: &[
             ("the CVEs of an image, read from the layers on disk — nothing is executed", "delonix image scan postgres:16"),
             ("the installed packages (SBOM) instead of the findings", "delonix image scan --sbom nginx"),
-            ("a CI gate: exit 1 if anything high or worse is found", "delonix image scan --fail-on high ghcr.io/angolardevops/app:1.2.0"),
+            ("a CI gate: exit 1 if anything high or worse is found", "delonix image scan --fail-on high ghcr.io/ngolacloud/app:1.2.0"),
             ("refresh the local feed first — a scan is only as fresh as the database behind it", "delonix image scan --update"),
         ],
         see_also: &["image describe", "image pull", "image verify"],
@@ -1328,7 +1337,7 @@ pub static ENTRIES: &[Entry] = &[
         path: "image verify",
         group: "Inspect",
         examples: &[
-            ("check the cosign signature of an image you already have against the publisher's key", "delonix image verify ghcr.io/angolardevops/app:1.2.0 cosign.pub"),
+            ("check the cosign signature of an image you already have against the publisher's key", "delonix image verify ghcr.io/ngolacloud/app:1.2.0 cosign.pub"),
             ("the gate to run before promoting a local build to production", "delonix image verify kaeso-odoo:18 keys/kaeso.pub"),
         ],
         see_also: &["image pull", "image scan", "image describe"],
@@ -1364,7 +1373,7 @@ pub static ENTRIES: &[Entry] = &[
         group: "Configure",
         examples: &[
             ("a second name for the same content — nothing is copied", "delonix image tag postgres:16 db:stable"),
-            ("the shape a locally-built image needs before it can be pushed to your registry", "delonix image tag kaeso-odoo:18 ghcr.io/angolardevops/kaeso-odoo:18"),
+            ("the shape a locally-built image needs before it can be pushed to your registry", "delonix image tag kaeso-odoo:18 ghcr.io/ngolacloud/kaeso-odoo:18"),
         ],
         see_also: &["image push", "image ls", "image remove"],
     },
@@ -1445,10 +1454,10 @@ pub static ENTRIES: &[Entry] = &[
         path: "vm image pull",
         group: "Lifecycle",
         examples: &[
-            ("the official Kubernetes golden (`ghcr.io/angolardevops/delonix-vm-k8s`) — no argument needed", "delonix vm image pull"),
+            ("the official Kubernetes golden (`ghcr.io/ngolacloud/delonix-vm-k8s`) — no argument needed", "delonix vm image pull"),
             ("the Kubernetes-free golden instead: the same base with `delonix` on board and rootless already set up", "delonix vm image pull --no-k8s"),
-            ("a specific published version", "delonix vm image pull ghcr.io/angolardevops/delonix-vm-k8s:1.34"),
-            ("under a local name of your own, so `vm create --disk base` finds it", "delonix vm image pull ghcr.io/angolardevops/delonix-vm-base:ubuntu-24.04 --name base"),
+            ("a specific published version", "delonix vm image pull ghcr.io/ngolacloud/delonix-vm-k8s:1.34"),
+            ("under a local name of your own, so `vm create --disk base` finds it", "delonix vm image pull ghcr.io/ngolacloud/delonix-vm-base:ubuntu-24.04 --name base"),
         ],
         see_also: &["vm image ls-remote", "vm image ls", "vm create", "cluster kubeadm"],
     },
@@ -1457,7 +1466,7 @@ pub static ENTRIES: &[Entry] = &[
         group: "Lifecycle",
         examples: &[
             ("publish to the official repository this image belongs in — the destination is derived from its own metadata", "delonix vm image push delonix-vm-k8s:1.34"),
-            ("publish to a registry of your own instead", "delonix vm image push opnsense:26.1 ghcr.io/angolardevops/delonix-vm-appliances:opnsense-26.1.2"),
+            ("publish to a registry of your own instead", "delonix vm image push opnsense:26.1 ghcr.io/ngolacloud/delonix-vm-appliances:opnsense-26.1.2"),
         ],
         see_also: &["image login", "vm image ls", "vm image build"],
     },
@@ -1530,7 +1539,7 @@ pub static ENTRIES: &[Entry] = &[
         examples: &[
             ("which Kubernetes versions are published, before choosing one to pull", "delonix vm image ls-remote"),
             ("the tags of the Kubernetes-free golden repo", "delonix vm image ls-remote --no-k8s"),
-            ("any other repository — the appliances, for instance", "delonix vm image ls-remote ghcr.io/angolardevops/delonix-vm-appliances"),
+            ("any other repository — the appliances, for instance", "delonix vm image ls-remote ghcr.io/ngolacloud/delonix-vm-appliances"),
         ],
         see_also: &["vm image pull", "vm image ls", "vm image push"],
     },

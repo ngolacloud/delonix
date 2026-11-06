@@ -31,17 +31,17 @@
 # ── 0. Recursos de apoio INLINE — as redes que as rotas ligam ────────────────
 #      Supporting resources INLINE — the networks the routes connect
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: frontend }
 spec: { driver: bridge }
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: backend }
 spec: { driver: bridge }
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: mgmt }
 spec: { driver: bridge }
@@ -52,7 +52,7 @@ spec: { driver: bridge }
 # PT: O retorno dessas conversas flui; backend NÃO inicia de volta.
 # EN: Return traffic of those conversations flows; backend cannot initiate back.
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
 metadata:
   name: frontend-to-backend
@@ -65,14 +65,14 @@ spec:
 # ── 2. um segundo par independente — mgmt alcança as outras duas ────────────
 #      a second independent pair — mgmt reaches both others
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
 metadata: { name: mgmt-to-backend }
 spec:
   from: mgmt
   to: backend
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
 metadata: { name: mgmt-to-frontend }
 spec:
@@ -82,7 +82,7 @@ spec:
 # ── 3. um caminho bidireccional são duas rotas (o par inverso, explícito) ────
 #      a bidirectional path is two explicit routes (the reverse pair)
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
 metadata: { name: backend-to-mgmt }
 spec:
@@ -97,7 +97,7 @@ spec:
 # EN: The workloads exist so the "is it allowed?" question has something to protect.
 #     Without this Dependency the path exists but `api` still decides who it accepts.
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: web }
 spec:
@@ -107,7 +107,7 @@ spec:
       image: "alpine:3.19"
       command: ["sleep", "infinity"]
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: api }
 spec:
@@ -117,7 +117,7 @@ spec:
       image: "alpine:3.19"
       command: ["sleep", "infinity"]
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Dependency
 metadata: { name: web-knows-api }
 spec:

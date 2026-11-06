@@ -35,7 +35,7 @@
 # ── 1. local — uma gama já presente no loopback ──────────────────────────────
 #      local — a range already present on the loopback
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: IPPool
 metadata: { name: edge }
 spec:

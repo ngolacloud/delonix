@@ -102,6 +102,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                 .annotations
                 .get(super::reconcile::LAST_APPLIED)
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: r.labels.contains_key(super::reconcile::PROTECT),
         })
         .collect())
 }
@@ -121,27 +122,32 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     let (from, to) = split_route_name(name)?;
-    delonix_sdn::infra::route_set_metadata(
-        from,
-        to,
-        &[
-            (
-                super::reconcile::STACK_LABEL.to_string(),
-                Some(stack.to_string()),
-            ),
-            (
-                super::reconcile::MANAGED_BY.to_string(),
-                Some("delonix".to_string()),
-            ),
-        ],
-        &[(
-            super::reconcile::LAST_APPLIED.to_string(),
-            Some(super::reconcile::encode_last_applied(fields)),
-        )],
-    )
-    .map_err(Into::into)
+    let mut labels = vec![
+        (
+            super::reconcile::STACK_LABEL.to_string(),
+            Some(stack.to_string()),
+        ),
+        (
+            super::reconcile::MANAGED_BY.to_string(),
+            Some("delonix".to_string()),
+        ),
+    ];
+    if protected {
+        labels.push((
+            super::reconcile::PROTECT.to_string(),
+            Some("true".to_string()),
+        ));
+    }
+    // Previous annotations, so the generation counter sees the prior spec
+    // (ADR-0090) — `route_set_metadata` merges a delta without returning the old.
+    let prev = delonix_sdn::infra::route_get(from, to)
+        .map(|d| d.annotations)
+        .unwrap_or_default();
+    let annotations = super::reconcile::stamp_annotation_delta(&prev, fields, k::NETWORK_ROUTE);
+    delonix_sdn::infra::route_set_metadata(from, to, &labels, &annotations).map_err(Into::into)
 }
 
 /// Closes the path. This is what `--prune` and `stack destroy` call, and its
@@ -396,6 +402,7 @@ mod tests {
             fields: route_fields(from, to),
             owner: dono.map(String::from),
             last_applied: None,
+            protect: false,
         }
     }
 

@@ -34,7 +34,7 @@
 # ── 1. modo kind — cluster local em containers, aqui mesmo ──────────────────
 #      mode kind — a local cluster in containers, right here
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: kind-lab
@@ -55,7 +55,7 @@ spec:
 # ── 2. modo ssh — hosts remotos já existentes, control-plane HA ─────────────
 #      mode ssh — remote hosts that already exist, HA control plane
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: ssh-prod
@@ -85,7 +85,7 @@ spec:
 # ── 3. modo vm — cada nó é uma microVM da imagem dourada ────────────────────
 #      mode vm — every node is a microVM from the golden image
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: vm-lab
@@ -110,7 +110,7 @@ spec:
 # ── 4. perfil CNI Cilium (modo vm) — a rede de pods instalada pelo bootstrap ─
 #      Cilium CNI profile (mode vm) — the pod network the bootstrap installs
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: cilium-lab
@@ -144,7 +144,7 @@ spec:
 # ── 5. modo ssh com etcd EXTERNO dedicado (CA própria, nº ímpar de membros) ──
 #      mode ssh with a dedicated EXTERNAL etcd cluster (own CA, odd member count)
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: ssh-etcd-prod

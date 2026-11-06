@@ -25,7 +25,7 @@
 # ── 1. mínimo — só o campo obrigatório ──────────────────────────────────────
 #      minimal — the only mandatory field
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: minimal
@@ -35,7 +35,7 @@ spec:
 # ── 2. forma agrupada com os defaults à vista ───────────────────────────────
 #      grouped shape with the defaults made explicit
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: web
@@ -100,14 +100,14 @@ spec:
 # ── 3. recursos de apoio para os cenários completos abaixo ───────────────────
 #      supporting resources for the full scenarios below
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: app-net
 spec:
   driver: bridge
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: app-secret
@@ -115,7 +115,7 @@ spec:
   stringData:
     DB_PASSWORD: change-me-example   # PT: injectado como env (ou /run/secrets/, ver secretFiles) | EN: injected as env (or /run/secrets/, see secretFiles)
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: app-data
@@ -124,7 +124,7 @@ spec:
 ---
 # PT: um contentor-par, para `knows:` ter algo a resolver.
 # EN: a peer container so `knows:` has something to resolve.
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: peer
@@ -136,7 +136,7 @@ spec:
 # ── 4. forma plana completa — todos os campos no topo de spec ────────────────
 #      full flat — every field at the top level of spec
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: full-flat
@@ -220,7 +220,7 @@ spec:
 # ── 5. forma agrupada completa — os mesmos campos, por tema ──────────────────
 #      full grouped — the same fields, organised by concern
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: full-grouped
@@ -286,7 +286,7 @@ spec:
 # ── 6. env como mapa KEY: value (o que escrevem utilizadores de compose/k8s) ──
 #      env as a plain KEY: value mapping (what compose/k8s users write)
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: env-map
@@ -301,7 +301,7 @@ spec:
 # ── 7. primeiro plano — detach false bloqueia o apply até o processo sair ─────
 #      foreground — detach false blocks apply until the process exits
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: foreground
