@@ -33,6 +33,11 @@ pub struct ImageConfig {
     /// Dockerfile `HEALTHCHECK` command (the part after `CMD`), if any.
     #[serde(default)]
     pub healthcheck: Option<String>,
+    /// Ports the image declares it EXPOSEs (OCI `ExposedPorts`), each as
+    /// `port` or `port/proto` (`tcp` when no proto). `docker run -P`/
+    /// `--publish-all` publishes one host port per entry. Empty = none.
+    #[serde(default)]
+    pub exposed_ports: Vec<String>,
     /// The default user (Docker/OCI: `User`), e.g. `"elasticsearch"`,
     /// `"1000"` or `"1000:1000"`. Empty = root (uid 0). Images such as
     /// Elasticsearch refuse to run as root, so the runtime switches to this

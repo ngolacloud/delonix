@@ -42,6 +42,11 @@ pub struct RunOpts {
     #[serde(default)]
     pub volumes_from: Vec<String>,
     pub ports: Vec<String>,
+    /// Docker `--publish-all`/`-P`: publish every port the image EXPOSEs, each
+    /// on an ephemeral host port. Resolved against the store by the CLI (which
+    /// reads the image's exposed ports) into concrete `ports` entries, not here.
+    #[serde(default)]
+    pub publish_all: bool,
     pub privileged: bool,
     /// Override for the image's ENTRYPOINT, as a full argv — the same shape the
     /// image config itself uses. Three distinct states, and the difference
@@ -226,6 +231,12 @@ pub struct RunOpts {
     /// container, and the monitor has to find it again after a `restart`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health: Option<HealthConfig>,
+    /// Docker/Podman `--no-healthcheck`: disable the image's HEALTHCHECK
+    /// entirely. PERSISTED on the record so every surface that would otherwise
+    /// pick the image's HEALTHCHECK up (the continuous monitor, `container
+    /// healthcheck`, `--wait`) short-circuits to "no probe".
+    #[serde(default)]
+    pub no_healthcheck: bool,
     #[serde(default)]
     pub knows: Vec<String>,
     #[serde(default)]
