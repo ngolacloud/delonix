@@ -352,7 +352,10 @@ mod tests {
             assert!(!c.is_unlimited(), "spec {spec:?} must not lift the ceiling");
             assert_eq!(c, CapCeiling::node_default(CAPS));
             // A non-privileged pod asking for SYS_ADMIN is refused...
-            assert_eq!(c.rejected(&s(&["SYS_ADMIN"]), false, CAPS), vec!["SYS_ADMIN"]);
+            assert_eq!(
+                c.rejected(&s(&["SYS_ADMIN"]), false, CAPS),
+                vec!["SYS_ADMIN"]
+            );
             // ...and so is `privileged: true`.
             assert!(c.rejected(&[], true, CAPS).contains(&"SYS_ADMIN"));
             // A pod that asks for nothing keeps exactly the engine's default set.
@@ -451,7 +454,11 @@ mod tests {
             "NET_ADMIN está no tecto"
         );
         assert_eq!(
-            c.rejected(&s(&["NET_ADMIN", "CAP_SYS_ADMIN", "sys_module"]), false, CAPS),
+            c.rejected(
+                &s(&["NET_ADMIN", "CAP_SYS_ADMIN", "sys_module"]),
+                false,
+                CAPS
+            ),
             vec!["SYS_MODULE", "SYS_ADMIN"]
         );
         // `privileged` is reported by what it would actually gain.

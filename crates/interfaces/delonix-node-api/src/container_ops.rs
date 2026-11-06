@@ -111,7 +111,9 @@ pub fn stop_in(
         .unwrap_or(DEFAULT_GRACE_SECS);
     // The linux edge drives the stop through the `LinuxLifecycle` port, over the
     // flock-guarded record store the port is handed — no named state/linux adapter.
-    linux.stop(store, &mut c, grace).map_err(|e| status_of(&e))?;
+    linux
+        .stop(store, &mut c, grace)
+        .map_err(|e| status_of(&e))?;
     linux.reconcile_status(&mut c);
     Ok(crate::containers::message(&c))
 }

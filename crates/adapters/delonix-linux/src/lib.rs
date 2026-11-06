@@ -2425,11 +2425,6 @@ fn set_opaque_dir(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Mounts the container rootfs and does `pivot_root` (runs INSIDE the `clone`).
-// The last one in this crate: `setup_rootfs` runs BEFORE the spec is
-// destructured, so it takes the pieces individually. Group it the way
-// `container_init` was grouped if it grows again.
-#[allow(clippy::too_many_arguments)]
 /// Mount-ordering depth of a target (see the sort in `setup_rootfs`): the
 /// number of path components, with any trailing slash trimmed first so a parent
 /// written `/a/b/` sorts BEFORE its child `/a/b/c` instead of tying with it.
@@ -2439,6 +2434,11 @@ fn mount_target_depth(target: &str) -> usize {
     target.trim_end_matches('/').matches('/').count()
 }
 
+/// Mounts the container rootfs and does `pivot_root` (runs INSIDE the `clone`).
+// The last one in this crate: `setup_rootfs` runs BEFORE the spec is
+// destructured, so it takes the pieces individually. Group it the way
+// `container_init` was grouped if it grows again.
+#[allow(clippy::too_many_arguments)]
 fn setup_rootfs(
     rootfs: &str,
     hostname: &str,

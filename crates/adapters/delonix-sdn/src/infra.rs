@@ -10898,10 +10898,10 @@ mod tests {
     /// measured. Header lines and `lo` must be excluded, and an unusable dump
     /// must be `None` (unmeasured), never `Some(0)`.
     ///
-    /// A VM's per-tap read picks ONE interface out of the holder's many (bridge
-    /// + every VM's tap + veths) — the sum would be meaningless. The parser
-    /// returns the tap's OWN (host-side) counters; `vm_tap_net_bytes` then swaps
-    /// them to the guest's perspective (host rx = guest tx).
+    /// A VM's per-tap read picks ONE interface out of the holder's many
+    /// (bridge + every VM's tap + veths) — the sum would be meaningless. The
+    /// parser returns the tap's OWN (host-side) counters; `vm_tap_net_bytes`
+    /// then swaps them to the guest's perspective (host rx = guest tx).
     #[test]
     fn parse_iface_picks_one_tap_and_ignores_the_rest() {
         let dump = "\

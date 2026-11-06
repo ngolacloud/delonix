@@ -22,5 +22,12 @@ lint:
 breaking:
   use:
     - FILE
+  # The ngolacloud rebrand (angolardevops/delonix-runtime -> ngolacloud/delonix)
+  # changed `option go_package` in every v1 file. That is a one-time identity
+  # change, not a wire break, but the newest release tag carrying proto/ is still
+  # v5.1.1 (pre-rebrand), so FILE_SAME_GO_PACKAGE fires against it. Drop this
+  # `except` once a post-rebrand release tag ships and becomes the baseline.
+  except:
+    - FILE_SAME_GO_PACKAGE
   ignore:
     - third_party/googleapis

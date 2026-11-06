@@ -84,7 +84,10 @@ fn entry_of(pool: &str) -> Result<Entry, Status> {
 }
 
 /// `GetCephStatus`: the RADOS substrate's health.
-pub fn ceph_status(ceph: &dyn CephStorage, req: &GetCephStatusRequest) -> Result<CephStatus, Status> {
+pub fn ceph_status(
+    ceph: &dyn CephStorage,
+    req: &GetCephStatusRequest,
+) -> Result<CephStatus, Status> {
     let ident = if req.pool.is_empty() {
         default_ident()
     } else {

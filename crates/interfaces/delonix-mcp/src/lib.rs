@@ -215,11 +215,10 @@ fn list_kind(
     kind: ResourceKind,
 ) -> Result<serde_json::Value, ErrorData> {
     Ok(match kind {
-        ResourceKind::Container => serde_json::to_value(list_containers(reads)?)
-            .unwrap_or(serde_json::Value::Null),
-        ResourceKind::Vm => {
-            serde_json::to_value(list_vms(vms)?).unwrap_or(serde_json::Value::Null)
+        ResourceKind::Container => {
+            serde_json::to_value(list_containers(reads)?).unwrap_or(serde_json::Value::Null)
         }
+        ResourceKind::Vm => serde_json::to_value(list_vms(vms)?).unwrap_or(serde_json::Value::Null),
         ResourceKind::Volume => serde_json::Value::Array(list_volumes(reads)?),
     })
 }
@@ -582,7 +581,11 @@ impl DelonixMcp {
                 if name.as_deref().is_some_and(|n| n != c.name && n != c.id) {
                     continue;
                 }
-                rows.push(container_usage_row(self.reads.as_ref(), &c, include_network));
+                rows.push(container_usage_row(
+                    self.reads.as_ref(),
+                    &c,
+                    include_network,
+                ));
             }
         }
         if want_vms {
@@ -891,11 +894,20 @@ impl DelonixMcp {
             ["runtime", "capabilities"] => Ok(pretty(capabilities_table())),
             ["resources", kind] => {
                 let k = ResourceKind::parse(kind)?;
-                Ok(pretty(list_kind(self.reads.as_ref(), self.vms.as_ref(), k)?))
+                Ok(pretty(list_kind(
+                    self.reads.as_ref(),
+                    self.vms.as_ref(),
+                    k,
+                )?))
             }
             ["resources", kind, name] => {
                 let k = ResourceKind::parse(kind)?;
-                Ok(pretty(get_kind(self.reads.as_ref(), self.vms.as_ref(), k, name)?))
+                Ok(pretty(get_kind(
+                    self.reads.as_ref(),
+                    self.vms.as_ref(),
+                    k,
+                    name,
+                )?))
             }
             ["schema", _kind] => Err(typed_err(
                 "NOT_IMPLEMENTED",
@@ -1039,10 +1051,7 @@ pub fn capabilities_table() -> Vec<serde_json::Value> {
 /// in this design (ADR-0025). `(check_name, ok, detail)`. The store openability
 /// is asked of the composed engine through the [`EngineReads`] port (R3e), not of
 /// the adapter directly — the same reachability `runtime.health` reports.
-pub fn doctor_checks(
-    base: &Path,
-    reads: &dyn EngineReads,
-) -> Vec<(&'static str, bool, String)> {
+pub fn doctor_checks(base: &Path, reads: &dyn EngineReads) -> Vec<(&'static str, bool, String)> {
     let mut checks = Vec::new();
 
     let containers_ok = reads.container_store_reachable();

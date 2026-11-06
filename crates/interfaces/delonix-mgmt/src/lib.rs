@@ -134,11 +134,7 @@ pub trait EngineOps: Send + Sync {
 
 /// Starts the management API listening on a unix socket (blocking). `addr` accepts
 /// a path or `unix:///path`. Same pattern as `delonix-cri::serve_blocking`.
-pub fn serve_blocking(
-    base: PathBuf,
-    engine: Arc<dyn EngineOps>,
-    addr: &str,
-) -> Result<(), Error> {
+pub fn serve_blocking(base: PathBuf, engine: Arc<dyn EngineOps>, addr: &str) -> Result<(), Error> {
     // The CLI the mutations run: never this process's own executable, which is the
     // API server (`delonix serve api` runs `delonix-mgmt`) and would serve again
     // instead of running the command.
@@ -201,12 +197,12 @@ pub fn serve_blocking_with(
 /// collection panic/slow disk on one tick never stops the next one).
 async fn spawn_expensive_metrics_refresh(base: PathBuf, engine: Arc<dyn EngineOps>) {
     let _ = base; // the engine port already carries the state root
-    // BUG FOUND (code review): this used to `.await` the collection with no
-    // ceiling at all — a genuinely stuck disk/netns operation (not just "slow",
-    // an actual hang) would freeze this loop, and every expensive gauge, for the
-    // remaining lifetime of the process. Bounded with `collect_with_timeout`; see
-    // its own doc comment for why the worker thread is leaked rather than
-    // cancelled on a timeout.
+                  // BUG FOUND (code review): this used to `.await` the collection with no
+                  // ceiling at all — a genuinely stuck disk/netns operation (not just "slow",
+                  // an actual hang) would freeze this loop, and every expensive gauge, for the
+                  // remaining lifetime of the process. Bounded with `collect_with_timeout`; see
+                  // its own doc comment for why the worker thread is leaked rather than
+                  // cancelled on a timeout.
     const COLLECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
     loop {
         // Per-container network bytes for the per-workload series
@@ -523,7 +519,6 @@ where
             message: e.to_string(),
         })?
 }
-
 
 async fn list_volumes(State(s): State<AppState>) -> Response {
     let engine = s.engine.clone();
@@ -1232,7 +1227,8 @@ async fn publish_port(State(s): State<AppState>, Json(b): Json<PublishBody>) -> 
         return err_response(e);
     }
     let engine = s.engine.clone();
-    let r = tokio::task::spawn_blocking(move || engine.publish_port(&b.container_ip, &b.spec)).await;
+    let r =
+        tokio::task::spawn_blocking(move || engine.publish_port(&b.container_ip, &b.spec)).await;
     match r {
         Ok(Ok(())) => Json(serde_json::json!({ "ok": true })).into_response(),
         Ok(Err(e)) => {
@@ -1597,11 +1593,7 @@ mod tests {
         fn record_published_port(&self, ip: &str, spec: &str) -> Result<(), Error> {
             self.0.containers().record_published_port(ip, spec)
         }
-        fn forget_published_port(
-            &self,
-            ip: Option<&str>,
-            spec_or_port: &str,
-        ) -> Result<(), Error> {
+        fn forget_published_port(&self, ip: Option<&str>, spec_or_port: &str) -> Result<(), Error> {
             self.0.containers().forget_published_port(ip, spec_or_port)
         }
         fn dhcp_ip(&self, net: &str, mac: &str) -> Option<String> {

@@ -534,7 +534,7 @@ Options:
           [default: 0]
 
       --control-planes &lt;CONTROL_PLANES&gt;
-          Cluster control-planes (default 1). More than 1 requires a stable endpoint in front of them (LB) — see the error if you ask for &gt;1
+          Cluster control-planes (default 1). More than 1 is HA: delonix provisions an HAProxy container as the stable endpoint (VIP) in front of them, with stacked etcd — no manual load balancer needed
           
           [default: 1]
 

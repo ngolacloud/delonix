@@ -58,10 +58,7 @@ impl delonix_cri::ContainerOps for NoContainers {
     fn list(&self) -> Result<Vec<delonix_compute::Container>, delonix_model::Error> {
         Ok(Vec::new())
     }
-    fn load(
-        &self,
-        id_or_name: &str,
-    ) -> Result<delonix_compute::Container, delonix_model::Error> {
+    fn load(&self, id_or_name: &str) -> Result<delonix_compute::Container, delonix_model::Error> {
         Err(delonix_model::Error::NotFound(id_or_name.to_string()))
     }
     fn update(
@@ -185,7 +182,11 @@ impl delonix_cri::NetworkOps for TestNetwork {
     ) -> Result<delonix_cri::CniAttached, String> {
         Err("CNI attach is not exercised by the gRPC round-trip test".to_string())
     }
-    fn cni_set_netns_sysctls(&self, _netns: &str, _sysctls: &[(String, String)]) -> Result<(), String> {
+    fn cni_set_netns_sysctls(
+        &self,
+        _netns: &str,
+        _sysctls: &[(String, String)],
+    ) -> Result<(), String> {
         Ok(())
     }
     fn cni_detach(&self, _pod: &str, _rootless: bool, _conf_json: &str) {}

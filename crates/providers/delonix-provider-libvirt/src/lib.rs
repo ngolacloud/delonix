@@ -373,7 +373,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 evidence: "test:crates/providers/delonix-provider-libvirt/tests/live.rs::vm_clone_boots_an_independent_domain_from_a_copied_disk",
             }),
             C::VmTemplate => bin(S::Supported {
-                evidence: "test:crates/contexts/delonix-compute/src/vm.rs::mark_template_freezes_the_vm_and_start_refuses_it",
+                evidence: "test:crates/contexts/delonix-compute/src/app/vm.rs::mark_template_freezes_the_vm_and_start_refuses_it",
             }),
             C::VmResizeCold => bin(S::Supported {
                 evidence: "check:o domínio arranca com 2 vCPU",

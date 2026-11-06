@@ -22,13 +22,13 @@ use std::path::Path;
 use tonic::Status;
 
 use crate::page;
-use crate::volume_store::{OwnedVolumeRecord, VolumeRecord, VolumeStore};
 use crate::proto::v1::{
     volume_spec, Condition, ConditionStatus, GetVolumeRequest, ListVolumesRequest,
     ListVolumesResponse, LocalVolume, PageResponse, RemoteProtocol, RemoteShare, ResourceMeta,
     ShareOf, Volume, VolumeSpec,
 };
 use crate::selector::Selector;
+use crate::volume_store::{OwnedVolumeRecord, VolumeRecord, VolumeStore};
 
 /// The namespace the unscoped root is reported in.
 pub const DEFAULT_NAMESPACE: &str = "default";

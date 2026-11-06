@@ -85,8 +85,7 @@ pub trait ContainerOps: Send + Sync {
     fn list(&self) -> Result<Vec<delonix_compute::Container>, delonix_model::Error>;
     /// One container's full record, by name or id (prefix); the prefixed CRI
     /// names (`cri-<id>`, `pod-cri-<id>`) resolve here exactly as on the store.
-    fn load(&self, id_or_name: &str)
-        -> Result<delonix_compute::Container, delonix_model::Error>;
+    fn load(&self, id_or_name: &str) -> Result<delonix_compute::Container, delonix_model::Error>;
     /// Locked read-modify-write: `f` mutates the record re-read under the lock and
     /// returns `false` to abort the write. The final (or read) record comes back.
     fn update(
@@ -441,7 +440,11 @@ fn to_cri_image(v: &serde_json::Value) -> Image {
     let refs: Vec<String> = v
         .get("repo_tags")
         .and_then(|x| x.as_array())
-        .map(|a| a.iter().filter_map(|r| r.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|r| r.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     let (repo_tags, repo_digests) = partition_refs(&refs);
     let size = v.get("size").and_then(|x| x.as_u64()).unwrap_or(0);
@@ -851,8 +854,7 @@ pub(crate) mod test_ops {
                     netns_path: netns,
                 })
             } else {
-                let conf =
-                    delonix_sdn::cni::parse_config(conf_json).map_err(|e| e.to_string())?;
+                let conf = delonix_sdn::cni::parse_config(conf_json).map_err(|e| e.to_string())?;
                 let cidr = delonix_sdn::cni::attach_named_netns(
                     &conf,
                     pod,

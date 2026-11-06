@@ -424,7 +424,7 @@ fn check_distinct_node_addresses(nodes: &[(&str, &str)]) -> Result<()> {
 /// path always has them populated by now), replicas otherwise. The engine's
 /// `default` -> Cilium selection keys on it, so it is computed once here.
 fn node_count(spec: &ClusterSpec) -> u32 {
-    (spec.control_plane.count() + spec.workers.count()) as u32
+    spec.control_plane.count() + spec.workers.count()
 }
 
 /// Whether `apply_ssh` installs the node-local bridge CNI itself: only when the
@@ -6725,7 +6725,7 @@ workers:
         let plan = bootstrap_plan(&spec, true);
         let installing =
             super::super::po::tf("Installing the {cni} pod network", &[("cni", "cilium")]);
-        assert!(plan.iter().any(|l| *l == installing), "{plan:?}");
+        assert!(plan.contains(&installing), "{plan:?}");
     }
 
     /// `mode: vm` counts REPLICAS, not hosts, for the engine's default

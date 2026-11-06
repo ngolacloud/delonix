@@ -3423,10 +3423,10 @@ impl Client {
     /// not only the disk — the difference between a snapshot you roll back to a
     /// RUNNING guest and one that only preserves the filesystem.
     pub fn snapshot_config(&self, vmid: u32, name: &str) -> Result<serde_json::Value> {
+        let snapname = urlencode(name);
         let body = self.get(&format!(
-            "/nodes/{}/qemu/{vmid}/snapshot/{}/config",
+            "/nodes/{}/qemu/{vmid}/snapshot/{snapname}/config",
             self.node,
-            urlencode(name)
         ))?;
         let w: Wrapped<serde_json::Value> = parse(&body, "snapshot config")?;
         Ok(w.data)

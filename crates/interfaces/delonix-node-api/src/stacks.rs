@@ -179,7 +179,7 @@ pub fn apply_in(root: &Path, req: &ApplyStackRequest) -> Result<Operation, Statu
 
 fn apply_work(root: &Path, req: &ApplyStackRequest) -> delonix_model::Result<()> {
     let manifest = write_manifest(&req.manifest)
-        .map_err(|e| delonix_model::Error::Invalid(format!("{}", e.message())))?;
+        .map_err(|e| delonix_model::Error::Invalid(e.message().to_string()))?;
     let mut args = vec![
         "stack".to_string(),
         "apply".to_string(),
@@ -224,7 +224,7 @@ pub fn destroy_in(root: &Path, req: &DestroyStackRequest) -> Result<Operation, S
 
 fn destroy_work(root: &Path, req: &DestroyStackRequest) -> delonix_model::Result<()> {
     let manifest = write_manifest(&req.manifest)
-        .map_err(|e| delonix_model::Error::Invalid(format!("{}", e.message())))?;
+        .map_err(|e| delonix_model::Error::Invalid(e.message().to_string()))?;
     let args = vec![
         "stack".to_string(),
         "destroy".to_string(),

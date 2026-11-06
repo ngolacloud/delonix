@@ -523,7 +523,7 @@ Options:
           Host parent NIC (required for macvlan/ipvlan)
 
       --subnet &lt;SUBNET&gt;
-          Subnet. For `bridge`, `10.&lt;200-254&gt;.0.0/16` (only /16); required for macvlan/ipvlan, e.g. `192.168.1.0/24`. Omit it and a free one is picked
+          Subnet (CIDR). For `bridge`, any private IPv4 range (RFC 1918) between /8 and /28 — e.g. `172.20.0.0/24`, `192.168.50.0/24` or `10.50.0.0/16`; required for macvlan/ipvlan, e.g. `192.168.1.0/24`. Omit it and a free one is picked from the default space
 
       --gateway &lt;GATEWAY&gt;
           Gateway (macvlan/ipvlan)

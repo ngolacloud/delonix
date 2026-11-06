@@ -27,6 +27,7 @@ docs/kinds.html	delonix spellings also	comentário YAML sobre as grafias de valo
 docs/kinds.html	delonix does not provision the	comentário YAML: contraste (o delonix não provisiona o LB do control-plane), não uma invocação
 docs/comandos/cluster.html	delonix picks a free one	prosa do `--help` do clap: «Omit = delonix picks a free one»
 docs/comandos/cluster.html	delonix generates its own	prosa do `--help` do clap
+docs/comandos/cluster.html	delonix provisions an	prosa do `--help` do `--control-planes`: «delonix provisions an HAProxy container (VIP)», o sujeito é o produto, não uma invocação
 docs/comandos/cluster.html	delonix honours the fields it can	prosa do `--help` do clap no `--config`: «delonix honours the fields it can (…) e RECUSA o resto»
 docs/guia-vm.html	delonix base	saída capturada do build: «official delonix base delonix-vm-base:ubuntu-24.04»
 docs/guia-vm-lab.md	delonix base	saída capturada do build (a mesma linha, antes de gerar)

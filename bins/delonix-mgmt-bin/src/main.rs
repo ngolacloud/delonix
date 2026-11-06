@@ -96,7 +96,11 @@ impl delonix_mgmt::EngineOps for EnginePorts {
         self.0.containers().record_published_port(ip, spec)
     }
 
-    fn forget_published_port(&self, ip: Option<&str>, spec_or_port: &str) -> Result<(), EngineError> {
+    fn forget_published_port(
+        &self,
+        ip: Option<&str>,
+        spec_or_port: &str,
+    ) -> Result<(), EngineError> {
         self.0.containers().forget_published_port(ip, spec_or_port)
     }
 

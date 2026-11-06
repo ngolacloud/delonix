@@ -400,6 +400,7 @@ pub fn disconnect_in(
 /// Shared connect/disconnect: both hot-plug a veth into a running container's
 /// netns (setns), so both go through the fork-safe re-exec seam, never an
 /// in-process fork. On success the container is read back and returned.
+#[allow(clippy::too_many_arguments)]
 fn membership(
     root: &Path,
     store: &dyn crate::store::StorePort,

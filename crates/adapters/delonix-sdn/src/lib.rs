@@ -314,8 +314,18 @@ fn default_base_in(root: &std::path::Path) -> u8 {
         return b;
     }
     let base = pick_free_base();
+    // Persist the pick — but NEVER resurrect a root we do not own. When this
+    // resolves an AMBIENT root (`default_base()` reads `DELONIX_ROOT`), that
+    // path may be a concurrent test's temp root which it has ALREADY removed;
+    // `create_dir_all` here would bring it back as a stray `.tmpXXXXXX` that
+    // `scripts/tmp_roots_gate.py` then fails on (the residual of the race the
+    // `testenv::TempRoot` doc measured, 3/0/1 over three runs). `create_dir`
+    // (one level, not `_all`) makes `<root>/net` only while `<root>` still
+    // exists and never recreates `<root>` itself, so a vanished root stays
+    // gone. On a real node the store root always exists by the time a base is
+    // picked, so this persists exactly as before.
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        let _ = std::fs::create_dir(parent);
     }
     let _ = delonix_state::write_atomic(&path, base.to_string().as_bytes());
     base

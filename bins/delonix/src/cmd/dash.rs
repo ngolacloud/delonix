@@ -1253,8 +1253,7 @@ mod tui {
 
             // Collect every ~1s (not every frame).
             if last.elapsed() >= Duration::from_secs(1) {
-                let mut summary =
-                    crate::cmd::engine_vms::engine(&root).dash_summary(false, false);
+                let mut summary = crate::cmd::engine_vms::engine(&root).dash_summary(false, false);
                 let mut per_container_net = HashMap::new();
                 if let Ok(slow) = shared.lock() {
                     summary.network_rx_bytes = slow.summary.network_rx_bytes;
