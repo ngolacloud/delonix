@@ -419,6 +419,17 @@ pub enum ImageCmd {
     /// Reads archives produced by `delonix image save`, `docker save` or
     /// `podman save`.
     Load(LoadArgs),
+    /// Create an image from a rootfs tarball (`docker import`).
+    ///
+    /// The counterpart of `export`: a filesystem tar (plain or gzip) becomes a
+    /// single-layer image. Unlike `load`, the tar carries no image metadata, so
+    /// the new image has an empty config (no CMD/ENV) — set those at `run` time.
+    Import {
+        /// The rootfs tar (plain or gzip). `-` reads from stdin.
+        input: String,
+        /// Name/tag for the new image (e.g. `app:imported`). Optional, like Docker.
+        reference: Option<String>,
+    },
     /// Apply the `kind: Image` documents of a manifest.
     ///
     /// `pull` is idempotent by reference; `build` rebuilds and replaces the
@@ -534,6 +545,7 @@ pub fn run(action: ImageCmd) -> Result<()> {
         } => cmd_export(&images, &image, &dir, rootless),
         ImageCmd::Save(SaveArgs { image, output }) => cmd_save(&images, &image, &output),
         ImageCmd::Load(LoadArgs { input }) => cmd_load(&images, &input),
+        ImageCmd::Import { input, reference } => cmd_import(&images, &input, reference.as_deref()),
         ImageCmd::Apply { file } => {
             let path = manifest::resolve_path(file)?;
             let docs = manifest::load(&path)?;
@@ -1258,6 +1270,58 @@ fn cmd_load(images: &ImageStore, input: &std::path::Path) -> Result<()> {
         img.repo_tags.join(", ")
     };
     println!("{}", super::po::tf("loaded: {tags}", &[("tags", &tags)]));
+    Ok(())
+}
+
+/// `image import` / `docker import` — a rootfs tar (plain or gzip, or `-` for
+/// stdin) becomes a SINGLE-LAYER image with an empty config. The counterpart of
+/// `export`. Delegates to `commit_flat_rootfs_from_tar`, the same primitive the
+/// rootless build uses, after decompressing gzip if the magic says so.
+fn cmd_import(images: &ImageStore, input: &str, reference: Option<&str>) -> Result<()> {
+    use std::io::Read;
+    let raw = if input == "-" {
+        let mut buf = Vec::new();
+        std::io::stdin()
+            .read_to_end(&mut buf)
+            .map_err(|e| Error::Invalid(format!("reading the tar from stdin: {e}")))?;
+        buf
+    } else {
+        std::fs::read(input).map_err(|e| Error::Invalid(format!("reading {input}: {e}")))?
+    };
+    // `commit_flat_rootfs_from_tar` wants an UNCOMPRESSED tar; a gzip stream
+    // (magic 1f 8b) is inflated first, so `docker import` of a `.tar.gz` works.
+    let tar_bytes = if raw.starts_with(&[0x1f, 0x8b]) {
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(&raw[..])
+            .read_to_end(&mut out)
+            .map_err(|e| Error::Invalid(format!("decompressing the gzip tar: {e}")))?;
+        out
+    } else {
+        raw
+    };
+    // Docker leaves the name `<none>` when no reference is given; the engine's
+    // tagging uses an empty string for that, same as a dangling commit.
+    let tag = reference.unwrap_or("");
+    let img = images
+        .commit_flat_rootfs_from_tar(
+            tar_bytes,
+            Vec::new(),               // Cmd — import carries none
+            Vec::new(),               // Entrypoint
+            Vec::new(),               // Env
+            String::new(),            // WorkingDir
+            String::new(),            // User
+            tag,
+            delonix_oci::build::oci_arch(), // the host's arch
+            None,                     // no HEALTHCHECK
+            Vec::new(),               // no EXPOSEd ports
+        )
+        .map_err(|e| Error::Invalid(format!("import: {e}")))?;
+    let tags = if img.repo_tags.is_empty() {
+        img.short_id()
+    } else {
+        img.repo_tags.join(", ")
+    };
+    println!("{}", super::po::tf("imported: {tags}", &[("tags", &tags)]));
     Ok(())
 }
 
