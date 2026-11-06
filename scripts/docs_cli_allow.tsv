@@ -40,8 +40,6 @@ docs/cli-stability.md	delonix netns attach	lição escrita: o `delonix-cri` cont
 docs/estabilidade.html	delonix netns attach	gerado de docs/cli-stability.md
 
 # --- HISTÓRICO: grafias antigas citadas COMO antigas -----------------------
-docs/cli-stability.md	delonix image list	nota da v1.0.0 sobre os atalhos; a própria linha remete para a v2.0.0, onde a grafia mudou outra vez
-docs/estabilidade.html	delonix image list	gerado de docs/cli-stability.md
 docs/cli-stability.md	delonix backup vm x	forma anterior à v0.67.0, citada a propósito de o grupo `backup` não ter promessa de estabilidade
 docs/estabilidade.html	delonix backup vm x	gerado de docs/cli-stability.md
 docs/guia-vm-lab.md	delonix vm snapshot lab-probe base-limpa	transcrito da armadilha medida na v0.51.x — o texto acima diz «os comandos abaixo são os da versão antiga»

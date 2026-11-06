@@ -1608,6 +1608,21 @@ msgstr "Detalhe legível de uma ou mais imagens, ao estilo `kubectl describe` (t
 msgid "Give another name/tag to a local image (copies nothing — it's just a new name for the same content)."
 msgstr "Dá outro nome/tag a uma imagem local (não copia nada — é só um nome novo para o mesmo conteúdo)."
 
+msgid "Full detail of one or more images as a JSON array (`docker image inspect`)."
+msgstr "Detalhe completo de uma ou mais imagens como array JSON (`docker image inspect`)."
+
+msgid "Exit 0 if the image exists locally, 1 if not — prints nothing (`podman image exists`)."
+msgstr "Sai 0 se a imagem existir localmente, 1 se não — não imprime nada (`podman image exists`)."
+
+msgid "Remove one name/tag from an image without deleting its content (`podman untag`)."
+msgstr "Remove um nome/tag de uma imagem sem apagar o seu conteúdo (`podman untag`)."
+
+msgid "{name} is not a name of this image"
+msgstr "{name} não é um nome desta imagem"
+
+msgid "untagged: {name}"
+msgstr "sem tag: {name}"
+
 msgid "Layers of an image (digest + size), from base to top."
 msgstr "Layers de uma imagem (digest + tamanho), da base para o topo."
 
@@ -6110,6 +6125,24 @@ msgstr "tags, digest, tamanho, layers e a config OCI (entrypoint/cmd/env/workdir
 
 msgid "several at once, to compare what two images actually run"
 msgstr "várias de uma vez, para comparar o que duas imagens correm de facto"
+
+msgid "the full record as a JSON array a script can read with `jq`"
+msgstr "o registo completo como array JSON que um script lê com `jq`"
+
+msgid "several at once — one object per image, like `docker image inspect`"
+msgstr "várias de uma vez — um objecto por imagem, como `docker image inspect`"
+
+msgid "a silent probe for a script: exit 0 if present, 1 if not"
+msgstr "uma sonda silenciosa para um script: sai 0 se existir, 1 se não"
+
+msgid "pull only when it is missing"
+msgstr "só faz pull quando está em falta"
+
+msgid "drop one name, keeping the content and every other name"
+msgstr "larga um nome, mantendo o conteúdo e todos os outros nomes"
+
+msgid "remove the registry name from a locally-built image after pushing it"
+msgstr "remove o nome de registo de uma imagem construída localmente depois do push"
 
 msgid "the layers from base to top, with the digest and size of each"
 msgstr "as layers da base ao topo, com o digest e o tamanho de cada uma"
