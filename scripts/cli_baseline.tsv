@@ -1,11 +1,15 @@
 =	api-resources
 ~	apply
+~	attach
 ~	backup create
 ~	backup inspect
 ~	backup ls
 ~	backup remove
 ~	backup restore
 ~	backup schedule
+~	bucket inspect
+~	bucket ls
+~	bucket rm
 !	build
 ~	cluster apply
 ~	cluster backup
@@ -14,9 +18,9 @@
 ~	cluster drain
 ~	cluster health
 ~	cluster init
-~	cluster kube generate
 ~	cluster kubeadm
 ~	cluster kubeconfig
+~	cluster kube generate
 =	cluster load
 ~	cluster ls
 ~	cluster network fetch
@@ -28,6 +32,7 @@
 =	cluster stop
 ~	cluster uncordon
 ~	cluster upgrade
+~	commit
 =	compatibility compose
 =	compatibility docker
 ~	completion editor
@@ -42,50 +47,66 @@
 ~	config unset
 !	container apply
 =	container attach
+=	container checkpoint
+=	container clone
 =	container commit
 =	container cp
 =	container create
 =	container describe
 =	container diff
 =	container exec
+=	container exists
+=	container export
 =	container healthcheck
 =	container init
 =	container inspect
 =	container kill
 =	container logs
+=	container mount
 =	container pause
 =	container port
 =	container prune
 =	container ps
 =	container rename
 =	container restart
+=	container restore
 =	container rm
 =	container run
 =	container start
 =	container stats
 =	container stop
 =	container top
+=	container unmount
 =	container unpause
 =	container update
 =	container wait
+~	cp
 ~	create
 ~	dashboard
 ~	delete
 ~	describe
 ~	diff
 ~	drift
+~	events
 ~	exec
 =	explain
+~	export
 ~	get
 ~	gitops reconcile
 ~	gitops resume
 ~	gitops status
 ~	gitops suspend
+~	history
 ~	hosts sync
 ~	image apply
+=	image build
 ~	image describe
+~	image diff
+~	image exists
 =	image export
 ~	image history
+=	image import
+~	image inspect
 ~	image load
 =	image login
 =	image logout
@@ -94,13 +115,23 @@
 =	image pull
 =	image push
 ~	image remove
+~	images
 ~	image save
 ~	image sbom
 =	image scan
+~	image search
 ~	image sign
 =	image tag
+~	image tree
+~	image untag
 =	image verify
+~	import
+~	info
 =	init
+~	kill
+~	load
+~	login
+~	logout
 ~	logs
 =	man
 ~	manifest render
@@ -152,29 +183,49 @@
 ~	network describe
 ~	network diagnose
 =	network disconnect
+~	network exists
 ~	network inspect
 ~	network ipam ls
 ~	network ipam prune
 ~	network ls
 ~	network node init
 ~	network node key
+~	network prune
+~	network reload
 ~	network rm
 ~	network route
-~	network vlan
 ~	network vip-pool clear
 ~	network vip-pool set
 ~	network vip-pool show
-~	bucket inspect
-~	bucket ls
-~	bucket rm
+~	network vlan
+~	oci-runtime create
+~	oci-runtime delete
+~	oci-runtime kill
+~	oci-runtime start
+~	oci-runtime state
+~	pause
 ~	plan
 ~	pod attach
 ~	pod cp
 ~	pod create
 ~	pod exec
+~	pod exists
+~	pod inspect
+~	pod kill
 =	pod logs
+~	pod pause
 ~	pod port-forward
+~	pod prune
+~	pod ps
+~	pod restart
+~	pod rm
+~	pod start
+~	pod stats
+~	pod stop
+~	pod top
+~	pod unpause
 ~	policy unset
+~	port
 ~	provider config schema
 ~	provider config show
 ~	provider config validate
@@ -183,9 +234,14 @@
 ~	provider matrix
 ~	ps
 ~	pull
+~	push
+~	rename
 ~	restart
 ~	rm
+~	rmi
 ~	run
+~	save
+~	search
 ~	secret apply
 =	secret create
 ~	secret inspect
@@ -211,10 +267,17 @@
 ~	stack validate
 ~	stack wait
 ~	start
+~	stats
 ~	stop
 ~	system boot disable
 ~	system boot enable
 ~	system boot status
+=	systemcontainer clone
+=	systemcontainer move
+=	systemcontainer snapshot create
+=	systemcontainer snapshot ls
+=	systemcontainer snapshot restore
+=	systemcontainer snapshot rm
 =	system df
 =	system doctor
 =	system events
@@ -232,12 +295,10 @@
 ~	system snapshot restore
 ~	system thermal
 ~	system virt
-=	systemcontainer clone
-=	systemcontainer move
-=	systemcontainer snapshot create
-=	systemcontainer snapshot ls
-=	systemcontainer snapshot restore
-=	systemcontainer snapshot rm
+~	tag
+~	top
+~	unpause
+~	untag
 =	version
 ~	vm apply
 →	vm bridge
@@ -281,30 +342,21 @@
 ~	volume apply
 ~	volume create
 ~	volume describe
+~	volume exists
+~	volume export
+~	volume import
 ~	volume inspect
 ~	volume ls
+~	volume mount
 ~	volume prune
 ~	volume rm
 ~	volume snapshot create
 ~	volume snapshot ls
 ~	volume snapshot restore
 ~	volume snapshot rm
+~	volume unmount
 ~	wait
 ~	workload describe
 ~	workload ls
 ~	workload rm
 ~	workload stop
-~	attach
-~	images
-~	kill
-~	load
-~	push
-~	rmi
-~	save
-~	stats
-~	tag
-~	oci-runtime create
-~	oci-runtime delete
-~	oci-runtime kill
-~	oci-runtime start
-~	oci-runtime state

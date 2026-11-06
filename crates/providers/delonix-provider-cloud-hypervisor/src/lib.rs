@@ -1755,6 +1755,43 @@ fn default_ch_firmware() -> Option<String> {
     None
 }
 
+/// Whether this host can boot a CLOUD IMAGE on Cloud Hypervisor — i.e. the
+/// firmware that [`default_ch_firmware`] would select is the EDK2 `CLOUDHV.fd`,
+/// not the minimalist `rust-hypervisor-fw`. The distinction is load-bearing:
+/// `rust-hypervisor-fw` boots a DIRECT kernel fine but cannot load a cloud
+/// image's initrd via EFI LoadFile2, so the guest panics "Unable to mount root
+/// fs" (measured 2026-08-12). The native-VMM-first default (CH for cloud images)
+/// keys on THIS, so CH is only chosen when it will actually boot the image;
+/// otherwise the selection falls back to libvirt.
+pub fn cloud_image_firmware_ready() -> bool {
+    default_ch_firmware()
+        .map(|p| firmware_boots_cloud_images(&p))
+        .unwrap_or(false)
+}
+
+/// PURE: does this firmware path boot a cloud image? Only the EDK2 `CLOUDHV.fd`
+/// does; the minimalist `rust-hypervisor-fw`/`hypervisor-fw` does not (it boots
+/// a direct kernel but not a cloud image's initrd). Split out so the decision is
+/// testable without a firmware actually installed on the host.
+fn firmware_boots_cloud_images(path: &str) -> bool {
+    path.contains("CLOUDHV")
+}
+
+#[cfg(test)]
+mod cloud_image_firmware_tests {
+    use super::firmware_boots_cloud_images as ready;
+
+    #[test]
+    fn only_the_edk2_cloudhv_boots_cloud_images() {
+        assert!(ready("/usr/local/share/delonix/CLOUDHV.fd"));
+        assert!(ready("/usr/share/delonix/CLOUDHV.fd"));
+        // The minimalist firmware boots a direct kernel but NOT a cloud image —
+        // choosing CH for a cloud image on it would panic "Unable to mount root fs".
+        assert!(!ready("/usr/local/share/delonix/hypervisor-fw"));
+        assert!(!ready("/usr/share/delonix/hypervisor-fw"));
+    }
+}
+
 /// Where [`default_ch_firmware`] looks, in order. **The EDK2 build comes
 /// first, and the order is the whole point.**
 ///

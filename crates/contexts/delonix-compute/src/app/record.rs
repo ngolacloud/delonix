@@ -369,6 +369,19 @@ pub struct Container {
     pub created_unix: u64,
     /// cgroup memory limit (e.g.: `64M`).
     pub memory_max: String,
+    /// Soft memory floor (`memory.low`, Docker `--memory-reservation`): memory
+    /// the kernel tries NOT to reclaim under pressure. `None` = no floor.
+    #[serde(default)]
+    pub memory_low: Option<String>,
+    /// Docker `--memory-swap`: the memory+swap TOTAL (its own semantics), raw
+    /// as given (`-1` = unlimited swap). The runtime derives cgroup-v2
+    /// `memory.swap.max` = total − `memory_max`. `None` = engine default.
+    #[serde(default)]
+    pub memory_swap: Option<String>,
+    /// Process ceiling (`pids.max`, Docker `--pids-limit`). `None` = the engine's
+    /// default anti-fork-bomb ceiling; `Some("max")` = unlimited.
+    #[serde(default)]
+    pub pids_max: Option<String>,
     /// CPU limit in cores (e.g.: `0.5`, `2`) — MANDATORY (Phase 7+security).
     #[serde(default = "default_cpus")]
     pub cpus: String,
@@ -422,6 +435,18 @@ pub struct Container {
     /// `true` → rootfs mounted read-only (`--read-only`).
     #[serde(default)]
     pub read_only: bool,
+    /// `true` → run a tiny init as pid 1 that reaps orphans and forwards signals
+    /// (Docker/Podman `--init`). The image command runs as its child.
+    #[serde(default)]
+    pub init: bool,
+    /// Podman `--umask`: file-mode creation mask the init `execve`s with. `None`
+    /// keeps the runtime default (`0022`).
+    #[serde(default)]
+    pub umask: Option<u32>,
+    /// Docker/Podman `--cgroupns=private`: unshare a cgroup namespace for the
+    /// container (its `/proc/self/cgroup` root becomes `/`). `false` = `host`.
+    #[serde(default)]
+    pub cgroupns_private: bool,
     /// `true` → **privileged** container (`--privileged`): keeps all caps,
     /// seccomp unconfined, cgroup namespace (`CLONE_NEWCGROUP`) and `/sys/fs/cgroup`
     /// mounted RW delegated. Needed to run systemd+containerd (Kind nodes).
@@ -500,6 +525,10 @@ pub struct Container {
     /// `--host-ipc`: shares the host's IPC namespace.
     #[serde(default)]
     pub host_ipc: bool,
+    /// `--uts host`: shares the host's UTS namespace (hostname). No `sethostname`
+    /// is attempted, so the host's name is never changed.
+    #[serde(default)]
+    pub uts_host: bool,
     /// `--log-cri`: log format with a per-line timestamp. It is the ONLY one that
     /// gives `logs --tail/--since/--timestamps` a real column to filter on, so
     /// losing it across a restart made those three answer «only with `--log-cri`»
@@ -584,6 +613,11 @@ pub struct Container {
     /// on demand by `container healthcheck` — never monitored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health: Option<HealthConfig>,
+    /// `--no-healthcheck`: the image's `HEALTHCHECK` is disabled for this
+    /// container. Every surface that would otherwise fall back to it (the
+    /// monitor, `container healthcheck`, `--wait`) treats it as absent.
+    #[serde(default)]
+    pub no_healthcheck: bool,
     /// Last observed health, written by whoever is monitoring (the detached
     /// container's supervisor).
     ///
@@ -675,6 +709,14 @@ pub struct Container {
     /// by a supervisor a consumer may run.
     #[serde(default)]
     pub restart_policy: Option<String>,
+    /// Signal `stop` sends first (Docker `--stop-signal`, e.g. `SIGINT`). `None`
+    /// = `SIGTERM`. `SIGKILL` is still the escalation after the grace period.
+    #[serde(default)]
+    pub stop_signal: Option<String>,
+    /// Grace before `stop` escalates to `SIGKILL` (Docker `--stop-timeout`, in
+    /// seconds). `None` = the engine's default; an explicit `stop -t` overrides it.
+    #[serde(default)]
+    pub stop_timeout: Option<u64>,
     /// **Desired state**: the user explicitly requested `stop`. The
     /// `--restart` supervisor does NOT resurrect a container like this — it is the
     /// docker semantics (a `docker stop` on an `always` container does not
@@ -843,6 +885,14 @@ impl Container {
             status: Status::Created,
             created_unix,
             memory_max,
+            memory_low: None,
+            memory_swap: None,
+            pids_max: None,
+            stop_signal: None,
+            stop_timeout: None,
+            init: false,
+            umask: None,
+            cgroupns_private: false,
             cpus: default_cpus(),
             cpu_weight: None,
             cpuset: None,
@@ -865,6 +915,7 @@ impl Container {
             selinux: None,
             host_pid: false,
             host_ipc: false,
+            uts_host: false,
             log_cri: false,
             userns: false,
             ip: None,
@@ -879,6 +930,7 @@ impl Container {
             net_mode: None,
             extra_hosts: Vec::new(),
             health: None,
+            no_healthcheck: false,
             health_state: None,
             tmpfs: Vec::new(),
             ulimits: Vec::new(),

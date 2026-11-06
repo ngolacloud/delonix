@@ -288,6 +288,7 @@ cargo test -p <crate> -- --ignored <test-name>
 | `cli-surface` | cli surface |
 | `clippy` | clippy -D warnings |
 | `test` | test |
+| `cli-parity` | cli-parity (docker/podman differential) |
 | `test-arm64` | test (arm64) |
 | `deny` | cargo-deny |
 | `actions-pinned` | actions-pinned |

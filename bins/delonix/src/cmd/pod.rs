@@ -122,6 +122,35 @@ pub enum PodCmd {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
         file: Option<PathBuf>,
     },
+    /// Stop every member of a pod (SIGTERM, then SIGKILL) — Podman `pod stop`.
+    Stop {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: String,
+        /// Seconds to wait before SIGKILL (default 10).
+        #[arg(short = 't', long = "time", default_value_t = 10)]
+        time: u64,
+    },
+    /// Start every member of a pod — Podman `pod start`.
+    Start {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: String,
+    },
+    /// Stop then start every member of a pod — Podman `pod restart`.
+    Restart {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: String,
+        /// Seconds to wait before SIGKILL on the stop half (default 10).
+        #[arg(short = 't', long = "time", default_value_t = 10)]
+        time: u64,
+    },
+    /// Remove a pod and all its members — Podman `pod rm` (same as `delete pod`).
+    Rm {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: String,
+        /// Remove even if members are running (stops them first).
+        #[arg(short, long)]
+        force: bool,
+    },
     /// Logs of a pod's container (defaults to the first member).
     Logs {
         #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
@@ -206,6 +235,61 @@ pub enum PodCmd {
         #[arg(required = true)]
         ports: Vec<String>,
     },
+    /// List pods and their members — Docker/Podman `pod ps` (same as `get pods`).
+    #[command(visible_alias = "ls")]
+    Ps {
+        /// Output format: `table` (default) or `json` (ADR-0005).
+        #[arg(short = 'o', long = "output", value_enum, default_value_t)]
+        output: output::OutputFormat,
+        /// Show only pods in this isolation namespace.
+        #[arg(short = 'n', long)]
+        namespace: Option<String>,
+    },
+    /// Exit 0 if the pod exists, 1 if not (prints nothing) — Podman `pod exists`.
+    Exists {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: String,
+    },
+    /// Remove every stopped pod (no running member) — Podman `pod prune`.
+    Prune {
+        /// Remove without asking for confirmation.
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Send a signal to every member of a pod — Podman `pod kill`.
+    Kill {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: Vec<String>,
+        /// Signal name (`KILL`, `SIGKILL`, case-insensitive, `SIG` prefix
+        /// optional) or number (`9`).
+        #[arg(short = 's', long, default_value = "KILL")]
+        signal: String,
+    },
+    /// Suspend every member of a pod (freeze its cgroup) — Podman `pod pause`.
+    Pause {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: Vec<String>,
+    },
+    /// Resume every member of a pod suspended with `pause` — Podman `pod unpause`.
+    Unpause {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: Vec<String>,
+    },
+    /// Live resource usage of every member of a pod — Podman `pod stats`.
+    Stats {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: Vec<String>,
+    },
+    /// Processes running in every member of a pod — Podman `pod top`.
+    Top {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: Vec<String>,
+    },
+    /// JSON detail of a pod and its members — Docker/Podman `pod inspect`.
+    Inspect {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: Vec<String>,
+    },
 }
 
 pub fn run(action: PodCmd) -> Result<()> {
@@ -215,6 +299,10 @@ pub fn run(action: PodCmd) -> Result<()> {
             let docs = manifest::load(&path)?;
             apply(&docs)
         }
+        PodCmd::Stop { pod, time } => pod_stop(&pod, time),
+        PodCmd::Start { pod } => pod_start(&pod),
+        PodCmd::Restart { pod, time } => pod_restart(&pod, time),
+        PodCmd::Rm { pod, force } => remove_pod(&pod, force),
         PodCmd::Logs {
             pod,
             container,
@@ -250,6 +338,15 @@ pub fn run(action: PodCmd) -> Result<()> {
             interactive,
         } => attach(&pod, container.as_deref(), interactive),
         PodCmd::PortForward { pod, ports } => port_forward(&pod, &ports),
+        PodCmd::Ps { output, namespace } => ls(output, namespace.as_deref()),
+        PodCmd::Exists { pod } => pod_exists(&pod),
+        PodCmd::Prune { force } => pod_prune(force),
+        PodCmd::Kill { pod, signal } => pod_kill(&pod, &signal),
+        PodCmd::Pause { pod } => pod_pause(&pod, true),
+        PodCmd::Unpause { pod } => pod_pause(&pod, false),
+        PodCmd::Stats { pod } => pod_stats(&pod),
+        PodCmd::Top { pod } => pod_top(&pod),
+        PodCmd::Inspect { pod } => pod_inspect(&pod),
     }
 }
 
@@ -466,6 +563,278 @@ fn create_pod(name: &str, namespace: Option<String>, spec: PodSpec, hold: bool) 
     }
     println!("pod/{name}: {count} container(s) sharing netns + IPC/UTS (ip {ip})");
     Ok(())
+}
+
+/// Whether a pod of this name exists — i.e. has at least one member carrying
+/// its [`POD_LABEL`]. `container::cmd_run` uses it to turn a failed
+/// `run --pod <name>` into an actionable error that names the declarative flow
+/// when the pod simply is not there.
+pub(crate) fn exists(store: &delonix_state::Store, pod: &str) -> bool {
+    members_of(store, pod)
+        .map(|m| !m.is_empty())
+        .unwrap_or(false)
+}
+
+/// The pod's IPC/UTS holder PID — the init pid of its FIRST member (declaration
+/// order). `None` when the pod has no member with a recorded pid yet.
+/// `container::cmd_run` reads this so a `run --pod <name>` that ADDS a member to
+/// an existing pod joins the same IPC/UTS/hostname instead of starting its own.
+pub(crate) fn infra_pid_of(store: &delonix_state::Store, pod: &str) -> Option<i32> {
+    members_of(store, pod).ok()?.first().and_then(|c| c.pid)
+}
+
+/// `pod stop` — every member, newest first (an app member before the one that
+/// holds the shared namespaces), SIGTERM then SIGKILL.
+fn pod_stop(pod: &str, time: u64) -> Result<()> {
+    let (_images, store) = open_stores()?;
+    let members = members_of(&store, pod)?;
+    if members.is_empty() {
+        return Err(Error::NotFound(format!(
+            "pod: {pod} (see `delonix get pods`)"
+        )));
+    }
+    for c in members.iter().rev() {
+        container::cmd_stop(&store, &c.id, time)?;
+    }
+    println!("pod/{pod}: stopped {} member(s)", members.len());
+    Ok(())
+}
+
+/// `pod start` — every member, in declaration order (the IPC/UTS holder first).
+fn pod_start(pod: &str) -> Result<()> {
+    let (images, store) = open_stores()?;
+    let members = members_of(&store, pod)?;
+    if members.is_empty() {
+        return Err(Error::NotFound(format!(
+            "pod: {pod} (see `delonix get pods`)"
+        )));
+    }
+    for c in &members {
+        container::cmd_start(&images, &store, &c.id)?;
+    }
+    println!("pod/{pod}: started {} member(s)", members.len());
+    Ok(())
+}
+
+/// `pod restart` — stop (reverse) then start (forward), so the shared-namespace
+/// holder is the last to go and the first to come back.
+fn pod_restart(pod: &str, time: u64) -> Result<()> {
+    let (images, store) = open_stores()?;
+    let members = members_of(&store, pod)?;
+    if members.is_empty() {
+        return Err(Error::NotFound(format!(
+            "pod: {pod} (see `delonix get pods`)"
+        )));
+    }
+    for c in members.iter().rev() {
+        container::cmd_stop(&store, &c.id, time)?;
+    }
+    for c in &members {
+        container::cmd_start(&images, &store, &c.id)?;
+    }
+    println!("pod/{pod}: restarted {} member(s)", members.len());
+    Ok(())
+}
+
+/// `pod exists` — Podman contract: print nothing, exit 0 when the pod has at
+/// least one member, exit 1 when it does not. The exit is taken here rather than
+/// returned as a `NotFound` because an error would print a diagnostic, and the
+/// whole point of this verb is a silent, scriptable yes/no.
+fn pod_exists(pod: &str) -> Result<()> {
+    let (_images, store) = open_stores()?;
+    if exists(&store, pod) {
+        Ok(())
+    } else {
+        std::process::exit(1);
+    }
+}
+
+/// `pod prune` — remove every pod with no running member (Docker/Podman
+/// semantics: a stopped or empty pod only). Mirrors `container prune`/`volume
+/// prune` for the confirmation and summary style; a pod with any Running or
+/// Paused member is kept untouched.
+fn pod_prune(force: bool) -> Result<()> {
+    let (_images, store) = open_stores()?;
+    let pods = pods_by_label(&store)?;
+    let mut doomed = Vec::new();
+    for (pod, mut members) in pods {
+        let running = members.iter_mut().any(|c| {
+            let _ = delonix_linux::reconcile_status(c);
+            matches!(c.status, Status::Running | Status::Paused)
+        });
+        if !running {
+            doomed.push(pod);
+        }
+    }
+    let preview = (!doomed.is_empty()).then(|| {
+        super::po::tf(
+            "This will remove {n} stopped pod(s): {list}",
+            &[
+                ("n", &doomed.len().to_string()),
+                ("list", &doomed.join(", ")),
+            ],
+        )
+    });
+    if !super::prune::confirm(
+        force,
+        super::po::t(
+            "`pod prune` removes every stopped pod — pass --force to confirm when not on a terminal",
+        ),
+        preview,
+        super::po::t("Also tears down each pod's shared netns. Continue? [y/N]"),
+    )? {
+        return Ok(());
+    }
+    if doomed.is_empty() {
+        println!("{}", super::po::t("no stopped pods to remove"));
+        return Ok(());
+    }
+    let mut removed = 0usize;
+    for pod in &doomed {
+        // `--force` on `remove_pod` is for RUNNING members; a doomed pod has
+        // none, so the plain path is correct and a still-running member (raced in
+        // after the scan) is refused rather than killed.
+        remove_pod(pod, false)?;
+        removed += 1;
+    }
+    println!(
+        "{}",
+        super::po::tf(
+            "pod prune: removed {n} pod(s)",
+            &[("n", &removed.to_string())]
+        )
+    );
+    Ok(())
+}
+
+/// `pod kill` — send a signal to every member of each named pod, newest first
+/// (an app member before the one that holds the shared namespaces), mirroring
+/// `pod stop` but on the container kill/signal path.
+fn pod_kill(pods: &[String], signal: &str) -> Result<()> {
+    let (_images, store) = open_stores()?;
+    for pod in pods {
+        let members = members_of(&store, pod)?;
+        if members.is_empty() {
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
+        }
+        for c in members.iter().rev() {
+            container::cmd_kill(&store, &c.id, signal)?;
+        }
+        println!("pod/{pod}: signalled {} member(s)", members.len());
+    }
+    Ok(())
+}
+
+/// `pod pause`/`pod unpause` — freeze (or thaw) every member of each named pod.
+/// On pause the shared-namespace holder goes last (reverse order) so the app
+/// members are frozen before the one they setns into; on unpause it comes back
+/// first (declaration order), the same ordering `pod stop`/`pod start` use.
+fn pod_pause(pods: &[String], frozen: bool) -> Result<()> {
+    let (_images, store) = open_stores()?;
+    for pod in pods {
+        let members = members_of(&store, pod)?;
+        if members.is_empty() {
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
+        }
+        let ordered: Vec<&Container> = if frozen {
+            members.iter().rev().collect()
+        } else {
+            members.iter().collect()
+        };
+        for c in ordered {
+            container::cmd_freeze(&store, &c.id, frozen)?;
+        }
+        let verb = if frozen { "paused" } else { "unpaused" };
+        println!("pod/{pod}: {verb} {} member(s)", members.len());
+    }
+    Ok(())
+}
+
+/// `pod stats` — live resource usage of every member of the named pods, as one
+/// table. Delegates to `container stats` with the full member id list so the two
+/// can never disagree about how CPU/memory/pids are measured.
+fn pod_stats(pods: &[String]) -> Result<()> {
+    let (_images, store) = open_stores()?;
+    let mut ids = Vec::new();
+    for pod in pods {
+        let members = members_of(&store, pod)?;
+        if members.is_empty() {
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
+        }
+        ids.extend(members.into_iter().map(|c| c.id));
+    }
+    container::cmd_stats(&store, &ids)
+}
+
+/// `pod top` — processes of every member of the named pods. Each member's table
+/// is printed under a heading naming it, so a multi-container pod is readable
+/// (the same reason `pod create` announces one line per member).
+fn pod_top(pods: &[String]) -> Result<()> {
+    let (_images, store) = open_stores()?;
+    for pod in pods {
+        let members = members_of(&store, pod)?;
+        if members.is_empty() {
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
+        }
+        let prefix = format!("{pod}-");
+        for c in &members {
+            let short = c.name.strip_prefix(prefix.as_str()).unwrap_or(&c.name);
+            println!("--- {pod}/{short} ---");
+            container::cmd_top(&store, &c.id)?;
+        }
+    }
+    Ok(())
+}
+
+/// `pod inspect` — JSON detail of each named pod and its members, as a JSON
+/// array (like `docker inspect`). Reads the same derived state `describe` does:
+/// membership from the label, the pod IP from the member label, status
+/// reconciled live.
+fn pod_inspect(pods: &[String]) -> Result<()> {
+    let (_images, store) = open_stores()?;
+    let mut out = Vec::new();
+    for pod in pods {
+        let mut members = members_of(&store, pod)?;
+        if members.is_empty() {
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
+        }
+        let netns = pod_netns_name(pod);
+        let ip = pod_ip(&members, &netns);
+        let prefix = format!("{pod}-");
+        let member_json: Vec<serde_json::Value> = members
+            .iter_mut()
+            .map(|c| {
+                let _ = delonix_linux::reconcile_status(c);
+                let short = c.name.strip_prefix(prefix.as_str()).unwrap_or(&c.name);
+                serde_json::json!({
+                    "name": short,
+                    "container": c.name,
+                    "id": c.id,
+                    "image": c.image,
+                    "status": format!("{:?}", c.status),
+                    "pid": c.pid,
+                })
+            })
+            .collect();
+        out.push(serde_json::json!({
+            "name": pod,
+            "namespace": members[0].namespace,
+            "ip": (!ip.is_empty()).then_some(ip),
+            "netns": netns,
+            "containers": member_json,
+        }));
+    }
+    output::print_json(&out)
 }
 
 /// The containers that belong to a pod (by the `delonix.io/pod` label), in the order

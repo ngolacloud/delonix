@@ -334,6 +334,7 @@ holder de rede ou no arranque de VMs funciona — isso precisa de uma corrida ao
 | `cli-surface` | cli surface |
 | `clippy` | clippy -D warnings |
 | `test` | test |
+| `cli-parity` | cli-parity (docker/podman differential) |
 | `test-arm64` | test (arm64) |
 | `deny` | cargo-deny |
 | `actions-pinned` | actions-pinned |
