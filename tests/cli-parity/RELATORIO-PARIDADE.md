@@ -465,3 +465,74 @@ estruturado (próximas vagas):
 `cargo test -p delonix-bin` **1644/1644**; `frequent-verbs.sh` **49/49**;
 `tab-descriptions.sh` verde; `flow1`/`flow2` diferenciais **ALL OK** (delonix pod
 stop/start/restart verdes); `docs_cli_gate`, `lang_ratchet` verdes; clippy limpo.
+
+---
+
+## Terceira vaga — fecho das divergências resolvíveis (6 Nov 2026)
+
+O dono pediu «resolver as divergências para a paridade». Partindo da matriz
+autoritativa (as linhas `por-fazer` = comando que o parser RECUSA = ausência
+real), implementámos **23 comandos** numa vaga de agentes em paralelo (uma
+categoria por agente, worktree isolado, validada ao vivo) + os verbos-raiz feitos
+em separado. A matriz passou de **20→43 `passou`** e **85→62 `por-fazer`**.
+
+### C24 — verbos-raiz Docker: `pause`/`unpause`/`commit`/`top`/`rename`
+Mesma mecânica dos alias de raiz existentes (`cp`/`port`/…): variante `clap` que
+reutiliza o handler de `container <verb>` e as docs verbatim, logo herda a
+promessa de estabilidade do `container` sem segundo contrato. `docker pause`,
+`docker commit`, `docker top`, `docker rename` trocam só o executável. `update`
+fica FORA da raiz de propósito: `docker update` é de LIMITES de recursos, o
+`container update` do Delonix é reconfiguração a quente (portas/volumes/banda) —
+semânticas distintas. **Provado ao vivo** (pause→Paused, unpause, top, rename,
+commit→nova imagem). Registado em STABLE_GROUPS, `_ROOT_VERB_ALIASES`, README,
+`cli-stability.md`, manual.
+
+### C25 — `container exists` + `container list`
+`container exists <id|name>` à Podman: silencioso, saída 0 se existe / 1 se não
+(via o mesmo `find(store,id)` do `inspect`/`rm`; `std::process::exit(1)` para o
+contrato 0/1 limpo — devolver `Err` dava código 4 com mensagem). `container list`
+= segundo `visible_alias` do `ps` (zero handler, zero i18n). **Provado ao vivo.**
+
+### C26 — `image inspect`/`list`/`exists`/`untag`
+`image inspect` serializa os MESMOS registos `Image` que o `describe` lê, em array
+JSON à Docker. `image list` = `visible_alias` do `ls`. `image exists` à Podman
+(0/1 silencioso). `image untag` larga UM nome (via `resolve`+`save`, nunca os
+blobs; o último nome deixa a imagem *dangling* `<none>`, conteúdo intacto).
+**Provado ao vivo.** (Removidas 2 excepções obsoletas no `docs_cli_allow.tsv`.)
+
+### C27 — `network prune`/`exists` + `volume exists`
+`network prune` espelha o `volume prune` (classifica→avisa os retidos→confirma→
+varre); uma rede em uso (container OU VM anexo) é RETIDA, nunca forçada, pelo
+mesmo `network_dependents` que o `network rm` recusa (fail-closed: store ilegível
+aborta em vez de varrer). A bridge default (`delonix0`) nunca está em `list()`,
+logo nunca é podada (como no Docker). `network exists`/`volume exists` à Podman
+(0/1 silencioso). **Provado ao vivo**, incluindo a prova de que uma rede com
+container anexo é retida.
+
+### C28 — pod `ps`/`exists`/`prune`/`kill`/`pause`/`unpause`/`stats`/`top`/`inspect`
+Nove verbos, todos no padrão `members_of(...)` + handler-por-container já usado no
+`pod stop/start`. `pod prune` remove só pods sem membro Running/Paused; `pod kill`
+sinaliza em ordem inversa; `pause`/`unpause` congelam/descongelam (holder por
+último/primeiro); `stats`/`top` delegam no container por membro; `inspect` é um
+array JSON (pod + membros). Promoveu `cmd_freeze`/`cmd_top`/`cmd_stats` a
+`pub(crate)`. **Todos provados ao vivo.**
+
+### As 62 divergências restantes — classificação honesta
+Não são «esquecidas»: a grande maioria exige um backend ou uma decisão de produto
+que não é trabalho de CLI.
+
+| Grupo | Nº | Natureza |
+|---|---|---|
+| `system *` + `context *` (daemon/remote-mgmt) | 22 | ADR-0010 recusa a API de gestão remota; `context` já cai no shim `serve docker-api`. Fora-de-âmbito, não ausência acidental |
+| `mount`/`unmount` de rootfs (container/image/volume) | 10 | precisa de montar o overlay no host — em rootless, `fuse-overlayfs`; frente própria |
+| subsistema de build (`buildx`/`bake`/`builder`/`image build`/`diff`/`tree`) | 6 | motor de build; campanha à parte |
+| CRIU (`checkpoint`/`restore`) | 3 | *checkpoint/restore* de processos via CRIU; backend dedicado |
+| vaga futura barata (root `history`/`untag`, `search`, `import`, `export`) | ~8 | alias de raiz + `docker search`/`import`/`export` — implementáveis sem novo backend, próxima vaga |
+| misc Podman (`clone`/`scp`/`trust`/`runlabel`/`cleanup`/`reload`/`update`) | ~13 | caso a caso; vários dependem de subsistemas (overlay/assinatura/rede) |
+
+### Estado dos testes (terceira vaga)
+`cargo test -p delonix-bin` **1661/1661** (+5 +2 binários auxiliares); `lang_ratchet`,
+`docs_cli_gate`, `docs_command_gate` verdes; clippy limpo. Smoke vivo combinado
+(image/container/network/volume/pod) num só `DELONIX_ROOT` isolado: todos os 23
+comandos respondem como o Docker/Podman. Matriz: **43 passou / 62 por-fazer /
+76 reconhecido-por-testar / 14 fora-do-âmbito / 3 divergência-deliberada**.
