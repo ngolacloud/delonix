@@ -1221,6 +1221,12 @@ pub struct RunArgs {
     /// enables the dedicated cgroup2 delegation for Kind nodes (see `setup_node_cgroup_ns`).
     #[arg(long = "label")]
     labels: Vec<String>,
+    /// Read labels from a file (`KEY=VAL` per line), like `--env-file`. Repeatable. An explicit `--label` on the same key wins.
+    #[arg(long = "label-file")]
+    label_file: Vec<String>,
+    /// OCI annotation (`key=value`), repeatable — non-identifying metadata stored on the container (shown in `delonix inspect`).
+    #[arg(long = "annotation")]
+    annotations: Vec<String>,
     // ---- resources (cgroup v2) ----
     /// Memory limit (`64M`, `2G`, `max`). Default: a quarter of the engine's
     /// budget (`DELONIX_DEFAULT_PCT`); `max` lifts the cap entirely.
@@ -2005,6 +2011,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         devices,
         env,
         labels,
+        label_file,
+        annotations,
         memory,
         memory_reservation,
         memory_swap,
@@ -2157,6 +2165,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         devices,
         env: with_env_file0(&env_file0, env)?,
         labels,
+        label_file,
+        annotations,
         image,
         command,
         quiet: false,

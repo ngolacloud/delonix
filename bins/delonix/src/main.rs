@@ -1138,6 +1138,35 @@ mod run_interactive_flag_parity_tests {
     }
 
     #[test]
+    fn run_accepts_label_file_and_annotation() {
+        assert!(parses(&[
+            "delonix", "run", "--label-file", "/tmp/x.labels", "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix", "run", "--annotation", "a.b/c=1", "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--label-file",
+            "/tmp/a.labels",
+            "--label-file",
+            "/tmp/b.labels",
+            "--annotation",
+            "x=1",
+            "--annotation",
+            "y=2",
+            "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix", "create", "--label-file", "/tmp/y.labels", "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix", "create", "--annotation", "k=v", "busybox",
+        ]));
+    }
+
+    #[test]
     fn run_accepts_volumes_from() {
         assert!(parses(&["delonix", "run", "--volumes-from", "data", "busybox"]));
         assert!(parses(&["delonix", "run", "--volumes-from", "data:ro", "busybox"]));
@@ -2377,6 +2406,8 @@ mod container_image_contract_tests {
             "--entrypoint",
             "--add-host",
             "--wait",
+            "--label-file",
+            "--annotation",
         ] {
             assert!(long.contains(f), "`container run {f}` desapareceu");
         }
