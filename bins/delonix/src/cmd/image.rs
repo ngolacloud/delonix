@@ -280,7 +280,25 @@ pub enum ImageCmd {
     /// Pull an image from a registry.
     Pull(PullArgs),
     /// List local images.
+    // `list` so `delonix image list` matches Docker/Podman muscle-memory; `ls`
+    // stays the canonical name the stability doc promises.
+    #[command(visible_alias = "list")]
     Ls(LsArgs),
+    /// Full detail of one or more images as a JSON array (`docker image inspect`).
+    Inspect {
+        #[arg(required = true, add = ArgValueCandidates::new(super::complete::images))]
+        names: Vec<String>,
+    },
+    /// Exit 0 if the image exists locally, 1 if not — prints nothing (`podman image exists`).
+    Exists {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        name: String,
+    },
+    /// Remove one name/tag from an image without deleting its content (`podman untag`).
+    Untag {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        name: String,
+    },
     /// Human-readable detail of one or more images, `kubectl describe`-style.
     ///
     /// Tags/digest/size/layers + the OCI config: entrypoint/cmd/env/workdir.
@@ -477,6 +495,9 @@ pub fn run(action: ImageCmd) -> Result<()> {
     match action {
         ImageCmd::Pull(PullArgs { image, verify }) => cmd_pull(&images, &image, verify.as_deref()),
         ImageCmd::Ls(LsArgs { output }) => cmd_ls(&images, output),
+        ImageCmd::Inspect { names } => cmd_inspect(&images, &names),
+        ImageCmd::Exists { name } => cmd_exists(&images, &name),
+        ImageCmd::Untag { name } => cmd_untag(&images, &name),
         ImageCmd::Describe { names } => cmd_describe(&images, &names),
         ImageCmd::Tag(TagArgs { source, target }) => cmd_tag(&images, &source, &target),
         ImageCmd::History { image } => cmd_history(&images, &image),
@@ -954,6 +975,63 @@ fn cmd_ls(images: &ImageStore, format: super::output::OutputFormat) -> Result<()
         }
     }
     t.print();
+    Ok(())
+}
+
+/// `image inspect` — the full record of one or more images as a docker-style
+/// JSON array.
+///
+/// The machine-readable counterpart of `describe`: it serializes the exact same
+/// data source `describe` reads (the `Image` records `resolve` returns — id,
+/// tags, layers and the OCI config), so the two can never disagree on what an
+/// image is. `resolve` (not `resolve_or_pull`): inspecting is not fetching.
+fn cmd_inspect(images: &ImageStore, names: &[String]) -> Result<()> {
+    let mut imgs = Vec::with_capacity(names.len());
+    for name in names {
+        imgs.push(images.resolve(name)?);
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&imgs).map_err(|e| Error::Invalid(e.to_string()))?
+    );
+    Ok(())
+}
+
+/// `image exists` — Podman's probe: no output, exit 0 if the image resolves
+/// locally and exit 1 if it does not.
+///
+/// It uses the same `ImageStore::resolve` lookup `rm`/`describe` use, so "exists"
+/// means exactly what every other image command means by it. The non-zero case
+/// exits straight with code 1 instead of returning an error: returning one would
+/// print a message (`podman image exists` never does) and map to the richer
+/// not-found code 4, whereas the contract here is a silent clean 0/1.
+fn cmd_exists(images: &ImageStore, name: &str) -> Result<()> {
+    match images.resolve(name) {
+        Ok(_) => Ok(()),
+        Err(_) => std::process::exit(1),
+    }
+}
+
+/// `image untag` — the inverse of `tag`: drop ONE name from an image, keeping
+/// its content (and every other name) in place.
+///
+/// Scoped on purpose to the name mapping, never the blobs — if the name removed
+/// was the last one the image is left dangling (`<none>`), exactly like `podman
+/// untag`, and `image prune` is what reclaims the content later. Errors if the
+/// image has no such name, so a typo is reported rather than silently doing
+/// nothing.
+fn cmd_untag(images: &ImageStore, name: &str) -> Result<()> {
+    let mut img = images.resolve(name)?;
+    let want = delonix_oci::image::normalise_tag(name);
+    if !img.repo_tags.contains(&want) {
+        return Err(Error::NotFound(super::po::tf(
+            "{name} is not a name of this image",
+            &[("name", &want)],
+        )));
+    }
+    img.repo_tags.retain(|t| *t != want);
+    images.save(&img)?;
+    println!("{}", super::po::tf("untagged: {name}", &[("name", &want)]));
     Ok(())
 }
 

@@ -1164,6 +1164,24 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["image describe", "image history", "image remove"],
     },
     Entry {
+        path: "image inspect",
+        group: "Inspect",
+        examples: &[
+            ("the full record as a JSON array a script can read with `jq`", "delonix image inspect postgres:16"),
+            ("several at once — one object per image, like `docker image inspect`", "delonix image inspect alpine:3.19 redis:7-alpine"),
+        ],
+        see_also: &["image describe", "image ls", "container inspect"],
+    },
+    Entry {
+        path: "image exists",
+        group: "Inspect",
+        examples: &[
+            ("a silent probe for a script: exit 0 if present, 1 if not", "delonix image exists postgres:16"),
+            ("pull only when it is missing", "delonix image exists alpine:3.19 || delonix image pull alpine:3.19"),
+        ],
+        see_also: &["image ls", "image pull", "image inspect"],
+    },
+    Entry {
         path: "image scan",
         group: "Inspect",
         examples: &[
@@ -1226,6 +1244,15 @@ pub static ENTRIES: &[Entry] = &[
             ("the shape a locally-built image needs before it can be pushed to your registry", "delonix image tag kaeso-odoo:18 ghcr.io/angolardevops/kaeso-odoo:18"),
         ],
         see_also: &["image push", "image ls", "image remove"],
+    },
+    Entry {
+        path: "image untag",
+        group: "Configure",
+        examples: &[
+            ("drop one name, keeping the content and every other name", "delonix image untag db:stable"),
+            ("remove the registry name from a locally-built image after pushing it", "delonix image untag ghcr.io/angolardevops/kaeso-odoo:18"),
+        ],
+        see_also: &["image tag", "image remove", "image ls"],
     },
     Entry {
         path: "image export",
