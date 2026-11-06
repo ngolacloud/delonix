@@ -3970,6 +3970,9 @@ struct ProcessSpec<'a> {
     oom_score_adj: Option<i32>,
     /// Docker `--init`: wrap the command in a tiny reaping init as pid 1.
     init: bool,
+    /// Podman `--umask`: file-mode creation mask set right before the `execve`.
+    /// `None` leaves the inherited mask (the runtime default `0022`).
+    umask: Option<u32>,
 }
 
 /// What the container sees on disk.
@@ -4029,6 +4032,14 @@ struct NamespaceSpec {
     /// Kind node (label `io.x-k8s.kind.*`): gets a dedicated cgroup namespace.
     /// A plain `--privileged` container keeps its cgroup hierarchy intact.
     node_cgroup: bool,
+    /// Docker/Podman `--cgroupns=private`: `unshare(CLONE_NEWCGROUP)` after the
+    /// parent has moved us into our leaf but BEFORE `drop_capabilities` (the
+    /// unshare needs `CAP_SYS_ADMIN`), so the container's `/proc/self/cgroup`
+    /// root is `/`. Best-effort and opt-in: `false` (the default, `host`) leaves
+    /// the host view untouched, and a failed unshare simply degrades to that
+    /// same view. Ignored on the Kind node path, which runs its own
+    /// `setup_node_cgroup_ns` unshare.
+    cgroupns_private: bool,
 }
 
 /// The file descriptors tying the child back to the parent.
@@ -4124,6 +4135,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 sysctls,
                 oom_score_adj,
                 init,
+                umask,
             },
         filesystem:
             FilesystemSpec {
@@ -4155,6 +4167,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 host_pid,
                 inherit_userns,
                 node_cgroup,
+                cgroupns_private,
             },
         io:
             IoSpec {
@@ -4425,6 +4438,18 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         }
         user_switched = true;
     }
+    // Docker/Podman `--cgroupns=private`: anchor the cgroup namespace at our
+    // CURRENT cgroup — the parent has by now moved us into the leaf `dlx-<id>`
+    // (the mounts/ready gate above sequences after that), so the container's
+    // `/proc/self/cgroup` root becomes `/`. MUST run here, while we still hold
+    // `CAP_SYS_ADMIN` from the user namespace: after `drop_capabilities` below
+    // the `unshare(CLONE_NEWCGROUP)` would fail EPERM. Opt-in and best-effort:
+    // `host` (the default) never reaches here, and a refusal leaves the host
+    // view — the same as not asking. Skipped on the Kind node path, which ran
+    // its own unshare in `setup_node_cgroup_ns`.
+    if cgroupns_private && !node_cgroup {
+        let _ = unshare(CloneFlags::CLONE_NEWCGROUP);
+    }
     if no_new_privs {
         set_no_new_privs(); // no execve gains privileges (anti-escalation)
         drop_capabilities(cap_keep); // drop caps (after the mounts, before the exec)
@@ -4494,6 +4519,15 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             eprintln!(
                 "delonix: setgroups({groups:?}) failed — are the gids inside the mapped range?"
             );
+        }
+    }
+    // Podman `--umask`: set the file-mode creation mask the command inherits.
+    // Last thing before the exec so nothing above (mounts, tmpfs) is affected by
+    // it. SAFETY: `umask` cannot fail and has no error return.
+    if let Some(m) = umask {
+        // SAFETY: libc umask always succeeds, returning the previous mask.
+        unsafe {
+            libc::umask(m as libc::mode_t);
         }
     }
     // Docker/Podman `--init`: become a tiny reaping init. Everything above (the
@@ -7967,6 +8001,8 @@ struct InitInputs {
     sysctls: Vec<String>,
     oom_score_adj: Option<i32>,
     init: bool,
+    umask: Option<u32>,
+    cgroupns_private: bool,
     mounts: Vec<Mount>,
     read_only: bool,
     tmpfs: Vec<String>,
@@ -8027,6 +8063,8 @@ impl InitInputs {
             sysctls: container.sysctls.clone(),
             oom_score_adj: container.oom_score_adj,
             init: container.init,
+            umask: container.umask,
+            cgroupns_private: container.cgroupns_private,
             mounts: spec.mounts.clone(),
             read_only: container.read_only,
             tmpfs: container.tmpfs.clone(),
@@ -8090,6 +8128,7 @@ impl InitInputs {
                 sysctls: &self.sysctls,
                 oom_score_adj: self.oom_score_adj,
                 init: self.init,
+                umask: self.umask,
             },
             filesystem: FilesystemSpec {
                 mounts: &self.mounts,
@@ -8118,6 +8157,7 @@ impl InitInputs {
                 host_pid: self.host_pid,
                 inherit_userns: self.inherit_userns,
                 node_cgroup: self.node_cgroup,
+                cgroupns_private: self.cgroupns_private,
             },
             io,
         }

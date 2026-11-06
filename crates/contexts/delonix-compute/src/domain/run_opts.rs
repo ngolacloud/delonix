@@ -164,6 +164,15 @@ pub struct RunOpts {
     /// Docker `--init`: run a tiny reaping init as pid 1.
     #[serde(default)]
     pub init: bool,
+    /// Podman `--umask`: the file-mode creation mask the init `execve`s with.
+    /// `None` keeps the runtime default (`0022`). Parsed as octal, e.g. `0077`.
+    #[serde(default)]
+    pub umask: Option<u32>,
+    /// Docker/Podman `--cgroupns=private`: give the container its own cgroup
+    /// namespace (its `/proc/self/cgroup` root becomes `/`) instead of sharing
+    /// the host's view. `false` = `host` (the current behaviour).
+    #[serde(default)]
+    pub cgroupns_private: bool,
     #[serde(default)]
     pub cap_add: Vec<String>,
     /// Anti-spoofing: source prefixes this container may use besides its own

@@ -359,6 +359,59 @@ InitInputs/NamespaceSpec, container_init). **Provado ao vivo**: `--uts host` →
 hostname `delonix` (o do host); default → `dlxpar-uts0` (próprio); `--hostname
 --uts host` recusado; host NÃO renomeado; pods continuam a receber hostname.
 
+### C20 — shim accionável para famílias irredutíveis (`serve docker-api`)
+Seis verbos de cluster/daemon do Docker/Podman — `swarm`, `node`, `service`,
+`machine`, `context`, `plugin` — passam a ser aceites pelo parser como subcomandos
+ESCONDIDOS (`#[command(hide = true)]` + `trailing_var_arg`), devolvendo um erro
+accionável: estas famílias são de orquestração/daemon que um motor *daemonless*
+não corre, e quem precisa mesmo da superfície Docker usa `delonix serve docker-api`
+(com `DOCKER_HOST=unix://…` o próprio `docker` CLI fala com o Delonix). Não
+«fingem» funcionar: dizem porquê e para onde ir. Preserva daemonless/rootless/
+ADR-0010. A mensagem foi CORRIGIDA para não prometer que o shimm serve swarm/node
+(serve só a superfície container/image). Ficheiros: `main.rs` (`docker_api_shim`,
+`NOT_A_GROUP`, teste por-verbo), i18n. Commit `94696da3`.
+
+### C21 — `--platform <os/arch>` em run/create
+Busca a variante OS/arquitectura do manifesto no pull (`--platform linux/amd64|
+linux/arm64`), à Docker/Podman. Liga `RunArgs.platform` pelo `run_opts_from_args`
+ao `apply_pull_policy`, que extrai a arquitectura e chama
+`pull_from_registry_with_creds_platform`. **Provado ao vivo**: `linux/amd64` puxa e
+corre; `linux/arm64` é seleccionada (registo «platform selected: linux/arm64») num
+host amd64. Teste de parsing + flag prometida + `cli-stability`. Commit `62f94f25`.
+
+### C22 — `--umask <MASK>` (Podman)
+Máscara de criação de ficheiros do processo do contentor, em octal (`0077`). Campo
+`umask: Option<u32>` no `Container`+`RunOpts`, `build_record`, `ProcessSpec`;
+aplicada com `libc::umask` em `container_init` como ÚLTIMO passo antes do `execve`
+(nada acima — mounts, tmpfs — é afectado). Parsing octal recusa valores inválidos
+em vez de os ignorar. **Provado ao vivo**: `--umask 0077` → `umask` dentro do
+contentor = `0077`; sem flag → `0022`.
+
+### C23 — `--cgroupns private|host` (Docker/Podman)
+`private` dá ao contentor o seu próprio espaço de nomes de cgroup (a raiz de
+`/proc/self/cgroup` passa a `/`); `host` (omissão) mantém a vista do host. No
+runtime, `unshare(CLONE_NEWCGROUP)` em `container_init` DEPOIS de o pai mover o
+processo para a folha `dlx-<id>` mas ANTES de `drop_capabilities` (o `unshare`
+precisa de `CAP_SYS_ADMIN`; largado antes dava EPERM silencioso — apanhado ao
+vivo). *Opt-in* e *best-effort*: `host` nunca chega ao `unshare`,
+e uma recusa degrada para a mesma vista do host (sem regressão). Ignorado no
+caminho Kind node (já corre o seu próprio `setup_node_cgroup_ns`). Campo
+`cgroupns_private` plumbed como o `node_cgroup` (Container, RunOpts, build_record,
+NamespaceSpec, InitInputs). **Provado ao vivo**: `--cgroupns private` →
+`/proc/self/cgroup` = `0::/`; `host`/omissão → caminho completo do host.
+
+### Flags de nicho DIFERIDAS (divergência declarada, ligadas a backend)
+Encerrada a vaga de nicho, estas ficam como divergência deliberada porque
+dependem de um backend que o caminho rootless/cgroup-v2 actual não serve — não são
+«esquecidas», são recusadas com motivo:
+
+| Flag Docker/Podman | Porquê diferida | Caminho futuro |
+|---|---|---|
+| `--mac-address` | MAC fixo só faz sentido em *bridge* rootful/macvlan; o default rootless é slirp/ingress | ligar quando a paridade de rede rootful (ramo `feat/network-parity`) entrar |
+| `--ip6` / `--link-local-ip` | exigem backend IPv6 no SDN (fase própria noutro ramo) | ligar sobre a fase IPv6 (`feat/ipv6-phase1`) |
+| `--device-cgroup-rule` | cgroup v2 controla dispositivos por eBPF, não pelo `devices.allow` v1; inviável em rootless hoje | precisa do programa eBPF `device` anexado ao cgroup |
+| `--detach-keys` | UX da sequência de *detach* no `attach`; baixo valor, interactivo | implementar no laço de TTY do `attach` quando houver procura |
+
 ### Próximo lote — totalmente mapeado (investigação paralela por agentes)
 As flags abaixo tocam no runtime (`delonix-linux`) e em *guards* que hoje afirmam
 que não existem — ficam prontas a implementar com os pontos exactos:

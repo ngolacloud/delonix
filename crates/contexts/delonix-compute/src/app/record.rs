@@ -439,6 +439,14 @@ pub struct Container {
     /// (Docker/Podman `--init`). The image command runs as its child.
     #[serde(default)]
     pub init: bool,
+    /// Podman `--umask`: file-mode creation mask the init `execve`s with. `None`
+    /// keeps the runtime default (`0022`).
+    #[serde(default)]
+    pub umask: Option<u32>,
+    /// Docker/Podman `--cgroupns=private`: unshare a cgroup namespace for the
+    /// container (its `/proc/self/cgroup` root becomes `/`). `false` = `host`.
+    #[serde(default)]
+    pub cgroupns_private: bool,
     /// `true` → **privileged** container (`--privileged`): keeps all caps,
     /// seccomp unconfined, cgroup namespace (`CLONE_NEWCGROUP`) and `/sys/fs/cgroup`
     /// mounted RW delegated. Needed to run systemd+containerd (Kind nodes).
@@ -883,6 +891,8 @@ impl Container {
             stop_signal: None,
             stop_timeout: None,
             init: false,
+            umask: None,
+            cgroupns_private: false,
             cpus: default_cpus(),
             cpu_weight: None,
             cpuset: None,

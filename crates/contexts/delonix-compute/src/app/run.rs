@@ -448,6 +448,8 @@ pub fn build_record(o: &RunOpts, r: ResolvedRun) -> Result<Container> {
     // ---- security ----
     c.read_only = o.read_only;
     c.init = o.init;
+    c.umask = o.umask;
+    c.cgroupns_private = o.cgroupns_private;
     c.cap_add = o.cap_add.clone();
     c.allowed_sources = o.allow_source.clone();
     c.source_check_disabled = o.no_source_check;
