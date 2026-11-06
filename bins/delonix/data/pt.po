@@ -5177,6 +5177,21 @@ msgstr "copiar um ficheiro PARA DENTRO de um container"
 msgid "the published ports of a container"
 msgstr "as portas publicadas de um container"
 
+msgid "freeze a container's processes (cgroup v2 freezer)"
+msgstr "congela os processos de um container (freezer do cgroup v2)"
+
+msgid "resume a frozen container"
+msgstr "retoma um container congelado"
+
+msgid "snapshot a container's rootfs into a new image"
+msgstr "fotografa o rootfs de um container numa nova imagem"
+
+msgid "the processes running inside a container"
+msgstr "os processos a correr dentro de um container"
+
+msgid "give a container a new name"
+msgstr "dá um novo nome a um container"
+
 msgid "authenticate to a registry, reading the token from stdin (never an argument)"
 msgstr "autenticar num registry, lendo o token do stdin (nunca de um argumento)"
 

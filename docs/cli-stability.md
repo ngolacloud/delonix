@@ -105,6 +105,15 @@ Concretamente, garante-se:
 > ou `docker events` troca só o executável. `inspect` e `diff` NÃO entraram na
 > raiz — ver a política de resolução logo abaixo.
 >
+> **Segunda vaga de raiz.** Mais cinco verbos de container passaram a ter forma
+> de raiz pelo mesmo mecanismo (alias `clap`, MESMO handler): `pause`, `unpause`,
+> `commit`, `top` e `rename` (alias de `container pause`/`unpause`/`commit`/
+> `top`/`rename`). `docker pause`, `docker commit`, `docker top` e `docker
+> rename` trocam só o executável. `update` NÃO entrou na raiz: o `docker update`
+> é de LIMITES de recursos, ao passo que o `container update` do Delonix é de
+> reconfiguração a quente (portas/volumes/largura de banda) — semânticas
+> distintas, pelo que fica só na forma de grupo.
+>
 > **Comandos genéricos: política de resolução, nunca adivinhação.** Três nomes
 > da tabela colidem com significados que este motor já tinha ou que seriam
 > ambíguos; resolvem-se por regra escrita, não por palpite:

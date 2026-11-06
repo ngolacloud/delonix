@@ -259,6 +259,47 @@ pub static ENTRIES: &[Entry] = &[
         ],
         see_also: &["info", "ps", "system events"],
     },
+    // Second-wave root aliases of `container <verb>` (CLI-parity campaign).
+    Entry {
+        path: "pause",
+        group: "Workloads",
+        examples: &[
+            ("freeze a container's processes (cgroup v2 freezer)", "delonix pause web"),
+        ],
+        see_also: &["unpause", "stop", "container pause"],
+    },
+    Entry {
+        path: "unpause",
+        group: "Workloads",
+        examples: &[
+            ("resume a frozen container", "delonix unpause web"),
+        ],
+        see_also: &["pause", "container unpause"],
+    },
+    Entry {
+        path: "commit",
+        group: "Artifacts",
+        examples: &[
+            ("snapshot a container's rootfs into a new image", "delonix commit web app:v2"),
+        ],
+        see_also: &["container commit", "image save"],
+    },
+    Entry {
+        path: "top",
+        group: "Workloads",
+        examples: &[
+            ("the processes running inside a container", "delonix top web"),
+        ],
+        see_also: &["stats", "ps", "container top"],
+    },
+    Entry {
+        path: "rename",
+        group: "Workloads",
+        examples: &[
+            ("give a container a new name", "delonix rename web frontend"),
+        ],
+        see_also: &["ps", "container rename"],
+    },
     Entry {
         path: "cluster",
         group: "Clusters",
