@@ -20,9 +20,9 @@ name: Chaos
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   schedule:
     # Semanal, à segunda de manhã. O caos não é só um gate de PR: apanha
     # regressões que vêm de mudanças no HOST (kernel, systemd, iproute2), não do
