@@ -1,7 +1,28 @@
 # Arquitectura: Escopo de Cada Repositório
 
+> ⚠️ **DOCUMENTO SUPERSEDED / HISTÓRICO — não é canónico.**
+>
+> Este é o registo de um *spike* de 2026-10-15, anterior à reestruturação em
+> camadas do **ADR-0040**. Descreve uma taxonomia de crates e um enquadramento
+> de produto que **já não correspondem ao motor**. Em particular, NÃO tomar como
+> verdade:
+>
+> - A frase «Motor de execução PaaS … que roda sobre Kubernetes» (secção 1). O
+>   Delonix é **daemonless, de nó único, e não conhece consumidor**: *consome* a
+>   CRI do Kubernetes, não corre por cima dele nem tem noção de PaaS/inquilino.
+> - Os nomes de crates deste documento (`delonix-security-runtime`,
+>   `delonix-scan`, `delonix-net`, `delonix-core`) — **não existem**. Os crates
+>   reais são `delonix-security`, `delonix-scanner`, `delonix-networking`,
+>   `delonix-model`, na árvore em camadas `crates/{foundation,contexts,adapters,
+>   providers,interfaces,assembly}`.
+>
+> **Fontes canónicas:** [`ARCHITECTURE.md`](../ARCHITECTURE.md) (raiz) e o
+> **ADR-0040** (`docs/adr/0040-*.md`). O mapa para contribuidores é
+> [`docs/dev/architecture.md`](dev/architecture.md), que defere para aquelas.
+> O corpo abaixo preserva-se tal como foi escrito, apenas como registo do spike.
+
 **Data:** 2026-10-15  
-**Status:** Spike (define scope para Sprint 7+)  
+**Status:** Superseded pelo ADR-0040 (spike histórico; ver banner acima)  
 **Decision:** Opção B — runtime puro, observabilidade em delonix-paas
 
 ---
