@@ -3795,6 +3795,41 @@ msgstr "{ref}: guardada em {path}"
 msgid "loaded: {tags}"
 msgstr "carregada: {tags}"
 
+msgid "imported: {tags}"
+msgstr "importada: {tags}"
+
+msgid "Create an image from a rootfs tarball (`docker import`)."
+msgstr "Cria uma imagem a partir de um tarball de rootfs (`docker import`)."
+
+msgid ""
+"Create an image from a rootfs tarball (`docker import`)."
+"\n"
+"\n"
+"The counterpart of `export`: a filesystem tar (plain or gzip) becomes a single-layer image. Unlike `load`, the tar carries no image metadata, so the new image has an empty config (no CMD/ENV) — set those at `run` time."
+msgstr ""
+"Cria uma imagem a partir de um tarball de rootfs (`docker import`)."
+"\n"
+"\n"
+"O inverso do `export`: um tar de sistema de ficheiros (simples ou gzip) torna-se uma imagem de camada única. Ao contrário do `load`, o tar não leva metadados de imagem, logo a imagem nova tem config vazia (sem CMD/ENV) — define-os no `run`."
+
+msgid "The rootfs tar (plain or gzip). `-` reads from stdin."
+msgstr "O tar do rootfs (simples ou gzip). `-` lê do stdin."
+
+msgid "Name/tag for the new image (e.g. `app:imported`). Optional, like Docker."
+msgstr "Nome/etiqueta da imagem nova (ex. `app:imported`). Opcional, como no Docker."
+
+msgid "turn a rootfs tar (e.g. from `export`) into an image"
+msgstr "transforma um tar de rootfs (ex. de `export`) numa imagem"
+
+msgid "import a gzipped rootfs read from stdin"
+msgstr "importa um rootfs comprimido lido do stdin"
+
+msgid "turn a rootfs tar into an image"
+msgstr "transforma um tar de rootfs numa imagem"
+
+msgid "import a gzipped rootfs from stdin"
+msgstr "importa um rootfs comprimido do stdin"
+
 msgid "Save an image to a portable archive (`docker save`'s counterpart) — the way to move an image to another machine with no registry. The archive is an OCI layout WITH the legacy `manifest.json`, so `delonix image load`, `docker load`, `podman load` and `ctr images import` all read it"
 msgstr "Guarda uma imagem num arquivo portátil (o equivalente ao `docker save`) — a forma de levar uma imagem para outra máquina sem registo. O arquivo é um OCI layout COM o `manifest.json` legado, por isso `delonix image load`, `docker load`, `podman load` e `ctr images import` leem-no todos"
 

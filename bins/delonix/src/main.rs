@@ -311,6 +311,17 @@ enum Cmd {
         #[arg(short = 'o', long = "output", value_name = "PATH")]
         output: Option<std::path::PathBuf>,
     },
+    /// Create an image from a rootfs tarball (`docker import`).
+    ///
+    /// The counterpart of `export`: a filesystem tar (plain or gzip) becomes a
+    /// single-layer image. Unlike `load`, the tar carries no image metadata, so
+    /// the new image has an empty config (no CMD/ENV) — set those at `run` time.
+    Import {
+        /// The rootfs tar (plain or gzip). `-` reads from stdin.
+        input: String,
+        /// Name/tag for the new image (e.g. `app:imported`). Optional, like Docker.
+        reference: Option<String>,
+    },
     /// Authenticate to an OCI registry.
     ///
     /// Stores the credentials in `<root>/auth.json`, docker/podman format.
@@ -1618,6 +1629,9 @@ fn run() -> Result<()> {
         Cmd::Export { id, output } => {
             cmd::container::run(cmd::container::ContainerCmd::Export { id, output })
         }
+        Cmd::Import { input, reference } => {
+            cmd::image::run(cmd::image::ImageCmd::Import { input, reference })
+        }
         Cmd::Login {
             registry,
             username,
@@ -2420,6 +2434,7 @@ mod cli_stability_classification_tests {
         "history",
         "untag",
         "export",
+        "import",
     ];
 
     /// Every other real top-level group, mirroring "NÃO estável" 1:1. A group

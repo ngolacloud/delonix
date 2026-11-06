@@ -326,6 +326,15 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["container export", "commit", "save"],
     },
     Entry {
+        path: "import",
+        group: "Artifacts",
+        examples: &[
+            ("turn a rootfs tar into an image", "delonix import web.tar app:imported"),
+            ("import a gzipped rootfs from stdin", "cat rootfs.tar.gz | delonix import - base:latest"),
+        ],
+        see_also: &["image import", "export", "load"],
+    },
+    Entry {
         path: "cluster",
         group: "Clusters",
         examples: &[
@@ -1314,6 +1323,15 @@ pub static ENTRIES: &[Entry] = &[
             ("pipe it straight into gzip instead of writing the plain archive", "delonix image save nginx -o /dev/stdout | gzip > nginx.tar.gz"),
         ],
         see_also: &["image load", "image push", "image export"],
+    },
+    Entry {
+        path: "image import",
+        group: "Storage",
+        examples: &[
+            ("turn a rootfs tar (e.g. from `export`) into an image", "delonix image import web.tar app:imported"),
+            ("import a gzipped rootfs read from stdin", "cat rootfs.tar.gz | delonix image import - base:latest"),
+        ],
+        see_also: &["image load", "container export", "image ls"],
     },
     Entry {
         path: "image apply",
