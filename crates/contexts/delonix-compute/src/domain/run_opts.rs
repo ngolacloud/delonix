@@ -37,6 +37,10 @@ pub struct RunOpts {
     #[serde(default)]
     pub expose: Option<u16>,
     pub volumes: Vec<String>,
+    /// Docker `--volumes-from`: containers whose mounts are copied into this one
+    /// (`<name>[:ro|:rw]`). Resolved against the store by the CLI, not here.
+    #[serde(default)]
+    pub volumes_from: Vec<String>,
     pub ports: Vec<String>,
     pub privileged: bool,
     /// Override for the image's ENTRYPOINT, as a full argv — the same shape the

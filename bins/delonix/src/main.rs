@@ -1115,6 +1115,15 @@ mod run_interactive_flag_parity_tests {
     }
 
     #[test]
+    fn run_accepts_volumes_from() {
+        assert!(parses(&["delonix", "run", "--volumes-from", "data", "busybox"]));
+        assert!(parses(&["delonix", "run", "--volumes-from", "data:ro", "busybox"]));
+        assert!(parses(&[
+            "delonix", "run", "--volumes-from", "a", "--volumes-from", "b:ro", "busybox",
+        ]));
+    }
+
+    #[test]
     fn run_accepts_stop_signal_and_timeout() {
         assert!(parses(&["delonix", "run", "--stop-signal", "SIGINT", "busybox"]));
         assert!(parses(&["delonix", "run", "--stop-signal", "2", "busybox"]));

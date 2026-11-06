@@ -1168,6 +1168,9 @@ pub struct RunArgs {
     /// Volume/bind mount, `name:/target[:ro]` or `/host:/target[:ro]`. Repeatable.
     #[arg(short = 'v', long = "volume")]
     volumes: Vec<String>,
+    /// Mount all the volumes of another container (Docker/Podman `--volumes-from`), `<container>[:ro|:rw]`. Repeatable.
+    #[arg(long = "volumes-from", add = ArgValueCandidates::new(super::complete::containers))]
+    volumes_from: Vec<String>,
     /// Publish a port, `[hostIp:]hostPort:contPort[/tcp|udp]` or just `port`. Repeatable.
     /// SAFE BY DEFAULT: without `hostIp` the port binds to `127.0.0.1` only — reachable
     /// from the host itself, NOT from a browser on another machine. Name the address to
@@ -1922,6 +1925,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         user,
         net,
         volumes,
+        volumes_from,
         publish,
         privileged,
         entrypoint,
@@ -2049,6 +2053,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         namespace,
         expose,
         volumes,
+        volumes_from,
         ports: publish,
         privileged,
         entrypoint: entrypoint_argv(entrypoint),
@@ -3438,9 +3443,31 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     )?;
     print_notices(&resolved.notices);
     let rootfs = resolved.rootfs;
-    let mounts = resolved.mounts;
+    let mut mounts = resolved.mounts;
     let apparmor_profile = resolved.apparmor_profile;
     let mut c = delonix_compute::run::build_record(&opts_copy, resolved.record)?;
+    // Docker/Podman `--volumes-from`: copy every mount of each named container
+    // into this one. The source's mounts are already RESOLVED (host paths,
+    // volume roots), so they transplant directly — no re-resolution. `:ro`
+    // forces every copied mount read-only; `:rw` (or no suffix) keeps the
+    // source's own mode. Goes into BOTH the launch set (`mounts`) and the record
+    // (`c.mounts`) so it survives a `start`. A missing source is a clear error.
+    for spec in &opts_copy.volumes_from {
+        let (src, force_ro) = match spec.rsplit_once(':') {
+            Some((n, "ro")) => (n, true),
+            Some((n, "rw")) => (n, false),
+            _ => (spec.as_str(), false),
+        };
+        let source = find(store, src)?;
+        for m in &source.mounts {
+            let mut m = m.clone();
+            if force_ro {
+                m.readonly = true;
+            }
+            mounts.push(m.clone());
+            c.mounts.push(m);
+        }
+    }
     // A container some policy document governs is born CLOSED (ADR-0069): the
     // chain exists before the process does, and the record carries the same state
     // so a restart cannot reopen it. `stack apply` releases it after the policy
