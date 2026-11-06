@@ -44,7 +44,8 @@ Start at the root and follow the dependencies inward:
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
 ├── .dockerignore, .gitignore, .git-blame-ignore-revs
-├── .ai/                          skills for AI assistants (E2E quality)
+├── .ai/                          versioned AI harness: skills/ and agents/
+├── .claude/                      agents/ bridge (symlinks to .ai/agents/); rest gitignored
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
 ├── crates/
 │   ├── foundation/               pure shared types and rules (no mechanism)
@@ -168,7 +169,7 @@ The crate list, each crate's layer and who depends on whom are generated facts i
 | `docs/schema/` | `v1/delonix.json`, the manifest JSON Schema, **generated** from the code (ADR-0007), and `v1/providers.json`, the JSON Schema of the node's providers file (ADR-0054). | `delonix manifest schema > docs/schema/v1/delonix.json` when a manifest type changes; `delonix provider config schema > docs/schema/v1/providers.json` when the providers file changes. | `docs/adr/0007-generated-manifest-schema.md`, `docs/adr/0054-provider-configuration-file.md` |
 | `docs/testing/` | The leaf inventory of every public surface and its proof plan: `folhas-inventario.md` (what is proved today, and by which measurement), `folhas.tsv` (one row per leaf, its class `A`–`E` and the evidence or the reason, read by `scripts/folhas_gate.py`), `plano-folhas.md` (the mandatory cases per leaf) and `lab-requisitos.md` (the lab infrastructure the unproved leaves need). The denominators are derived from the code, never from the table. | Whoever proves a leaf: raise its class and the baseline in the same commit (`python3 scripts/folhas_gate.py --update`). | `docs/testing/folhas-inventario.md` |
 
-## Tooling, CI and packaging (scripts/, .github/, dist/, editors/, examples/, reports/, third_party/, .ai/)
+## Tooling, CI and packaging (scripts/, .github/, dist/, editors/, examples/, reports/, third_party/, .ai/, .claude/)
 
 | Path | What it is | Who changes it / when | Read more |
 |---|---|---|---|
@@ -180,7 +181,8 @@ The crate list, each crate's layer and who depends on whom are generated facts i
 | `images/` | One folder per VM image: `ubuntu`, `debian`, `rocky`, `fedora` (custom recipes that build offline) and eight appliances (`opnsense`, `proxmox`, `truenas`, `openstack`, `monitoring`, `carbonio`, `glpi`, `wazuh`) whose `vm.yaml` names a builder in `scripts/appliances/`. Each has a README; `images/README.md` indexes them and explains `scripts/verify-images.sh`. A unit test (`vmspec::every_shipped_recipe_is_valid_and_complete`) fails if a recipe stops parsing or points at a missing file or builder. | Whoever adds a distro or an appliance, or changes the `vm.yaml` schema. | [Delonixfile and VMfile](delonixfile-and-vmfile.md) |
 | `reports/` | Dated audit reports: `code-quality/` and `production-readiness/<version>/` (inventory, gap matrix, backlog). Historical records of an audit at a commit — do not rewrite; nothing in them is implemented by being listed. | Whoever runs a new audit (new files). | — |
 | `third_party/` | Vendored `googleapis` protos (`google/api/annotations.proto`, `http.proto`) used for the HTTP mapping of the node contract. Apache-2.0, licence headers kept; the source commit is recorded in its `README.md`. Never edited here. | Whoever updates the vendored protos, both files from one upstream commit. | `third_party/googleapis/README.md` |
-| `.ai/` | Tool-neutral skills for AI assistants: `skills/delonix-runtime-e2e-quality/` (test taxonomy, provider contract, security checks, report templates). | Maintainers. | — |
+| `.ai/` | Tool-neutral, version-controlled AI harness: `skills/` (`delonix-runtime-e2e-quality` and the engineering skills) and `agents/` (the specialist agent specs with their permission-tier map). | Maintainers. | — |
+| `.claude/` | The loadable copy of the versioned agent layer: `agents/*.md` are symlinks into `.ai/agents/`, so Claude Code discovers the agents while a single canonical file lives under `.ai/`. The rest of `.claude/` (session contracts, gitflow state, local settings) is machine-local and gitignored. | Maintainers, when adding or renaming an agent. | — |
 
 ## Generated vs hand-written
 
