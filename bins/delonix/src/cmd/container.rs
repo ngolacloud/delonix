@@ -1248,6 +1248,9 @@ pub struct RunArgs {
     /// Relative CPU weight (`cpu.weight`, 1–10000) under contention.
     #[arg(long = "cpu-weight", value_parser = parse_cgroup_weight)]
     cpu_weight: Option<String>,
+    /// Docker/Podman `--cpu-shares` (2–262144), converted onto `cpu.weight`; `--cpu-weight` wins if both are given.
+    #[arg(long = "cpu-shares", value_parser = parse_cpu_shares)]
+    cpu_shares: Option<String>,
     /// CPUs the container is pinned to (`cpuset.cpus`, e.g. `0-3`, `0,2`).
     // Docker/Podman spell this `--cpuset-cpus`; a `visible_alias` accepts that
     // verbatim (same `cpuset.cpus`, no new help string).
@@ -1257,9 +1260,8 @@ pub struct RunArgs {
     /// Unspecified limits mean no limit under it.
     #[arg(long = "kube-cgroup-parent", hide = true)]
     kube_cgroup_parent: Option<String>,
-    /// Internal: CRI `LinuxContainerResources.oom_score_adj` (ADR 0038 item 3),
-    /// written to `/proc/<pid>/oom_score_adj` at spawn.
-    #[arg(long = "oom-score-adj", hide = true)]
+    /// Tune the out-of-memory killer score (Docker/Podman `--oom-score-adj`, -1000 to 1000); higher means killed sooner. Also the CRI `LinuxContainerResources.oom_score_adj` (ADR 0038 item 3), written to `/proc/<pid>/oom_score_adj` at spawn.
+    #[arg(long = "oom-score-adj", allow_hyphen_values = true, value_parser = parse_oom_score_adj)]
     oom_score_adj: Option<i32>,
     /// Internal: CRI `LinuxContainerResources.cpuset_mems` (ADR 0038 item 3),
     /// mirrors `--kube-cgroup-parent`/`--oom-score-adj` so this field is
@@ -1280,6 +1282,9 @@ pub struct RunArgs {
     /// Relative I/O weight (`io.weight`, 1–10000).
     #[arg(long = "io-weight", value_parser = parse_cgroup_weight)]
     io_weight: Option<String>,
+    /// Docker/Podman `--blkio-weight` (10–1000), mapped onto `io.weight`; `--io-weight` wins if both are given.
+    #[arg(long = "blkio-weight", value_parser = parse_blkio_weight)]
+    blkio_weight: Option<String>,
     /// Absolute read limit from the store's disk (`10mb`, `1g`). Docker's `--device-read-bps`.
     #[arg(long = "device-read-bps")]
     device_read_bps: Option<String>,
@@ -2013,6 +2018,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         stop_timeout,
         cpus,
         cpu_weight,
+        cpu_shares,
         cpuset,
         kube_cgroup_parent,
         oom_score_adj,
@@ -2020,6 +2026,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         hugepage_limits,
         unified,
         io_weight,
+        blkio_weight,
         device_read_bps,
         device_write_bps,
         device_read_iops,
@@ -2135,6 +2142,15 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         })?;
         tmpfs.push(format!("/dev/shm:size={bytes},mode=1777"));
     }
+    // Docker `--cpu-shares` is the same knob as `--cpu-weight` on a different
+    // scale (2..=262144 against cgroup v2's 1..=10000). Convert and feed the
+    // SAME `cpu.weight` write path; the native `--cpu-weight` takes precedence
+    // when both are set.
+    let cpu_weight = cpu_weight.or_else(|| cpu_shares.as_deref().map(cpu_shares_to_weight));
+    // Docker `--blkio-weight` (10..=1000) is a plain alias of `--io-weight`:
+    // its value passes straight through to `io.weight`, and `--io-weight` wins
+    // when both are set.
+    let io_weight = io_weight.or(blkio_weight);
     Ok(RunOpts {
         policy_hold: false,
         no_start,
@@ -4546,6 +4562,50 @@ pub(crate) fn parse_cgroup_weight(s: &str) -> std::result::Result<String, String
     match s.parse::<u32>() {
         Ok(n) if (1..=10_000).contains(&n) => Ok(s.to_string()),
         _ => Err(format!("'{s}': weight must be a number from 1 to 10000")),
+    }
+}
+
+/// Validates Docker/Podman `--cpu-shares` against its own range (2–262144).
+/// The value stays verbatim here; the shares→`cpu.weight` conversion happens in
+/// [`run_opts_from_args`] so that a native `--cpu-weight` can still win.
+pub(crate) fn parse_cpu_shares(s: &str) -> std::result::Result<String, String> {
+    match s.parse::<u64>() {
+        Ok(n) if (2..=262_144).contains(&n) => Ok(s.to_string()),
+        _ => Err(format!(
+            "'{s}': cpu-shares must be a number from 2 to 262144"
+        )),
+    }
+}
+
+/// Converts a validated Docker/Podman cpu-shares value to the equivalent cgroup
+/// v2 `cpu.weight`, using the mapping `weight = 1 + ((shares-2)*9999)/262142`
+/// clamped to 1–10000. Shares 2 map to 1 and 262144 to 10000.
+pub(crate) fn cpu_shares_to_weight(shares: &str) -> String {
+    // `shares` already passed `parse_cpu_shares`, so it is in 2..=262144.
+    let shares: u64 = shares.parse().unwrap_or(2).clamp(2, 262_144);
+    let weight = 1 + ((shares - 2) * 9999) / 262_142;
+    weight.clamp(1, 10_000).to_string()
+}
+
+/// Validates Docker/Podman `--blkio-weight` against its own range (10–1000).
+/// The value passes through to `io.weight` unchanged.
+pub(crate) fn parse_blkio_weight(s: &str) -> std::result::Result<String, String> {
+    match s.parse::<u32>() {
+        Ok(n) if (10..=1000).contains(&n) => Ok(s.to_string()),
+        _ => Err(format!(
+            "'{s}': blkio-weight must be a number from 10 to 1000"
+        )),
+    }
+}
+
+/// Validates Docker/Podman `--oom-score-adj` against the kernel's range
+/// (-1000 to 1000). The value feeds the existing `oom_score_adj` write.
+pub(crate) fn parse_oom_score_adj(s: &str) -> std::result::Result<i32, String> {
+    match s.parse::<i32>() {
+        Ok(n) if (-1000..=1000).contains(&n) => Ok(n),
+        _ => Err(format!(
+            "'{s}': oom-score-adj must be a number from -1000 to 1000"
+        )),
     }
 }
 
@@ -9392,6 +9452,39 @@ restartPolicy: OnFailure
                 super::parse_cgroup_weight(bad).is_err(),
                 "{bad} should be refused"
             );
+        }
+    }
+
+    /// Docker `--cpu-shares` must land on `cpu.weight` through the documented
+    /// mapping: the two ends pin to 1 and 10000, and 1024 (Docker's default)
+    /// and 512 fall where the formula places them.
+    #[test]
+    fn cpu_shares_convert_to_the_promised_cpu_weight() {
+        assert_eq!(super::cpu_shares_to_weight("2"), "1");
+        assert_eq!(super::cpu_shares_to_weight("262144"), "10000");
+        assert_eq!(super::cpu_shares_to_weight("1024"), "39");
+        assert_eq!(super::cpu_shares_to_weight("512"), "20");
+        // The validating parser owns the range; the two ends are accepted and
+        // just past them is refused.
+        for good in ["2", "512", "1024", "262144"] {
+            assert_eq!(super::parse_cpu_shares(good).as_deref(), Ok(good), "{good}");
+        }
+        for bad in ["1", "0", "262145", "abc", "", "-1"] {
+            assert!(super::parse_cpu_shares(bad).is_err(), "{bad}");
+        }
+        // `--blkio-weight` passes through to `io.weight`; only 10..=1000 parse.
+        for good in ["10", "500", "1000"] {
+            assert_eq!(super::parse_blkio_weight(good).as_deref(), Ok(good), "{good}");
+        }
+        for bad in ["9", "1001", "0", "abc"] {
+            assert!(super::parse_blkio_weight(bad).is_err(), "{bad}");
+        }
+        // `--oom-score-adj` accepts the kernel's -1000..=1000 and nothing else.
+        for good in [-1000, -1, 0, 500, 1000] {
+            assert_eq!(super::parse_oom_score_adj(&good.to_string()), Ok(good));
+        }
+        for bad in ["-1001", "1001", "abc", ""] {
+            assert!(super::parse_oom_score_adj(bad).is_err(), "{bad}");
         }
     }
 
