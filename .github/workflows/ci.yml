@@ -125,6 +125,12 @@ jobs:
         run: rustup show
       - name: Layer direction, foundation purity and the debt ratchets
         run: python3 scripts/arch_fitness.py
+      # The rendered architecture report is generated from the fitness data above;
+      # committed stale, it silently drifts from the code. `--check` fails when
+      # `reports/architecture.md` no longer matches — run `python3
+      # scripts/arch_report.py` and commit it.
+      - name: The architecture report matches the code
+        run: python3 scripts/arch_report.py --check
       # The contributor handbook's FACTS (crates, layers, dependencies, binaries,
       # toolchain, CI jobs) are generated from the same sources this job checks.
       # Hand-written, they rotted twice; generated, a stale page fails here.
@@ -200,6 +206,12 @@ jobs:
       # pages teaching `unrecognized subcommand`, and nothing here noticed.
       - name: Every `delonix …` in the current docs resolves in the tree
         run: python3 scripts/docs_cli_gate.py
+      # The cheap complement to the two above: the binary's top-level command map
+      # and `docs/gen.py`'s GROUPS must agree, so a new or removed top-level
+      # command cannot be silently dropped from the index/cheatsheet. One
+      # `--help`, no network.
+      - name: The doc generator's command groups match the binary
+        run: PATH="$PWD/target/release:$PATH" python3 scripts/docs_command_gate.py
 
   # ---- Lint: clippy a falhar em QUALQUER warning (gate estrito) ----
   clippy:
