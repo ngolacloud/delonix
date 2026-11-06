@@ -1109,6 +1109,25 @@ mod run_interactive_flag_parity_tests {
     }
 
     #[test]
+    fn run_accepts_the_docker_cpu_shares_blkio_and_oom_flags() {
+        // `--cpu-shares` (2..=262144), `--blkio-weight` (10..=1000) and the now
+        // visible `--oom-score-adj` (-1000..=1000) must parse on run AND create.
+        assert!(parses(&["delonix", "run", "--cpu-shares", "512", "busybox"]));
+        assert!(parses(&["delonix", "run", "--blkio-weight", "500", "busybox"]));
+        assert!(parses(&["delonix", "run", "--oom-score-adj", "-500", "busybox"]));
+        assert!(parses(&["delonix", "create", "--cpu-shares", "1024", "busybox"]));
+        assert!(parses(&["delonix", "create", "--blkio-weight", "10", "busybox"]));
+        assert!(parses(&["delonix", "create", "--oom-score-adj", "1000", "busybox"]));
+        // Out-of-range values are refused at parse, never clamped silently.
+        assert!(!parses(&["delonix", "run", "--cpu-shares", "1", "busybox"]));
+        assert!(!parses(&["delonix", "run", "--cpu-shares", "262145", "busybox"]));
+        assert!(!parses(&["delonix", "run", "--blkio-weight", "9", "busybox"]));
+        assert!(!parses(&["delonix", "run", "--blkio-weight", "1001", "busybox"]));
+        assert!(!parses(&["delonix", "run", "--oom-score-adj", "-1001", "busybox"]));
+        assert!(!parses(&["delonix", "run", "--oom-score-adj", "1001", "busybox"]));
+    }
+
+    #[test]
     fn run_accepts_the_docker_ipc_and_pid_modes() {
         assert!(parses(&["delonix", "run", "--pid", "host", "busybox"]));
         assert!(parses(&["delonix", "run", "--ipc", "host", "busybox"]));
@@ -2374,6 +2393,9 @@ mod container_image_contract_tests {
             "--memory-swap",
             "--pids-limit",
             "--cpus",
+            "--cpu-shares",
+            "--blkio-weight",
+            "--oom-score-adj",
             "--entrypoint",
             "--add-host",
             "--wait",

@@ -37,6 +37,7 @@ Concretamente, garante-se:
   `run`: `-d`, `-i`, `-t`, `-p`, `-v`, `-e`, `--name`, `--rm`, `--net`
   (alias `--network`), `--pull`, `--cidfile`, `--shm-size`, `--restart`,
   `--memory`, `--memory-reservation`, `--memory-swap`, `--pids-limit`, `--cpus`,
+  `--cpu-shares`, `--blkio-weight`, `--oom-score-adj`,
   `--entrypoint`, `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--ipc`,
   `--pid`, `--uts`, `--stop-signal`, `--stop-timeout`, `--init`,
   `--volumes-from`, `--mount`, `--add-host`, `--wait`, `--health-*`; em `exec`:
