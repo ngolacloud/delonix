@@ -76,6 +76,15 @@ pub struct RunOpts {
     pub devices: Vec<String>,
     pub env: Vec<String>,
     pub labels: Vec<String>,
+    /// Each `--label-file`: a `KEY=VAL`-per-line file whose entries become
+    /// labels, exactly as `env_file` does for the environment. Applied before
+    /// `labels`, so an explicit `--label` on the same key wins.
+    #[serde(default)]
+    pub label_file: Vec<String>,
+    /// OCI annotations (`--annotation key=value`): non-identifying metadata that
+    /// lands on [`crate::Container::annotations`], SEPARATE from `labels`.
+    #[serde(default)]
+    pub annotations: Vec<String>,
     pub image: String,
     pub command: Vec<String>,
     /// Don't print the ID at the end of `-d`. For internal callers that compose

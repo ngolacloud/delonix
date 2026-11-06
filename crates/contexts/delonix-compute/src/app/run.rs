@@ -36,6 +36,9 @@ pub struct ResolvedRun {
     pub image_workdir: String,
     /// The contents of each `--env-file`, in the order given.
     pub env_files: Vec<String>,
+    /// The contents of each `--label-file`, in the order given — parsed into
+    /// labels the same way `env_files` is parsed into environment entries.
+    pub label_files: Vec<String>,
     /// Environment injected by CDI device edits.
     pub cdi_env: Vec<String>,
     /// The final device list (`--device`, `--gpus`, CDI resolved).
@@ -123,6 +126,13 @@ where
                 .map_err(|e| Error::Invalid(format!("--env-file {f}: {e}")))?,
         );
     }
+    let mut label_files = Vec::with_capacity(o.label_file.len());
+    for f in &o.label_file {
+        label_files.push(
+            host.read_file(f)
+                .map_err(|e| Error::Invalid(format!("--label-file {f}: {e}")))?,
+        );
+    }
     // The user: `--user` when given, otherwise the one the IMAGE declares
     // (ADR-0062 D1). `--user 0` is the explicit way to stay root in the container.
     //
@@ -199,6 +209,7 @@ where
             image_env: config.env,
             image_workdir: config.working_dir,
             env_files,
+            label_files,
             cdi_env: edits.env,
             devices: edits.devices,
             mounts: mounts.clone(),
@@ -378,9 +389,23 @@ pub fn build_record(o: &RunOpts, r: ResolvedRun) -> Result<Container> {
     // included: `start` never re-resolves a CDI spec.
     c.mounts = r.mounts;
     c.privileged = o.privileged;
+    // Labels: each `--label-file` first (same `KEY=VAL` parse as `--env-file`),
+    // then `--label`, so an explicit flag wins over a value from a file.
+    for content in &r.label_files {
+        for (k, v) in delonix_model::secret::parse_env_file(content) {
+            c.labels.insert(k, v);
+        }
+    }
     for l in &o.labels {
         if let Some((k, v)) = l.split_once('=') {
             c.labels.insert(k.to_string(), v.to_string());
+        }
+    }
+    // OCI annotations (`--annotation key=value`): non-identifying metadata,
+    // stored on the record's own annotations map, distinct from labels.
+    for a in &o.annotations {
+        if let Some((k, v)) = a.split_once('=') {
+            c.annotations.insert(k.to_string(), v.to_string());
         }
     }
     // `--hostname` overrides the name in the UTS namespace; empty = use the name.
