@@ -704,6 +704,48 @@ enum Cmd {
         #[arg(value_hint = clap::ValueHint::FilePath, long)]
         config: std::path::PathBuf,
     },
+    // ---- Docker/Podman compatibility shims (hidden) ----
+    // Verbs for a daemon, an orchestrator or a VM manager this engine does not
+    // run. HIDDEN so they never advertise a feature that is not here, but still
+    // reachable so a ported `docker swarm …`/`podman machine …` script meets an
+    // ACTIONABLE error (pointing at `serve docker-api`) instead of the bare
+    // `unrecognized subcommand`. Each swallows its trailing args.
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Swarm {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Node {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Service {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Machine {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Context {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Plugin {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 /// The `--version` business card (the `-V` keeps the short, stable line for
@@ -1148,6 +1190,25 @@ mod run_interactive_flag_parity_tests {
         assert!(parses(&[
             "delonix", "run", "--mount", "type=tmpfs,target=/t,tmpfs-size=16m", "busybox",
         ]));
+    }
+
+    #[test]
+    fn docker_shim_verbs_parse_into_their_variant() {
+        use clap::Parser;
+        // Hidden shims: a ported `docker swarm …`/`podman machine …` must PARSE
+        // (so the dispatch can give the actionable refusal), never fail at clap
+        // with "unrecognized subcommand". The trailing args are swallowed.
+        let parse = |v: &str| {
+            super::Cli::try_parse_from(["delonix", v, "init", "--flag", "x"])
+                .unwrap_or_else(|e| panic!("`{v}` must parse as a shim, not error at clap: {e}"))
+                .cmd
+        };
+        assert!(matches!(parse("swarm"), super::Cmd::Swarm { .. }));
+        assert!(matches!(parse("node"), super::Cmd::Node { .. }));
+        assert!(matches!(parse("service"), super::Cmd::Service { .. }));
+        assert!(matches!(parse("machine"), super::Cmd::Machine { .. }));
+        assert!(matches!(parse("context"), super::Cmd::Context { .. }));
+        assert!(matches!(parse("plugin"), super::Cmd::Plugin { .. }));
     }
 
     #[test]
@@ -1616,6 +1677,12 @@ fn run() -> Result<()> {
         Cmd::Mcp { action } => cmd::mcp::run(action),
         Cmd::Hosts { action } => cmd::hosts::run(action),
         Cmd::IngressProxy { config } => cmd::ingress_proxy::run(&config),
+        Cmd::Swarm { .. } => docker_api_shim("swarm"),
+        Cmd::Node { .. } => docker_api_shim("node"),
+        Cmd::Service { .. } => docker_api_shim("service"),
+        Cmd::Machine { .. } => docker_api_shim("machine"),
+        Cmd::Context { .. } => docker_api_shim("context"),
+        Cmd::Plugin { .. } => docker_api_shim("plugin"),
         Cmd::Dashboard { scope, once, json } => {
             cmd::dash::run(scope.unwrap_or(cmd::dash::DashScope::Global), once, json)
         }
@@ -1632,6 +1699,21 @@ fn run() -> Result<()> {
 /// `COMPLETE=<shell> delonix -- …` to get command/subcommand/flag suggestions
 /// in real time, from the SAME `Cli` definition used for parsing — it never
 /// goes out of date by hand.
+/// The Docker/Podman compatibility-shim verbs (`swarm`/`node`/`service`/
+/// `machine`/`context`/`plugin`): features of a daemon, an orchestrator or a VM
+/// manager this engine does not run. Refuse with the actionable path — the real
+/// `docker` CLI can drive delonix through `serve docker-api` — instead of the
+/// bare `unrecognized subcommand` a ported script would otherwise hit.
+fn docker_api_shim(verb: &str) -> Result<()> {
+    Err(delonix_model::Error::Invalid(format!(
+        "`{verb}` is a Docker/Podman cluster/daemon/VM feature this engine does not implement — \
+         it is daemonless and rootless, with no Swarm, no machine manager and no remote context \
+         (ADR-0010). The Docker API shim does NOT serve `{verb}` either. For the CONTAINER and \
+         IMAGE surface, `delonix serve docker-api` + DOCKER_HOST lets the real `docker` CLI drive \
+         the engine. See docs/cli-stability.md."
+    )))
+}
+
 fn cmd_completion(shell: CompShell) -> Result<()> {
     use clap_complete::env::{Bash, Elvish, EnvCompleter, Fish, Powershell, Zsh};
     use std::io::Write;
@@ -2300,7 +2382,20 @@ mod cli_stability_classification_tests {
     /// tree (so `get_subcommands()` sees it) but not a public surface a user
     /// ever types; `stack apply` launches it by argv, inside the holder's
     /// netns. Neither belongs in either stability list.
-    const NOT_A_GROUP: &[&str] = &["help", "ingress-proxy"];
+    // The hidden Docker/Podman compatibility shims are neither stable nor
+    // unstable PUBLIC surface — they exist only to turn a ported `docker
+    // swarm`/`podman machine` into an actionable error. Excluded like the other
+    // non-group entries.
+    const NOT_A_GROUP: &[&str] = &[
+        "help",
+        "ingress-proxy",
+        "swarm",
+        "node",
+        "service",
+        "machine",
+        "context",
+        "plugin",
+    ];
 
     #[test]
     fn every_root_group_is_classified_exactly_once() {
