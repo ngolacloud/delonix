@@ -28,8 +28,11 @@ pub struct Metadata {
     /// the runtime is single-tenant, there are no namespaces; this is just organization.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub labels: BTreeMap<String, String>,
-    /// Free annotations (notes, prereqs, references) — never interpreted by the
-    /// runtime, only carried through to the `describe`.
+    /// Free annotations (notes, prereqs, references) — carried through to the
+    /// `describe`. Mostly uninterpreted, with named exceptions the engine acts on:
+    /// `delonix.io/ignore-fields` drops the listed fields from the diff (ADR-0088
+    /// A5, `reconcile::IGNORE_FIELDS`); the `delonix.io/*` reconcile annotations
+    /// (`stack`, `last-applied`) are set by the engine, not the author.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub annotations: BTreeMap<String, String>,
 }
@@ -176,6 +179,120 @@ fn api_version_accepted(kind: &str, version: &str) -> bool {
     super::kinds::all().any(|f| f.kind == kind && f.api_version == version)
 }
 
+/// The group collapse of ADR-0086 D1: the nine `v1alpha1` groups fold into the
+/// six the catalog is born with at `v1beta1`. Only the groups that MOVED are
+/// listed; a group that kept its name maps to itself.
+pub(crate) const GROUP_COLLAPSE: &[(&str, &str)] = &[
+    ("security", "policy"),
+    ("artifact", "core"),
+    ("gateway", "networking"),
+    ("gitops", "core"),
+    ("infrastructure", "cluster"),
+];
+
+/// Converts an OLD `apiVersion` to the catalog-v1 canonical (ADR-0086 D5): a
+/// `<group>.delonix.io/v1alpha1` becomes `<newgroup>.delonix.io/v1beta1`, the
+/// group collapsed per [`GROUP_COLLAPSE`]. `None` for anything that is not an
+/// old domain-group `v1alpha1` form — the shared legacy `delonix.io/v1` (which
+/// keeps loading untouched, ADR-0020) and an already-`v1beta1` value included,
+/// so a converted file is left exactly as it is. Pure; the one place the
+/// version conversion lives, shared by the loader's deprecation path and
+/// `manifest convert`.
+pub(crate) fn convert_api_version(old: &str) -> Option<String> {
+    let (group, version) = old.split_once(".delonix.io/")?;
+    if version != "v1alpha1" {
+        return None;
+    }
+    // Only the NINE original domain groups convert. A provider group (`proxmox`,
+    // ADR-0086 D6) carries its own `v1alpha1` on its own cadence and must NOT be
+    // bumped to `v1beta1`; anything else is left as written too.
+    const OLD_DOMAIN_GROUPS: &[&str] = &[
+        "security",
+        "artifact",
+        "gitops",
+        "gateway",
+        "infrastructure",
+        "compute",
+        "networking",
+        "storage",
+        "core",
+    ];
+    if !OLD_DOMAIN_GROUPS.contains(&group) {
+        return None;
+    }
+    let new_group = GROUP_COLLAPSE
+        .iter()
+        .find(|(o, _)| *o == group)
+        .map(|(_, n)| *n)
+        .unwrap_or(group);
+    Some(format!("{new_group}.delonix.io/v1beta1"))
+}
+
+/// [`convert_api_version`] with the one Kind-dependent case (ADR-0086 D6):
+/// `SystemContainer` is a PROVIDER-specific Kind, so a `compute` apiVersion of
+/// any version converts to the `proxmox` provider group — not to the `compute`
+/// domain group the string-only rule would give. Every other Kind is a pure
+/// group/version rewrite, so the `kind` is ignored. `None` means «already
+/// canonical / nothing to convert», as in the string form.
+pub(crate) fn convert_api_version_for(kind: &str, old: &str) -> Option<String> {
+    if kind == super::kinds::SYSTEM_CONTAINER {
+        let (group, _) = old.split_once(".delonix.io/")?;
+        return (group == "compute").then(|| "proxmox.delonix.io/v1alpha1".to_string());
+    }
+    convert_api_version(old)
+}
+
+/// Rewrites a manifest's `apiVersion` lines to the catalog-v1 canonical
+/// (ADR-0086 D5), returning the new text and the `(old, new)` changes it made.
+/// TEXT-level on purpose: a file people keep in git carries comments and a
+/// deliberate layout that a serde round-trip would erase; only the `apiVersion`
+/// value changes, every other byte (and every field) is left as written — which
+/// is also why `convert` of an already-`v1beta1` file is a no-op. Indentation is
+/// preserved; a value already at `v1beta1` or the legacy spelling is untouched.
+pub(crate) fn convert_manifest_text(text: &str) -> (String, Vec<(String, String)>) {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    // Which document each line belongs to — a line that is a bare `---` starts
+    // the next one. Needed because `SystemContainer`'s conversion depends on its
+    // Kind (ADR-0086 D6), and the `kind:` line is a sibling of the `apiVersion:`.
+    let mut doc_of = vec![0usize; lines.len()];
+    let mut doc = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim_end() == "---" {
+            doc += 1;
+        }
+        doc_of[i] = doc;
+    }
+    let mut kind_of: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(v) = line.trim_start().strip_prefix("kind:") {
+            kind_of
+                .entry(doc_of[i])
+                .or_insert_with(|| canonical_kind(v.trim()).to_string());
+        }
+    }
+    let mut changes = Vec::new();
+    let out = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let (indent, rest) = line.split_at(line.len() - line.trim_start().len());
+            let Some(value) = rest.strip_prefix("apiVersion:") else {
+                return line.to_string();
+            };
+            // The trailing newline (if any) rides on `value`; keep it on the new line.
+            let newline = if value.ends_with('\n') { "\n" } else { "" };
+            let raw = value.trim();
+            let kind = kind_of.get(&doc_of[i]).map(String::as_str).unwrap_or("");
+            let Some(canonical) = convert_api_version_for(kind, raw) else {
+                return line.to_string();
+            };
+            changes.push((raw.to_string(), canonical.clone()));
+            format!("{indent}apiVersion: {canonical}{newline}")
+        })
+        .collect();
+    (out, changes)
+}
+
 /// Normalizes the `kind` to its canonical form, accepting common synonyms —
 /// the Kind match is by exact string (`of_kind`), so a `VirtualMachine`
 /// or `VM` in a manifest has to resolve to the same `Vm` that the rest of the code
@@ -212,6 +329,15 @@ pub(crate) const KIND_ALIASES: &[(&str, &str)] = &[
     ("Stack", k::STACK),
     ("Pod", k::POD),
     ("Workload", k::WORKLOAD),
+    ("Application", k::APPLICATION),
+    ("Job", k::JOB),
+    // Catalog v1 renames (ADR-0086 D3): the canonical spelling is now `Bucket`/
+    // `Router` (the const VALUE), and the old spelling keeps loading as a silent
+    // alias — a rename, nothing to migrate (`docs/cli-stability.md`).
+    ("ObjectStorage", k::OBJECT_STORAGE),
+    ("Bucket", k::OBJECT_STORAGE),
+    ("NetworkGateway", k::NETWORK_GATEWAY),
+    ("Router", k::NETWORK_GATEWAY),
 ];
 
 pub fn canonical_kind(kind: &str) -> &str {
@@ -413,6 +539,10 @@ pub(crate) fn spec_fields_for(kind: &str) -> Option<&'static [&'static str]> {
         k::STORAGE_POOL => Some(crate::cmd::storage_pool::STORAGE_POOL_SPEC_FIELDS),
         k::GATEWAY => Some(crate::cmd::tunnel::TUNNEL_SPEC_FIELDS),
         k::WORKLOAD => Some(crate::cmd::workload::WORKLOAD_SPEC_FIELDS),
+        k::APPLICATION => Some(crate::cmd::application::APPLICATION_SPEC_FIELDS),
+        // A Job's spec IS a PodSpec (run-to-completion; the restartPolicy default
+        // is applied at lowering, not a new field).
+        k::JOB => Some(crate::cmd::container::POD_SPEC_FIELDS),
         k::STACK => Some(stack_spec_fields()),
         k::CLUSTER => Some(crate::cmd::cluster::CLUSTER_SPEC_FIELDS),
         _ => None,
@@ -667,6 +797,26 @@ pub fn load_str(text: &str, label: &str) -> Result<Vec<ManifestDoc>> {
             doc.kind = canon.to_string();
         }
         lower_legacy_kind(&mut doc)?;
+        // Catalog v1 (ADR-0086 D5): an old `v1alpha1` group loads, CONVERTED to
+        // the `v1beta1` canonical, with one release of warning. The convert is a
+        // group/version rewrite only — the specs are unchanged in this phase — so
+        // the document goes on exactly as its v1beta1 equivalent would. A file
+        // keeps working; `manifest convert` rewrites it so the warning stops.
+        if let Some(canonical) = convert_api_version_for(&doc.kind, &doc.api_version) {
+            eprintln!(
+                "{}",
+                super::po::tf(
+                    "WARNING: {kind} '{name}': apiVersion '{old}' is deprecated — loading it as '{new}' (run `delonix manifest convert` to update the file)",
+                    &[
+                        ("kind", &doc.kind),
+                        ("name", &doc.metadata.name),
+                        ("old", &doc.api_version),
+                        ("new", &canonical),
+                    ],
+                )
+            );
+            doc.api_version = canonical;
+        }
         if !api_version_accepted(&doc.kind, &doc.api_version) {
             // Names BOTH accepted forms. Saying only «delonix.io/v1 is
             // supported» would send someone who wrote a slightly-wrong group
@@ -752,11 +902,20 @@ pub fn load_str(text: &str, label: &str) -> Result<Vec<ManifestDoc>> {
                 // top-level guard runs on the document as written.
                 refused_by_name(&child)?;
                 check_unknown_fields(&child);
+                if child.kind == k::APPLICATION {
+                    // An `applications:` group lowers to its Pod instances here,
+                    // the same 1:N reduction the top-level loop applies — a Stack
+                    // child never passes through that loop.
+                    docs.extend(crate::cmd::application::lower_application(&child)?);
+                    continue;
+                }
                 if child.kind == k::WORKLOAD {
                     // Same reduction the top-level loop applies below: a Stack's
                     // children never pass through it, so a `workloads:` group
                     // would otherwise leave a document no handler claims.
                     child = crate::cmd::workload::lower_workload(&child)?;
+                } else if child.kind == k::JOB {
+                    child = crate::cmd::job::lower_job(&child)?;
                 }
                 docs.push(child);
             }
@@ -765,6 +924,15 @@ pub fn load_str(text: &str, label: &str) -> Result<Vec<ManifestDoc>> {
             // doc (ADR-0001), which then flows through the normal per-Kind apply —
             // exactly like a Stack child. The Workload doc does not survive.
             docs.push(crate::cmd::workload::lower_workload(&doc)?);
+        } else if doc.kind == k::APPLICATION {
+            // A `kind: Application` lowers to its `replicas` `kind: Pod` INSTANCES
+            // (ADR-0086 D4), each flowing through the normal Pod apply. The
+            // Application doc does not survive — the Pods it became are what run.
+            docs.extend(crate::cmd::application::lower_application(&doc)?);
+        } else if doc.kind == k::JOB {
+            // A `kind: Job` lowers to one `kind: Pod` with `restartPolicy`
+            // defaulted to `OnFailure` (ADR-0086 D3) — run-to-completion with retry.
+            docs.push(crate::cmd::job::lower_job(&doc)?);
         } else {
             docs.push(doc);
         }
@@ -1042,6 +1210,28 @@ pub(crate) fn schema_field_names<T: schemars::JsonSchema>() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// ADR-0088 A2: a document that carries a top-level `status:` block loads and
+    /// the status is IGNORED — it is not spec, and nobody writes it. This is what
+    /// lets `delonix get -o yaml` (which may print a DERIVED status) round-trip
+    /// back through `apply` without the status being mistaken for desired state.
+    #[test]
+    fn a_top_level_status_is_accepted_and_ignored() {
+        let text = "apiVersion: compute.delonix.io/v1alpha1\n\
+                    kind: Container\n\
+                    metadata: {name: web}\n\
+                    spec: {image: nginx}\n\
+                    status:\n\
+                    \x20\x20conditions:\n\
+                    \x20\x20\x20\x20- {type: Ready, status: \"True\"}\n";
+        let docs = super::load_str(text, "test").expect("a document with status: must load");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].kind, "Container");
+        assert_eq!(docs[0].metadata.name, "web");
+        // The status did not leak into the spec the engine acts on.
+        assert!(docs[0].spec.get("status").is_none());
+        assert!(docs[0].spec.get("conditions").is_none());
+    }
+
     /// Every Kind this restructuring RENAMES keeps its old spelling working.
     ///
     /// The table is the point: each row is a promise made in
@@ -1187,15 +1377,118 @@ mod tests {
         ));
     }
 
-    /// Every group is `<name>.delonix.io/v1alpha1` — one shape, so a reader can
-    /// predict the next one. The legacy form is the deliberate exception.
+    /// ADR-0086 D1/D5: the nine old groups collapse into six at `v1beta1`; the
+    /// legacy and an already-`v1beta1` value are left alone (no conversion).
+    #[test]
+    fn convert_api_version_collapses_groups_to_v1beta1() {
+        let cases = [
+            ("security.delonix.io/v1alpha1", "policy.delonix.io/v1beta1"),
+            ("artifact.delonix.io/v1alpha1", "core.delonix.io/v1beta1"),
+            ("gitops.delonix.io/v1alpha1", "core.delonix.io/v1beta1"),
+            (
+                "gateway.delonix.io/v1alpha1",
+                "networking.delonix.io/v1beta1",
+            ),
+            (
+                "infrastructure.delonix.io/v1alpha1",
+                "cluster.delonix.io/v1beta1",
+            ),
+            // A kept group is only a version bump.
+            ("compute.delonix.io/v1alpha1", "compute.delonix.io/v1beta1"),
+            ("storage.delonix.io/v1alpha1", "storage.delonix.io/v1beta1"),
+        ];
+        for (old, new) in cases {
+            assert_eq!(convert_api_version(old).as_deref(), Some(new), "{old}");
+        }
+        // Nothing to convert: the shared legacy and an already-converted value.
+        assert_eq!(convert_api_version(LEGACY_API_VERSION), None);
+        assert_eq!(convert_api_version("core.delonix.io/v1beta1"), None);
+        // A provider group (ADR-0086 D6) is NOT a domain group: it is left as
+        // written, never bumped to v1beta1.
+        assert_eq!(convert_api_version("proxmox.delonix.io/v1alpha1"), None);
+        // Every Kind's CURRENT apiVersion is a conversion fixed point (the
+        // string rule for domain Kinds, and proxmox for `SystemContainer`).
+        for f in super::super::kinds::all() {
+            assert_eq!(convert_api_version(f.api_version), None, "{}", f.kind);
+            assert_eq!(
+                convert_api_version_for(f.kind, f.api_version),
+                None,
+                "{}",
+                f.kind
+            );
+        }
+    }
+
+    /// `SystemContainer` is the provider-Kind exception (ADR-0086 D6): a `compute`
+    /// apiVersion of ANY version converts to the `proxmox` group, where the
+    /// string-only rule would keep it in `compute`.
+    #[test]
+    fn system_container_converts_to_the_provider_group() {
+        use super::super::kinds::SYSTEM_CONTAINER;
+        for old in ["compute.delonix.io/v1alpha1", "compute.delonix.io/v1beta1"] {
+            assert_eq!(
+                convert_api_version_for(SYSTEM_CONTAINER, old).as_deref(),
+                Some("proxmox.delonix.io/v1alpha1"),
+                "{old}"
+            );
+        }
+        // Already there: idempotent.
+        assert_eq!(
+            convert_api_version_for(SYSTEM_CONTAINER, "proxmox.delonix.io/v1alpha1"),
+            None
+        );
+        // The same compute apiVersion on a DOMAIN Kind stays in compute.
+        assert_eq!(
+            convert_api_version_for("Container", "compute.delonix.io/v1alpha1").as_deref(),
+            Some("compute.delonix.io/v1beta1")
+        );
+    }
+
+    /// `manifest convert` rewrites ONLY the apiVersion lines, preserves comments
+    /// and layout, and is idempotent — converting a converted file changes
+    /// nothing (the round-trip property ADR-0086 D5 asks for).
+    #[test]
+    fn convert_manifest_text_rewrites_only_apiversion_and_is_idempotent() {
+        let old = "# a comment\n\
+                   apiVersion: artifact.delonix.io/v1alpha1\n\
+                   kind: Image\n\
+                   metadata: { name: base }  # keep me\n\
+                   spec: { ref: alpine }\n";
+        let (converted, changes) = convert_manifest_text(old);
+        assert_eq!(
+            changes,
+            vec![(
+                "artifact.delonix.io/v1alpha1".to_string(),
+                "core.delonix.io/v1beta1".to_string(),
+            )]
+        );
+        assert!(converted.contains("apiVersion: core.delonix.io/v1beta1"));
+        // Comments and every other line are byte-preserved.
+        assert!(converted.contains("# a comment\n"));
+        assert!(converted.contains("metadata: { name: base }  # keep me\n"));
+        assert!(converted.contains("spec: { ref: alpine }\n"));
+        // Idempotent: a second convert is a no-op.
+        let (again, changes2) = convert_manifest_text(&converted);
+        assert!(changes2.is_empty());
+        assert_eq!(again, converted);
+    }
+
+    /// Every DOMAIN group is `<name>.delonix.io/v1beta1` — one shape, so a reader
+    /// can predict the next one. The catalog is born at `v1beta1` (ADR-0086 D2);
+    /// the old `v1alpha1` groups no longer appear in the table (they load
+    /// CONVERTED, `convert_api_version_for`). A PROVIDER group (ADR-0086 D6, the
+    /// `proxmox` group `SystemContainer` moved to) carries its OWN version and is
+    /// the deliberate exception, alongside the legacy `delonix.io/v1`.
     #[test]
     fn every_group_follows_one_shape() {
         for f in super::super::kinds::all() {
             let v = f.api_version;
             assert!(
-                v.ends_with(".delonix.io/v1alpha1") && !v.starts_with('.'),
-                "{}: {v:?} is not <group>.delonix.io/v1alpha1",
+                v.ends_with(".delonix.io/v1beta1") && !v.starts_with('.')
+                // The provider group moves on its own cadence (D6).
+                || f.kind == super::super::kinds::SYSTEM_CONTAINER
+                    && v == "proxmox.delonix.io/v1alpha1",
+                "{}: {v:?} is not a domain <group>.delonix.io/v1beta1 nor the provider exception",
                 f.kind
             );
         }
@@ -1549,6 +1842,7 @@ spec: {}
                 fields: Default::default(),
                 owner: Some("s".into()),
                 last_applied: None,
+                protect: false,
             })
             .collect();
         let plan = crate::cmd::reconcile::plan(&desired, &actual, "s");
@@ -1881,13 +2175,23 @@ spec: { image: nginx }
             "networkZones" => ("{ vnets: [{ name: prod }] }", "NetworkZone"),
             "storagePools" => ("{ alertPct: 85 }", "StoragePool"),
             "volumes" => ("{}", "Volume"),
-            "objectStorages" => ("{ backend: cephRgw, bucket: media }", "ObjectStorage"),
+            // Renamed to `Bucket` by the catalog v1 (ADR-0086 D3); the group key
+            // stays `objectStorages` but the Kind that survives the load is the
+            // new canonical spelling.
+            "objectStorages" => ("{ backend: cephRgw, bucket: media }", "Bucket"),
             "images" => ("{ pull: alpine }", "Image"),
             "apps" => ("{ source: ., image: shop }", "App"),
             "vms" => ("{ disk: base }", "VirtualMachine"),
             "systemContainers" => ("{ image: alpine:3.20 }", "SystemContainer"),
             "containers" => ("{ image: nginx }", "Container"),
             "pods" => ("{ containers: [{ name: a, image: nginx }] }", "Pod"),
+            // Lowers to its Pod instances, so a `Pod` is what survives the load.
+            "applications" => (
+                "{ replicas: 2, containers: [{ name: a, image: nginx }] }",
+                "Pod",
+            ),
+            // Lowers 1:1 to a `Pod` of the same name (restartPolicy defaulted).
+            "jobs" => ("{ containers: [{ name: a, image: nginx }] }", "Pod"),
             "services" => (
                 "{ selector: { matchLabels: { app: web } }, port: 80 }",
                 "Service",
@@ -1899,7 +2203,8 @@ spec: { image: nginx }
                 "{ target: c, direction: ingress, port: '80' }",
                 "NetworkAccessRule",
             ),
-            "networkGateways" => ("{ provider: opnsense }", "NetworkGateway"),
+            // Renamed to `Router` by the catalog v1 (ADR-0086 D3); group key kept.
+            "networkGateways" => ("{ provider: opnsense }", "Router"),
             "httpRoutes" => ("{ rules: [] }", "HTTPRoute"),
             "gateways" => ("{ provider: pinggy, localPort: 80 }", "Gateway"),
             "gitopsSources" => (
@@ -1946,12 +2251,13 @@ spec: { image: nginx }
             // By NAME as well as by Kind: `workloads` lands as a Container and so
             // does `containers`, and a check on the Kind alone passed with the
             // Workload lowering removed. (A Dependency is folded by target into a
-            // policy of its own name, so it can only be checked by Kind.)
+            // policy of its own name, and an Application lowers to `<name>-<i>`
+            // Pod INSTANCES, so those two can only be checked by Kind.)
             let name = format!("x-{group}");
+            let renamed = group == "dependencies" || group == "applications";
             assert!(
                 docs.iter()
-                    .any(|d| d.kind == lands_as
-                        && (group == "dependencies" || d.metadata.name == name)),
+                    .any(|d| d.kind == lands_as && (renamed || d.metadata.name == name)),
                 "group '{group}' produced no {lands_as}: {:?}",
                 docs.iter().map(|d| d.kind.as_str()).collect::<Vec<_>>()
             );

@@ -92,6 +92,24 @@ fn vms_dir(base: &Path) -> std::path::PathBuf {
     base.join("vms")
 }
 
+/// Splits a possibly-qualified VM reference `[<namespace>/]<name>` into its
+/// `(namespace, name)`; a bare name is in `default`. Mirrors the CLI's
+/// `manifest::split_plan_name`, so `delonix vm stop prod/web` reaches the `web`
+/// of `prod` and a bare `web` the one in `default` — the per-namespace VM name
+/// of ADR-0086 D7 (reverting ADR-0069 #2). A VM name itself never contains '/'
+/// (`valid_vm_name`), so the first '/' is unambiguously the namespace separator.
+fn split_ns(reference: &str) -> (&str, &str) {
+    reference.split_once('/').unwrap_or(("default", reference))
+}
+
+/// The namespace a `VmConfig` is created in (`default` when unset/empty).
+fn cfg_namespace(cfg: &VmConfig) -> &str {
+    match cfg.namespace.as_deref() {
+        Some(ns) if !ns.is_empty() => ns,
+        _ => "default",
+    }
+}
+
 /// A record-store failure, as this crate's error. A free function and not a
 /// `From` impl since P4b.2: both types now live in other crates, so the orphan
 /// rule forbids the impl; the conversion is the one the impl used to do.
@@ -99,8 +117,8 @@ fn state_err(e: delonix_state::Error) -> Error {
     Error::Engine(e.into())
 }
 
-fn store(base: &Path) -> Result<JsonStore<Vm>> {
-    JsonStore::open(vms_dir(base)).map_err(state_err)
+fn store(base: &Path, namespace: &str) -> Result<JsonStore<Vm>> {
+    JsonStore::open(delonix_compute::vm::vms_root(base, namespace)).map_err(state_err)
 }
 
 // `is_alive` era uma TERCEIRA cópia da mesma pergunta (a do motor usa o
@@ -109,22 +127,22 @@ fn store(base: &Path) -> Result<JsonStore<Vm>> {
 
 /// `true` if a VM with this name already exists.
 pub fn exists(base: &Path, name: &str) -> bool {
-    store(base).map(|s| s.exists(name)).unwrap_or(false)
+    let (ns, name) = split_ns(name);
+    store(base, ns).map(|s| s.exists(name)).unwrap_or(false)
 }
 
-/// Whether `backend` puts its VMs on the holder's SDN, where namespace isolation
-/// is enforceable at all.
+/// Whether `backend` ENFORCES namespace isolation — the only grounds on which
+/// `--namespace` is accepted, since an isolation option that silently does
+/// nothing is worse than not having one.
 ///
-/// **Today only Cloud Hypervisor does**, and it is the backend's own report that
-/// says so (`vm.namespace-isolation`, ADR-0050) — not this function comparing
-/// the id against a literal, which is the provider-name matching ADR-0044 D3
-/// rule 3 forbids outside a composition root. A libvirt VM lives on `virbr0`,
-/// in the HOST's network namespace — a different L2 entirely, governed by
-/// libvirt's own filtering, which this engine does not program. Accepting
-/// `--namespace` there and quietly doing nothing would be the exact
-/// anti-pattern this codebase has already had to correct three times over
-/// (`--security-opt seccomp=`, `-v …:z`, `--network-alias`): an option
-/// accepted, ignored, and believed. An id no registration knows is a "no".
+/// Both local backends do, by different dataplanes (ADR-0086 D7), and it is the
+/// backend's own report that says so (`vm.namespace-isolation`, ADR-0050) — not
+/// this function comparing the id against a literal, which is the provider-name
+/// matching ADR-0044 D3 rule 3 forbids outside a composition root. Cloud
+/// Hypervisor shares the holder's SDN and is isolated by its `@dlxns_<ns>` sets;
+/// libvirt places a non-default namespace's VMs on a dedicated per-namespace NAT
+/// network (`delonix-ns-<ns>`), a separate L2 whose cross-network traffic
+/// libvirt's own reject rules drop. An id no registration knows is a "no".
 pub fn vm_namespace_supported(backend_id: &str) -> bool {
     backend_declares(backend_id, Capability::VmNamespaceIsolation)
 }
@@ -519,12 +537,14 @@ fn select_for_create(
 // ===========================================================================
 
 /// The VM use cases, assembled over this adapter's ports (P4b.3b).
-fn engine(
-    base: &Path,
-) -> Result<VmEngine<'_, JsonStore<Vm>, RegistryBackends, QemuImgDisks, CloudLocaldsSeed>> {
+fn engine<'a>(
+    base: &'a Path,
+    namespace: &'a str,
+) -> Result<VmEngine<'a, JsonStore<Vm>, RegistryBackends, QemuImgDisks, CloudLocaldsSeed>> {
     Ok(VmEngine {
         root: base,
-        repo: store(base)?,
+        namespace,
+        repo: store(base, namespace)?,
         backends: RegistryBackends,
         disks: QemuImgDisks,
         seed: CloudLocaldsSeed,
@@ -533,7 +553,7 @@ fn engine(
 }
 
 pub fn create(base: &Path, cfg: &VmConfig) -> Result<Vm> {
-    engine(base)?.create(cfg)
+    engine(base, cfg_namespace(cfg))?.create(cfg)
 }
 
 /// The «is this network declared on this node?» refusal [`create_with`] makes
@@ -579,7 +599,7 @@ pub fn refuse_undeclared_network(cfg: &VmConfig) -> Result<()> {
 /// consumer of this API — `stack apply`/`cluster kubeadm` included — inherits
 /// it for free.
 pub fn create_with(base: &Path, cfg: &VmConfig, on: &dyn Fn(CreateStage)) -> Result<Vm> {
-    engine(base)?.create_with(cfg, on)
+    engine(base, cfg_namespace(cfg))?.create_with(cfg, on)
 }
 
 /// Removes a VM: stops the VMM (via its backend), and deletes overlay/state.
@@ -597,7 +617,8 @@ pub fn create_with(base: &Path, cfg: &VmConfig, on: &dyn Fn(CreateStage)) -> Res
 /// the reverse: no local record but with an orphaned domain in libvirt (an
 /// old interrupted `rm`), `remove` cleans up the domain anyway.
 pub fn remove(base: &Path, name: &str) -> Result<()> {
-    engine(base)?.remove(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.remove(name)
 }
 
 /// Like [`remove`], but deletes the local state EVEN if the backend cleanup
@@ -605,7 +626,8 @@ pub fn remove(base: &Path, name: &str) -> Result<()> {
 /// Like [`remove`], but deletes the local state EVEN if the backend cleanup
 /// fails (the `vm rm --force`) — the user takes on resolving the rest in libvirt.
 pub fn remove_force(base: &Path, name: &str) -> Result<()> {
-    engine(base)?.remove_force(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.remove_force(name)
 }
 
 /// The full teardown of a VM: the provider's own destroy (libvirt domain with
@@ -627,7 +649,8 @@ pub fn remove_force(base: &Path, name: &str) -> Result<()> {
 /// directory; without it they are listed in [`Destroyed::kept`]. `force`
 /// deletes the local state even when the provider refuses.
 pub fn destroy(base: &Path, name: &str, force: bool, purge_disks: bool) -> Result<Destroyed> {
-    engine(base)?.destroy(name, force, purge_disks)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.destroy(name, force, purge_disks)
 }
 
 /// [`destroy`] that reports each [`DestroyStage`] as it starts.
@@ -639,7 +662,8 @@ pub fn destroy_with(
     purge_disks: bool,
     on: &dyn Fn(DestroyStage),
 ) -> Result<Destroyed> {
-    engine(base)?.destroy_with(name, force, purge_disks, on)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.destroy_with(name, force, purge_disks, on)
 }
 
 /// Stops the VM via ITS backend (CH/libvirt) but **preserves** the record and disk
@@ -651,7 +675,8 @@ pub fn destroy_with(
 /// the CLI's `vm stop` (direct-QEMU scheme) did not know how to stop a declarative
 /// libvirt VM (pid null → the domain stayed alive, orphaned).
 pub fn stop(base: &Path, name: &str) -> Result<()> {
-    engine(base)?.stop(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.stop(name)
 }
 
 /// Suspends a RUNNING VM's vCPUs (see [`VmBackend::pause`]). Refuses a VM
@@ -661,7 +686,8 @@ pub fn stop(base: &Path, name: &str) -> Result<()> {
 /// that is not currently `Running`, rather than a silent no-op — the caller
 /// would otherwise have no way to tell "already paused" from "just paused".
 pub fn pause(base: &Path, name: &str) -> Result<()> {
-    engine(base)?.pause(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.pause(name)
 }
 
 /// Resumes a VM suspended with [`pause`]. Refuses a VM that is not currently
@@ -669,7 +695,8 @@ pub fn pause(base: &Path, name: &str) -> Result<()> {
 /// Resumes a VM suspended with [`pause`]. Refuses a VM that is not currently
 /// `Paused`.
 pub fn unpause(base: &Path, name: &str) -> Result<()> {
-    engine(base)?.unpause(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.unpause(name)
 }
 
 /// Changes a STOPPED VM's cloud-init — hostname, user and/or SSH keys — for
@@ -699,7 +726,8 @@ pub fn set_cloud_init(
     ci_user: Option<&str>,
     keys: Option<Vec<String>>,
 ) -> Result<Vm> {
-    engine(base)?.set_cloud_init(name, hostname, ci_user, keys)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.set_cloud_init(name, hostname, ci_user, keys)
 }
 
 /// Changes a STOPPED VM's vCPUs and/or memory for its next boot — the cold
@@ -734,13 +762,15 @@ pub fn resize(
     memory: Option<&str>,
     disk_size_gib: Option<u32>,
 ) -> Result<Vm> {
-    engine(base)?.resize(name, vcpus, memory, disk_size_gib)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.resize(name, vcpus, memory, disk_size_gib)
 }
 
 /// Whether [`resize_shape`] would take `req`, without changing anything and
 /// whatever the power state; see `VmEngine::check_resize_shape`.
 pub fn check_resize_shape(base: &Path, name: &str, req: &ResizeRequest) -> Result<()> {
-    engine(base)?.check_resize_shape(name, req)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.check_resize_shape(name, req)
 }
 
 /// [`resize`] with the hotplug ceilings (ADR-0068 open question 2): the cold
@@ -748,7 +778,8 @@ pub fn check_resize_shape(base: &Path, name: &str, req: &ResizeRequest) -> Resul
 /// --vcpus-max/--memory-max` share. See
 /// [`delonix_compute::vm::VmEngine::resize_shape`].
 pub fn resize_shape(base: &Path, name: &str, req: &ResizeRequest) -> Result<Vm> {
-    engine(base)?.resize_shape(name, req)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.resize_shape(name, req)
 }
 
 /// `vm update <name> [--vcpus N] [--memory M]` (ADR-0068 D1): adds vCPUs
@@ -766,7 +797,8 @@ pub fn update(
     memory: Option<&str>,
     wait: std::time::Duration,
 ) -> Result<(Vm, Vec<(&'static str, HotplugOutcome)>)> {
-    engine(base)?.update(name, vcpus, memory, wait)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.update(name, vcpus, memory, wait)
 }
 
 /// One extra disk/NIC change (`vm update --disk-add/--nic-add/--disk-rm/
@@ -777,7 +809,8 @@ pub fn change_device(
     change: DeviceChange,
     wait: std::time::Duration,
 ) -> Result<(Vm, Option<HotplugOutcome>)> {
-    engine(base)?.change_device(name, change, wait)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.change_device(name, change, wait)
 }
 
 /// Moves VM `name` to `target`, another node of its cluster (`vm move --node`,
@@ -811,7 +844,120 @@ pub fn change_device(
 ///
 /// Returns the updated record.
 pub fn move_to_node(base: &Path, name: &str, target: &str, opts: &MoveOptions) -> Result<Vm> {
-    engine(base)?.move_to_node(name, target, opts)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.move_to_node(name, target, opts)
+}
+
+/// Moves a STOPPED VM from one isolation namespace to another (`vm move
+/// <name> --namespace <new>`, ADR-0086 D7). The disk state (the overlay) is
+/// preserved; the VM's node-wide IDENTITY is reborn in the new namespace.
+///
+/// Because the MAC/tap/owner and the cloud-init network match are all derived
+/// from `scoped_vm_name(namespace, name)` (so two namespaces can each own a
+/// `web`), a move to a new namespace is a new identity: the record is re-keyed
+/// into `vms/<new>/`, the overlay moves with it, the MAC is recomputed, and the
+/// cloud-init seed is dropped so the next `start` regenerates it with a
+/// network-config that matches the new MAC (the seed's inputs — hostname, user,
+/// keys, volumes — are on the record, so nothing is lost). The VM must be
+/// stopped: its live tap/lease belong to the old identity and cannot be carried.
+///
+/// Refused, before anything moves: a running or paused VM, a target namespace
+/// that already has a VM of this name, and a no-op move to the same namespace
+/// (returned unchanged). `default`↔named both work; an emptied non-default
+/// source directory is removed.
+pub fn move_namespace(base: &Path, reference: &str, new_namespace: &str) -> Result<Vm> {
+    let (old_ns, name) = split_ns(reference);
+    let new_ns = if new_namespace.is_empty() {
+        "default"
+    } else {
+        new_namespace
+    };
+    // A no-op move still has to resolve the VM (so a wrong name is an error, not
+    // a silent success) but changes nothing.
+    if old_ns == new_ns {
+        return status(base, reference);
+    }
+    // The live identity (tap/lease/owner) belongs to the old namespace; a
+    // running VM cannot be re-keyed under it without tearing that down.
+    let current = engine(base, old_ns)?.status(name)?;
+    if matches!(
+        current.status,
+        delonix_model::records::Status::Running | delonix_model::records::Status::Paused
+    ) {
+        return Err(Error::Command {
+            context: "vm",
+            message: format!(
+                "VM '{name}' is {} — stop it before moving it to namespace '{new_ns}' (its live \
+                 network identity belongs to '{old_ns}' and cannot be carried across)",
+                current.status
+            ),
+        });
+    }
+    let old_store = store(base, old_ns)?;
+    let new_store = store(base, new_ns)?;
+    if new_store.exists(name) {
+        return Err(Error::RecordConflict(format!(
+            "namespace '{new_ns}' already has a VM '{name}' — a VM name is unique per namespace"
+        )));
+    }
+    let old_vmdir = delonix_compute::vm::vms_root(base, old_ns);
+    let new_vmdir = delonix_compute::vm::vms_root(base, new_ns);
+    std::fs::create_dir_all(&new_vmdir)?;
+
+    let mut vm = old_store.load(name).map_err(state_err)?;
+    // The disk state moves; the seed is regenerated for the new identity, so
+    // the old seed directory is discarded rather than carried.
+    let old_overlay = old_vmdir.join(format!("{name}.qcow2"));
+    if old_overlay.exists() {
+        std::fs::rename(&old_overlay, new_vmdir.join(format!("{name}.qcow2")))?;
+    }
+    let old_seed_dir = old_vmdir.join(name);
+    if old_seed_dir.is_dir() {
+        let _ = std::fs::remove_dir_all(&old_seed_dir);
+    }
+    // Stale runtime files of the stopped VM (log/pid/console/serial/sock/xml):
+    // they are rebuilt at the next boot, so clear them from the source rather
+    // than carry them — which also lets an emptied namespace dir be removed.
+    for ext in [
+        "console",
+        "serial",
+        "log",
+        "pid",
+        "sock",
+        "sock.lock",
+        "xml",
+    ] {
+        let _ = std::fs::remove_file(old_vmdir.join(format!("{name}.{ext}")));
+    }
+
+    // Rewrite the record to the new namespace and identity. `scoped_vm_name`
+    // gives the new MAC; the tap is cleared (the next boot attaches a fresh one
+    // under the new owner); the seed is dropped so `create_with` regenerates it
+    // with the matching network-config; the recorded overlay path follows the
+    // file. The base `disk` and any out-of-vmdir extra disks are untouched.
+    let new_id = delonix_compute::vm::scoped_vm_name(new_ns, name);
+    vm.namespace = new_ns.to_string();
+    vm.mac = mac_for(&new_id);
+    vm.tap = String::new();
+    vm.boot.seed = None;
+    vm.overlay = new_vmdir
+        .join(format!("{name}.qcow2"))
+        .to_string_lossy()
+        .into_owned();
+    vm.api_socket = new_vmdir
+        .join(format!("{name}.sock"))
+        .to_string_lossy()
+        .into_owned();
+    // The predicted address belonged to the old MAC; let the next boot learn it.
+    vm.ip = None;
+
+    new_store.save(name, &vm).map_err(state_err)?;
+    old_store.remove(name).map_err(state_err)?;
+    // Remove an emptied non-default source dir (never the shared `default` `vms/`).
+    if old_ns != "default" {
+        let _ = std::fs::remove_dir(&old_vmdir);
+    }
+    Ok(vm)
 }
 
 /// What the guest of VM `name` reports about itself through its agent
@@ -823,7 +969,8 @@ pub fn move_to_node(base: &Path, name: &str, target: &str, opts: &MoveOptions) -
 /// record says the VM is not running — there is no guest to ask — or the
 /// backend has no agent answer to give.
 pub fn guest_info(base: &Path, name: &str) -> Result<Option<GuestInfo>> {
-    engine(base)?.guest_info(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.guest_info(name)
 }
 
 /// Takes a named snapshot of VM `name` (see [`VmBackend::snapshot`]). On libvirt a
@@ -831,13 +978,15 @@ pub fn guest_info(base: &Path, name: &str) -> Result<Option<GuestInfo>> {
 /// Takes a named snapshot of VM `name` (see [`VmBackend::snapshot`]). On libvirt a
 /// running VM's snapshot is a system checkpoint (memory + disk).
 pub fn snapshot(base: &Path, name: &str, snap: &str) -> Result<()> {
-    engine(base)?.snapshot(name, snap)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.snapshot(name, snap)
 }
 
 /// Reverts VM `name` to the named snapshot (see [`VmBackend::restore`]).
 /// Reverts VM `name` to the named snapshot (see [`VmBackend::restore`]).
 pub fn restore(base: &Path, name: &str, snap: &str) -> Result<()> {
-    engine(base)?.restore(name, snap)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.restore(name, snap)
 }
 
 /// Copies a RUNNING VM's disk to `dest` without stopping it (see
@@ -845,19 +994,22 @@ pub fn restore(base: &Path, name: &str, snap: &str) -> Result<()> {
 /// Copies a RUNNING VM's disk to `dest` without stopping it (see
 /// [`VmBackend::backup_disk_live`]); a backend that cannot refuses by name.
 pub fn backup_disk_live(base: &Path, name: &str, dest: &Path, quiesce: bool) -> Result<()> {
-    engine(base)?.backup_disk_live(name, dest, quiesce)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.backup_disk_live(name, dest, quiesce)
 }
 
 /// Lists VM `name`'s snapshot names (see [`VmBackend::snapshots`]).
 /// Lists VM `name`'s snapshot names (see [`VmBackend::snapshots`]).
 pub fn snapshots(base: &Path, name: &str) -> Result<Vec<String>> {
-    engine(base)?.snapshots(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.snapshots(name)
 }
 
 /// Deletes VM `name`'s snapshot `snap` (see [`VmBackend::delete_snapshot`]).
 /// Deletes VM `name`'s snapshot `snap` (see [`VmBackend::delete_snapshot`]).
 pub fn delete_snapshot(base: &Path, name: &str, snap: &str) -> Result<()> {
-    engine(base)?.delete_snapshot(name, snap)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.delete_snapshot(name, snap)
 }
 
 /// Applies one direction of VM `name`'s own firewall (see
@@ -865,7 +1017,8 @@ pub fn delete_snapshot(base: &Path, name: &str, snap: &str) -> Result<()> {
 /// Applies one direction of VM `name`'s own firewall (see
 /// [`VmBackend::apply_firewall`]).
 pub fn apply_firewall(base: &Path, name: &str, policy: &firewall::Policy) -> Result<()> {
-    engine(base)?.apply_firewall(name, policy)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.apply_firewall(name, policy)
 }
 
 /// Reads one direction of VM `name`'s own firewall back (see
@@ -877,7 +1030,8 @@ pub fn read_firewall(
     name: &str,
     direction: firewall::Direction,
 ) -> Result<firewall::Policy> {
-    engine(base)?.read_firewall(name, direction)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.read_firewall(name, direction)
 }
 
 /// Starts an existing, stopped VM — idempotent (already running = no-op,
@@ -907,7 +1061,8 @@ pub fn read_firewall(
 /// keeps its old behaviour until the next `vm create` (idempotent) stamps the
 /// real shape.
 pub fn start(base: &Path, name: &str) -> Result<Vm> {
-    engine(base)?.start(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.start(name)
 }
 
 /// Stops (if running) then starts — always a real reboot, unlike `start`
@@ -917,13 +1072,25 @@ pub fn start(base: &Path, name: &str) -> Result<Vm> {
 /// (which no-ops when already running). Same recovered-fields caveat as
 /// `start`/[`config_from`].
 pub fn restart(base: &Path, name: &str) -> Result<Vm> {
-    engine(base)?.restart(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.restart(name)
 }
 
 /// Clones `source` into a brand-new, INDEPENDENT VM `new_name` and boots it —
 /// see [`delonix_compute::vm::VmEngine::clone_vm`]. libvirt only for now.
 pub fn clone_vm(base: &Path, source: &str, new_name: &str) -> Result<Vm> {
-    engine(base)?.clone_vm(source, new_name)
+    let (sns, source) = split_ns(source);
+    let (nns, new_name) = split_ns(new_name);
+    if nns != "default" && nns != sns {
+        return Err(Error::Command {
+            context: "vm",
+            message: format!(
+                "cannot clone a VM across namespaces ('{sns}' -> '{nns}'): a clone copies a local \
+                 disk beside its source — clone within the namespace, then `vm move` if needed"
+            ),
+        });
+    }
+    engine(base, sns)?.clone_vm(source, new_name)
 }
 
 /// [`clone_vm`] with the create progress callback.
@@ -933,25 +1100,56 @@ pub fn clone_with(
     new_name: &str,
     on: &dyn Fn(CreateStage),
 ) -> Result<Vm> {
-    engine(base)?.clone_with(source, new_name, on)
+    let (sns, source) = split_ns(source);
+    let (nns, new_name) = split_ns(new_name);
+    if nns != "default" && nns != sns {
+        return Err(Error::Command {
+            context: "vm",
+            message: format!(
+                "cannot clone a VM across namespaces ('{sns}' -> '{nns}'): a clone copies a local \
+                 disk beside its source — clone within the namespace, then `vm move` if needed"
+            ),
+        });
+    }
+    engine(base, sns)?.clone_with(source, new_name, on)
 }
 
 /// Marks `name` as a template (a frozen clone source that will not boot) —
 /// see [`delonix_compute::vm::VmEngine::mark_template`]. libvirt only for now.
 pub fn mark_template(base: &Path, name: &str) -> Result<Vm> {
-    engine(base)?.mark_template(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.mark_template(name)
 }
 
 /// Current state of a VM, with `status`/`ip` reconciled by its backend.
 /// Current state of a VM, with `status`/`ip` reconciled by its backend.
 pub fn status(base: &Path, name: &str) -> Result<Vm> {
-    engine(base)?.status(name)
+    let (ns, name) = split_ns(name);
+    engine(base, ns)?.status(name)
 }
 
-/// Lists all VMs, with reconciled state.
-/// Lists all VMs, with reconciled state.
+/// Lists all VMs of EVERY namespace at this node, with reconciled state.
+///
+/// The `default` namespace's VMs live flat in `<base>/vms/*.json`; every other
+/// namespace has its own `<base>/vms/<namespace>/*.json` subtree (ADR-0086 D7).
+/// So the listing is the default store plus one pass per subdirectory of
+/// `vms/`. A subdirectory that holds no record — a `default` VM's own cloud-init
+/// seed dir (`vms/<name>/`) — contributes nothing, so it is harmless to scan
+/// them all rather than tell a namespace from a seed dir up front. Callers that
+/// want one namespace filter the result by `Vm::namespace` (every record carries
+/// it), exactly as the node API's `ListVirtualMachines` already does.
 pub fn list(base: &Path) -> Result<Vec<Vm>> {
-    engine(base)?.list()
+    let mut out = engine(base, "default")?.list()?;
+    if let Ok(rd) = std::fs::read_dir(vms_dir(base)) {
+        for entry in rd.flatten() {
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                if let Some(ns) = entry.file_name().to_str() {
+                    out.extend(engine(base, ns)?.list()?);
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// `true` if the `restart_policy` requests automatic restart (`always`/`on-failure`)
@@ -1130,7 +1328,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
-        let st = store(base).unwrap();
+        let st = store(base, "default").unwrap();
         let mut vm = Vm::new(
             "p".into(),
             "d".into(),
@@ -1720,14 +1918,15 @@ mod tests {
         assert_eq!(vm_namespace_of(&cfg), "teamA");
     }
 
-    /// libvirt VMs live on `virbr0`, in the HOST netns — a different L2 that this
-    /// engine does not program. Reporting that honestly (a refusal) instead of
-    /// accepting `--namespace` and doing nothing is the whole point: an isolation
-    /// option that silently does nothing is worse than not having one.
+    /// Both local backends ENFORCE namespace isolation, by different dataplanes
+    /// (ADR-0086 D7): Cloud Hypervisor via the SDN `@dlxns_<ns>` sets (shared
+    /// network, filtered peers), libvirt via a dedicated per-namespace NAT
+    /// network (separate L2, libvirt's own reject rules). The predicate asks the
+    /// backend's REPORT, so a name neither build registered is still a "no".
     #[test]
-    fn so_o_cloud_hypervisor_suporta_namespace() {
+    fn both_local_backends_support_namespaces() {
         assert!(vm_namespace_supported("cloud-hypervisor"));
-        assert!(!vm_namespace_supported("libvirt"));
+        assert!(vm_namespace_supported("libvirt"));
         assert!(!vm_namespace_supported("qualquer-outro"));
     }
 
@@ -2328,7 +2527,7 @@ mod tests {
         std::fs::write(vmdir.join("d").join("seed.iso"), vec![0u8; 1024]).unwrap();
         std::fs::write(vmdir.join("d-data.qcow2"), vec![0u8; 2048]).unwrap();
         std::fs::write(&outside, b"operator image").unwrap();
-        let st = store(base).unwrap();
+        let st = store(base, "default").unwrap();
         let mut vm = Vm::new(
             "d".into(),
             "b".into(),
@@ -2439,7 +2638,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
-        let st = store(base).unwrap();
+        let st = store(base, "default").unwrap();
         let mut vm = Vm::new(
             "r".into(),
             "local-lvm:8".into(),
@@ -2584,7 +2783,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
-        let st = store(base).unwrap();
+        let st = store(base, "default").unwrap();
         let mut vm = Vm::new(
             "s".into(),
             "local-lvm:8".into(),
@@ -2689,7 +2888,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
-        let st = store(base).unwrap();
+        let st = store(base, "default").unwrap();
         for (name, status) in [("parada", Status::Stopped), ("viva", Status::Running)] {
             let mut vm = Vm::new(
                 name.into(),
@@ -2823,7 +3022,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
-        let st = store(base).unwrap();
+        let st = store(base, "default").unwrap();
         let save = |name: &str, backend: &str, status: Status| {
             let mut vm = Vm::new(
                 name.into(),
@@ -3039,7 +3238,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
-        let st = store(base).unwrap();
+        let st = store(base, "default").unwrap();
         let save = |name: &str, backend: &str, status: Status| {
             let mut vm = Vm::new(
                 name.into(),
@@ -3215,7 +3414,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
-        let st = store(base).unwrap();
+        let st = store(base, "default").unwrap();
         let save = |name: &str, backend: &str, status: Status, appliance: bool| {
             let mut vm = Vm::new(
                 name.into(),
@@ -3378,7 +3577,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
-        let st = store(base).unwrap();
+        let st = store(base, "default").unwrap();
         for name in ["m", "fica"] {
             let mut vm = Vm::new(
                 name.into(),

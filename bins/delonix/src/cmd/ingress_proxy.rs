@@ -92,6 +92,22 @@ pub struct Stamp {
     pub kind: String,
     pub stack: String,
     pub last_applied: String,
+    /// Whether the author marked the document protected (`delonix.io/protect`).
+    /// The proxy config is this Kind's only record, so the mark rides here next
+    /// to the stack and last-applied it already carries. `default` keeps configs
+    /// written before this field readable.
+    #[serde(default)]
+    pub protect: bool,
+    /// ADR-0090 state versioning. The proxy config is this Kind's only record, so
+    /// the three ride here with the stamp rather than as `delonix.io/*`
+    /// annotations. `default` keeps configs written before the fields readable
+    /// (unversioned → the next apply stamps generation 1).
+    #[serde(default)]
+    pub generation: u64,
+    #[serde(default)]
+    pub observed_generation: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub stored_version: String,
 }
 
 /// One host name a route publishes to the SDN, with the document that asked for it.
@@ -1633,6 +1649,10 @@ mod compose_tests {
                             kind: "HTTPRoute".into(),
                             stack: "s".into(),
                             last_applied: String::new(),
+                            protect: false,
+                            generation: 0,
+                            observed_generation: 0,
+                            stored_version: String::new(),
                         });
                         true
                     })

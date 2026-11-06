@@ -35,14 +35,14 @@
 # ── 1. Backends — rede SDN + containers que as rotas nomeiam ─────────────────
 #      Backends — SDN network + containers the routes name
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: appnet
 spec:
   driver: bridge              # PT: rede custom: dá IP interno aos backends | EN: custom network: gives backends an internal IP
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: web
@@ -50,7 +50,7 @@ spec:
   image: "nginx:1.27-alpine"
   network: appnet             # PT: numa rede custom, para o proxy o alcançar por IP | EN: on a custom network, so the proxy reaches it by IP
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: api
@@ -59,7 +59,7 @@ spec:
   command: ["-listen=:3000", "-text=hello from api"]   # PT: serve em :3000 | EN: serves on :3000
   network: appnet
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: admin
@@ -71,7 +71,7 @@ spec:
 # ── 2. selfSigned (default) — rota principal, dois listeners ─────────────────
 #      selfSigned (default) — main route, two listeners
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: HTTPRoute
 metadata:
   name: loja
@@ -96,7 +96,7 @@ spec:
 #     os placeholders por um par real antes de servir tráfego real.
 # EN: PEM pair under tls.crt / tls.key (tls_crt / tls_key also work). Replace the
 #     placeholders with a real pair before serving real traffic.
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: painel-cert
@@ -105,7 +105,7 @@ spec:
     tls.crt: "-----BEGIN CERTIFICATE-----\nplaceholder\n-----END CERTIFICATE-----"
     tls.key: "-----BEGIN PRIVATE KEY-----\nplaceholder\n-----END PRIVATE KEY-----"
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: HTTPRoute
 metadata:
   name: painel
@@ -129,7 +129,7 @@ spec:
 #     Sem `entrypoints`: default porta 80 (+443 com TLS se `tls` estivesse posto).
 # EN: No `host` matches ANY Host (a catch-all by path); `path` omitted defaults to
 #     `/`. No `entrypoints`: defaults to port 80 (plus 443 with TLS if `tls` were set).
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: HTTPRoute
 metadata:
   name: catch-all

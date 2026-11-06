@@ -266,7 +266,7 @@ CLI_DESTINATION = {
     # delonix-compute
     "container": "delonix-compute", "pod": "delonix-compute", "workload": "delonix-compute",
     "vm": "delonix-compute", "vmspec": "delonix-compute", "system_container": "delonix-compute",
-    "oci_runtime": "delonix-compute",
+    "oci_runtime": "delonix-compute", "application": "delonix-compute", "job": "delonix-compute",
     # delonix-networking
     "network": "delonix-networking", "netroute": "delonix-networking", "firewall": "delonix-networking",
     "network_access_rule": "delonix-networking", "service": "delonix-networking", "svc": "delonix-networking",

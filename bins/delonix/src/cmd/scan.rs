@@ -460,11 +460,21 @@ pub fn admission_rejects(worst: Option<Severity>, policy: &str) -> bool {
     }
 }
 
-/// `true` for the only two shapes `DELONIX_SCAN_ON_PULL` accepts: `warn`, or
-/// a real severity threshold. Factored out so the fail-closed validation in
-/// `admission_scan_on_pull` is unit-testable without an `ImageStore`.
+/// `true` for the shapes `DELONIX_SCAN_ON_PULL` accepts: `warn`,
+/// `require-sbom`, or a real severity threshold. Factored out so the
+/// fail-closed validation in `admission_scan_on_pull` is unit-testable without
+/// an `ImageStore`.
 fn valid_admission_policy(policy: &str) -> bool {
-    policy == "warn" || Severity::parse(policy).is_some()
+    policy == "warn" || policy == "require-sbom" || Severity::parse(policy).is_some()
+}
+
+/// `true` for the `require-sbom` policy: the pull is refused when the scanner
+/// finds NO inventory at all (no package-manager database, no embedded binary
+/// manifest). It turns the one outcome every other policy treats as benign
+/// ("nothing to scan, pull allowed") into a hard rejection — the knob an
+/// operator who only wants to admit images with a readable SBOM reaches for.
+fn requires_sbom(policy: &str) -> bool {
+    policy == "require-sbom"
 }
 
 /// `true` when a scan failure means "this image has no package manager this
@@ -494,8 +504,10 @@ fn removed_note(removed: bool) -> &'static str {
 
 /// **CVE admission policy on pull** (supply-chain). Controlled by
 /// `DELONIX_SCAN_ON_PULL`: unset/empty = off (no latency); `warn` = scan +
-/// report; `low|medium|high|critical` = fail-closed GATE — removes the image and
-/// refuses if there is a vulnerability >= that severity.
+/// report; `require-sbom` = fail-closed GATE that refuses an image the scanner
+/// can read NO inventory from (no package-manager database, no embedded binary
+/// manifest); `low|medium|high|critical` = fail-closed GATE — removes the image
+/// and refuses if there is a vulnerability >= that severity.
 ///
 /// It is the enforcement mechanism the supply-chain audit flagged as missing:
 /// without this, a `pull` accepts any image without looking at what it brings inside.
@@ -532,8 +544,24 @@ pub fn admission_scan_on_pull(images: &ImageStore, reference: &str, img: &Image)
     let worst = match scan_image(images, img) {
         Ok(w) => w,
         // No package manager this scanner reads (scratch/distroless) — nothing
-        // to scan, not a failure: warn and let the pull through.
+        // to scan. Under `require-sbom` that is itself the rejection reason
+        // (fail-closed GATE); under every other policy it is benign — warn and
+        // let the pull through.
         Err(e) if is_nothing_to_scan(&e) => {
+            if requires_sbom(&policy) {
+                let removed = images.remove(reference).is_ok();
+                return Err(Error::Invalid(super::po::tf(
+                    "image '{reference}' REJECTED by the admission policy: no SBOM could be \
+                     read ({e}) and DELONIX_SCAN_ON_PULL=require-sbom demands one.{removed} \
+                     Use an image with a package database or embedded manifest, or relax \
+                     the policy.",
+                    &[
+                        ("reference", reference),
+                        ("e", &e.to_string()),
+                        ("removed", removed_note(removed)),
+                    ],
+                )));
+            }
             output::warn(&super::po::tf(
                 "no SBOM for '{reference}' ({e}) — admission scan skipped, pull allowed.",
                 &[("reference", reference), ("e", &e.to_string())],
@@ -599,12 +627,26 @@ mod tests {
         // the fact — a misconfigured fail-closed gate degrading to
         // advisory-only. Validating up front turns that into a hard error.
         assert!(valid_admission_policy("warn"));
+        assert!(valid_admission_policy("require-sbom"));
         assert!(valid_admission_policy("low"));
         assert!(valid_admission_policy("critical"));
         assert!(valid_admission_policy("crit")); // Severity::parse's own alias
         assert!(!valid_admission_policy("criticl")); // the actual typo this bug was found from
         assert!(!valid_admission_policy(""));
         assert!(valid_admission_policy("Critical")); // Severity::parse lowercases internally
+    }
+
+    #[test]
+    fn requires_sbom_only_for_the_require_sbom_policy() {
+        // `require-sbom` is the only policy that turns "nothing to scan" into a
+        // rejection; every other accepted value leaves that outcome benign.
+        assert!(requires_sbom("require-sbom"));
+        assert!(!requires_sbom("warn"));
+        assert!(!requires_sbom("high"));
+        assert!(!requires_sbom(""));
+        // It is a presence gate, not a severity gate: it never rejects on a
+        // found vulnerability (Severity::parse fails → admission_rejects=false).
+        assert!(!admission_rejects(Some(Severity::Critical), "require-sbom"));
     }
 
     #[test]

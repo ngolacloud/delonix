@@ -243,6 +243,23 @@ struct ObjectStorageRecord {
     /// The field map last applied (reconcile three-way diff).
     #[serde(default)]
     last_applied: BTreeMap<String, String>,
+    /// Whether the author marked this store protected (`delonix.io/protect`).
+    /// A protected resource that leaves the manifest is kept, not pruned. The
+    /// record is this Kind's label store, so the mark lives here rather than in
+    /// a `labels` map it does not keep.
+    #[serde(default)]
+    protect: bool,
+    /// ADR-0090 state versioning. This Kind keeps a TYPED record (not an
+    /// annotations map), so the three live as fields rather than
+    /// `delonix.io/*` annotations — same meaning. A record written before the
+    /// field existed deserializes `0`/empty (unversioned) and the next apply
+    /// stamps it.
+    #[serde(default)]
+    generation: u64,
+    #[serde(default)]
+    observed_generation: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    stored_version: String,
 }
 
 fn store() -> Result<JsonStore<ObjectStorageRecord>> {
@@ -542,17 +559,39 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
             owner: r.owner.clone(),
             last_applied: (!r.last_applied.is_empty()).then(|| r.last_applied.clone()),
             fields: record_fields(&r),
+            protect: r.protect,
         })
         .collect())
 }
 
 /// Records that this stack owns the resource, and what it last applied. The
 /// apply layer runs before this step, so the record is already there.
-pub(crate) fn stamp(name: &str, stack: &str, fields: &BTreeMap<String, String>) -> Result<()> {
+pub(crate) fn stamp(
+    name: &str,
+    stack: &str,
+    fields: &BTreeMap<String, String>,
+    protected: bool,
+) -> Result<()> {
     let store = store()?;
+    let version = super::kinds::facts(k::OBJECT_STORAGE)
+        .map(|f| f.api_version.to_string())
+        .unwrap_or_default();
     store.update(name, |r| {
+        // ADR-0090: bump when the applied spec changed vs the one already stored.
+        // Computed BEFORE `r.last_applied`/`r.generation` are overwritten, the
+        // same comparison the annotation path makes — through `encode_last_applied`
+        // so field order never matters.
+        let gen = super::reconcile::next_generation(
+            Some(&super::reconcile::encode_last_applied(&r.last_applied)),
+            Some(&r.generation.to_string()),
+            &super::reconcile::encode_last_applied(fields),
+        );
+        r.generation = gen;
+        r.observed_generation = gen;
+        r.stored_version = version.clone();
         r.owner = Some(stack.to_string());
         r.last_applied = fields.clone();
+        r.protect = protected;
         true
     })?;
     Ok(())
@@ -850,6 +889,10 @@ mod tests {
                 credentials_secret_out: "x-s3".into(),
                 owner: None,
                 last_applied: BTreeMap::new(),
+                protect: false,
+                generation: 0,
+                observed_generation: 0,
+                stored_version: String::new(),
             };
             assert_eq!(desired, record_fields(&rec), "drift for: {yaml}");
         }

@@ -24,7 +24,7 @@
 # ── 1. pull — puxar uma imagem pública (idempotente) ────────────────────────
 #      pull — pull a public image (idempotent)
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Image
 metadata:
   name: alpine
@@ -38,7 +38,7 @@ spec:
 # EN: From the ENVIRONMENT (nothing secret is written in the manifest; the shape
 #     a CI job has). Alternative: `stringData: { username, password }` (cleartext).
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: registry-cred
@@ -58,12 +58,12 @@ spec:
 #     applied cleanly on the host where someone logged in and failed on every
 #     other one. Naming a Secret makes the document self-contained.
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Image
 metadata:
   name: private-app
 spec:
-  pull: ghcr.io/angolardevops/private-app:1.0
+  pull: ghcr.io/ngolacloud/private-app:1.0
   pullSecret: registry-cred    # PT: `kind: Secret` com username+password; só com pull | EN: `kind: Secret` with username+password; only with pull
 
 # ── 3. build — construir a partir de um Delonixfile/Dockerfile ───────────────
@@ -73,7 +73,7 @@ spec:
 # EN: Every BuildSpec field. Only `tag` is required; the rest mirror the CLI's
 #     flags (`delonix image build`).
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Image
 metadata:
   name: app-built

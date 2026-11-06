@@ -421,6 +421,9 @@ Options:
       --detailed-exitcode
           Exit 2 when there IS drift (0 = none, 1 = error) — the `terraform plan -detailed-exitcode` contract, for a CI drift gate
 
+      --correct
+          Re-apply the manifest to reconcile the drift away, instead of only reporting it (needs a manifest)
+
   -h, --help
           Print help (see a summary with &#x27;-h&#x27;)
 

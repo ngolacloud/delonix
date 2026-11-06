@@ -132,6 +132,7 @@ pub(crate) fn api_resources(output: super::output::OutputFormat) -> Result<(), E
                 Form::Sugar(k) => format!("sugar → {k}"),
                 Form::Compat(k) => format!("compat → {k}"),
                 Form::Sunset(k) => format!("sunset → {k}"),
+                Form::Reserved => "reserved".to_string(),
             },
         })
         .collect();

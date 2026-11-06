@@ -69,7 +69,7 @@ pub(crate) fn cmd_diff(
     let path = manifest::resolve_path(file)?;
     let docs = manifest::load(&path)?;
 
-    let desired: Vec<Desired> = super::stack::desired_of(&docs)?;
+    let desired: Vec<Desired> = super::stack::desired_of(&docs)?.0;
     let actual: Vec<Actual> = super::stack::actual_of(&docs)?;
 
     let Some(d) = desired.iter().find(|d| d.kind == f.kind && d.name == name) else {
@@ -136,6 +136,7 @@ mod tests {
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect()
             }),
+            protect: false,
         }
     }
 

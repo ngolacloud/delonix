@@ -2,7 +2,7 @@
 # Boots a VM image under BOTH firmwares and fails unless each one reaches the
 # guest kernel. Meant to run between `vm image build` and `vm image push`.
 #
-# Why this exists: `ghcr.io/angolardevops/delonix-vm-k8s:1.36` was published on
+# Why this exists: `ghcr.io/ngolacloud/delonix-vm-k8s:1.36` was published on
 # 2026-08-24 from a build that exited 0, and it does not boot under SeaBIOS —
 # GRUB stops at `grub rescue>` with `error: no such partition`, because
 # `virt-resize` renumbered /boot from gpt16 to gpt3 and the BIOS core image

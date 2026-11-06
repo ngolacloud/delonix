@@ -164,7 +164,7 @@ echo "      --default-vcpus 2 --default-memory 4G"
 echo
 echo "Publish it with:"
 echo "  delonix vm image push glpi:$GLPI_VERSION-r$IMAGE_REV \\"
-echo "      ghcr.io/angolardevops/delonix-vm-appliances:glpi-$GLPI_VERSION-r$IMAGE_REV"
+echo "      ghcr.io/ngolacloud/delonix-vm-appliances:glpi-$GLPI_VERSION-r$IMAGE_REV"
 echo
 echo "PROVEN by this script: the versions are pinned, both downloads matched the"
 echo "  sha256 GitHub publishes, the base image matched Canonical's checksum, the"
