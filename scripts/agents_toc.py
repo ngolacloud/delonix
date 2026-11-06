@@ -110,12 +110,82 @@ def build(text: str) -> str:
     return splice(text, render_toc(section_titles(text)))
 
 
+def _heads(text: str) -> list[tuple[str, str, int]]:
+    """(title, github-anchor, line-index) for every real level-2 section —
+    fence-aware and toc-aware, the same scan `section_titles` uses."""
+    lines = text.splitlines()
+    seen: dict[str, int] = {}
+    heads: list[tuple[str, str, int]] = []
+    in_fence = in_toc = False
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if s.startswith(BEGIN):
+            in_toc = True
+            continue
+        if s.startswith(END):
+            in_toc = False
+            continue
+        if in_toc:
+            continue
+        if s.startswith("```") or s.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line.startswith("## "):
+            title = line[3:].strip()
+            heads.append((title, github_slug(title, seen), i))
+    return heads
+
+
+def extract_section(text: str, query: str):
+    """Return the text of the single section matching `query` (an anchor slug or
+    a case-insensitive title substring), heading to just before the next real
+    `## `. Returns ("", [candidates]) when the query is ambiguous or absent, so
+    the caller can guide the user instead of guessing."""
+    lines = text.splitlines()
+    heads = _heads(text)
+    q = query.strip().lstrip("#").lower()
+    exact = [h for h in heads if h[1] == q]
+    subs = [h for h in heads if q in h[0].lower()]
+    chosen = exact or subs
+    if not chosen:
+        return "", []  # absent → caller exits 1
+    if len(chosen) > 1:
+        return "", [h[0] for h in chosen]  # ambiguous → caller exits 2
+    _, _, start = chosen[0]
+    starts = [h[2] for h in heads]
+    nxt = starts.index(start) + 1
+    end = starts[nxt] if nxt < len(starts) else len(lines)
+    return "\n".join(lines[start:end]).rstrip("\n"), []
+
+
 def main() -> int:
-    p = argparse.ArgumentParser(description="Generate AGENTS.md's table of contents in place.")
+    p = argparse.ArgumentParser(description="Generate (or read from) AGENTS.md's table of contents.")
     p.add_argument("--check", action="store_true", help="exit 1 if the toc block is stale")
+    p.add_argument(
+        "--section",
+        metavar="ANCHOR|TEXT",
+        help="print ONE section (by anchor slug or title substring) instead of "
+        "loading the whole log; exit 1 if absent, 2 if ambiguous",
+    )
     args = p.parse_args()
 
     text = AGENTS.read_text(encoding="utf-8")
+
+    if args.section is not None:
+        body, candidates = extract_section(text, args.section)
+        if body:
+            print(body)
+            return 0
+        if candidates:
+            print(f"'{args.section}' is ambiguous — matches:", file=sys.stderr)
+            for c in candidates:
+                print(f"  - {c}", file=sys.stderr)
+            return 2
+        print(f"no section matches '{args.section}' (run with no args to list them)", file=sys.stderr)
+        return 1
+
     want = build(text)
 
     if args.check:

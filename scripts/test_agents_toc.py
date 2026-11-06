@@ -80,5 +80,48 @@ class Splice(unittest.TestCase):
         self.assertIn("Newly appended", agents_toc.build(stale))
 
 
+class ExtractSection(unittest.TestCase):
+    SAMPLE = (
+        "# T\n\nintro\n\n"
+        "## Alpha\n\nalpha body\n\n"
+        "## Beta the CLI\n\n```\n## fenced heading, not a section\n```\nreal beta line\n\n"
+        "## Gamma the CLI\n\ngamma body\n"
+    )
+
+    def test_exact_anchor(self):
+        body, cand = agents_toc.extract_section(self.SAMPLE, "alpha")
+        self.assertEqual(cand, [])
+        self.assertTrue(body.startswith("## Alpha"))
+        self.assertIn("alpha body", body)
+
+    def test_substring(self):
+        body, cand = agents_toc.extract_section(self.SAMPLE, "gamma")
+        self.assertEqual(cand, [])
+        self.assertIn("gamma body", body)
+
+    def test_fence_inside_body_does_not_cut_short(self):
+        # Beta's body holds a fenced `## fenced heading`; extraction must run to
+        # the NEXT real section (Gamma), not stop at the fake heading.
+        body, cand = agents_toc.extract_section(self.SAMPLE, "beta")
+        self.assertEqual(cand, [])
+        self.assertIn("real beta line", body)
+        self.assertIn("## fenced heading", body)
+        self.assertNotIn("gamma body", body)
+
+    def test_ambiguous_returns_candidates(self):
+        body, cand = agents_toc.extract_section(self.SAMPLE, "CLI")
+        self.assertEqual(body, "")
+        self.assertEqual(cand, ["Beta the CLI", "Gamma the CLI"])
+
+    def test_absent_returns_nothing(self):
+        body, cand = agents_toc.extract_section(self.SAMPLE, "nope")
+        self.assertEqual(body, "")
+        self.assertEqual(cand, [])
+
+    def test_last_section_runs_to_eof(self):
+        body, _ = agents_toc.extract_section(self.SAMPLE, "gamma")
+        self.assertTrue(body.rstrip().endswith("gamma body"))
+
+
 if __name__ == "__main__":
     unittest.main()
