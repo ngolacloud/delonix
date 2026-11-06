@@ -5135,6 +5135,12 @@ msgstr "Funcionalidade de daemon/orquestração do Docker/Podman que este motor 
 msgid "Platform of the image to pull (Docker/Podman `--platform`, e.g. `linux/amd64`, `linux/arm64`). Fetches that variant; a cross-arch image may not run on this host"
 msgstr "Plataforma da imagem a puxar (Docker/Podman `--platform`, ex. `linux/amd64`, `linux/arm64`). Busca essa variante; uma imagem de outra arquitectura pode não correr neste host"
 
+msgid "File-mode creation mask for the container process, in octal (Podman `--umask`, e.g. `0077`). Default keeps the runtime `0022`."
+msgstr "Máscara de criação de ficheiros para o processo do contentor, em octal (Podman `--umask`, ex. `0077`). Por omissão mantém o `0022` do motor."
+
+msgid "Cgroup namespace mode: `private` (own cgroup namespace) or `host` (share the host's view) (Docker/Podman `--cgroupns`). Default `host`."
+msgstr "Modo do espaço de nomes de cgroup: `private` (espaço de nomes próprio) ou `host` (partilha a vista do host) (Docker/Podman `--cgroupns`). Por omissão `host`."
+
 msgid "Signal `stop` sends first (Docker/Podman `--stop-signal`, e.g. `SIGINT` or `2`). Default `SIGTERM`; `SIGKILL` still follows after the grace period"
 msgstr "Sinal que o `stop` envia primeiro (Docker/Podman `--stop-signal`, ex. `SIGINT` ou `2`). Por omissão `SIGTERM`; o `SIGKILL` ainda vem a seguir ao período de graça"
 

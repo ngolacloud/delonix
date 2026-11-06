@@ -1121,6 +1121,13 @@ mod run_interactive_flag_parity_tests {
     }
 
     #[test]
+    fn run_accepts_umask_and_cgroupns() {
+        assert!(parses(&["delonix", "run", "--umask", "0077", "busybox"]));
+        assert!(parses(&["delonix", "run", "--cgroupns", "private", "busybox"]));
+        assert!(parses(&["delonix", "create", "--cgroupns", "host", "busybox"]));
+    }
+
+    #[test]
     fn run_accepts_the_docker_pull_policy() {
         for p in ["missing", "always", "never"] {
             assert!(parses(&["delonix", "run", "--pull", p, "busybox"]), "{p}");
@@ -2531,6 +2538,8 @@ mod container_image_contract_tests {
             "--net",
             "--pull",
             "--platform",
+            "--umask",
+            "--cgroupns",
             "--restart",
             "--memory",
             "--memory-reservation",

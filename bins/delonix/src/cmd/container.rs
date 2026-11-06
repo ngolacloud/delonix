@@ -1316,6 +1316,12 @@ pub struct RunArgs {
     /// Run a tiny init as PID 1 that reaps orphaned processes and forwards signals (Docker/Podman `--init`); the image command runs as its child.
     #[arg(long)]
     init: bool,
+    /// File-mode creation mask for the container process, in octal (Podman `--umask`, e.g. `0077`). Default keeps the runtime `0022`.
+    #[arg(long, value_name = "MASK")]
+    umask: Option<String>,
+    /// Cgroup namespace mode: `private` (own cgroup namespace) or `host` (share the host's view) (Docker/Podman `--cgroupns`). Default `host`.
+    #[arg(long = "cgroupns", value_name = "MODE")]
+    cgroupns: Option<String>,
     /// Add a capability (e.g. `NET_ADMIN`). Repeatable.
     #[arg(long = "cap-add")]
     cap_add: Vec<String>,
@@ -2080,6 +2086,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         device_write_iops,
         read_only,
         init,
+        umask,
+        cgroupns,
         cap_add,
         cap_drop,
         allow_source,
@@ -2167,6 +2175,31 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
                 .into(),
         ));
     }
+    // Podman `--umask`: an OCTAL file-mode mask (`0077`, `027`, …). Parsed here,
+    // refused loudly on a non-octal value instead of being silently ignored.
+    let umask = match umask {
+        None => None,
+        Some(s) => {
+            let digits = s.strip_prefix("0o").unwrap_or(&s);
+            Some(u32::from_str_radix(digits, 8).map_err(|_| {
+                Error::Invalid(format!(
+                    "--umask '{s}' is not an octal mask (e.g. 0022, 0077)"
+                ))
+            })?)
+        }
+    };
+    // Docker/Podman `--cgroupns=private|host`. `private` ⇒ its own cgroup
+    // namespace; `host` (the default) ⇒ the host's view. Any other mode
+    // (`container:<id>`) is refused, never silently downgraded.
+    let cgroupns_private = match cgroupns.as_deref() {
+        None | Some("host") => false,
+        Some("private") => true,
+        Some(other) => {
+            return Err(Error::Invalid(format!(
+                "--cgroupns '{other}' is not supported (use `private` or `host`)"
+            )))
+        }
+    };
     // `--mount type=…,source=…,target=…` is Docker's explicit alternative to
     // `-v`. Translate each into the `-v` spec grammar (`src:target[:ro]`) or, for
     // `type=tmpfs`, into a `--tmpfs` entry — the same resolution path either way,
@@ -2255,6 +2288,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         .map_err(delonix_model::Error::Invalid)?,
         read_only,
         init,
+        umask,
+        cgroupns_private,
         cap_add,
         cap_drop,
         allow_source,
