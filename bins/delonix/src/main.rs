@@ -289,6 +289,16 @@ enum Cmd {
         id: String,
         new_name: String,
     },
+    /// Layers of an image (digest + size), from base to top.
+    History {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::images))]
+        image: String,
+    },
+    /// Remove one name/tag from an image without deleting its content (`podman untag`).
+    Untag {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::images))]
+        name: String,
+    },
     /// Authenticate to an OCI registry.
     ///
     /// Stores the credentials in `<root>/auth.json`, docker/podman format.
@@ -1591,6 +1601,8 @@ fn run() -> Result<()> {
         Cmd::Rename { id, new_name } => {
             cmd::container::run(cmd::container::ContainerCmd::Rename { id, new_name })
         }
+        Cmd::History { image } => cmd::image::run(cmd::image::ImageCmd::History { image }),
+        Cmd::Untag { name } => cmd::image::run(cmd::image::ImageCmd::Untag { name }),
         Cmd::Login {
             registry,
             username,
@@ -2390,6 +2402,8 @@ mod cli_stability_classification_tests {
         "commit",
         "top",
         "rename",
+        "history",
+        "untag",
     ];
 
     /// Every other real top-level group, mirroring "NÃO estável" 1:1. A group
