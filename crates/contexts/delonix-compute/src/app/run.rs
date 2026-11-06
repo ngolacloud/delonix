@@ -397,6 +397,8 @@ pub fn build_record(o: &RunOpts, r: ResolvedRun) -> Result<Container> {
     c.cpus = cpus.unwrap_or(r.default_cpus);
     c.memory_low = o.memory_reservation.clone();
     c.pids_max = o.pids_limit.clone();
+    c.stop_signal = o.stop_signal.clone();
+    c.stop_timeout = o.stop_timeout;
     c.cpu_weight = o.cpu_weight.clone();
     c.cpuset = o.cpuset.clone();
     c.cgroup_parent = o.cgroup_parent.clone();

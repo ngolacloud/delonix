@@ -10167,6 +10167,28 @@ pub fn stop(
         store,
         container,
         timeout_secs,
+        Signal::SIGTERM,
+        Signal::SIGKILL,
+        KILL_EXIT_WAIT_TICKS,
+    )
+}
+
+/// Like [`stop`], but sends the signal with this number first instead of
+/// `SIGTERM` (Docker `--stop-signal`). `SIGKILL` is still the escalation after
+/// the grace period. Takes a raw signal number so the CLI need not depend on
+/// `nix`; an unrecognized value falls back to `SIGTERM`.
+pub fn stop_with_signal(
+    store: &impl StateRepository<Container>,
+    container: &mut Container,
+    timeout_secs: u64,
+    term_signal_num: i32,
+) -> Result<()> {
+    let term = Signal::try_from(term_signal_num).unwrap_or(Signal::SIGTERM);
+    stop_waiting(
+        store,
+        container,
+        timeout_secs,
+        term,
         Signal::SIGKILL,
         KILL_EXIT_WAIT_TICKS,
     )
@@ -10179,6 +10201,7 @@ fn stop_waiting(
     store: &impl StateRepository<Container>,
     container: &mut Container,
     timeout_secs: u64,
+    term_signal: Signal,
     kill_signal: Signal,
     exit_ticks: u64,
 ) -> Result<()> {
@@ -10197,7 +10220,7 @@ fn stop_waiting(
     }
     let target = Pid::from_raw(pid);
 
-    let _ = kill(target, Signal::SIGTERM);
+    let _ = kill(target, term_signal);
     if !wait_until_gone(pid, st, timeout_secs * 10) {
         let _ = kill(target, kill_signal);
         // SIGKILL is delivered at once; the EXIT is not. `stop` returning while
@@ -11749,7 +11772,7 @@ mod remove_tests {
         std::thread::sleep(Duration::from_millis(300));
         let mut c = record_of(&child);
         let store = OneRecord(RefCell::new(Some(c.clone())));
-        let err = stop_waiting(&store, &mut c, 0, Signal::SIGWINCH, 2).unwrap_err();
+        let err = stop_waiting(&store, &mut c, 0, Signal::SIGTERM, Signal::SIGWINCH, 2).unwrap_err();
         let alive = !process_gone(c.pid.unwrap(), c.pid_starttime);
         let _ = child.kill();
         let _ = child.wait();
@@ -11779,7 +11802,7 @@ mod remove_tests {
             .expect("sleep");
         let mut c = record_of(&child);
         let store = OneRecord(RefCell::new(Some(c.clone())));
-        let r = stop_waiting(&store, &mut c, 5, Signal::SIGKILL, KILL_EXIT_WAIT_TICKS);
+        let r = stop_waiting(&store, &mut c, 5, Signal::SIGTERM, Signal::SIGKILL, KILL_EXIT_WAIT_TICKS);
         let _ = child.kill();
         let _ = child.wait();
         r.expect("stop");

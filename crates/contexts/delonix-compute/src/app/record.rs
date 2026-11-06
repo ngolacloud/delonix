@@ -683,6 +683,14 @@ pub struct Container {
     /// by a supervisor a consumer may run.
     #[serde(default)]
     pub restart_policy: Option<String>,
+    /// Signal `stop` sends first (Docker `--stop-signal`, e.g. `SIGINT`). `None`
+    /// = `SIGTERM`. `SIGKILL` is still the escalation after the grace period.
+    #[serde(default)]
+    pub stop_signal: Option<String>,
+    /// Grace before `stop` escalates to `SIGKILL` (Docker `--stop-timeout`, in
+    /// seconds). `None` = the engine's default; an explicit `stop -t` overrides it.
+    #[serde(default)]
+    pub stop_timeout: Option<u64>,
     /// **Desired state**: the user explicitly requested `stop`. The
     /// `--restart` supervisor does NOT resurrect a container like this — it is the
     /// docker semantics (a `docker stop` on an `always` container does not
@@ -853,6 +861,8 @@ impl Container {
             memory_max,
             memory_low: None,
             pids_max: None,
+            stop_signal: None,
+            stop_timeout: None,
             cpus: default_cpus(),
             cpu_weight: None,
             cpuset: None,

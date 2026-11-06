@@ -37,8 +37,9 @@ Concretamente, garante-se:
   `run`: `-d`, `-i`, `-t`, `-p`, `-v`, `-e`, `--name`, `--rm`, `--net`
   (alias `--network`), `--pull`, `--cidfile`, `--shm-size`, `--restart`,
   `--memory`, `--memory-reservation`, `--pids-limit`, `--cpus`, `--entrypoint`,
-  `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--add-host`, `--wait`,
-  `--health-*`; em `exec`: `-i`, `-t`, `-e`, `-w`, `-u`. (Esta lista
+  `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--ipc`, `--pid`,
+  `--stop-signal`, `--stop-timeout`, `--add-host`, `--wait`, `--health-*`; em
+  `exec`: `-i`, `-t`, `-e`, `-w`, `-u`. (Esta lista
   andou achatada, sem dizer a qual verbo cada flag pertence; um teste em
   `main.rs` verifica as duas listas contra a árvore `clap` real, em vez de
   confiar na leitura.) **`-i`/`-t` em `run`/`create` entraram na linha da
