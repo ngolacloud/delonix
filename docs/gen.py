@@ -2397,6 +2397,7 @@ _ROOT_VERB_ALIASES = {
     "untag": ("image", "image untag"),
     "export": ("container", "container export"),
     "import": ("image", "image import"),
+    "search": ("image", "image search"),
 }
 
 
