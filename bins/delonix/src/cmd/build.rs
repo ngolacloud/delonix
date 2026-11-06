@@ -1328,6 +1328,25 @@ pub fn build_from_spec(
                         .and_then(|i| i.config.healthcheck.clone())
                 })
             };
+            // Same precedence as `healthcheck`/`build_image`: EXPOSE MERGES with
+            // the base's exposed ports rather than replacing them (Docker
+            // semantics). For an intermediate target there is no new EXPOSE of
+            // its own to add, so it is just the base's set.
+            let exposed_ports = {
+                let mut ports = final_state
+                    .image
+                    .as_ref()
+                    .map(|i| i.config.exposed_ports.clone())
+                    .unwrap_or_default();
+                if !targeting_intermediate {
+                    for e in &df.expose {
+                        if !ports.contains(e) {
+                            ports.push(e.clone());
+                        }
+                    }
+                }
+                ports
+            };
             commit_flat_rootless(
                 &images,
                 &final_state.rootfs,
@@ -1340,6 +1359,7 @@ pub fn build_from_spec(
                 tag,
                 arch,
                 healthcheck,
+                exposed_ports,
             )
         } else {
             // `build_image` reads CMD/ENTRYPOINT/USER/ENV/WORKDIR/HEALTHCHECK
@@ -1455,6 +1475,7 @@ fn commit_flat_rootless(
     tag: &str,
     arch: &str,
     healthcheck: Option<String>,
+    exposed_ports: Vec<String>,
 ) -> Result<Image> {
     let tar_path = std::env::temp_dir().join(format!("delonix-build-{id}.tar"));
     let tar_str = tar_path.to_string_lossy().to_string();
@@ -1477,6 +1498,7 @@ fn commit_flat_rootless(
                     tag,
                     arch,
                     healthcheck,
+                    exposed_ports,
                 )
                 .map_err(Into::into)
         }
@@ -1496,6 +1518,7 @@ fn commit_flat_rootless(
                 tag,
                 arch,
                 healthcheck,
+                exposed_ports,
                 &runtime::container_ids,
             )
             .map_err(Into::into),

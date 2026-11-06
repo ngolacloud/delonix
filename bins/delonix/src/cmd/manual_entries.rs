@@ -208,6 +208,141 @@ pub static ENTRIES: &[Entry] = &[
         ],
         see_also: &["tag", "images", "image push"],
     },
+    // The remaining Docker/Podman root aliases added in the CLI-parity review.
+    Entry {
+        path: "cp",
+        group: "Workloads",
+        examples: &[
+            ("copy a file OUT of a container to the host", "delonix cp web:/etc/nginx/nginx.conf ./nginx.conf"),
+            ("copy a file INTO a container", "delonix cp ./index.html web:/usr/share/nginx/html/index.html"),
+        ],
+        see_also: &["container cp", "pod cp", "exec"],
+    },
+    Entry {
+        path: "port",
+        group: "Workloads",
+        examples: &[
+            ("the published ports of a container", "delonix port web"),
+        ],
+        see_also: &["ps", "run", "container port"],
+    },
+    Entry {
+        path: "login",
+        group: "Artifacts",
+        examples: &[
+            ("authenticate to a registry, reading the token from stdin (never an argument)", "echo \"$TOKEN\" | delonix login ghcr.io -u angolardevops --password-stdin"),
+        ],
+        see_also: &["logout", "pull", "push", "image login"],
+    },
+    Entry {
+        path: "logout",
+        group: "Artifacts",
+        examples: &[
+            ("drop the stored credentials of a registry", "delonix logout ghcr.io"),
+        ],
+        see_also: &["login", "image logout"],
+    },
+    Entry {
+        path: "info",
+        group: "System",
+        examples: &[
+            ("rootless?, cgroup delegation, network infra and resource counts", "delonix info"),
+        ],
+        see_also: &["events", "system info", "system df"],
+    },
+    Entry {
+        path: "events",
+        group: "System",
+        examples: &[
+            ("the engine's event log, oldest to newest", "delonix events"),
+            ("follow continuously, as JSON lines for a script", "delonix events -f -o json"),
+        ],
+        see_also: &["info", "ps", "system events"],
+    },
+    // Second-wave root aliases of `container <verb>` (CLI-parity campaign).
+    Entry {
+        path: "pause",
+        group: "Workloads",
+        examples: &[
+            ("freeze a container's processes (cgroup v2 freezer)", "delonix pause web"),
+        ],
+        see_also: &["unpause", "stop", "container pause"],
+    },
+    Entry {
+        path: "unpause",
+        group: "Workloads",
+        examples: &[
+            ("resume a frozen container", "delonix unpause web"),
+        ],
+        see_also: &["pause", "container unpause"],
+    },
+    Entry {
+        path: "commit",
+        group: "Artifacts",
+        examples: &[
+            ("snapshot a container's rootfs into a new image", "delonix commit web app:v2"),
+        ],
+        see_also: &["container commit", "image save"],
+    },
+    Entry {
+        path: "top",
+        group: "Workloads",
+        examples: &[
+            ("the processes running inside a container", "delonix top web"),
+        ],
+        see_also: &["stats", "ps", "container top"],
+    },
+    Entry {
+        path: "rename",
+        group: "Workloads",
+        examples: &[
+            ("give a container a new name", "delonix rename web frontend"),
+        ],
+        see_also: &["ps", "container rename"],
+    },
+    Entry {
+        path: "history",
+        group: "Artifacts",
+        examples: &[
+            ("the layers of an image, base to top", "delonix history nginx:latest"),
+        ],
+        see_also: &["image history", "image describe"],
+    },
+    Entry {
+        path: "untag",
+        group: "Artifacts",
+        examples: &[
+            ("drop one name from an image, keeping its content", "delonix untag app:old"),
+        ],
+        see_also: &["tag", "image untag", "rmi"],
+    },
+    Entry {
+        path: "export",
+        group: "Artifacts",
+        examples: &[
+            ("stream a container's rootfs as a tar", "delonix export web > web.tar"),
+            ("write the tar straight to a file", "delonix export web -o web.tar"),
+        ],
+        see_also: &["container export", "commit", "save"],
+    },
+    Entry {
+        path: "import",
+        group: "Artifacts",
+        examples: &[
+            ("turn a rootfs tar into an image", "delonix import web.tar app:imported"),
+            ("import a gzipped rootfs from stdin", "cat rootfs.tar.gz | delonix import - base:latest"),
+        ],
+        see_also: &["image import", "export", "load"],
+    },
+    Entry {
+        path: "search",
+        group: "Artifacts",
+        examples: &[
+            ("find images on Docker Hub", "delonix search nginx"),
+            ("cap the number of results", "delonix search --limit 5 postgres"),
+        ],
+        see_also: &["image search", "pull", "image ls"],
+    },
     Entry {
         path: "cluster",
         group: "Clusters",
@@ -590,6 +725,15 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["container rm", "container ps", "image prune", "system prune"],
     },
     Entry {
+        path: "container export",
+        group: "Artifacts",
+        examples: &[
+            ("stream a container's rootfs as a tar", "delonix container export web > web.tar"),
+            ("write the tar straight to a file", "delonix container export web -o web.tar"),
+        ],
+        see_also: &["container commit", "image save", "image import"],
+    },
+    Entry {
         path: "container run",
         group: "Lifecycle",
         examples: &[
@@ -668,6 +812,14 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["container describe", "container run"],
     },
     Entry {
+        path: "container exists",
+        group: "Inspect",
+        examples: &[
+            ("exit 0 if it is in the store, 1 if not — prints nothing, for a script", "delonix container exists web"),
+        ],
+        see_also: &["container inspect", "container ps"],
+    },
+    Entry {
         path: "container inspect",
         group: "Inspect",
         examples: &[
@@ -744,6 +896,47 @@ pub static ENTRIES: &[Entry] = &[
             ("from the host into the container", "delonix container cp ./site.conf web:/etc/nginx/conf.d/"),
         ],
         see_also: &["container exec", "container diff"],
+    },
+    Entry {
+        path: "container mount",
+        group: "Interact",
+        examples: &[
+            ("print the host path to the container's root filesystem", "delonix container mount web"),
+        ],
+        see_also: &["container unmount", "container cp", "container export"],
+    },
+    Entry {
+        path: "container unmount",
+        group: "Interact",
+        examples: &[
+            ("the counterpart of mount — a safe no-op here", "delonix container unmount web"),
+        ],
+        see_also: &["container mount"],
+    },
+    Entry {
+        path: "container clone",
+        group: "Lifecycle",
+        examples: &[
+            ("copy a container's configuration into a new stopped one", "delonix container clone web"),
+            ("clone under a chosen name", "delonix container clone web --name web2"),
+        ],
+        see_also: &["container create", "container start", "commit"],
+    },
+    Entry {
+        path: "container checkpoint",
+        group: "Lifecycle",
+        examples: &[
+            ("checkpoint needs CRIU, which this engine does not yet integrate", "delonix container checkpoint web"),
+        ],
+        see_also: &["container restore", "container stop"],
+    },
+    Entry {
+        path: "container restore",
+        group: "Lifecycle",
+        examples: &[
+            ("restore needs CRIU, which this engine does not yet integrate", "delonix container restore web"),
+        ],
+        see_also: &["container checkpoint", "container start"],
     },
     Entry {
         path: "container exec",
@@ -1054,6 +1247,36 @@ pub static ENTRIES: &[Entry] = &[
         ],
         see_also: &["image describe", "build", "image ls"],
     },
+    // A pure alias of the root `build`: the example COMMENTS are reused VERBATIM
+    // from the `build` entry (already in `pt.po` — no new translation debt);
+    // only the command line is rewritten to the `image build` form.
+    Entry {
+        path: "image build",
+        group: "Artifacts",
+        examples: &[
+            ("build and tag from the Dockerfile in this directory", "delonix image build -t myapp:v1 ."),
+            ("a Delonixfile, or any other build file path", "delonix image build -t myapp:v1 -f Delonixfile ."),
+        ],
+        see_also: &["build", "image ls", "image push"],
+    },
+    Entry {
+        path: "image diff",
+        group: "Inspect",
+        examples: &[
+            ("which layers two images keep apart and which they share", "delonix image diff busybox:latest alpine:latest"),
+            ("confirm a rebuild only added layers on top of the same base", "delonix image diff myapp:v1 myapp:v2"),
+        ],
+        see_also: &["image history", "image tree", "image describe"],
+    },
+    Entry {
+        path: "image tree",
+        group: "Inspect",
+        examples: &[
+            ("the layer stack of an image, base to top, as an indented tree", "delonix image tree postgres:16"),
+            ("read where the weight sits before trimming the Dockerfile", "delonix image tree kaeso-odoo:18"),
+        ],
+        see_also: &["image history", "image diff", "image describe"],
+    },
     Entry {
         path: "image ls",
         group: "Inspect",
@@ -1062,6 +1285,24 @@ pub static ENTRIES: &[Entry] = &[
             ("as JSON, for a script to read instead of a table meant for eyes", "delonix image ls -o json"),
         ],
         see_also: &["image describe", "image history", "image remove"],
+    },
+    Entry {
+        path: "image inspect",
+        group: "Inspect",
+        examples: &[
+            ("the full record as a JSON array a script can read with `jq`", "delonix image inspect postgres:16"),
+            ("several at once — one object per image, like `docker image inspect`", "delonix image inspect alpine:3.19 redis:7-alpine"),
+        ],
+        see_also: &["image describe", "image ls", "container inspect"],
+    },
+    Entry {
+        path: "image exists",
+        group: "Inspect",
+        examples: &[
+            ("a silent probe for a script: exit 0 if present, 1 if not", "delonix image exists postgres:16"),
+            ("pull only when it is missing", "delonix image exists alpine:3.19 || delonix image pull alpine:3.19"),
+        ],
+        see_also: &["image ls", "image pull", "image inspect"],
     },
     Entry {
         path: "image scan",
@@ -1128,6 +1369,15 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["image push", "image ls", "image remove"],
     },
     Entry {
+        path: "image untag",
+        group: "Configure",
+        examples: &[
+            ("drop one name, keeping the content and every other name", "delonix image untag db:stable"),
+            ("remove the registry name from a locally-built image after pushing it", "delonix image untag ghcr.io/angolardevops/kaeso-odoo:18"),
+        ],
+        see_also: &["image tag", "image remove", "image ls"],
+    },
+    Entry {
         path: "image export",
         group: "Storage",
         examples: &[
@@ -1153,6 +1403,24 @@ pub static ENTRIES: &[Entry] = &[
             ("pipe it straight into gzip instead of writing the plain archive", "delonix image save nginx -o /dev/stdout | gzip > nginx.tar.gz"),
         ],
         see_also: &["image load", "image push", "image export"],
+    },
+    Entry {
+        path: "image import",
+        group: "Storage",
+        examples: &[
+            ("turn a rootfs tar (e.g. from `export`) into an image", "delonix image import web.tar app:imported"),
+            ("import a gzipped rootfs read from stdin", "cat rootfs.tar.gz | delonix image import - base:latest"),
+        ],
+        see_also: &["image load", "container export", "image ls"],
+    },
+    Entry {
+        path: "image search",
+        group: "Storage",
+        examples: &[
+            ("find images on Docker Hub", "delonix image search nginx"),
+            ("cap the number of results", "delonix image search --limit 5 postgres"),
+        ],
+        see_also: &["image pull", "image ls", "search"],
     },
     Entry {
         path: "image apply",
@@ -1834,6 +2102,31 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["network ls", "network create", "container update"],
     },
     Entry {
+        path: "network prune",
+        group: "Lifecycle",
+        examples: &[
+            ("remove every network nothing is attached to", "delonix network prune"),
+            ("in CI, where there is no terminal to confirm at", "delonix network prune -f"),
+        ],
+        see_also: &["network rm", "network ls", "volume prune"],
+    },
+    Entry {
+        path: "network exists",
+        group: "Inspect",
+        examples: &[
+            ("exit 0 if it is there, 1 if not — for a script", "delonix network exists app"),
+        ],
+        see_also: &["network inspect", "network ls", "volume exists"],
+    },
+    Entry {
+        path: "network reload",
+        group: "Lifecycle",
+        examples: &[
+            ("re-apply a network's dataplane after the holder respawned, keeping the attached workloads", "delonix network reload app"),
+        ],
+        see_also: &["network diagnose", "network inspect", "network create"],
+    },
+    Entry {
         path: "network describe",
         group: "Inspect",
         examples: &[
@@ -1982,7 +2275,34 @@ pub static ENTRIES: &[Entry] = &[
             ("N containers sharing one netns — same IP and `localhost` between them, like a k8s Pod", "delonix pod create -f examples/compute/pod.yaml"),
             ("from the default manifest in the current directory", "delonix pod create"),
         ],
-        see_also: &["get", "describe", "stack apply"],
+        see_also: &["get", "describe", "stack apply", "pod stop", "pod rm"],
+    },
+    Entry {
+        path: "pod stop",
+        group: "Lifecycle",
+        examples: &[("stop every member of the pod", "delonix pod stop web")],
+        see_also: &["pod start", "pod restart", "pod rm"],
+    },
+    Entry {
+        path: "pod start",
+        group: "Lifecycle",
+        examples: &[("start every member of the pod", "delonix pod start web")],
+        see_also: &["pod stop", "pod restart"],
+    },
+    Entry {
+        path: "pod restart",
+        group: "Lifecycle",
+        examples: &[("stop then start every member of the pod", "delonix pod restart web")],
+        see_also: &["pod stop", "pod start"],
+    },
+    Entry {
+        path: "pod rm",
+        group: "Lifecycle",
+        examples: &[
+            ("remove a pod and all its members", "delonix pod rm web"),
+            ("force-remove even if members are running", "delonix pod rm -f web"),
+        ],
+        see_also: &["pod stop", "delete"],
     },
     Entry {
         path: "pod logs",
@@ -2027,6 +2347,81 @@ pub static ENTRIES: &[Entry] = &[
             ("reach the pod's port 80 at localhost:8080 until Ctrl-C", "delonix pod port-forward web 8080:80"),
         ],
         see_also: &["pod exec", "container port"],
+    },
+    Entry {
+        path: "pod ps",
+        group: "Inspect",
+        examples: &[
+            ("which pods exist and which containers each one holds", "delonix pod ps"),
+            ("the stable half, for automation (ADR-0005)", "delonix pod ps -o json"),
+        ],
+        see_also: &["get", "pod inspect", "container ps"],
+    },
+    Entry {
+        path: "pod exists",
+        group: "Inspect",
+        examples: &[
+            ("exit 0 if the pod is there, 1 if not — scriptable, prints nothing", "delonix pod exists web"),
+        ],
+        see_also: &["pod ps", "get"],
+    },
+    Entry {
+        path: "pod inspect",
+        group: "Inspect",
+        examples: &[
+            ("the full JSON of a pod and every member", "delonix pod inspect web"),
+        ],
+        see_also: &["pod ps", "describe", "container inspect"],
+    },
+    Entry {
+        path: "pod stats",
+        group: "Inspect",
+        examples: &[
+            ("live CPU/memory/pids of every member", "delonix pod stats web"),
+        ],
+        see_also: &["pod top", "container stats", "system df"],
+    },
+    Entry {
+        path: "pod top",
+        group: "Inspect",
+        examples: &[
+            ("the processes running in every member", "delonix pod top web"),
+        ],
+        see_also: &["pod stats", "container top"],
+    },
+    Entry {
+        path: "pod kill",
+        group: "Lifecycle",
+        examples: &[
+            ("SIGKILL every member", "delonix pod kill web"),
+            ("a specific signal instead", "delonix pod kill -s SIGTERM web"),
+        ],
+        see_also: &["pod stop", "pod restart", "container kill"],
+    },
+    Entry {
+        path: "pod pause",
+        group: "Lifecycle",
+        examples: &[
+            ("freeze every member's cgroup", "delonix pod pause web"),
+        ],
+        see_also: &["pod unpause", "container pause"],
+    },
+    Entry {
+        path: "pod unpause",
+        group: "Lifecycle",
+        examples: &[
+            ("resume a pod suspended with `pause`", "delonix pod unpause web"),
+        ],
+        see_also: &["pod pause", "container unpause"],
+    },
+    Entry {
+        path: "pod prune",
+        group: "Lifecycle",
+        examples: &[
+            ("remove every stopped pod — asks first", "delonix pod prune"),
+            ("in a script, where nobody can answer the prompt", "delonix pod prune --force"),
+        ],
+        see_also: &["pod rm", "container prune", "system prune"],
     },
     Entry {
         path: "policy",
@@ -3233,6 +3628,48 @@ pub static ENTRIES: &[Entry] = &[
             ("the whole store: the unscoped root AND every tenant", "delonix volume prune -A -f"),
         ],
         see_also: &["volume rm", "volume ls", "volume snapshot create", "system prune"],
+    },
+    Entry {
+        path: "volume exists",
+        group: "Inspect",
+        examples: &[
+            ("exit 0 if it is there, 1 if not — for a script", "delonix volume exists pgdata"),
+        ],
+        see_also: &["volume inspect", "volume ls", "network exists"],
+    },
+    Entry {
+        path: "volume export",
+        group: "Storage",
+        examples: &[
+            ("pack a volume's contents into a tar file, to archive or move", "delonix volume export pgdata -o pgdata.tar"),
+            ("gzip it on the way out, piping the tar through stdout", "delonix volume export pgdata | gzip > pgdata.tar.gz"),
+        ],
+        see_also: &["volume import", "volume snapshot create", "volume inspect"],
+    },
+    Entry {
+        path: "volume import",
+        group: "Storage",
+        examples: &[
+            ("restore a tar into an existing volume — create it first", "delonix volume import pgdata pgdata.tar"),
+            ("a gzip tar is detected and inflated automatically", "delonix volume import pgdata pgdata.tar.gz"),
+        ],
+        see_also: &["volume export", "volume create", "volume snapshot restore"],
+    },
+    Entry {
+        path: "volume mount",
+        group: "Storage",
+        examples: &[
+            ("print the host path of a volume's data, to feed another command", "delonix volume mount pgdata"),
+        ],
+        see_also: &["volume inspect", "volume unmount", "volume ls"],
+    },
+    Entry {
+        path: "volume unmount",
+        group: "Storage",
+        examples: &[
+            ("the no-op counterpart of mount — volumes are plain directories here", "delonix volume unmount pgdata"),
+        ],
+        see_also: &["volume mount", "volume inspect"],
     },
     Entry {
         path: "volume describe",

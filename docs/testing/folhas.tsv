@@ -607,3 +607,55 @@ node-api	ListCephfsSubvolumes	B	ADR-0081; provada ao vivo (reports/ceph-live), t
 node-api	ListObjectStoreBuckets	B	ADR-0081; provada ao vivo (reports/ceph-live RGW), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
 node-api	GetObjectStoreBucket	B	ADR-0081; provada ao vivo (reports/ceph-live RGW), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
 node-api	CreateObjectStoreUser	B	ADR-0081; provada ao vivo (user S3 criado no MicroCeph), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
+cli	commit	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	container checkpoint	B	stub accionavel na campanha de paridade: CRIU ainda nao integrado; devolve erro DX-6000, provado ao vivo
+cli	container clone	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	container exists	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	container export	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	container mount	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	container restore	B	stub accionavel na campanha de paridade: CRIU ainda nao integrado; devolve erro DX-6000, provado ao vivo
+cli	container unmount	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	cp	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	events	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	export	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	history	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	image build	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	image diff	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	image exists	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	image import	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	image inspect	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	image search	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	image tree	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	image untag	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	import	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	info	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	login	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	logout	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	network exists	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	network prune	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	network reload	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pause	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	pod exists	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod inspect	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod kill	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod pause	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod prune	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod ps	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod restart	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod rm	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod start	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod stats	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod stop	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod top	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	pod unpause	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	port	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	rename	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	search	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	top	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	unpause	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	untag	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
+cli	volume exists	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	volume export	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	volume import	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	volume mount	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	volume unmount	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e

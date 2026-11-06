@@ -26,6 +26,7 @@ container run  create  ps  stop  start  restart  kill  rm  exec  logs  attach  s
 image     pull  ls  remove (rm)  tag  save  load  push   build (delonix build)
 raiz      run  create  ps  start  stop  restart  kill  rm  exec  logs  attach  stats
           pull  images  rmi  tag  save  load  push            (aliases dos de cima)
+          cp  port  login  logout  info  events              (aliases dos de cima)
           wait                                        (polimórfico — ver abaixo)
 ```
 
@@ -33,12 +34,28 @@ Concretamente, garante-se:
 
 * **O nome do comando e a ordem dos argumentos posicionais.**
 * **As flags curtas e longas listadas acima e os seus significados** — em
-  `run`: `-d`, `-p`, `-v`, `-e`, `--name`, `--rm`, `--net`, `--restart`,
-  `--memory`, `--cpus`, `--entrypoint`, `-w`, `-u`, `--add-host`, `--wait`,
-  `--health-*`; em `exec`: `-i`, `-t`, `-e`, `-w`, `-u`. (Esta lista andou
-  achatada, sem dizer a qual verbo cada flag pertence — `-i`/`-t` nunca
-  existiram em `run`, só em `exec`; um teste em `main.rs` verifica agora as
-  duas listas contra a árvore `clap` real, em vez de confiar na leitura.)
+  `run`: `-d`, `-i`, `-t`, `-p`, `-v`, `-e`, `--name`, `--rm`, `--net`
+  (alias `--network`), `--pull`, `--platform`, `--umask`, `--cgroupns`, `--cidfile`, `--shm-size`, `--restart`,
+  `--memory`, `--memory-reservation`, `--memory-swap`, `--pids-limit`, `--cpus`,
+  `--cpu-shares`, `--blkio-weight`, `--oom-score-adj`,
+  `--entrypoint`, `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--ipc`,
+  `--pid`, `--uts`, `--stop-signal`, `--stop-timeout`, `--init`,
+  `--volumes-from`, `--mount`, `--label`, `--label-file`, `--annotation`,
+  `-P` (alias `--publish-all`), `--no-healthcheck`, `--add-host`, `--wait`,
+  `--health-*`; em `exec`:
+  `-i`, `-t`, `-e`, `-w`, `-u`. (Esta lista
+  andou achatada, sem dizer a qual verbo cada flag pertence; um teste em
+  `main.rs` verifica as duas listas contra a árvore `clap` real, em vez de
+  confiar na leitura.) **`-i`/`-t` em `run`/`create` entraram na linha da
+  revisão de paridade CLI**: o `run` recusava `-it` no parser e partia a
+  primeira linha de qualquer script interactivo (`error: unexpected argument
+  '-i'`), medido contra docker 29.9.2 e podman 4.9.3. São aceites por paridade
+  — um `run` em foreground, por ser *daemonless*, já HERDA o stdio do operador,
+  por isso o shell interactivo, o `test -t 0` e o código de saída já eram os do
+  `docker run -it`; o que faltava era o reconhecimento, não o comportamento.
+  Limite documentado e deliberado: um `-t` cujo stdout NÃO seja já um terminal
+  (`run -t … | cat`) não recebe um pty sintetizado — o caminho honesto é `-d` e
+  depois `container exec -it`.
 * **Os códigos de saída** — ver a secção «Códigos de saída» abaixo.
 * **A saída JSON de `inspect`** — campos podem ser ACRESCENTADOS, nunca removidos
   nem com o tipo mudado.
@@ -76,9 +93,28 @@ Concretamente, garante-se:
 > Docker/Podman entraram pelo mesmo mecanismo — subcomando `clap` de pleno
 > direito, MESMA struct de argumentos, MESMO handler do grupo: os de container
 > `kill`, `attach`, `stats`, e os de imagem `images` (alias de `image ls`),
-> `rmi` (alias de `image rm`), `tag`, `save`, `load`, `push`. Ficam de fora só
-> `login`/`logout` — não constam da tabela pedida, e a sua forma de grupo
-> (`image login`/`logout`) chega.
+> `rmi` (alias de `image rm`), `tag`, `save`, `load`, `push`.
+
+> **Raiz completada na revisão de paridade CLI.** A medição diferencial contra
+> docker 29.9.2 e podman 4.9.3 encontrou mais verbos de raiz recusados pelo
+> parser cuja forma de grupo já funcionava. Entraram pelo MESMO mecanismo
+> (subcomando `clap`, MESMO handler, docs verbatim): `cp` e `port` (alias de
+> `container cp`/`container port`), `login` e `logout` (alias de `image
+> login`/`logout`), e `info` e `events` (alias de `system info`/`system
+> events`). Um operador que escreva `docker cp`, `docker login`, `docker info`
+> ou `docker events` troca só o executável. `inspect` e `diff` NÃO entraram na
+> raiz — ver a política de resolução logo abaixo.
+>
+> **Segunda vaga de raiz.** Mais cinco verbos de container passaram a ter forma
+> de raiz pelo mesmo mecanismo (alias `clap`, MESMO handler): `pause`, `unpause`,
+> `commit`, `top` e `rename` (alias de `container pause`/`unpause`/`commit`/
+> `top`/`rename`). `docker pause`, `docker commit`, `docker top` e `docker
+> rename` trocam só o executável. `update` NÃO entrou na raiz: o `docker update`
+> é de LIMITES de recursos, ao passo que o `container update` do Delonix é de
+> reconfiguração a quente (portas/volumes/largura de banda) — semânticas
+> distintas, pelo que fica só na forma de grupo. Entraram ainda as duas de
+> imagem `history` (alias de `image history`, como `docker history`) e `untag`
+> (alias de `image untag`, como `podman untag`).
 >
 > **Comandos genéricos: política de resolução, nunca adivinhação.** Três nomes
 > da tabela colidem com significados que este motor já tinha ou que seriam
@@ -584,6 +620,29 @@ networkDefaults:
   bateria E2E a exigi-lo. Automação que dependa da presença de uma revisão está
   a apostar contra essa promessa.
 
+## Divergência deliberada — flags do `docker run` que este motor NÃO traz
+
+Esta tabela é documentação, não promessa de estabilidade: lista as flags do
+`docker run` que o delonix **não** implementa de propósito, porque não têm
+sentido num motor *daemonless*, *rootless* e assente em **cgroup v2**. Cada
+linha diz a razão numa frase e, quando existe, o caminho equivalente neste
+motor. A ausência é uma decisão de desenho, não uma lacuna por preencher — pedir
+qualquer uma delas devia ser recusado com clareza, nunca aceite em silêncio.
+
+| Flag do `docker run` | Porque é N/A aqui | Equivalente no delonix |
+| --- | --- | --- |
+| `--cpuset-mems` | O controlador `cpuset` não é delegado ao cgroup v2 em modo rootless (o host não cede os nós de memória NUMA). | Sem equivalente directo; `delonix run --cpuset` cobre a parte (CPUs) que o rootless cede. |
+| `--memory-swappiness` | Só cgroup v1; o v2 não tem `memory.swappiness` por cgroup. | Sem equivalente; o total de memória+swap afere-se com `delonix run --memory-swap`. |
+| `--oom-kill-disable` | Só cgroup v1 (`memory.oom_control`); o v2 removeu esse botão. | Sem equivalente; a prioridade perante o OOM-killer faz-se com `delonix run --oom-score-adj`. |
+| `--cgroupns` | Em rootless a namespace de cgroup já fica isolada por construção — não há escolha `host`/`private` honesta a oferecer. | Sem equivalente — o isolamento é o estado por omissão. |
+| `--isolation` | Específico de Windows/Hyper-V; este motor é só Linux. | Sem equivalente. |
+| `--runtime` | O delonix **é** o runtime OCI (`delonix oci-runtime`), não delega noutro (`runc`/`crun`). | Sem equivalente — o próprio motor é o alvo. |
+| `--storage-opt` | O armazenamento é o overlay próprio do motor, não um driver configurável por container. | Sem equivalente; os volumes geridos vivem em `delonix volume`. |
+| `--volume-driver` | Não há *plugins* de driver de volume externos no modelo daemonless. | Sem equivalente; `delonix volume` é quem gere os volumes. |
+| `--use-api-socket` | Não existe daemon nem socket de API para montar dentro do container. | Sem equivalente — o modelo é sem daemon. |
+| `--link` | Legado, obsoleto a montante (o próprio Docker o desencoraja). | `delonix network connect` e os aliases de rede (`delonix run --network-alias`). |
+| `--sig-proxy` | Um `run` em foreground, por ser daemonless, já herda e reencaminha os sinais do operador — não há proxy a ligar/desligar. | Sem equivalente — é o comportamento por omissão. |
+
 ## Como uma quebra é feita, quando tem de acontecer
 
 Precedente já cumprido pelo projecto: a reorganização da v0.30.0 (`netns` →
@@ -598,3 +657,11 @@ actualizar (o `delonix-cri` continuou a invocar `delonix netns attach`), o que
 partiu a criação de pod rootless durante meses — ver
 [cri-conformance.md](cri-conformance.md). Um corte limpo obriga a fazer o grep
 por chamadores em TODO o workspace, não só na documentação.
+
+## Descobrir comandos por TAB
+
+Em Fish, execute `delonix completion shell fish | source` para activar a conclusão
+na sessão actual. Depois de `delonix ` ou `delonix container `, prima TAB para ver
+`ps` e `ls` com a mesma descrição. Em `delonix image `, tanto `remove` como `rm`
+devem aparecer. O shell controla a disposição em colunas. Em Bash, a conclusão
+regista-se com `source <(delonix completion shell bash)`.

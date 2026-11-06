@@ -2083,6 +2083,7 @@ pub fn pull_from_registry_with_creds_full(
             memory: None,
             security: Vec::new(),
             healthcheck: None,
+            exposed_ports: inner.exposed_ports().clone().unwrap_or_default(),
             architecture: requested_arch
                 .map(str::to_string)
                 .unwrap_or_else(|| target_arch().to_string()),

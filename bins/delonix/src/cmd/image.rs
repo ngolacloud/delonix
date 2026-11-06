@@ -280,7 +280,25 @@ pub enum ImageCmd {
     /// Pull an image from a registry.
     Pull(PullArgs),
     /// List local images.
+    // `list` so `delonix image list` matches Docker/Podman muscle-memory; `ls`
+    // stays the canonical name the stability doc promises.
+    #[command(visible_alias = "list")]
     Ls(LsArgs),
+    /// Full detail of one or more images as a JSON array (`docker image inspect`).
+    Inspect {
+        #[arg(required = true, add = ArgValueCandidates::new(super::complete::images))]
+        names: Vec<String>,
+    },
+    /// Exit 0 if the image exists locally, 1 if not — prints nothing (`podman image exists`).
+    Exists {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        name: String,
+    },
+    /// Remove one name/tag from an image without deleting its content (`podman untag`).
+    Untag {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        name: String,
+    },
     /// Human-readable detail of one or more images, `kubectl describe`-style.
     ///
     /// Tags/digest/size/layers + the OCI config: entrypoint/cmd/env/workdir.
@@ -293,6 +311,28 @@ pub enum ImageCmd {
     Tag(TagArgs),
     /// Layers of an image (digest + size), from base to top.
     History {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        image: String,
+    },
+    /// Show how two images differ at the layer level.
+    ///
+    /// Lists the layer blobs only in the first image, only in the second, and
+    /// the ones they share, read straight from the stored records (the same
+    /// layer set `image history` prints). Read-only — nothing is pulled.
+    /// Podman has `podman image diff`; Docker does not.
+    Diff {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        image_a: String,
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        image_b: String,
+    },
+    /// Layer stack of one image, base to top, as an indented tree.
+    ///
+    /// Like `podman image tree`, trimmed to what the record holds: an indented
+    /// list of the image's layers with each blob's size, base at the top and
+    /// the newest layer at the bottom. Same data source as `image history`,
+    /// read-only.
+    Tree {
         #[arg(add = ArgValueCandidates::new(super::complete::images))]
         image: String,
     },
@@ -401,6 +441,28 @@ pub enum ImageCmd {
     /// Reads archives produced by `delonix image save`, `docker save` or
     /// `podman save`.
     Load(LoadArgs),
+    /// Create an image from a rootfs tarball (`docker import`).
+    ///
+    /// The counterpart of `export`: a filesystem tar (plain or gzip) becomes a
+    /// single-layer image. Unlike `load`, the tar carries no image metadata, so
+    /// the new image has an empty config (no CMD/ENV) — set those at `run` time.
+    Import {
+        /// The rootfs tar (plain or gzip). `-` reads from stdin.
+        input: String,
+        /// Name/tag for the new image (e.g. `app:imported`). Optional, like Docker.
+        reference: Option<String>,
+    },
+    /// Search Docker Hub for images (`docker search`).
+    ///
+    /// Queries the public Docker Hub catalog (docker.io) and prints the
+    /// matches: name, stars, official, and a short description.
+    Search {
+        /// The term to search for (e.g. `nginx`).
+        term: String,
+        /// Cap the number of results (`docker search --limit`). Default 25.
+        #[arg(long, default_value_t = 25)]
+        limit: usize,
+    },
     /// Apply the `kind: Image` documents of a manifest.
     ///
     /// `pull` is idempotent by reference; `build` rebuilds and replaces the
@@ -409,6 +471,11 @@ pub enum ImageCmd {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
         file: Option<PathBuf>,
     },
+    /// Build an image from a Dockerfile or Delonixfile.
+    // A pure alias of the root `delonix build`: same `BuildArgs`, same handler,
+    // same build engine. It only adds the Docker/Podman muscle-memory of typing
+    // the verb under the `image` group.
+    Build(super::build::BuildArgs),
     /// Authenticate to an OCI registry.
     ///
     /// Stores the credentials in `<root>/auth.json`, docker/podman format.
@@ -477,9 +544,14 @@ pub fn run(action: ImageCmd) -> Result<()> {
     match action {
         ImageCmd::Pull(PullArgs { image, verify }) => cmd_pull(&images, &image, verify.as_deref()),
         ImageCmd::Ls(LsArgs { output }) => cmd_ls(&images, output),
+        ImageCmd::Inspect { names } => cmd_inspect(&images, &names),
+        ImageCmd::Exists { name } => cmd_exists(&images, &name),
+        ImageCmd::Untag { name } => cmd_untag(&images, &name),
         ImageCmd::Describe { names } => cmd_describe(&images, &names),
         ImageCmd::Tag(TagArgs { source, target }) => cmd_tag(&images, &source, &target),
         ImageCmd::History { image } => cmd_history(&images, &image),
+        ImageCmd::Diff { image_a, image_b } => cmd_diff(&images, &image_a, &image_b),
+        ImageCmd::Tree { image } => cmd_tree(&images, &image),
         ImageCmd::Verify { image, key } => cmd_verify(&images, &image, &key),
         ImageCmd::Sign { image, key, force } => cmd_sign(&images, &image, key.as_deref(), force),
         ImageCmd::Scan {
@@ -513,11 +585,17 @@ pub fn run(action: ImageCmd) -> Result<()> {
         } => cmd_export(&images, &image, &dir, rootless),
         ImageCmd::Save(SaveArgs { image, output }) => cmd_save(&images, &image, &output),
         ImageCmd::Load(LoadArgs { input }) => cmd_load(&images, &input),
+        ImageCmd::Import { input, reference } => cmd_import(&images, &input, reference.as_deref()),
+        ImageCmd::Search { term, limit } => cmd_search(&term, limit),
         ImageCmd::Apply { file } => {
             let path = manifest::resolve_path(file)?;
             let docs = manifest::load(&path)?;
             apply(&docs)
         }
+        // A pure alias of the root `delonix build`: forward to the one build
+        // handler so there is a single build engine. The stores opened above go
+        // unused on this arm — `build::run` opens its own, like the root verb.
+        ImageCmd::Build(args) => super::build::run(args),
         ImageCmd::Push(PushArgs { name, target }) => cmd_push(&images, &name, target.as_deref()),
         ImageCmd::Login { .. } | ImageCmd::Logout { .. } => {
             unreachable!("tratados acima")
@@ -756,6 +834,122 @@ fn cmd_history(images: &ImageStore, image: &str) -> Result<()> {
     Ok(())
 }
 
+/// Size of one layer blob in the CAS, `0` when it cannot be read — the same
+/// best-effort rule `cmd_history`/`describe_one` already use, so a layer whose
+/// blob is gone still appears instead of aborting the whole listing.
+fn layer_blob_size(images: &ImageStore, digest: &str) -> u64 {
+    std::fs::metadata(images.cas().path(digest))
+        .map(|m| m.len())
+        .unwrap_or(0)
+}
+
+/// `image diff` — the layer sets of two images, split into only-in-A,
+/// only-in-B and shared. Works off `Image::layers` (the blob digests, base to
+/// top), the same data `image history` prints — it is the only ancestry the
+/// record holds (the uncompressed `diff_ids` live in the raw config blob, not
+/// in `ImageConfig`), and it is enough to answer "how do these two differ".
+fn cmd_diff(images: &ImageStore, image_a: &str, image_b: &str) -> Result<()> {
+    let a = images.resolve(image_a)?;
+    let b = images.resolve(image_b)?;
+    let set_b: std::collections::HashSet<&str> = b.layers.iter().map(String::as_str).collect();
+    let set_a: std::collections::HashSet<&str> = a.layers.iter().map(String::as_str).collect();
+
+    let only_a: Vec<&String> = a
+        .layers
+        .iter()
+        .filter(|l| !set_b.contains(l.as_str()))
+        .collect();
+    let only_b: Vec<&String> = b
+        .layers
+        .iter()
+        .filter(|l| !set_a.contains(l.as_str()))
+        .collect();
+    // Preserve A's base-to-top order for the shared set so the listing reads
+    // like a stack, not a hash dump.
+    let shared: Vec<&String> = a
+        .layers
+        .iter()
+        .filter(|l| set_b.contains(l.as_str()))
+        .collect();
+
+    println!(
+        "{}",
+        super::po::tf(
+            "Comparing {a} and {b} by layer",
+            &[("a", image_a), ("b", image_b)],
+        )
+    );
+    let print_section = |label: String, layers: &[&String]| {
+        println!("{label}");
+        if layers.is_empty() {
+            println!("  <none>");
+            return;
+        }
+        for l in layers {
+            println!(
+                "  {}  {}",
+                l,
+                super::output::fmt_size(layer_blob_size(images, l))
+            );
+        }
+    };
+    print_section(
+        super::po::tf(
+            "Only in {image} ({n}):",
+            &[("image", image_a), ("n", &only_a.len().to_string())],
+        ),
+        &only_a,
+    );
+    print_section(
+        super::po::tf(
+            "Only in {image} ({n}):",
+            &[("image", image_b), ("n", &only_b.len().to_string())],
+        ),
+        &only_b,
+    );
+    print_section(
+        super::po::tf("Shared ({n}):", &[("n", &shared.len().to_string())]),
+        &shared,
+    );
+    Ok(())
+}
+
+/// `image tree` — the layer stack of one image, base to top, indented. Reuses
+/// `Image::layers` (what `image history` lists); deeper ancestry (a graph of
+/// parent images) is not something the record keeps, so this stays a single
+/// image's layer list, which is what `podman image tree` shows for an image
+/// with no cached children.
+fn cmd_tree(images: &ImageStore, image: &str) -> Result<()> {
+    let img = images.resolve(image)?;
+    let total = image_size(images, &img)
+        .map(super::output::fmt_size)
+        .unwrap_or_else(|| "<unknown>".into());
+    println!(
+        "{}",
+        super::po::tf(
+            "{name} ({id})  {size}",
+            &[("name", image), ("id", &img.short_id()), ("size", &total),],
+        )
+    );
+    if img.layers.is_empty() {
+        println!("  {}", super::po::t("<no layers>"));
+        return Ok(());
+    }
+    println!("{}", super::po::t("Layers (base -> top):"));
+    let last = img.layers.len() - 1;
+    for (i, dg) in img.layers.iter().enumerate() {
+        // A box-drawing connector makes the stack read as a tree at a glance;
+        // the last layer gets the corner, the rest the tee.
+        let branch = if i == last { "└──" } else { "├──" };
+        println!(
+            "  {branch} {}  {}",
+            super::output::truncate(dg, 23),
+            super::output::fmt_size(layer_blob_size(images, dg)),
+        );
+    }
+    Ok(())
+}
+
 /// `image verify` — cosign signature against a public key.
 fn cmd_verify(images: &ImageStore, image: &str, key: &std::path::Path) -> Result<()> {
     let pem = std::fs::read_to_string(key)?;
@@ -954,6 +1148,63 @@ fn cmd_ls(images: &ImageStore, format: super::output::OutputFormat) -> Result<()
         }
     }
     t.print();
+    Ok(())
+}
+
+/// `image inspect` — the full record of one or more images as a docker-style
+/// JSON array.
+///
+/// The machine-readable counterpart of `describe`: it serializes the exact same
+/// data source `describe` reads (the `Image` records `resolve` returns — id,
+/// tags, layers and the OCI config), so the two can never disagree on what an
+/// image is. `resolve` (not `resolve_or_pull`): inspecting is not fetching.
+fn cmd_inspect(images: &ImageStore, names: &[String]) -> Result<()> {
+    let mut imgs = Vec::with_capacity(names.len());
+    for name in names {
+        imgs.push(images.resolve(name)?);
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&imgs).map_err(|e| Error::Invalid(e.to_string()))?
+    );
+    Ok(())
+}
+
+/// `image exists` — Podman's probe: no output, exit 0 if the image resolves
+/// locally and exit 1 if it does not.
+///
+/// It uses the same `ImageStore::resolve` lookup `rm`/`describe` use, so "exists"
+/// means exactly what every other image command means by it. The non-zero case
+/// exits straight with code 1 instead of returning an error: returning one would
+/// print a message (`podman image exists` never does) and map to the richer
+/// not-found code 4, whereas the contract here is a silent clean 0/1.
+fn cmd_exists(images: &ImageStore, name: &str) -> Result<()> {
+    match images.resolve(name) {
+        Ok(_) => Ok(()),
+        Err(_) => std::process::exit(1),
+    }
+}
+
+/// `image untag` — the inverse of `tag`: drop ONE name from an image, keeping
+/// its content (and every other name) in place.
+///
+/// Scoped on purpose to the name mapping, never the blobs — if the name removed
+/// was the last one the image is left dangling (`<none>`), exactly like `podman
+/// untag`, and `image prune` is what reclaims the content later. Errors if the
+/// image has no such name, so a typo is reported rather than silently doing
+/// nothing.
+fn cmd_untag(images: &ImageStore, name: &str) -> Result<()> {
+    let mut img = images.resolve(name)?;
+    let want = delonix_oci::image::normalise_tag(name);
+    if !img.repo_tags.contains(&want) {
+        return Err(Error::NotFound(super::po::tf(
+            "{name} is not a name of this image",
+            &[("name", &want)],
+        )));
+    }
+    img.repo_tags.retain(|t| *t != want);
+    images.save(&img)?;
+    println!("{}", super::po::tf("untagged: {name}", &[("name", &want)]));
     Ok(())
 }
 
@@ -1180,6 +1431,109 @@ fn cmd_load(images: &ImageStore, input: &std::path::Path) -> Result<()> {
         img.repo_tags.join(", ")
     };
     println!("{}", super::po::tf("loaded: {tags}", &[("tags", &tags)]));
+    Ok(())
+}
+
+/// `image import` / `docker import` — a rootfs tar (plain or gzip, or `-` for
+/// stdin) becomes a SINGLE-LAYER image with an empty config. The counterpart of
+/// `export`. Delegates to `commit_flat_rootfs_from_tar`, the same primitive the
+/// rootless build uses, after decompressing gzip if the magic says so.
+fn cmd_import(images: &ImageStore, input: &str, reference: Option<&str>) -> Result<()> {
+    use std::io::Read;
+    let raw = if input == "-" {
+        let mut buf = Vec::new();
+        std::io::stdin()
+            .read_to_end(&mut buf)
+            .map_err(|e| Error::Invalid(format!("reading the tar from stdin: {e}")))?;
+        buf
+    } else {
+        std::fs::read(input).map_err(|e| Error::Invalid(format!("reading {input}: {e}")))?
+    };
+    // `commit_flat_rootfs_from_tar` wants an UNCOMPRESSED tar; a gzip stream
+    // (magic 1f 8b) is inflated first, so `docker import` of a `.tar.gz` works.
+    let tar_bytes = if raw.starts_with(&[0x1f, 0x8b]) {
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(&raw[..])
+            .read_to_end(&mut out)
+            .map_err(|e| Error::Invalid(format!("decompressing the gzip tar: {e}")))?;
+        out
+    } else {
+        raw
+    };
+    // Docker leaves the name `<none>` when no reference is given; the engine's
+    // tagging uses an empty string for that, same as a dangling commit.
+    let tag = reference.unwrap_or("");
+    let img = images
+        .commit_flat_rootfs_from_tar(
+            tar_bytes,
+            Vec::new(),    // Cmd — import carries none
+            Vec::new(),    // Entrypoint
+            Vec::new(),    // Env
+            String::new(), // WorkingDir
+            String::new(), // User
+            tag,
+            delonix_oci::build::oci_arch(), // the host's arch
+            None,                           // no HEALTHCHECK
+            Vec::new(),                     // no EXPOSEd ports
+        )
+        .map_err(|e| Error::Invalid(format!("import: {e}")))?;
+    let tags = if img.repo_tags.is_empty() {
+        img.short_id()
+    } else {
+        img.repo_tags.join(", ")
+    };
+    println!("{}", super::po::tf("imported: {tags}", &[("tags", &tags)]));
+    Ok(())
+}
+
+/// `image search` / `docker search` — queries Docker Hub's public catalog
+/// (docker.io, the target `docker search` itself uses) and prints the matches.
+/// Network-bound: this is the one image verb that reaches out to the internet.
+fn cmd_search(term: &str, limit: usize) -> Result<()> {
+    // Only the query value is user-controlled; percent-encode the few bytes that
+    // would break the URL rather than pull in a dependency for one field.
+    let encoded: String = term
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect();
+    let page = limit.clamp(1, 100);
+    let url =
+        format!("https://hub.docker.com/v2/search/repositories/?query={encoded}&page_size={page}");
+    let body = delonix_oci::registry::http_get(&url)
+        .map_err(|e| Error::Invalid(format!("searching Docker Hub: {e}")))?;
+    let json: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| Error::Invalid(format!("Docker Hub returned an unreadable response: {e}")))?;
+    let results = json["results"].as_array().cloned().unwrap_or_default();
+    if results.is_empty() {
+        println!(
+            "{}",
+            super::po::tf("no image on Docker Hub matches '{term}'", &[("term", term)])
+        );
+        return Ok(());
+    }
+    println!("{:<44}{:>8}  {:<9}DESCRIPTION", "NAME", "STARS", "OFFICIAL");
+    for r in results.iter().take(limit) {
+        let name = r["repo_name"].as_str().unwrap_or("");
+        let stars = r["star_count"].as_u64().unwrap_or(0);
+        let official = if r["is_official"].as_bool().unwrap_or(false) {
+            "[OK]"
+        } else {
+            ""
+        };
+        let mut desc = r["short_description"]
+            .as_str()
+            .unwrap_or("")
+            .replace('\n', " ");
+        if desc.chars().count() > 50 {
+            desc = desc.chars().take(47).collect::<String>() + "...";
+        }
+        println!("{name:<44}{stars:>8}  {official:<9}{desc}");
+    }
     Ok(())
 }
 

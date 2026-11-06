@@ -37,7 +37,16 @@ pub struct RunOpts {
     #[serde(default)]
     pub expose: Option<u16>,
     pub volumes: Vec<String>,
+    /// Docker `--volumes-from`: containers whose mounts are copied into this one
+    /// (`<name>[:ro|:rw]`). Resolved against the store by the CLI, not here.
+    #[serde(default)]
+    pub volumes_from: Vec<String>,
     pub ports: Vec<String>,
+    /// Docker `--publish-all`/`-P`: publish every port the image EXPOSEs, each
+    /// on an ephemeral host port. Resolved against the store by the CLI (which
+    /// reads the image's exposed ports) into concrete `ports` entries, not here.
+    #[serde(default)]
+    pub publish_all: bool,
     pub privileged: bool,
     /// Override for the image's ENTRYPOINT, as a full argv — the same shape the
     /// image config itself uses. Three distinct states, and the difference
@@ -67,6 +76,15 @@ pub struct RunOpts {
     pub devices: Vec<String>,
     pub env: Vec<String>,
     pub labels: Vec<String>,
+    /// Each `--label-file`: a `KEY=VAL`-per-line file whose entries become
+    /// labels, exactly as `env_file` does for the environment. Applied before
+    /// `labels`, so an explicit `--label` on the same key wins.
+    #[serde(default)]
+    pub label_file: Vec<String>,
+    /// OCI annotations (`--annotation key=value`): non-identifying metadata that
+    /// lands on [`crate::Container::annotations`], SEPARATE from `labels`.
+    #[serde(default)]
+    pub annotations: Vec<String>,
     pub image: String,
     pub command: Vec<String>,
     /// Don't print the ID at the end of `-d`. For internal callers that compose
@@ -77,6 +95,21 @@ pub struct RunOpts {
     // ---- parity with a full `run` specification (all #[serde(default)]) ----
     #[serde(default)]
     pub memory: Option<String>,
+    /// Docker `--memory-reservation` → `memory.low` (soft floor).
+    #[serde(default)]
+    pub memory_reservation: Option<String>,
+    /// Docker `--memory-swap` (memory+swap total; `-1` = unlimited swap).
+    #[serde(default)]
+    pub memory_swap: Option<String>,
+    /// Docker `--pids-limit` → `pids.max` (`-1` ⇒ unlimited).
+    #[serde(default)]
+    pub pids_limit: Option<String>,
+    /// Docker `--stop-signal`: signal `stop` sends first (default `SIGTERM`).
+    #[serde(default)]
+    pub stop_signal: Option<String>,
+    /// Docker `--stop-timeout`: grace before `SIGKILL`, seconds.
+    #[serde(default)]
+    pub stop_timeout: Option<u64>,
     #[serde(default)]
     pub cpus: Option<String>,
     #[serde(default)]
@@ -128,6 +161,18 @@ pub struct RunOpts {
     // (see `compose_io_max` for how the four `--device-*` flags become this)
     #[serde(default)]
     pub read_only: bool,
+    /// Docker `--init`: run a tiny reaping init as pid 1.
+    #[serde(default)]
+    pub init: bool,
+    /// Podman `--umask`: the file-mode creation mask the init `execve`s with.
+    /// `None` keeps the runtime default (`0022`). Parsed as octal, e.g. `0077`.
+    #[serde(default)]
+    pub umask: Option<u32>,
+    /// Docker/Podman `--cgroupns=private`: give the container its own cgroup
+    /// namespace (its `/proc/self/cgroup` root becomes `/`) instead of sharing
+    /// the host's view. `false` = `host` (the current behaviour).
+    #[serde(default)]
+    pub cgroupns_private: bool,
     #[serde(default)]
     pub cap_add: Vec<String>,
     /// Anti-spoofing: source prefixes this container may use besides its own
@@ -155,6 +200,9 @@ pub struct RunOpts {
     pub host_pid: bool,
     #[serde(default)]
     pub host_ipc: bool,
+    /// Docker `--uts host`: share the host's UTS namespace.
+    #[serde(default)]
+    pub uts_host: bool,
     #[serde(default)]
     pub detect: bool,
     #[serde(default)]
@@ -201,6 +249,12 @@ pub struct RunOpts {
     /// container, and the monitor has to find it again after a `restart`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health: Option<HealthConfig>,
+    /// Docker/Podman `--no-healthcheck`: disable the image's HEALTHCHECK
+    /// entirely. PERSISTED on the record so every surface that would otherwise
+    /// pick the image's HEALTHCHECK up (the continuous monitor, `container
+    /// healthcheck`, `--wait`) short-circuits to "no probe".
+    #[serde(default)]
+    pub no_healthcheck: bool,
     #[serde(default)]
     pub knows: Vec<String>,
     #[serde(default)]
@@ -229,4 +283,9 @@ pub struct RunOpts {
     pub log_file: Option<String>,
     #[serde(default)]
     pub log_cri: bool,
+    /// Docker/Podman `--cidfile`: write the created container's full id to this
+    /// path (refused if it already exists). CLI-only; a manifest has the id in
+    /// the record already.
+    #[serde(default)]
+    pub cidfile: Option<String>,
 }
