@@ -292,6 +292,16 @@ jobs:
           echo "${user}:100000:65536" | sudo tee -a /etc/subuid
           echo "${user}:100000:65536" | sudo tee -a /etc/subgid
           grep -E "^${user}:" /etc/subuid /etc/subgid
+      # Ubuntu 24.04 (the runner) ships `kernel.apparmor_restrict_unprivileged_
+      # userns=1`, which restricts what an UNPRIVILEGED user namespace may do —
+      # the mounts `setup_rootfs` performs inside it then fail with EPERM
+      # (`failed to prepare the rootfs`). Lift the restriction for the job, the
+      # documented rootless-container workaround on 24.04 runners. Best-effort:
+      # the key is absent on older kernels, so a failure to set it is not fatal.
+      - name: Lift the AppArmor unprivileged-userns restriction (rootless mounts)
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true
       - name: Differential flows vs docker + podman
         run: tests/cli-parity/run.sh differential target/debug/delonix
       - name: Upload per-engine evidence
