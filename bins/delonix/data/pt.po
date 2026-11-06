@@ -5129,6 +5129,9 @@ msgstr "Namespace de IPC (Docker/Podman `--ipc`): `host` partilha o do host, `pr
 msgid "UTS namespace (Docker/Podman `--uts`): `host` shares the host's hostname, `private` (default) its own. `--hostname` cannot be combined with `--uts host`"
 msgstr "Namespace de UTS (Docker/Podman `--uts`): `host` partilha o hostname do host, `private` (por omissão) o seu próprio. `--hostname` não pode ser combinado com `--uts host`"
 
+msgid "Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`"
+msgstr "Funcionalidade de daemon/orquestração do Docker/Podman que este motor sem daemon não corre — ver `serve docker-api`"
+
 msgid "Signal `stop` sends first (Docker/Podman `--stop-signal`, e.g. `SIGINT` or `2`). Default `SIGTERM`; `SIGKILL` still follows after the grace period"
 msgstr "Sinal que o `stop` envia primeiro (Docker/Podman `--stop-signal`, ex. `SIGINT` ou `2`). Por omissão `SIGTERM`; o `SIGKILL` ainda vem a seguir ao período de graça"
 
