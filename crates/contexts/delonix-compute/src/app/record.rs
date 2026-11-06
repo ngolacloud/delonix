@@ -373,6 +373,11 @@ pub struct Container {
     /// the kernel tries NOT to reclaim under pressure. `None` = no floor.
     #[serde(default)]
     pub memory_low: Option<String>,
+    /// Docker `--memory-swap`: the memory+swap TOTAL (its own semantics), raw
+    /// as given (`-1` = unlimited swap). The runtime derives cgroup-v2
+    /// `memory.swap.max` = total − `memory_max`. `None` = engine default.
+    #[serde(default)]
+    pub memory_swap: Option<String>,
     /// Process ceiling (`pids.max`, Docker `--pids-limit`). `None` = the engine's
     /// default anti-fork-bomb ceiling; `Some("max")` = unlimited.
     #[serde(default)]
@@ -864,6 +869,7 @@ impl Container {
             created_unix,
             memory_max,
             memory_low: None,
+            memory_swap: None,
             pids_max: None,
             stop_signal: None,
             stop_timeout: None,
