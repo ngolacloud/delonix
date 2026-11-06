@@ -5126,6 +5126,9 @@ msgstr "Monta todos os volumes de outro container (Docker/Podman `--volumes-from
 msgid "Run a tiny init as PID 1 that reaps orphaned processes and forwards signals (Docker/Podman `--init`); the image command runs as its child."
 msgstr "Corre um init minúsculo como PID 1 que recolhe processos órfãos e reenvia sinais (Docker/Podman `--init`); o comando da imagem corre como seu filho."
 
+msgid "Mount in Docker/Podman `--mount` syntax: `type=bind|volume|tmpfs,source=…,target=…[,readonly]`. An alternative to `-v`. Repeatable."
+msgstr "Montagem na sintaxe `--mount` do Docker/Podman: `type=bind|volume|tmpfs,source=…,target=…[,readonly]`. Alternativa ao `-v`. Repetível."
+
 msgid "copy a file OUT of a container to the host"
 msgstr "copiar um ficheiro PARA FORA de um container, para o host"
 

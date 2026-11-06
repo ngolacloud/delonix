@@ -1171,6 +1171,9 @@ pub struct RunArgs {
     /// Mount all the volumes of another container (Docker/Podman `--volumes-from`), `<container>[:ro|:rw]`. Repeatable.
     #[arg(long = "volumes-from", add = ArgValueCandidates::new(super::complete::containers))]
     volumes_from: Vec<String>,
+    /// Mount in Docker/Podman `--mount` syntax: `type=bind|volume|tmpfs,source=…,target=…[,readonly]`. An alternative to `-v`. Repeatable.
+    #[arg(long = "mount")]
+    mounts_flag: Vec<String>,
     /// Publish a port, `[hostIp:]hostPort:contPort[/tcp|udp]` or just `port`. Repeatable.
     /// SAFE BY DEFAULT: without `hostIp` the port binds to `127.0.0.1` only — reachable
     /// from the host itself, NOT from a browser on another machine. Name the address to
@@ -1917,6 +1920,63 @@ fn ns_mode_shares_host(flag: &str, mode: Option<&str>, host_flag: bool) -> Resul
     }
 }
 
+/// A `--mount` spec translated into the engine's own grammar.
+enum MountFlag {
+    /// A `-v` spec (`src:target[:ro]`).
+    Volume(String),
+    /// A `--tmpfs` entry (`target[:options]`).
+    Tmpfs(String),
+}
+
+/// Translate a Docker/Podman `--mount` spec into the engine's `-v`/`--tmpfs`
+/// grammar. Supports `type=bind|volume|tmpfs`, `source`/`src`,
+/// `target`/`dst`/`destination`, `readonly`/`ro`, and `tmpfs-size`. An unknown
+/// key or type is REFUSED (never silently ignored).
+fn parse_mount_flag(spec: &str) -> Result<MountFlag> {
+    let mut ty = "volume".to_string();
+    let (mut source, mut target, mut tmpfs_size) = (None, None, None);
+    let mut ro = false;
+    for field in spec.split(',').filter(|f| !f.is_empty()) {
+        let (k, v) = match field.split_once('=') {
+            Some((k, v)) => (k, Some(v)),
+            None => (field, None),
+        };
+        match k {
+            "type" => ty = v.unwrap_or_default().to_string(),
+            "source" | "src" => source = v.map(str::to_string),
+            "target" | "dst" | "destination" => target = v.map(str::to_string),
+            "readonly" | "ro" => ro = !matches!(v, Some("false") | Some("0")),
+            "tmpfs-size" => tmpfs_size = v.map(str::to_string),
+            // Accepted but not individually translated (the engine applies its
+            // own defaults); listed so a typo in a REAL key still errors.
+            "tmpfs-mode" | "bind-propagation" | "volume-opt" | "consistency" => {}
+            other => {
+                return Err(Error::Invalid(format!(
+                    "--mount: unknown key '{other}' in '{spec}'"
+                )))
+            }
+        }
+    }
+    let target =
+        target.ok_or_else(|| Error::Invalid(format!("--mount: missing `target` in '{spec}'")))?;
+    match ty.as_str() {
+        "tmpfs" => Ok(MountFlag::Tmpfs(match tmpfs_size {
+            Some(sz) => format!("{target}:size={sz}"),
+            None => target,
+        })),
+        "bind" | "volume" => {
+            let source = source.ok_or_else(|| {
+                Error::Invalid(format!("--mount type={ty}: missing `source` in '{spec}'"))
+            })?;
+            let ro = if ro { ":ro" } else { "" };
+            Ok(MountFlag::Volume(format!("{source}:{target}{ro}")))
+        }
+        other => Err(Error::Invalid(format!(
+            "--mount: unsupported type '{other}' (bind|volume|tmpfs)"
+        ))),
+    }
+}
+
 fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     let RunArgs {
         detach,
@@ -1929,6 +1989,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         net,
         volumes,
         volumes_from,
+        mounts_flag,
         publish,
         privileged,
         entrypoint,
@@ -2033,10 +2094,21 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     // sharing a namespace BETWEEN containers.
     let host_pid = ns_mode_shares_host("pid", pid_mode.as_deref(), host_pid)?;
     let host_ipc = ns_mode_shares_host("ipc", ipc_mode.as_deref(), host_ipc)?;
+    // `--mount type=…,source=…,target=…` is Docker's explicit alternative to
+    // `-v`. Translate each into the `-v` spec grammar (`src:target[:ro]`) or, for
+    // `type=tmpfs`, into a `--tmpfs` entry — the same resolution path either way,
+    // no second mount engine.
+    let mut volumes = volumes;
+    let mut tmpfs = tmpfs;
+    for spec in &mounts_flag {
+        match parse_mount_flag(spec)? {
+            MountFlag::Volume(v) => volumes.push(v),
+            MountFlag::Tmpfs(t) => tmpfs.push(t),
+        }
+    }
     // `--shm-size` reuses the tmpfs plumbing (same trick as compose): it is just
     // a tmpfs over `/dev/shm` with a `size=`. Appending it means the operator's
     // size is the top mount the container sees over the default 64 MiB.
-    let mut tmpfs = tmpfs;
     if let Some(sz) = shm_size {
         let bytes = delonix_volume::parse_size_bytes(&sz).ok_or_else(|| {
             Error::Invalid(format!(

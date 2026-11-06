@@ -1115,6 +1115,19 @@ mod run_interactive_flag_parity_tests {
     }
 
     #[test]
+    fn run_accepts_mount_syntax() {
+        assert!(parses(&[
+            "delonix", "run", "--mount", "type=bind,source=/etc,target=/x,readonly", "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix", "run", "--mount", "type=volume,source=data,target=/d", "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix", "run", "--mount", "type=tmpfs,target=/t,tmpfs-size=16m", "busybox",
+        ]));
+    }
+
+    #[test]
     fn run_accepts_init() {
         assert!(parses(&["delonix", "run", "--init", "busybox", "sh"]));
         assert!(parses(&["delonix", "create", "--init", "busybox"]));
