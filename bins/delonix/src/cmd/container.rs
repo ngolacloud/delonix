@@ -1206,6 +1206,9 @@ pub struct RunArgs {
     /// When to pull the image (Docker/Podman `--pull`): `missing` (default — pull only if absent), `always` (pull before starting), `never` (fail if absent, never fetch).
     #[arg(long, value_parser = ["missing", "always", "never"], default_value = "missing")]
     pull: String,
+    /// Platform of the image to pull (Docker/Podman `--platform`, e.g. `linux/amd64`, `linux/arm64`). Fetches that variant; a cross-arch image may not run on this host.
+    #[arg(long)]
+    platform: Option<String>,
     /// Restart policy (only with `-d`): `no` (default), `on-failure[:max]`,
     /// `always`, `unless-stopped`. A detached supervisor (one per container,
     /// ephemeral — there's no daemon) becomes the container's parent, captures
@@ -1910,7 +1913,35 @@ pub enum ContainerCmd {
 /// here. `always` force-pulls before starting (a fresh digest every time, like
 /// `docker run --pull always`). `never` refuses to fetch: if the image is not
 /// already local it fails with a clear reason instead of reaching out.
-fn apply_pull_policy(images: &ImageStore, reference: &str, policy: &str) -> Result<()> {
+fn apply_pull_policy(
+    images: &ImageStore,
+    reference: &str,
+    policy: &str,
+    platform: Option<&str>,
+) -> Result<()> {
+    // `--platform os/arch[/variant]`: fetch THAT variant up front so the normal
+    // resolve downstream finds it. The registry pull takes the ARCH, so take the
+    // middle (or last) component of the platform string. `--pull never` still
+    // forbids fetching — then we only check the local store.
+    if let Some(p) = platform {
+        let arch = p.split('/').nth(1).unwrap_or(p);
+        if policy == "never" {
+            return images.resolve(reference).map(|_| ()).map_err(|_| {
+                Error::Invalid(format!(
+                    "image '{reference}' (platform {p}) is not present locally and `--pull never` \
+                     forbids fetching it"
+                ))
+            });
+        }
+        super::util::announce_pull(reference);
+        delonix_oci::registry::pull_from_registry_with_creds_platform(
+            images,
+            reference,
+            None,
+            Some(arch),
+        )?;
+        return Ok(());
+    }
     match policy {
         "always" => {
             super::util::announce_pull(reference);
@@ -2006,6 +2037,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         interactive,
         tty,
         pull,
+        platform,
         name,
         hostname,
         user,
@@ -2117,7 +2149,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     let _ = (interactive, tty);
     // `--pull` is applied in the `Run`/`Create` dispatch (it needs the image
     // store), BEFORE this consumes `args`; here the field is just drained.
-    let _ = pull;
+    let _ = (pull, platform);
     // Docker/Podman `--ipc`/`--pid` MODE flags fold into the engine's existing
     // `--host-ipc`/`--host-pid` booleans: `host` ⇒ share the host's, `private`
     // (the default) ⇒ its own. Any other mode (`container:<id>`, `shareable`,
@@ -2314,11 +2346,11 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         // difference is `no_start` — `create` persists the record in `Created`
         // state and stops, `run` goes on to launch. See `run_opts_from_args`.
         ContainerCmd::Run(args) => {
-            apply_pull_policy(&images, &args.image, &args.pull)?;
+            apply_pull_policy(&images, &args.image, &args.pull, args.platform.as_deref())?;
             cmd_run(&images, &store, run_opts_from_args(args, false)?)
         }
         ContainerCmd::Create(args) => {
-            apply_pull_policy(&images, &args.image, &args.pull)?;
+            apply_pull_policy(&images, &args.image, &args.pull, args.platform.as_deref())?;
             cmd_run(&images, &store, run_opts_from_args(args, true)?)
         }
         ContainerCmd::Ps(PsArgs {
