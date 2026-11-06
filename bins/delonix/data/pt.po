@@ -5120,6 +5120,9 @@ msgstr "Segundos que o `stop` espera antes do `SIGKILL` (Docker/Podman `--stop-t
 msgid "Seconds until SIGKILL (default: the container's `--stop-timeout`, else 10)"
 msgstr "Segundos até ao SIGKILL (por omissão: o `--stop-timeout` do container, senão 10)"
 
+msgid "Mount all the volumes of another container (Docker/Podman `--volumes-from`), `<container>[:ro|:rw]`. Repeatable."
+msgstr "Monta todos os volumes de outro container (Docker/Podman `--volumes-from`), `<container>[:ro|:rw]`. Repetível."
+
 msgid "copy a file OUT of a container to the host"
 msgstr "copiar um ficheiro PARA FORA de um container, para o host"
 
