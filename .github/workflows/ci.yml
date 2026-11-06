@@ -278,7 +278,20 @@ jobs:
       # Tier 2 — reference engines. docker ships on ubuntu-latest; podman is
       # apt-installed. A missing engine FAILS the job (visible prerequisite).
       - name: Install podman (reference engine)
-        run: sudo apt-get update && sudo apt-get install -y podman
+        run: sudo apt-get update && sudo apt-get install -y podman uidmap
+      # delonix maps container uids 1..65536 → host subuids 100000..165535
+      # (USERNS_UID_BASE=100000, USERNS_RANGE=65536, hardcoded in
+      # delonix-linux). `newuidmap` validates that against /etc/subuid for the
+      # invoking user, and the runner's default grant uses a different base — so
+      # flow 1 failed with `newuidmap: uid range … not allowed`. Grant exactly
+      # the range delonix maps; a second subuid line is unioned by newuidmap, so
+      # this does not disturb podman's own rootless grant.
+      - name: Grant the runner the subuid/subgid range delonix maps (rootless)
+        run: |
+          user=$(id -un)
+          echo "${user}:100000:65536" | sudo tee -a /etc/subuid
+          echo "${user}:100000:65536" | sudo tee -a /etc/subgid
+          grep -E "^${user}:" /etc/subuid /etc/subgid
       - name: Differential flows vs docker + podman
         run: tests/cli-parity/run.sh differential target/debug/delonix
       - name: Upload per-engine evidence
