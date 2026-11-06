@@ -451,6 +451,7 @@ pub fn build_record(o: &RunOpts, r: ResolvedRun) -> Result<Container> {
     c.selinux = o.selinux.clone();
     c.host_pid = o.host_pid;
     c.host_ipc = o.host_ipc;
+    c.uts_host = o.uts_host;
     c.log_cri = o.log_cri;
 
     // ---- fs & limits ----

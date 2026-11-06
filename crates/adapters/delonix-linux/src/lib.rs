@@ -2450,8 +2450,14 @@ fn setup_rootfs(
     privileged: bool,
     has_own_netns: bool,
     has_own_ipcns: bool,
+    has_own_utsns: bool,
 ) -> nix::Result<()> {
-    sethostname(hostname)?;
+    // Only set the hostname when we own a UTS namespace. Under `--uts host` the
+    // UTS ns is the host's, and `sethostname` there would rename the host (and
+    // fails EPERM for a rootless user anyway) — so it is skipped entirely.
+    if has_own_utsns {
+        sethostname(hostname)?;
+    }
     // Root propagation. `MS_PRIVATE` severs every link with the host's mount
     // tree, which is the right default and stays the default — but it also makes
     // `rslave`/`rshared` on any individual mount a no-op, because there is no
@@ -4012,6 +4018,10 @@ struct NamespaceSpec {
     /// whether the IPC sysctls (`kernel.sem`/`shm*`/`msg*`, `fs.mqueue.*`) are
     /// safe to apply.
     has_own_ipcns: bool,
+    /// The child ends up with an EXCLUSIVE UTS namespace (`CLONE_NEWUTS`), not
+    /// the host's under `--uts host`. Decides whether `sethostname` is safe (it
+    /// would otherwise rename the host).
+    has_own_utsns: bool,
     host_pid: bool,
     /// The child inherits the holder's user namespace instead of cloning one,
     /// so there is no uid_map handshake to wait for.
@@ -4141,6 +4151,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 pod_infra_pid,
                 has_own_netns,
                 has_own_ipcns,
+                has_own_utsns,
                 host_pid,
                 inherit_userns,
                 node_cgroup,
@@ -4235,6 +4246,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         privileged,
         has_own_netns,
         has_own_ipcns,
+        has_own_utsns,
     ) {
         eprintln!("delonix: failed to prepare the rootfs: {e}");
         return 126;
@@ -7112,6 +7124,10 @@ pub struct RunSpec<'a> {
     /// Shares the host's *IPC namespace* (`--host-ipc`; CRI `namespace_options.ipc
     /// = NODE`): the host's shared memory/queues. By default, isolated.
     pub host_ipc: bool,
+    /// Shares the host's *UTS namespace* (`--uts host`): the container sees (and
+    /// cannot change) the host's hostname. By default, isolated — no `sethostname`
+    /// is attempted when this is set, so the host's name is never touched.
+    pub uts_host: bool,
     /// **Rootless ingress:** the process already runs INSIDE the ingress holder's
     /// user+network namespace (re-exec via `nsenter … ip netns exec`). It does not create
     /// `CLONE_NEWUSER` nor `CLONE_NEWNET` (inherits the holder's, already as uid 0), but
@@ -7971,6 +7987,7 @@ struct InitInputs {
     pod_infra_pid: Option<i32>,
     has_own_netns: bool,
     has_own_ipcns: bool,
+    has_own_utsns: bool,
     host_pid: bool,
     inherit_userns: bool,
     node_cgroup: bool,
@@ -8043,6 +8060,11 @@ impl InitInputs {
             // into). `apply_sysctls` needs this to know whether the IPC sysctls
             // are safe (else they hit the shared namespace — the host's).
             has_own_ipcns: !spec.host_ipc && spec.pod_infra_pid.is_none(),
+            // Gates `sethostname`: set the hostname UNLESS `--uts host` (the UTS
+            // ns is the host's and must not be renamed). A pod member keeps
+            // setting it (it shares the pod's UTS, the historic behaviour) — only
+            // `--uts host` suppresses it.
+            has_own_utsns: !spec.uts_host,
             host_pid: spec.host_pid,
             inherit_userns: spec.inherit_userns,
             node_cgroup: is_kind_node(privileged, &container.labels),
@@ -8092,6 +8114,7 @@ impl InitInputs {
                 pod_infra_pid: self.pod_infra_pid,
                 has_own_netns: self.has_own_netns,
                 has_own_ipcns: self.has_own_ipcns,
+                has_own_utsns: self.has_own_utsns,
                 host_pid: self.host_pid,
                 inherit_userns: self.inherit_userns,
                 node_cgroup: self.node_cgroup,
@@ -8202,7 +8225,7 @@ fn clone_flags(spec: &RunSpec<'_>) -> (CloneFlags, bool) {
     // `spawn`), so it must NOT be given a fresh one here.
     let share_pod_pid = join_pod && spec.pod_shared_pid;
     let mut flags = CloneFlags::CLONE_NEWNS;
-    if !join_pod {
+    if !join_pod && !spec.uts_host {
         flags |= CloneFlags::CLONE_NEWUTS;
     }
     if !spec.host_pid && !share_pod_pid {

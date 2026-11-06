@@ -5111,6 +5111,9 @@ msgstr "Namespace de PID (Docker/Podman `--pid`): `host` partilha o do host, `pr
 msgid "IPC namespace (Docker/Podman `--ipc`): `host` shares the host's, `private` (default) its own. `--ipc host` == `--host-ipc`."
 msgstr "Namespace de IPC (Docker/Podman `--ipc`): `host` partilha o do host, `private` (por omissão) o seu próprio. `--ipc host` == `--host-ipc`."
 
+msgid "UTS namespace (Docker/Podman `--uts`): `host` shares the host's hostname, `private` (default) its own. `--hostname` cannot be combined with `--uts host`"
+msgstr "Namespace de UTS (Docker/Podman `--uts`): `host` partilha o hostname do host, `private` (por omissão) o seu próprio. `--hostname` não pode ser combinado com `--uts host`"
+
 msgid "Signal `stop` sends first (Docker/Podman `--stop-signal`, e.g. `SIGINT` or `2`). Default `SIGTERM`; `SIGKILL` still follows after the grace period"
 msgstr "Sinal que o `stop` envia primeiro (Docker/Podman `--stop-signal`, ex. `SIGINT` ou `2`). Por omissão `SIGTERM`; o `SIGKILL` ainda vem a seguir ao período de graça"
 

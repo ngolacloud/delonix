@@ -1114,6 +1114,8 @@ mod run_interactive_flag_parity_tests {
         assert!(parses(&["delonix", "run", "--ipc", "host", "busybox"]));
         assert!(parses(&["delonix", "run", "--pid", "private", "busybox"]));
         assert!(parses(&["delonix", "run", "--ipc", "private", "busybox"]));
+        assert!(parses(&["delonix", "run", "--uts", "host", "busybox"]));
+        assert!(parses(&["delonix", "run", "--uts", "private", "busybox"]));
     }
 
     #[test]

@@ -177,6 +177,9 @@ pub struct RunOpts {
     pub host_pid: bool,
     #[serde(default)]
     pub host_ipc: bool,
+    /// Docker `--uts host`: share the host's UTS namespace.
+    #[serde(default)]
+    pub uts_host: bool,
     #[serde(default)]
     pub detect: bool,
     #[serde(default)]

@@ -1345,6 +1345,9 @@ pub struct RunArgs {
     /// IPC namespace (Docker/Podman `--ipc`): `host` shares the host's, `private` (default) its own. `--ipc host` == `--host-ipc`.
     #[arg(long = "ipc")]
     ipc_mode: Option<String>,
+    /// UTS namespace (Docker/Podman `--uts`): `host` shares the host's hostname, `private` (default) its own. `--hostname` cannot be combined with `--uts host`.
+    #[arg(long = "uts")]
+    uts_mode: Option<String>,
     /// Detection mode: seccomp in log mode (doesn't block), to discover syscalls.
     #[arg(long)]
     detect: bool,
@@ -2036,6 +2039,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         host_ipc,
         pid_mode,
         ipc_mode,
+        uts_mode,
         detect,
         secret,
         secret_files,
@@ -2098,6 +2102,16 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     // sharing a namespace BETWEEN containers.
     let host_pid = ns_mode_shares_host("pid", pid_mode.as_deref(), host_pid)?;
     let host_ipc = ns_mode_shares_host("ipc", ipc_mode.as_deref(), host_ipc)?;
+    let uts_host = ns_mode_shares_host("uts", uts_mode.as_deref(), false)?;
+    // `--uts host` shares the host's UTS namespace, so no hostname may be set
+    // (it would try to rename the host). Docker refuses the same combination.
+    if uts_host && hostname.is_some() {
+        return Err(Error::Invalid(
+            "`--hostname` cannot be combined with `--uts host` (the container shares the host's \
+             hostname, which it must not change)"
+                .into(),
+        ));
+    }
     // `--mount type=…,source=…,target=…` is Docker's explicit alternative to
     // `-v`. Translate each into the `-v` spec grammar (`src:target[:ro]`) or, for
     // `type=tmpfs`, into a `--tmpfs` entry — the same resolution path either way,
@@ -2185,6 +2199,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         no_userns,
         host_pid,
         host_ipc,
+        uts_host,
         detect,
         secret,
         secret_files,
