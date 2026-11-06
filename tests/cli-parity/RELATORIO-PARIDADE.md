@@ -536,3 +536,31 @@ que não é trabalho de CLI.
 (image/container/network/volume/pod) num só `DELONIX_ROOT` isolado: todos os 23
 comandos respondem como o Docker/Podman. Matriz: **43 passou / 62 por-fazer /
 76 reconhecido-por-testar / 14 fora-do-âmbito / 3 divergência-deliberada**.
+
+---
+
+## Quarta vaga — cheap wins sem backend novo (6 Nov 2026)
+
+Oito comandos mais, todos sem subsistema novo. Matriz **43→51 passou**,
+**62→54 por-fazer**. Todos provados ao vivo.
+
+### C29 — root `history`/`untag`; `container export`+root `export`; `image import`+root `import`; `image search`+root `search`
+- **`history`/`untag` (raiz)**: alias de `image history`/`image untag` (feito em
+  C26), mesmo mecanismo dos outros verbos-raiz.
+- **`container export` + `export` (raiz)**: rootfs do container como tar NÃO
+  comprimido (`/proc`/`/sys`/`/dev` como mount points vazios, donos como o
+  container os vê). Reusa o resolvedor de rootfs merged do `commit`/`cp` (um
+  overlay parado é lido pelo `__ovlhold`, nunca empacota árvore vazia) e expõe
+  `ImageStore::export_rootfs_tar`. Recusa escrever tar para um terminal.
+- **`image import` + `import` (raiz)**: tar de rootfs (simples/gzip/stdin) → imagem
+  de camada única, via `commit_flat_rootfs_from_tar` (o primitivo do build
+  rootless), inflando gzip pelo magic. Config vazia (como o `docker import`).
+  **Round-trip provado**: `container export` → `image import` → a imagem corre.
+- **`image search` + `search` (raiz)**: consulta o catálogo público do Docker Hub
+  (docker.io) por `registry::http_get`, imprime nome/estrelas/oficial/descrição.
+  Único verbo de imagem que vai à rede. Provado contra o Hub (nginx oficial 21k★).
+
+### Os 54 `por-fazer` restantes — backend/policy-bound (inalterado)
+system/context daemon-mgmt (ADR-0010, shim), mount/unmount rootfs (fuse),
+subsistema de build, CRIU, e misc Podman (clone/scp/trust/reload/…). São
+campanhas próprias com decisão de arquitectura, não ausências acidentais.

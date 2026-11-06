@@ -20,7 +20,7 @@ fora-do-ambito,config,Docker listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconh
 1-containers,container diff,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 1-containers,container exec,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 1-containers,container exists,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,segunda vaga de paridade: implementado + provado ao vivo
-1-containers,container export,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
+1-containers,container export,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,vaga de paridade (cheap wins): implementado + provado ao vivo
 1-containers,container init,Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 1-containers,container inspect,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 1-containers,container kill,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
@@ -64,18 +64,18 @@ fora-do-ambito,config,Docker listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconh
 1-containers,diff,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,divergência-deliberada,delonix=declarativo,docs/cli-stability.md,doc,root `diff` is the MANIFEST three-way diff; `container diff` is the docker filesystem-changes form (documented collision resolution)
 5-system-contexts,events,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,0,sim,passou,delonix=passou (root alias→system events),frequent-verbs.sh,unit+script,root `events` added; == system events
 1-containers,exec,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
-1-containers,export,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
+1-containers,export,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,vaga de paridade (cheap wins): implementado + provado ao vivo
 fora-do-ambito,farm,Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,fora-do-âmbito,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
 fora-do-ambito,generate,Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,fora-do-âmbito,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
 fora-do-ambito,healthcheck,Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,fora-do-âmbito,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
 fora-do-ambito,help,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,fora-do-âmbito,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
-3-images,history,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
+3-images,history,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,vaga de paridade (cheap wins): implementado + provado ao vivo
 3-images,image,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 3-images,image build,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
 3-images,image diff,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
 3-images,image exists,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,segunda vaga de paridade: implementado + provado ao vivo
 3-images,image history,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
-3-images,image import,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
+3-images,image import,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,vaga de paridade (cheap wins): implementado + provado ao vivo
 3-images,image inspect,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,segunda vaga de paridade: implementado + provado ao vivo
 3-images,image list,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,segunda vaga de paridade: implementado + provado ao vivo
 3-images,image load,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
@@ -87,7 +87,7 @@ fora-do-ambito,help,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3
 3-images,image rm,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 3-images,image save,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 3-images,image scp,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
-3-images,image search,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
+3-images,image search,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,vaga de paridade (cheap wins): implementado + provado ao vivo
 3-images,image sign,Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 3-images,image tag,Docker doc + Podman doc,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 3-images,image tree,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
@@ -96,7 +96,7 @@ fora-do-ambito,help,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3
 3-images,image unmount,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
 3-images,image untag,Podman doc,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,segunda vaga de paridade: implementado + provado ao vivo
 3-images,images,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
-3-images,import,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
+3-images,import,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,vaga de paridade (cheap wins): implementado + provado ao vivo
 5-system-contexts,info,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,0,sim,passou,delonix=passou (root alias→system info),frequent-verbs.sh,unit+script,root `info` added; == system info
 1-containers,init,Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 1-containers,inspect,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,divergência-deliberada,delonix=type-scoped,docs/cli-stability.md,doc,no generic root `inspect`: `container inspect` / `image describe` resolve by Kind (documented policy)
@@ -150,7 +150,7 @@ fora-do-ambito,plugin,Docker listing,docker 29.9.2 / podman 4.9.3,2,2,não,fora-
 3-images,rmi,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 1-containers,run,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,passou,docker=passou podman=passou delonix=passou,flow1_interactive.py,evidence-flow1.jsonl,"run --rm -it sh: PTY, test -t 0, exit 37, --rm removal; -i no-tty; stdout/stderr split; single-sample stats — identical across engines after the -i/-t parser fix"
 3-images,save,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
-3-images,search,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
+3-images,search,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,vaga de paridade (cheap wins): implementado + provado ao vivo
 fora-do-ambito,secret,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 fora-do-ambito,service,Docker listing,docker 29.9.2 / podman 4.9.3,2,2,não,fora-do-âmbito,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
 fora-do-ambito,stack,Docker listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
@@ -180,7 +180,7 @@ fora-do-ambito,swarm,Docker listing,docker 29.9.2 / podman 4.9.3,2,2,não,fora-d
 1-containers,unmount,Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
 1-containers,unpause,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,segunda vaga de paridade: implementado + provado ao vivo
 fora-do-ambito,unshare,Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,fora-do-âmbito,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
-3-images,untag,Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
+3-images,untag,Podman listing,docker 29.9.2 / podman 4.9.3,2,2,reconhecido,passou,delonix=ausente,,,vaga de paridade (cheap wins): implementado + provado ao vivo
 outros,update,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,2,2,não,por-fazer,delonix=ausente,,,recusado pelo parser; ver relatório para o próximo passo
 5-system-contexts,version,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
 4-volumes,volume,Docker listing + Podman listing,docker 29.9.2 / podman 4.9.3,0,0,sim,reconhecido-por-testar,delonix=reconhecido,,,parser aceita; equivalência funcional por medir
