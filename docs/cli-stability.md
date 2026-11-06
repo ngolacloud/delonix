@@ -39,7 +39,8 @@ Concretamente, garante-se:
   `--memory`, `--memory-reservation`, `--memory-swap`, `--pids-limit`, `--cpus`,
   `--entrypoint`, `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--ipc`,
   `--pid`, `--uts`, `--stop-signal`, `--stop-timeout`, `--init`,
-  `--volumes-from`, `--mount`, `--add-host`, `--wait`, `--health-*`; em `exec`:
+  `--volumes-from`, `--mount`, `--label`, `--label-file`, `--annotation`,
+  `--add-host`, `--wait`, `--health-*`; em `exec`:
   `-i`, `-t`, `-e`, `-w`, `-u`. (Esta lista
   andou achatada, sem dizer a qual verbo cada flag pertence; um teste em
   `main.rs` verifica as duas listas contra a árvore `clap` real, em vez de
@@ -605,6 +606,29 @@ networkDefaults:
   `apply`, o `prune` ou o `destroy` fazem — só perde o histórico, e há gate na
   bateria E2E a exigi-lo. Automação que dependa da presença de uma revisão está
   a apostar contra essa promessa.
+
+## Divergência deliberada — flags do `docker run` que este motor NÃO traz
+
+Esta tabela é documentação, não promessa de estabilidade: lista as flags do
+`docker run` que o delonix **não** implementa de propósito, porque não têm
+sentido num motor *daemonless*, *rootless* e assente em **cgroup v2**. Cada
+linha diz a razão numa frase e, quando existe, o caminho equivalente neste
+motor. A ausência é uma decisão de desenho, não uma lacuna por preencher — pedir
+qualquer uma delas devia ser recusado com clareza, nunca aceite em silêncio.
+
+| Flag do `docker run` | Porque é N/A aqui | Equivalente no delonix |
+| --- | --- | --- |
+| `--cpuset-mems` | O controlador `cpuset` não é delegado ao cgroup v2 em modo rootless (o host não cede os nós de memória NUMA). | Sem equivalente directo; `delonix run --cpuset` cobre a parte (CPUs) que o rootless cede. |
+| `--memory-swappiness` | Só cgroup v1; o v2 não tem `memory.swappiness` por cgroup. | Sem equivalente; o total de memória+swap afere-se com `delonix run --memory-swap`. |
+| `--oom-kill-disable` | Só cgroup v1 (`memory.oom_control`); o v2 removeu esse botão. | Sem equivalente; a prioridade perante o OOM-killer faz-se com `delonix run --oom-score-adj`. |
+| `--cgroupns` | Em rootless a namespace de cgroup já fica isolada por construção — não há escolha `host`/`private` honesta a oferecer. | Sem equivalente — o isolamento é o estado por omissão. |
+| `--isolation` | Específico de Windows/Hyper-V; este motor é só Linux. | Sem equivalente. |
+| `--runtime` | O delonix **é** o runtime OCI (`delonix oci-runtime`), não delega noutro (`runc`/`crun`). | Sem equivalente — o próprio motor é o alvo. |
+| `--storage-opt` | O armazenamento é o overlay próprio do motor, não um driver configurável por container. | Sem equivalente; os volumes geridos vivem em `delonix volume`. |
+| `--volume-driver` | Não há *plugins* de driver de volume externos no modelo daemonless. | Sem equivalente; `delonix volume` é quem gere os volumes. |
+| `--use-api-socket` | Não existe daemon nem socket de API para montar dentro do container. | Sem equivalente — o modelo é sem daemon. |
+| `--link` | Legado, obsoleto a montante (o próprio Docker o desencoraja). | `delonix network connect` e os aliases de rede (`delonix run --network-alias`). |
+| `--sig-proxy` | Um `run` em foreground, por ser daemonless, já herda e reencaminha os sinais do operador — não há proxy a ligar/desligar. | Sem equivalente — é o comportamento por omissão. |
 
 ## Como uma quebra é feita, quando tem de acontecer
 

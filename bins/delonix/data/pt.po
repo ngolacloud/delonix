@@ -5018,6 +5018,12 @@ msgstr "Label (`CHAVE=VALOR`), repetível — ex.: `io.x-k8s.kind.role=control-p
 msgid "Load variables from a `.env` file (`KEY=VAL` per line). Repeatable"
 msgstr "Carrega variáveis de um ficheiro `.env` (`CHAVE=VALOR` por linha). Repetível"
 
+msgid "Read labels from a file (`KEY=VAL` per line), like `--env-file`. Repeatable. An explicit `--label` on the same key wins"
+msgstr "Lê labels de um ficheiro (`CHAVE=VALOR` por linha), como `--env-file`. Repetível. Um `--label` explícito na mesma chave prevalece"
+
+msgid "OCI annotation (`key=value`), repeatable — non-identifying metadata stored on the container (shown in `delonix inspect`)"
+msgstr "Anotação OCI (`chave=valor`), repetível — metadados não identificadores guardados no container (mostrados em `delonix inspect`)"
+
 msgid "Log driver (`json`, `cri`, ...)"
 msgstr "Driver de log (`json`, `cri`, ...)"
 
