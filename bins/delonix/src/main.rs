@@ -258,6 +258,37 @@ enum Cmd {
         #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
         id: String,
     },
+    /// Suspend a container's processes (cgroup v2 freezer).
+    ///
+    /// The state stays in memory, unlike `stop`. Resume with `unpause`.
+    Pause {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        ids: Vec<String>,
+    },
+    /// Resume a container suspended with `pause`.
+    Unpause {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        ids: Vec<String>,
+    },
+    /// Create an image from a container's CURRENT rootfs state
+    /// (whatever was written inside becomes a new layer).
+    Commit {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        id: String,
+        /// Tag for the new image (e.g. `app:v2`).
+        tag: String,
+    },
+    /// Processes running inside a container (read from `cgroup.procs`).
+    Top {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        id: String,
+    },
+    /// Give a container a new name.
+    Rename {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        id: String,
+        new_name: String,
+    },
     /// Authenticate to an OCI registry.
     ///
     /// Stores the credentials in `<root>/auth.json`, docker/podman format.
@@ -1549,6 +1580,17 @@ fn run() -> Result<()> {
             cmd::container::run(cmd::container::ContainerCmd::Cp { src, dst })
         }
         Cmd::Port { id } => cmd::container::run(cmd::container::ContainerCmd::Port { id }),
+        Cmd::Pause { ids } => cmd::container::run(cmd::container::ContainerCmd::Pause { ids }),
+        Cmd::Unpause { ids } => {
+            cmd::container::run(cmd::container::ContainerCmd::Unpause { ids })
+        }
+        Cmd::Commit { id, tag } => {
+            cmd::container::run(cmd::container::ContainerCmd::Commit { id, tag })
+        }
+        Cmd::Top { id } => cmd::container::run(cmd::container::ContainerCmd::Top { id }),
+        Cmd::Rename { id, new_name } => {
+            cmd::container::run(cmd::container::ContainerCmd::Rename { id, new_name })
+        }
         Cmd::Login {
             registry,
             username,
@@ -2341,6 +2383,13 @@ mod cli_stability_classification_tests {
         "logout",
         "info",
         "events",
+        // CLI-parity second wave: the remaining Docker/Podman root verbs that
+        // alias a `container <verb>` handler 1:1.
+        "pause",
+        "unpause",
+        "commit",
+        "top",
+        "rename",
     ];
 
     /// Every other real top-level group, mirroring "NÃO estável" 1:1. A group

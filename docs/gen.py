@@ -2387,6 +2387,12 @@ _ROOT_VERB_ALIASES = {
     "logout": ("image", "image logout"),
     "info": ("system", "system info"),
     "events": ("system", "system events"),
+    # Second wave: the last container root-verb aliases.
+    "pause": ("container", "container pause"),
+    "unpause": ("container", "container unpause"),
+    "commit": ("container", "container commit"),
+    "top": ("container", "container top"),
+    "rename": ("container", "container rename"),
 }
 
 
