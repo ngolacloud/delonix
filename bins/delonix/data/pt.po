@@ -5078,6 +5078,15 @@ msgstr "Peso relativo de CPU (`cpu.weight`, 1–10000) sob contenção"
 msgid "Relative I/O weight (`io.weight`, 1–10000)"
 msgstr "Peso relativo de I/O (`io.weight`, 1–10000)"
 
+msgid "Docker/Podman `--cpu-shares` (2–262144), converted onto `cpu.weight`; `--cpu-weight` wins if both are given"
+msgstr "`--cpu-shares` do Docker/Podman (2–262144), convertido para `cpu.weight`; o `--cpu-weight` prevalece se ambos forem dados"
+
+msgid "Docker/Podman `--blkio-weight` (10–1000), mapped onto `io.weight`; `--io-weight` wins if both are given"
+msgstr "`--blkio-weight` do Docker/Podman (10–1000), mapeado para `io.weight`; o `--io-weight` prevalece se ambos forem dados"
+
+msgid "Tune the out-of-memory killer score (Docker/Podman `--oom-score-adj`, -1000 to 1000); higher means killed sooner. Also the CRI `LinuxContainerResources.oom_score_adj` (ADR 0038 item 3), written to `/proc/<pid>/oom_score_adj` at spawn"
+msgstr "Afina a pontuação do assassino de memória (`--oom-score-adj` do Docker/Podman, -1000 a 1000); mais alto significa morto mais cedo. Também o `LinuxContainerResources.oom_score_adj` do CRI (ADR 0038 item 3), escrito em `/proc/<pid>/oom_score_adj` no arranque"
+
 msgid "Remove the bandwidth cap"
 msgstr "Remove o tecto de largura de banda"
 
