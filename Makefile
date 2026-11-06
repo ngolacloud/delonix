@@ -233,6 +233,7 @@ gates: ## The Python gates CI runs on the source tree (no build; see `make ci` f
 	python3 scripts/version_gate.py
 	python3 scripts/dev_docs.py --check
 	python3 scripts/dev_docs_site.py --check
+	python3 scripts/agents_toc.py --check
 	python3 scripts/adr_status_gate.py
 	python3 scripts/folhas_gate.py
 
