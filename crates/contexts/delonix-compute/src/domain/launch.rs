@@ -139,6 +139,7 @@ pub fn start<W: WorkloadRuntime>(
     runtime: &W,
 ) -> Result<Started> {
     container.health = o.health.clone();
+    container.no_healthcheck = o.no_healthcheck;
     if should_supervise(&o.restart, o.detach, !o.no_supervisor) {
         if policy_supervised(&o.restart) {
             container.restart_policy = Some(o.restart.clone());
