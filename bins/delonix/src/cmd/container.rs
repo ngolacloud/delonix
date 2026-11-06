@@ -1129,6 +1129,12 @@ pub struct RunArgs {
     /// Run in the background and print the ID.
     #[arg(short, long)]
     detach: bool,
+    /// Keep STDIN open (Docker/Podman `-i`); a daemonless foreground `run` already inherits it, so `-it` gives an interactive shell. See `docs/cli-stability.md`.
+    #[arg(short = 'i', long)]
+    interactive: bool,
+    /// Allocate a TTY (Docker/Podman `-t`); a foreground `run` inherits the operator's terminal (no pty is synthesized when stdout is not one). See `docs/cli-stability.md`.
+    #[arg(short = 't', long)]
+    tty: bool,
     /// Container name (default: `dlx-<id>`).
     #[arg(long)]
     name: Option<String>,
@@ -1144,7 +1150,10 @@ pub struct RunArgs {
     /// no connectivity), `container:<name>` (shares an already-running container's
     /// netns — same IP and ports, Docker/Podman parity), or the NAME of a network
     /// created with `delonix network create`.
-    #[arg(long, default_value = "host", add = ArgValueCandidates::new(super::complete::networks))]
+    // `--network` is Docker/Podman's spelling for the same selection; a
+    // `visible_alias` makes `docker run --network mynet` work verbatim without a
+    // second arg or a new help string to translate.
+    #[arg(long, visible_alias = "network", default_value = "host", add = ArgValueCandidates::new(super::complete::networks))]
     net: String,
     /// Logical ISOLATION namespace (default `default`). Containers in different
     /// namespaces cannot reach each other (even on the same network); only a
@@ -1185,6 +1194,9 @@ pub struct RunArgs {
     /// watcher handles removal when the container dies).
     #[arg(long)]
     rm: bool,
+    /// When to pull the image (Docker/Podman `--pull`): `missing` (default — pull only if absent), `always` (pull before starting), `never` (fail if absent, never fetch).
+    #[arg(long, value_parser = ["missing", "always", "never"], default_value = "missing")]
+    pull: String,
     /// Restart policy (only with `-d`): `no` (default), `on-failure[:max]`,
     /// `always`, `unless-stopped`. A detached supervisor (one per container,
     /// ephemeral — there's no daemon) becomes the container's parent, captures
@@ -1208,6 +1220,12 @@ pub struct RunArgs {
     /// budget (`DELONIX_DEFAULT_PCT`); `max` lifts the cap entirely.
     #[arg(short = 'm', long)]
     memory: Option<String>,
+    /// Soft memory reservation (`memory.low`, Docker/Podman `--memory-reservation`, e.g. `256m`): memory the kernel tries NOT to reclaim under pressure. A floor, not a cap.
+    #[arg(long = "memory-reservation")]
+    memory_reservation: Option<String>,
+    /// Max number of processes (`pids.max`, Docker/Podman `--pids-limit`); `-1` = unlimited. Default: the engine's anti-fork-bomb ceiling.
+    #[arg(long = "pids-limit", allow_hyphen_values = true)]
+    pids_limit: Option<String>,
     /// CPU quota (number of cores, e.g. `0.5`, `2`). Default: the lesser of
     /// 1.0 and a quarter of the engine's budget.
     #[arg(short = 'c', long)]
@@ -1216,7 +1234,9 @@ pub struct RunArgs {
     #[arg(long = "cpu-weight", value_parser = parse_cgroup_weight)]
     cpu_weight: Option<String>,
     /// CPUs the container is pinned to (`cpuset.cpus`, e.g. `0-3`, `0,2`).
-    #[arg(long)]
+    // Docker/Podman spell this `--cpuset-cpus`; a `visible_alias` accepts that
+    // verbatim (same `cpuset.cpus`, no new help string).
+    #[arg(long, visible_alias = "cpuset-cpus")]
     cpuset: Option<String>,
     /// Internal: the kubelet's cgroup for this pod (CRI `cgroup_parent`, ADR 0038).
     /// Unspecified limits mean no limit under it.
@@ -1324,6 +1344,9 @@ pub struct RunArgs {
     /// Mount a tmpfs (`/path[:options]`). Repeatable.
     #[arg(long)]
     tmpfs: Vec<String>,
+    /// Size of `/dev/shm` (Docker/Podman `--shm-size`, e.g. `64m`, `1g`); default 64 MiB.
+    #[arg(long = "shm-size")]
+    shm_size: Option<String>,
     /// Ulimit (`nofile=1024:2048`). Repeatable.
     #[arg(long)]
     ulimit: Vec<String>,
@@ -1433,6 +1456,9 @@ pub struct RunArgs {
     /// CRI format in the log file (for the kubelet/`crictl logs`).
     #[arg(long = "log-cri")]
     log_cri: bool,
+    /// Write the created container's id to this file (Docker/Podman `--cidfile`); refused if the file already exists.
+    #[arg(long = "cidfile", value_hint = clap::ValueHint::FilePath)]
+    cidfile: Option<String>,
     /// Image (e.g. `alpine:3.19`).
     #[arg(add = ArgValueCandidates::new(super::complete::images))]
     image: String,
@@ -1835,9 +1861,35 @@ pub enum ContainerCmd {
 /// `docker create`), `run` goes on to launch the process; see `cmd_run`. A single
 /// conversion here is what keeps the two verbs' behaviour byte-identical save for
 /// that one bit.
+/// Docker/Podman `--pull` policy, applied before a `run`/`create` touches the
+/// image. `missing` (default) is the engine's own resolve-or-pull and a no-op
+/// here. `always` force-pulls before starting (a fresh digest every time, like
+/// `docker run --pull always`). `never` refuses to fetch: if the image is not
+/// already local it fails with a clear reason instead of reaching out.
+fn apply_pull_policy(images: &ImageStore, reference: &str, policy: &str) -> Result<()> {
+    match policy {
+        "always" => {
+            super::util::announce_pull(reference);
+            delonix_oci::registry::pull_from_registry(images, reference)?;
+            Ok(())
+        }
+        "never" => images.resolve(reference).map(|_| ()).map_err(|_| {
+            Error::Invalid(format!(
+                "image '{reference}' is not present locally and `--pull never` forbids fetching \
+                 it — pull it first (`delonix pull {reference}`) or drop `--pull never`"
+            ))
+        }),
+        // "missing": the normal resolve-or-pull downstream handles it.
+        _ => Ok(()),
+    }
+}
+
 fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     let RunArgs {
         detach,
+        interactive,
+        tty,
+        pull,
         name,
         hostname,
         user,
@@ -1853,6 +1905,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         env,
         labels,
         memory,
+        memory_reservation,
+        pids_limit,
         cpus,
         cpu_weight,
         cpuset,
@@ -1913,15 +1967,43 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         log_driver,
         log_file,
         log_cri,
+        cidfile,
+        shm_size,
         image,
         command,
         namespace,
         expose,
     } = args;
+    // `-i`/`-t` (and the `-it` scripts type) are accepted for Docker/Podman
+    // parity. A daemonless foreground `run` INHERITS the operator's stdio, so
+    // the interactive shell, the `test -t 0` TTY and the exit code are already
+    // what `docker run -it` gives (proven by the differential suite). There is
+    // no daemon conduit to allocate a pty across, so the flags record intent
+    // rather than switch a second code path — the same honesty as
+    // `cmd_exec`'s `let _ = interactive`. The one documented limit (a `-t`
+    // whose stdout is not already a terminal does not get a synthesized pty)
+    // lives in `docs/cli-stability.md`.
+    let _ = (interactive, tty);
+    // `--pull` is applied in the `Run`/`Create` dispatch (it needs the image
+    // store), BEFORE this consumes `args`; here the field is just drained.
+    let _ = pull;
+    // `--shm-size` reuses the tmpfs plumbing (same trick as compose): it is just
+    // a tmpfs over `/dev/shm` with a `size=`. Appending it means the operator's
+    // size is the top mount the container sees over the default 64 MiB.
+    let mut tmpfs = tmpfs;
+    if let Some(sz) = shm_size {
+        let bytes = delonix_volume::parse_size_bytes(&sz).ok_or_else(|| {
+            Error::Invalid(format!(
+                "--shm-size '{sz}' is not a size (e.g. 64m, 1g, 67108864)"
+            ))
+        })?;
+        tmpfs.push(format!("/dev/shm:size={bytes},mode=1777"));
+    }
     Ok(RunOpts {
         policy_hold: false,
         no_start,
         detach,
+        cidfile,
         name,
         hostname,
         user,
@@ -1942,6 +2024,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         command,
         quiet: false,
         memory,
+        memory_reservation,
+        pids_limit,
         cpus,
         cpu_weight,
         cpuset,
@@ -2044,8 +2128,14 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         // `run` and `create` share every flag (the same `RunArgs`); the only
         // difference is `no_start` — `create` persists the record in `Created`
         // state and stops, `run` goes on to launch. See `run_opts_from_args`.
-        ContainerCmd::Run(args) => cmd_run(&images, &store, run_opts_from_args(args, false)?),
-        ContainerCmd::Create(args) => cmd_run(&images, &store, run_opts_from_args(args, true)?),
+        ContainerCmd::Run(args) => {
+            apply_pull_policy(&images, &args.image, &args.pull)?;
+            cmd_run(&images, &store, run_opts_from_args(args, false)?)
+        }
+        ContainerCmd::Create(args) => {
+            apply_pull_policy(&images, &args.image, &args.pull)?;
+            cmd_run(&images, &store, run_opts_from_args(args, true)?)
+        }
         ContainerCmd::Ps(PsArgs {
             all,
             quiet,
@@ -2915,7 +3005,19 @@ pub(crate) fn with_host_workload<R>(
     })
 }
 
-pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Result<()> {
+pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> Result<()> {
+    // Imperative pod join (Podman `run --pod <name>`): a CLI caller sets `pod`
+    // but never the hidden `pod_infra_pid`. Resolve it from the pod's existing
+    // first member, so the SECOND and later `run --pod` into the SAME pod join
+    // its IPC/UTS/hostname instead of each starting its own set. `create_pod`
+    // sets the pid explicitly for its own members, so this only fills the gap
+    // the imperative path leaves: None + no members yet → this member becomes
+    // the holder; None + a member exists → it finds and joins it.
+    if opts.pod_infra_pid.is_none() {
+        if let Some(pn) = opts.pod.clone() {
+            opts.pod_infra_pid = super::pod::infra_pid_of(store, &pn);
+        }
+    }
     // The node's runtime policy, BEFORE anything is created or pulled. Same
     // placement reason as the capability ceiling in the CRI: everything reaching
     // here was already authorised by whoever called it, and a policy that lives
@@ -3001,8 +3103,18 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
         pod,
         pod_infra_pid,
         pod_shared_pid,
+        cidfile,
         ..
     } = opts;
+    // Docker `--cidfile`: refuse up front if the target already exists (never
+    // clobber), so the operator learns before anything is created.
+    if let Some(path) = &cidfile {
+        if std::path::Path::new(path).exists() {
+            return Err(Error::Invalid(format!(
+                "--cidfile '{path}' already exists — remove it or choose another path"
+            )));
+        }
+    }
     // Isolation namespace (default `default`). It goes into an nft set name (via
     // `dlxns_set`, which HASHES it → safe) and into a control-line token (which
     // `attach_container` sanitizes). Here we only ensure it's non-empty.
@@ -3120,6 +3232,14 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
     }
     let id = std::env::var("DELONIX_REEXEC_ID").unwrap_or_else(|_| generate_id());
     let reexec = std::env::var("DELONIX_REEXEC_ID").is_ok();
+    // Docker `--cidfile`: write the full id now that it exists. Only on the
+    // first pass (not the `--pod`/custom-net re-exec, which shares the same id
+    // and would just rewrite the same file). Existence was already refused above.
+    if let (Some(path), false) = (&cidfile, reexec) {
+        std::fs::write(path, &id).map_err(|e| {
+            Error::Invalid(format!("--cidfile '{path}': {e}"))
+        })?;
+    }
 
     // The name, and its uniqueness in the namespace, need the store and a
     // translated refusal; everything after that goes through the Compute use case.
@@ -3448,7 +3568,27 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
                 .iter()
                 .find_map(|l| l.strip_prefix(&pod_ip_prefix).map(str::to_string))
                 .unwrap_or_else(|| infra::container_ip(pn));
-            return reexec_into_netns(&id, pn, &ip, &opts_copy, false);
+            let joined = reexec_into_netns(&id, pn, &ip, &opts_copy, false);
+            // A `run --pod <name>` into a pod that does not exist fails deep in
+            // the netns machinery ("Cannot open network namespace"), which says
+            // nothing about WHY. If the join failed AND the pod has no members,
+            // it is almost always a Docker/Podman user expecting `--pod` to
+            // CREATE the pod. It does not — delonix pods are declarative
+            // (ADR-0006), `--pod` only JOINS an existing one — so rewrite the
+            // error to say exactly that. `create_pod`'s own first member never
+            // lands here: its netns is already up, so the join succeeds. A pod
+            // that HAS members but still failed keeps the real error (it is a
+            // genuine fault, not a typo'd name).
+            if joined.is_err() && !super::pod::exists(store, pn) {
+                return Err(Error::Invalid(format!(
+                    "pod '{pn}' does not exist — nothing to join. Delonix pods are DECLARATIVE: \
+                     there is no `pod create --name`, and `run --pod` only JOINS an existing pod. \
+                     Declare the pod and all its members in a `kind: Pod` manifest and create it \
+                     with `delonix pod create -f <file>`, then `run --pod {pn}` joins it \
+                     (`delonix get pods` lists them)."
+                )));
+            }
+            return joined;
         }
     }
     c.ports = ports.clone();
@@ -4438,6 +4578,9 @@ fn reexec_into_netns(
 ) -> Result<()> {
     // Enters the netns `netns` (the container's in `--net <custom>`, where
     // `netns == sanitize(id)`; the shared POD's in `--pod`, where it differs from `id`).
+    // The actionable "pod does not exist" message lives at the `--pod` call
+    // site in `cmd_run` (it can tell an absent pod from a real fault by its
+    // member count); here the generic infra message is correct.
     let prefix = infra::join_argv(netns).ok_or_else(|| Error::Runtime {
         context: "join_argv",
         message: super::po::t("ingress infra is down — no holder to enter").into(),

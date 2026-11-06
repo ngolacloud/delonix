@@ -208,6 +208,57 @@ pub static ENTRIES: &[Entry] = &[
         ],
         see_also: &["tag", "images", "image push"],
     },
+    // The remaining Docker/Podman root aliases added in the CLI-parity review.
+    Entry {
+        path: "cp",
+        group: "Workloads",
+        examples: &[
+            ("copy a file OUT of a container to the host", "delonix cp web:/etc/nginx/nginx.conf ./nginx.conf"),
+            ("copy a file INTO a container", "delonix cp ./index.html web:/usr/share/nginx/html/index.html"),
+        ],
+        see_also: &["container cp", "pod cp", "exec"],
+    },
+    Entry {
+        path: "port",
+        group: "Workloads",
+        examples: &[
+            ("the published ports of a container", "delonix port web"),
+        ],
+        see_also: &["ps", "run", "container port"],
+    },
+    Entry {
+        path: "login",
+        group: "Artifacts",
+        examples: &[
+            ("authenticate to a registry, reading the token from stdin (never an argument)", "echo \"$TOKEN\" | delonix login ghcr.io -u angolardevops --password-stdin"),
+        ],
+        see_also: &["logout", "pull", "push", "image login"],
+    },
+    Entry {
+        path: "logout",
+        group: "Artifacts",
+        examples: &[
+            ("drop the stored credentials of a registry", "delonix logout ghcr.io"),
+        ],
+        see_also: &["login", "image logout"],
+    },
+    Entry {
+        path: "info",
+        group: "System",
+        examples: &[
+            ("rootless?, cgroup delegation, network infra and resource counts", "delonix info"),
+        ],
+        see_also: &["events", "system info", "system df"],
+    },
+    Entry {
+        path: "events",
+        group: "System",
+        examples: &[
+            ("the engine's event log, oldest to newest", "delonix events"),
+            ("follow continuously, as JSON lines for a script", "delonix events -f -o json"),
+        ],
+        see_also: &["info", "ps", "system events"],
+    },
     Entry {
         path: "cluster",
         group: "Clusters",
@@ -1982,7 +2033,34 @@ pub static ENTRIES: &[Entry] = &[
             ("N containers sharing one netns — same IP and `localhost` between them, like a k8s Pod", "delonix pod create -f examples/compute/pod.yaml"),
             ("from the default manifest in the current directory", "delonix pod create"),
         ],
-        see_also: &["get", "describe", "stack apply"],
+        see_also: &["get", "describe", "stack apply", "pod stop", "pod rm"],
+    },
+    Entry {
+        path: "pod stop",
+        group: "Lifecycle",
+        examples: &[("stop every member of the pod", "delonix pod stop web")],
+        see_also: &["pod start", "pod restart", "pod rm"],
+    },
+    Entry {
+        path: "pod start",
+        group: "Lifecycle",
+        examples: &[("start every member of the pod", "delonix pod start web")],
+        see_also: &["pod stop", "pod restart"],
+    },
+    Entry {
+        path: "pod restart",
+        group: "Lifecycle",
+        examples: &[("stop then start every member of the pod", "delonix pod restart web")],
+        see_also: &["pod stop", "pod start"],
+    },
+    Entry {
+        path: "pod rm",
+        group: "Lifecycle",
+        examples: &[
+            ("remove a pod and all its members", "delonix pod rm web"),
+            ("force-remove even if members are running", "delonix pod rm -f web"),
+        ],
+        see_also: &["pod stop", "delete"],
     },
     Entry {
         path: "pod logs",

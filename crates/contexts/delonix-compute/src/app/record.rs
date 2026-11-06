@@ -369,6 +369,14 @@ pub struct Container {
     pub created_unix: u64,
     /// cgroup memory limit (e.g.: `64M`).
     pub memory_max: String,
+    /// Soft memory floor (`memory.low`, Docker `--memory-reservation`): memory
+    /// the kernel tries NOT to reclaim under pressure. `None` = no floor.
+    #[serde(default)]
+    pub memory_low: Option<String>,
+    /// Process ceiling (`pids.max`, Docker `--pids-limit`). `None` = the engine's
+    /// default anti-fork-bomb ceiling; `Some("max")` = unlimited.
+    #[serde(default)]
+    pub pids_max: Option<String>,
     /// CPU limit in cores (e.g.: `0.5`, `2`) — MANDATORY (Phase 7+security).
     #[serde(default = "default_cpus")]
     pub cpus: String,
@@ -843,6 +851,8 @@ impl Container {
             status: Status::Created,
             created_unix,
             memory_max,
+            memory_low: None,
+            pids_max: None,
             cpus: default_cpus(),
             cpu_weight: None,
             cpuset: None,

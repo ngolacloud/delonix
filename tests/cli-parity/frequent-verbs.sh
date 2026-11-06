@@ -89,6 +89,14 @@ same_help pull image
 for v in tag save load push; do same_help "$v" image; done
 same_help2 images "image ls"
 same_help2 rmi    "image rm"
+# Root aliases completed in the CLI-parity review: cp/port (container), login/
+# logout (image), info/events (system). Same flag surface as the group verb.
+same_help cp     container
+same_help port   container
+same_help login  image
+same_help logout image
+same_help2 info   "system info"
+same_help2 events "system events"
 
 echo
 echo "== behaviour parity (offline: store reads and no-such-resource errors) =="
@@ -109,6 +117,14 @@ same_behaviour "tag missing"  "tag dlx-nope:1 x:2"         "image tag dlx-nope:1
 same_behaviour "save missing" "save dlx-nope:1 -o /dev/null" "image save dlx-nope:1 -o /dev/null"
 same_behaviour "load missing" "load -i /nonexistent-dlx.tar" "image load -i /nonexistent-dlx.tar"
 same_behaviour "push missing" "push dlx-nope:1"            "image push dlx-nope:1"
+# Parity-review aliases: a root verb reaches the SAME handler as its group form.
+same_behaviour "port missing" "port dlx-nope"              "container port dlx-nope"
+same_behaviour "cp missing"   "cp dlx-nope:/x ."           "container cp dlx-nope:/x ."
+same_behaviour "logout missing" "logout nope.example.com"  "image logout nope.example.com"
+same_behaviour "info"         "info"                       "system info"
+# `--pull never` on an absent image errors the SAME way at root and under the
+# group, offline (it refuses to fetch rather than reaching the network).
+same_behaviour "pull never"   "run --pull never dlx-nope-img:1 true" "container run --pull never dlx-nope-img:1 true"
 
 echo
 echo "== wait: one verb, two forms, selected by grammar =="
