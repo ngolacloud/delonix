@@ -317,6 +317,15 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["tag", "image untag", "rmi"],
     },
     Entry {
+        path: "export",
+        group: "Artifacts",
+        examples: &[
+            ("stream a container's rootfs as a tar", "delonix export web > web.tar"),
+            ("write the tar straight to a file", "delonix export web -o web.tar"),
+        ],
+        see_also: &["container export", "commit", "save"],
+    },
+    Entry {
         path: "cluster",
         group: "Clusters",
         examples: &[
@@ -696,6 +705,15 @@ pub static ENTRIES: &[Entry] = &[
             ("in CI, where there is no terminal to confirm at", "delonix container prune -f"),
         ],
         see_also: &["container rm", "container ps", "image prune", "system prune"],
+    },
+    Entry {
+        path: "container export",
+        group: "Artifacts",
+        examples: &[
+            ("stream a container's rootfs as a tar", "delonix container export web > web.tar"),
+            ("write the tar straight to a file", "delonix container export web -o web.tar"),
+        ],
+        see_also: &["container commit", "image save", "image import"],
     },
     Entry {
         path: "container run",

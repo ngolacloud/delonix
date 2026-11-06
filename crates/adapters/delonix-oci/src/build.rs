@@ -980,6 +980,18 @@ impl ImageStore {
     /// entry said `1000:1000` and the user's own directory `100999:100999` — an
     /// image that gives its whole filesystem to uid 1000 on any engine that
     /// honours tar ownership (ADR-0062).
+    /// `docker export`/`podman export`: the container's whole rootfs as a
+    /// single UNCOMPRESSED tar (not an image — no config, no layers). The
+    /// pseudo-filesystems (`/proc`, `/sys`, `/dev`) travel as empty mount
+    /// points, their contents excluded, exactly as Docker's export does. `ids`
+    /// maps host owners to the ids the container sees (pass `runtime::container_ids`).
+    pub fn export_rootfs_tar(
+        rootfs: &std::path::Path,
+        ids: &dyn Fn(u32, u32) -> (u32, u32),
+    ) -> Result<Vec<u8>> {
+        Self::pack_rootfs_tar(rootfs, ids)
+    }
+
     fn pack_rootfs_tar(
         rootfs: &std::path::Path,
         ids: &dyn Fn(u32, u32) -> (u32, u32),
