@@ -35,7 +35,7 @@ Concretamente, garante-se:
 * **O nome do comando e a ordem dos argumentos posicionais.**
 * **As flags curtas e longas listadas acima e os seus significados** — em
   `run`: `-d`, `-i`, `-t`, `-p`, `-v`, `-e`, `--name`, `--rm`, `--net`
-  (alias `--network`), `--pull`, `--cidfile`, `--shm-size`, `--restart`,
+  (alias `--network`), `--pull`, `--platform`, `--cidfile`, `--shm-size`, `--restart`,
   `--memory`, `--memory-reservation`, `--memory-swap`, `--pids-limit`, `--cpus`,
   `--cpu-shares`, `--blkio-weight`, `--oom-score-adj`,
   `--entrypoint`, `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--ipc`,

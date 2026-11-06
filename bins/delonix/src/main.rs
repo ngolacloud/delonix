@@ -1115,6 +1115,12 @@ mod run_interactive_flag_parity_tests {
     }
 
     #[test]
+    fn run_accepts_platform() {
+        assert!(parses(&["delonix", "run", "--platform", "linux/amd64", "busybox"]));
+        assert!(parses(&["delonix", "create", "--platform", "linux/arm64", "busybox"]));
+    }
+
+    #[test]
     fn run_accepts_the_docker_pull_policy() {
         for p in ["missing", "always", "never"] {
             assert!(parses(&["delonix", "run", "--pull", p, "busybox"]), "{p}");
@@ -2524,6 +2530,7 @@ mod container_image_contract_tests {
             "--rm",
             "--net",
             "--pull",
+            "--platform",
             "--restart",
             "--memory",
             "--memory-reservation",
