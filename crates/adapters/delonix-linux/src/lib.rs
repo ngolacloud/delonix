@@ -7036,7 +7036,7 @@ fn setup_cgroup(c: &Container, pid: i32, io_dev: Option<&str>) -> Result<()> {
     );
     write_limit(cg, "cpu.max", &cpu_max_value(&c.cpus))?; // CPU ceiling
     write_limit(cg, "pids.max", &pids_max_write_value(c.pids_max.as_deref()))?; // process ceiling
-                                                                 // --- scheduling / QoS (cgroup v2, best-effort) ---
+                                                                                // --- scheduling / QoS (cgroup v2, best-effort) ---
     if let Some(w) = &c.cpu_weight {
         let _ = std::fs::write(format!("{cg}/cpu.weight"), w); // CPU priority
     }
@@ -11948,7 +11948,8 @@ mod remove_tests {
         std::thread::sleep(Duration::from_millis(300));
         let mut c = record_of(&child);
         let store = OneRecord(RefCell::new(Some(c.clone())));
-        let err = stop_waiting(&store, &mut c, 0, Signal::SIGTERM, Signal::SIGWINCH, 2).unwrap_err();
+        let err =
+            stop_waiting(&store, &mut c, 0, Signal::SIGTERM, Signal::SIGWINCH, 2).unwrap_err();
         let alive = !process_gone(c.pid.unwrap(), c.pid_starttime);
         let _ = child.kill();
         let _ = child.wait();
@@ -11978,7 +11979,14 @@ mod remove_tests {
             .expect("sleep");
         let mut c = record_of(&child);
         let store = OneRecord(RefCell::new(Some(c.clone())));
-        let r = stop_waiting(&store, &mut c, 5, Signal::SIGTERM, Signal::SIGKILL, KILL_EXIT_WAIT_TICKS);
+        let r = stop_waiting(
+            &store,
+            &mut c,
+            5,
+            Signal::SIGTERM,
+            Signal::SIGKILL,
+            KILL_EXIT_WAIT_TICKS,
+        );
         let _ = child.kill();
         let _ = child.wait();
         r.expect("stop");
