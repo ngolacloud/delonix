@@ -267,6 +267,68 @@ jobs:
         if: ${{ !cancelled() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         run: python3 scripts/tmp_roots_gate.py --dir /tmp --before "${{ runner.temp }}/slash-tmp-before.txt"
 
+  # ---- CLI parity with Docker/Podman (two tiers) ----
+  # Tier 1 (fast): parser + TAB, no engine, no network — proves each root verb
+  # reaches the SAME handler as its group form and that TAB offers every visible
+  # spelling. The unit half already runs under `test`; this runs the shell
+  # scripts too. Tier 2 (differential): the two PRIORITY flows replayed on a
+  # real docker, a real podman and the delonix built from THIS checkout, so a
+  # regression in interactive `run -it` or in the pod flow is caught against the
+  # reference engines, not just against our own assertions.
+  #
+  # The differential REFUSES to pass if an engine is missing (`run.sh` exits
+  # non-zero): an empty or all-skipped suite must never read as "conforme".
+  cli-parity:
+    name: cli-parity (docker/podman differential)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ./.github/actions/protoc
+      - name: Instala toolchain fixada
+        run: rustup show
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Build the delonix binary from this checkout
+        run: cargo build --locked -p delonix-bin --bin delonix
+      # Tier 1 — always runnable, no prerequisites.
+      - name: Fast parity (parser + TAB, no engine)
+        run: tests/cli-parity/run.sh fast target/debug/delonix
+      # Tier 2 — reference engines. docker ships on ubuntu-latest; podman is
+      # apt-installed. A missing engine FAILS the job (visible prerequisite).
+      - name: Install podman (reference engine)
+        run: sudo apt-get update && sudo apt-get install -y podman uidmap
+      # delonix maps container uids 1..65536 → host subuids 100000..165535
+      # (USERNS_UID_BASE=100000, USERNS_RANGE=65536, hardcoded in
+      # delonix-linux). `newuidmap` validates that against /etc/subuid for the
+      # invoking user, and the runner's default grant uses a different base — so
+      # flow 1 failed with `newuidmap: uid range … not allowed`. Grant exactly
+      # the range delonix maps; a second subuid line is unioned by newuidmap, so
+      # this does not disturb podman's own rootless grant.
+      - name: Grant the runner the subuid/subgid range delonix maps (rootless)
+        run: |
+          user=$(id -un)
+          echo "${user}:100000:65536" | sudo tee -a /etc/subuid
+          echo "${user}:100000:65536" | sudo tee -a /etc/subgid
+          grep -E "^${user}:" /etc/subuid /etc/subgid
+      # Ubuntu 24.04 (the runner) ships `kernel.apparmor_restrict_unprivileged_
+      # userns=1`, which restricts what an UNPRIVILEGED user namespace may do —
+      # the mounts `setup_rootfs` performs inside it then fail with EPERM
+      # (`failed to prepare the rootfs`). Lift the restriction for the job, the
+      # documented rootless-container workaround on 24.04 runners. Best-effort:
+      # the key is absent on older kernels, so a failure to set it is not fatal.
+      - name: Lift the AppArmor unprivileged-userns restriction (rootless mounts)
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true
+      - name: Differential flows vs docker + podman
+        run: tests/cli-parity/run.sh differential target/debug/delonix
+      - name: Upload per-engine evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cli-parity-evidence
+          path: tests/cli-parity/evidence-*.jsonl
+          if-no-files-found: warn
+
   # ---- Native arm64 tests (issue #438) ----
   # A cross build only type-checks the `#[cfg(target_arch)]` branches; none of
   # them run. This runs the same suite as `test` on a real aarch64 runner. It is

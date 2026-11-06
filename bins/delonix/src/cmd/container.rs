@@ -1129,6 +1129,12 @@ pub struct RunArgs {
     /// Run in the background and print the ID.
     #[arg(short, long)]
     detach: bool,
+    /// Keep STDIN open (Docker/Podman `-i`); a daemonless foreground `run` already inherits it, so `-it` gives an interactive shell. See `docs/cli-stability.md`.
+    #[arg(short = 'i', long)]
+    interactive: bool,
+    /// Allocate a TTY (Docker/Podman `-t`); a foreground `run` inherits the operator's terminal (no pty is synthesized when stdout is not one). See `docs/cli-stability.md`.
+    #[arg(short = 't', long)]
+    tty: bool,
     /// Container name (default: `dlx-<id>`).
     #[arg(long)]
     name: Option<String>,
@@ -1144,7 +1150,10 @@ pub struct RunArgs {
     /// no connectivity), `container:<name>` (shares an already-running container's
     /// netns — same IP and ports, Docker/Podman parity), or the NAME of a network
     /// created with `delonix network create`.
-    #[arg(long, default_value = "host", add = ArgValueCandidates::new(super::complete::networks))]
+    // `--network` is Docker/Podman's spelling for the same selection; a
+    // `visible_alias` makes `docker run --network mynet` work verbatim without a
+    // second arg or a new help string to translate.
+    #[arg(long, visible_alias = "network", default_value = "host", add = ArgValueCandidates::new(super::complete::networks))]
     net: String,
     /// Logical ISOLATION namespace (default `default`). Containers in different
     /// namespaces cannot reach each other (even on the same network); only a
@@ -1159,6 +1168,12 @@ pub struct RunArgs {
     /// Volume/bind mount, `name:/target[:ro]` or `/host:/target[:ro]`. Repeatable.
     #[arg(short = 'v', long = "volume")]
     volumes: Vec<String>,
+    /// Mount all the volumes of another container (Docker/Podman `--volumes-from`), `<container>[:ro|:rw]`. Repeatable.
+    #[arg(long = "volumes-from", add = ArgValueCandidates::new(super::complete::containers))]
+    volumes_from: Vec<String>,
+    /// Mount in Docker/Podman `--mount` syntax: `type=bind|volume|tmpfs,source=…,target=…[,readonly]`. An alternative to `-v`. Repeatable.
+    #[arg(long = "mount")]
+    mounts_flag: Vec<String>,
     /// Publish a port, `[hostIp:]hostPort:contPort[/tcp|udp]` or just `port`. Repeatable.
     /// SAFE BY DEFAULT: without `hostIp` the port binds to `127.0.0.1` only — reachable
     /// from the host itself, NOT from a browser on another machine. Name the address to
@@ -1169,6 +1184,9 @@ pub struct RunArgs {
     /// <network>` it publishes via the ingress (nft DNAT + hostfwd on the single slirp).
     #[arg(short = 'p', long = "publish")]
     publish: Vec<String>,
+    /// Publish every port the image EXPOSEs, each on an ephemeral host port (Docker/Podman `--publish-all`/`-P`).
+    #[arg(short = 'P', long = "publish-all")]
+    publish_all: bool,
     /// Privileged container (all caps, seccomp off) — trusted workloads.
     #[arg(long)]
     privileged: bool,
@@ -1185,6 +1203,12 @@ pub struct RunArgs {
     /// watcher handles removal when the container dies).
     #[arg(long)]
     rm: bool,
+    /// When to pull the image (Docker/Podman `--pull`): `missing` (default — pull only if absent), `always` (pull before starting), `never` (fail if absent, never fetch).
+    #[arg(long, value_parser = ["missing", "always", "never"], default_value = "missing")]
+    pull: String,
+    /// Platform of the image to pull (Docker/Podman `--platform`, e.g. `linux/amd64`, `linux/arm64`). Fetches that variant; a cross-arch image may not run on this host.
+    #[arg(long)]
+    platform: Option<String>,
     /// Restart policy (only with `-d`): `no` (default), `on-failure[:max]`,
     /// `always`, `unless-stopped`. A detached supervisor (one per container,
     /// ephemeral — there's no daemon) becomes the container's parent, captures
@@ -1203,11 +1227,32 @@ pub struct RunArgs {
     /// enables the dedicated cgroup2 delegation for Kind nodes (see `setup_node_cgroup_ns`).
     #[arg(long = "label")]
     labels: Vec<String>,
+    /// Read labels from a file (`KEY=VAL` per line), like `--env-file`. Repeatable. An explicit `--label` on the same key wins.
+    #[arg(long = "label-file")]
+    label_file: Vec<String>,
+    /// OCI annotation (`key=value`), repeatable — non-identifying metadata stored on the container (shown in `delonix inspect`).
+    #[arg(long = "annotation")]
+    annotations: Vec<String>,
     // ---- resources (cgroup v2) ----
     /// Memory limit (`64M`, `2G`, `max`). Default: a quarter of the engine's
     /// budget (`DELONIX_DEFAULT_PCT`); `max` lifts the cap entirely.
     #[arg(short = 'm', long)]
     memory: Option<String>,
+    /// Soft memory reservation (`memory.low`, Docker/Podman `--memory-reservation`, e.g. `256m`): memory the kernel tries NOT to reclaim under pressure. A floor, not a cap.
+    #[arg(long = "memory-reservation")]
+    memory_reservation: Option<String>,
+    /// Memory + swap TOTAL (Docker/Podman `--memory-swap`, e.g. `1g`; `-1` = unlimited swap). The swap allowance is this minus `--memory`.
+    #[arg(long = "memory-swap", allow_hyphen_values = true)]
+    memory_swap: Option<String>,
+    /// Max number of processes (`pids.max`, Docker/Podman `--pids-limit`); `-1` = unlimited. Default: the engine's anti-fork-bomb ceiling.
+    #[arg(long = "pids-limit", allow_hyphen_values = true)]
+    pids_limit: Option<String>,
+    /// Signal `stop` sends first (Docker/Podman `--stop-signal`, e.g. `SIGINT` or `2`). Default `SIGTERM`; `SIGKILL` still follows after the grace period.
+    #[arg(long = "stop-signal")]
+    stop_signal: Option<String>,
+    /// Seconds `stop` waits before `SIGKILL` (Docker/Podman `--stop-timeout`). An explicit `stop -t` overrides it.
+    #[arg(long = "stop-timeout")]
+    stop_timeout: Option<u64>,
     /// CPU quota (number of cores, e.g. `0.5`, `2`). Default: the lesser of
     /// 1.0 and a quarter of the engine's budget.
     #[arg(short = 'c', long)]
@@ -1215,16 +1260,20 @@ pub struct RunArgs {
     /// Relative CPU weight (`cpu.weight`, 1–10000) under contention.
     #[arg(long = "cpu-weight", value_parser = parse_cgroup_weight)]
     cpu_weight: Option<String>,
+    /// Docker/Podman `--cpu-shares` (2–262144), converted onto `cpu.weight`; `--cpu-weight` wins if both are given.
+    #[arg(long = "cpu-shares", value_parser = parse_cpu_shares)]
+    cpu_shares: Option<String>,
     /// CPUs the container is pinned to (`cpuset.cpus`, e.g. `0-3`, `0,2`).
-    #[arg(long)]
+    // Docker/Podman spell this `--cpuset-cpus`; a `visible_alias` accepts that
+    // verbatim (same `cpuset.cpus`, no new help string).
+    #[arg(long, visible_alias = "cpuset-cpus")]
     cpuset: Option<String>,
     /// Internal: the kubelet's cgroup for this pod (CRI `cgroup_parent`, ADR 0038).
     /// Unspecified limits mean no limit under it.
     #[arg(long = "kube-cgroup-parent", hide = true)]
     kube_cgroup_parent: Option<String>,
-    /// Internal: CRI `LinuxContainerResources.oom_score_adj` (ADR 0038 item 3),
-    /// written to `/proc/<pid>/oom_score_adj` at spawn.
-    #[arg(long = "oom-score-adj", hide = true)]
+    /// Tune the out-of-memory killer score (Docker/Podman `--oom-score-adj`, -1000 to 1000); higher means killed sooner. Also the CRI `LinuxContainerResources.oom_score_adj` (ADR 0038 item 3), written to `/proc/<pid>/oom_score_adj` at spawn.
+    #[arg(long = "oom-score-adj", allow_hyphen_values = true, value_parser = parse_oom_score_adj)]
     oom_score_adj: Option<i32>,
     /// Internal: CRI `LinuxContainerResources.cpuset_mems` (ADR 0038 item 3),
     /// mirrors `--kube-cgroup-parent`/`--oom-score-adj` so this field is
@@ -1245,6 +1294,9 @@ pub struct RunArgs {
     /// Relative I/O weight (`io.weight`, 1–10000).
     #[arg(long = "io-weight", value_parser = parse_cgroup_weight)]
     io_weight: Option<String>,
+    /// Docker/Podman `--blkio-weight` (10–1000), mapped onto `io.weight`; `--io-weight` wins if both are given.
+    #[arg(long = "blkio-weight", value_parser = parse_blkio_weight)]
+    blkio_weight: Option<String>,
     /// Absolute read limit from the store's disk (`10mb`, `1g`). Docker's `--device-read-bps`.
     #[arg(long = "device-read-bps")]
     device_read_bps: Option<String>,
@@ -1261,6 +1313,15 @@ pub struct RunArgs {
     /// Read-only rootfs (writes go to tmpfs/volumes).
     #[arg(long = "read-only")]
     read_only: bool,
+    /// Run a tiny init as PID 1 that reaps orphaned processes and forwards signals (Docker/Podman `--init`); the image command runs as its child.
+    #[arg(long)]
+    init: bool,
+    /// File-mode creation mask for the container process, in octal (Podman `--umask`, e.g. `0077`). Default keeps the runtime `0022`.
+    #[arg(long, value_name = "MASK")]
+    umask: Option<String>,
+    /// Cgroup namespace mode: `private` (own cgroup namespace) or `host` (share the host's view) (Docker/Podman `--cgroupns`). Default `host`.
+    #[arg(long = "cgroupns", value_name = "MODE")]
+    cgroupns: Option<String>,
     /// Add a capability (e.g. `NET_ADMIN`). Repeatable.
     #[arg(long = "cap-add")]
     cap_add: Vec<String>,
@@ -1301,6 +1362,15 @@ pub struct RunArgs {
     /// Share the host's IPC namespace.
     #[arg(long = "host-ipc")]
     host_ipc: bool,
+    /// PID namespace (Docker/Podman `--pid`): `host` shares the host's, `private` (default) its own. `--pid host` == `--host-pid`.
+    #[arg(long = "pid")]
+    pid_mode: Option<String>,
+    /// IPC namespace (Docker/Podman `--ipc`): `host` shares the host's, `private` (default) its own. `--ipc host` == `--host-ipc`.
+    #[arg(long = "ipc")]
+    ipc_mode: Option<String>,
+    /// UTS namespace (Docker/Podman `--uts`): `host` shares the host's hostname, `private` (default) its own. `--hostname` cannot be combined with `--uts host`.
+    #[arg(long = "uts")]
+    uts_mode: Option<String>,
     /// Detection mode: seccomp in log mode (doesn't block), to discover syscalls.
     #[arg(long)]
     detect: bool,
@@ -1324,6 +1394,9 @@ pub struct RunArgs {
     /// Mount a tmpfs (`/path[:options]`). Repeatable.
     #[arg(long)]
     tmpfs: Vec<String>,
+    /// Size of `/dev/shm` (Docker/Podman `--shm-size`, e.g. `64m`, `1g`); default 64 MiB.
+    #[arg(long = "shm-size")]
+    shm_size: Option<String>,
     /// Ulimit (`nofile=1024:2048`). Repeatable.
     #[arg(long)]
     ulimit: Vec<String>,
@@ -1400,6 +1473,9 @@ pub struct RunArgs {
     /// container reads `starting` rather than `unhealthy`.
     #[arg(long = "health-start-period", default_value_t = 0)]
     health_start_period: u64,
+    /// Disable the image's HEALTHCHECK entirely (Docker/Podman `--no-healthcheck`): no monitor, no probe.
+    #[arg(long = "no-healthcheck")]
+    no_healthcheck: bool,
     /// Restrict DNS resolution to these containers (isolation). Repeatable.
     #[arg(long, add = ArgValueCandidates::new(super::complete::containers))]
     knows: Vec<String>,
@@ -1433,6 +1509,9 @@ pub struct RunArgs {
     /// CRI format in the log file (for the kubelet/`crictl logs`).
     #[arg(long = "log-cri")]
     log_cri: bool,
+    /// Write the created container's id to this file (Docker/Podman `--cidfile`); refused if the file already exists.
+    #[arg(long = "cidfile", value_hint = clap::ValueHint::FilePath)]
+    cidfile: Option<String>,
     /// Image (e.g. `alpine:3.19`).
     #[arg(add = ArgValueCandidates::new(super::complete::images))]
     image: String,
@@ -1482,9 +1561,9 @@ pub struct StartArgs {
 pub struct StopArgs {
     #[arg(required = true, add = ArgValueCandidates::new(super::complete::containers))]
     ids: Vec<String>,
-    /// Seconds until SIGKILL.
-    #[arg(short, long, default_value_t = 10)]
-    time: u64,
+    /// Seconds until SIGKILL (default: the container's `--stop-timeout`, else 10).
+    #[arg(short, long)]
+    time: Option<u64>,
 }
 
 #[derive(clap::Args)]
@@ -1651,7 +1730,7 @@ pub enum ContainerCmd {
     /// The record is registered in `Created` state and the rootfs prepared, but no process runs; `container start <id>` launches it later from the same record. Takes every flag `run` does, and pulls the image if missing.
     Create(RunArgs),
     /// List containers.
-    #[command(visible_alias = "ls")]
+    #[command(visible_aliases = ["ls", "list"])]
     Ps(PsArgs),
     /// (Re)start stopped/crashed containers. Always detached.
     ///
@@ -1736,6 +1815,18 @@ pub enum ContainerCmd {
         #[arg(add = ArgValueCandidates::new(super::complete::containers))]
         id: String,
     },
+    /// Export a container's filesystem as a tar archive (`docker export`).
+    ///
+    /// The whole rootfs as an UNCOMPRESSED tar; `/proc`, `/sys` and `/dev`
+    /// travel as empty mount points. Unlike `image save`, this carries no image
+    /// metadata — just the files, as the container sees their owners.
+    Export {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+        /// Write to this file instead of stdout (`docker export -o`).
+        #[arg(short = 'o', long = "output", value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
     /// Copy files between the host and a container.
     ///
     /// Exactly one side is `container:/path` (e.g. `delonix container cp
@@ -1745,6 +1836,11 @@ pub enum ContainerCmd {
     ///
     /// With no command, tries `bash` and falls back to `sh` (which exists in any image) — `container exec -it <id>` is the interactive shell, same as `container exec -it <id> bash` would give if `bash` is there.
     Exec(ExecArgs),
+    /// Test whether a container exists in the store (Podman's `container exists`): prints nothing, exit 0/1.
+    Exists {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
     /// Show the full spec of one or more containers (Store JSON).
     Inspect {
         #[arg(required = true, add = ArgValueCandidates::new(super::complete::containers))]
@@ -1827,6 +1923,41 @@ pub enum ContainerCmd {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
         file: Option<PathBuf>,
     },
+    /// Print the host path to a container's root filesystem (Podman `mount`).
+    ///
+    /// For a RUNNING container the path is `/proc/<pid>/root`, valid only while it runs; for a stopped flat rootless container it is a real, usable directory on disk.
+    Mount {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
+    /// Counterpart of `mount` (Podman `unmount`, alias `umount`).
+    ///
+    /// A safe no-op in this engine: `mount` only PRINTS an existing path, it never creates a new mount to tear down, so this leaves the container in exactly the same state.
+    #[command(visible_aliases = ["umount"])]
+    Unmount {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
+    /// Create a new STOPPED container from an existing one's configuration (Podman `container clone`).
+    ///
+    /// Copies the source's spec — image, command, env, mounts, limits — under a new id and name and provisions its own rootfs, WITHOUT starting it. Launch it later with `container start`.
+    Clone {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+        /// Name for the clone (default: `<source>-clone`).
+        #[arg(long = "name", value_name = "NEW")]
+        new_name: Option<String>,
+    },
+    /// Checkpoint a running container to disk with CRIU (Podman `container checkpoint`).
+    Checkpoint {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
+    /// Restore a container from a CRIU checkpoint (Podman `container restore`).
+    Restore {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
 }
 
 /// Converts the shared `RunArgs` — the flags `run` and `create` have in common —
@@ -1835,15 +1966,145 @@ pub enum ContainerCmd {
 /// `docker create`), `run` goes on to launch the process; see `cmd_run`. A single
 /// conversion here is what keeps the two verbs' behaviour byte-identical save for
 /// that one bit.
+/// Docker/Podman `--pull` policy, applied before a `run`/`create` touches the
+/// image. `missing` (default) is the engine's own resolve-or-pull and a no-op
+/// here. `always` force-pulls before starting (a fresh digest every time, like
+/// `docker run --pull always`). `never` refuses to fetch: if the image is not
+/// already local it fails with a clear reason instead of reaching out.
+fn apply_pull_policy(
+    images: &ImageStore,
+    reference: &str,
+    policy: &str,
+    platform: Option<&str>,
+) -> Result<()> {
+    // `--platform os/arch[/variant]`: fetch THAT variant up front so the normal
+    // resolve downstream finds it. The registry pull takes the ARCH, so take the
+    // middle (or last) component of the platform string. `--pull never` still
+    // forbids fetching — then we only check the local store.
+    if let Some(p) = platform {
+        let arch = p.split('/').nth(1).unwrap_or(p);
+        if policy == "never" {
+            return images.resolve(reference).map(|_| ()).map_err(|_| {
+                Error::Invalid(format!(
+                    "image '{reference}' (platform {p}) is not present locally and `--pull never` \
+                     forbids fetching it"
+                ))
+            });
+        }
+        super::util::announce_pull(reference);
+        delonix_oci::registry::pull_from_registry_with_creds_platform(
+            images,
+            reference,
+            None,
+            Some(arch),
+        )?;
+        return Ok(());
+    }
+    match policy {
+        "always" => {
+            super::util::announce_pull(reference);
+            delonix_oci::registry::pull_from_registry(images, reference)?;
+            Ok(())
+        }
+        "never" => images.resolve(reference).map(|_| ()).map_err(|_| {
+            Error::Invalid(format!(
+                "image '{reference}' is not present locally and `--pull never` forbids fetching \
+                 it — pull it first (`delonix pull {reference}`) or drop `--pull never`"
+            ))
+        }),
+        // "missing": the normal resolve-or-pull downstream handles it.
+        _ => Ok(()),
+    }
+}
+
+/// Fold a Docker/Podman `--ipc`/`--pid` MODE string into the engine's
+/// share-the-host boolean. `host` ⇒ true; `private`/empty/absent ⇒ keep the
+/// explicit `--host-*` value; anything else is an actionable refusal.
+fn ns_mode_shares_host(flag: &str, mode: Option<&str>, host_flag: bool) -> Result<bool> {
+    match mode.map(str::trim) {
+        None | Some("") | Some("private") => Ok(host_flag),
+        Some("host") => Ok(true),
+        Some(other) => Err(Error::Invalid(format!(
+            "--{flag} {other}: unsupported — this engine shares a namespace only as `host` or \
+             keeps it `private` (the default); to share one BETWEEN containers put them in a \
+             `--pod`"
+        ))),
+    }
+}
+
+/// A `--mount` spec translated into the engine's own grammar.
+enum MountFlag {
+    /// A `-v` spec (`src:target[:ro]`).
+    Volume(String),
+    /// A `--tmpfs` entry (`target[:options]`).
+    Tmpfs(String),
+}
+
+/// Translate a Docker/Podman `--mount` spec into the engine's `-v`/`--tmpfs`
+/// grammar. Supports `type=bind|volume|tmpfs`, `source`/`src`,
+/// `target`/`dst`/`destination`, `readonly`/`ro`, and `tmpfs-size`. An unknown
+/// key or type is REFUSED (never silently ignored).
+fn parse_mount_flag(spec: &str) -> Result<MountFlag> {
+    let mut ty = "volume".to_string();
+    let (mut source, mut target, mut tmpfs_size) = (None, None, None);
+    let mut ro = false;
+    for field in spec.split(',').filter(|f| !f.is_empty()) {
+        let (k, v) = match field.split_once('=') {
+            Some((k, v)) => (k, Some(v)),
+            None => (field, None),
+        };
+        match k {
+            "type" => ty = v.unwrap_or_default().to_string(),
+            "source" | "src" => source = v.map(str::to_string),
+            "target" | "dst" | "destination" => target = v.map(str::to_string),
+            "readonly" | "ro" => ro = !matches!(v, Some("false") | Some("0")),
+            "tmpfs-size" => tmpfs_size = v.map(str::to_string),
+            // Accepted but not individually translated (the engine applies its
+            // own defaults); listed so a typo in a REAL key still errors.
+            "tmpfs-mode" | "bind-propagation" | "volume-opt" | "consistency" => {}
+            other => {
+                return Err(Error::Invalid(format!(
+                    "--mount: unknown key '{other}' in '{spec}'"
+                )))
+            }
+        }
+    }
+    let target =
+        target.ok_or_else(|| Error::Invalid(format!("--mount: missing `target` in '{spec}'")))?;
+    match ty.as_str() {
+        "tmpfs" => Ok(MountFlag::Tmpfs(match tmpfs_size {
+            Some(sz) => format!("{target}:size={sz}"),
+            None => target,
+        })),
+        "bind" | "volume" => {
+            let source = source.ok_or_else(|| {
+                Error::Invalid(format!("--mount type={ty}: missing `source` in '{spec}'"))
+            })?;
+            let ro = if ro { ":ro" } else { "" };
+            Ok(MountFlag::Volume(format!("{source}:{target}{ro}")))
+        }
+        other => Err(Error::Invalid(format!(
+            "--mount: unsupported type '{other}' (bind|volume|tmpfs)"
+        ))),
+    }
+}
+
 fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     let RunArgs {
         detach,
+        interactive,
+        tty,
+        pull,
+        platform,
         name,
         hostname,
         user,
         net,
         volumes,
+        volumes_from,
+        mounts_flag,
         publish,
+        publish_all,
         privileged,
         entrypoint,
         workdir,
@@ -1852,9 +2113,17 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         devices,
         env,
         labels,
+        label_file,
+        annotations,
         memory,
+        memory_reservation,
+        memory_swap,
+        pids_limit,
+        stop_signal,
+        stop_timeout,
         cpus,
         cpu_weight,
+        cpu_shares,
         cpuset,
         kube_cgroup_parent,
         oom_score_adj,
@@ -1862,11 +2131,15 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         hugepage_limits,
         unified,
         io_weight,
+        blkio_weight,
         device_read_bps,
         device_write_bps,
         device_read_iops,
         device_write_iops,
         read_only,
+        init,
+        umask,
+        cgroupns,
         cap_add,
         cap_drop,
         allow_source,
@@ -1878,6 +2151,9 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         no_userns,
         host_pid,
         host_ipc,
+        pid_mode,
+        ipc_mode,
+        uts_mode,
         detect,
         secret,
         secret_files,
@@ -1903,6 +2179,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         health_timeout,
         health_retries,
         health_start_period,
+        no_healthcheck,
         knows,
         knows_none,
         pod,
@@ -1913,15 +2190,105 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         log_driver,
         log_file,
         log_cri,
+        cidfile,
+        shm_size,
         image,
         command,
         namespace,
         expose,
     } = args;
+    // `-i`/`-t` (and the `-it` scripts type) are accepted for Docker/Podman
+    // parity. A daemonless foreground `run` INHERITS the operator's stdio, so
+    // the interactive shell, the `test -t 0` TTY and the exit code are already
+    // what `docker run -it` gives (proven by the differential suite). There is
+    // no daemon conduit to allocate a pty across, so the flags record intent
+    // rather than switch a second code path — the same honesty as
+    // `cmd_exec`'s `let _ = interactive`. The one documented limit (a `-t`
+    // whose stdout is not already a terminal does not get a synthesized pty)
+    // lives in `docs/cli-stability.md`.
+    let _ = (interactive, tty);
+    // `--pull` is applied in the `Run`/`Create` dispatch (it needs the image
+    // store), BEFORE this consumes `args`; here the field is just drained.
+    let _ = (pull, platform);
+    // Docker/Podman `--ipc`/`--pid` MODE flags fold into the engine's existing
+    // `--host-ipc`/`--host-pid` booleans: `host` ⇒ share the host's, `private`
+    // (the default) ⇒ its own. Any other mode (`container:<id>`, `shareable`,
+    // `none`) is refused, never silently downgraded — `--pod` is the path for
+    // sharing a namespace BETWEEN containers.
+    let host_pid = ns_mode_shares_host("pid", pid_mode.as_deref(), host_pid)?;
+    let host_ipc = ns_mode_shares_host("ipc", ipc_mode.as_deref(), host_ipc)?;
+    let uts_host = ns_mode_shares_host("uts", uts_mode.as_deref(), false)?;
+    // `--uts host` shares the host's UTS namespace, so no hostname may be set
+    // (it would try to rename the host). Docker refuses the same combination.
+    if uts_host && hostname.is_some() {
+        return Err(Error::Invalid(
+            "`--hostname` cannot be combined with `--uts host` (the container shares the host's \
+             hostname, which it must not change)"
+                .into(),
+        ));
+    }
+    // Podman `--umask`: an OCTAL file-mode mask (`0077`, `027`, …). Parsed here,
+    // refused loudly on a non-octal value instead of being silently ignored.
+    let umask = match umask {
+        None => None,
+        Some(s) => {
+            let digits = s.strip_prefix("0o").unwrap_or(&s);
+            Some(u32::from_str_radix(digits, 8).map_err(|_| {
+                Error::Invalid(format!(
+                    "--umask '{s}' is not an octal mask (e.g. 0022, 0077)"
+                ))
+            })?)
+        }
+    };
+    // Docker/Podman `--cgroupns=private|host`. `private` ⇒ its own cgroup
+    // namespace; `host` (the default) ⇒ the host's view. Any other mode
+    // (`container:<id>`) is refused, never silently downgraded.
+    let cgroupns_private = match cgroupns.as_deref() {
+        None | Some("host") => false,
+        Some("private") => true,
+        Some(other) => {
+            return Err(Error::Invalid(format!(
+                "--cgroupns '{other}' is not supported (use `private` or `host`)"
+            )))
+        }
+    };
+    // `--mount type=…,source=…,target=…` is Docker's explicit alternative to
+    // `-v`. Translate each into the `-v` spec grammar (`src:target[:ro]`) or, for
+    // `type=tmpfs`, into a `--tmpfs` entry — the same resolution path either way,
+    // no second mount engine.
+    let mut volumes = volumes;
+    let mut tmpfs = tmpfs;
+    for spec in &mounts_flag {
+        match parse_mount_flag(spec)? {
+            MountFlag::Volume(v) => volumes.push(v),
+            MountFlag::Tmpfs(t) => tmpfs.push(t),
+        }
+    }
+    // `--shm-size` reuses the tmpfs plumbing (same trick as compose): it is just
+    // a tmpfs over `/dev/shm` with a `size=`. Appending it means the operator's
+    // size is the top mount the container sees over the default 64 MiB.
+    if let Some(sz) = shm_size {
+        let bytes = delonix_volume::parse_size_bytes(&sz).ok_or_else(|| {
+            Error::Invalid(format!(
+                "--shm-size '{sz}' is not a size (e.g. 64m, 1g, 67108864)"
+            ))
+        })?;
+        tmpfs.push(format!("/dev/shm:size={bytes},mode=1777"));
+    }
+    // Docker `--cpu-shares` is the same knob as `--cpu-weight` on a different
+    // scale (2..=262144 against cgroup v2's 1..=10000). Convert and feed the
+    // SAME `cpu.weight` write path; the native `--cpu-weight` takes precedence
+    // when both are set.
+    let cpu_weight = cpu_weight.or_else(|| cpu_shares.as_deref().map(cpu_shares_to_weight));
+    // Docker `--blkio-weight` (10..=1000) is a plain alias of `--io-weight`:
+    // its value passes straight through to `io.weight`, and `--io-weight` wins
+    // when both are set.
+    let io_weight = io_weight.or(blkio_weight);
     Ok(RunOpts {
         policy_hold: false,
         no_start,
         detach,
+        cidfile,
         name,
         hostname,
         user,
@@ -1929,7 +2296,9 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         namespace,
         expose,
         volumes,
+        volumes_from,
         ports: publish,
+        publish_all,
         privileged,
         entrypoint: entrypoint_argv(entrypoint),
         workdir,
@@ -1938,10 +2307,17 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         devices,
         env: with_env_file0(&env_file0, env)?,
         labels,
+        label_file,
+        annotations,
         image,
         command,
         quiet: false,
         memory,
+        memory_reservation,
+        memory_swap,
+        pids_limit,
+        stop_signal,
+        stop_timeout,
         cpus,
         cpu_weight,
         cpuset,
@@ -1963,6 +2339,9 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         )
         .map_err(delonix_model::Error::Invalid)?,
         read_only,
+        init,
+        umask,
+        cgroupns_private,
         cap_add,
         cap_drop,
         allow_source,
@@ -1974,6 +2353,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         no_userns,
         host_pid,
         host_ipc,
+        uts_host,
         detect,
         secret,
         secret_files,
@@ -1993,13 +2373,21 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         add_host,
         wait_healthy,
         wait_timeout,
-        health: health_opts(
-            health_cmd,
-            health_interval,
-            health_timeout,
-            health_retries,
-            health_start_period,
-        ),
+        // `--no-healthcheck` WINS: it forces the continuous monitor off (so none
+        // is ever spawned) regardless of any `--health-*` flag, and the record
+        // flag below makes every image-HEALTHCHECK fallback short-circuit too.
+        health: if no_healthcheck {
+            None
+        } else {
+            health_opts(
+                health_cmd,
+                health_interval,
+                health_timeout,
+                health_retries,
+                health_start_period,
+            )
+        },
+        no_healthcheck,
         knows,
         knows_none,
         pod,
@@ -2044,8 +2432,14 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         // `run` and `create` share every flag (the same `RunArgs`); the only
         // difference is `no_start` — `create` persists the record in `Created`
         // state and stops, `run` goes on to launch. See `run_opts_from_args`.
-        ContainerCmd::Run(args) => cmd_run(&images, &store, run_opts_from_args(args, false)?),
-        ContainerCmd::Create(args) => cmd_run(&images, &store, run_opts_from_args(args, true)?),
+        ContainerCmd::Run(args) => {
+            apply_pull_policy(&images, &args.image, &args.pull, args.platform.as_deref())?;
+            cmd_run(&images, &store, run_opts_from_args(args, false)?)
+        }
+        ContainerCmd::Create(args) => {
+            apply_pull_policy(&images, &args.image, &args.pull, args.platform.as_deref())?;
+            cmd_run(&images, &store, run_opts_from_args(args, true)?)
+        }
         ContainerCmd::Ps(PsArgs {
             all,
             quiet,
@@ -2069,9 +2463,14 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         ContainerCmd::Start(StartArgs { ids }) => {
             for_each_id(&ids, |id| cmd_start(&images, &store, id))
         }
-        ContainerCmd::Stop(StopArgs { ids, time }) => {
-            for_each_id(&ids, |id| cmd_stop(&store, id, time))
-        }
+        ContainerCmd::Stop(StopArgs { ids, time }) => for_each_id(&ids, |id| {
+            // `-t` wins; absent it, the container's own `--stop-timeout`; absent
+            // that, the engine default of 10s (Docker's grace semantics).
+            let grace = time
+                .or_else(|| find(&store, id).ok().and_then(|c| c.stop_timeout))
+                .unwrap_or(10);
+            cmd_stop(&store, id, grace)
+        }),
         ContainerCmd::Kill(KillArgs { ids, signal }) => {
             for_each_id(&ids, |id| cmd_kill(&store, id, &signal))
         }
@@ -2115,7 +2514,9 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         ContainerCmd::Healthcheck { id } => cmd_healthcheck(&images, &store, &id),
         ContainerCmd::Top { id } => cmd_top(&store, &id),
         ContainerCmd::Diff { id } => cmd_diff(&images, &store, &id),
+        ContainerCmd::Export { id, output } => cmd_export(&images, &store, &id, output.as_deref()),
         ContainerCmd::Cp { src, dst } => cmd_cp(&images, &store, &src, &dst),
+        ContainerCmd::Exists { id } => cmd_exists(&store, &id),
         ContainerCmd::Inspect { ids } => cmd_inspect(&store, &ids),
         ContainerCmd::Describe { ids } => cmd_describe(&store, &ids),
         ContainerCmd::Update {
@@ -2160,6 +2561,13 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             let docs = manifest::load(&path)?;
             apply(&docs)
         }
+        ContainerCmd::Mount { id } => cmd_mount(&images, &store, &id),
+        ContainerCmd::Unmount { id } => cmd_unmount(&store, &id),
+        ContainerCmd::Clone { id, new_name } => {
+            cmd_clone(&images, &store, &id, new_name.as_deref())
+        }
+        ContainerCmd::Checkpoint { id } => cmd_checkpoint(&store, &id),
+        ContainerCmd::Restore { id } => cmd_restore(&store, &id),
     }
 }
 
@@ -2915,7 +3323,39 @@ pub(crate) fn with_host_workload<R>(
     })
 }
 
-pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Result<()> {
+/// Reserves a FREE ephemeral host port for `--publish-all`, by the same trick
+/// `can_bind_host_port` uses: bind `:0` on loopback, let the kernel choose, read
+/// the assigned port, and drop the socket so the publish can claim it. The
+/// window between here and the slirp's own bind is the same tiny race every
+/// `-p` already runs (the port-conflict check below re-probes), and the chosen
+/// port is high (32768+), so it never hits the sub-1024 privilege wall.
+fn ephemeral_host_port(proto: delonix_sdn::Proto) -> Option<u16> {
+    use std::net::{TcpListener, UdpSocket};
+    match proto {
+        delonix_sdn::Proto::Tcp => TcpListener::bind("127.0.0.1:0")
+            .ok()
+            .and_then(|l| l.local_addr().ok())
+            .map(|a| a.port()),
+        delonix_sdn::Proto::Udp => UdpSocket::bind("127.0.0.1:0")
+            .ok()
+            .and_then(|s| s.local_addr().ok())
+            .map(|a| a.port()),
+    }
+}
+
+pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> Result<()> {
+    // Imperative pod join (Podman `run --pod <name>`): a CLI caller sets `pod`
+    // but never the hidden `pod_infra_pid`. Resolve it from the pod's existing
+    // first member, so the SECOND and later `run --pod` into the SAME pod join
+    // its IPC/UTS/hostname instead of each starting its own set. `create_pod`
+    // sets the pid explicitly for its own members, so this only fills the gap
+    // the imperative path leaves: None + no members yet → this member becomes
+    // the holder; None + a member exists → it finds and joins it.
+    if opts.pod_infra_pid.is_none() {
+        if let Some(pn) = opts.pod.clone() {
+            opts.pod_infra_pid = super::pod::infra_pid_of(store, &pn);
+        }
+    }
     // The node's runtime policy, BEFORE anything is created or pulled. Same
     // placement reason as the capability ceiling in the CRI: everything reaching
     // here was already authorised by whoever called it, and a policy that lives
@@ -2985,6 +3425,36 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
     // side effect — see `delonix_compute::preflight` for the two that used to be
     // checked only after the workload had run, or never.
     delonix_compute::preflight::check_run_opts(&opts)?;
+    // `--publish-all`/`-P`: read the image's EXPOSEd ports and fold one publish
+    // entry per port into `opts.ports`, so the rest of the function (ownership,
+    // slirp attach, the stored `ports`, the re-exec spec) handles them exactly
+    // like a `-p`. Mirrors how `--volumes-from` resolves against the store.
+    //
+    // Only the first pass resolves: the re-exec receives the concrete specs in
+    // the spec file it reads, so resolving again there would double them. Each
+    // exposed port gets a free EPHEMERAL host port (Docker's `-P` behaviour),
+    // left loopback-by-default via `normalize_publish_spec` downstream — a bare
+    // `<port>:<cont>` with no address, exactly like a bare `-p`.
+    if opts.publish_all && std::env::var("DELONIX_REEXEC_ID").is_err() {
+        if let Ok(img) = images.resolve(&opts.image) {
+            for ep in &img.config.exposed_ports {
+                let (cont, proto) = match ep.split_once('/') {
+                    Some((p, pr)) => (p, pr.to_ascii_lowercase()),
+                    None => (ep.as_str(), "tcp".to_string()),
+                };
+                let transport = match delonix_sdn::Proto::parse(&proto) {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+                let Some(hp) = ephemeral_host_port(transport) else {
+                    return Err(Error::Invalid(format!(
+                        "--publish-all: could not reserve a host port for exposed {ep}"
+                    )));
+                };
+                opts.ports.push(format!("{hp}:{cont}/{proto}"));
+            }
+        }
+    }
     // Intact copy for the re-exec (the destructuring below consumes opts).
     let opts_copy = opts.clone();
     let RunOpts {
@@ -3001,8 +3471,18 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
         pod,
         pod_infra_pid,
         pod_shared_pid,
+        cidfile,
         ..
     } = opts;
+    // Docker `--cidfile`: refuse up front if the target already exists (never
+    // clobber), so the operator learns before anything is created.
+    if let Some(path) = &cidfile {
+        if std::path::Path::new(path).exists() {
+            return Err(Error::Invalid(format!(
+                "--cidfile '{path}' already exists — remove it or choose another path"
+            )));
+        }
+    }
     // Isolation namespace (default `default`). It goes into an nft set name (via
     // `dlxns_set`, which HASHES it → safe) and into a control-line token (which
     // `attach_container` sanitizes). Here we only ensure it's non-empty.
@@ -3120,6 +3600,13 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
     }
     let id = std::env::var("DELONIX_REEXEC_ID").unwrap_or_else(|_| generate_id());
     let reexec = std::env::var("DELONIX_REEXEC_ID").is_ok();
+    // Docker `--cidfile`: write the full id now that it exists. Only on the
+    // first pass (not the `--pod`/custom-net re-exec, which shares the same id
+    // and would just rewrite the same file). Existence was already refused above.
+    if let (Some(path), false) = (&cidfile, reexec) {
+        std::fs::write(path, &id)
+            .map_err(|e| Error::Invalid(format!("--cidfile '{path}': {e}")))?;
+    }
 
     // The name, and its uniqueness in the namespace, need the store and a
     // translated refusal; everything after that goes through the Compute use case.
@@ -3273,9 +3760,31 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
     )?;
     print_notices(&resolved.notices);
     let rootfs = resolved.rootfs;
-    let mounts = resolved.mounts;
+    let mut mounts = resolved.mounts;
     let apparmor_profile = resolved.apparmor_profile;
     let mut c = delonix_compute::run::build_record(&opts_copy, resolved.record)?;
+    // Docker/Podman `--volumes-from`: copy every mount of each named container
+    // into this one. The source's mounts are already RESOLVED (host paths,
+    // volume roots), so they transplant directly — no re-resolution. `:ro`
+    // forces every copied mount read-only; `:rw` (or no suffix) keeps the
+    // source's own mode. Goes into BOTH the launch set (`mounts`) and the record
+    // (`c.mounts`) so it survives a `start`. A missing source is a clear error.
+    for spec in &opts_copy.volumes_from {
+        let (src, force_ro) = match spec.rsplit_once(':') {
+            Some((n, "ro")) => (n, true),
+            Some((n, "rw")) => (n, false),
+            _ => (spec.as_str(), false),
+        };
+        let source = find(store, src)?;
+        for m in &source.mounts {
+            let mut m = m.clone();
+            if force_ro {
+                m.readonly = true;
+            }
+            mounts.push(m.clone());
+            c.mounts.push(m);
+        }
+    }
     // A container some policy document governs is born CLOSED (ADR-0069): the
     // chain exists before the process does, and the record carries the same state
     // so a restart cannot reopen it. `stack apply` releases it after the policy
@@ -3448,7 +3957,27 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, opts: RunOpts) -> Resu
                 .iter()
                 .find_map(|l| l.strip_prefix(&pod_ip_prefix).map(str::to_string))
                 .unwrap_or_else(|| infra::container_ip(pn));
-            return reexec_into_netns(&id, pn, &ip, &opts_copy, false);
+            let joined = reexec_into_netns(&id, pn, &ip, &opts_copy, false);
+            // A `run --pod <name>` into a pod that does not exist fails deep in
+            // the netns machinery ("Cannot open network namespace"), which says
+            // nothing about WHY. If the join failed AND the pod has no members,
+            // it is almost always a Docker/Podman user expecting `--pod` to
+            // CREATE the pod. It does not — delonix pods are declarative
+            // (ADR-0006), `--pod` only JOINS an existing one — so rewrite the
+            // error to say exactly that. `create_pod`'s own first member never
+            // lands here: its netns is already up, so the join succeeds. A pod
+            // that HAS members but still failed keeps the real error (it is a
+            // genuine fault, not a typo'd name).
+            if joined.is_err() && !super::pod::exists(store, pn) {
+                return Err(Error::Invalid(format!(
+                    "pod '{pn}' does not exist — nothing to join. Delonix pods are DECLARATIVE: \
+                     there is no `pod create --name`, and `run --pod` only JOINS an existing pod. \
+                     Declare the pod and all its members in a `kind: Pod` manifest and create it \
+                     with `delonix pod create -f <file>`, then `run --pod {pn}` joins it \
+                     (`delonix get pods` lists them)."
+                )));
+            }
+            return joined;
         }
     }
     c.ports = ports.clone();
@@ -3599,6 +4128,14 @@ fn wait_until_healthy(
     timeout_secs: u64,
 ) -> Result<()> {
     let c = find(store, id)?;
+    // `--no-healthcheck` disabled it: there is nothing to wait for, and saying
+    // so beats blocking on a probe the operator explicitly turned off.
+    if c.no_healthcheck {
+        return Err(Error::Invalid(format!(
+            "--wait: container '{}' was started with --no-healthcheck — nothing to wait for",
+            c.name
+        )));
+    }
     let Some(argv) = super::compose::image_health_argv(images, &c.image) else {
         return Err(Error::Invalid(format!(
             "--wait: image '{}' declares no HEALTHCHECK — nothing to wait for \
@@ -4240,6 +4777,50 @@ pub(crate) fn parse_cgroup_weight(s: &str) -> std::result::Result<String, String
     }
 }
 
+/// Validates Docker/Podman `--cpu-shares` against its own range (2–262144).
+/// The value stays verbatim here; the shares→`cpu.weight` conversion happens in
+/// [`run_opts_from_args`] so that a native `--cpu-weight` can still win.
+pub(crate) fn parse_cpu_shares(s: &str) -> std::result::Result<String, String> {
+    match s.parse::<u64>() {
+        Ok(n) if (2..=262_144).contains(&n) => Ok(s.to_string()),
+        _ => Err(format!(
+            "'{s}': cpu-shares must be a number from 2 to 262144"
+        )),
+    }
+}
+
+/// Converts a validated Docker/Podman cpu-shares value to the equivalent cgroup
+/// v2 `cpu.weight`, using the mapping `weight = 1 + ((shares-2)*9999)/262142`
+/// clamped to 1–10000. Shares 2 map to 1 and 262144 to 10000.
+pub(crate) fn cpu_shares_to_weight(shares: &str) -> String {
+    // `shares` already passed `parse_cpu_shares`, so it is in 2..=262144.
+    let shares: u64 = shares.parse().unwrap_or(2).clamp(2, 262_144);
+    let weight = 1 + ((shares - 2) * 9999) / 262_142;
+    weight.clamp(1, 10_000).to_string()
+}
+
+/// Validates Docker/Podman `--blkio-weight` against its own range (10–1000).
+/// The value passes through to `io.weight` unchanged.
+pub(crate) fn parse_blkio_weight(s: &str) -> std::result::Result<String, String> {
+    match s.parse::<u32>() {
+        Ok(n) if (10..=1000).contains(&n) => Ok(s.to_string()),
+        _ => Err(format!(
+            "'{s}': blkio-weight must be a number from 10 to 1000"
+        )),
+    }
+}
+
+/// Validates Docker/Podman `--oom-score-adj` against the kernel's range
+/// (-1000 to 1000). The value feeds the existing `oom_score_adj` write.
+pub(crate) fn parse_oom_score_adj(s: &str) -> std::result::Result<i32, String> {
+    match s.parse::<i32>() {
+        Ok(n) if (-1000..=1000).contains(&n) => Ok(n),
+        _ => Err(format!(
+            "'{s}': oom-score-adj must be a number from -1000 to 1000"
+        )),
+    }
+}
+
 /// Parses `--hugepage-limit`'s `<page_size>=<limit_bytes>` (ADR 0038 item 3).
 /// Internal-only flag: a malformed value refuses at parse, never reaching the
 /// CRI-side path validation that exists for the kubelet's own wire format.
@@ -4438,6 +5019,9 @@ fn reexec_into_netns(
 ) -> Result<()> {
     // Enters the netns `netns` (the container's in `--net <custom>`, where
     // `netns == sanitize(id)`; the shared POD's in `--pod`, where it differs from `id`).
+    // The actionable "pod does not exist" message lives at the `--pod` call
+    // site in `cmd_run` (it can tell an absent pod from a real fault by its
+    // member count); here the generic infra message is correct.
     let prefix = infra::join_argv(netns).ok_or_else(|| Error::Runtime {
         context: "join_argv",
         message: super::po::t("ingress infra is down — no holder to enter").into(),
@@ -5223,9 +5807,18 @@ pub(crate) fn cmd_stop(store: &Store, id: &str, time: u64) -> Result<()> {
     });
     // The pid MUST be read before `stop`, which sets `container.pid = None`.
     let pid = c.pid;
+    // Docker `--stop-signal`: the record carries which signal to send first;
+    // `None` keeps SIGTERM. Parsed here (name or number) into the number
+    // `stop_with_signal` converts — a bad stored value falls back to SIGTERM
+    // rather than failing a stop.
+    let term_signal = c.stop_signal.as_deref().and_then(|s| parse_signal(s).ok());
     // Idempotent like docker: stopping an already-stopped container succeeds
     // (it broke the natural `stop X && rm X` idiom, RC=1 for a no-op).
-    if let Err(e) = runtime::stop(store, &mut c, time) {
+    let stop_result = match term_signal {
+        Some(sig) => runtime::stop_with_signal(store, &mut c, time, sig),
+        None => runtime::stop(store, &mut c, time),
+    };
+    if let Err(e) = stop_result {
         if e.is_not_running() {
             // Not running, but what it published may still be held: a container
             // that exited on its own left its slirp behind (see `stop_ports`).
@@ -5719,6 +6312,17 @@ pub(crate) fn cmd_exec(
 
 /// `container inspect` — dumps the full spec stored in the Store (the runtime's
 /// source of truth), as a docker-style JSON array.
+/// `container exists` — Podman's existence probe. Resolves `id` the same way
+/// `inspect`/`rm` do (via `find`) and maps the outcome to an exit code ONLY: 0
+/// when the container is in the store, 1 otherwise. Prints nothing on either
+/// path, matching `podman container exists`.
+fn cmd_exists(store: &Store, id: &str) -> Result<()> {
+    match find(store, id) {
+        Ok(_) => Ok(()),
+        Err(_) => std::process::exit(1),
+    }
+}
+
 fn cmd_inspect(store: &Store, ids: &[String]) -> Result<()> {
     let mut cs = Vec::new();
     for id in ids {
@@ -5738,7 +6342,7 @@ fn cmd_inspect(store: &Store, ids: &[String]) -> Result<()> {
 /// **Needs cgroup delegation**: in rootless without it (`systemd-run --user
 /// --scope -p Delegate=yes`, or a unit with `Delegate=yes`), `cgroup.freeze`
 /// isn't writable and this fails — not a bug, it's the model.
-fn cmd_freeze(store: &Store, id: &str, frozen: bool) -> Result<()> {
+pub(crate) fn cmd_freeze(store: &Store, id: &str, frozen: bool) -> Result<()> {
     let c = find(store, id)?;
     runtime::set_frozen(&c, frozen)?;
     println!("{}", short_id(&c.id));
@@ -5785,6 +6389,9 @@ fn cmd_commit(images: &ImageStore, store: &Store, id: &str, tag: &str) -> Result
             // `container commit` herda o health check da base, tal como o
             // caminho overlay (`commit_container`) já fazia.
             base.config.healthcheck.clone(),
+            // A committed image inherits the base's EXPOSEd ports, the same way
+            // the overlay `commit_container` path does.
+            base.config.exposed_ports.clone(),
             // Packed from the host side: owners go into the layer as the
             // container sees them, not as host uids (see `pack_rootfs_tar`).
             &runtime::container_ids,
@@ -5834,7 +6441,7 @@ fn cmd_healthcheck(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
 /// The PIDs are the HOST's (that's what the cgroup lists); inside the container,
 /// with its own PID namespace, the numbers are different. The column says
 /// `HOST-PID` so as not to mislead anyone comparing with a `ps` from inside.
-fn cmd_top(store: &Store, id: &str) -> Result<()> {
+pub(crate) fn cmd_top(store: &Store, id: &str) -> Result<()> {
     let c = find(store, id)?;
     if !c.is_live() {
         return Err(Error::NotRunning(short_id(&c.id).to_string()));
@@ -5932,6 +6539,48 @@ fn cmd_diff(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
     out.sort_by(|a, b| a.1.cmp(&b.1));
     for (k, p) in out {
         println!("{k} {p}");
+    }
+    Ok(())
+}
+
+/// `container export` — the container's rootfs as an uncompressed tar, to a
+/// file (`-o`) or stdout. Reads the SAME merged tree `commit`/`cp` read (which
+/// insists a running overlay container be mounted, so a stopped one is read
+/// through its `__ovlhold` and never packs an empty tree). Owners are written
+/// as the container sees them (`runtime::container_ids`), matching Docker.
+fn cmd_export(
+    images: &ImageStore,
+    store: &Store,
+    id: &str,
+    output: Option<&std::path::Path>,
+) -> Result<()> {
+    let c = find(store, id)?;
+    let root = container_fs_root(images, &c)?;
+    let tar = delonix_oci::ImageStore::export_rootfs_tar(root.path(), &runtime::container_ids)
+        .map_err(|e| Error::Invalid(format!("export: {e}")))?;
+    match output {
+        Some(path) => {
+            std::fs::write(path, &tar)
+                .map_err(|e| Error::Invalid(format!("writing {}: {e}", path.display())))?;
+            eprintln!(
+                "exported {} ({} bytes) to {}",
+                c.name,
+                tar.len(),
+                path.display()
+            );
+        }
+        None => {
+            use std::io::Write;
+            // Refuse to spew a binary tar onto a terminal, as Docker does.
+            if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                return Err(Error::Invalid(
+                    "refusing to write a tar archive to a terminal — redirect stdout or use `-o <PATH>`".into(),
+                ));
+            }
+            std::io::stdout()
+                .write_all(&tar)
+                .map_err(|e| Error::Invalid(format!("writing the tar to stdout: {e}")))?;
+        }
     }
     Ok(())
 }
@@ -6106,6 +6755,150 @@ pub(crate) fn cmd_cp(images: &ImageStore, store: &Store, src: &str, dst: &str) -
         }
     }
     Ok(())
+}
+
+/// `container mount` (Podman) — prints the host path to the container's rootfs.
+///
+/// A RUNNING container is reached through `/proc/<pid>/root` (its merged tree
+/// exists only inside its own mount namespace, and that path is valid only
+/// while it runs). A stopped container's rootfs is read straight off disk via
+/// `existing_rootfs_path`, which for a flat rootless container is a real,
+/// usable directory. Deliberately does NOT spawn an `__ovlhold` to expose a
+/// stopped overlay's `merged/`: that path would die with this process and leave
+/// the caller holding a dangling `/proc` path — `cp`/`commit` use the hold
+/// because they consume the tree within the same call; `mount` hands the path
+/// back and returns.
+fn cmd_mount(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
+    let c = find(store, id)?;
+    let path = if c.is_live() {
+        container_fs_root(images, &c)?.path().to_path_buf()
+    } else {
+        images.existing_rootfs_path(&c.id).ok_or_else(|| {
+            Error::Invalid(super::po::tf(
+                "container '{name}' is stopped and has no rootfs on disk — start it or `run` it again",
+                &[("name", &c.name)],
+            ))
+        })?
+    };
+    println!("{}", path.display());
+    Ok(())
+}
+
+/// `container unmount`/`umount` (Podman) — the counterpart of `mount`.
+///
+/// An honest no-op: `mount` only PRINTS an existing path, it never creates a
+/// new mount this verb would tear down. A running container's overlay is held
+/// by its own init; a flat rootless rootfs is a plain directory nobody mounted.
+/// So there is nothing to release — the container is left in exactly the same
+/// state. The id is still resolved, so an unknown container is a clean error
+/// rather than a silent success.
+fn cmd_unmount(store: &Store, id: &str) -> Result<()> {
+    let _ = find(store, id)?;
+    Ok(())
+}
+
+/// `container clone` (Podman) — a new STOPPED container from an existing one's
+/// configuration.
+///
+/// Copies the stored spec verbatim — image, command, env, mounts, limits,
+/// caps, labels, ports, network — under a fresh id and name, provisions the
+/// clone's OWN rootfs from the image (the same run-layer call `create` reaches
+/// through `resolve_run`), and persists it in `Created` state WITHOUT starting
+/// it. Everything that describes a RUNNING instance rather than the
+/// configuration (pid, assigned IP, firewall, health) is reset, so the clone is
+/// born exactly as `create` would leave it; `container start` launches it.
+fn cmd_clone(images: &ImageStore, store: &Store, id: &str, new_name: Option<&str>) -> Result<()> {
+    let src = find(store, id)?;
+    // The base image must still exist: the clone's fresh rootfs is unpacked from
+    // it, exactly as `create` does (see `cmd_commit` for the same guard).
+    let img = images.resolve(&src.image).map_err(|_| {
+        Error::Invalid(super::po::tf(
+            "the container's base image '{image}' no longer exists",
+            &[("image", &src.image)],
+        ))
+    })?;
+    // Podman's default clone name is `<source>-clone`.
+    let name = new_name
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{}-clone", src.name));
+    // The same name-claim + uniqueness check `cmd_run` performs, keyed
+    // identically (`<namespace>.<name>`), so a clone and a concurrent
+    // `run --name` of the same name serialise instead of both persisting.
+    let _name_claim = store.claim_name(&format!("{}.{}", src.namespace, name))?;
+    if let Some(dup) = store
+        .list()?
+        .iter()
+        .find(|c| c.name == name && c.namespace == src.namespace)
+    {
+        return Err(Error::Conflict(super::po::tf(
+            "the name '{name}' is already in use in namespace '{ns}' by container {id} — pick another or remove it first",
+            &[
+                ("name", name.as_str()),
+                ("ns", src.namespace.as_str()),
+                ("id", dup.short_id()),
+            ],
+        )));
+    }
+    let new_id = generate_id();
+    // Provision the clone's own rootfs from the image — the reachable run-layer
+    // plumbing `create` uses via `resolve_run`. Without it the clone would have a
+    // record but no tree, and `start` would refuse it ("rootfs ... no longer
+    // exists"). Not ephemeral: a clone is a persistent stopped container.
+    images.prepare_container_rootfs(&img, &new_id, false)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut nc = src.clone();
+    nc.id = new_id.clone();
+    nc.name = name;
+    nc.status = Status::Created;
+    nc.created_unix = now;
+    nc.pid = None;
+    nc.pid_starttime = None;
+    nc.ip = None;
+    nc.firewall = None;
+    nc.health_state = None;
+    nc.stopped_by_user = false;
+    store.save(&nc)?;
+    delonix_node::events::emit(
+        &super::util::state_root(),
+        "container",
+        "create",
+        &nc.id,
+        &nc.name,
+        Some(&src.image),
+    );
+    println!("{new_id}");
+    Ok(())
+}
+
+/// `container checkpoint` (Podman) — refuses, actionably: CRIU is not integrated.
+///
+/// Freezing a live container's process tree to disk needs CRIU, which this
+/// engine does not yet drive. Returns [`Error::Unavailable`] (a non-zero exit
+/// distinct from a bad argument) rather than panicking or silently doing
+/// nothing — the one thing this engine must never do is report a success it did
+/// not perform.
+fn cmd_checkpoint(store: &Store, id: &str) -> Result<()> {
+    let c = find(store, id)?;
+    Err(Error::Unavailable(format!(
+        "checkpoint of '{}' needs CRIU, which this engine does not yet integrate — \
+         there is no way to freeze a running container to disk here yet",
+        c.name
+    )))
+}
+
+/// `container restore` (Podman) — refuses, actionably: CRIU is not integrated.
+///
+/// The counterpart of `checkpoint`; same reasoning and same [`Error::Unavailable`].
+fn cmd_restore(store: &Store, id: &str) -> Result<()> {
+    let c = find(store, id)?;
+    Err(Error::Unavailable(format!(
+        "restore of '{}' needs CRIU, which this engine does not yet integrate — \
+         there is no checkpoint on disk to restore from here yet",
+        c.name
+    )))
 }
 
 /// `container describe` — human-readable detail in `kubectl describe` style.
@@ -6951,7 +7744,7 @@ pub(crate) fn reconcile_and_persist(store: &Store, c: &mut Container) -> bool {
 /// CPU% = delta of `usage_usec` over 500ms; memory from `memory.current`; with the
 /// cgroup non-delegated (rootless without Delegate), it falls back to the container
 /// init's VmRSS in `/proc` (only that process, marked with `~`).
-fn cmd_stats(store: &Store, ids: &[String]) -> Result<()> {
+pub(crate) fn cmd_stats(store: &Store, ids: &[String]) -> Result<()> {
     let mut cs: Vec<Container> = if ids.is_empty() {
         store.list()?
     } else {
@@ -7344,6 +8137,12 @@ pub(crate) fn health_probe_argv(cmd: &str, timeout_secs: u64) -> Vec<String> {
 /// The probe command line for a container: its own `--health-cmd`, else the
 /// image's `HEALTHCHECK`. `None` when neither exists.
 fn health_command(images: &ImageStore, c: &Container) -> Option<String> {
+    // `--no-healthcheck`: the image's HEALTHCHECK is disabled for this
+    // container, so there is no probe anywhere — the monitor loop stops and
+    // `container healthcheck` reports "no probe".
+    if c.no_healthcheck {
+        return None;
+    }
     if let Some(h) = &c.health {
         if !h.cmd.is_empty() {
             return Some(h.cmd.clone());
@@ -9068,6 +9867,43 @@ restartPolicy: OnFailure
                 super::parse_cgroup_weight(bad).is_err(),
                 "{bad} should be refused"
             );
+        }
+    }
+
+    /// Docker `--cpu-shares` must land on `cpu.weight` through the documented
+    /// mapping: the two ends pin to 1 and 10000, and 1024 (Docker's default)
+    /// and 512 fall where the formula places them.
+    #[test]
+    fn cpu_shares_convert_to_the_promised_cpu_weight() {
+        assert_eq!(super::cpu_shares_to_weight("2"), "1");
+        assert_eq!(super::cpu_shares_to_weight("262144"), "10000");
+        assert_eq!(super::cpu_shares_to_weight("1024"), "39");
+        assert_eq!(super::cpu_shares_to_weight("512"), "20");
+        // The validating parser owns the range; the two ends are accepted and
+        // just past them is refused.
+        for good in ["2", "512", "1024", "262144"] {
+            assert_eq!(super::parse_cpu_shares(good).as_deref(), Ok(good), "{good}");
+        }
+        for bad in ["1", "0", "262145", "abc", "", "-1"] {
+            assert!(super::parse_cpu_shares(bad).is_err(), "{bad}");
+        }
+        // `--blkio-weight` passes through to `io.weight`; only 10..=1000 parse.
+        for good in ["10", "500", "1000"] {
+            assert_eq!(
+                super::parse_blkio_weight(good).as_deref(),
+                Ok(good),
+                "{good}"
+            );
+        }
+        for bad in ["9", "1001", "0", "abc"] {
+            assert!(super::parse_blkio_weight(bad).is_err(), "{bad}");
+        }
+        // `--oom-score-adj` accepts the kernel's -1000..=1000 and nothing else.
+        for good in [-1000, -1, 0, 500, 1000] {
+            assert_eq!(super::parse_oom_score_adj(&good.to_string()), Ok(good));
+        }
+        for bad in ["-1001", "1001", "abc", ""] {
+            assert!(super::parse_oom_score_adj(bad).is_err(), "{bad}");
         }
     }
 

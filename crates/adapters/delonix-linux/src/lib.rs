@@ -2450,8 +2450,14 @@ fn setup_rootfs(
     privileged: bool,
     has_own_netns: bool,
     has_own_ipcns: bool,
+    has_own_utsns: bool,
 ) -> nix::Result<()> {
-    sethostname(hostname)?;
+    // Only set the hostname when we own a UTS namespace. Under `--uts host` the
+    // UTS ns is the host's, and `sethostname` there would rename the host (and
+    // fails EPERM for a rootless user anyway) — so it is skipped entirely.
+    if has_own_utsns {
+        sethostname(hostname)?;
+    }
     // Root propagation. `MS_PRIVATE` severs every link with the host's mount
     // tree, which is the right default and stays the default — but it also makes
     // `rslave`/`rshared` on any individual mount a no-op, because there is no
@@ -3962,6 +3968,11 @@ struct ProcessSpec<'a> {
     /// the kernel/cgroup already gave this process (today's behavior for
     /// everything that is not a CRI container with the field set).
     oom_score_adj: Option<i32>,
+    /// Docker `--init`: wrap the command in a tiny reaping init as pid 1.
+    init: bool,
+    /// Podman `--umask`: file-mode creation mask set right before the `execve`.
+    /// `None` leaves the inherited mask (the runtime default `0022`).
+    umask: Option<u32>,
 }
 
 /// What the container sees on disk.
@@ -4010,6 +4021,10 @@ struct NamespaceSpec {
     /// whether the IPC sysctls (`kernel.sem`/`shm*`/`msg*`, `fs.mqueue.*`) are
     /// safe to apply.
     has_own_ipcns: bool,
+    /// The child ends up with an EXCLUSIVE UTS namespace (`CLONE_NEWUTS`), not
+    /// the host's under `--uts host`. Decides whether `sethostname` is safe (it
+    /// would otherwise rename the host).
+    has_own_utsns: bool,
     host_pid: bool,
     /// The child inherits the holder's user namespace instead of cloning one,
     /// so there is no uid_map handshake to wait for.
@@ -4017,6 +4032,14 @@ struct NamespaceSpec {
     /// Kind node (label `io.x-k8s.kind.*`): gets a dedicated cgroup namespace.
     /// A plain `--privileged` container keeps its cgroup hierarchy intact.
     node_cgroup: bool,
+    /// Docker/Podman `--cgroupns=private`: `unshare(CLONE_NEWCGROUP)` after the
+    /// parent has moved us into our leaf but BEFORE `drop_capabilities` (the
+    /// unshare needs `CAP_SYS_ADMIN`), so the container's `/proc/self/cgroup`
+    /// root is `/`. Best-effort and opt-in: `false` (the default, `host`) leaves
+    /// the host view untouched, and a failed unshare simply degrades to that
+    /// same view. Ignored on the Kind node path, which runs its own
+    /// `setup_node_cgroup_ns` unshare.
+    cgroupns_private: bool,
 }
 
 /// The file descriptors tying the child back to the parent.
@@ -4037,6 +4060,64 @@ struct IoSpec {
     exec_w: Option<i32>,
 }
 
+/// Minimal reaping init for Docker/Podman `--init`: forward termination signals
+/// to the container's main process and reap EVERY orphan, returning the main
+/// process's exit status (128+signal when it was killed). A tini in ~30 lines,
+/// no extra binary. Runs as pid 1 inside the container after the fork in
+/// [`container_init`]; the confinement (seccomp/caps/uid) was already applied
+/// before the fork, so the reaper is as sandboxed as the workload.
+fn reap_as_init(main_child: libc::pid_t) -> isize {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    static MAIN: AtomicI32 = AtomicI32::new(0);
+    extern "C" fn forward(sig: libc::c_int) {
+        let m = MAIN.load(Ordering::Relaxed);
+        if m > 0 {
+            // SAFETY: async-signal-safe — `kill` is the only call, and it is on
+            // the seccomp allowlist.
+            unsafe {
+                libc::kill(m, sig);
+            }
+        }
+    }
+    MAIN.store(main_child, Ordering::Relaxed);
+    // A `stop` sends SIGTERM to pid 1 (us); forward it (and the other usual
+    // termination signals) to the workload instead of dying and orphaning it.
+    for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGQUIT, libc::SIGHUP] {
+        // SAFETY: a zeroed `sigaction` with our handler; no preconditions.
+        unsafe {
+            let mut sa: libc::sigaction = std::mem::zeroed();
+            sa.sa_sigaction = forward as extern "C" fn(libc::c_int) as libc::sighandler_t;
+            libc::sigemptyset(&mut sa.sa_mask);
+            libc::sigaction(sig, &sa, std::ptr::null_mut());
+        }
+    }
+    let mut main_code: isize = 0;
+    loop {
+        let mut status: libc::c_int = 0;
+        // SAFETY: reap any child; `status` is a valid local.
+        let pid = unsafe { libc::waitpid(-1, &mut status, 0) };
+        if pid == -1 {
+            let e = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            if e == libc::EINTR {
+                continue; // interrupted by a forwarded signal — keep reaping
+            }
+            break; // ECHILD: nothing left
+        }
+        if pid == main_child {
+            main_code = if libc::WIFEXITED(status) {
+                libc::WEXITSTATUS(status) as isize
+            } else if libc::WIFSIGNALED(status) {
+                (128 + libc::WTERMSIG(status)) as isize
+            } else {
+                0
+            };
+            // Do NOT stop here: drain the main process's orphans until ECHILD so
+            // none linger as zombies — the whole point of `--init`.
+        }
+    }
+    main_code
+}
+
 fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     let ContainerInitSpec {
         rootfs,
@@ -4053,6 +4134,8 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 ulimits,
                 sysctls,
                 oom_score_adj,
+                init,
+                umask,
             },
         filesystem:
             FilesystemSpec {
@@ -4080,9 +4163,11 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 pod_infra_pid,
                 has_own_netns,
                 has_own_ipcns,
+                has_own_utsns,
                 host_pid,
                 inherit_userns,
                 node_cgroup,
+                cgroupns_private,
             },
         io:
             IoSpec {
@@ -4174,6 +4259,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         privileged,
         has_own_netns,
         has_own_ipcns,
+        has_own_utsns,
     ) {
         eprintln!("delonix: failed to prepare the rootfs: {e}");
         return 126;
@@ -4352,6 +4438,18 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         }
         user_switched = true;
     }
+    // Docker/Podman `--cgroupns=private`: anchor the cgroup namespace at our
+    // CURRENT cgroup — the parent has by now moved us into the leaf `dlx-<id>`
+    // (the mounts/ready gate above sequences after that), so the container's
+    // `/proc/self/cgroup` root becomes `/`. MUST run here, while we still hold
+    // `CAP_SYS_ADMIN` from the user namespace: after `drop_capabilities` below
+    // the `unshare(CLONE_NEWCGROUP)` would fail EPERM. Opt-in and best-effort:
+    // `host` (the default) never reaches here, and a refusal leaves the host
+    // view — the same as not asking. Skipped on the Kind node path, which ran
+    // its own unshare in `setup_node_cgroup_ns`.
+    if cgroupns_private && !node_cgroup {
+        let _ = unshare(CloneFlags::CLONE_NEWCGROUP);
+    }
     if no_new_privs {
         set_no_new_privs(); // no execve gains privileges (anti-escalation)
         drop_capabilities(cap_keep); // drop caps (after the mounts, before the exec)
@@ -4421,6 +4519,33 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             eprintln!(
                 "delonix: setgroups({groups:?}) failed — are the gids inside the mapped range?"
             );
+        }
+    }
+    // Podman `--umask`: set the file-mode creation mask the command inherits.
+    // Last thing before the exec so nothing above (mounts, tmpfs) is affected by
+    // it. SAFETY: `umask` cannot fail and has no error return.
+    if let Some(m) = umask {
+        // SAFETY: libc umask always succeeds, returning the previous mask.
+        unsafe {
+            libc::umask(m as libc::mode_t);
+        }
+    }
+    // Docker/Podman `--init`: become a tiny reaping init. Everything above (the
+    // namespace entry, privilege drop, seccomp, cgroup) has already run, so BOTH
+    // sides inherit the same confinement — the simplest correct model (the child
+    // needs no second drop). The PARENT stays pid 1, forwards termination signals
+    // to the command and reaps every orphan; the CHILD execs the command. A
+    // failed `fork` falls through to exec directly (no reaper) rather than
+    // refusing to start. Seccomp already allows `clone`/`wait4`/`kill`/
+    // `rt_sigaction` (a container must be able to fork), so this needs no profile
+    // change.
+    if init {
+        // SAFETY: a plain fork in pid 1 after all setup; no allocator work runs
+        // in the child before `execvp` below.
+        match unsafe { libc::fork() } {
+            -1 => { /* fork failed — run the command directly, without a reaper */ }
+            0 => { /* child: fall through to the exec below */ }
+            main_child => return reap_as_init(main_child),
         }
     }
     let err = execvp(&argv[0], argv).unwrap_err();
@@ -5759,13 +5884,12 @@ pub fn bottleneck<'a>(readings: &[(&'a str, Option<Psi>)]) -> Option<&'a str> {
 /// The user-facing flags each cgroup controller makes real. Without the
 /// controller they are parsed, accepted, and silently ignored.
 pub fn flags_of_controller(controller: &str) -> &'static [&'static str] {
-    // Every name here MUST exist on `container run`. Four did not: measured
-    // 2026-08-31, `--memory-swap`, `--pids-limit`, `--cpuset-mems` and
-    // `--io-max` are Docker's spellings, and this engine has `--cpuset` and the
-    // `--device-*-bps/iops` family instead. Telling an operator to stop using a
-    // flag they cannot type is a small lie that costs a real minute, so
-    // `named_flags_all_exist` walks the clap tree and refuses any name that is
-    // not really there.
+    // Every name here MUST exist on `container run`. `--cpuset-mems` and
+    // `--io-max` remain Docker's spellings this engine does NOT ship (it has
+    // `--cpuset` and the `--device-*-bps/iops` family instead). `--pids-limit`,
+    // `--memory-reservation` and `--memory-swap` DID land (CLI-parity review),
+    // so they appear here now. `named_flags_all_exist` walks the clap tree and
+    // refuses any name that is not really there.
     match controller {
         "cpu" => &["--cpus", "--cpu-weight"],
         "cpuset" => &["--cpuset"],
@@ -5776,10 +5900,8 @@ pub fn flags_of_controller(controller: &str) -> &'static [&'static str] {
             "--device-read-iops",
             "--device-write-iops",
         ],
-        "memory" => &["--memory"],
-        // No user-facing flag: the pids ceiling is a cgroup-GROUP property, not
-        // a `container run` option. Naming one would invent a flag.
-        "pids" => &[],
+        "memory" => &["--memory", "--memory-reservation", "--memory-swap"],
+        "pids" => &["--pids-limit"],
         _ => &[],
     }
 }
@@ -6093,6 +6215,11 @@ fn try_delegated_base(
         abandon_leaf(&leaf);
         return false;
     }
+    // Soft reclaim floor (`--memory-reservation`): best-effort, it is a hint to
+    // the reclaim path, never a hard cap, so a write failure is not fatal.
+    if let Some(low) = c.memory_low.as_deref().and_then(mem_limit_write_value) {
+        let _ = std::fs::write(format!("{leaf}/memory.low"), low);
+    }
     // BUG FIXED HERE (1/2): `memory.max` alone does NOT bound a container's
     // memory pressure on a host that has swap — the container simply swaps at
     // the limit instead of being reclaimed/killed, so the ceiling the operator
@@ -6100,7 +6227,10 @@ fn try_delegated_base(
     // (`ensure_delonix_slice`) has always written `memory.swap.max = 0`; the
     // rootless-delegated leaf — the NORMAL path — never did. Measured live:
     // `memory.swap.max = max` on a container started with `-m 256M`.
-    let _ = std::fs::write(format!("{leaf}/memory.swap.max"), swap_max_value());
+    let _ = std::fs::write(
+        format!("{leaf}/memory.swap.max"),
+        swap_max_write_value(&c.memory_max, c.memory_swap.as_deref()),
+    );
     // BUG FIXED HERE (2/2): with `memory.oom.group = 0` (the kernel default) an
     // OOM kills ONE process inside the cgroup, not the container. For a
     // container the cgroup IS the unit of failure: killing its pid 1's child
@@ -6108,7 +6238,10 @@ fn try_delegated_base(
     // reports Running. `1` makes the kill atomic over the whole cgroup, which
     // is what runc/systemd do for exactly this reason.
     let _ = std::fs::write(format!("{leaf}/memory.oom.group"), "1");
-    let _ = std::fs::write(format!("{leaf}/pids.max"), DEFAULT_PIDS_MAX.to_string());
+    let _ = std::fs::write(
+        format!("{leaf}/pids.max"),
+        pids_max_write_value(c.pids_max.as_deref()),
+    );
     let Some(cpu_value) = try_cpu_max_value(&c.cpus) else {
         return false;
     };
@@ -6568,6 +6701,42 @@ fn swap_max_value() -> String {
     std::env::var("DELONIX_SWAP_MAX").unwrap_or_else(|_| "0".to_string())
 }
 
+/// The value to write to `memory.swap.max` (Docker `--memory-swap`). Docker's
+/// flag is the memory+swap TOTAL; cgroup v2 `memory.swap.max` is swap ALONE, so
+/// the allowance is `total − memory`. `-1`/`max` ⇒ unlimited swap; `None` keeps
+/// the engine default ([`swap_max_value`], normally `0` = no swap beyond
+/// memory). A value the parser cannot make sense of falls back to that default
+/// rather than guessing.
+fn swap_max_write_value(memory_max: &str, memory_swap: Option<&str>) -> String {
+    match memory_swap.map(str::trim) {
+        None => swap_max_value(),
+        Some("-1") | Some("max") => "max".to_string(),
+        Some(total) => match (
+            mem_limit_write_value(total).as_deref(),
+            mem_limit_write_value(memory_max).as_deref(),
+        ) {
+            // No memory ceiling (or unlimited total) ⇒ a swap ceiling is moot.
+            (Some("max"), _) | (_, Some("max")) => "max".to_string(),
+            (Some(t), Some(m)) => match (t.parse::<u64>(), m.parse::<u64>()) {
+                (Ok(t), Ok(m)) => t.saturating_sub(m).to_string(),
+                _ => swap_max_value(),
+            },
+            _ => swap_max_value(),
+        },
+    }
+}
+
+/// The value to write to `pids.max` (Docker `--pids-limit`). `None` keeps the
+/// engine's anti-fork-bomb default; Docker's `-1`/`0` means unlimited, which is
+/// cgroup-v2 `max`; any other value is passed through as the process count.
+fn pids_max_write_value(limit: Option<&str>) -> String {
+    match limit.map(str::trim) {
+        None => DEFAULT_PIDS_MAX.to_string(),
+        Some("-1") | Some("0") | Some("max") => "max".to_string(),
+        Some(n) => n.to_string(),
+    }
+}
+
 /// `true` when a container ends up with **no memory ceiling at any level** —
 /// neither its own nor an inherited one.
 ///
@@ -6855,12 +7024,19 @@ fn setup_cgroup(c: &Container, pid: i32, io_dev: Option<&str>) -> Result<()> {
         );
     }
     write_limit(cg, "memory.max", &c.memory_max)?; // memory ceiling (kernel OOM-kill)
-                                                   // no swap beyond memory, otherwise the memory limit would be bypassable;
-                                                   // best-effort: the swap controller may be disabled on the system.
-    let _ = std::fs::write(format!("{cg}/memory.swap.max"), "0");
+    if let Some(low) = c.memory_low.as_deref().and_then(mem_limit_write_value) {
+        let _ = std::fs::write(format!("{cg}/memory.low"), low); // soft reclaim floor
+    }
+    // no swap beyond memory by default, otherwise the memory limit would be
+    // bypassable; `--memory-swap` raises it. Best-effort: the swap controller
+    // may be disabled on the system.
+    let _ = std::fs::write(
+        format!("{cg}/memory.swap.max"),
+        swap_max_write_value(&c.memory_max, c.memory_swap.as_deref()),
+    );
     write_limit(cg, "cpu.max", &cpu_max_value(&c.cpus))?; // CPU ceiling
-    write_limit(cg, "pids.max", &DEFAULT_PIDS_MAX.to_string())?; // anti fork-bomb
-                                                                 // --- scheduling / QoS (cgroup v2, best-effort) ---
+    write_limit(cg, "pids.max", &pids_max_write_value(c.pids_max.as_deref()))?; // process ceiling
+                                                                                // --- scheduling / QoS (cgroup v2, best-effort) ---
     if let Some(w) = &c.cpu_weight {
         let _ = std::fs::write(format!("{cg}/cpu.weight"), w); // CPU priority
     }
@@ -6982,6 +7158,10 @@ pub struct RunSpec<'a> {
     /// Shares the host's *IPC namespace* (`--host-ipc`; CRI `namespace_options.ipc
     /// = NODE`): the host's shared memory/queues. By default, isolated.
     pub host_ipc: bool,
+    /// Shares the host's *UTS namespace* (`--uts host`): the container sees (and
+    /// cannot change) the host's hostname. By default, isolated — no `sethostname`
+    /// is attempted when this is set, so the host's name is never touched.
+    pub uts_host: bool,
     /// **Rootless ingress:** the process already runs INSIDE the ingress holder's
     /// user+network namespace (re-exec via `nsenter … ip netns exec`). It does not create
     /// `CLONE_NEWUSER` nor `CLONE_NEWNET` (inherits the holder's, already as uid 0), but
@@ -7820,6 +8000,9 @@ struct InitInputs {
     ulimits: Vec<String>,
     sysctls: Vec<String>,
     oom_score_adj: Option<i32>,
+    init: bool,
+    umask: Option<u32>,
+    cgroupns_private: bool,
     mounts: Vec<Mount>,
     read_only: bool,
     tmpfs: Vec<String>,
@@ -7840,6 +8023,7 @@ struct InitInputs {
     pod_infra_pid: Option<i32>,
     has_own_netns: bool,
     has_own_ipcns: bool,
+    has_own_utsns: bool,
     host_pid: bool,
     inherit_userns: bool,
     node_cgroup: bool,
@@ -7878,6 +8062,9 @@ impl InitInputs {
             ulimits: container.ulimits.clone(),
             sysctls: container.sysctls.clone(),
             oom_score_adj: container.oom_score_adj,
+            init: container.init,
+            umask: container.umask,
+            cgroupns_private: container.cgroupns_private,
             mounts: spec.mounts.clone(),
             read_only: container.read_only,
             tmpfs: container.tmpfs.clone(),
@@ -7911,6 +8098,11 @@ impl InitInputs {
             // into). `apply_sysctls` needs this to know whether the IPC sysctls
             // are safe (else they hit the shared namespace — the host's).
             has_own_ipcns: !spec.host_ipc && spec.pod_infra_pid.is_none(),
+            // Gates `sethostname`: set the hostname UNLESS `--uts host` (the UTS
+            // ns is the host's and must not be renamed). A pod member keeps
+            // setting it (it shares the pod's UTS, the historic behaviour) — only
+            // `--uts host` suppresses it.
+            has_own_utsns: !spec.uts_host,
             host_pid: spec.host_pid,
             inherit_userns: spec.inherit_userns,
             node_cgroup: is_kind_node(privileged, &container.labels),
@@ -7935,6 +8127,8 @@ impl InitInputs {
                 ulimits: &self.ulimits,
                 sysctls: &self.sysctls,
                 oom_score_adj: self.oom_score_adj,
+                init: self.init,
+                umask: self.umask,
             },
             filesystem: FilesystemSpec {
                 mounts: &self.mounts,
@@ -7959,9 +8153,11 @@ impl InitInputs {
                 pod_infra_pid: self.pod_infra_pid,
                 has_own_netns: self.has_own_netns,
                 has_own_ipcns: self.has_own_ipcns,
+                has_own_utsns: self.has_own_utsns,
                 host_pid: self.host_pid,
                 inherit_userns: self.inherit_userns,
                 node_cgroup: self.node_cgroup,
+                cgroupns_private: self.cgroupns_private,
             },
             io,
         }
@@ -8069,7 +8265,7 @@ fn clone_flags(spec: &RunSpec<'_>) -> (CloneFlags, bool) {
     // `spawn`), so it must NOT be given a fresh one here.
     let share_pod_pid = join_pod && spec.pod_shared_pid;
     let mut flags = CloneFlags::CLONE_NEWNS;
-    if !join_pod {
+    if !join_pod && !spec.uts_host {
         flags |= CloneFlags::CLONE_NEWUTS;
     }
     if !spec.host_pid && !share_pod_pid {
@@ -10147,6 +10343,28 @@ pub fn stop(
         store,
         container,
         timeout_secs,
+        Signal::SIGTERM,
+        Signal::SIGKILL,
+        KILL_EXIT_WAIT_TICKS,
+    )
+}
+
+/// Like [`stop`], but sends the signal with this number first instead of
+/// `SIGTERM` (Docker `--stop-signal`). `SIGKILL` is still the escalation after
+/// the grace period. Takes a raw signal number so the CLI need not depend on
+/// `nix`; an unrecognized value falls back to `SIGTERM`.
+pub fn stop_with_signal(
+    store: &impl StateRepository<Container>,
+    container: &mut Container,
+    timeout_secs: u64,
+    term_signal_num: i32,
+) -> Result<()> {
+    let term = Signal::try_from(term_signal_num).unwrap_or(Signal::SIGTERM);
+    stop_waiting(
+        store,
+        container,
+        timeout_secs,
+        term,
         Signal::SIGKILL,
         KILL_EXIT_WAIT_TICKS,
     )
@@ -10159,6 +10377,7 @@ fn stop_waiting(
     store: &impl StateRepository<Container>,
     container: &mut Container,
     timeout_secs: u64,
+    term_signal: Signal,
     kill_signal: Signal,
     exit_ticks: u64,
 ) -> Result<()> {
@@ -10177,7 +10396,7 @@ fn stop_waiting(
     }
     let target = Pid::from_raw(pid);
 
-    let _ = kill(target, Signal::SIGTERM);
+    let _ = kill(target, term_signal);
     if !wait_until_gone(pid, st, timeout_secs * 10) {
         let _ = kill(target, kill_signal);
         // SIGKILL is delivered at once; the EXIT is not. `stop` returning while
@@ -11729,7 +11948,8 @@ mod remove_tests {
         std::thread::sleep(Duration::from_millis(300));
         let mut c = record_of(&child);
         let store = OneRecord(RefCell::new(Some(c.clone())));
-        let err = stop_waiting(&store, &mut c, 0, Signal::SIGWINCH, 2).unwrap_err();
+        let err =
+            stop_waiting(&store, &mut c, 0, Signal::SIGTERM, Signal::SIGWINCH, 2).unwrap_err();
         let alive = !process_gone(c.pid.unwrap(), c.pid_starttime);
         let _ = child.kill();
         let _ = child.wait();
@@ -11759,7 +11979,14 @@ mod remove_tests {
             .expect("sleep");
         let mut c = record_of(&child);
         let store = OneRecord(RefCell::new(Some(c.clone())));
-        let r = stop_waiting(&store, &mut c, 5, Signal::SIGKILL, KILL_EXIT_WAIT_TICKS);
+        let r = stop_waiting(
+            &store,
+            &mut c,
+            5,
+            Signal::SIGTERM,
+            Signal::SIGKILL,
+            KILL_EXIT_WAIT_TICKS,
+        );
         let _ = child.kill();
         let _ = child.wait();
         r.expect("stop");
@@ -12721,12 +12948,15 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             ]
         );
 
-        // `pids` is delegated on every host that delegates anything and has NO
-        // `container run` flag behind it — the ceiling is a cgroup-group
-        // property. An empty row is correct here; inventing a flag to fill it
-        // is the defect this replaced.
-        assert!(flags_of_controller("pids").is_empty());
-        for c in ["cpu", "memory", "cpuset", "io"] {
+        // `pids` is delegated on every host that delegates anything and now has
+        // `--pids-limit` behind it (CLI-parity review); `memory` gained
+        // `--memory-reservation` alongside `--memory`.
+        assert_eq!(flags_of_controller("pids"), ["--pids-limit"]);
+        assert_eq!(
+            flags_of_controller("memory"),
+            ["--memory", "--memory-reservation", "--memory-swap"]
+        );
+        for c in ["cpu", "memory", "cpuset", "io", "pids"] {
             assert!(!flags_of_controller(c).is_empty(), "{c} sem flags");
         }
         assert!(flags_of_controller("hugetlb").is_empty());

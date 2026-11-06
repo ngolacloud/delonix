@@ -29,6 +29,8 @@ LEAF_SET = {
     "api-resources",
     "container run",
     "container ps",
+    "container unmount",
+    "image ls",
     "vm start",
     "vm stop",
     "vm destroy",
@@ -182,8 +184,8 @@ class Gate(unittest.TestCase):
         self._record(["container ps", "vm start"])
         rc, out = self._run([])
         self.assertEqual(rc, 0, out)
-        self.assertIn("2 of 9", out)
-        self.assertIn("22.2 %", out)
+        self.assertIn("2 of 11", out)
+        self.assertIn("18.2 %", out)
 
     def test_coverage_that_dropped_fails(self):
         self._record(["container ps", "vm start"])
@@ -349,7 +351,7 @@ class Formatting(unittest.TestCase):
         self.assertEqual(executed, {"container ps"})
         self.assertEqual(meta["recorded"], "host X, 2026-10-07")
         self.assertEqual(meta["executed"], "1")
-        self.assertEqual(meta["leaves"], "9")
+        self.assertEqual(meta["leaves"], "11")
 
     def test_the_stamp_names_the_commit_the_run_saw_not_head(self):
         """A re-record of an older run may not claim a commit it never saw.

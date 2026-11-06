@@ -107,6 +107,7 @@ pub fn load_docker_archive(store: &ImageStore, tar_path: &Path) -> Result<Image>
             memory: None,
             security: Vec::new(),
             healthcheck: None,
+            exposed_ports: inner.exposed_ports().clone().unwrap_or_default(),
             architecture,
         },
         created_unix: now_unix(),
