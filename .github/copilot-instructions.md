@@ -1,7 +1,7 @@
 # Delonix Runtime — agent rules
 
 This repository's agent/AI-assistant rules live in a single canonical file: **[AGENTS.md](../AGENTS.md)**
-at the repository root. Read it before making changes — it covers the architecture (8 crates), the
+at the repository root. Read it before making changes — it covers the architecture, the
 CLI command surface, the i18n convention (English source + `pt.po` catalog, never inline
 translations), the security-review history, and the "no dependency on private repos" boundary that
 this public repo must never cross.

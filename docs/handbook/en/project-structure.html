@@ -247,7 +247,8 @@ below, or when a table names a path that no longer exists.</p>
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
 ├── .dockerignore, .gitignore, .git-blame-ignore-revs
-├── .ai/                          skills for AI assistants (E2E quality)
+├── .ai/                          versioned AI harness: skills/ and agents/
+├── .claude/                      agents/ bridge (symlinks to .ai/agents/); rest gitignored
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
 ├── crates/
 │   ├── foundation/               pure shared types and rules (no mechanism)
@@ -687,7 +688,7 @@ below, or when a table names a path that no longer exists.</p>
 </tr>
 </tbody>
 </table></div>
-<h2 id="tooling-ci-and-packaging-scripts-github-dist-editors-examples-reports-third_party-ai">Tooling, CI and packaging (scripts/, .github/, dist/, editors/, examples/, reports/, third_party/, .ai/)<a class="hanchor" href="#tooling-ci-and-packaging-scripts-github-dist-editors-examples-reports-third_party-ai" aria-label="#">#</a></h2>
+<h2 id="tooling-ci-and-packaging-scripts-github-dist-editors-examples-reports-third_party-ai-claude">Tooling, CI and packaging (scripts/, .github/, dist/, editors/, examples/, reports/, third_party/, .ai/, .claude/)<a class="hanchor" href="#tooling-ci-and-packaging-scripts-github-dist-editors-examples-reports-third_party-ai-claude" aria-label="#">#</a></h2>
 <div class="tablewrap"><table>
 <thead>
 <tr>
@@ -748,8 +749,14 @@ below, or when a table names a path that no longer exists.</p>
 </tr>
 <tr>
 <td><code>.ai/</code></td>
-<td>Tool-neutral skills for AI assistants: <code>skills/<wbr>delonix-runtime-e2e-quality/<wbr></code> (test taxonomy, provider contract, security checks, report templates).</td>
+<td>Tool-neutral, version-controlled AI harness: <code>skills/</code> (<code>delonix-runtime-e2e-quality</code> and the engineering skills) and <code>agents/</code> (the specialist agent specs with their permission-tier map).</td>
 <td>Maintainers.</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>.claude/</code></td>
+<td>The loadable copy of the versioned agent layer: <code>agents/*.md</code> are symlinks into <code>.ai/agents/</code>, so Claude Code discovers the agents while a single canonical file lives under <code>.ai/</code>. The rest of <code>.claude/</code> (session contracts, gitflow state, local settings) is machine-local and gitignored.</td>
+<td>Maintainers, when adding or renaming an agent.</td>
 <td>—</td>
 </tr>
 </tbody>
@@ -874,7 +881,7 @@ expect CI to fail if you edit the output by hand.</p>
 <li><a href="#top-level-files">Top-level files</a></li>
 <li><a href="#source-code-crates-bins-proto-tests">Source code (crates/, bins/, proto/, tests/)</a></li>
 <li><a href="#documentation-docs">Documentation (docs/…)</a></li>
-<li><a href="#tooling-ci-and-packaging-scripts-github-dist-editors-examples-reports-third_party-ai">Tooling, CI and packaging (scripts/, .github/, dist/, editors/, examples/, reports/, third_party/, .ai/)</a></li>
+<li><a href="#tooling-ci-and-packaging-scripts-github-dist-editors-examples-reports-third_party-ai-claude">Tooling, CI and packaging (scripts/, .github/, dist/, editors/, examples/, reports/, third_party/, .ai/, .claude/)</a></li>
 <li><a href="#generated-vs-hand-written">Generated vs hand-written</a></li>
 <li><a href="#where-does-a-new-file-go">Where does a new file go?</a></li>
 </ul>

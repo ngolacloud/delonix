@@ -7,14 +7,14 @@
 
 | Layer | Crates | Lines | Share |
 | --- | ---: | ---: | ---: |
-| foundation | 2 | 6,373 | 1.8% |
-| context | 6 | 27,670 | 7.9% |
-| adapter | 10 | 80,643 | 22.9% |
-| provider | 10 | 54,557 | 15.5% |
-| interface | 4 | 31,717 | 9.0% |
-| assembly | 1 | 109 | 0.0% |
-| bin | 5 | 150,715 | 42.8% |
-| **total** | **38** | **351,784** | 100% |
+| foundation | 2 | 6,419 | 1.8% |
+| context | 6 | 27,670 | 7.7% |
+| adapter | 10 | 80,653 | 22.5% |
+| provider | 10 | 54,622 | 15.2% |
+| interface | 4 | 36,287 | 10.1% |
+| assembly | 1 | 1,132 | 0.3% |
+| bin | 6 | 152,337 | 42.4% |
+| **total** | **39** | **359,120** | 100% |
 
 ## Lines per crate
 
@@ -22,7 +22,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-model | 5,252 |
+| delonix-model | 5,298 |
 | delonix-net-rules | 1,121 |
 
 ### context
@@ -40,7 +40,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-sdn ⚠️ >20k | 29,139 |
+| delonix-sdn ⚠️ >20k | 29,149 |
 | delonix-linux ⚠️ >20k | 22,351 |
 | delonix-oci | 13,554 |
 | delonix-vm | 4,955 |
@@ -55,9 +55,9 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-provider-proxmox ⚠️ >20k | 31,590 |
+| delonix-provider-proxmox ⚠️ >20k | 31,653 |
 | delonix-provider-libvirt | 6,617 |
-| delonix-provider-opnsense | 5,242 |
+| delonix-provider-opnsense | 5,244 |
 | delonix-provider-cloud-hypervisor | 3,543 |
 | delonix-provider-ceph | 2,077 |
 | delonix-provider-lvm | 1,271 |
@@ -70,26 +70,27 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-node-api | 16,884 |
-| delonix-cri | 9,784 |
-| delonix-mgmt | 3,291 |
-| delonix-mcp | 1,758 |
+| delonix-node-api ⚠️ >20k | 20,874 |
+| delonix-cri | 10,579 |
+| delonix-mgmt | 2,872 |
+| delonix-mcp | 1,962 |
 
 ### assembly
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-engine | 109 |
+| delonix-engine | 1,132 |
 
 ### bin
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-bin ⚠️ >20k | 149,411 |
+| delonix-bin ⚠️ >20k | 149,563 |
+| delonix-node-api-bin | 1,230 |
 | delonix-storage-helper | 645 |
-| delonix-node-api-bin | 436 |
-| delonix-mcp-bin | 140 |
-| delonix-mgmt-bin | 83 |
+| delonix-cri-bin | 446 |
+| delonix-mcp-bin | 236 |
+| delonix-mgmt-bin | 217 |
 
 ## CLI lines by Part D destination
 
@@ -98,18 +99,18 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 
 | Destination | Lines | Modules | Context? |
 | --- | ---: | ---: | :---: |
-| delonix-compute | 23,694 | 7 | ✓ |
+| delonix-compute | 23,703 | 7 | ✓ |
 | delonix-stack | 21,380 | 10 | ✓ |
-| delonix-networking | 19,312 | 25 | ✓ |
+| delonix-networking | 19,314 | 25 | ✓ |
 | delonix-artifact | 15,763 | 6 | ✓ |
 | delonix-cluster | 13,590 | 10 | ✓ |
 | delonix-storage | 9,352 | 8 | ✓ |
 | delonix-node | 7,183 | 4 | ✓ |
 | delonix-gateway | 5,252 | 2 | ✓ |
 | delonix-security | 2,796 | 3 | ✓ |
-| delonix-cli | 16,318 | 17 |  |
+| delonix-cli | 16,319 | 17 |  |
 | delonix-docker-api | 3,814 | 1 |  |
-| delonix-engine | 3,066 | 4 |  |
+| delonix-engine | 3,207 | 5 |  |
 | delonix-l7proxy | 2,024 | 1 |  |
 | delonix-linux | 1,238 | 1 |  |
 | delonix-sdn | 471 | 1 |  |
@@ -117,7 +118,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | delonix-ssh | 274 | 1 |  |
 | tests | 256 | 1 |  |
 | delonix-mcp | 36 | 1 |  |
-| **context total** | **118,322** | | |
+| **context total** | **118,333** | | |
 
 ## Ratchets
 
@@ -127,15 +128,15 @@ falls without the baseline lowered in the same commit.
 | Ratchet | Now | Baseline | Target |
 | --- | ---: | ---: | --- |
 | self_exec_sites | 35 | 35 | 0 (R5) |
-| library_prints | 109 | 109 | down |
+| library_prints | 108 | 108 | down |
 | env_writes | 23 | 23 | down |
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 118,322 | 118,322 | 0 (R4) |
-| interface_mechanism_deps | 27 | 27 | 0 (R3) |
+| cli_context_lines | 118,333 | 118,333 | 0 (R4) |
+| interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
-| bin_crates | 5 | 5 | 1 (R1) |
+| bin_crates | 6 | 6 | 1 (R1) |
 | inter_context_violations | 2 | 2 | 0 (R2) |
 | domain_app_refs | 13 | 13 | — |
 
@@ -162,36 +163,6 @@ Inter-context edges outside A3 (closed in R2):
 - `delonix-compute -> delonix-node (not in A3)`
 - `delonix-security -> delonix-node (not in A3)`
 
-Interface → adapter/provider (closed in R3):
-
-- `delonix-cri -> delonix-linux (adapter)`
-- `delonix-cri -> delonix-oci (adapter)`
-- `delonix-cri -> delonix-sdn (adapter)`
-- `delonix-cri -> delonix-state (adapter)`
-- `delonix-cri -> delonix-telemetry (adapter)`
-- `delonix-mcp -> delonix-linux (adapter)`
-- `delonix-mcp -> delonix-sdn (adapter)`
-- `delonix-mcp -> delonix-state (adapter)`
-- `delonix-mcp -> delonix-vm (adapter)`
-- `delonix-mcp -> delonix-volume (adapter)`
-- `delonix-mgmt -> delonix-linux (adapter)`
-- `delonix-mgmt -> delonix-oci (adapter)`
-- `delonix-mgmt -> delonix-scanner (adapter)`
-- `delonix-mgmt -> delonix-sdn (adapter)`
-- `delonix-mgmt -> delonix-state (adapter)`
-- `delonix-mgmt -> delonix-telemetry (adapter)`
-- `delonix-mgmt -> delonix-vm (adapter)`
-- `delonix-mgmt -> delonix-volume (adapter)`
-- `delonix-node-api -> delonix-linux (adapter)`
-- `delonix-node-api -> delonix-oci (adapter)`
-- `delonix-node-api -> delonix-provider-ceph (provider)`
-- `delonix-node-api -> delonix-provider-opnsense (provider)`
-- `delonix-node-api -> delonix-provider-proxmox (provider)`
-- `delonix-node-api -> delonix-sdn (adapter)`
-- `delonix-node-api -> delonix-state (adapter)`
-- `delonix-node-api -> delonix-vm (adapter)`
-- `delonix-node-api -> delonix-volume (adapter)`
-
 ## Crate dependency graph
 
 ```mermaid
@@ -199,6 +170,7 @@ graph LR
   delonix_bin[delonix-bin]
   delonix_compute[delonix-compute]
   delonix_cri[delonix-cri]
+  delonix_cri_bin[delonix-cri-bin]
   delonix_engine[delonix-engine]
   delonix_host[delonix-host]
   delonix_linux[delonix-linux]
@@ -235,6 +207,7 @@ graph LR
   delonix_vm[delonix-vm]
   delonix_volume[delonix-volume]
   delonix_bin --> delonix_compute
+  delonix_bin --> delonix_engine
   delonix_bin --> delonix_host
   delonix_bin --> delonix_linux
   delonix_bin --> delonix_mgmt
@@ -266,17 +239,28 @@ graph LR
   delonix_compute --> delonix_node
   delonix_cri --> delonix_compute
   delonix_cri --> delonix_host
-  delonix_cri --> delonix_linux
   delonix_cri --> delonix_model
   delonix_cri --> delonix_node
-  delonix_cri --> delonix_oci
-  delonix_cri --> delonix_sdn
   delonix_cri --> delonix_security
-  delonix_cri --> delonix_state
   delonix_cri --> delonix_telemetry
+  delonix_cri_bin --> delonix_compute
+  delonix_cri_bin --> delonix_cri
+  delonix_cri_bin --> delonix_engine
+  delonix_cri_bin --> delonix_host
+  delonix_cri_bin --> delonix_linux
+  delonix_cri_bin --> delonix_model
+  delonix_cri_bin --> delonix_sdn
+  delonix_cri_bin --> delonix_telemetry
   delonix_engine --> delonix_compute
+  delonix_engine --> delonix_linux
   delonix_engine --> delonix_model
+  delonix_engine --> delonix_oci
+  delonix_engine --> delonix_scanner
+  delonix_engine --> delonix_sdn
+  delonix_engine --> delonix_state
+  delonix_engine --> delonix_telemetry
   delonix_engine --> delonix_vm
+  delonix_engine --> delonix_volume
   delonix_host --> delonix_model
   delonix_linux --> delonix_compute
   delonix_linux --> delonix_model
@@ -284,32 +268,26 @@ graph LR
   delonix_linux --> delonix_state
   delonix_mcp --> delonix_compute
   delonix_mcp --> delonix_host
-  delonix_mcp --> delonix_linux
   delonix_mcp --> delonix_mgmt
   delonix_mcp --> delonix_model
   delonix_mcp --> delonix_node
-  delonix_mcp --> delonix_sdn
-  delonix_mcp --> delonix_state
-  delonix_mcp --> delonix_vm
-  delonix_mcp --> delonix_volume
+  delonix_mcp_bin --> delonix_compute
+  delonix_mcp_bin --> delonix_engine
   delonix_mcp_bin --> delonix_host
   delonix_mcp_bin --> delonix_mcp
+  delonix_mcp_bin --> delonix_model
   delonix_mcp_bin --> delonix_node
   delonix_mcp_bin --> delonix_telemetry
   delonix_mgmt --> delonix_compute
   delonix_mgmt --> delonix_host
-  delonix_mgmt --> delonix_linux
   delonix_mgmt --> delonix_model
   delonix_mgmt --> delonix_node
-  delonix_mgmt --> delonix_oci
-  delonix_mgmt --> delonix_scanner
-  delonix_mgmt --> delonix_sdn
-  delonix_mgmt --> delonix_state
   delonix_mgmt --> delonix_telemetry
-  delonix_mgmt --> delonix_vm
-  delonix_mgmt --> delonix_volume
+  delonix_mgmt_bin --> delonix_compute
+  delonix_mgmt_bin --> delonix_engine
   delonix_mgmt_bin --> delonix_host
   delonix_mgmt_bin --> delonix_mgmt
+  delonix_mgmt_bin --> delonix_model
   delonix_mgmt_bin --> delonix_node
   delonix_mgmt_bin --> delonix_telemetry
   delonix_networking --> delonix_model
@@ -317,24 +295,25 @@ graph LR
   delonix_node --> delonix_model
   delonix_node_api --> delonix_compute
   delonix_node_api --> delonix_host
-  delonix_node_api --> delonix_linux
   delonix_node_api --> delonix_model
   delonix_node_api --> delonix_node
-  delonix_node_api --> delonix_oci
   delonix_node_api --> delonix_pool_helper
-  delonix_node_api --> delonix_provider_ceph
-  delonix_node_api --> delonix_provider_opnsense
-  delonix_node_api --> delonix_provider_proxmox
-  delonix_node_api --> delonix_sdn
-  delonix_node_api --> delonix_state
   delonix_node_api --> delonix_storage
-  delonix_node_api --> delonix_vm
-  delonix_node_api --> delonix_volume
+  delonix_node_api_bin --> delonix_compute
+  delonix_node_api_bin --> delonix_engine
   delonix_node_api_bin --> delonix_host
+  delonix_node_api_bin --> delonix_linux
   delonix_node_api_bin --> delonix_model
   delonix_node_api_bin --> delonix_node
   delonix_node_api_bin --> delonix_node_api
+  delonix_node_api_bin --> delonix_oci
+  delonix_node_api_bin --> delonix_provider_ceph
+  delonix_node_api_bin --> delonix_provider_opnsense
+  delonix_node_api_bin --> delonix_provider_proxmox
+  delonix_node_api_bin --> delonix_sdn
+  delonix_node_api_bin --> delonix_state
   delonix_node_api_bin --> delonix_telemetry
+  delonix_node_api_bin --> delonix_volume
   delonix_oci --> delonix_compute
   delonix_oci --> delonix_host
   delonix_oci --> delonix_model
@@ -400,6 +379,7 @@ graph LR
   class delonix_bin bin;
   class delonix_compute context;
   class delonix_cri interface;
+  class delonix_cri_bin bin;
   class delonix_engine assembly;
   class delonix_host adapter;
   class delonix_linux adapter;
