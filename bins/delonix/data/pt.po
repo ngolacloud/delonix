@@ -4574,6 +4574,29 @@ msgstr "Processos a correr dentro de um container (lidos do `cgroup.procs`)."
 msgid "Files changed relative to the image: `A` = created/changed, `D` = deleted."
 msgstr "Ficheiros alterados face à imagem: `A` = criado/alterado, `D` = apagado."
 
+msgid "Export a container's filesystem as a tar archive (`docker export`)."
+msgstr "Exporta o sistema de ficheiros de um container como arquivo tar (`docker export`)."
+
+msgid ""
+"Export a container's filesystem as a tar archive (`docker export`)."
+"\n"
+"\n"
+"The whole rootfs as an UNCOMPRESSED tar; `/proc`, `/sys` and `/dev` travel as empty mount points. Unlike `image save`, this carries no image metadata — just the files, as the container sees their owners."
+msgstr ""
+"Exporta o sistema de ficheiros de um container como arquivo tar (`docker export`)."
+"\n"
+"\n"
+"O rootfs inteiro como tar NÃO comprimido; `/proc`, `/sys` e `/dev` viajam como pontos de montagem vazios. Ao contrário do `image save`, não leva metadados de imagem — só os ficheiros, com os donos que o container vê."
+
+msgid "Write to this file instead of stdout (`docker export -o`)."
+msgstr "Escreve neste ficheiro em vez do stdout (`docker export -o`)."
+
+msgid "stream a container's rootfs as a tar"
+msgstr "transmite o rootfs de um container como tar"
+
+msgid "write the tar straight to a file"
+msgstr "escreve o tar directamente num ficheiro"
+
 msgid "Test whether a container exists in the store (Podman's `container exists`): prints nothing, exit 0/1."
 msgstr "Verifica se um container existe no store (o `container exists` do Podman): não imprime nada, sai com 0/1."
 

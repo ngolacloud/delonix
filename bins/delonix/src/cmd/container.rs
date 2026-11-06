@@ -1815,6 +1815,18 @@ pub enum ContainerCmd {
         #[arg(add = ArgValueCandidates::new(super::complete::containers))]
         id: String,
     },
+    /// Export a container's filesystem as a tar archive (`docker export`).
+    ///
+    /// The whole rootfs as an UNCOMPRESSED tar; `/proc`, `/sys` and `/dev`
+    /// travel as empty mount points. Unlike `image save`, this carries no image
+    /// metadata — just the files, as the container sees their owners.
+    Export {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+        /// Write to this file instead of stdout (`docker export -o`).
+        #[arg(short = 'o', long = "output", value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
     /// Copy files between the host and a container.
     ///
     /// Exactly one side is `container:/path` (e.g. `delonix container cp
@@ -2467,6 +2479,7 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         ContainerCmd::Healthcheck { id } => cmd_healthcheck(&images, &store, &id),
         ContainerCmd::Top { id } => cmd_top(&store, &id),
         ContainerCmd::Diff { id } => cmd_diff(&images, &store, &id),
+        ContainerCmd::Export { id, output } => cmd_export(&images, &store, &id, output.as_deref()),
         ContainerCmd::Cp { src, dst } => cmd_cp(&images, &store, &src, &dst),
         ContainerCmd::Exists { id } => cmd_exists(&store, &id),
         ContainerCmd::Inspect { ids } => cmd_inspect(&store, &ids),
@@ -6488,6 +6501,43 @@ fn cmd_diff(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
     out.sort_by(|a, b| a.1.cmp(&b.1));
     for (k, p) in out {
         println!("{k} {p}");
+    }
+    Ok(())
+}
+
+/// `container export` — the container's rootfs as an uncompressed tar, to a
+/// file (`-o`) or stdout. Reads the SAME merged tree `commit`/`cp` read (which
+/// insists a running overlay container be mounted, so a stopped one is read
+/// through its `__ovlhold` and never packs an empty tree). Owners are written
+/// as the container sees them (`runtime::container_ids`), matching Docker.
+fn cmd_export(
+    images: &ImageStore,
+    store: &Store,
+    id: &str,
+    output: Option<&std::path::Path>,
+) -> Result<()> {
+    let c = find(store, id)?;
+    let root = container_fs_root(images, &c)?;
+    let tar = delonix_oci::ImageStore::export_rootfs_tar(root.path(), &runtime::container_ids)
+        .map_err(|e| Error::Invalid(format!("export: {e}")))?;
+    match output {
+        Some(path) => {
+            std::fs::write(path, &tar)
+                .map_err(|e| Error::Invalid(format!("writing {}: {e}", path.display())))?;
+            eprintln!("exported {} ({} bytes) to {}", c.name, tar.len(), path.display());
+        }
+        None => {
+            use std::io::Write;
+            // Refuse to spew a binary tar onto a terminal, as Docker does.
+            if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                return Err(Error::Invalid(
+                    "refusing to write a tar archive to a terminal — redirect stdout or use `-o <PATH>`".into(),
+                ));
+            }
+            std::io::stdout()
+                .write_all(&tar)
+                .map_err(|e| Error::Invalid(format!("writing the tar to stdout: {e}")))?;
+        }
     }
     Ok(())
 }

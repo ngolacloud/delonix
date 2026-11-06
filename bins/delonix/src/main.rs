@@ -299,6 +299,18 @@ enum Cmd {
         #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::images))]
         name: String,
     },
+    /// Export a container's filesystem as a tar archive (`docker export`).
+    ///
+    /// The whole rootfs as an UNCOMPRESSED tar; `/proc`, `/sys` and `/dev`
+    /// travel as empty mount points. Unlike `image save`, this carries no image
+    /// metadata — just the files, as the container sees their owners.
+    Export {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        id: String,
+        /// Write to this file instead of stdout (`docker export -o`).
+        #[arg(short = 'o', long = "output", value_name = "PATH")]
+        output: Option<std::path::PathBuf>,
+    },
     /// Authenticate to an OCI registry.
     ///
     /// Stores the credentials in `<root>/auth.json`, docker/podman format.
@@ -1603,6 +1615,9 @@ fn run() -> Result<()> {
         }
         Cmd::History { image } => cmd::image::run(cmd::image::ImageCmd::History { image }),
         Cmd::Untag { name } => cmd::image::run(cmd::image::ImageCmd::Untag { name }),
+        Cmd::Export { id, output } => {
+            cmd::container::run(cmd::container::ContainerCmd::Export { id, output })
+        }
         Cmd::Login {
             registry,
             username,
@@ -2404,6 +2419,7 @@ mod cli_stability_classification_tests {
         "rename",
         "history",
         "untag",
+        "export",
     ];
 
     /// Every other real top-level group, mirroring "NÃO estável" 1:1. A group
