@@ -1184,6 +1184,9 @@ pub struct RunArgs {
     /// <network>` it publishes via the ingress (nft DNAT + hostfwd on the single slirp).
     #[arg(short = 'p', long = "publish")]
     publish: Vec<String>,
+    /// Publish every port the image EXPOSEs, each on an ephemeral host port (Docker/Podman `--publish-all`/`-P`).
+    #[arg(short = 'P', long = "publish-all")]
+    publish_all: bool,
     /// Privileged container (all caps, seccomp off) — trusted workloads.
     #[arg(long)]
     privileged: bool,
@@ -1450,6 +1453,9 @@ pub struct RunArgs {
     /// container reads `starting` rather than `unhealthy`.
     #[arg(long = "health-start-period", default_value_t = 0)]
     health_start_period: u64,
+    /// Disable the image's HEALTHCHECK entirely (Docker/Podman `--no-healthcheck`): no monitor, no probe.
+    #[arg(long = "no-healthcheck")]
+    no_healthcheck: bool,
     /// Restrict DNS resolution to these containers (isolation). Repeatable.
     #[arg(long, add = ArgValueCandidates::new(super::complete::containers))]
     knows: Vec<String>,
@@ -1997,6 +2003,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         volumes_from,
         mounts_flag,
         publish,
+        publish_all,
         privileged,
         entrypoint,
         workdir,
@@ -2065,6 +2072,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         health_timeout,
         health_retries,
         health_start_period,
+        no_healthcheck,
         knows,
         knows_none,
         pod,
@@ -2149,6 +2157,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         volumes,
         volumes_from,
         ports: publish,
+        publish_all,
         privileged,
         entrypoint: entrypoint_argv(entrypoint),
         workdir,
@@ -2219,13 +2228,21 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         add_host,
         wait_healthy,
         wait_timeout,
-        health: health_opts(
-            health_cmd,
-            health_interval,
-            health_timeout,
-            health_retries,
-            health_start_period,
-        ),
+        // `--no-healthcheck` WINS: it forces the continuous monitor off (so none
+        // is ever spawned) regardless of any `--health-*` flag, and the record
+        // flag below makes every image-HEALTHCHECK fallback short-circuit too.
+        health: if no_healthcheck {
+            None
+        } else {
+            health_opts(
+                health_cmd,
+                health_interval,
+                health_timeout,
+                health_retries,
+                health_start_period,
+            )
+        },
+        no_healthcheck,
         knows,
         knows_none,
         pod,
@@ -3152,6 +3169,26 @@ pub(crate) fn with_host_workload<R>(
     })
 }
 
+/// Reserves a FREE ephemeral host port for `--publish-all`, by the same trick
+/// `can_bind_host_port` uses: bind `:0` on loopback, let the kernel choose, read
+/// the assigned port, and drop the socket so the publish can claim it. The
+/// window between here and the slirp's own bind is the same tiny race every
+/// `-p` already runs (the port-conflict check below re-probes), and the chosen
+/// port is high (32768+), so it never hits the sub-1024 privilege wall.
+fn ephemeral_host_port(proto: delonix_sdn::Proto) -> Option<u16> {
+    use std::net::{TcpListener, UdpSocket};
+    match proto {
+        delonix_sdn::Proto::Tcp => TcpListener::bind("127.0.0.1:0")
+            .ok()
+            .and_then(|l| l.local_addr().ok())
+            .map(|a| a.port()),
+        delonix_sdn::Proto::Udp => UdpSocket::bind("127.0.0.1:0")
+            .ok()
+            .and_then(|s| s.local_addr().ok())
+            .map(|a| a.port()),
+    }
+}
+
 pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> Result<()> {
     // Imperative pod join (Podman `run --pod <name>`): a CLI caller sets `pod`
     // but never the hidden `pod_infra_pid`. Resolve it from the pod's existing
@@ -3234,6 +3271,36 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // side effect — see `delonix_compute::preflight` for the two that used to be
     // checked only after the workload had run, or never.
     delonix_compute::preflight::check_run_opts(&opts)?;
+    // `--publish-all`/`-P`: read the image's EXPOSEd ports and fold one publish
+    // entry per port into `opts.ports`, so the rest of the function (ownership,
+    // slirp attach, the stored `ports`, the re-exec spec) handles them exactly
+    // like a `-p`. Mirrors how `--volumes-from` resolves against the store.
+    //
+    // Only the first pass resolves: the re-exec receives the concrete specs in
+    // the spec file it reads, so resolving again there would double them. Each
+    // exposed port gets a free EPHEMERAL host port (Docker's `-P` behaviour),
+    // left loopback-by-default via `normalize_publish_spec` downstream — a bare
+    // `<port>:<cont>` with no address, exactly like a bare `-p`.
+    if opts.publish_all && std::env::var("DELONIX_REEXEC_ID").is_err() {
+        if let Ok(img) = images.resolve(&opts.image) {
+            for ep in &img.config.exposed_ports {
+                let (cont, proto) = match ep.split_once('/') {
+                    Some((p, pr)) => (p, pr.to_ascii_lowercase()),
+                    None => (ep.as_str(), "tcp".to_string()),
+                };
+                let transport = match delonix_sdn::Proto::parse(&proto) {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+                let Some(hp) = ephemeral_host_port(transport) else {
+                    return Err(Error::Invalid(format!(
+                        "--publish-all: could not reserve a host port for exposed {ep}"
+                    )));
+                };
+                opts.ports.push(format!("{hp}:{cont}/{proto}"));
+            }
+        }
+    }
     // Intact copy for the re-exec (the destructuring below consumes opts).
     let opts_copy = opts.clone();
     let RunOpts {
@@ -3908,6 +3975,14 @@ fn wait_until_healthy(
     timeout_secs: u64,
 ) -> Result<()> {
     let c = find(store, id)?;
+    // `--no-healthcheck` disabled it: there is nothing to wait for, and saying
+    // so beats blocking on a probe the operator explicitly turned off.
+    if c.no_healthcheck {
+        return Err(Error::Invalid(format!(
+            "--wait: container '{}' was started with --no-healthcheck — nothing to wait for",
+            c.name
+        )));
+    }
     let Some(argv) = super::compose::image_health_argv(images, &c.image) else {
         return Err(Error::Invalid(format!(
             "--wait: image '{}' declares no HEALTHCHECK — nothing to wait for \
@@ -6109,6 +6184,9 @@ fn cmd_commit(images: &ImageStore, store: &Store, id: &str, tag: &str) -> Result
             // `container commit` herda o health check da base, tal como o
             // caminho overlay (`commit_container`) já fazia.
             base.config.healthcheck.clone(),
+            // A committed image inherits the base's EXPOSEd ports, the same way
+            // the overlay `commit_container` path does.
+            base.config.exposed_ports.clone(),
             // Packed from the host side: owners go into the layer as the
             // container sees them, not as host uids (see `pack_rootfs_tar`).
             &runtime::container_ids,
@@ -7668,6 +7746,12 @@ pub(crate) fn health_probe_argv(cmd: &str, timeout_secs: u64) -> Vec<String> {
 /// The probe command line for a container: its own `--health-cmd`, else the
 /// image's `HEALTHCHECK`. `None` when neither exists.
 fn health_command(images: &ImageStore, c: &Container) -> Option<String> {
+    // `--no-healthcheck`: the image's HEALTHCHECK is disabled for this
+    // container, so there is no probe anywhere — the monitor loop stops and
+    // `container healthcheck` reports "no probe".
+    if c.no_healthcheck {
+        return None;
+    }
     if let Some(h) = &c.health {
         if !h.cmd.is_empty() {
             return Some(h.cmd.clone());

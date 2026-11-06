@@ -39,7 +39,8 @@ Concretamente, garante-se:
   `--memory`, `--memory-reservation`, `--memory-swap`, `--pids-limit`, `--cpus`,
   `--entrypoint`, `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--ipc`,
   `--pid`, `--uts`, `--stop-signal`, `--stop-timeout`, `--init`,
-  `--volumes-from`, `--mount`, `--add-host`, `--wait`, `--health-*`; em `exec`:
+  `--volumes-from`, `--mount`, `--add-host`, `--wait`, `--health-*`,
+  `-P` (alias `--publish-all`), `--no-healthcheck`; em `exec`:
   `-i`, `-t`, `-e`, `-w`, `-u`. (Esta lista
   andou achatada, sem dizer a qual verbo cada flag pertence; um teste em
   `main.rs` verifica as duas listas contra a árvore `clap` real, em vez de

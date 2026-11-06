@@ -125,6 +125,10 @@ pub struct Dockerfile {
     pub security: Vec<String>,
     /// `HEALTHCHECK ... CMD <cmd>` — health command (the part after `CMD`).
     pub healthcheck: Option<String>,
+    /// `EXPOSE <port>[/proto] ...` — ports the image declares, one entry per
+    /// port (`port` or `port/proto`). Fed into the image's `ExposedPorts` so
+    /// `run -P` can publish them.
+    pub expose: Vec<String>,
 }
 
 /// Parses a Dockerfile. **Docker-compatible** (FROM/RUN/CMD/ENTRYPOINT/
@@ -435,8 +439,23 @@ pub fn parse_dockerfile_with_args(text: &str, cli_args: &[(String, String)]) -> 
                     df.healthcheck = Some(r[idx + 4..].trim().to_string());
                 }
             }
+            // EXPOSE <port>[/proto] ... — recorded in the image's ExposedPorts
+            // so `run -P`/`--publish-all` can publish one host port per entry.
+            // Each token normalizes to `port/proto` (tcp when none is written),
+            // the same shape the OCI `ExposedPorts` keys use.
+            "EXPOSE" => {
+                for tok in rest.split_whitespace() {
+                    let (port, proto) = match tok.split_once('/') {
+                        Some((p, pr)) => (p, pr.to_ascii_lowercase()),
+                        None => (tok, "tcp".to_string()),
+                    };
+                    if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
+                        df.expose.push(format!("{port}/{proto}"));
+                    }
+                }
+            }
             // compatibility: accepted but with no build effect (metadata)
-            "LABEL" | "EXPOSE" | "MAINTAINER" | "VOLUME" | "STOPSIGNAL" | "SHELL" | "ONBUILD" => {}
+            "LABEL" | "MAINTAINER" | "VOLUME" | "STOPSIGNAL" | "SHELL" | "ONBUILD" => {}
             other => {
                 return Err(Error::Dockerfile(format!(
                     "Dockerfile line {}: unknown instruction `{other}`",
@@ -878,6 +897,21 @@ impl ImageStore {
             .healthcheck
             .clone()
             .or_else(|| base.config.healthcheck.clone());
+        // EXPOSE MERGES with the base's exposed ports (Docker semantics), rather
+        // than replacing them, so a `FROM nginx` that adds `EXPOSE 8080` keeps 80.
+        let mut exposed_ports = base.config.exposed_ports.clone();
+        for e in &df.expose {
+            if !exposed_ports.contains(e) {
+                exposed_ports.push(e.clone());
+            }
+        }
+        // The OCI `ExposedPorts` is a Go `map[string]struct{}` → `{"80/tcp":{}}`,
+        // so an image built here is read back correctly by Docker and by our own
+        // `oci_spec`-based pull/load path.
+        let exposed_map: serde_json::Map<String, serde_json::Value> = exposed_ports
+            .iter()
+            .map(|p| (p.clone(), serde_json::json!({})))
+            .collect();
         let workdir = df.workdir.clone().unwrap_or_default();
         let user = if df.user.is_empty() {
             base.config.user.clone()
@@ -888,7 +922,7 @@ impl ImageStore {
             // Standard OCI/Docker image config fields (interop).
             "architecture": arch,
             "os": "linux",
-            "config": { "Cmd": cmd, "Entrypoint": entrypoint, "Env": env, "User": user, "Cpus": cpus, "Memory": memory, "Security": security },
+            "config": { "Cmd": cmd, "Entrypoint": entrypoint, "Env": env, "User": user, "Cpus": cpus, "Memory": memory, "Security": security, "ExposedPorts": exposed_map },
             "rootfs": { "type": "layers", "diff_ids": diff_ids },
             // Delonix extension (ignored by Docker):
             "created_unix": created,
@@ -908,6 +942,7 @@ impl ImageStore {
                 memory,
                 security,
                 healthcheck,
+                exposed_ports,
                 user,
                 working_dir: workdir.clone(),
                 architecture: arch.to_string(),
@@ -1027,6 +1062,7 @@ impl ImageStore {
         tag: &str,
         arch: &str,
         healthcheck: Option<String>,
+        exposed_ports: Vec<String>,
         ids: &dyn Fn(u32, u32) -> (u32, u32),
     ) -> Result<Image> {
         let buf = Self::pack_rootfs_tar(rootfs, ids)?;
@@ -1040,6 +1076,7 @@ impl ImageStore {
             tag,
             arch,
             healthcheck,
+            exposed_ports,
         )
     }
 
@@ -1072,14 +1109,23 @@ impl ImageStore {
         // against an image whose source clearly declares one. Found while
         // wiring `container run --wait`.
         healthcheck: Option<String>,
+        // EXPOSEd ports, resolved by the caller (it has the parsed Dockerfile).
+        // The overlay path reads them off `&df` in `build_image`; the rootless
+        // path does not have the `df` here, so the same loss the `healthcheck`
+        // comment above describes would hit `ExposedPorts` without this.
+        exposed_ports: Vec<String>,
     ) -> Result<Image> {
         let layer = self.cas().write(&tar_bytes)?; // uncompressed tar → diff_id = digest
         let diff_ids = vec![format!("sha256:{}", strip(&layer))];
         let created = now_unix();
+        let exposed_map: serde_json::Map<String, serde_json::Value> = exposed_ports
+            .iter()
+            .map(|p| (p.clone(), serde_json::json!({})))
+            .collect();
         let config_json = serde_json::json!({
             "architecture": arch,
             "os": "linux",
-            "config": { "Cmd": cmd, "Entrypoint": entrypoint, "Env": env, "User": user, "WorkingDir": workdir, "Healthcheck": healthcheck },
+            "config": { "Cmd": cmd, "Entrypoint": entrypoint, "Env": env, "User": user, "WorkingDir": workdir, "Healthcheck": healthcheck, "ExposedPorts": exposed_map },
             "rootfs": { "type": "layers", "diff_ids": diff_ids },
             "created_unix": created,
         });
@@ -1097,6 +1143,7 @@ impl ImageStore {
                 memory: None,
                 security: Vec::new(),
                 healthcheck,
+                exposed_ports,
                 user,
                 working_dir: workdir,
                 architecture: arch.to_string(),
@@ -1156,6 +1203,7 @@ impl ImageStore {
                 memory,
                 security,
                 healthcheck,
+                exposed_ports: base.config.exposed_ports.clone(),
                 user: String::new(),
                 working_dir: workdir.clone(),
                 architecture: arch,

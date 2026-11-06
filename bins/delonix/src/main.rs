@@ -1147,6 +1147,19 @@ mod run_interactive_flag_parity_tests {
     }
 
     #[test]
+    fn run_accepts_publish_all() {
+        assert!(parses(&["delonix", "run", "-P", "busybox"]));
+        assert!(parses(&["delonix", "run", "--publish-all", "busybox"]));
+        assert!(parses(&["delonix", "create", "--publish-all", "busybox"]));
+    }
+
+    #[test]
+    fn run_accepts_no_healthcheck() {
+        assert!(parses(&["delonix", "run", "--no-healthcheck", "busybox"]));
+        assert!(parses(&["delonix", "create", "--no-healthcheck", "busybox"]));
+    }
+
+    #[test]
     fn run_accepts_stop_signal_and_timeout() {
         assert!(parses(&["delonix", "run", "--stop-signal", "SIGINT", "busybox"]));
         assert!(parses(&["delonix", "run", "--stop-signal", "2", "busybox"]));
@@ -2377,6 +2390,8 @@ mod container_image_contract_tests {
             "--entrypoint",
             "--add-host",
             "--wait",
+            "--publish-all",
+            "--no-healthcheck",
         ] {
             assert!(long.contains(f), "`container run {f}` desapareceu");
         }
@@ -2387,7 +2402,7 @@ mod container_image_contract_tests {
         let short: BTreeSet<char> = run.get_arguments().filter_map(|a| a.get_short()).collect();
         // `-i`/`-t` joined the set so `run -it` parses like docker/podman — the
         // gap flow 1 of the CLI-parity review hit on its very first line.
-        for f in ['d', 'i', 't', 'p', 'v', 'e', 'w', 'u'] {
+        for f in ['d', 'i', 't', 'p', 'P', 'v', 'e', 'w', 'u'] {
             assert!(short.contains(&f), "`container run -{f}` desapareceu");
         }
     }
