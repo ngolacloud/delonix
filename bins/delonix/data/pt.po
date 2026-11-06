@@ -3830,6 +3830,35 @@ msgstr "transforma um tar de rootfs numa imagem"
 msgid "import a gzipped rootfs from stdin"
 msgstr "importa um rootfs comprimido do stdin"
 
+msgid "Search Docker Hub for images (`docker search`)."
+msgstr "Procura imagens no Docker Hub (`docker search`)."
+
+msgid ""
+"Search Docker Hub for images (`docker search`)."
+"\n"
+"\n"
+"Queries the public Docker Hub catalog (docker.io) and prints the matches: name, stars, official, and a short description."
+msgstr ""
+"Procura imagens no Docker Hub (`docker search`)."
+"\n"
+"\n"
+"Consulta o catálogo público do Docker Hub (docker.io) e lista as correspondências: nome, estrelas, oficial e uma descrição curta."
+
+msgid "The term to search for (e.g. `nginx`)."
+msgstr "O termo a procurar (ex. `nginx`)."
+
+msgid "Cap the number of results (`docker search --limit`). Default 25."
+msgstr "Limita o número de resultados (`docker search --limit`). Por omissão 25."
+
+msgid "no image on Docker Hub matches '{term}'"
+msgstr "nenhuma imagem do Docker Hub corresponde a '{term}'"
+
+msgid "find images on Docker Hub"
+msgstr "encontra imagens no Docker Hub"
+
+msgid "cap the number of results"
+msgstr "limita o número de resultados"
+
 msgid "Save an image to a portable archive (`docker save`'s counterpart) — the way to move an image to another machine with no registry. The archive is an OCI layout WITH the legacy `manifest.json`, so `delonix image load`, `docker load`, `podman load` and `ctr images import` all read it"
 msgstr "Guarda uma imagem num arquivo portátil (o equivalente ao `docker save`) — a forma de levar uma imagem para outra máquina sem registo. O arquivo é um OCI layout COM o `manifest.json` legado, por isso `delonix image load`, `docker load`, `podman load` e `ctr images import` leem-no todos"
 

@@ -322,6 +322,17 @@ enum Cmd {
         /// Name/tag for the new image (e.g. `app:imported`). Optional, like Docker.
         reference: Option<String>,
     },
+    /// Search Docker Hub for images (`docker search`).
+    ///
+    /// Queries the public Docker Hub catalog (docker.io) and prints the
+    /// matches: name, stars, official, and a short description.
+    Search {
+        /// The term to search for (e.g. `nginx`).
+        term: String,
+        /// Cap the number of results (`docker search --limit`). Default 25.
+        #[arg(long, default_value_t = 25)]
+        limit: usize,
+    },
     /// Authenticate to an OCI registry.
     ///
     /// Stores the credentials in `<root>/auth.json`, docker/podman format.
@@ -1632,6 +1643,9 @@ fn run() -> Result<()> {
         Cmd::Import { input, reference } => {
             cmd::image::run(cmd::image::ImageCmd::Import { input, reference })
         }
+        Cmd::Search { term, limit } => {
+            cmd::image::run(cmd::image::ImageCmd::Search { term, limit })
+        }
         Cmd::Login {
             registry,
             username,
@@ -2435,6 +2449,7 @@ mod cli_stability_classification_tests {
         "untag",
         "export",
         "import",
+        "search",
     ];
 
     /// Every other real top-level group, mirroring "NÃO estável" 1:1. A group

@@ -335,6 +335,15 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["image import", "export", "load"],
     },
     Entry {
+        path: "search",
+        group: "Artifacts",
+        examples: &[
+            ("find images on Docker Hub", "delonix search nginx"),
+            ("cap the number of results", "delonix search --limit 5 postgres"),
+        ],
+        see_also: &["image search", "pull", "image ls"],
+    },
+    Entry {
         path: "cluster",
         group: "Clusters",
         examples: &[
@@ -1332,6 +1341,15 @@ pub static ENTRIES: &[Entry] = &[
             ("import a gzipped rootfs read from stdin", "cat rootfs.tar.gz | delonix image import - base:latest"),
         ],
         see_also: &["image load", "container export", "image ls"],
+    },
+    Entry {
+        path: "image search",
+        group: "Storage",
+        examples: &[
+            ("find images on Docker Hub", "delonix image search nginx"),
+            ("cap the number of results", "delonix image search --limit 5 postgres"),
+        ],
+        see_also: &["image pull", "image ls", "search"],
     },
     Entry {
         path: "image apply",

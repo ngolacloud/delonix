@@ -430,6 +430,17 @@ pub enum ImageCmd {
         /// Name/tag for the new image (e.g. `app:imported`). Optional, like Docker.
         reference: Option<String>,
     },
+    /// Search Docker Hub for images (`docker search`).
+    ///
+    /// Queries the public Docker Hub catalog (docker.io) and prints the
+    /// matches: name, stars, official, and a short description.
+    Search {
+        /// The term to search for (e.g. `nginx`).
+        term: String,
+        /// Cap the number of results (`docker search --limit`). Default 25.
+        #[arg(long, default_value_t = 25)]
+        limit: usize,
+    },
     /// Apply the `kind: Image` documents of a manifest.
     ///
     /// `pull` is idempotent by reference; `build` rebuilds and replaces the
@@ -546,6 +557,7 @@ pub fn run(action: ImageCmd) -> Result<()> {
         ImageCmd::Save(SaveArgs { image, output }) => cmd_save(&images, &image, &output),
         ImageCmd::Load(LoadArgs { input }) => cmd_load(&images, &input),
         ImageCmd::Import { input, reference } => cmd_import(&images, &input, reference.as_deref()),
+        ImageCmd::Search { term, limit } => cmd_search(&term, limit),
         ImageCmd::Apply { file } => {
             let path = manifest::resolve_path(file)?;
             let docs = manifest::load(&path)?;
@@ -1322,6 +1334,55 @@ fn cmd_import(images: &ImageStore, input: &str, reference: Option<&str>) -> Resu
         img.repo_tags.join(", ")
     };
     println!("{}", super::po::tf("imported: {tags}", &[("tags", &tags)]));
+    Ok(())
+}
+
+/// `image search` / `docker search` — queries Docker Hub's public catalog
+/// (docker.io, the target `docker search` itself uses) and prints the matches.
+/// Network-bound: this is the one image verb that reaches out to the internet.
+fn cmd_search(term: &str, limit: usize) -> Result<()> {
+    // Only the query value is user-controlled; percent-encode the few bytes that
+    // would break the URL rather than pull in a dependency for one field.
+    let encoded: String = term
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect();
+    let page = limit.clamp(1, 100);
+    let url = format!(
+        "https://hub.docker.com/v2/search/repositories/?query={encoded}&page_size={page}"
+    );
+    let body = delonix_oci::registry::http_get(&url)
+        .map_err(|e| Error::Invalid(format!("searching Docker Hub: {e}")))?;
+    let json: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| Error::Invalid(format!("Docker Hub returned an unreadable response: {e}")))?;
+    let results = json["results"].as_array().cloned().unwrap_or_default();
+    if results.is_empty() {
+        println!(
+            "{}",
+            super::po::tf("no image on Docker Hub matches '{term}'", &[("term", term)])
+        );
+        return Ok(());
+    }
+    println!("{:<44}{:>8}  {:<9}DESCRIPTION", "NAME", "STARS", "OFFICIAL");
+    for r in results.iter().take(limit) {
+        let name = r["repo_name"].as_str().unwrap_or("");
+        let stars = r["star_count"].as_u64().unwrap_or(0);
+        let official = if r["is_official"].as_bool().unwrap_or(false) {
+            "[OK]"
+        } else {
+            ""
+        };
+        let mut desc = r["short_description"].as_str().unwrap_or("").replace('\n', " ");
+        if desc.chars().count() > 50 {
+            desc = desc.chars().take(47).collect::<String>() + "...";
+        }
+        println!("{name:<44}{stars:>8}  {official:<9}{desc}");
+    }
     Ok(())
 }
 
