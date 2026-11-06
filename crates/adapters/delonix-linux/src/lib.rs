@@ -5840,11 +5840,10 @@ pub fn bottleneck<'a>(readings: &[(&'a str, Option<Psi>)]) -> Option<&'a str> {
 pub fn flags_of_controller(controller: &str) -> &'static [&'static str] {
     // Every name here MUST exist on `container run`. `--cpuset-mems` and
     // `--io-max` remain Docker's spellings this engine does NOT ship (it has
-    // `--cpuset` and the `--device-*-bps/iops` family instead); `--memory-swap`
-    // is likewise not shipped (cgroup-v2 swap semantics differ). `--pids-limit`
-    // and `--memory-reservation` DID land (CLI-parity review), so they appear
-    // here now. `named_flags_all_exist` walks the clap tree and refuses any name
-    // that is not really there.
+    // `--cpuset` and the `--device-*-bps/iops` family instead). `--pids-limit`,
+    // `--memory-reservation` and `--memory-swap` DID land (CLI-parity review),
+    // so they appear here now. `named_flags_all_exist` walks the clap tree and
+    // refuses any name that is not really there.
     match controller {
         "cpu" => &["--cpus", "--cpu-weight"],
         "cpuset" => &["--cpuset"],
@@ -5855,7 +5854,7 @@ pub fn flags_of_controller(controller: &str) -> &'static [&'static str] {
             "--device-read-iops",
             "--device-write-iops",
         ],
-        "memory" => &["--memory", "--memory-reservation"],
+        "memory" => &["--memory", "--memory-reservation", "--memory-swap"],
         "pids" => &["--pids-limit"],
         _ => &[],
     }
@@ -6182,7 +6181,10 @@ fn try_delegated_base(
     // (`ensure_delonix_slice`) has always written `memory.swap.max = 0`; the
     // rootless-delegated leaf — the NORMAL path — never did. Measured live:
     // `memory.swap.max = max` on a container started with `-m 256M`.
-    let _ = std::fs::write(format!("{leaf}/memory.swap.max"), swap_max_value());
+    let _ = std::fs::write(
+        format!("{leaf}/memory.swap.max"),
+        swap_max_write_value(&c.memory_max, c.memory_swap.as_deref()),
+    );
     // BUG FIXED HERE (2/2): with `memory.oom.group = 0` (the kernel default) an
     // OOM kills ONE process inside the cgroup, not the container. For a
     // container the cgroup IS the unit of failure: killing its pid 1's child
@@ -6653,6 +6655,31 @@ fn swap_max_value() -> String {
     std::env::var("DELONIX_SWAP_MAX").unwrap_or_else(|_| "0".to_string())
 }
 
+/// The value to write to `memory.swap.max` (Docker `--memory-swap`). Docker's
+/// flag is the memory+swap TOTAL; cgroup v2 `memory.swap.max` is swap ALONE, so
+/// the allowance is `total − memory`. `-1`/`max` ⇒ unlimited swap; `None` keeps
+/// the engine default ([`swap_max_value`], normally `0` = no swap beyond
+/// memory). A value the parser cannot make sense of falls back to that default
+/// rather than guessing.
+fn swap_max_write_value(memory_max: &str, memory_swap: Option<&str>) -> String {
+    match memory_swap.map(str::trim) {
+        None => swap_max_value(),
+        Some("-1") | Some("max") => "max".to_string(),
+        Some(total) => match (
+            mem_limit_write_value(total).as_deref(),
+            mem_limit_write_value(memory_max).as_deref(),
+        ) {
+            // No memory ceiling (or unlimited total) ⇒ a swap ceiling is moot.
+            (Some("max"), _) | (_, Some("max")) => "max".to_string(),
+            (Some(t), Some(m)) => match (t.parse::<u64>(), m.parse::<u64>()) {
+                (Ok(t), Ok(m)) => t.saturating_sub(m).to_string(),
+                _ => swap_max_value(),
+            },
+            _ => swap_max_value(),
+        },
+    }
+}
+
 /// The value to write to `pids.max` (Docker `--pids-limit`). `None` keeps the
 /// engine's anti-fork-bomb default; Docker's `-1`/`0` means unlimited, which is
 /// cgroup-v2 `max`; any other value is passed through as the process count.
@@ -6954,9 +6981,13 @@ fn setup_cgroup(c: &Container, pid: i32, io_dev: Option<&str>) -> Result<()> {
     if let Some(low) = c.memory_low.as_deref().and_then(mem_limit_write_value) {
         let _ = std::fs::write(format!("{cg}/memory.low"), low); // soft reclaim floor
     }
-    // no swap beyond memory, otherwise the memory limit would be bypassable;
-    // best-effort: the swap controller may be disabled on the system.
-    let _ = std::fs::write(format!("{cg}/memory.swap.max"), "0");
+    // no swap beyond memory by default, otherwise the memory limit would be
+    // bypassable; `--memory-swap` raises it. Best-effort: the swap controller
+    // may be disabled on the system.
+    let _ = std::fs::write(
+        format!("{cg}/memory.swap.max"),
+        swap_max_write_value(&c.memory_max, c.memory_swap.as_deref()),
+    );
     write_limit(cg, "cpu.max", &cpu_max_value(&c.cpus))?; // CPU ceiling
     write_limit(cg, "pids.max", &pids_max_write_value(c.pids_max.as_deref()))?; // process ceiling
                                                                  // --- scheduling / QoS (cgroup v2, best-effort) ---
@@ -12852,7 +12883,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         assert_eq!(flags_of_controller("pids"), ["--pids-limit"]);
         assert_eq!(
             flags_of_controller("memory"),
-            ["--memory", "--memory-reservation"]
+            ["--memory", "--memory-reservation", "--memory-swap"]
         );
         for c in ["cpu", "memory", "cpuset", "io", "pids"] {
             assert!(!flags_of_controller(c).is_empty(), "{c} sem flags");

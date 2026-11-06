@@ -36,10 +36,11 @@ Concretamente, garante-se:
 * **As flags curtas e longas listadas acima e os seus significados** — em
   `run`: `-d`, `-i`, `-t`, `-p`, `-v`, `-e`, `--name`, `--rm`, `--net`
   (alias `--network`), `--pull`, `--cidfile`, `--shm-size`, `--restart`,
-  `--memory`, `--memory-reservation`, `--pids-limit`, `--cpus`, `--entrypoint`,
-  `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--ipc`, `--pid`,
-  `--stop-signal`, `--stop-timeout`, `--init`, `--volumes-from`, `--add-host`,
-  `--wait`, `--health-*`; em `exec`: `-i`, `-t`, `-e`, `-w`, `-u`. (Esta lista
+  `--memory`, `--memory-reservation`, `--memory-swap`, `--pids-limit`, `--cpus`,
+  `--entrypoint`, `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--ipc`,
+  `--pid`, `--stop-signal`, `--stop-timeout`, `--init`, `--volumes-from`,
+  `--mount`, `--add-host`, `--wait`, `--health-*`; em `exec`: `-i`, `-t`, `-e`,
+  `-w`, `-u`. (Esta lista
   andou achatada, sem dizer a qual verbo cada flag pertence; um teste em
   `main.rs` verifica as duas listas contra a árvore `clap` real, em vez de
   confiar na leitura.) **`-i`/`-t` em `run`/`create` entraram na linha da

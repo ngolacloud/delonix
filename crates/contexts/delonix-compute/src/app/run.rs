@@ -396,6 +396,7 @@ pub fn build_record(o: &RunOpts, r: ResolvedRun) -> Result<Container> {
     // fallback for DESERIALISING an old record, not a policy for a new container.
     c.cpus = cpus.unwrap_or(r.default_cpus);
     c.memory_low = o.memory_reservation.clone();
+    c.memory_swap = o.memory_swap.clone();
     c.pids_max = o.pids_limit.clone();
     c.stop_signal = o.stop_signal.clone();
     c.stop_timeout = o.stop_timeout;

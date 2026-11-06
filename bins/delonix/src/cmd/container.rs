@@ -1229,6 +1229,9 @@ pub struct RunArgs {
     /// Soft memory reservation (`memory.low`, Docker/Podman `--memory-reservation`, e.g. `256m`): memory the kernel tries NOT to reclaim under pressure. A floor, not a cap.
     #[arg(long = "memory-reservation")]
     memory_reservation: Option<String>,
+    /// Memory + swap TOTAL (Docker/Podman `--memory-swap`, e.g. `1g`; `-1` = unlimited swap). The swap allowance is this minus `--memory`.
+    #[arg(long = "memory-swap", allow_hyphen_values = true)]
+    memory_swap: Option<String>,
     /// Max number of processes (`pids.max`, Docker/Podman `--pids-limit`); `-1` = unlimited. Default: the engine's anti-fork-bomb ceiling.
     #[arg(long = "pids-limit", allow_hyphen_values = true)]
     pids_limit: Option<String>,
@@ -2001,6 +2004,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         labels,
         memory,
         memory_reservation,
+        memory_swap,
         pids_limit,
         stop_signal,
         stop_timeout,
@@ -2144,6 +2148,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         quiet: false,
         memory,
         memory_reservation,
+        memory_swap,
         pids_limit,
         stop_signal,
         stop_timeout,

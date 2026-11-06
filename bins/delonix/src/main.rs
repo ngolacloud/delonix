@@ -1103,6 +1103,8 @@ mod run_interactive_flag_parity_tests {
         assert!(parses(&["delonix", "run", "--pids-limit", "100", "busybox"]));
         assert!(parses(&["delonix", "run", "--pids-limit", "-1", "busybox"]));
         assert!(parses(&["delonix", "run", "--memory-reservation", "256m", "busybox"]));
+        assert!(parses(&["delonix", "run", "--memory-swap", "1g", "busybox"]));
+        assert!(parses(&["delonix", "run", "--memory-swap", "-1", "busybox"]));
         assert!(parses(&["delonix", "create", "--pids-limit", "100", "busybox"]));
     }
 
@@ -1961,7 +1963,7 @@ mod advisory_flag_tests {
         // `--pids-limit` and `--memory-reservation` DID land (CLI-parity review)
         // and were added to `flags_of_controller` in the same change; the rest
         // stay Docker-only spellings this engine does not ship.
-        for f in ["--memory-swap", "--cpuset-mems", "--io-max"] {
+        for f in ["--cpuset-mems", "--io-max"] {
             assert!(
                 !real.contains(f),
                 "{f} passou a existir — se é mesmo nossa, acrescenta-a ao \
@@ -1986,7 +1988,7 @@ mod advisory_flag_tests {
             DELEGATION_LIMITS_APPLY,
             DELEGATION_LIMITS_INERT,
         ] {
-            for f in ["--memory-swap", "--cpuset-mems", "--io-max"] {
+            for f in ["--cpuset-mems", "--io-max"] {
                 assert!(
                     !label.contains(f),
                     "advisory label {label:?} names {f}, a flag `container run` does not have"
@@ -2367,6 +2369,7 @@ mod container_image_contract_tests {
             "--restart",
             "--memory",
             "--memory-reservation",
+            "--memory-swap",
             "--pids-limit",
             "--cpus",
             "--entrypoint",

@@ -84,6 +84,9 @@ pub struct RunOpts {
     /// Docker `--memory-reservation` → `memory.low` (soft floor).
     #[serde(default)]
     pub memory_reservation: Option<String>,
+    /// Docker `--memory-swap` (memory+swap total; `-1` = unlimited swap).
+    #[serde(default)]
+    pub memory_swap: Option<String>,
     /// Docker `--pids-limit` → `pids.max` (`-1` ⇒ unlimited).
     #[serde(default)]
     pub pids_limit: Option<String>,

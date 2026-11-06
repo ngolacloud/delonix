@@ -324,6 +324,28 @@ de ser pid 1 (pid1=`delonix`), exit 37 propaga, `stop` reenvia SIGTERM ao filho
 (log `GOT_TERM_VIA_INIT`), e **0 zombies** após um órfão sair. Default (sem
 `--init`) inalterado (comando continua pid 1).
 
+### C17 — `--mount type=bind|volume|tmpfs`
+A sintaxe explícita do Docker/Podman, traduzida para a gramática do motor:
+`type=bind|volume,source=…,target=…[,readonly]` → spec `-v` (`src:target[:ro]`);
+`type=tmpfs,target=…[,tmpfs-size=N]` → entrada `--tmpfs` — o MESMO caminho de
+resolução, sem segundo motor de mounts. Chaves `source`/`src`,
+`target`/`dst`/`destination`, `readonly`/`ro` e `tmpfs-size` honradas; chave ou
+tipo desconhecido é RECUSADO. **Provado ao vivo**: bind `readonly` recusa
+escrita, volume round-trip, tmpfs respeita o tamanho, chave inválida erra.
+Commit `195a1cbe`. Puro na camada CLI (`run_opts_from_args`).
+
+### C18 — `--memory-swap` (semântica Docker→cgroup-v2 resolvida)
+A armadilha que estava adiada: o `--memory-swap` do Docker é o TOTAL
+(memória+swap); o cgroup-v2 `memory.swap.max` é só swap. O helper
+`swap_max_write_value` no runtime calcula `total − memory` (via
+`mem_limit_write_value`), com `-1`/`max` → swap ilimitado e `None` → default do
+motor. Escrito nos dois caminhos per-container (leaf delegado + cg root); o
+agregado da slice fica no default. Campo `memory_swap` (raw) no
+`Container`+`RunOpts`+`build_record`. Guards actualizados (`flags_of_controller`
+memory += `--memory-swap`; removido das listas "não existem"). **Provado pelo
+host**: `-m 256m --memory-swap 768m` → leaf `memory.swap.max=536870912` (512 MiB
+= 768−256); `--memory-swap -1` → `max`.
+
 ### Próximo lote — totalmente mapeado (investigação paralela por agentes)
 As flags abaixo tocam no runtime (`delonix-linux`) e em *guards* que hoje afirmam
 que não existem — ficam prontas a implementar com os pontos exactos:
