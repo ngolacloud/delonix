@@ -2,8 +2,16 @@
 .DS_Store
 __pycache__/
 
-# Configuração local de ferramentas de agente (fica na máquina, não no repo).
-.claude/
+# Configuração local de ferramentas de agente (fica na máquina, não no repo):
+# sessões, gitflow, issues, worktrees e settings locais são efémeros da máquina.
+# Ignora-se o CONTEÚDO de .claude/ (não o directório) para poder re-incluir uma
+# subpasta — o git não re-inclui dentro de um directório já excluído.
+.claude/*
+# EXCEPÇÃO: a camada de agentes do harness É versionada. As definições canónicas
+# vivem em .ai/agents/ (convenção do repo); .claude/agents/ é a ponte carregável
+# pelo Claude Code — symlinks para .ai/agents/, por isso há um só ficheiro
+# canónico e a ponte nunca diverge. Des-ignorada de propósito.
+!.claude/agents/
 CLAUDE.md
 
 # Credenciais de um laboratório, que vivem na máquina e nunca no repo.

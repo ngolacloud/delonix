@@ -219,12 +219,21 @@ endif
 deny: ## Supply-chain check (needs cargo-deny)
 	cargo deny check
 
-gates: ## The script gates CI runs on the source tree (language, architecture, version, handbook)
+# The Python gates CI runs on the SOURCE TREE — no `cargo build` in front, so a
+# contributor can run them fast before pushing. This is NOT the full CI gate set:
+# the gates that need a built binary or external tools (contract/buf, cli-surface,
+# clippy, test, deny, fuzz, perf) run only in CI and via `make ci`. Green
+# `make gates` means "the source-tree gates pass", not "CI is green".
+gates: ## The Python gates CI runs on the source tree (no build; see `make ci` for the rest)
 	python3 scripts/lang_ratchet.py
 	python3 scripts/arch_fitness.py
+	python3 scripts/arch_report.py --check
+	python3 scripts/capability_ratchet.py
+	python3 scripts/cli_exec_ratchet.py
 	python3 scripts/version_gate.py
 	python3 scripts/dev_docs.py --check
 	python3 scripts/dev_docs_site.py --check
+	python3 scripts/agents_toc.py --check
 	python3 scripts/adr_status_gate.py
 	python3 scripts/folhas_gate.py
 
