@@ -301,6 +301,29 @@ Graça antes do `SIGKILL`. Campo `stop_timeout` no `Container`+`RunOpts`+
 resolve, por container, `-t` explícito → `--stop-timeout` do registo → 10s
 (omissão), sem tocar nos ~10 chamadores de `cmd_stop` (que continuam `u64`).
 
+### C15 — `--volumes-from <container[:ro|:rw]>`
+Monta todos os volumes/binds de outro container neste. Os mounts da origem já
+estão RESOLVIDOS (caminhos do host, raízes de volume), por isso transplantam
+directamente para o conjunto de arranque (`mounts`) E para o registo
+(`c.mounts`, sobrevive a um `start`); `:ro` força-os todos a leitura-só; origem
+inexistente dá «no such container». Resolvido no `cmd_run` (tem store; o
+`build_record` não lhe chega). **Provado ao vivo**: o alvo lê os dados do volume
+da origem; `:ro` recusa escrita. Commit `078da4d0`.
+
+### C16 — `--init` (reaper pid 1)
+Corre um init minúsculo como pid 1 que recolhe órfãos e reenvia sinais; o comando
+corre como seu filho. No `container_init`, DEPOIS de toda a configuração
+(namespaces, drop de privilégios, seccomp, cgroup), um `fork`: o filho faz o
+`execvp` do comando; o pai fica pid 1 em `reap_as_init` — instala handlers que
+reenviam SIGTERM/INT/QUIT/HUP ao filho e faz `waitpid(-1)` até ECHILD, devolvendo
+o código do processo principal (128+sinal se morto). Seccomp já permite
+`clone`/`wait4`/`kill`/`rt_sigaction`; um `fork` falhado corre o comando directo
+(sem reaper), nunca recusa. Plumbed como o `read_only` (Container→InitInputs→
+ProcessSpec→`container_init`). **Provado ao vivo**: com `--init` o comando deixa
+de ser pid 1 (pid1=`delonix`), exit 37 propaga, `stop` reenvia SIGTERM ao filho
+(log `GOT_TERM_VIA_INIT`), e **0 zombies** após um órfão sair. Default (sem
+`--init`) inalterado (comando continua pid 1).
+
 ### Próximo lote — totalmente mapeado (investigação paralela por agentes)
 As flags abaixo tocam no runtime (`delonix-linux`) e em *guards* que hoje afirmam
 que não existem — ficam prontas a implementar com os pontos exactos:

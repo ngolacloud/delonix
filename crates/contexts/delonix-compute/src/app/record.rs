@@ -430,6 +430,10 @@ pub struct Container {
     /// `true` → rootfs mounted read-only (`--read-only`).
     #[serde(default)]
     pub read_only: bool,
+    /// `true` → run a tiny init as pid 1 that reaps orphans and forwards signals
+    /// (Docker/Podman `--init`). The image command runs as its child.
+    #[serde(default)]
+    pub init: bool,
     /// `true` → **privileged** container (`--privileged`): keeps all caps,
     /// seccomp unconfined, cgroup namespace (`CLONE_NEWCGROUP`) and `/sys/fs/cgroup`
     /// mounted RW delegated. Needed to run systemd+containerd (Kind nodes).
@@ -863,6 +867,7 @@ impl Container {
             pids_max: None,
             stop_signal: None,
             stop_timeout: None,
+            init: false,
             cpus: default_cpus(),
             cpu_weight: None,
             cpuset: None,
