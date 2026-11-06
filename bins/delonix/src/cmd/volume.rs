@@ -737,6 +737,11 @@ pub enum VolumeCmd {
         #[arg(short = 'A', long = "all-namespaces")]
         all_namespaces: bool,
     },
+    /// Exit 0 if the volume exists, 1 if not (prints nothing).
+    Exists {
+        #[arg(add = ArgValueCandidates::new(super::complete::volumes))]
+        name: String,
+    },
     /// Apply the `kind: Volume` documents from a manifest (idempotent by name).
     Apply {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
@@ -840,6 +845,7 @@ pub fn run(action: VolumeCmd) -> Result<()> {
             namespace,
             all_namespaces,
         } => cmd_prune(&store, force, namespace, all_namespaces),
+        VolumeCmd::Exists { name } => cmd_exists(&store, &name),
         VolumeCmd::Snapshot { action } => cmd_snapshot(&store, action),
         VolumeCmd::Apply { file } => {
             let path = manifest::resolve_path(file)?;
@@ -2261,6 +2267,21 @@ pub(crate) fn cmd_rm_with(
             String::new()
         }
     );
+    Ok(())
+}
+
+/// `volume exists` — Podman's quiet existence probe: nothing on stdout, exit 0
+/// when the volume is there and exit 1 when it is not.
+///
+/// It goes through the SAME `VolumeStore::inspect` that `rm`/`inspect` use, so
+/// "exists" means exactly what those two mean by it. The exit is 1 (not the 4
+/// a bare `NotFound` would map to) and silent on purpose: Podman's `exists` is
+/// a plain yes/no in `$?`, with no message on either path — returning the
+/// error variant would both print a line and classify it as `NOT_FOUND`.
+fn cmd_exists(store: &VolumeStore, name: &str) -> Result<()> {
+    if store.inspect(name).is_err() {
+        std::process::exit(1);
+    }
     Ok(())
 }
 
