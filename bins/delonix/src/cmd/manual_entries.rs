@@ -1961,6 +1961,23 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["network ls", "network create", "container update"],
     },
     Entry {
+        path: "network prune",
+        group: "Lifecycle",
+        examples: &[
+            ("remove every network nothing is attached to", "delonix network prune"),
+            ("in CI, where there is no terminal to confirm at", "delonix network prune -f"),
+        ],
+        see_also: &["network rm", "network ls", "volume prune"],
+    },
+    Entry {
+        path: "network exists",
+        group: "Inspect",
+        examples: &[
+            ("exit 0 if it is there, 1 if not — for a script", "delonix network exists app"),
+        ],
+        see_also: &["network inspect", "network ls", "volume exists"],
+    },
+    Entry {
         path: "network describe",
         group: "Inspect",
         examples: &[
@@ -3387,6 +3404,14 @@ pub static ENTRIES: &[Entry] = &[
             ("the whole store: the unscoped root AND every tenant", "delonix volume prune -A -f"),
         ],
         see_also: &["volume rm", "volume ls", "volume snapshot create", "system prune"],
+    },
+    Entry {
+        path: "volume exists",
+        group: "Inspect",
+        examples: &[
+            ("exit 0 if it is there, 1 if not — for a script", "delonix volume exists pgdata"),
+        ],
+        see_also: &["volume inspect", "volume ls", "network exists"],
     },
     Entry {
         path: "volume describe",

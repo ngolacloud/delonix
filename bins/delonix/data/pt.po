@@ -1740,6 +1740,36 @@ msgstr "Detalhe legível de uma ou mais redes, ao estilo `kubectl describe` (par
 msgid "Remove a network."
 msgstr "Remove uma rede."
 
+msgid "Remove every network that nothing is attached to."
+msgstr "Remove todas as redes a que nada está ligado."
+
+msgid "Remove every network that nothing is attached to.\n\nDocker's `network prune`. A network with a container (running OR stopped) or a VM still attached is KEPT and the reason printed — the same \"refuse while in use\" rule `volume prune` follows, because a prune that silently detached live workloads would be worse than one that skips. Unlike `volume prune` this destroys no data: a removed network can be recreated."
+msgstr "Remove todas as redes a que nada está ligado.\n\nÉ o `network prune` do Docker. Uma rede com um container (a correr OU parado) ou uma VM ainda ligados é MANTIDA e a razão é impressa — a mesma regra de \"recusar enquanto em uso\" que o `volume prune` segue, porque um prune que desligasse cargas vivas em silêncio seria pior do que um que salta. Ao contrário do `volume prune`, este não destrói dados: uma rede removida pode ser recriada."
+
+msgid "Exit 0 if the network exists, 1 if not (prints nothing)."
+msgstr "Sai com 0 se a rede existir, 1 caso contrário (não imprime nada)."
+
+msgid "remove every network nothing is attached to"
+msgstr "remove todas as redes a que nada está ligado"
+
+msgid "exit 0 if it is there, 1 if not — for a script"
+msgstr "sai com 0 se existir, 1 caso contrário — para um script"
+
+msgid "no unused network to remove"
+msgstr "nenhuma rede sem uso para remover"
+
+msgid "kept {name}: in use by {what}"
+msgstr "mantida {name}: em uso por {what}"
+
+msgid "`network prune` removes every network nothing is attached to — pass --force to confirm when not on a terminal"
+msgstr "`network prune` remove todas as redes a que nada está ligado — passe --force para confirmar quando não está num terminal"
+
+msgid "This will remove {n} network(s): {list}"
+msgstr "Isto vai remover {n} rede(s): {list}"
+
+msgid "Continue? [y/N]"
+msgstr "Continuar? [s/N]"
+
 msgid "Apply the `kind: Network` documents of a manifest (idempotent by name)."
 msgstr "Aplica os documentos `kind: Network` de um manifesto (idempotente por nome)."
 
@@ -1826,6 +1856,9 @@ msgstr "Detalhe legível de um ou mais volumes, ao estilo kubectl describe (para
 
 msgid "Remove a volume."
 msgstr "Remove um volume."
+
+msgid "Exit 0 if the volume exists, 1 if not (prints nothing)."
+msgstr "Sai com 0 se o volume existir, 1 caso contrário (não imprime nada)."
 
 msgid "Apply the kind: Volume documents from a manifest (idempotent by name)."
 msgstr "Aplica os documentos kind: Volume de um manifesto (idempotente por nome)."
