@@ -5759,13 +5759,13 @@ pub fn bottleneck<'a>(readings: &[(&'a str, Option<Psi>)]) -> Option<&'a str> {
 /// The user-facing flags each cgroup controller makes real. Without the
 /// controller they are parsed, accepted, and silently ignored.
 pub fn flags_of_controller(controller: &str) -> &'static [&'static str] {
-    // Every name here MUST exist on `container run`. Four did not: measured
-    // 2026-08-31, `--memory-swap`, `--pids-limit`, `--cpuset-mems` and
-    // `--io-max` are Docker's spellings, and this engine has `--cpuset` and the
-    // `--device-*-bps/iops` family instead. Telling an operator to stop using a
-    // flag they cannot type is a small lie that costs a real minute, so
-    // `named_flags_all_exist` walks the clap tree and refuses any name that is
-    // not really there.
+    // Every name here MUST exist on `container run`. `--cpuset-mems` and
+    // `--io-max` remain Docker's spellings this engine does NOT ship (it has
+    // `--cpuset` and the `--device-*-bps/iops` family instead); `--memory-swap`
+    // is likewise not shipped (cgroup-v2 swap semantics differ). `--pids-limit`
+    // and `--memory-reservation` DID land (CLI-parity review), so they appear
+    // here now. `named_flags_all_exist` walks the clap tree and refuses any name
+    // that is not really there.
     match controller {
         "cpu" => &["--cpus", "--cpu-weight"],
         "cpuset" => &["--cpuset"],
@@ -5776,10 +5776,8 @@ pub fn flags_of_controller(controller: &str) -> &'static [&'static str] {
             "--device-read-iops",
             "--device-write-iops",
         ],
-        "memory" => &["--memory"],
-        // No user-facing flag: the pids ceiling is a cgroup-GROUP property, not
-        // a `container run` option. Naming one would invent a flag.
-        "pids" => &[],
+        "memory" => &["--memory", "--memory-reservation"],
+        "pids" => &["--pids-limit"],
         _ => &[],
     }
 }
@@ -6093,6 +6091,11 @@ fn try_delegated_base(
         abandon_leaf(&leaf);
         return false;
     }
+    // Soft reclaim floor (`--memory-reservation`): best-effort, it is a hint to
+    // the reclaim path, never a hard cap, so a write failure is not fatal.
+    if let Some(low) = c.memory_low.as_deref().and_then(mem_limit_write_value) {
+        let _ = std::fs::write(format!("{leaf}/memory.low"), low);
+    }
     // BUG FIXED HERE (1/2): `memory.max` alone does NOT bound a container's
     // memory pressure on a host that has swap — the container simply swaps at
     // the limit instead of being reclaimed/killed, so the ceiling the operator
@@ -6108,7 +6111,10 @@ fn try_delegated_base(
     // reports Running. `1` makes the kill atomic over the whole cgroup, which
     // is what runc/systemd do for exactly this reason.
     let _ = std::fs::write(format!("{leaf}/memory.oom.group"), "1");
-    let _ = std::fs::write(format!("{leaf}/pids.max"), DEFAULT_PIDS_MAX.to_string());
+    let _ = std::fs::write(
+        format!("{leaf}/pids.max"),
+        pids_max_write_value(c.pids_max.as_deref()),
+    );
     let Some(cpu_value) = try_cpu_max_value(&c.cpus) else {
         return false;
     };
@@ -6568,6 +6574,17 @@ fn swap_max_value() -> String {
     std::env::var("DELONIX_SWAP_MAX").unwrap_or_else(|_| "0".to_string())
 }
 
+/// The value to write to `pids.max` (Docker `--pids-limit`). `None` keeps the
+/// engine's anti-fork-bomb default; Docker's `-1`/`0` means unlimited, which is
+/// cgroup-v2 `max`; any other value is passed through as the process count.
+fn pids_max_write_value(limit: Option<&str>) -> String {
+    match limit.map(str::trim) {
+        None => DEFAULT_PIDS_MAX.to_string(),
+        Some("-1") | Some("0") | Some("max") => "max".to_string(),
+        Some(n) => n.to_string(),
+    }
+}
+
 /// `true` when a container ends up with **no memory ceiling at any level** —
 /// neither its own nor an inherited one.
 ///
@@ -6855,11 +6872,14 @@ fn setup_cgroup(c: &Container, pid: i32, io_dev: Option<&str>) -> Result<()> {
         );
     }
     write_limit(cg, "memory.max", &c.memory_max)?; // memory ceiling (kernel OOM-kill)
-                                                   // no swap beyond memory, otherwise the memory limit would be bypassable;
-                                                   // best-effort: the swap controller may be disabled on the system.
+    if let Some(low) = c.memory_low.as_deref().and_then(mem_limit_write_value) {
+        let _ = std::fs::write(format!("{cg}/memory.low"), low); // soft reclaim floor
+    }
+    // no swap beyond memory, otherwise the memory limit would be bypassable;
+    // best-effort: the swap controller may be disabled on the system.
     let _ = std::fs::write(format!("{cg}/memory.swap.max"), "0");
     write_limit(cg, "cpu.max", &cpu_max_value(&c.cpus))?; // CPU ceiling
-    write_limit(cg, "pids.max", &DEFAULT_PIDS_MAX.to_string())?; // anti fork-bomb
+    write_limit(cg, "pids.max", &pids_max_write_value(c.pids_max.as_deref()))?; // process ceiling
                                                                  // --- scheduling / QoS (cgroup v2, best-effort) ---
     if let Some(w) = &c.cpu_weight {
         let _ = std::fs::write(format!("{cg}/cpu.weight"), w); // CPU priority

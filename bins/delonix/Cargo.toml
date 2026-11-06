@@ -80,7 +80,7 @@ rcgen = { workspace = true, features = ["ring", "pem"] }
 tar = { workspace = true }
 flate2 = { workspace = true }
 delonix-sdn = { workspace = true }
-clap = { workspace = true }
+clap = { workspace = true, features = ["string"] }
 clap_complete = { workspace = true, features = ["unstable-dynamic"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

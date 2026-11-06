@@ -5084,6 +5084,85 @@ msgstr "Remove o tecto de largura de banda"
 msgid "Remove the container when the process exits (with `-d`, a detached watcher handles removal when the container dies)"
 msgstr "Remove o container quando o processo sair (com `-d`, um vigia desanexado trata da remoção quando o container morrer)"
 
+msgid "Keep STDIN open (Docker/Podman `-i`); a daemonless foreground `run` already inherits it, so `-it` gives an interactive shell. See `docs/cli-stability.md`."
+msgstr "Mantém o STDIN aberto (Docker/Podman `-i`); um `run` em primeiro plano, sem daemon, já o herda, por isso `-it` dá uma shell interactiva. Ver `docs/cli-stability.md`."
+
+msgid "Allocate a TTY (Docker/Podman `-t`); a foreground `run` inherits the operator's terminal (no pty is synthesized when stdout is not one). See `docs/cli-stability.md`."
+msgstr "Aloca um TTY (Docker/Podman `-t`); um `run` em primeiro plano herda o terminal do operador (não se sintetiza um pty quando o stdout não o é). Ver `docs/cli-stability.md`."
+
+msgid "When to pull the image (Docker/Podman `--pull`): `missing` (default — pull only if absent), `always` (pull before starting), `never` (fail if absent, never fetch)."
+msgstr "Quando puxar a imagem (Docker/Podman `--pull`): `missing` (por omissão — puxa só se faltar), `always` (puxa antes de arrancar), `never` (falha se faltar, nunca busca)."
+
+msgid "Write the created container's id to this file (Docker/Podman `--cidfile`); refused if the file already exists."
+msgstr "Escreve o id do container criado neste ficheiro (Docker/Podman `--cidfile`); recusado se o ficheiro já existir."
+
+msgid "Size of `/dev/shm` (Docker/Podman `--shm-size`, e.g. `64m`, `1g`); default 64 MiB."
+msgstr "Tamanho de `/dev/shm` (Docker/Podman `--shm-size`, ex. `64m`, `1g`); por omissão 64 MiB."
+
+msgid "Soft memory reservation (`memory.low`, Docker/Podman `--memory-reservation`, e.g. `256m`): memory the kernel tries NOT to reclaim under pressure. A floor, not a cap."
+msgstr "Reserva de memória suave (`memory.low`, Docker/Podman `--memory-reservation`, ex. `256m`): memória que o kernel tenta NÃO recuperar sob pressão. Um piso, não um tecto."
+
+msgid "Max number of processes (`pids.max`, Docker/Podman `--pids-limit`); `-1` = unlimited. Default: the engine's anti-fork-bomb ceiling."
+msgstr "Número máximo de processos (`pids.max`, Docker/Podman `--pids-limit`); `-1` = ilimitado. Por omissão: o tecto anti-fork-bomb do motor."
+
+msgid "copy a file OUT of a container to the host"
+msgstr "copiar um ficheiro PARA FORA de um container, para o host"
+
+msgid "copy a file INTO a container"
+msgstr "copiar um ficheiro PARA DENTRO de um container"
+
+msgid "the published ports of a container"
+msgstr "as portas publicadas de um container"
+
+msgid "authenticate to a registry, reading the token from stdin (never an argument)"
+msgstr "autenticar num registry, lendo o token do stdin (nunca de um argumento)"
+
+msgid "rootless?, cgroup delegation, network infra and resource counts"
+msgstr "rootless?, delegação de cgroups, infra de rede e contagem de recursos"
+
+msgid "the engine's event log, oldest to newest"
+msgstr "o registo de eventos do motor, do mais antigo ao mais recente"
+
+msgid "follow continuously, as JSON lines for a script"
+msgstr "seguir continuamente, em linhas JSON para um script"
+
+# ---- Imperative pod lifecycle verbs (Podman-style) ----
+msgid "Stop every member of a pod (SIGTERM, then SIGKILL) — Podman `pod stop`"
+msgstr "Pára todos os membros de um pod (SIGTERM, depois SIGKILL) — `pod stop` do Podman"
+
+msgid "Start every member of a pod — Podman `pod start`"
+msgstr "Arranca todos os membros de um pod — `pod start` do Podman"
+
+msgid "Stop then start every member of a pod — Podman `pod restart`"
+msgstr "Pára e volta a arrancar todos os membros de um pod — `pod restart` do Podman"
+
+msgid "Remove a pod and all its members — Podman `pod rm` (same as `delete pod`)"
+msgstr "Remove um pod e todos os seus membros — `pod rm` do Podman (igual a `delete pod`)"
+
+msgid "Seconds to wait before SIGKILL (default 10)"
+msgstr "Segundos a esperar antes do SIGKILL (por omissão 10)"
+
+msgid "Seconds to wait before SIGKILL on the stop half (default 10)"
+msgstr "Segundos a esperar antes do SIGKILL na parte da paragem (por omissão 10)"
+
+msgid "Remove even if members are running (stops them first)"
+msgstr "Remover mesmo com membros a correr (pára-os primeiro)"
+
+msgid "stop every member of the pod"
+msgstr "parar todos os membros do pod"
+
+msgid "start every member of the pod"
+msgstr "arrancar todos os membros do pod"
+
+msgid "stop then start every member of the pod"
+msgstr "parar e voltar a arrancar todos os membros do pod"
+
+msgid "remove a pod and all its members"
+msgstr "remover um pod e todos os seus membros"
+
+msgid "force-remove even if members are running"
+msgstr "remover à força mesmo com membros a correr"
+
 msgid "Restart policy (only with `-d`): `no` (default), `on-failure[:max]`, `always`, `unless-stopped`. A detached supervisor (one per container, ephemeral — there's no daemon) becomes the container's parent, captures the real exit code, and restarts it according to the policy"
 msgstr "Política de reinício (só com `-d`): `no` (por omissão), `on-failure[:max]`, `always`, `unless-stopped`. Um supervisor desanexado (um por container, efémero — não há daemon) passa a ser o pai do container, captura o código de saída real, e reinicia-o segundo a política"
 

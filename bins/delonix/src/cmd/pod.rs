@@ -122,6 +122,35 @@ pub enum PodCmd {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
         file: Option<PathBuf>,
     },
+    /// Stop every member of a pod (SIGTERM, then SIGKILL) — Podman `pod stop`.
+    Stop {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: String,
+        /// Seconds to wait before SIGKILL (default 10).
+        #[arg(short = 't', long = "time", default_value_t = 10)]
+        time: u64,
+    },
+    /// Start every member of a pod — Podman `pod start`.
+    Start {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: String,
+    },
+    /// Stop then start every member of a pod — Podman `pod restart`.
+    Restart {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: String,
+        /// Seconds to wait before SIGKILL on the stop half (default 10).
+        #[arg(short = 't', long = "time", default_value_t = 10)]
+        time: u64,
+    },
+    /// Remove a pod and all its members — Podman `pod rm` (same as `delete pod`).
+    Rm {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
+        pod: String,
+        /// Remove even if members are running (stops them first).
+        #[arg(short, long)]
+        force: bool,
+    },
     /// Logs of a pod's container (defaults to the first member).
     Logs {
         #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::pods))]
@@ -215,6 +244,10 @@ pub fn run(action: PodCmd) -> Result<()> {
             let docs = manifest::load(&path)?;
             apply(&docs)
         }
+        PodCmd::Stop { pod, time } => pod_stop(&pod, time),
+        PodCmd::Start { pod } => pod_start(&pod),
+        PodCmd::Restart { pod, time } => pod_restart(&pod, time),
+        PodCmd::Rm { pod, force } => remove_pod(&pod, force),
         PodCmd::Logs {
             pod,
             container,
@@ -465,6 +498,69 @@ fn create_pod(name: &str, namespace: Option<String>, spec: PodSpec, hold: bool) 
         }
     }
     println!("pod/{name}: {count} container(s) sharing netns + IPC/UTS (ip {ip})");
+    Ok(())
+}
+
+/// Whether a pod of this name exists — i.e. has at least one member carrying
+/// its [`POD_LABEL`]. `container::cmd_run` uses it to turn a failed
+/// `run --pod <name>` into an actionable error that names the declarative flow
+/// when the pod simply is not there.
+pub(crate) fn exists(store: &delonix_state::Store, pod: &str) -> bool {
+    members_of(store, pod).map(|m| !m.is_empty()).unwrap_or(false)
+}
+
+/// The pod's IPC/UTS holder PID — the init pid of its FIRST member (declaration
+/// order). `None` when the pod has no member with a recorded pid yet.
+/// `container::cmd_run` reads this so a `run --pod <name>` that ADDS a member to
+/// an existing pod joins the same IPC/UTS/hostname instead of starting its own.
+pub(crate) fn infra_pid_of(store: &delonix_state::Store, pod: &str) -> Option<i32> {
+    members_of(store, pod).ok()?.first().and_then(|c| c.pid)
+}
+
+/// `pod stop` — every member, newest first (an app member before the one that
+/// holds the shared namespaces), SIGTERM then SIGKILL.
+fn pod_stop(pod: &str, time: u64) -> Result<()> {
+    let (_images, store) = open_stores()?;
+    let members = members_of(&store, pod)?;
+    if members.is_empty() {
+        return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+    }
+    for c in members.iter().rev() {
+        container::cmd_stop(&store, &c.id, time)?;
+    }
+    println!("pod/{pod}: stopped {} member(s)", members.len());
+    Ok(())
+}
+
+/// `pod start` — every member, in declaration order (the IPC/UTS holder first).
+fn pod_start(pod: &str) -> Result<()> {
+    let (images, store) = open_stores()?;
+    let members = members_of(&store, pod)?;
+    if members.is_empty() {
+        return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+    }
+    for c in &members {
+        container::cmd_start(&images, &store, &c.id)?;
+    }
+    println!("pod/{pod}: started {} member(s)", members.len());
+    Ok(())
+}
+
+/// `pod restart` — stop (reverse) then start (forward), so the shared-namespace
+/// holder is the last to go and the first to come back.
+fn pod_restart(pod: &str, time: u64) -> Result<()> {
+    let (images, store) = open_stores()?;
+    let members = members_of(&store, pod)?;
+    if members.is_empty() {
+        return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+    }
+    for c in members.iter().rev() {
+        container::cmd_stop(&store, &c.id, time)?;
+    }
+    for c in &members {
+        container::cmd_start(&images, &store, &c.id)?;
+    }
+    println!("pod/{pod}: restarted {} member(s)", members.len());
     Ok(())
 }
 

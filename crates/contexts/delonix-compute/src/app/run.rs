@@ -395,6 +395,8 @@ pub fn build_record(o: &RunOpts, r: ResolvedRun) -> Result<Container> {
     // Always resolved, never left to `Container::new`'s `"1.0"`: that literal is the
     // fallback for DESERIALISING an old record, not a policy for a new container.
     c.cpus = cpus.unwrap_or(r.default_cpus);
+    c.memory_low = o.memory_reservation.clone();
+    c.pids_max = o.pids_limit.clone();
     c.cpu_weight = o.cpu_weight.clone();
     c.cpuset = o.cpuset.clone();
     c.cgroup_parent = o.cgroup_parent.clone();

@@ -77,6 +77,12 @@ pub struct RunOpts {
     // ---- parity with a full `run` specification (all #[serde(default)]) ----
     #[serde(default)]
     pub memory: Option<String>,
+    /// Docker `--memory-reservation` → `memory.low` (soft floor).
+    #[serde(default)]
+    pub memory_reservation: Option<String>,
+    /// Docker `--pids-limit` → `pids.max` (`-1` ⇒ unlimited).
+    #[serde(default)]
+    pub pids_limit: Option<String>,
     #[serde(default)]
     pub cpus: Option<String>,
     #[serde(default)]
@@ -229,4 +235,9 @@ pub struct RunOpts {
     pub log_file: Option<String>,
     #[serde(default)]
     pub log_cri: bool,
+    /// Docker/Podman `--cidfile`: write the created container's full id to this
+    /// path (refused if it already exists). CLI-only; a manifest has the id in
+    /// the record already.
+    #[serde(default)]
+    pub cidfile: Option<String>,
 }

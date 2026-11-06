@@ -2378,6 +2378,15 @@ _ROOT_VERB_ALIASES = {
     "save": ("image", "image save"),
     "load": ("image", "image load"),
     "push": ("image", "image push"),
+    # Completed in the CLI-parity review (differential vs docker 29.9.2 /
+    # podman 4.9.3): the remaining Docker/Podman root verbs whose group form
+    # already worked.
+    "cp": ("container", "container cp"),
+    "port": ("container", "container port"),
+    "login": ("image", "image login"),
+    "logout": ("image", "image logout"),
+    "info": ("system", "system info"),
+    "events": ("system", "system events"),
 }
 
 

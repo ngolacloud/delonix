@@ -26,6 +26,7 @@ container run  create  ps  stop  start  restart  kill  rm  exec  logs  attach  s
 image     pull  ls  remove (rm)  tag  save  load  push   build (delonix build)
 raiz      run  create  ps  start  stop  restart  kill  rm  exec  logs  attach  stats
           pull  images  rmi  tag  save  load  push            (aliases dos de cima)
+          cp  port  login  logout  info  events              (aliases dos de cima)
           wait                                        (polimórfico — ver abaixo)
 ```
 
@@ -33,12 +34,23 @@ Concretamente, garante-se:
 
 * **O nome do comando e a ordem dos argumentos posicionais.**
 * **As flags curtas e longas listadas acima e os seus significados** — em
-  `run`: `-d`, `-p`, `-v`, `-e`, `--name`, `--rm`, `--net`, `--restart`,
-  `--memory`, `--cpus`, `--entrypoint`, `-w`, `-u`, `--add-host`, `--wait`,
-  `--health-*`; em `exec`: `-i`, `-t`, `-e`, `-w`, `-u`. (Esta lista andou
-  achatada, sem dizer a qual verbo cada flag pertence — `-i`/`-t` nunca
-  existiram em `run`, só em `exec`; um teste em `main.rs` verifica agora as
-  duas listas contra a árvore `clap` real, em vez de confiar na leitura.)
+  `run`: `-d`, `-i`, `-t`, `-p`, `-v`, `-e`, `--name`, `--rm`, `--net`
+  (alias `--network`), `--pull`, `--cidfile`, `--shm-size`, `--restart`,
+  `--memory`, `--memory-reservation`, `--pids-limit`, `--cpus`, `--entrypoint`,
+  `-w`, `-u`, `--cpuset` (alias `--cpuset-cpus`), `--add-host`, `--wait`,
+  `--health-*`; em `exec`: `-i`, `-t`, `-e`, `-w`, `-u`. (Esta lista
+  andou achatada, sem dizer a qual verbo cada flag pertence; um teste em
+  `main.rs` verifica as duas listas contra a árvore `clap` real, em vez de
+  confiar na leitura.) **`-i`/`-t` em `run`/`create` entraram na linha da
+  revisão de paridade CLI**: o `run` recusava `-it` no parser e partia a
+  primeira linha de qualquer script interactivo (`error: unexpected argument
+  '-i'`), medido contra docker 29.9.2 e podman 4.9.3. São aceites por paridade
+  — um `run` em foreground, por ser *daemonless*, já HERDA o stdio do operador,
+  por isso o shell interactivo, o `test -t 0` e o código de saída já eram os do
+  `docker run -it`; o que faltava era o reconhecimento, não o comportamento.
+  Limite documentado e deliberado: um `-t` cujo stdout NÃO seja já um terminal
+  (`run -t … | cat`) não recebe um pty sintetizado — o caminho honesto é `-d` e
+  depois `container exec -it`.
 * **Os códigos de saída** — ver a secção «Códigos de saída» abaixo.
 * **A saída JSON de `inspect`** — campos podem ser ACRESCENTADOS, nunca removidos
   nem com o tipo mudado.
@@ -76,9 +88,17 @@ Concretamente, garante-se:
 > Docker/Podman entraram pelo mesmo mecanismo — subcomando `clap` de pleno
 > direito, MESMA struct de argumentos, MESMO handler do grupo: os de container
 > `kill`, `attach`, `stats`, e os de imagem `images` (alias de `image ls`),
-> `rmi` (alias de `image rm`), `tag`, `save`, `load`, `push`. Ficam de fora só
-> `login`/`logout` — não constam da tabela pedida, e a sua forma de grupo
-> (`image login`/`logout`) chega.
+> `rmi` (alias de `image rm`), `tag`, `save`, `load`, `push`.
+
+> **Raiz completada na revisão de paridade CLI.** A medição diferencial contra
+> docker 29.9.2 e podman 4.9.3 encontrou mais verbos de raiz recusados pelo
+> parser cuja forma de grupo já funcionava. Entraram pelo MESMO mecanismo
+> (subcomando `clap`, MESMO handler, docs verbatim): `cp` e `port` (alias de
+> `container cp`/`container port`), `login` e `logout` (alias de `image
+> login`/`logout`), e `info` e `events` (alias de `system info`/`system
+> events`). Um operador que escreva `docker cp`, `docker login`, `docker info`
+> ou `docker events` troca só o executável. `inspect` e `diff` NÃO entraram na
+> raiz — ver a política de resolução logo abaixo.
 >
 > **Comandos genéricos: política de resolução, nunca adivinhação.** Três nomes
 > da tabela colidem com significados que este motor já tinha ou que seriam
@@ -598,3 +618,11 @@ actualizar (o `delonix-cri` continuou a invocar `delonix netns attach`), o que
 partiu a criação de pod rootless durante meses — ver
 [cri-conformance.md](cri-conformance.md). Um corte limpo obriga a fazer o grep
 por chamadores em TODO o workspace, não só na documentação.
+
+## Descobrir comandos por TAB
+
+Em Fish, execute `delonix completion shell fish | source` para activar a conclusão
+na sessão actual. Depois de `delonix ` ou `delonix container `, prima TAB para ver
+`ps` e `ls` com a mesma descrição. Em `delonix image `, tanto `remove` como `rm`
+devem aparecer. O shell controla a disposição em colunas. Em Bash, a conclusão
+regista-se com `source <(delonix completion shell bash)`.
