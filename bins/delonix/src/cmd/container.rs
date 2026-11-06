@@ -1730,7 +1730,7 @@ pub enum ContainerCmd {
     /// The record is registered in `Created` state and the rootfs prepared, but no process runs; `container start <id>` launches it later from the same record. Takes every flag `run` does, and pulls the image if missing.
     Create(RunArgs),
     /// List containers.
-    #[command(visible_alias = "ls")]
+    #[command(visible_aliases = ["ls", "list"])]
     Ps(PsArgs),
     /// (Re)start stopped/crashed containers. Always detached.
     ///
@@ -1824,6 +1824,11 @@ pub enum ContainerCmd {
     ///
     /// With no command, tries `bash` and falls back to `sh` (which exists in any image) — `container exec -it <id>` is the interactive shell, same as `container exec -it <id> bash` would give if `bash` is there.
     Exec(ExecArgs),
+    /// Test whether a container exists in the store (Podman's `container exists`): prints nothing, exit 0/1.
+    Exists {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
     /// Show the full spec of one or more containers (Store JSON).
     Inspect {
         #[arg(required = true, add = ArgValueCandidates::new(super::complete::containers))]
@@ -2463,6 +2468,7 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         ContainerCmd::Top { id } => cmd_top(&store, &id),
         ContainerCmd::Diff { id } => cmd_diff(&images, &store, &id),
         ContainerCmd::Cp { src, dst } => cmd_cp(&images, &store, &src, &dst),
+        ContainerCmd::Exists { id } => cmd_exists(&store, &id),
         ContainerCmd::Inspect { ids } => cmd_inspect(&store, &ids),
         ContainerCmd::Describe { ids } => cmd_describe(&store, &ids),
         ContainerCmd::Update {
@@ -6255,6 +6261,17 @@ pub(crate) fn cmd_exec(
 
 /// `container inspect` — dumps the full spec stored in the Store (the runtime's
 /// source of truth), as a docker-style JSON array.
+/// `container exists` — Podman's existence probe. Resolves `id` the same way
+/// `inspect`/`rm` do (via `find`) and maps the outcome to an exit code ONLY: 0
+/// when the container is in the store, 1 otherwise. Prints nothing on either
+/// path, matching `podman container exists`.
+fn cmd_exists(store: &Store, id: &str) -> Result<()> {
+    match find(store, id) {
+        Ok(_) => Ok(()),
+        Err(_) => std::process::exit(1),
+    }
+}
+
 fn cmd_inspect(store: &Store, ids: &[String]) -> Result<()> {
     let mut cs = Vec::new();
     for id in ids {

@@ -760,6 +760,14 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["container describe", "container run"],
     },
     Entry {
+        path: "container exists",
+        group: "Inspect",
+        examples: &[
+            ("exit 0 if it is in the store, 1 if not — prints nothing, for a script", "delonix container exists web"),
+        ],
+        see_also: &["container inspect", "container ps"],
+    },
+    Entry {
         path: "container inspect",
         group: "Inspect",
         examples: &[

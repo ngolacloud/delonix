@@ -4526,6 +4526,9 @@ msgstr "Processos a correr dentro de um container (lidos do `cgroup.procs`)."
 msgid "Files changed relative to the image: `A` = created/changed, `D` = deleted."
 msgstr "Ficheiros alterados face à imagem: `A` = criado/alterado, `D` = apagado."
 
+msgid "Test whether a container exists in the store (Podman's `container exists`): prints nothing, exit 0/1."
+msgstr "Verifica se um container existe no store (o `container exists` do Podman): não imprime nada, sai com 0/1."
+
 msgid "Copy files between the host and a container. Exactly one side is `container:/path` (e.g. `delonix container cp web:/etc/nginx.conf .`)."
 msgstr "Copia ficheiros entre o host e um container. Exactamente um dos lados é `container:/caminho` (ex.: `delonix container cp web:/etc/nginx.conf .`)."
 
@@ -6038,6 +6041,9 @@ msgstr "as últimas 50 linhas com timestamps (exige --log-cri no `run`)"
 
 msgid "the full record as JSON, for a script"
 msgstr "o registo completo em JSON, para um script"
+
+msgid "exit 0 if it is in the store, 1 if not — prints nothing, for a script"
+msgstr "sai com 0 se estiver no store, 1 se não — não imprime nada, para um script"
 
 msgid "the readable detail — kubectl describe style"
 msgstr "o detalhe legível — ao estilo do kubectl describe"
