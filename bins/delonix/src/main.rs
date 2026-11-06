@@ -821,6 +821,38 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    // ---- BuildKit front-end shims (hidden) ----
+    // `buildx`/`builder`/`bake` are Docker's BuildKit CLIs; this engine builds
+    // with its own `build`/`compose build`, not BuildKit. Hidden, but reachable
+    // so a ported `docker buildx …` meets an actionable pointer, not
+    // `unrecognized subcommand`.
+    /// Docker BuildKit front-end not implemented — use `delonix build`.
+    #[command(hide = true)]
+    Buildx {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker BuildKit front-end not implemented — use `delonix build`.
+    #[command(hide = true)]
+    Builder {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker BuildKit front-end not implemented — use `delonix build`.
+    #[command(hide = true)]
+    Bake {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    // ---- CRIU checkpoint/restore shims (hidden) ----
+    // `checkpoint`/`restore` need CRIU, which this engine does not integrate yet.
+    // Hidden, but reachable so a ported script meets an actionable error.
+    /// Checkpoint/restore needs CRIU, which this engine does not integrate yet.
+    #[command(hide = true)]
+    Checkpoint {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 /// The `--version` business card (the `-V` keeps the short, stable line for
@@ -1297,6 +1329,10 @@ mod run_interactive_flag_parity_tests {
         assert!(matches!(parse("machine"), super::Cmd::Machine { .. }));
         assert!(matches!(parse("context"), super::Cmd::Context { .. }));
         assert!(matches!(parse("plugin"), super::Cmd::Plugin { .. }));
+        assert!(matches!(parse("buildx"), super::Cmd::Buildx { .. }));
+        assert!(matches!(parse("builder"), super::Cmd::Builder { .. }));
+        assert!(matches!(parse("bake"), super::Cmd::Bake { .. }));
+        assert!(matches!(parse("checkpoint"), super::Cmd::Checkpoint { .. }));
     }
 
     #[test]
@@ -1793,6 +1829,10 @@ fn run() -> Result<()> {
         Cmd::Machine { .. } => docker_api_shim("machine"),
         Cmd::Context { .. } => docker_api_shim("context"),
         Cmd::Plugin { .. } => docker_api_shim("plugin"),
+        Cmd::Buildx { .. } => buildkit_shim("buildx"),
+        Cmd::Builder { .. } => buildkit_shim("builder"),
+        Cmd::Bake { .. } => buildkit_shim("bake"),
+        Cmd::Checkpoint { .. } => criu_shim("checkpoint"),
         Cmd::Dashboard { scope, once, json } => {
             cmd::dash::run(scope.unwrap_or(cmd::dash::DashScope::Global), once, json)
         }
@@ -1821,6 +1861,22 @@ fn docker_api_shim(verb: &str) -> Result<()> {
          (ADR-0010). The Docker API shim does NOT serve `{verb}` either. For the CONTAINER and \
          IMAGE surface, `delonix serve docker-api` + DOCKER_HOST lets the real `docker` CLI drive \
          the engine. See docs/cli-stability.md."
+    )))
+}
+
+fn buildkit_shim(verb: &str) -> Result<()> {
+    Err(delonix_model::Error::Invalid(format!(
+        "`{verb}` is a Docker BuildKit front-end this engine does not implement — it builds with \
+         its own engine. Use `delonix build` for a Dockerfile/Delonixfile (a compose file's \
+         `build:` sections are built by `delonix compose up`). See docs/cli-stability.md."
+    )))
+}
+
+fn criu_shim(verb: &str) -> Result<()> {
+    Err(delonix_model::Error::Invalid(format!(
+        "`{verb}` needs CRIU (checkpoint/restore of a running container), which this engine does \
+         not integrate yet. The per-container form `container {verb}` reports the same. See \
+         docs/cli-stability.md."
     )))
 }
 
@@ -2517,6 +2573,10 @@ mod cli_stability_classification_tests {
         "machine",
         "context",
         "plugin",
+        "buildx",
+        "builder",
+        "bake",
+        "checkpoint",
     ];
 
     #[test]
