@@ -517,6 +517,10 @@ pub struct Container {
     /// `--host-ipc`: shares the host's IPC namespace.
     #[serde(default)]
     pub host_ipc: bool,
+    /// `--uts host`: shares the host's UTS namespace (hostname). No `sethostname`
+    /// is attempted, so the host's name is never changed.
+    #[serde(default)]
+    pub uts_host: bool,
     /// `--log-cri`: log format with a per-line timestamp. It is the ONLY one that
     /// gives `logs --tail/--since/--timestamps` a real column to filter on, so
     /// losing it across a restart made those three answer «only with `--log-cri`»
@@ -896,6 +900,7 @@ impl Container {
             selinux: None,
             host_pid: false,
             host_ipc: false,
+            uts_host: false,
             log_cri: false,
             userns: false,
             ip: None,

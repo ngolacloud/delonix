@@ -346,6 +346,19 @@ memory += `--memory-swap`; removido das listas "não existem"). **Provado pelo
 host**: `-m 256m --memory-swap 768m` → leaf `memory.swap.max=536870912` (512 MiB
 = 768−256); `--memory-swap -1` → `max`.
 
+### C19 — `--uts host` (runtime `CLONE_NEWUTS` condicional)
+O item que estava adiado por tocar no runtime. Agora o `--uts` dobra no padrão
+`host_ipc`/`host_pid`: `host` → o container partilha o UTS do host (vê o seu
+hostname), `private` (omissão) → o seu próprio. No runtime: `clone_flags` só
+adiciona `CLONE_NEWUTS` quando `!uts_host`; e o `sethostname` em `setup_rootfs`
+passa a ser condicionado por `has_own_utsns` (= `!uts_host`), para **nunca
+renomear o host** (que em rootless falharia EPERM na mesma). `--hostname` com
+`--uts host` é RECUSADO. Plumbing completa espelhando `host_ipc` (Container,
+RunOpts, RunArgs, build_record, launch_spec, cmd_run RunSpec, clone_flags,
+InitInputs/NamespaceSpec, container_init). **Provado ao vivo**: `--uts host` →
+hostname `delonix` (o do host); default → `dlxpar-uts0` (próprio); `--hostname
+--uts host` recusado; host NÃO renomeado; pods continuam a receber hostname.
+
 ### Próximo lote — totalmente mapeado (investigação paralela por agentes)
 As flags abaixo tocam no runtime (`delonix-linux`) e em *guards* que hoje afirmam
 que não existem — ficam prontas a implementar com os pontos exactos:
