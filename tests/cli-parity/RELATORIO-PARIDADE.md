@@ -564,3 +564,46 @@ Oito comandos mais, todos sem subsistema novo. Matriz **43→51 passou**,
 system/context daemon-mgmt (ADR-0010, shim), mount/unmount rootfs (fuse),
 subsistema de build, CRIU, e misc Podman (clone/scp/trust/reload/…). São
 campanhas próprias com decisão de arquitectura, não ausências acidentais.
+
+---
+
+## Quinta vaga — famílias de backend (3 agentes paralelos, 6 Nov 2026)
+
+Dezoito comandos mais, de famílias antes classificadas como backend-bound.
+Matriz **51→63 passou**, **54→36 por-fazer**, **3→9 divergência-deliberada**.
+Três agentes em worktrees isolados (`par2-image`/`par2-ctr`/`par2-volnet`),
+partição por ficheiro cmd; os shims de raiz ficaram comigo no `main.rs`.
+
+### C30 — image build/diff/tree; container mount/unmount/clone; volume export/import/mount/unmount; network reload
+- **image**: `build` (alias do `delonix build`, motor único), `diff A B` (camadas
+  só-em-A/só-em-B/comuns, dos registos), `tree` (pilha de camadas base→topo). Os
+  `diff_ids` não comprimidos não estão no registo, por isso `tree` é a lista de
+  camadas de uma imagem (não um grafo de ancestralidade) — documentado.
+- **container**: `mount` (imprime o caminho do rootfs: `/proc/<pid>/root` se vivo,
+  caminho em disco se parado), `unmount`/`umount` (no-op honesto — `mount` só
+  imprime), `clone` (copia o spec guardado para um novo container parado, via
+  `prepare_container_rootfs`; **provado a arrancar**).
+- **volume**: `export` (tar do directório do volume, recusa terminal), `import`
+  (extrai para volume existente, gzip pelo magic), `mount` (imprime o caminho),
+  `unmount`/`umount` (no-op). **Round-trip export→import provado**.
+- **network**: `reload` (re-realiza o dataplane do registo sem recriar a rede:
+  overlay via `realize_overlay`, bridge via `network_create_with`; macvlan/ipvlan
+  recusam honestamente — não realizáveis rootless).
+
+### Shims accionáveis de raiz (divergência-deliberada, sem backend)
+`buildx`/`builder`/`bake` (front-ends BuildKit → `delonix build`), `checkpoint` +
+`container checkpoint`/`container restore` (CRIU, não integrado; DX-6000 rc=69).
+Parseiam e devolvem erro accionável, nunca `unrecognized subcommand`. Root
+`restore` NÃO entrou (não é verbo-raiz Docker/Podman + colide com a migração
+`delonix restore`→`backup restore`).
+
+### Diferidos com motivo honesto (continuam `por-fazer`/futuro)
+`container cleanup` (o motor já liberta rede/mounts à saída; o único teardown
+alcançável apaga a write-layer — destrutivo, semântica errada), `container
+runlabel` (precisa de ler LABEL + templating), `volume update/reload` e `network
+update` (sem campo mutável que um verbo dedicado possua — seria no-op a fingir).
+
+### Os 36 `por-fazer` restantes
+Sobretudo `system *`/`context *` (ADR-0010, gestão remota; `context` já no shim) e
+`mount`/`unmount` de raiz (ambíguos agora que container/image/volume têm o seu —
+política type-scoped, como `inspect`/`diff`). O resto é misc Podman caso-a-caso.
