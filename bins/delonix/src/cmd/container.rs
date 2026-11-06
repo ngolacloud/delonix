@@ -6291,7 +6291,7 @@ fn cmd_inspect(store: &Store, ids: &[String]) -> Result<()> {
 /// **Needs cgroup delegation**: in rootless without it (`systemd-run --user
 /// --scope -p Delegate=yes`, or a unit with `Delegate=yes`), `cgroup.freeze`
 /// isn't writable and this fails — not a bug, it's the model.
-fn cmd_freeze(store: &Store, id: &str, frozen: bool) -> Result<()> {
+pub(crate) fn cmd_freeze(store: &Store, id: &str, frozen: bool) -> Result<()> {
     let c = find(store, id)?;
     runtime::set_frozen(&c, frozen)?;
     println!("{}", short_id(&c.id));
@@ -6390,7 +6390,7 @@ fn cmd_healthcheck(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
 /// The PIDs are the HOST's (that's what the cgroup lists); inside the container,
 /// with its own PID namespace, the numbers are different. The column says
 /// `HOST-PID` so as not to mislead anyone comparing with a `ps` from inside.
-fn cmd_top(store: &Store, id: &str) -> Result<()> {
+pub(crate) fn cmd_top(store: &Store, id: &str) -> Result<()> {
     let c = find(store, id)?;
     if !c.is_live() {
         return Err(Error::NotRunning(short_id(&c.id).to_string()));
@@ -7507,7 +7507,7 @@ pub(crate) fn reconcile_and_persist(store: &Store, c: &mut Container) -> bool {
 /// CPU% = delta of `usage_usec` over 500ms; memory from `memory.current`; with the
 /// cgroup non-delegated (rootless without Delegate), it falls back to the container
 /// init's VmRSS in `/proc` (only that process, marked with `~`).
-fn cmd_stats(store: &Store, ids: &[String]) -> Result<()> {
+pub(crate) fn cmd_stats(store: &Store, ids: &[String]) -> Result<()> {
     let mut cs: Vec<Container> = if ids.is_empty() {
         store.list()?
     } else {

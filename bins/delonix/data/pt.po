@@ -5277,6 +5277,66 @@ msgstr "Segundos a esperar antes do SIGKILL na parte da paragem (por omissão 10
 msgid "Remove even if members are running (stops them first)"
 msgstr "Remover mesmo com membros a correr (pára-os primeiro)"
 
+msgid "List pods and their members — Docker/Podman `pod ps` (same as `get pods`)"
+msgstr "Lista os pods e os seus membros — `pod ps` do Docker/Podman (igual a `get pods`)"
+
+msgid "Exit 0 if the pod exists, 1 if not (prints nothing) — Podman `pod exists`"
+msgstr "Sai com 0 se o pod existir, 1 caso contrário (não imprime nada) — `pod exists` do Podman"
+
+msgid "Remove every stopped pod (no running member) — Podman `pod prune`"
+msgstr "Remove todos os pods parados (sem membro a correr) — `pod prune` do Podman"
+
+msgid "Send a signal to every member of a pod — Podman `pod kill`"
+msgstr "Envia um sinal a todos os membros de um pod — `pod kill` do Podman"
+
+msgid "Suspend every member of a pod (freeze its cgroup) — Podman `pod pause`"
+msgstr "Suspende todos os membros de um pod (congela o seu cgroup) — `pod pause` do Podman"
+
+msgid "Resume every member of a pod suspended with `pause` — Podman `pod unpause`"
+msgstr "Retoma todos os membros de um pod suspensos com `pause` — `pod unpause` do Podman"
+
+msgid "Live resource usage of every member of a pod — Podman `pod stats`"
+msgstr "Utilização de recursos em tempo real de todos os membros de um pod — `pod stats` do Podman"
+
+msgid "Processes running in every member of a pod — Podman `pod top`"
+msgstr "Processos a correr em todos os membros de um pod — `pod top` do Podman"
+
+msgid "JSON detail of a pod and its members — Docker/Podman `pod inspect`"
+msgstr "Detalhe em JSON de um pod e dos seus membros — `pod inspect` do Docker/Podman"
+
+msgid "Show only pods in this isolation namespace"
+msgstr "Mostra apenas os pods neste namespace de isolamento"
+
+msgid "Remove without asking for confirmation"
+msgstr "Remover sem pedir confirmação"
+
+msgid "exit 0 if the pod is there, 1 if not — scriptable, prints nothing"
+msgstr "sai com 0 se o pod existir, 1 caso contrário — automatizável, não imprime nada"
+
+msgid "the full JSON of a pod and every member"
+msgstr "o JSON completo de um pod e de cada membro"
+
+msgid "live CPU/memory/pids of every member"
+msgstr "CPU/memória/pids em tempo real de cada membro"
+
+msgid "the processes running in every member"
+msgstr "os processos a correr em cada membro"
+
+msgid "SIGKILL every member"
+msgstr "enviar SIGKILL a cada membro"
+
+msgid "a specific signal instead"
+msgstr "um sinal específico em vez disso"
+
+msgid "freeze every member's cgroup"
+msgstr "congelar o cgroup de cada membro"
+
+msgid "resume a pod suspended with `pause`"
+msgstr "retomar um pod suspenso com `pause`"
+
+msgid "remove every stopped pod — asks first"
+msgstr "remover todos os pods parados — pede confirmação primeiro"
+
 msgid "stop every member of the pod"
 msgstr "parar todos os membros do pod"
 

@@ -2200,6 +2200,81 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["pod exec", "container port"],
     },
     Entry {
+        path: "pod ps",
+        group: "Inspect",
+        examples: &[
+            ("which pods exist and which containers each one holds", "delonix pod ps"),
+            ("the stable half, for automation (ADR-0005)", "delonix pod ps -o json"),
+        ],
+        see_also: &["get", "pod inspect", "container ps"],
+    },
+    Entry {
+        path: "pod exists",
+        group: "Inspect",
+        examples: &[
+            ("exit 0 if the pod is there, 1 if not — scriptable, prints nothing", "delonix pod exists web"),
+        ],
+        see_also: &["pod ps", "get"],
+    },
+    Entry {
+        path: "pod inspect",
+        group: "Inspect",
+        examples: &[
+            ("the full JSON of a pod and every member", "delonix pod inspect web"),
+        ],
+        see_also: &["pod ps", "describe", "container inspect"],
+    },
+    Entry {
+        path: "pod stats",
+        group: "Inspect",
+        examples: &[
+            ("live CPU/memory/pids of every member", "delonix pod stats web"),
+        ],
+        see_also: &["pod top", "container stats", "system df"],
+    },
+    Entry {
+        path: "pod top",
+        group: "Inspect",
+        examples: &[
+            ("the processes running in every member", "delonix pod top web"),
+        ],
+        see_also: &["pod stats", "container top"],
+    },
+    Entry {
+        path: "pod kill",
+        group: "Lifecycle",
+        examples: &[
+            ("SIGKILL every member", "delonix pod kill web"),
+            ("a specific signal instead", "delonix pod kill -s SIGTERM web"),
+        ],
+        see_also: &["pod stop", "pod restart", "container kill"],
+    },
+    Entry {
+        path: "pod pause",
+        group: "Lifecycle",
+        examples: &[
+            ("freeze every member's cgroup", "delonix pod pause web"),
+        ],
+        see_also: &["pod unpause", "container pause"],
+    },
+    Entry {
+        path: "pod unpause",
+        group: "Lifecycle",
+        examples: &[
+            ("resume a pod suspended with `pause`", "delonix pod unpause web"),
+        ],
+        see_also: &["pod pause", "container unpause"],
+    },
+    Entry {
+        path: "pod prune",
+        group: "Lifecycle",
+        examples: &[
+            ("remove every stopped pod — asks first", "delonix pod prune"),
+            ("in a script, where nobody can answer the prompt", "delonix pod prune --force"),
+        ],
+        see_also: &["pod rm", "container prune", "system prune"],
+    },
+    Entry {
         path: "policy",
         group: "Engine",
         examples: &[
