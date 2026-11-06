@@ -1226,6 +1226,12 @@ pub struct RunArgs {
     /// Max number of processes (`pids.max`, Docker/Podman `--pids-limit`); `-1` = unlimited. Default: the engine's anti-fork-bomb ceiling.
     #[arg(long = "pids-limit", allow_hyphen_values = true)]
     pids_limit: Option<String>,
+    /// Signal `stop` sends first (Docker/Podman `--stop-signal`, e.g. `SIGINT` or `2`). Default `SIGTERM`; `SIGKILL` still follows after the grace period.
+    #[arg(long = "stop-signal")]
+    stop_signal: Option<String>,
+    /// Seconds `stop` waits before `SIGKILL` (Docker/Podman `--stop-timeout`). An explicit `stop -t` overrides it.
+    #[arg(long = "stop-timeout")]
+    stop_timeout: Option<u64>,
     /// CPU quota (number of cores, e.g. `0.5`, `2`). Default: the lesser of
     /// 1.0 and a quarter of the engine's budget.
     #[arg(short = 'c', long)]
@@ -1321,6 +1327,12 @@ pub struct RunArgs {
     /// Share the host's IPC namespace.
     #[arg(long = "host-ipc")]
     host_ipc: bool,
+    /// PID namespace (Docker/Podman `--pid`): `host` shares the host's, `private` (default) its own. `--pid host` == `--host-pid`.
+    #[arg(long = "pid")]
+    pid_mode: Option<String>,
+    /// IPC namespace (Docker/Podman `--ipc`): `host` shares the host's, `private` (default) its own. `--ipc host` == `--host-ipc`.
+    #[arg(long = "ipc")]
+    ipc_mode: Option<String>,
     /// Detection mode: seccomp in log mode (doesn't block), to discover syscalls.
     #[arg(long)]
     detect: bool,
@@ -1508,9 +1520,9 @@ pub struct StartArgs {
 pub struct StopArgs {
     #[arg(required = true, add = ArgValueCandidates::new(super::complete::containers))]
     ids: Vec<String>,
-    /// Seconds until SIGKILL.
-    #[arg(short, long, default_value_t = 10)]
-    time: u64,
+    /// Seconds until SIGKILL (default: the container's `--stop-timeout`, else 10).
+    #[arg(short, long)]
+    time: Option<u64>,
 }
 
 #[derive(clap::Args)]
@@ -1884,6 +1896,21 @@ fn apply_pull_policy(images: &ImageStore, reference: &str, policy: &str) -> Resu
     }
 }
 
+/// Fold a Docker/Podman `--ipc`/`--pid` MODE string into the engine's
+/// share-the-host boolean. `host` ⇒ true; `private`/empty/absent ⇒ keep the
+/// explicit `--host-*` value; anything else is an actionable refusal.
+fn ns_mode_shares_host(flag: &str, mode: Option<&str>, host_flag: bool) -> Result<bool> {
+    match mode.map(str::trim) {
+        None | Some("") | Some("private") => Ok(host_flag),
+        Some("host") => Ok(true),
+        Some(other) => Err(Error::Invalid(format!(
+            "--{flag} {other}: unsupported — this engine shares a namespace only as `host` or \
+             keeps it `private` (the default); to share one BETWEEN containers put them in a \
+             `--pod`"
+        ))),
+    }
+}
+
 fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     let RunArgs {
         detach,
@@ -1907,6 +1934,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         memory,
         memory_reservation,
         pids_limit,
+        stop_signal,
+        stop_timeout,
         cpus,
         cpu_weight,
         cpuset,
@@ -1932,6 +1961,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         no_userns,
         host_pid,
         host_ipc,
+        pid_mode,
+        ipc_mode,
         detect,
         secret,
         secret_files,
@@ -1987,6 +2018,13 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     // `--pull` is applied in the `Run`/`Create` dispatch (it needs the image
     // store), BEFORE this consumes `args`; here the field is just drained.
     let _ = pull;
+    // Docker/Podman `--ipc`/`--pid` MODE flags fold into the engine's existing
+    // `--host-ipc`/`--host-pid` booleans: `host` ⇒ share the host's, `private`
+    // (the default) ⇒ its own. Any other mode (`container:<id>`, `shareable`,
+    // `none`) is refused, never silently downgraded — `--pod` is the path for
+    // sharing a namespace BETWEEN containers.
+    let host_pid = ns_mode_shares_host("pid", pid_mode.as_deref(), host_pid)?;
+    let host_ipc = ns_mode_shares_host("ipc", ipc_mode.as_deref(), host_ipc)?;
     // `--shm-size` reuses the tmpfs plumbing (same trick as compose): it is just
     // a tmpfs over `/dev/shm` with a `size=`. Appending it means the operator's
     // size is the top mount the container sees over the default 64 MiB.
@@ -2026,6 +2064,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         memory,
         memory_reservation,
         pids_limit,
+        stop_signal,
+        stop_timeout,
         cpus,
         cpu_weight,
         cpuset,
@@ -2159,9 +2199,14 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         ContainerCmd::Start(StartArgs { ids }) => {
             for_each_id(&ids, |id| cmd_start(&images, &store, id))
         }
-        ContainerCmd::Stop(StopArgs { ids, time }) => {
-            for_each_id(&ids, |id| cmd_stop(&store, id, time))
-        }
+        ContainerCmd::Stop(StopArgs { ids, time }) => for_each_id(&ids, |id| {
+            // `-t` wins; absent it, the container's own `--stop-timeout`; absent
+            // that, the engine default of 10s (Docker's grace semantics).
+            let grace = time
+                .or_else(|| find(&store, id).ok().and_then(|c| c.stop_timeout))
+                .unwrap_or(10);
+            cmd_stop(&store, id, grace)
+        }),
         ContainerCmd::Kill(KillArgs { ids, signal }) => {
             for_each_id(&ids, |id| cmd_kill(&store, id, &signal))
         }
@@ -5366,9 +5411,21 @@ pub(crate) fn cmd_stop(store: &Store, id: &str, time: u64) -> Result<()> {
     });
     // The pid MUST be read before `stop`, which sets `container.pid = None`.
     let pid = c.pid;
+    // Docker `--stop-signal`: the record carries which signal to send first;
+    // `None` keeps SIGTERM. Parsed here (name or number) into the number
+    // `stop_with_signal` converts — a bad stored value falls back to SIGTERM
+    // rather than failing a stop.
+    let term_signal = c
+        .stop_signal
+        .as_deref()
+        .and_then(|s| parse_signal(s).ok());
     // Idempotent like docker: stopping an already-stopped container succeeds
     // (it broke the natural `stop X && rm X` idiom, RC=1 for a no-op).
-    if let Err(e) = runtime::stop(store, &mut c, time) {
+    let stop_result = match term_signal {
+        Some(sig) => runtime::stop_with_signal(store, &mut c, time, sig),
+        None => runtime::stop(store, &mut c, time),
+    };
+    if let Err(e) = stop_result {
         if e.is_not_running() {
             // Not running, but what it published may still be held: a container
             // that exited on its own left its slirp behind (see `stop_ports`).

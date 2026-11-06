@@ -276,6 +276,31 @@ os testes `the_docker_spellings_are_not_ours` e `delegation_labels_name_only_rea
 `--pids-limit`/`memory.low` da CLI que agora existe, dizendo que o node-API ainda
 não os serve).
 
+### C12 — modos `--ipc` / `--pid`
+Dobram nos booleanos já existentes `--host-ipc`/`--host-pid`: `host` ⇒ partilha a
+do host, `private` (omissão) ⇒ a sua própria; qualquer outro modo
+(`container:<id>`, `shareable`, `none`) é RECUSADO com erro accionável (aponta
+`--pod` para partilhar entre containers), nunca degradado em silêncio. Puro na
+camada CLI (`run_opts_from_args`), sem campos novos. **Provado ao vivo**: `--ipc
+host`≡`--host-ipc`; `--pid host`≡`--host-pid` (erro de bind `/proc/sys` idêntico
+— limite pré-existente do host-pid em rootless, não introduzido). `--uts`
+adiado (exigiria tornar o `CLONE_NEWUTS` condicional no runtime).
+
+### C13 — `--stop-signal`
+Sinal que o `stop` envia primeiro (omissão `SIGTERM`). Campo `stop_signal` no
+`Container`+`RunOpts`+`build_record`; `cmd_stop` lê-o do registo e chama o novo
+`runtime::stop_with_signal` (recebe o número do sinal — `parse_signal` converte
+nome/número — para a CLI não depender do `nix`; `stop_waiting` ganhou um
+parâmetro `term_signal`, com o `stop` a passar `SIGTERM`). **Provado ao vivo**:
+`--stop-signal SIGINT` → o container regista `GOT_SIGINT` (recebeu SIGINT, não
+SIGTERM); `SIGKILL` continua a escalar após o período de graça.
+
+### C14 — `--stop-timeout`
+Graça antes do `SIGKILL`. Campo `stop_timeout` no `Container`+`RunOpts`+
+`build_record`. O `-t` do `stop` passou a `Option<u64>`: o despacho de `Stop`
+resolve, por container, `-t` explícito → `--stop-timeout` do registo → 10s
+(omissão), sem tocar nos ~10 chamadores de `cmd_stop` (que continuam `u64`).
+
 ### Próximo lote — totalmente mapeado (investigação paralela por agentes)
 As flags abaixo tocam no runtime (`delonix-linux`) e em *guards* que hoje afirmam
 que não existem — ficam prontas a implementar com os pontos exactos:

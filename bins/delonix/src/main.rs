@@ -1107,6 +1107,25 @@ mod run_interactive_flag_parity_tests {
     }
 
     #[test]
+    fn run_accepts_the_docker_ipc_and_pid_modes() {
+        assert!(parses(&["delonix", "run", "--pid", "host", "busybox"]));
+        assert!(parses(&["delonix", "run", "--ipc", "host", "busybox"]));
+        assert!(parses(&["delonix", "run", "--pid", "private", "busybox"]));
+        assert!(parses(&["delonix", "run", "--ipc", "private", "busybox"]));
+    }
+
+    #[test]
+    fn run_accepts_stop_signal_and_timeout() {
+        assert!(parses(&["delonix", "run", "--stop-signal", "SIGINT", "busybox"]));
+        assert!(parses(&["delonix", "run", "--stop-signal", "2", "busybox"]));
+        assert!(parses(&["delonix", "run", "--stop-timeout", "30", "busybox"]));
+        assert!(parses(&["delonix", "create", "--stop-signal", "SIGQUIT", "busybox"]));
+        // `stop -t` is now optional (per-container default honored otherwise).
+        assert!(parses(&["delonix", "stop", "web"]));
+        assert!(parses(&["delonix", "stop", "-t", "5", "web"]));
+    }
+
+    #[test]
     fn trailing_command_after_it_still_reaches_run() {
         // `-it` before the image must not derail the parse into another verb —
         // a regression guard for the `trailing_var_arg` interaction. The live

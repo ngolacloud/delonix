@@ -5105,6 +5105,21 @@ msgstr "Reserva de memória suave (`memory.low`, Docker/Podman `--memory-reserva
 msgid "Max number of processes (`pids.max`, Docker/Podman `--pids-limit`); `-1` = unlimited. Default: the engine's anti-fork-bomb ceiling."
 msgstr "Número máximo de processos (`pids.max`, Docker/Podman `--pids-limit`); `-1` = ilimitado. Por omissão: o tecto anti-fork-bomb do motor."
 
+msgid "PID namespace (Docker/Podman `--pid`): `host` shares the host's, `private` (default) its own. `--pid host` == `--host-pid`."
+msgstr "Namespace de PID (Docker/Podman `--pid`): `host` partilha o do host, `private` (por omissão) o seu próprio. `--pid host` == `--host-pid`."
+
+msgid "IPC namespace (Docker/Podman `--ipc`): `host` shares the host's, `private` (default) its own. `--ipc host` == `--host-ipc`."
+msgstr "Namespace de IPC (Docker/Podman `--ipc`): `host` partilha o do host, `private` (por omissão) o seu próprio. `--ipc host` == `--host-ipc`."
+
+msgid "Signal `stop` sends first (Docker/Podman `--stop-signal`, e.g. `SIGINT` or `2`). Default `SIGTERM`; `SIGKILL` still follows after the grace period"
+msgstr "Sinal que o `stop` envia primeiro (Docker/Podman `--stop-signal`, ex. `SIGINT` ou `2`). Por omissão `SIGTERM`; o `SIGKILL` ainda vem a seguir ao período de graça"
+
+msgid "Seconds `stop` waits before `SIGKILL` (Docker/Podman `--stop-timeout`). An explicit `stop -t` overrides it"
+msgstr "Segundos que o `stop` espera antes do `SIGKILL` (Docker/Podman `--stop-timeout`). Um `stop -t` explícito tem prioridade"
+
+msgid "Seconds until SIGKILL (default: the container's `--stop-timeout`, else 10)"
+msgstr "Segundos até ao SIGKILL (por omissão: o `--stop-timeout` do container, senão 10)"
+
 msgid "copy a file OUT of a container to the host"
 msgstr "copiar um ficheiro PARA FORA de um container, para o host"
 

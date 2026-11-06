@@ -83,6 +83,12 @@ pub struct RunOpts {
     /// Docker `--pids-limit` → `pids.max` (`-1` ⇒ unlimited).
     #[serde(default)]
     pub pids_limit: Option<String>,
+    /// Docker `--stop-signal`: signal `stop` sends first (default `SIGTERM`).
+    #[serde(default)]
+    pub stop_signal: Option<String>,
+    /// Docker `--stop-timeout`: grace before `SIGKILL`, seconds.
+    #[serde(default)]
+    pub stop_timeout: Option<u64>,
     #[serde(default)]
     pub cpus: Option<String>,
     #[serde(default)]
