@@ -2119,6 +2119,14 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["network inspect", "network ls", "volume exists"],
     },
     Entry {
+        path: "network reload",
+        group: "Lifecycle",
+        examples: &[
+            ("re-apply a network's dataplane after the holder respawned, keeping the attached workloads", "delonix network reload app"),
+        ],
+        see_also: &["network diagnose", "network inspect", "network create"],
+    },
+    Entry {
         path: "network describe",
         group: "Inspect",
         examples: &[
@@ -3628,6 +3636,40 @@ pub static ENTRIES: &[Entry] = &[
             ("exit 0 if it is there, 1 if not — for a script", "delonix volume exists pgdata"),
         ],
         see_also: &["volume inspect", "volume ls", "network exists"],
+    },
+    Entry {
+        path: "volume export",
+        group: "Storage",
+        examples: &[
+            ("pack a volume's contents into a tar file, to archive or move", "delonix volume export pgdata -o pgdata.tar"),
+            ("gzip it on the way out, piping the tar through stdout", "delonix volume export pgdata | gzip > pgdata.tar.gz"),
+        ],
+        see_also: &["volume import", "volume snapshot create", "volume inspect"],
+    },
+    Entry {
+        path: "volume import",
+        group: "Storage",
+        examples: &[
+            ("restore a tar into an existing volume — create it first", "delonix volume import pgdata pgdata.tar"),
+            ("a gzip tar is detected and inflated automatically", "delonix volume import pgdata pgdata.tar.gz"),
+        ],
+        see_also: &["volume export", "volume create", "volume snapshot restore"],
+    },
+    Entry {
+        path: "volume mount",
+        group: "Storage",
+        examples: &[
+            ("print the host path of a volume's data, to feed another command", "delonix volume mount pgdata"),
+        ],
+        see_also: &["volume inspect", "volume unmount", "volume ls"],
+    },
+    Entry {
+        path: "volume unmount",
+        group: "Storage",
+        examples: &[
+            ("the no-op counterpart of mount — volumes are plain directories here", "delonix volume unmount pgdata"),
+        ],
+        see_also: &["volume mount", "volume inspect"],
     },
     Entry {
         path: "volume describe",
