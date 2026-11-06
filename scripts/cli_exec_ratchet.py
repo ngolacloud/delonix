@@ -67,13 +67,16 @@ GLOBAL_VALUE_FLAGS = {"--l18n"}
 
 # The command aliases of the CLI, which the leaf inventory cannot carry: the
 # inventory is read from `--help`, and `--help` prints only the canonical name.
-# Measured in the source rather than guessed — there are exactly three
-# `#[command(alias…)]`/`visible_alias` sites in `bins/delonix/src`,
-# and `test_cli_exec_ratchet.py` greps for them so a fourth cannot be added
-# without this map noticing. Without it `container ls`, which the battery runs
-# more than any other command, resolved to nothing.
+# Measured in the source rather than guessed — `test_cli_exec_ratchet.py` greps
+# every `#[command(alias…)]`/`visible_alias` site in `bins/delonix/src` and
+# checks this map carries each, so a new alias cannot be added without this map
+# noticing. Without it `container ls`, which the battery runs more than any other
+# command, resolved to nothing.
 ALIASES = {
     "container ls": "container ps",
+    "container list": "container ps",
+    "image list": "image ls",
+    "container umount": "container unmount",
     "vm rm": "vm destroy",
     "vm down": "vm stop",
 }

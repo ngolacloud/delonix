@@ -854,11 +854,23 @@ fn cmd_diff(images: &ImageStore, image_a: &str, image_b: &str) -> Result<()> {
     let set_b: std::collections::HashSet<&str> = b.layers.iter().map(String::as_str).collect();
     let set_a: std::collections::HashSet<&str> = a.layers.iter().map(String::as_str).collect();
 
-    let only_a: Vec<&String> = a.layers.iter().filter(|l| !set_b.contains(l.as_str())).collect();
-    let only_b: Vec<&String> = b.layers.iter().filter(|l| !set_a.contains(l.as_str())).collect();
+    let only_a: Vec<&String> = a
+        .layers
+        .iter()
+        .filter(|l| !set_b.contains(l.as_str()))
+        .collect();
+    let only_b: Vec<&String> = b
+        .layers
+        .iter()
+        .filter(|l| !set_a.contains(l.as_str()))
+        .collect();
     // Preserve A's base-to-top order for the shared set so the listing reads
     // like a stack, not a hash dump.
-    let shared: Vec<&String> = a.layers.iter().filter(|l| set_b.contains(l.as_str())).collect();
+    let shared: Vec<&String> = a
+        .layers
+        .iter()
+        .filter(|l| set_b.contains(l.as_str()))
+        .collect();
 
     println!(
         "{}",
@@ -874,7 +886,11 @@ fn cmd_diff(images: &ImageStore, image_a: &str, image_b: &str) -> Result<()> {
             return;
         }
         for l in layers {
-            println!("  {}  {}", l, super::output::fmt_size(layer_blob_size(images, l)));
+            println!(
+                "  {}  {}",
+                l,
+                super::output::fmt_size(layer_blob_size(images, l))
+            );
         }
     };
     print_section(
@@ -912,11 +928,7 @@ fn cmd_tree(images: &ImageStore, image: &str) -> Result<()> {
         "{}",
         super::po::tf(
             "{name} ({id})  {size}",
-            &[
-                ("name", image),
-                ("id", &img.short_id()),
-                ("size", &total),
-            ],
+            &[("name", image), ("id", &img.short_id()), ("size", &total),],
         )
     );
     if img.layers.is_empty() {
@@ -1454,15 +1466,15 @@ fn cmd_import(images: &ImageStore, input: &str, reference: Option<&str>) -> Resu
     let img = images
         .commit_flat_rootfs_from_tar(
             tar_bytes,
-            Vec::new(),               // Cmd — import carries none
-            Vec::new(),               // Entrypoint
-            Vec::new(),               // Env
-            String::new(),            // WorkingDir
-            String::new(),            // User
+            Vec::new(),    // Cmd — import carries none
+            Vec::new(),    // Entrypoint
+            Vec::new(),    // Env
+            String::new(), // WorkingDir
+            String::new(), // User
             tag,
             delonix_oci::build::oci_arch(), // the host's arch
-            None,                     // no HEALTHCHECK
-            Vec::new(),               // no EXPOSEd ports
+            None,                           // no HEALTHCHECK
+            Vec::new(),                     // no EXPOSEd ports
         )
         .map_err(|e| Error::Invalid(format!("import: {e}")))?;
     let tags = if img.repo_tags.is_empty() {
@@ -1490,9 +1502,8 @@ fn cmd_search(term: &str, limit: usize) -> Result<()> {
         })
         .collect();
     let page = limit.clamp(1, 100);
-    let url = format!(
-        "https://hub.docker.com/v2/search/repositories/?query={encoded}&page_size={page}"
-    );
+    let url =
+        format!("https://hub.docker.com/v2/search/repositories/?query={encoded}&page_size={page}");
     let body = delonix_oci::registry::http_get(&url)
         .map_err(|e| Error::Invalid(format!("searching Docker Hub: {e}")))?;
     let json: serde_json::Value = serde_json::from_slice(&body)
@@ -1514,7 +1525,10 @@ fn cmd_search(term: &str, limit: usize) -> Result<()> {
         } else {
             ""
         };
-        let mut desc = r["short_description"].as_str().unwrap_or("").replace('\n', " ");
+        let mut desc = r["short_description"]
+            .as_str()
+            .unwrap_or("")
+            .replace('\n', " ");
         if desc.chars().count() > 50 {
             desc = desc.chars().take(47).collect::<String>() + "...";
         }

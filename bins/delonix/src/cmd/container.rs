@@ -3604,9 +3604,8 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // first pass (not the `--pod`/custom-net re-exec, which shares the same id
     // and would just rewrite the same file). Existence was already refused above.
     if let (Some(path), false) = (&cidfile, reexec) {
-        std::fs::write(path, &id).map_err(|e| {
-            Error::Invalid(format!("--cidfile '{path}': {e}"))
-        })?;
+        std::fs::write(path, &id)
+            .map_err(|e| Error::Invalid(format!("--cidfile '{path}': {e}")))?;
     }
 
     // The name, and its uniqueness in the namespace, need the store and a
@@ -5812,10 +5811,7 @@ pub(crate) fn cmd_stop(store: &Store, id: &str, time: u64) -> Result<()> {
     // `None` keeps SIGTERM. Parsed here (name or number) into the number
     // `stop_with_signal` converts — a bad stored value falls back to SIGTERM
     // rather than failing a stop.
-    let term_signal = c
-        .stop_signal
-        .as_deref()
-        .and_then(|s| parse_signal(s).ok());
+    let term_signal = c.stop_signal.as_deref().and_then(|s| parse_signal(s).ok());
     // Idempotent like docker: stopping an already-stopped container succeeds
     // (it broke the natural `stop X && rm X` idiom, RC=1 for a no-op).
     let stop_result = match term_signal {
@@ -6566,7 +6562,12 @@ fn cmd_export(
         Some(path) => {
             std::fs::write(path, &tar)
                 .map_err(|e| Error::Invalid(format!("writing {}: {e}", path.display())))?;
-            eprintln!("exported {} ({} bytes) to {}", c.name, tar.len(), path.display());
+            eprintln!(
+                "exported {} ({} bytes) to {}",
+                c.name,
+                tar.len(),
+                path.display()
+            );
         }
         None => {
             use std::io::Write;
@@ -6806,12 +6807,7 @@ fn cmd_unmount(store: &Store, id: &str) -> Result<()> {
 /// it. Everything that describes a RUNNING instance rather than the
 /// configuration (pid, assigned IP, firewall, health) is reset, so the clone is
 /// born exactly as `create` would leave it; `container start` launches it.
-fn cmd_clone(
-    images: &ImageStore,
-    store: &Store,
-    id: &str,
-    new_name: Option<&str>,
-) -> Result<()> {
+fn cmd_clone(images: &ImageStore, store: &Store, id: &str, new_name: Option<&str>) -> Result<()> {
     let src = find(store, id)?;
     // The base image must still exist: the clone's fresh rootfs is unpacked from
     // it, exactly as `create` does (see `cmd_commit` for the same guard).
@@ -9893,7 +9889,11 @@ restartPolicy: OnFailure
         }
         // `--blkio-weight` passes through to `io.weight`; only 10..=1000 parse.
         for good in ["10", "500", "1000"] {
-            assert_eq!(super::parse_blkio_weight(good).as_deref(), Ok(good), "{good}");
+            assert_eq!(
+                super::parse_blkio_weight(good).as_deref(),
+                Ok(good),
+                "{good}"
+            );
         }
         for bad in ["9", "1001", "0", "abc"] {
             assert!(super::parse_blkio_weight(bad).is_err(), "{bad}");

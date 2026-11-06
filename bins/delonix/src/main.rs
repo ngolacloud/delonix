@@ -1212,7 +1212,13 @@ mod run_interactive_flag_parity_tests {
         assert!(parses(&["delonix", "run", "-t", "busybox", "sh"]));
         assert!(parses(&["delonix", "run", "-dit", "busybox", "sh"]));
         // Long forms too.
-        assert!(parses(&["delonix", "run", "--interactive", "--tty", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--interactive",
+            "--tty",
+            "busybox"
+        ]));
     }
 
     #[test]
@@ -1223,25 +1229,58 @@ mod run_interactive_flag_parity_tests {
 
     #[test]
     fn run_accepts_platform() {
-        assert!(parses(&["delonix", "run", "--platform", "linux/amd64", "busybox"]));
-        assert!(parses(&["delonix", "create", "--platform", "linux/arm64", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--platform",
+            "linux/amd64",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--platform",
+            "linux/arm64",
+            "busybox"
+        ]));
     }
 
     #[test]
     fn run_accepts_umask_and_cgroupns() {
         assert!(parses(&["delonix", "run", "--umask", "0077", "busybox"]));
-        assert!(parses(&["delonix", "run", "--cgroupns", "private", "busybox"]));
-        assert!(parses(&["delonix", "create", "--cgroupns", "host", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--cgroupns",
+            "private",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--cgroupns",
+            "host",
+            "busybox"
+        ]));
     }
 
     #[test]
     fn run_accepts_the_docker_pull_policy() {
         for p in ["missing", "always", "never"] {
             assert!(parses(&["delonix", "run", "--pull", p, "busybox"]), "{p}");
-            assert!(parses(&["delonix", "create", "--pull", p, "busybox"]), "{p}");
+            assert!(
+                parses(&["delonix", "create", "--pull", p, "busybox"]),
+                "{p}"
+            );
         }
         // An unknown policy is refused by the parser, never silently ignored.
-        assert!(!parses(&["delonix", "run", "--pull", "sometimes", "busybox"]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--pull",
+            "sometimes",
+            "busybox"
+        ]));
     }
 
     #[test]
@@ -1249,44 +1288,164 @@ mod run_interactive_flag_parity_tests {
         // `--network`/`--cpuset-cpus` are the Docker spellings aliased onto
         // `--net`/`--cpuset`.
         assert!(parses(&["delonix", "run", "--network", "mynet", "busybox"]));
-        assert!(parses(&["delonix", "run", "--cpuset-cpus", "0-1", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--cpuset-cpus",
+            "0-1",
+            "busybox"
+        ]));
     }
 
     #[test]
     fn run_accepts_cidfile_and_shm_size() {
-        assert!(parses(&["delonix", "run", "--cidfile", "/tmp/x.cid", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--cidfile",
+            "/tmp/x.cid",
+            "busybox"
+        ]));
         assert!(parses(&["delonix", "run", "--shm-size", "128m", "busybox"]));
-        assert!(parses(&["delonix", "create", "--cidfile", "/tmp/y.cid", "busybox"]));
-        assert!(parses(&["delonix", "create", "--shm-size", "1g", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--cidfile",
+            "/tmp/y.cid",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--shm-size",
+            "1g",
+            "busybox"
+        ]));
     }
 
     #[test]
     fn run_accepts_the_docker_cgroup_flags() {
-        assert!(parses(&["delonix", "run", "--pids-limit", "100", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--pids-limit",
+            "100",
+            "busybox"
+        ]));
         assert!(parses(&["delonix", "run", "--pids-limit", "-1", "busybox"]));
-        assert!(parses(&["delonix", "run", "--memory-reservation", "256m", "busybox"]));
-        assert!(parses(&["delonix", "run", "--memory-swap", "1g", "busybox"]));
-        assert!(parses(&["delonix", "run", "--memory-swap", "-1", "busybox"]));
-        assert!(parses(&["delonix", "create", "--pids-limit", "100", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--memory-reservation",
+            "256m",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--memory-swap",
+            "1g",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--memory-swap",
+            "-1",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--pids-limit",
+            "100",
+            "busybox"
+        ]));
     }
 
     #[test]
     fn run_accepts_the_docker_cpu_shares_blkio_and_oom_flags() {
         // `--cpu-shares` (2..=262144), `--blkio-weight` (10..=1000) and the now
         // visible `--oom-score-adj` (-1000..=1000) must parse on run AND create.
-        assert!(parses(&["delonix", "run", "--cpu-shares", "512", "busybox"]));
-        assert!(parses(&["delonix", "run", "--blkio-weight", "500", "busybox"]));
-        assert!(parses(&["delonix", "run", "--oom-score-adj", "-500", "busybox"]));
-        assert!(parses(&["delonix", "create", "--cpu-shares", "1024", "busybox"]));
-        assert!(parses(&["delonix", "create", "--blkio-weight", "10", "busybox"]));
-        assert!(parses(&["delonix", "create", "--oom-score-adj", "1000", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--cpu-shares",
+            "512",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--blkio-weight",
+            "500",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--oom-score-adj",
+            "-500",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--cpu-shares",
+            "1024",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--blkio-weight",
+            "10",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--oom-score-adj",
+            "1000",
+            "busybox"
+        ]));
         // Out-of-range values are refused at parse, never clamped silently.
         assert!(!parses(&["delonix", "run", "--cpu-shares", "1", "busybox"]));
-        assert!(!parses(&["delonix", "run", "--cpu-shares", "262145", "busybox"]));
-        assert!(!parses(&["delonix", "run", "--blkio-weight", "9", "busybox"]));
-        assert!(!parses(&["delonix", "run", "--blkio-weight", "1001", "busybox"]));
-        assert!(!parses(&["delonix", "run", "--oom-score-adj", "-1001", "busybox"]));
-        assert!(!parses(&["delonix", "run", "--oom-score-adj", "1001", "busybox"]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--cpu-shares",
+            "262145",
+            "busybox"
+        ]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--blkio-weight",
+            "9",
+            "busybox"
+        ]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--blkio-weight",
+            "1001",
+            "busybox"
+        ]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--oom-score-adj",
+            "-1001",
+            "busybox"
+        ]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--oom-score-adj",
+            "1001",
+            "busybox"
+        ]));
     }
 
     #[test]
@@ -1302,13 +1461,25 @@ mod run_interactive_flag_parity_tests {
     #[test]
     fn run_accepts_mount_syntax() {
         assert!(parses(&[
-            "delonix", "run", "--mount", "type=bind,source=/etc,target=/x,readonly", "busybox",
+            "delonix",
+            "run",
+            "--mount",
+            "type=bind,source=/etc,target=/x,readonly",
+            "busybox",
         ]));
         assert!(parses(&[
-            "delonix", "run", "--mount", "type=volume,source=data,target=/d", "busybox",
+            "delonix",
+            "run",
+            "--mount",
+            "type=volume,source=data,target=/d",
+            "busybox",
         ]));
         assert!(parses(&[
-            "delonix", "run", "--mount", "type=tmpfs,target=/t,tmpfs-size=16m", "busybox",
+            "delonix",
+            "run",
+            "--mount",
+            "type=tmpfs,target=/t,tmpfs-size=16m",
+            "busybox",
         ]));
     }
 
@@ -1344,10 +1515,18 @@ mod run_interactive_flag_parity_tests {
     #[test]
     fn run_accepts_label_file_and_annotation() {
         assert!(parses(&[
-            "delonix", "run", "--label-file", "/tmp/x.labels", "busybox",
+            "delonix",
+            "run",
+            "--label-file",
+            "/tmp/x.labels",
+            "busybox",
         ]));
         assert!(parses(&[
-            "delonix", "run", "--annotation", "a.b/c=1", "busybox",
+            "delonix",
+            "run",
+            "--annotation",
+            "a.b/c=1",
+            "busybox",
         ]));
         assert!(parses(&[
             "delonix",
@@ -1363,19 +1542,45 @@ mod run_interactive_flag_parity_tests {
             "busybox",
         ]));
         assert!(parses(&[
-            "delonix", "create", "--label-file", "/tmp/y.labels", "busybox",
+            "delonix",
+            "create",
+            "--label-file",
+            "/tmp/y.labels",
+            "busybox",
         ]));
         assert!(parses(&[
-            "delonix", "create", "--annotation", "k=v", "busybox",
+            "delonix",
+            "create",
+            "--annotation",
+            "k=v",
+            "busybox",
         ]));
     }
 
     #[test]
     fn run_accepts_volumes_from() {
-        assert!(parses(&["delonix", "run", "--volumes-from", "data", "busybox"]));
-        assert!(parses(&["delonix", "run", "--volumes-from", "data:ro", "busybox"]));
         assert!(parses(&[
-            "delonix", "run", "--volumes-from", "a", "--volumes-from", "b:ro", "busybox",
+            "delonix",
+            "run",
+            "--volumes-from",
+            "data",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--volumes-from",
+            "data:ro",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--volumes-from",
+            "a",
+            "--volumes-from",
+            "b:ro",
+            "busybox",
         ]));
     }
 
@@ -1389,15 +1594,38 @@ mod run_interactive_flag_parity_tests {
     #[test]
     fn run_accepts_no_healthcheck() {
         assert!(parses(&["delonix", "run", "--no-healthcheck", "busybox"]));
-        assert!(parses(&["delonix", "create", "--no-healthcheck", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--no-healthcheck",
+            "busybox"
+        ]));
     }
 
     #[test]
     fn run_accepts_stop_signal_and_timeout() {
-        assert!(parses(&["delonix", "run", "--stop-signal", "SIGINT", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--stop-signal",
+            "SIGINT",
+            "busybox"
+        ]));
         assert!(parses(&["delonix", "run", "--stop-signal", "2", "busybox"]));
-        assert!(parses(&["delonix", "run", "--stop-timeout", "30", "busybox"]));
-        assert!(parses(&["delonix", "create", "--stop-signal", "SIGQUIT", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--stop-timeout",
+            "30",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--stop-signal",
+            "SIGQUIT",
+            "busybox"
+        ]));
         // `stop -t` is now optional (per-container default honored otherwise).
         assert!(parses(&["delonix", "stop", "web"]));
         assert!(parses(&["delonix", "stop", "-t", "5", "web"]));
@@ -1409,10 +1637,9 @@ mod run_interactive_flag_parity_tests {
         // a regression guard for the `trailing_var_arg` interaction. The live
         // differential proves the image/command survive end to end
         // (`run -it busybox sh -c 'exit 37'` → exit 37).
-        let cli = super::Cli::try_parse_from([
-            "delonix", "run", "-it", "busybox", "sh", "-c", "exit 37",
-        ])
-        .expect("must parse");
+        let cli =
+            super::Cli::try_parse_from(["delonix", "run", "-it", "busybox", "sh", "-c", "exit 37"])
+                .expect("must parse");
         assert!(matches!(cli.cmd, super::Cmd::Run(_)), "expected Run");
     }
 }
@@ -1656,14 +1883,10 @@ fn run() -> Result<()> {
         Cmd::Load(a) => cmd::image::run(cmd::image::ImageCmd::Load(a)),
         Cmd::Push(a) => cmd::image::run(cmd::image::ImageCmd::Push(a)),
         // The remaining root aliases — same group handler, no second path.
-        Cmd::Cp { src, dst } => {
-            cmd::container::run(cmd::container::ContainerCmd::Cp { src, dst })
-        }
+        Cmd::Cp { src, dst } => cmd::container::run(cmd::container::ContainerCmd::Cp { src, dst }),
         Cmd::Port { id } => cmd::container::run(cmd::container::ContainerCmd::Port { id }),
         Cmd::Pause { ids } => cmd::container::run(cmd::container::ContainerCmd::Pause { ids }),
-        Cmd::Unpause { ids } => {
-            cmd::container::run(cmd::container::ContainerCmd::Unpause { ids })
-        }
+        Cmd::Unpause { ids } => cmd::container::run(cmd::container::ContainerCmd::Unpause { ids }),
         Cmd::Commit { id, tag } => {
             cmd::container::run(cmd::container::ContainerCmd::Commit { id, tag })
         }

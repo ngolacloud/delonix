@@ -570,7 +570,9 @@ fn create_pod(name: &str, namespace: Option<String>, spec: PodSpec, hold: bool) 
 /// `run --pod <name>` into an actionable error that names the declarative flow
 /// when the pod simply is not there.
 pub(crate) fn exists(store: &delonix_state::Store, pod: &str) -> bool {
-    members_of(store, pod).map(|m| !m.is_empty()).unwrap_or(false)
+    members_of(store, pod)
+        .map(|m| !m.is_empty())
+        .unwrap_or(false)
 }
 
 /// The pod's IPC/UTS holder PID — the init pid of its FIRST member (declaration
@@ -587,7 +589,9 @@ fn pod_stop(pod: &str, time: u64) -> Result<()> {
     let (_images, store) = open_stores()?;
     let members = members_of(&store, pod)?;
     if members.is_empty() {
-        return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+        return Err(Error::NotFound(format!(
+            "pod: {pod} (see `delonix get pods`)"
+        )));
     }
     for c in members.iter().rev() {
         container::cmd_stop(&store, &c.id, time)?;
@@ -601,7 +605,9 @@ fn pod_start(pod: &str) -> Result<()> {
     let (images, store) = open_stores()?;
     let members = members_of(&store, pod)?;
     if members.is_empty() {
-        return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+        return Err(Error::NotFound(format!(
+            "pod: {pod} (see `delonix get pods`)"
+        )));
     }
     for c in &members {
         container::cmd_start(&images, &store, &c.id)?;
@@ -616,7 +622,9 @@ fn pod_restart(pod: &str, time: u64) -> Result<()> {
     let (images, store) = open_stores()?;
     let members = members_of(&store, pod)?;
     if members.is_empty() {
-        return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+        return Err(Error::NotFound(format!(
+            "pod: {pod} (see `delonix get pods`)"
+        )));
     }
     for c in members.iter().rev() {
         container::cmd_stop(&store, &c.id, time)?;
@@ -661,7 +669,10 @@ fn pod_prune(force: bool) -> Result<()> {
     let preview = (!doomed.is_empty()).then(|| {
         super::po::tf(
             "This will remove {n} stopped pod(s): {list}",
-            &[("n", &doomed.len().to_string()), ("list", &doomed.join(", "))],
+            &[
+                ("n", &doomed.len().to_string()),
+                ("list", &doomed.join(", ")),
+            ],
         )
     });
     if !super::prune::confirm(
@@ -688,7 +699,10 @@ fn pod_prune(force: bool) -> Result<()> {
     }
     println!(
         "{}",
-        super::po::tf("pod prune: removed {n} pod(s)", &[("n", &removed.to_string())])
+        super::po::tf(
+            "pod prune: removed {n} pod(s)",
+            &[("n", &removed.to_string())]
+        )
     );
     Ok(())
 }
@@ -701,7 +715,9 @@ fn pod_kill(pods: &[String], signal: &str) -> Result<()> {
     for pod in pods {
         let members = members_of(&store, pod)?;
         if members.is_empty() {
-            return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
         }
         for c in members.iter().rev() {
             container::cmd_kill(&store, &c.id, signal)?;
@@ -720,7 +736,9 @@ fn pod_pause(pods: &[String], frozen: bool) -> Result<()> {
     for pod in pods {
         let members = members_of(&store, pod)?;
         if members.is_empty() {
-            return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
         }
         let ordered: Vec<&Container> = if frozen {
             members.iter().rev().collect()
@@ -745,7 +763,9 @@ fn pod_stats(pods: &[String]) -> Result<()> {
     for pod in pods {
         let members = members_of(&store, pod)?;
         if members.is_empty() {
-            return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
         }
         ids.extend(members.into_iter().map(|c| c.id));
     }
@@ -760,7 +780,9 @@ fn pod_top(pods: &[String]) -> Result<()> {
     for pod in pods {
         let members = members_of(&store, pod)?;
         if members.is_empty() {
-            return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
         }
         let prefix = format!("{pod}-");
         for c in &members {
@@ -782,7 +804,9 @@ fn pod_inspect(pods: &[String]) -> Result<()> {
     for pod in pods {
         let mut members = members_of(&store, pod)?;
         if members.is_empty() {
-            return Err(Error::NotFound(format!("pod: {pod} (see `delonix get pods`)")));
+            return Err(Error::NotFound(format!(
+                "pod: {pod} (see `delonix get pods`)"
+            )));
         }
         let netns = pod_netns_name(pod);
         let ip = pod_ip(&members, &netns);
