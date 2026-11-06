@@ -5335,6 +5335,12 @@ msgstr "Namespace de UTS (Docker/Podman `--uts`): `host` partilha o hostname do 
 msgid "Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`"
 msgstr "Funcionalidade de daemon/orquestração do Docker/Podman que este motor sem daemon não corre — ver `serve docker-api`"
 
+msgid "Docker BuildKit front-end not implemented — use `delonix build`."
+msgstr "Front-end BuildKit do Docker não implementado — use `delonix build`."
+
+msgid "Checkpoint/restore needs CRIU, which this engine does not integrate yet."
+msgstr "Checkpoint/restore precisa do CRIU, que este motor ainda não integra."
+
 msgid "Platform of the image to pull (Docker/Podman `--platform`, e.g. `linux/amd64`, `linux/arm64`). Fetches that variant; a cross-arch image may not run on this host"
 msgstr "Plataforma da imagem a puxar (Docker/Podman `--platform`, ex. `linux/amd64`, `linux/arm64`). Busca essa variante; uma imagem de outra arquitectura pode não correr neste host"
 
