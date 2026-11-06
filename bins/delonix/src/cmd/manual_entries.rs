@@ -1206,6 +1206,36 @@ pub static ENTRIES: &[Entry] = &[
         ],
         see_also: &["image describe", "build", "image ls"],
     },
+    // A pure alias of the root `build`: the example COMMENTS are reused VERBATIM
+    // from the `build` entry (already in `pt.po` — no new translation debt);
+    // only the command line is rewritten to the `image build` form.
+    Entry {
+        path: "image build",
+        group: "Artifacts",
+        examples: &[
+            ("build and tag from the Dockerfile in this directory", "delonix image build -t myapp:v1 ."),
+            ("a Delonixfile, or any other build file path", "delonix image build -t myapp:v1 -f Delonixfile ."),
+        ],
+        see_also: &["build", "image ls", "image push"],
+    },
+    Entry {
+        path: "image diff",
+        group: "Inspect",
+        examples: &[
+            ("which layers two images keep apart and which they share", "delonix image diff busybox:latest alpine:latest"),
+            ("confirm a rebuild only added layers on top of the same base", "delonix image diff myapp:v1 myapp:v2"),
+        ],
+        see_also: &["image history", "image tree", "image describe"],
+    },
+    Entry {
+        path: "image tree",
+        group: "Inspect",
+        examples: &[
+            ("the layer stack of an image, base to top, as an indented tree", "delonix image tree postgres:16"),
+            ("read where the weight sits before trimming the Dockerfile", "delonix image tree kaeso-odoo:18"),
+        ],
+        see_also: &["image history", "image diff", "image describe"],
+    },
     Entry {
         path: "image ls",
         group: "Inspect",
