@@ -1923,6 +1923,41 @@ pub enum ContainerCmd {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
         file: Option<PathBuf>,
     },
+    /// Print the host path to a container's root filesystem (Podman `mount`).
+    ///
+    /// For a RUNNING container the path is `/proc/<pid>/root`, valid only while it runs; for a stopped flat rootless container it is a real, usable directory on disk.
+    Mount {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
+    /// Counterpart of `mount` (Podman `unmount`, alias `umount`).
+    ///
+    /// A safe no-op in this engine: `mount` only PRINTS an existing path, it never creates a new mount to tear down, so this leaves the container in exactly the same state.
+    #[command(visible_aliases = ["umount"])]
+    Unmount {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
+    /// Create a new STOPPED container from an existing one's configuration (Podman `container clone`).
+    ///
+    /// Copies the source's spec — image, command, env, mounts, limits — under a new id and name and provisions its own rootfs, WITHOUT starting it. Launch it later with `container start`.
+    Clone {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+        /// Name for the clone (default: `<source>-clone`).
+        #[arg(long = "name", value_name = "NEW")]
+        new_name: Option<String>,
+    },
+    /// Checkpoint a running container to disk with CRIU (Podman `container checkpoint`).
+    Checkpoint {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
+    /// Restore a container from a CRIU checkpoint (Podman `container restore`).
+    Restore {
+        #[arg(add = ArgValueCandidates::new(super::complete::containers))]
+        id: String,
+    },
 }
 
 /// Converts the shared `RunArgs` — the flags `run` and `create` have in common —
@@ -2526,6 +2561,13 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             let docs = manifest::load(&path)?;
             apply(&docs)
         }
+        ContainerCmd::Mount { id } => cmd_mount(&images, &store, &id),
+        ContainerCmd::Unmount { id } => cmd_unmount(&store, &id),
+        ContainerCmd::Clone { id, new_name } => {
+            cmd_clone(&images, &store, &id, new_name.as_deref())
+        }
+        ContainerCmd::Checkpoint { id } => cmd_checkpoint(&store, &id),
+        ContainerCmd::Restore { id } => cmd_restore(&store, &id),
     }
 }
 
@@ -6712,6 +6754,155 @@ pub(crate) fn cmd_cp(images: &ImageStore, store: &Store, src: &str, dst: &str) -
         }
     }
     Ok(())
+}
+
+/// `container mount` (Podman) — prints the host path to the container's rootfs.
+///
+/// A RUNNING container is reached through `/proc/<pid>/root` (its merged tree
+/// exists only inside its own mount namespace, and that path is valid only
+/// while it runs). A stopped container's rootfs is read straight off disk via
+/// `existing_rootfs_path`, which for a flat rootless container is a real,
+/// usable directory. Deliberately does NOT spawn an `__ovlhold` to expose a
+/// stopped overlay's `merged/`: that path would die with this process and leave
+/// the caller holding a dangling `/proc` path — `cp`/`commit` use the hold
+/// because they consume the tree within the same call; `mount` hands the path
+/// back and returns.
+fn cmd_mount(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
+    let c = find(store, id)?;
+    let path = if c.is_live() {
+        container_fs_root(images, &c)?.path().to_path_buf()
+    } else {
+        images.existing_rootfs_path(&c.id).ok_or_else(|| {
+            Error::Invalid(super::po::tf(
+                "container '{name}' is stopped and has no rootfs on disk — start it or `run` it again",
+                &[("name", &c.name)],
+            ))
+        })?
+    };
+    println!("{}", path.display());
+    Ok(())
+}
+
+/// `container unmount`/`umount` (Podman) — the counterpart of `mount`.
+///
+/// An honest no-op: `mount` only PRINTS an existing path, it never creates a
+/// new mount this verb would tear down. A running container's overlay is held
+/// by its own init; a flat rootless rootfs is a plain directory nobody mounted.
+/// So there is nothing to release — the container is left in exactly the same
+/// state. The id is still resolved, so an unknown container is a clean error
+/// rather than a silent success.
+fn cmd_unmount(store: &Store, id: &str) -> Result<()> {
+    let _ = find(store, id)?;
+    Ok(())
+}
+
+/// `container clone` (Podman) — a new STOPPED container from an existing one's
+/// configuration.
+///
+/// Copies the stored spec verbatim — image, command, env, mounts, limits,
+/// caps, labels, ports, network — under a fresh id and name, provisions the
+/// clone's OWN rootfs from the image (the same run-layer call `create` reaches
+/// through `resolve_run`), and persists it in `Created` state WITHOUT starting
+/// it. Everything that describes a RUNNING instance rather than the
+/// configuration (pid, assigned IP, firewall, health) is reset, so the clone is
+/// born exactly as `create` would leave it; `container start` launches it.
+fn cmd_clone(
+    images: &ImageStore,
+    store: &Store,
+    id: &str,
+    new_name: Option<&str>,
+) -> Result<()> {
+    let src = find(store, id)?;
+    // The base image must still exist: the clone's fresh rootfs is unpacked from
+    // it, exactly as `create` does (see `cmd_commit` for the same guard).
+    let img = images.resolve(&src.image).map_err(|_| {
+        Error::Invalid(super::po::tf(
+            "the container's base image '{image}' no longer exists",
+            &[("image", &src.image)],
+        ))
+    })?;
+    // Podman's default clone name is `<source>-clone`.
+    let name = new_name
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{}-clone", src.name));
+    // The same name-claim + uniqueness check `cmd_run` performs, keyed
+    // identically (`<namespace>.<name>`), so a clone and a concurrent
+    // `run --name` of the same name serialise instead of both persisting.
+    let _name_claim = store.claim_name(&format!("{}.{}", src.namespace, name))?;
+    if let Some(dup) = store
+        .list()?
+        .iter()
+        .find(|c| c.name == name && c.namespace == src.namespace)
+    {
+        return Err(Error::Conflict(super::po::tf(
+            "the name '{name}' is already in use in namespace '{ns}' by container {id} — pick another or remove it first",
+            &[
+                ("name", name.as_str()),
+                ("ns", src.namespace.as_str()),
+                ("id", dup.short_id()),
+            ],
+        )));
+    }
+    let new_id = generate_id();
+    // Provision the clone's own rootfs from the image — the reachable run-layer
+    // plumbing `create` uses via `resolve_run`. Without it the clone would have a
+    // record but no tree, and `start` would refuse it ("rootfs ... no longer
+    // exists"). Not ephemeral: a clone is a persistent stopped container.
+    images.prepare_container_rootfs(&img, &new_id, false)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut nc = src.clone();
+    nc.id = new_id.clone();
+    nc.name = name;
+    nc.status = Status::Created;
+    nc.created_unix = now;
+    nc.pid = None;
+    nc.pid_starttime = None;
+    nc.ip = None;
+    nc.firewall = None;
+    nc.health_state = None;
+    nc.stopped_by_user = false;
+    store.save(&nc)?;
+    delonix_node::events::emit(
+        &super::util::state_root(),
+        "container",
+        "create",
+        &nc.id,
+        &nc.name,
+        Some(&src.image),
+    );
+    println!("{new_id}");
+    Ok(())
+}
+
+/// `container checkpoint` (Podman) — refuses, actionably: CRIU is not integrated.
+///
+/// Freezing a live container's process tree to disk needs CRIU, which this
+/// engine does not yet drive. Returns [`Error::Unavailable`] (a non-zero exit
+/// distinct from a bad argument) rather than panicking or silently doing
+/// nothing — the one thing this engine must never do is report a success it did
+/// not perform.
+fn cmd_checkpoint(store: &Store, id: &str) -> Result<()> {
+    let c = find(store, id)?;
+    Err(Error::Unavailable(format!(
+        "checkpoint of '{}' needs CRIU, which this engine does not yet integrate — \
+         there is no way to freeze a running container to disk here yet",
+        c.name
+    )))
+}
+
+/// `container restore` (Podman) — refuses, actionably: CRIU is not integrated.
+///
+/// The counterpart of `checkpoint`; same reasoning and same [`Error::Unavailable`].
+fn cmd_restore(store: &Store, id: &str) -> Result<()> {
+    let c = find(store, id)?;
+    Err(Error::Unavailable(format!(
+        "restore of '{}' needs CRIU, which this engine does not yet integrate — \
+         there is no checkpoint on disk to restore from here yet",
+        c.name
+    )))
 }
 
 /// `container describe` — human-readable detail in `kubectl describe` style.

@@ -17610,3 +17610,72 @@ msgstr "desmonta o estado de um container parado"
 
 msgid "kill it first, then delete"
 msgstr "mata-o primeiro, depois apaga"
+
+msgid "Print the host path to a container's root filesystem (Podman `mount`)."
+msgstr "Imprime o caminho no host para o sistema de ficheiros raiz de um container (`mount` do Podman)."
+
+msgid ""
+"Print the host path to a container's root filesystem (Podman `mount`)."
+"\n"
+"\n"
+"For a RUNNING container the path is `/proc/<pid>/root`, valid only while it runs; for a stopped flat rootless container it is a real, usable directory on disk."
+msgstr ""
+"Imprime o caminho no host para o sistema de ficheiros raiz de um container (`mount` do Podman)."
+"\n"
+"\n"
+"Para um container A CORRER o caminho é `/proc/<pid>/root`, válido só enquanto ele corre; para um container rootless plano e parado é um directório real e utilizável no disco."
+
+msgid "Counterpart of `mount` (Podman `unmount`, alias `umount`)."
+msgstr "Contraparte do `mount` (`unmount` do Podman, com o alias `umount`)."
+
+msgid ""
+"Counterpart of `mount` (Podman `unmount`, alias `umount`)."
+"\n"
+"\n"
+"A safe no-op in this engine: `mount` only PRINTS an existing path, it never creates a new mount to tear down, so this leaves the container in exactly the same state."
+msgstr ""
+"Contraparte do `mount` (`unmount` do Podman, com o alias `umount`)."
+"\n"
+"\n"
+"Uma operação segura e sem efeito neste motor: o `mount` só IMPRIME um caminho já existente, nunca cria uma montagem nova para desmontar, por isso isto deixa o container exactamente no mesmo estado."
+
+msgid "Create a new STOPPED container from an existing one's configuration (Podman `container clone`)."
+msgstr "Cria um novo container PARADO a partir da configuração de um já existente (`container clone` do Podman)."
+
+msgid ""
+"Create a new STOPPED container from an existing one's configuration (Podman `container clone`)."
+"\n"
+"\n"
+"Copies the source's spec — image, command, env, mounts, limits — under a new id and name and provisions its own rootfs, WITHOUT starting it. Launch it later with `container start`."
+msgstr ""
+"Cria um novo container PARADO a partir da configuração de um já existente (`container clone` do Podman)."
+"\n"
+"\n"
+"Copia a especificação da origem — imagem, comando, ambiente, montagens, limites — sob um novo id e nome e provisiona o seu próprio rootfs, SEM o arrancar. Arranca-o mais tarde com `container start`."
+
+msgid "Name for the clone (default: `<source>-clone`)."
+msgstr "Nome para o clone (por omissão: `<origem>-clone`)."
+
+msgid "Checkpoint a running container to disk with CRIU (Podman `container checkpoint`)."
+msgstr "Grava um ponto de restauro de um container a correr no disco com o CRIU (`container checkpoint` do Podman)."
+
+msgid "Restore a container from a CRIU checkpoint (Podman `container restore`)."
+msgstr "Restaura um container a partir de um ponto de restauro do CRIU (`container restore` do Podman)."
+
+msgid "print the host path to the container's root filesystem"
+msgstr "imprime o caminho no host para o sistema de ficheiros raiz do container"
+
+msgid "the counterpart of mount — a safe no-op here"
+msgstr "a contraparte do mount — uma operação segura e sem efeito aqui"
+
+msgid "copy a container's configuration into a new stopped one"
+msgstr "copia a configuração de um container para um novo container parado"
+
+msgid "clone under a chosen name"
+msgstr "clona com um nome à escolha"
+
+msgid "checkpoint needs CRIU, which this engine does not yet integrate"
+msgstr "o checkpoint precisa do CRIU, que este motor ainda não integra"
+
+msgid "restore needs CRIU, which this engine does not yet integrate"
+msgstr "o restore precisa do CRIU, que este motor ainda não integra"

@@ -898,6 +898,47 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["container exec", "container diff"],
     },
     Entry {
+        path: "container mount",
+        group: "Interact",
+        examples: &[
+            ("print the host path to the container's root filesystem", "delonix container mount web"),
+        ],
+        see_also: &["container unmount", "container cp", "container export"],
+    },
+    Entry {
+        path: "container unmount",
+        group: "Interact",
+        examples: &[
+            ("the counterpart of mount — a safe no-op here", "delonix container unmount web"),
+        ],
+        see_also: &["container mount"],
+    },
+    Entry {
+        path: "container clone",
+        group: "Lifecycle",
+        examples: &[
+            ("copy a container's configuration into a new stopped one", "delonix container clone web"),
+            ("clone under a chosen name", "delonix container clone web --name web2"),
+        ],
+        see_also: &["container create", "container start", "commit"],
+    },
+    Entry {
+        path: "container checkpoint",
+        group: "Lifecycle",
+        examples: &[
+            ("checkpoint needs CRIU, which this engine does not yet integrate", "delonix container checkpoint web"),
+        ],
+        see_also: &["container restore", "container stop"],
+    },
+    Entry {
+        path: "container restore",
+        group: "Lifecycle",
+        examples: &[
+            ("restore needs CRIU, which this engine does not yet integrate", "delonix container restore web"),
+        ],
+        see_also: &["container checkpoint", "container start"],
+    },
+    Entry {
         path: "container exec",
         group: "Interact",
         examples: &[
