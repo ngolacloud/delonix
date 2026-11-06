@@ -605,6 +605,11 @@ pub struct Container {
     /// on demand by `container healthcheck` — never monitored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health: Option<HealthConfig>,
+    /// `--no-healthcheck`: the image's `HEALTHCHECK` is disabled for this
+    /// container. Every surface that would otherwise fall back to it (the
+    /// monitor, `container healthcheck`, `--wait`) treats it as absent.
+    #[serde(default)]
+    pub no_healthcheck: bool,
     /// Last observed health, written by whoever is monitoring (the detached
     /// container's supervisor).
     ///
@@ -915,6 +920,7 @@ impl Container {
             net_mode: None,
             extra_hosts: Vec::new(),
             health: None,
+            no_healthcheck: false,
             health_state: None,
             tmpfs: Vec::new(),
             ulimits: Vec::new(),

@@ -5126,6 +5126,12 @@ msgstr "Segundos até ao SIGKILL (por omissão: o `--stop-timeout` do container,
 msgid "Mount all the volumes of another container (Docker/Podman `--volumes-from`), `<container>[:ro|:rw]`. Repeatable."
 msgstr "Monta todos os volumes de outro container (Docker/Podman `--volumes-from`), `<container>[:ro|:rw]`. Repetível."
 
+msgid "Publish every port the image EXPOSEs, each on an ephemeral host port (Docker/Podman `--publish-all`/`-P`)."
+msgstr "Publica todas as portas que a imagem EXPÕE, cada uma numa porta efémera do hospedeiro (Docker/Podman `--publish-all`/`-P`)."
+
+msgid "Disable the image's HEALTHCHECK entirely (Docker/Podman `--no-healthcheck`): no monitor, no probe."
+msgstr "Desactiva por completo o HEALTHCHECK da imagem (Docker/Podman `--no-healthcheck`): sem monitor, sem sonda."
+
 msgid "Run a tiny init as PID 1 that reaps orphaned processes and forwards signals (Docker/Podman `--init`); the image command runs as its child."
 msgstr "Corre um init minúsculo como PID 1 que recolhe processos órfãos e reenvia sinais (Docker/Podman `--init`); o comando da imagem corre como seu filho."
 
