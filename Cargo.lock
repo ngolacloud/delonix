@@ -880,6 +880,7 @@ version = "0.1.0"
 dependencies = [
  "delonix-model",
  "libc",
+ "tempfile",
 ]
 
 [[package]]
@@ -1113,6 +1114,7 @@ dependencies = [
  "delonix-storage",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

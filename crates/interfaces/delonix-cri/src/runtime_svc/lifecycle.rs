@@ -974,7 +974,11 @@ fn delonix_state(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, cri_
 /// The exit code of a CRI container (reconciled), or `None` if it is still
 /// running/created. Lets the kubelet see the true exit cause (137/143/n) and
 /// apply the `restartPolicy` — instead of assuming 0 (`Completed`) for everything.
-fn delonix_exit(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, cri_id: &str) -> Option<i32> {
+fn delonix_exit(
+    ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
+    cri_id: &str,
+) -> Option<i32> {
     use delonix_model::records::Status as S;
     match load_reconciled(ops, rt, cri_id)?.status {
         S::Failed(code) => Some(code),
@@ -986,7 +990,11 @@ fn delonix_exit(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, cri_i
 
 /// Whether the kernel's OOM killer took this CRI container down (the engine
 /// records it on the cgroup before removing it — see [`crate::RuntimeOps::oom_killed_reason`]).
-fn delonix_oom_killed(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, cri_id: &str) -> bool {
+fn delonix_oom_killed(
+    ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
+    cri_id: &str,
+) -> bool {
     load_reconciled(ops, rt, cri_id)
         .is_some_and(|c| c.crash_reason.as_deref() == Some(rt.oom_killed_reason()))
 }
@@ -1000,7 +1008,11 @@ fn delonix_oom_killed(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps,
 /// to show it. `None` (container unknown) reads the same as `false` here —
 /// there is no fallback fact to report about a container that cannot be
 /// found, which is the state `container_status` reports on it either way.
-fn delonix_user_fallback_to_root(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, cri_id: &str) -> bool {
+fn delonix_user_fallback_to_root(
+    ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
+    cri_id: &str,
+) -> bool {
     load_reconciled(ops, rt, cri_id).is_some_and(|c| c.user_fallback_to_root)
 }
 
@@ -1790,7 +1802,12 @@ pub fn create_container(
 /// Extracted from the middle of `start_container`'s argv building so that BOTH
 /// paths are testable, including the legacy one: "unchanged when there is no
 /// ceiling" is a claim that deserves a test, not a reading.
-fn cap_flags(rec: &ContainerRec, ceiling: crate::CapCeiling, id: &str, rt: &dyn crate::RuntimeOps) -> Vec<String> {
+fn cap_flags(
+    rec: &ContainerRec,
+    ceiling: crate::CapCeiling,
+    id: &str,
+    rt: &dyn crate::RuntimeOps,
+) -> Vec<String> {
     match ceiling.cap_args(&rec.cap_add, &rec.cap_drop, rec.privileged, rt) {
         Some(capped) => {
             if ceiling_reduces(&capped, rec) {
@@ -2285,33 +2302,33 @@ pub fn update_container_resources(
     // locked read-modify-write (R3h), the same `flock` semantics as before: a
     // concurrent reconcile cannot lose this update.
     ops.update(&id, &mut |c| {
-            if let Some(m) = &memory {
-                c.memory_max = m.clone();
-            }
-            if let Some(cp) = &cpus {
-                c.cpus = cp.clone();
-            }
-            if cpu_weight.is_some() {
-                c.cpu_weight = cpu_weight.clone();
-            }
-            if cpuset.is_some() {
-                c.cpuset = cpuset.clone();
-            }
-            if cpuset_mems.is_some() {
-                c.cpuset_mems = cpuset_mems.clone();
-            }
-            if !asked.hugepage_limits.is_empty() {
-                c.hugepage_limits = merged.hugepage_limits.clone();
-            }
-            if !asked.unified.is_empty() {
-                c.unified = merged.unified.clone();
-            }
-            if oom_score_adj.is_some() {
-                c.oom_score_adj = oom_score_adj;
-            }
-            true
-        })
-        .map_err(st)?;
+        if let Some(m) = &memory {
+            c.memory_max = m.clone();
+        }
+        if let Some(cp) = &cpus {
+            c.cpus = cp.clone();
+        }
+        if cpu_weight.is_some() {
+            c.cpu_weight = cpu_weight.clone();
+        }
+        if cpuset.is_some() {
+            c.cpuset = cpuset.clone();
+        }
+        if cpuset_mems.is_some() {
+            c.cpuset_mems = cpuset_mems.clone();
+        }
+        if !asked.hugepage_limits.is_empty() {
+            c.hugepage_limits = merged.hugepage_limits.clone();
+        }
+        if !asked.unified.is_empty() {
+            c.unified = merged.unified.clone();
+        }
+        if oom_score_adj.is_some() {
+            c.oom_score_adj = oom_score_adj;
+        }
+        true
+    })
+    .map_err(st)?;
 
     // The CRI's own record must agree, or a later `start` — which rebuilds
     // the run spec from `rec.resources`, not from the engine's own record —
@@ -2399,7 +2416,11 @@ pub fn remove_container(
     Ok(Response::new(RemoveContainerResponse {}))
 }
 
-fn to_container(ops: &dyn crate::ContainerOps, rt: &dyn crate::RuntimeOps, r: &ContainerRec) -> Container {
+fn to_container(
+    ops: &dyn crate::ContainerOps,
+    rt: &dyn crate::RuntimeOps,
+    r: &ContainerRec,
+) -> Container {
     Container {
         id: r.id.clone(),
         pod_sandbox_id: r.sandbox_id.clone(),
@@ -2854,7 +2875,11 @@ fn writable_layer_usage(
 }
 
 /// Builds a container's real metrics from its cgroup v2.
-fn container_stats_for(base: &Path, ops: &dyn crate::ContainerOps, r: &ContainerRec) -> ContainerStats {
+fn container_stats_for(
+    base: &Path,
+    ops: &dyn crate::ContainerOps,
+    r: &ContainerRec,
+) -> ContainerStats {
     let ts = now_ns();
     let ContainerCgroupMetrics {
         cpu_ns,
@@ -2938,7 +2963,11 @@ pub fn list_container_stats(
 }
 
 /// Metrics of a pod sandbox: aggregates the sandbox's containers (cpu/memory).
-fn pod_sandbox_stats_for(base: &Path, ops: &dyn crate::ContainerOps, sb: &SandboxRec) -> PodSandboxStats {
+fn pod_sandbox_stats_for(
+    base: &Path,
+    ops: &dyn crate::ContainerOps,
+    sb: &SandboxRec,
+) -> PodSandboxStats {
     let ts = now_ns();
     let conts: Vec<ContainerStats> = list_recs::<ContainerRec>(&ct_dir(base))
         .into_iter()
@@ -3936,7 +3965,14 @@ mod tests {
             args: vec!["X".into()],
             ..Default::default()
         };
-        let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "x", Vec::new(), RT);
+        let o = start_run_opts(
+            &rec,
+            None,
+            crate::CapCeiling::unlimited(),
+            "x",
+            Vec::new(),
+            RT,
+        );
         // The override is carried as the entrypoint; the args are the command.
         assert_eq!(
             o.entrypoint.as_deref(),
@@ -3974,7 +4010,14 @@ mod tests {
             args: vec!["--ip-masq".into()],
             ..Default::default()
         };
-        let o = start_run_opts(&rec, None, crate::CapCeiling::unlimited(), "x", Vec::new(), RT);
+        let o = start_run_opts(
+            &rec,
+            None,
+            crate::CapCeiling::unlimited(),
+            "x",
+            Vec::new(),
+            RT,
+        );
         assert!(
             o.entrypoint.is_none(),
             "an empty command is not an override"
@@ -4228,10 +4271,8 @@ mod tests {
         assert!(super::refuse_chain_without_port_mappings(&conf, &[], "cri-1").is_ok());
 
         // And a chain that DOES declare it is let through.
-        let ok = cni(
-            r#"{"cniVersion":"1.0.0","name":"lab","plugins":
-                [{"type":"bridge"},{"type":"portmap","capabilities":{"portMappings":true}}]}"#,
-        );
+        let ok = cni(r#"{"cniVersion":"1.0.0","name":"lab","plugins":
+                [{"type":"bridge"},{"type":"portmap","capabilities":{"portMappings":true}}]}"#);
         assert!(super::refuse_chain_without_port_mappings(&ok, &asked, "cri-1").is_ok());
     }
 
@@ -4291,10 +4332,10 @@ mod tests {
             host_port: hp,
             host_ip: "10.0.0.1".into(),
         };
-        let specs = super::publishable_port_specs(NET, &[
-            mk(Protocol::Tcp, 8080, 80),
-            mk(Protocol::Udp, 5353, 53),
-        ])
+        let specs = super::publishable_port_specs(
+            NET,
+            &[mk(Protocol::Tcp, 8080, 80), mk(Protocol::Udp, 5353, 53)],
+        )
         .expect("tcp and udp are publishable");
         assert_eq!(specs, vec!["8080:80/tcp", "5353:53/udp"]);
     }
@@ -4656,7 +4697,10 @@ mod tests {
             privileged: true,
             ..Default::default()
         };
-        assert_eq!(cap_flags(&privileged, unlimited, "x", RT), ["--cap-add", "ALL"]);
+        assert_eq!(
+            cap_flags(&privileged, unlimited, "x", RT),
+            ["--cap-add", "ALL"]
+        );
 
         let asks = ContainerRec {
             cap_add: vec!["CAP_NET_ADMIN".into()],

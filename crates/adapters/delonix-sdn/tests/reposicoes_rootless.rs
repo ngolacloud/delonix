@@ -20,9 +20,9 @@ fn import_iptables_conta_sem_aplicar() {
     .unwrap();
 
     let r = delonix_sdn::infra::import_iptables(&f).expect("devia analisar");
-    assert!(r.contains("1 tabela"), "contagem de tabelas: {r}");
-    assert!(r.contains("2 cadeia"), "contagem de cadeias: {r}");
-    assert!(r.contains("1 regra"), "contagem de regras: {r}");
+    assert!(r.contains("1 table"), "contagem de tabelas: {r}");
+    assert!(r.contains("2 chain"), "contagem de cadeias: {r}");
+    assert!(r.contains("1 rule"), "contagem de regras: {r}");
 }
 
 /// Um ficheiro que não existe dá erro NOMEADO — não um relatório de zeros.

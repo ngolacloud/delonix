@@ -2,7 +2,7 @@
 
 Modelo C4 (Contexto → Contentores → Componentes) e system design funcional do
 **Delonix Engine**: motor de containers e microVMs **daemonless, rootless-first,
-kernel-native**, em Rust (35 crates, workspace `crates/`). Este documento é canónico
+kernel-native**, em Rust (39 crates, workspace `crates/`). Este documento é canónico
 e mantido contra o código — cada afirmação estrutural tem a referência do
 crate/ficheiro onde foi confirmada. Onde há limites, eles aparecem nos diagramas,
 não escondidos em rodapés.
@@ -129,7 +129,7 @@ de PID) e reclassifica `Running`→`Crashed`/`Paused`. O CRI chama-o em
 
 ---
 
-## C4 — Nível 3: Componentes (os 35 crates)
+## C4 — Nível 3: Componentes (os 39 crates)
 
 Setas = dependências **reais**, confirmadas nos `Cargo.toml` de `crates/*/` e nos
 `use delonix_*` dos `src/`. Não há ciclos; `delonix-model` é a raiz comum.
@@ -171,6 +171,10 @@ graph TB
     CEPH["delonix-provider-ceph<br>suporte Ceph nativo (ADR-0081): quatro superficies de um cluster<br>pela porta Run do storage (RADOS status, RBD StoragePoolDriver de bloco,<br>CephFS por subvolume, RGW S3) — nunca a linkar librados"]
     STORHELPER["delonix-storage-helper<br>o helper PRIVILEGIADO dos pools (ADR-0067 D3, P1): um processo<br>por ligacao no delonix-storage-helper.socket, SO_PEERCRED + allowUsers;<br>tambem o create-pool/destroy-pool do administrador"]
     MCP["delonix-mcp<br>servidor MCP (ADR-0025) — superficie de IA LOCAL, sem inquilino<br>stdio-only; tools chamam Store/dominio, nunca shell arbitrario"]
+    ENGINE["delonix-engine<br>raiz de composicao unica (ADR-0040 D1/A5, camada assembly):<br>escolhe o adaptador e o provider de cada porta e expoe um Engine<br>com um servico por contexto — a interface recebe-o ja montado (A5)"]
+    HOST["delonix-host<br>adaptador do host (ADR-0040 R2): o mecanismo de processo-e-ficheiro<br>partilhado — escrita atomica, flock, contrato de dispatch e o peer cred<br>do socket local; adaptador de que os outros podem depender (A1)"]
+    POOLHELPER["delonix-pool-helper<br>o protocolo do helper PRIVILEGIADO de pools (ADR-0067 D3, ADR-0040 R2c):<br>as operacoes que precisam de root cruzam para o delonix-storage-helper"]
+    CRIBIN["delonix-cri-bin<br>o executavel delonix-cri, que `delonix serve cri` executa<br>(monta o Engine e serve o CRI runtime.v1)"]
 
     BIN --> RT
     BIN --> IMG
@@ -305,6 +309,26 @@ graph TB
     MCP --> VOL
     MCP --> NET
     MCP --> MGMT
+
+    ENGINE --> COMPUTE
+    ENGINE --> VM2
+    ENGINE --> STATECRATE
+    ENGINE --> VOL
+    ENGINE --> NET
+    ENGINE --> RT
+    ENGINE --> IMG
+    ENGINE --> SCAN
+    ENGINE --> MCP
+    ENGINE --> MGMT
+    ENGINE --> TEL
+    ENGINE --> MODEL
+    HOST --> MODEL
+    POOLHELPER --> STORCTX
+    POOLHELPER --> MODEL
+    CRIBIN --> CRI
+    CRIBIN --> ENGINE
+    CRIBIN --> HOST
+    CRIBIN --> TEL
 ```
 
 Notas de leitura do grafo (todas verificadas):

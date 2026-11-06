@@ -43,8 +43,12 @@ use crate::volumes::{self, Entry, DEFAULT_NAMESPACE};
 
 /// What `CreateVolume` does once it is acknowledged: `(volume store, Ceph, root,
 /// request)`.
-type CreateWork<'a> =
-    &'a dyn Fn(&dyn VolumeStore, &dyn CephStorage, &Path, &CreateVolumeRequest) -> delonix_model::Result<()>;
+type CreateWork<'a> = &'a dyn Fn(
+    &dyn VolumeStore,
+    &dyn CephStorage,
+    &Path,
+    &CreateVolumeRequest,
+) -> delonix_model::Result<()>;
 /// What `DeleteVolume` does once it is acknowledged: `(volume store, Ceph, root,
 /// entry)`.
 type DeleteWork<'a> =
@@ -133,7 +137,12 @@ pub fn create_work(
         let alloc = crate::storage::provision_allocate(ceph, root, &req.name, size, prov)?;
         vols.register_in_pool(root, &req.name, &alloc.path, size, alert, &prov.provider)?;
         if !req.labels.is_empty() || !req.annotations.is_empty() {
-            vols.set_metadata(root, &req.name, &pairs(&req.labels), &pairs(&req.annotations))?;
+            vols.set_metadata(
+                root,
+                &req.name,
+                &pairs(&req.labels),
+                &pairs(&req.annotations),
+            )?;
         }
         delonix_node::events::emit(
             root,
@@ -151,7 +160,12 @@ pub fn create_work(
             vols.set_quota(root, &req.name, quota, alert)?;
         }
         if !req.labels.is_empty() || !req.annotations.is_empty() {
-            vols.set_metadata(root, &req.name, &pairs(&req.labels), &pairs(&req.annotations))?;
+            vols.set_metadata(
+                root,
+                &req.name,
+                &pairs(&req.labels),
+                &pairs(&req.annotations),
+            )?;
         }
         Ok(())
     };
@@ -179,7 +193,7 @@ pub(crate) fn delete_work(
     if let Some(pool) = entry.volume.pool.as_deref() {
         crate::storage::provision_release(ceph, root, pool, name)?;
     }
-    let namespace = entry.scoped.then(|| entry.namespace.as_str());
+    let namespace = entry.scoped.then_some(entry.namespace.as_str());
     vols.remove(root, namespace, name)?;
     delonix_node::events::emit(root, "volume", "remove", name, name, None);
     Ok(())
@@ -464,7 +478,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let seen_running = std::cell::Cell::new(false);
-        let work = |vols: &dyn VolumeStore, ceph: &dyn CephStorage, r: &Path, req: &CreateVolumeRequest| {
+        let work = |vols: &dyn VolumeStore,
+                    ceph: &dyn CephStorage,
+                    r: &Path,
+                    req: &CreateVolumeRequest| {
             let list = operations::list_in(
                 r,
                 &ListOperationsRequest {
@@ -662,7 +679,14 @@ mod tests {
         // With force, it goes.
         let mut forced = delete_req("data");
         forced.force = true;
-        let op = delete_in(V, C, root, &crate::store::LocalStore(root.to_path_buf()), &forced).unwrap();
+        let op = delete_in(
+            V,
+            C,
+            root,
+            &crate::store::LocalStore(root.to_path_buf()),
+            &forced,
+        )
+        .unwrap();
         assert_eq!(op.state, OperationState::Succeeded as i32, "{op:?}");
         assert!(get(root, "data").is_err());
     }
@@ -675,8 +699,14 @@ mod tests {
         let etag = get(root, "data").unwrap().meta.unwrap().etag;
         let mut stale = delete_req("data");
         stale.etag = "not-it".into();
-        let refused =
-            delete_in(V, C, root, &crate::store::LocalStore(root.to_path_buf()), &stale).unwrap_err();
+        let refused = delete_in(
+            V,
+            C,
+            root,
+            &crate::store::LocalStore(root.to_path_buf()),
+            &stale,
+        )
+        .unwrap_err();
         assert_eq!(refused.code(), tonic::Code::FailedPrecondition);
         assert!(refused
             .metadata()
@@ -761,9 +791,15 @@ mod tests {
         let mut remote = delete_req("data");
         remote.destroy_remote = true;
         assert_eq!(
-            delete_in(V, C, root, &crate::store::LocalStore(root.to_path_buf()), &remote)
-                .unwrap_err()
-                .code(),
+            delete_in(
+                V,
+                C,
+                root,
+                &crate::store::LocalStore(root.to_path_buf()),
+                &remote
+            )
+            .unwrap_err()
+            .code(),
             tonic::Code::Unimplemented
         );
         let store = delonix_volume::VolumeStore::open(root).unwrap();
@@ -913,7 +949,10 @@ mod tests {
         );
 
         // The record names the pool and points at a mapped block device.
-        let rec = delonix_volume::VolumeStore::open(root).unwrap().inspect(name).unwrap();
+        let rec = delonix_volume::VolumeStore::open(root)
+            .unwrap()
+            .inspect(name)
+            .unwrap();
         assert_eq!(
             rec.pool.as_deref(),
             Some("ceph-rbd"),

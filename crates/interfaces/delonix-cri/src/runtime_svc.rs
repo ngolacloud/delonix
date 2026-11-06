@@ -179,8 +179,9 @@ impl RuntimeService for DelonixRuntime {
             // usa — mesma regra, um só dono. Se a lista de containers não puder
             // ser lida, usa-se o `refcount` cru: é o comportamento anterior, e
             // um erro de leitura não pode passar por "não há workloads".
-            let vivos = live_attached_refs(&self.base, self.containers.as_ref(), self.network.as_ref())
-                .unwrap_or(st.refcount);
+            let vivos =
+                live_attached_refs(&self.base, self.containers.as_ref(), self.network.as_ref())
+                    .unwrap_or(st.refcount);
             if network_ready_rootless(st.up, vivos) {
                 cond("NetworkReady", true, "", "")
             } else {
@@ -328,7 +329,8 @@ impl RuntimeService for DelonixRuntime {
         let ceiling = self.cap_ceiling;
         let ops = self.containers.clone();
         let rt = self.runtime.clone();
-        blocking(move || lifecycle::start_container(&base, ops.as_ref(), rt.as_ref(), id, ceiling)).await
+        blocking(move || lifecycle::start_container(&base, ops.as_ref(), rt.as_ref(), id, ceiling))
+            .await
     }
     #[tracing::instrument(name = "cri.stop_container", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -342,7 +344,8 @@ impl RuntimeService for DelonixRuntime {
         let (base, id, timeout) = (self.base.clone(), req.container_id, req.timeout);
         let ops = self.containers.clone();
         let rt = self.runtime.clone();
-        blocking(move || lifecycle::stop_container(&base, ops.as_ref(), rt.as_ref(), id, timeout)).await
+        blocking(move || lifecycle::stop_container(&base, ops.as_ref(), rt.as_ref(), id, timeout))
+            .await
     }
     #[tracing::instrument(name = "cri.remove_container", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -376,7 +379,8 @@ impl RuntimeService for DelonixRuntime {
         let (base, id, verbose) = (self.base.clone(), req.container_id, req.verbose);
         let ops = self.containers.clone();
         let rt = self.runtime.clone();
-        blocking(move || lifecycle::container_status(&base, ops.as_ref(), rt.as_ref(), id, verbose)).await
+        blocking(move || lifecycle::container_status(&base, ops.as_ref(), rt.as_ref(), id, verbose))
+            .await
     }
 
     async fn update_container_resources(

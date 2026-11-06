@@ -416,7 +416,7 @@ Options:
           Run the process as this user: `uid[:gid]` or `name[:group]` (docker `--user`). Names are resolved in the image&#x27;s `/etc/passwd`/`/etc/group`
 
       --net &lt;NET&gt;
-          Network: `host` (shares the host&#x27;s, default), `none` (isolated netns with no connectivity), or the NAME of a network created with `delonix network create`
+          Network: `host` (shares the host&#x27;s, default), `none` (isolated netns with no connectivity), `container:&lt;name&gt;` (shares an already-running container&#x27;s netns — same IP and ports, Docker/Podman parity), or the NAME of a network created with `delonix network create`
           
           [default: host]
 

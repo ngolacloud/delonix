@@ -409,10 +409,10 @@ a CLI <code>delonix</code> é a única porta: container · image · build · vm 
 </div>
 <div class="row">
 <div class="box"><b>delonix-provider-cloud-hypervisor · -libvirt</b>backends VmBackend locais (microVM por processo · libvirt/KVM, ADR-0044) — saíram do delonix-vm, que os regista</div>
-<div class="box"><b>delonix-proxmox</b>VmBackend REMOTO e SDN contra a API de um nó Proxmox VE (ADR-0008)</div>
-<div class="box"><b>delonix-truenas</b>dataset, quota e partilha numa appliance TrueNAS (ADR-0009)</div>
-<div class="box"><b>delonix-opnsense</b>GatewayProvider contra a API REST do OPNsense (ADR-0051)</div>
-<div class="box"><b>delonix-powerdns</b>cliente da API de um servidor PowerDNS (ADR-0064) — limpa os registos de gateway do nó</div>
+<div class="box"><b>delonix-provider-proxmox</b>VmBackend REMOTO e SDN contra a API de um nó Proxmox VE (ADR-0008)</div>
+<div class="box"><b>delonix-provider-truenas</b>dataset, quota e partilha numa appliance TrueNAS (ADR-0009)</div>
+<div class="box"><b>delonix-provider-opnsense</b>GatewayProvider contra a API REST do OPNsense (ADR-0051)</div>
+<div class="box"><b>delonix-provider-powerdns</b>cliente da API de um servidor PowerDNS (ADR-0064) — limpa os registos de gateway do nó</div>
 </div>
 <div class="row">
 <div class="box"><b>delonix-provider-btrfs · -zfs · -lvm</b>drivers de pool de armazenamento (subvolume btrfs · dataset zfs · LV thin lvm, ADR-0067)</div>
@@ -440,7 +440,7 @@ DNS interno, overlay WireGuard</div>
 </div>
 <div class="row">
 <div class="box mut"><b>delonix-node</b>contexto: eventos, verificações do host, contrato de dispatch</div>
-<div class="box mut"><b>delonix-security-runtime</b>contexto: política e o único ponto de admissão</div>
+<div class="box mut"><b>delonix-security</b>contexto: política e o único ponto de admissão</div>
 </div>
 <div class="row">
 <div class="box mut"><b>delonix-model</b>fundação pura: erro partilhado e códigos DX, Status, regras de firewall,
@@ -633,10 +633,10 @@ the <code>delonix</code> CLI is the one door: container · image · build · vm 
 </div>
 <div class="row">
 <div class="box"><b>delonix-provider-cloud-hypervisor · -libvirt</b>local VmBackend backends (per-process microVM · libvirt/KVM, ADR-0044) — split out of delonix-vm, which registers them</div>
-<div class="box"><b>delonix-proxmox</b>REMOTE VmBackend and SDN against one Proxmox VE node's API (ADR-0008)</div>
-<div class="box"><b>delonix-truenas</b>dataset, quota and share on a TrueNAS appliance (ADR-0009)</div>
-<div class="box"><b>delonix-opnsense</b>GatewayProvider against OPNsense's REST API (ADR-0051)</div>
-<div class="box"><b>delonix-powerdns</b>client of one PowerDNS server's API (ADR-0064) — reaps the node's gateway records</div>
+<div class="box"><b>delonix-provider-proxmox</b>REMOTE VmBackend and SDN against one Proxmox VE node's API (ADR-0008)</div>
+<div class="box"><b>delonix-provider-truenas</b>dataset, quota and share on a TrueNAS appliance (ADR-0009)</div>
+<div class="box"><b>delonix-provider-opnsense</b>GatewayProvider against OPNsense's REST API (ADR-0051)</div>
+<div class="box"><b>delonix-provider-powerdns</b>client of one PowerDNS server's API (ADR-0064) — reaps the node's gateway records</div>
 </div>
 <div class="row">
 <div class="box"><b>delonix-provider-btrfs · -zfs · -lvm</b>storage pool drivers (btrfs subvolume · zfs dataset · lvm thin LV, ADR-0067)</div>
@@ -664,7 +664,7 @@ internal DNS, WireGuard overlay</div>
 </div>
 <div class="row">
 <div class="box mut"><b>delonix-node</b>context: events, host checks, the dispatch contract</div>
-<div class="box mut"><b>delonix-security-runtime</b>context: policy and the single admission point</div>
+<div class="box mut"><b>delonix-security</b>context: policy and the single admission point</div>
 </div>
 <div class="row">
 <div class="box mut"><b>delonix-model</b>pure foundation: shared error and DX codes, Status, firewall rules,

@@ -890,7 +890,10 @@ impl ImageService<'_> {
     }
 
     /// The summary of one image by reference, or `None` if it is not stored.
-    pub fn image_status(&self, reference: &str) -> delonix_model::Result<Option<serde_json::Value>> {
+    pub fn image_status(
+        &self,
+        reference: &str,
+    ) -> delonix_model::Result<Option<serde_json::Value>> {
         Ok(self
             .store()?
             .resolve(reference)
@@ -928,7 +931,9 @@ fn image_layer_size(img: &Image) -> u64 {
         .iter()
         .map(|l| {
             let hex = l.strip_prefix("sha256:").unwrap_or(l);
-            std::fs::metadata(root.join(hex)).map(|m| m.len()).unwrap_or(0)
+            std::fs::metadata(root.join(hex))
+                .map(|m| m.len())
+                .unwrap_or(0)
         })
         .sum()
 }
@@ -939,8 +944,9 @@ mod tests {
 
     #[test]
     fn a_mounted_engine_exposes_its_root_and_the_vm_service() {
-        let eng = Engine::mount("/tmp/delonix-engine-test-root").expect("mount");
-        assert_eq!(eng.root(), Path::new("/tmp/delonix-engine-test-root"));
+        let dir = tempfile::tempdir().unwrap();
+        let eng = Engine::mount(dir.path().to_path_buf()).expect("mount");
+        assert_eq!(eng.root(), dir.path());
         // `list` over a root with no vms dir is an empty list, not an error:
         // proves the VM service is wired to the composition without a host VM.
         assert!(eng.vms().list().map(|v| v.is_empty()).unwrap_or(true));
@@ -1050,10 +1056,17 @@ mod tests {
         std::fs::write(dir.path().join("original"), vec![0u8; 64 * 1024]).unwrap();
         let one = dir_size(dir.path());
         for i in 0..5 {
-            std::fs::hard_link(dir.path().join("original"), dir.path().join(format!("l{i}")))
-                .unwrap();
+            std::fs::hard_link(
+                dir.path().join("original"),
+                dir.path().join(format!("l{i}")),
+            )
+            .unwrap();
         }
-        assert_eq!(dir_size(dir.path()), one, "6 names of one inode counted as 6 files");
+        assert_eq!(
+            dir_size(dir.path()),
+            one,
+            "6 names of one inode counted as 6 files"
+        );
     }
 
     const PSI: &str = "some avg10=12.50 avg60=3.00 avg300=1.00 total=4500000\n\
@@ -1075,7 +1088,11 @@ mod tests {
         write_cgroup_file(p, "cpu.pressure", PSI);
         write_cgroup_file(p, "memory.pressure", PSI);
         write_cgroup_file(p, "io.pressure", PSI);
-        write_cgroup_file(p, "memory.events.local", "low 0\nhigh 0\nmax 4\noom 2\noom_kill 1\n");
+        write_cgroup_file(
+            p,
+            "memory.events.local",
+            "low 0\nhigh 0\nmax 4\noom 2\noom_kill 1\n",
+        );
         write_cgroup_file(p, "memory.current", "4194304\n");
         d
     }
@@ -1083,8 +1100,12 @@ mod tests {
     #[test]
     fn the_exporter_renders_a_fixture_cgroup_with_the_workload_labels() {
         let d = fixture_cgroup();
-        let ws =
-            workload_series_one(WorkloadKind::Container, "c1", "web", Ok(d.path().to_path_buf()));
+        let ws = workload_series_one(
+            WorkloadKind::Container,
+            "c1",
+            "web",
+            Ok(d.path().to_path_buf()),
+        );
         assert!(ws.unavailable.is_empty(), "{:?}", ws.unavailable);
         let out = delonix_telemetry::workload::render(&[ws]);
         let l = r#"kind="container",id="c1",name="web""#;

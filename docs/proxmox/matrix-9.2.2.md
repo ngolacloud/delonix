@@ -29,21 +29,21 @@ The `tested` column comes from ONE run against a real node, recorded with `DELON
 ## Summary
 
 - **denominator**: 675 routes (method, path)
-- **called**: 184 (27.3 % of the schema) — 179 seen in a live trace, 5 not
+- **called**: 188 (27.9 % of the schema) — 179 seen in a live trace, 9 not
 - **unsupported by design**: 356 (each with a written reason)
-- **not yet implemented**: 135
+- **not yet implemented**: 131
 - **not available in this version**: 0
 
 | area | tested | untested | unsupported | not yet | total |
 |---|---:|---:|---:|---:|---:|
-| qemu | 59 | 3 | 15 | 32 | 109 |
+| qemu | 59 | 6 | 15 | 29 | 109 |
 | lxc | 22 | 0 | 40 | 0 | 62 |
 | sdn | 82 | 0 | 3 | 5 | 90 |
 | storage | 5 | 0 | 0 | 20 | 25 |
 | access | 1 | 0 | 42 | 2 | 45 |
 | pools | 0 | 0 | 0 | 7 | 7 |
 | cluster (other) | 6 | 0 | 159 | 9 | 174 |
-| nodes (host) | 4 | 1 | 97 | 60 | 162 |
+| nodes (host) | 4 | 2 | 97 | 59 | 162 |
 | version | 0 | 1 | 0 | 0 | 1 |
 
 ## Routes
@@ -234,6 +234,10 @@ The `tested` column comes from ONE run against a real node, recorded with `DELON
 | GET | `/nodes/{node}/qemu/{vmid}/agent/get-memory-block-info` | supported+untested | object | yes |  |
 | GET | `/nodes/{node}/qemu/{vmid}/agent/get-memory-blocks` | supported+untested | object | yes |  |
 | GET | `/nodes/{node}/qemu/{vmid}/agent/get-vcpus` | supported+untested | object | yes |  |
+| GET | `/nodes/{node}/qemu/{vmid}/snapshot/{snapname}/config` | supported+untested | object | yes |  |
+| POST | `/nodes/{node}/qemu/{vmid}/termproxy` | supported+untested |  | yes |  |
+| POST | `/nodes/{node}/qemu/{vmid}/vncproxy` | supported+untested |  | yes |  |
+| GET | `/nodes/{node}/status` | supported+untested | object | yes |  |
 | GET | `/nodes/{node}/tasks` | supported+untested | array | yes |  |
 | GET | `/version` | supported+untested | object | yes |  |
 | GET | `/access/acl` | unsupported-by-design | array | yes | identity administration (users, groups, roles, ACLs, TFA) — not a VM operation |
@@ -662,12 +666,9 @@ The `tested` column comes from ONE run against a real node, recorded with `DELON
 | GET | `/nodes/{node}/qemu/{vmid}/rrddata` | not-yet-implemented | array | yes |  |
 | PUT | `/nodes/{node}/qemu/{vmid}/sendkey` | not-yet-implemented | null | yes |  |
 | GET | `/nodes/{node}/qemu/{vmid}/snapshot/{snapname}` | not-yet-implemented | array | yes |  |
-| GET | `/nodes/{node}/qemu/{vmid}/snapshot/{snapname}/config` | not-yet-implemented | object | yes |  |
 | PUT | `/nodes/{node}/qemu/{vmid}/snapshot/{snapname}/config` | not-yet-implemented | null | yes |  |
 | POST | `/nodes/{node}/qemu/{vmid}/spiceproxy` | not-yet-implemented |  | yes |  |
 | GET | `/nodes/{node}/qemu/{vmid}/status` | not-yet-implemented | array | yes |  |
-| POST | `/nodes/{node}/qemu/{vmid}/termproxy` | not-yet-implemented |  | yes |  |
-| POST | `/nodes/{node}/qemu/{vmid}/vncproxy` | not-yet-implemented |  | yes |  |
 | GET | `/nodes/{node}/qemu/{vmid}/vncwebsocket` | not-yet-implemented | object | yes |  |
 | GET | `/nodes/{node}/query-oci-repo-tags` | not-yet-implemented | array | yes |  |
 | GET | `/nodes/{node}/query-url-metadata` | not-yet-implemented | object | yes |  |
@@ -689,7 +690,6 @@ The `tested` column comes from ONE run against a real node, recorded with `DELON
 | GET | `/nodes/{node}/sdn/zones/{zone}/ip-vrf` | not-yet-implemented | array | yes |  |
 | POST | `/nodes/{node}/spiceshell` | not-yet-implemented |  | yes |  |
 | POST | `/nodes/{node}/startall` | not-yet-implemented | string | yes |  |
-| GET | `/nodes/{node}/status` | not-yet-implemented | object | yes |  |
 | POST | `/nodes/{node}/status` | not-yet-implemented | null | yes |  |
 | POST | `/nodes/{node}/stopall` | not-yet-implemented | string | yes |  |
 | GET | `/nodes/{node}/storage` | not-yet-implemented | array | yes |  |

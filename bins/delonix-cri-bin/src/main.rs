@@ -327,7 +327,11 @@ fn main() {
     // release this binary is must work even for one `check_version` would refuse.
     if wants_version(&args) {
         use std::io::Write;
-        let _ = writeln!(std::io::stdout(), "delonix-cri {}", env!("CARGO_PKG_VERSION"));
+        let _ = writeln!(
+            std::io::stdout(),
+            "delonix-cri {}",
+            env!("CARGO_PKG_VERSION")
+        );
         return;
     }
     delonix_telemetry::telemetry::init();

@@ -95,11 +95,8 @@ pub trait CephStorage: Send + Sync {
     /// The RBD images the RADOS pool `rados` holds, reached as `ident`.
     fn list_rbd_images(&self, ident: &CephIdentity, rados: &str) -> Result<Vec<String>, String>;
     /// The subvolumes the CephFS filesystem `fs` holds, reached as `ident`.
-    fn list_cephfs_subvolumes(
-        &self,
-        ident: &CephIdentity,
-        fs: &str,
-    ) -> Result<Vec<String>, String>;
+    fn list_cephfs_subvolumes(&self, ident: &CephIdentity, fs: &str)
+        -> Result<Vec<String>, String>;
     /// The object-gateway buckets (all, or `uid`'s), reached with `conf`.
     fn list_buckets(&self, conf: Option<&Path>, uid: Option<&str>)
         -> Result<Vec<String>, RgwFault>;
@@ -248,7 +245,9 @@ impl CephStorage for LocalCeph {
         uid: &str,
         display_name: &str,
     ) -> Result<UserRecord, RgwFault> {
-        let u = gateway(conf).ensure_user(uid, display_name).map_err(fault)?;
+        let u = gateway(conf)
+            .ensure_user(uid, display_name)
+            .map_err(fault)?;
         Ok(UserRecord {
             uid: u.uid,
             display_name: u.display_name,

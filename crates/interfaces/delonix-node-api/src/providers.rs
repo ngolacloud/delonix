@@ -43,11 +43,13 @@ pub fn measured_reports(
     out.push(providers.volume_storage_report(true));
     // The perimeter appliance (ADR-0059 D2), declared, same flag rule as Proxmox.
     // Whether it is a gateway comes through the network port's registry view.
-    out.push(providers.opnsense_report(
-        net.gateway_provider_ids()
-            .iter()
-            .any(|id| id == providers.opnsense_id()),
-    ));
+    out.push(
+        providers.opnsense_report(
+            net.gateway_provider_ids()
+                .iter()
+                .any(|id| id == providers.opnsense_id()),
+        ),
+    );
     out
 }
 
@@ -157,10 +159,11 @@ mod tests {
                 }
             }
         }
-        let ours: std::collections::BTreeSet<(String, String)> = declared_reports(&vms(), &NET, &LOCAL_PROVIDERS)
-            .iter()
-            .map(|r| (r.kind.as_str().to_string(), r.id.to_string()))
-            .collect();
+        let ours: std::collections::BTreeSet<(String, String)> =
+            declared_reports(&vms(), &NET, &LOCAL_PROVIDERS)
+                .iter()
+                .map(|r| (r.kind.as_str().to_string(), r.id.to_string()))
+                .collect();
         assert_eq!(
             ours, published,
             "node-api composes a different provider list than the CLI published"

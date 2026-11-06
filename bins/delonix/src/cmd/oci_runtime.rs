@@ -183,6 +183,11 @@ pub struct OciState {
 }
 
 impl OciState {
+    /// The fixed `created`-state shape (status `created`, pid 0). Only the unit
+    /// tests build state this way today — the live `state` command reflects the
+    /// container's current status instead — so it is gated to test builds to
+    /// stay out of the `dead_code` gate until a caller needs it.
+    #[cfg(test)]
     pub fn created(id: &str, bundle: &str) -> Self {
         Self {
             // Match what `delonix image export` stamps and what runc emits.

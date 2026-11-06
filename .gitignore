@@ -20,3 +20,6 @@ CLAUDE.md
 *-lab.env
 *.lab.env
 lab.env
+
+# Stray cargo build log committed by accident (see fix/ci-green); never a tracked artefact.
+/build-cri.log
