@@ -17679,3 +17679,65 @@ msgstr "o checkpoint precisa do CRIU, que este motor ainda não integra"
 
 msgid "restore needs CRIU, which this engine does not yet integrate"
 msgstr "o restore precisa do CRIU, que este motor ainda não integra"
+
+# --- volume/network parity subcommands (export/import/mount/unmount, network reload) ---
+
+msgid "Export a volume's contents as an uncompressed tar, to a file or stdout"
+msgstr "Exporta o conteúdo de um volume como um tar NÃO comprimido, para um ficheiro ou o stdout"
+
+msgid "Export a volume's contents as an uncompressed tar, to a file or stdout.\n\n`podman volume export`: packs the volume's data directory into a tar that an operator can archive or pipe into `volume import` on another host. Refuses to write the archive to a terminal — redirect stdout or use `-o <PATH>`."
+msgstr "Exporta o conteúdo de um volume como um tar NÃO comprimido, para um ficheiro ou o stdout.\n\n`podman volume export`: empacota o directório de dados do volume num tar que um operador pode arquivar ou encaminhar para `volume import` noutro host. Recusa escrever o arquivo num terminal — redireccione o stdout ou use `-o <PATH>`."
+
+msgid "Extract a tar INTO an existing volume"
+msgstr "Extrai um tar PARA DENTRO de um volume existente"
+
+msgid "Extract a tar INTO an existing volume.\n\n`podman volume import`: the volume must already exist (create it with `volume create`). The archive may be a plain or a gzip-compressed tar — the compression is detected from the file's magic bytes — and its contents are extracted on top of whatever the volume already holds."
+msgstr "Extrai um tar PARA DENTRO de um volume existente.\n\n`podman volume import`: o volume tem de existir já (crie-o com `volume create`). O arquivo pode ser um tar simples ou comprimido com gzip — a compressão é detectada pelos bytes mágicos do ficheiro — e o seu conteúdo é extraído por cima do que o volume já contém."
+
+msgid "Print the host path of a volume's data directory (`podman volume mount`)"
+msgstr "Imprime o caminho no host do directório de dados de um volume (`podman volume mount`)"
+
+msgid "Counterpart of `mount`; a no-op here because volumes are plain directories"
+msgstr "Contraparte do `mount`; aqui não faz nada porque os volumes são directórios simples"
+
+msgid "Counterpart of `mount`; a no-op here because volumes are plain directories.\n\n`podman volume unmount` drops the fuse-overlayfs mount Podman may set up for a volume. A Delonix volume is a plain host directory with nothing to actively unmount, so this checks the volume exists, prints nothing and exits 0 — kept for script parity."
+msgstr "Contraparte do `mount`; aqui não faz nada porque os volumes são directórios simples.\n\nO `podman volume unmount` desfaz a montagem fuse-overlayfs que o Podman pode criar para um volume. Um volume Delonix é um directório simples no host, sem nada para desmontar activamente, por isso isto apenas verifica que o volume existe, não imprime nada e sai com 0 — mantido por paridade de scripts."
+
+msgid "Write to this file instead of stdout."
+msgstr "Escreve neste ficheiro em vez do stdout."
+
+msgid "Re-apply a network's dataplane from its stored record (`podman network reload`)"
+msgstr "Reaplica o dataplane de uma rede a partir do seu registo guardado (`podman network reload`)"
+
+msgid "Re-apply a network's dataplane from its stored record (`podman network reload`).\n\nA rootless holder that respawned loses the ephemeral dataplane it held — an overlay's VXLAN FDB and WireGuard peers, or the bridge record the holder reads on every attach. This re-realizes them from the `NetworkStore` WITHOUT recreating the network, so the containers already attached keep their addresses. macvlan/ipvlan are never realized in the rootless model, so there is nothing to reload and this says so rather than faking it."
+msgstr "Reaplica o dataplane de uma rede a partir do seu registo guardado (`podman network reload`).\n\nUm holder rootless que renasceu perde o dataplane efémero que mantinha — a FDB VXLAN e os peers WireGuard de um overlay, ou o registo da bridge que o holder lê em cada attach. Isto volta a realizá-los a partir do `NetworkStore` SEM recriar a rede, por isso os containers já ligados mantêm os seus endereços. macvlan/ipvlan nunca são realizados no modelo rootless, por isso não há dataplane para reaplicar e isto di-lo em vez de o fingir."
+
+msgid "overlay dataplane re-applied (bridge, VXLAN FDB, WireGuard)"
+msgstr "dataplane do overlay reaplicado (bridge, FDB VXLAN, WireGuard)"
+
+msgid "bridge record re-aligned in the holder"
+msgstr "registo da bridge re-alinhado no holder"
+
+msgid "network '{name}' (driver {driver}) is not realized in the rootless model, so there is no dataplane to reload — macvlan/ipvlan need CAP_NET_ADMIN in the host init-netns"
+msgstr "a rede '{name}' (driver {driver}) não é realizada no modelo rootless, por isso não há dataplane para reaplicar — macvlan/ipvlan precisam de CAP_NET_ADMIN no init-netns do host"
+
+msgid "pack a volume's contents into a tar file, to archive or move"
+msgstr "empacota o conteúdo de um volume num ficheiro tar, para arquivar ou mover"
+
+msgid "gzip it on the way out, piping the tar through stdout"
+msgstr "comprime-o com gzip à saída, encaminhando o tar pelo stdout"
+
+msgid "restore a tar into an existing volume — create it first"
+msgstr "restaura um tar para um volume existente — crie-o primeiro"
+
+msgid "a gzip tar is detected and inflated automatically"
+msgstr "um tar com gzip é detectado e descomprimido automaticamente"
+
+msgid "print the host path of a volume's data, to feed another command"
+msgstr "imprime o caminho no host dos dados de um volume, para alimentar outro comando"
+
+msgid "the no-op counterpart of mount — volumes are plain directories here"
+msgstr "a contraparte sem efeito do mount — aqui os volumes são directórios simples"
+
+msgid "re-apply a network's dataplane after the holder respawned, keeping the attached workloads"
+msgstr "reaplica o dataplane de uma rede depois de o holder renascer, mantendo os workloads ligados"

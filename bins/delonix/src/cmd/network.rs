@@ -622,6 +622,13 @@ pub enum NetworkCmd {
         #[arg(add = ArgValueCandidates::new(super::complete::networks))]
         name: String,
     },
+    /// Re-apply a network's dataplane from its stored record (`podman network reload`).
+    ///
+    /// A rootless holder that respawned loses the ephemeral dataplane it held — an overlay's VXLAN FDB and WireGuard peers, or the bridge record the holder reads on every attach. This re-realizes them from the `NetworkStore` WITHOUT recreating the network, so the containers already attached keep their addresses. macvlan/ipvlan are never realized in the rootless model, so there is nothing to reload and this says so rather than faking it.
+    Reload {
+        #[arg(add = ArgValueCandidates::new(super::complete::networks))]
+        name: String,
+    },
     /// Apply the `kind: Network` documents of a manifest (idempotent by name).
     Apply {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
@@ -705,6 +712,7 @@ pub fn run(action: NetworkCmd) -> Result<()> {
         NetworkCmd::Rm { name } => cmd_rm(&store, &name),
         NetworkCmd::Prune { force } => cmd_prune(&store, force),
         NetworkCmd::Exists { name } => cmd_exists(&store, &name),
+        NetworkCmd::Reload { name } => cmd_reload(&store, &name),
         NetworkCmd::Apply { file } => {
             let path = manifest::resolve_path(file)?;
             let docs = manifest::load(&path)?;
@@ -1325,6 +1333,43 @@ fn realize_overlay(net: &Network) -> Result<()> {
         // (measured 100% loss between two real nodes — nothing answered on
         // 51820). Idempotent + node-wide (one WG iface per node). ADR-0084.
         infra::set_overlay_wg_hostfwd()?;
+    }
+    Ok(())
+}
+
+/// `network reload` — re-realizes a network's dataplane from its stored record,
+/// WITHOUT recreating the network (the attached workloads keep their addresses).
+///
+/// This is the recovery path a respawned holder needs: `realize_overlay` already
+/// re-seeds an overlay's VXLAN FDB and WireGuard peers (it is idempotent, and its
+/// own doc-comment names the holder-respawn case), and `infra::network_create_with`
+/// re-aligns the bridge record the holder reads on every attach. macvlan/ipvlan
+/// are never realized in the rootless model, so there is no dataplane to reload —
+/// said out loud instead of a success that did nothing.
+fn cmd_reload(store: &NetworkStore, name: &str) -> Result<()> {
+    let net = store.get(name)?;
+    match net.driver.as_str() {
+        "overlay" => {
+            realize_overlay(&net)?;
+            println!(
+                "network/{name}: {}",
+                super::po::t("overlay dataplane re-applied (bridge, VXLAN FDB, WireGuard)")
+            );
+        }
+        "bridge" => {
+            infra::network_create_with(&net.name, &net.prefix)?;
+            println!(
+                "network/{name}: {}",
+                super::po::t("bridge record re-aligned in the holder")
+            );
+        }
+        other => {
+            return Err(Error::Invalid(super::po::tf(
+                "network '{name}' (driver {driver}) is not realized in the rootless model, so there \
+                 is no dataplane to reload — macvlan/ipvlan need CAP_NET_ADMIN in the host init-netns",
+                &[("name", name), ("driver", other)],
+            )));
+        }
     }
     Ok(())
 }

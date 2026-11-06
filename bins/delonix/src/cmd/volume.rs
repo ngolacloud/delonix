@@ -742,6 +742,38 @@ pub enum VolumeCmd {
         #[arg(add = ArgValueCandidates::new(super::complete::volumes))]
         name: String,
     },
+    /// Export a volume's contents as an uncompressed tar, to a file or stdout.
+    ///
+    /// `podman volume export`: packs the volume's data directory into a tar that an operator can archive or pipe into `volume import` on another host. Refuses to write the archive to a terminal — redirect stdout or use `-o <PATH>`.
+    Export {
+        #[arg(add = ArgValueCandidates::new(super::complete::volumes))]
+        name: String,
+        /// Write to this file instead of stdout.
+        #[arg(short = 'o', long = "output", value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
+    /// Extract a tar INTO an existing volume.
+    ///
+    /// `podman volume import`: the volume must already exist (create it with `volume create`). The archive may be a plain or a gzip-compressed tar — the compression is detected from the file's magic bytes — and its contents are extracted on top of whatever the volume already holds.
+    Import {
+        #[arg(add = ArgValueCandidates::new(super::complete::volumes))]
+        name: String,
+        #[arg(value_hint = clap::ValueHint::FilePath)]
+        file: PathBuf,
+    },
+    /// Print the host path of a volume's data directory (`podman volume mount`).
+    Mount {
+        #[arg(add = ArgValueCandidates::new(super::complete::volumes))]
+        name: String,
+    },
+    /// Counterpart of `mount`; a no-op here because volumes are plain directories.
+    ///
+    /// `podman volume unmount` drops the fuse-overlayfs mount Podman may set up for a volume. A Delonix volume is a plain host directory with nothing to actively unmount, so this checks the volume exists, prints nothing and exits 0 — kept for script parity.
+    #[command(visible_alias = "umount")]
+    Unmount {
+        #[arg(add = ArgValueCandidates::new(super::complete::volumes))]
+        name: String,
+    },
     /// Apply the `kind: Volume` documents from a manifest (idempotent by name).
     Apply {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
@@ -846,6 +878,10 @@ pub fn run(action: VolumeCmd) -> Result<()> {
             all_namespaces,
         } => cmd_prune(&store, force, namespace, all_namespaces),
         VolumeCmd::Exists { name } => cmd_exists(&store, &name),
+        VolumeCmd::Export { name, output } => cmd_export(&store, &name, output.as_deref()),
+        VolumeCmd::Import { name, file } => cmd_import(&store, &name, &file),
+        VolumeCmd::Mount { name } => cmd_mount(&store, &name),
+        VolumeCmd::Unmount { name } => cmd_unmount(&store, &name),
         VolumeCmd::Snapshot { action } => cmd_snapshot(&store, action),
         VolumeCmd::Apply { file } => {
             let path = manifest::resolve_path(file)?;
@@ -2267,6 +2303,96 @@ pub(crate) fn cmd_rm_with(
             String::new()
         }
     );
+    Ok(())
+}
+
+/// `volume export` — packs the volume's data directory into an uncompressed tar
+/// (`podman volume export`), to a file (`-o`) or stdout.
+///
+/// The tar is of the directory CONTENTS (entries rooted at `.`), so it imports
+/// back cleanly with `volume import`. Refuses to spew a binary tar onto a
+/// terminal, exactly as `container export` does.
+fn cmd_export(store: &VolumeStore, name: &str, output: Option<&std::path::Path>) -> Result<()> {
+    let v = store.inspect(name)?;
+    let data = std::path::Path::new(&v.mountpoint);
+    match output {
+        Some(path) => {
+            let f = std::fs::File::create(path)
+                .map_err(|e| Error::Invalid(format!("writing {}: {e}", path.display())))?;
+            let mut builder = tar::Builder::new(f);
+            builder
+                .append_dir_all(".", data)
+                .and_then(|()| builder.finish())
+                .map_err(|e| Error::Invalid(format!("export: {e}")))?;
+            eprintln!("exported volume {name} to {}", path.display());
+        }
+        None => {
+            // Refuse to write a binary tar onto a terminal, as Docker/Podman do.
+            if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+                return Err(Error::Invalid(
+                    "refusing to write a tar archive to a terminal — redirect stdout or use `-o <PATH>`".into(),
+                ));
+            }
+            let mut builder = tar::Builder::new(std::io::stdout());
+            builder
+                .append_dir_all(".", data)
+                .and_then(|()| builder.finish())
+                .map_err(|e| Error::Invalid(format!("export: {e}")))?;
+        }
+    }
+    Ok(())
+}
+
+/// `volume import` — extracts a tar INTO an already-existing volume's data
+/// directory (`podman volume import`).
+///
+/// The volume must exist first (`inspect` fails otherwise, matching Podman,
+/// which does not create it). A plain OR a gzip tar is accepted: gzip is
+/// detected from the two magic bytes (`1f 8b`) peeked without consuming them,
+/// so a `volume export | gzip` round-trips.
+fn cmd_import(store: &VolumeStore, name: &str, file: &std::path::Path) -> Result<()> {
+    use std::io::{BufRead, Read};
+    let v = store.inspect(name)?;
+    let data = std::path::Path::new(&v.mountpoint);
+    let f = std::fs::File::open(file)
+        .map_err(|e| Error::Invalid(format!("reading {}: {e}", file.display())))?;
+    let mut reader = std::io::BufReader::new(f);
+    // Peek the header WITHOUT consuming it — `fill_buf` leaves the bytes in the
+    // buffer, so the same reader still carries the whole stream to the decoder.
+    let is_gzip = {
+        let head = reader
+            .fill_buf()
+            .map_err(|e| Error::Invalid(format!("reading {}: {e}", file.display())))?;
+        head.len() >= 2 && head[0] == 0x1f && head[1] == 0x8b
+    };
+    let stream: Box<dyn Read> = if is_gzip {
+        Box::new(flate2::read::GzDecoder::new(reader))
+    } else {
+        Box::new(reader)
+    };
+    tar::Archive::new(stream)
+        .unpack(data)
+        .map_err(|e| Error::Invalid(format!("import: {e}")))?;
+    eprintln!("imported {} into volume {name}", file.display());
+    Ok(())
+}
+
+/// `volume mount` — Podman's quiet mountpoint probe: prints the host path of the
+/// volume's data directory and nothing else, so a script can `cd "$(delonix
+/// volume mount v)"`. The path is the same `mountpoint` that `inspect` reports.
+fn cmd_mount(store: &VolumeStore, name: &str) -> Result<()> {
+    let v = store.inspect(name)?;
+    println!("{}", v.mountpoint);
+    Ok(())
+}
+
+/// `volume unmount` (alias `umount`) — the counterpart of `mount`. A Delonix
+/// volume is a plain host directory, so there is nothing to actively unmount:
+/// this only validates that the volume exists, prints nothing and exits 0. It
+/// exists for parity with `podman volume unmount`, whose own job (dropping a
+/// fuse-overlayfs mount) has no equivalent here.
+fn cmd_unmount(store: &VolumeStore, name: &str) -> Result<()> {
+    store.inspect(name)?;
     Ok(())
 }
 
