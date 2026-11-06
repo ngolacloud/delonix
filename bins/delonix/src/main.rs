@@ -240,6 +240,135 @@ enum Cmd {
     ///
     /// Without `target`, publishes under the image's own reference.
     Push(cmd::image::PushArgs),
+    // The remaining Docker/Podman ROOT verbs the CLI-parity review found
+    // rejected at the parser while their group form already worked: `docker cp`,
+    // `docker port`, `docker login`/`logout`, `docker info`/`events`. Added as
+    // true aliases — the SAME inline shape and the SAME group handler, docs
+    // copied VERBATIM so the i18n catalog entry is shared (never a second string
+    // to translate). `inspect` stays type-scoped and `diff` stays the
+    // declarative verb, both by documented policy (see `docs/cli-stability.md`):
+    // no generic root resolver guesses the Kind.
+    /// Copy files between the host and a container.
+    ///
+    /// Exactly one side is `container:/path` (e.g. `delonix container cp
+    /// web:/etc/nginx.conf .`).
+    Cp { src: String, dst: String },
+    /// Published ports of a container (`hostPort/proto -> containerPort`).
+    Port {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        id: String,
+    },
+    /// Suspend a container's processes (cgroup v2 freezer).
+    ///
+    /// The state stays in memory, unlike `stop`. Resume with `unpause`.
+    Pause {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        ids: Vec<String>,
+    },
+    /// Resume a container suspended with `pause`.
+    Unpause {
+        #[arg(required = true, add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        ids: Vec<String>,
+    },
+    /// Create an image from a container's CURRENT rootfs state
+    /// (whatever was written inside becomes a new layer).
+    Commit {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        id: String,
+        /// Tag for the new image (e.g. `app:v2`).
+        tag: String,
+    },
+    /// Processes running inside a container (read from `cgroup.procs`).
+    Top {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        id: String,
+    },
+    /// Give a container a new name.
+    Rename {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        id: String,
+        new_name: String,
+    },
+    /// Layers of an image (digest + size), from base to top.
+    History {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::images))]
+        image: String,
+    },
+    /// Remove one name/tag from an image without deleting its content (`podman untag`).
+    Untag {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::images))]
+        name: String,
+    },
+    /// Export a container's filesystem as a tar archive (`docker export`).
+    ///
+    /// The whole rootfs as an UNCOMPRESSED tar; `/proc`, `/sys` and `/dev`
+    /// travel as empty mount points. Unlike `image save`, this carries no image
+    /// metadata — just the files, as the container sees their owners.
+    Export {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::containers))]
+        id: String,
+        /// Write to this file instead of stdout (`docker export -o`).
+        #[arg(short = 'o', long = "output", value_name = "PATH")]
+        output: Option<std::path::PathBuf>,
+    },
+    /// Create an image from a rootfs tarball (`docker import`).
+    ///
+    /// The counterpart of `export`: a filesystem tar (plain or gzip) becomes a
+    /// single-layer image. Unlike `load`, the tar carries no image metadata, so
+    /// the new image has an empty config (no CMD/ENV) — set those at `run` time.
+    Import {
+        /// The rootfs tar (plain or gzip). `-` reads from stdin.
+        input: String,
+        /// Name/tag for the new image (e.g. `app:imported`). Optional, like Docker.
+        reference: Option<String>,
+    },
+    /// Search Docker Hub for images (`docker search`).
+    ///
+    /// Queries the public Docker Hub catalog (docker.io) and prints the
+    /// matches: name, stars, official, and a short description.
+    Search {
+        /// The term to search for (e.g. `nginx`).
+        term: String,
+        /// Cap the number of results (`docker search --limit`). Default 25.
+        #[arg(long, default_value_t = 25)]
+        limit: usize,
+    },
+    /// Authenticate to an OCI registry.
+    ///
+    /// Stores the credentials in `<root>/auth.json`, docker/podman format.
+    /// The password ALWAYS comes from stdin — never from an argument (it
+    /// would end up in the shell history and in /proc).
+    Login {
+        /// Registry (e.g. `ghcr.io`, `docker.io`).
+        registry: String,
+        #[arg(short = 'u', long = "username")]
+        username: String,
+        /// Read the password/token from stdin (the only supported way).
+        #[arg(long = "password-stdin")]
+        password_stdin: bool,
+    },
+    /// Remove the stored credentials of a registry.
+    Logout {
+        #[arg(add = clap_complete::engine::ArgValueCandidates::new(cmd::complete::registries))]
+        registry: String,
+    },
+    /// Engine state: rootless?, cgroup delegation, network infra, counts.
+    Info,
+    /// Engine events (create/start/die/remove/…), from oldest to most recent.
+    ///
+    /// With no daemon, the log is a shared append-only file — each command
+    /// appends its own line (see `delonix_node::events`).
+    Events {
+        /// Follow continuously (Ctrl-C to exit).
+        #[arg(short, long, visible_short_alias = 'w')]
+        follow: bool,
+        /// Show only the last N (default: all).
+        #[arg(short = 'n', long)]
+        tail: Option<usize>,
+        /// Output format: `table` (default) or `json` (ADR-0005). With `-f`, `json` streams ONE OBJECT PER LINE (JSONL) — a JSON array would never close on a stream
+        #[arg(short = 'o', long = "output", value_enum, default_value_t)]
+        output: cmd::output::OutputFormat,
+    },
     /// Real multi-container pods (N containers sharing a netns): create/logs/exec/cp/attach/port-forward.
     ///
     /// `describe`/`rm` moved to the generic per-Kind verbs — `delonix describe
@@ -650,6 +779,80 @@ enum Cmd {
         #[arg(value_hint = clap::ValueHint::FilePath, long)]
         config: std::path::PathBuf,
     },
+    // ---- Docker/Podman compatibility shims (hidden) ----
+    // Verbs for a daemon, an orchestrator or a VM manager this engine does not
+    // run. HIDDEN so they never advertise a feature that is not here, but still
+    // reachable so a ported `docker swarm …`/`podman machine …` script meets an
+    // ACTIONABLE error (pointing at `serve docker-api`) instead of the bare
+    // `unrecognized subcommand`. Each swallows its trailing args.
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Swarm {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Node {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Service {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Machine {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Context {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`.
+    #[command(hide = true)]
+    Plugin {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    // ---- BuildKit front-end shims (hidden) ----
+    // `buildx`/`builder`/`bake` are Docker's BuildKit CLIs; this engine builds
+    // with its own `build`/`compose build`, not BuildKit. Hidden, but reachable
+    // so a ported `docker buildx …` meets an actionable pointer, not
+    // `unrecognized subcommand`.
+    /// Docker BuildKit front-end not implemented — use `delonix build`.
+    #[command(hide = true)]
+    Buildx {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker BuildKit front-end not implemented — use `delonix build`.
+    #[command(hide = true)]
+    Builder {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Docker BuildKit front-end not implemented — use `delonix build`.
+    #[command(hide = true)]
+    Bake {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    // ---- CRIU checkpoint/restore shims (hidden) ----
+    // `checkpoint`/`restore` need CRIU, which this engine does not integrate yet.
+    // Hidden, but reachable so a ported script meets an actionable error.
+    /// Checkpoint/restore needs CRIU, which this engine does not integrate yet.
+    #[command(hide = true)]
+    Checkpoint {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 /// The `--version` business card (the `-V` keeps the short, stable line for
@@ -771,11 +974,32 @@ fn peek_template() -> Option<String> {
 /// `--help` and the generated manpages keep describing every flag the command
 /// accepts regardless of template.
 fn completion_tree() -> clap::Command {
-    let cmd = <Cli as clap::CommandFactory>::command();
+    let cmd = expand_completion_aliases(<Cli as clap::CommandFactory>::command());
     match peek_template() {
         Some(t) => hide_flags_the_template_refuses(cmd, &t),
         None => cmd,
     }
+}
+
+/// The completion engine groups a command and its aliases under one candidate ID.
+/// Give each visible spelling its own ID in the completion tree so an empty
+/// prefix offers both `ps` and `ls`, with the same flags and description.
+fn expand_completion_aliases(cmd: clap::Command) -> clap::Command {
+    let mut extra = Vec::new();
+    let cmd = cmd.mut_subcommands(|child| {
+        let child = expand_completion_aliases(child);
+        let visible: Vec<_> = child.get_visible_aliases().map(str::to_owned).collect();
+        if visible.is_empty() {
+            return child;
+        }
+        let hidden: Vec<_> = child.get_aliases().map(str::to_owned).collect();
+        let canonical = child.alias(None);
+        for name in visible {
+            extra.push(canonical.clone().name(name));
+        }
+        canonical.aliases(hidden)
+    });
+    cmd.subcommands(extra)
 }
 
 /// Split from `completion_tree` so it can be tested: the tree is the testable
@@ -823,6 +1047,35 @@ fn hide_flags_the_template_refuses(cmd: clap::Command, template: &str) -> clap::
 /// is `clap_complete`'s to keep working, the per-template shape is ours.
 #[cfg(test)]
 mod completion_filter_tests {
+
+    #[test]
+    fn tab_lists_each_visible_spelling_with_its_description() {
+        for (group, name, alias) in [
+            (None, "ps", "ls"),
+            (Some("container"), "ps", "ls"),
+            (Some("image"), "remove", "rm"),
+        ] {
+            let words: Vec<_> = std::iter::once("delonix")
+                .chain(group)
+                .chain([""])
+                .map(std::ffi::OsString::from)
+                .collect();
+            let index = words.len() - 1;
+            let candidates =
+                clap_complete::engine::complete(&mut super::completion_tree(), words, index, None)
+                    .unwrap();
+            let description = |spelling: &str| {
+                candidates
+                    .iter()
+                    .find(|c| c.get_value() == std::ffi::OsStr::new(spelling))
+                    .and_then(|c| c.get_help())
+                    .map(ToString::to_string)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| panic!("missing TAB description for {group:?} {spelling}"))
+            };
+            assert_eq!(description(name), description(alias));
+        }
+    }
     use clap::CommandFactory;
 
     /// Whether `arg` is hidden (i.e. not offered) under `path`, for `template`.
@@ -933,6 +1186,461 @@ mod completion_filter_tests {
                 "{arg} must stay in --help"
             );
         }
+    }
+}
+
+/// The Docker/Podman `-i`/`-t`/`-it` spelling must PARSE on `run` and `create`.
+/// Rejecting `-it` broke every interactive script on the first line
+/// (`error: unexpected argument '-i' found`), measured against docker 29.9.2
+/// and podman 4.9.3 in `tests/cli-parity/differential/flow1_interactive.py`.
+/// The flags are accepted for parity; the daemonless foreground run already
+/// inherits the operator's TTY, so behaviour was never the gap — recognition
+/// was. A clap parse test, no engine needed.
+#[cfg(test)]
+mod run_interactive_flag_parity_tests {
+    use clap::Parser;
+
+    fn parses(argv: &[&str]) -> bool {
+        super::Cli::try_parse_from(argv).is_ok()
+    }
+
+    #[test]
+    fn run_accepts_the_docker_interactive_spellings() {
+        // The combined form scripts actually type, then each half.
+        assert!(parses(&["delonix", "run", "--rm", "-it", "busybox", "sh"]));
+        assert!(parses(&["delonix", "run", "-i", "busybox", "sh"]));
+        assert!(parses(&["delonix", "run", "-t", "busybox", "sh"]));
+        assert!(parses(&["delonix", "run", "-dit", "busybox", "sh"]));
+        // Long forms too.
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--interactive",
+            "--tty",
+            "busybox"
+        ]));
+    }
+
+    #[test]
+    fn create_accepts_them_too() {
+        // `create` shares `RunArgs`, so `docker create -it` must parse as well.
+        assert!(parses(&["delonix", "create", "-it", "busybox", "sh"]));
+    }
+
+    #[test]
+    fn run_accepts_platform() {
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--platform",
+            "linux/amd64",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--platform",
+            "linux/arm64",
+            "busybox"
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_umask_and_cgroupns() {
+        assert!(parses(&["delonix", "run", "--umask", "0077", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--cgroupns",
+            "private",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--cgroupns",
+            "host",
+            "busybox"
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_the_docker_pull_policy() {
+        for p in ["missing", "always", "never"] {
+            assert!(parses(&["delonix", "run", "--pull", p, "busybox"]), "{p}");
+            assert!(
+                parses(&["delonix", "create", "--pull", p, "busybox"]),
+                "{p}"
+            );
+        }
+        // An unknown policy is refused by the parser, never silently ignored.
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--pull",
+            "sometimes",
+            "busybox"
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_the_docker_network_and_cpuset_spellings() {
+        // `--network`/`--cpuset-cpus` are the Docker spellings aliased onto
+        // `--net`/`--cpuset`.
+        assert!(parses(&["delonix", "run", "--network", "mynet", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--cpuset-cpus",
+            "0-1",
+            "busybox"
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_cidfile_and_shm_size() {
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--cidfile",
+            "/tmp/x.cid",
+            "busybox"
+        ]));
+        assert!(parses(&["delonix", "run", "--shm-size", "128m", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--cidfile",
+            "/tmp/y.cid",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--shm-size",
+            "1g",
+            "busybox"
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_the_docker_cgroup_flags() {
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--pids-limit",
+            "100",
+            "busybox"
+        ]));
+        assert!(parses(&["delonix", "run", "--pids-limit", "-1", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--memory-reservation",
+            "256m",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--memory-swap",
+            "1g",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--memory-swap",
+            "-1",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--pids-limit",
+            "100",
+            "busybox"
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_the_docker_cpu_shares_blkio_and_oom_flags() {
+        // `--cpu-shares` (2..=262144), `--blkio-weight` (10..=1000) and the now
+        // visible `--oom-score-adj` (-1000..=1000) must parse on run AND create.
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--cpu-shares",
+            "512",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--blkio-weight",
+            "500",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--oom-score-adj",
+            "-500",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--cpu-shares",
+            "1024",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--blkio-weight",
+            "10",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--oom-score-adj",
+            "1000",
+            "busybox"
+        ]));
+        // Out-of-range values are refused at parse, never clamped silently.
+        assert!(!parses(&["delonix", "run", "--cpu-shares", "1", "busybox"]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--cpu-shares",
+            "262145",
+            "busybox"
+        ]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--blkio-weight",
+            "9",
+            "busybox"
+        ]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--blkio-weight",
+            "1001",
+            "busybox"
+        ]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--oom-score-adj",
+            "-1001",
+            "busybox"
+        ]));
+        assert!(!parses(&[
+            "delonix",
+            "run",
+            "--oom-score-adj",
+            "1001",
+            "busybox"
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_the_docker_ipc_and_pid_modes() {
+        assert!(parses(&["delonix", "run", "--pid", "host", "busybox"]));
+        assert!(parses(&["delonix", "run", "--ipc", "host", "busybox"]));
+        assert!(parses(&["delonix", "run", "--pid", "private", "busybox"]));
+        assert!(parses(&["delonix", "run", "--ipc", "private", "busybox"]));
+        assert!(parses(&["delonix", "run", "--uts", "host", "busybox"]));
+        assert!(parses(&["delonix", "run", "--uts", "private", "busybox"]));
+    }
+
+    #[test]
+    fn run_accepts_mount_syntax() {
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--mount",
+            "type=bind,source=/etc,target=/x,readonly",
+            "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--mount",
+            "type=volume,source=data,target=/d",
+            "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--mount",
+            "type=tmpfs,target=/t,tmpfs-size=16m",
+            "busybox",
+        ]));
+    }
+
+    #[test]
+    fn docker_shim_verbs_parse_into_their_variant() {
+        use clap::Parser;
+        // Hidden shims: a ported `docker swarm …`/`podman machine …` must PARSE
+        // (so the dispatch can give the actionable refusal), never fail at clap
+        // with "unrecognized subcommand". The trailing args are swallowed.
+        let parse = |v: &str| {
+            super::Cli::try_parse_from(["delonix", v, "init", "--flag", "x"])
+                .unwrap_or_else(|e| panic!("`{v}` must parse as a shim, not error at clap: {e}"))
+                .cmd
+        };
+        assert!(matches!(parse("swarm"), super::Cmd::Swarm { .. }));
+        assert!(matches!(parse("node"), super::Cmd::Node { .. }));
+        assert!(matches!(parse("service"), super::Cmd::Service { .. }));
+        assert!(matches!(parse("machine"), super::Cmd::Machine { .. }));
+        assert!(matches!(parse("context"), super::Cmd::Context { .. }));
+        assert!(matches!(parse("plugin"), super::Cmd::Plugin { .. }));
+        assert!(matches!(parse("buildx"), super::Cmd::Buildx { .. }));
+        assert!(matches!(parse("builder"), super::Cmd::Builder { .. }));
+        assert!(matches!(parse("bake"), super::Cmd::Bake { .. }));
+        assert!(matches!(parse("checkpoint"), super::Cmd::Checkpoint { .. }));
+    }
+
+    #[test]
+    fn run_accepts_init() {
+        assert!(parses(&["delonix", "run", "--init", "busybox", "sh"]));
+        assert!(parses(&["delonix", "create", "--init", "busybox"]));
+    }
+
+    #[test]
+    fn run_accepts_label_file_and_annotation() {
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--label-file",
+            "/tmp/x.labels",
+            "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--annotation",
+            "a.b/c=1",
+            "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--label-file",
+            "/tmp/a.labels",
+            "--label-file",
+            "/tmp/b.labels",
+            "--annotation",
+            "x=1",
+            "--annotation",
+            "y=2",
+            "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--label-file",
+            "/tmp/y.labels",
+            "busybox",
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--annotation",
+            "k=v",
+            "busybox",
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_volumes_from() {
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--volumes-from",
+            "data",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--volumes-from",
+            "data:ro",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--volumes-from",
+            "a",
+            "--volumes-from",
+            "b:ro",
+            "busybox",
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_publish_all() {
+        assert!(parses(&["delonix", "run", "-P", "busybox"]));
+        assert!(parses(&["delonix", "run", "--publish-all", "busybox"]));
+        assert!(parses(&["delonix", "create", "--publish-all", "busybox"]));
+    }
+
+    #[test]
+    fn run_accepts_no_healthcheck() {
+        assert!(parses(&["delonix", "run", "--no-healthcheck", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--no-healthcheck",
+            "busybox"
+        ]));
+    }
+
+    #[test]
+    fn run_accepts_stop_signal_and_timeout() {
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--stop-signal",
+            "SIGINT",
+            "busybox"
+        ]));
+        assert!(parses(&["delonix", "run", "--stop-signal", "2", "busybox"]));
+        assert!(parses(&[
+            "delonix",
+            "run",
+            "--stop-timeout",
+            "30",
+            "busybox"
+        ]));
+        assert!(parses(&[
+            "delonix",
+            "create",
+            "--stop-signal",
+            "SIGQUIT",
+            "busybox"
+        ]));
+        // `stop -t` is now optional (per-container default honored otherwise).
+        assert!(parses(&["delonix", "stop", "web"]));
+        assert!(parses(&["delonix", "stop", "-t", "5", "web"]));
+    }
+
+    #[test]
+    fn trailing_command_after_it_still_reaches_run() {
+        // `-it` before the image must not derail the parse into another verb —
+        // a regression guard for the `trailing_var_arg` interaction. The live
+        // differential proves the image/command survive end to end
+        // (`run -it busybox sh -c 'exit 37'` → exit 37).
+        let cli =
+            super::Cli::try_parse_from(["delonix", "run", "-it", "busybox", "sh", "-c", "exit 37"])
+                .expect("must parse");
+        assert!(matches!(cli.cmd, super::Cmd::Run(_)), "expected Run");
     }
 }
 
@@ -1174,6 +1882,49 @@ fn run() -> Result<()> {
         Cmd::Save(a) => cmd::image::run(cmd::image::ImageCmd::Save(a)),
         Cmd::Load(a) => cmd::image::run(cmd::image::ImageCmd::Load(a)),
         Cmd::Push(a) => cmd::image::run(cmd::image::ImageCmd::Push(a)),
+        // The remaining root aliases — same group handler, no second path.
+        Cmd::Cp { src, dst } => cmd::container::run(cmd::container::ContainerCmd::Cp { src, dst }),
+        Cmd::Port { id } => cmd::container::run(cmd::container::ContainerCmd::Port { id }),
+        Cmd::Pause { ids } => cmd::container::run(cmd::container::ContainerCmd::Pause { ids }),
+        Cmd::Unpause { ids } => cmd::container::run(cmd::container::ContainerCmd::Unpause { ids }),
+        Cmd::Commit { id, tag } => {
+            cmd::container::run(cmd::container::ContainerCmd::Commit { id, tag })
+        }
+        Cmd::Top { id } => cmd::container::run(cmd::container::ContainerCmd::Top { id }),
+        Cmd::Rename { id, new_name } => {
+            cmd::container::run(cmd::container::ContainerCmd::Rename { id, new_name })
+        }
+        Cmd::History { image } => cmd::image::run(cmd::image::ImageCmd::History { image }),
+        Cmd::Untag { name } => cmd::image::run(cmd::image::ImageCmd::Untag { name }),
+        Cmd::Export { id, output } => {
+            cmd::container::run(cmd::container::ContainerCmd::Export { id, output })
+        }
+        Cmd::Import { input, reference } => {
+            cmd::image::run(cmd::image::ImageCmd::Import { input, reference })
+        }
+        Cmd::Search { term, limit } => {
+            cmd::image::run(cmd::image::ImageCmd::Search { term, limit })
+        }
+        Cmd::Login {
+            registry,
+            username,
+            password_stdin,
+        } => cmd::image::run(cmd::image::ImageCmd::Login {
+            registry,
+            username,
+            password_stdin,
+        }),
+        Cmd::Logout { registry } => cmd::image::run(cmd::image::ImageCmd::Logout { registry }),
+        Cmd::Info => cmd::system::run(cmd::system::SystemCmd::Info),
+        Cmd::Events {
+            follow,
+            tail,
+            output,
+        } => cmd::system::run(cmd::system::SystemCmd::Events {
+            follow,
+            tail,
+            output,
+        }),
         Cmd::Pod { action } => cmd::pod::run(action),
         Cmd::Image { action } => cmd::image::run(action),
         Cmd::OciRuntime(args) => cmd::oci_runtime::run(args),
@@ -1295,6 +2046,16 @@ fn run() -> Result<()> {
         Cmd::Mcp { action } => cmd::mcp::run(action),
         Cmd::Hosts { action } => cmd::hosts::run(action),
         Cmd::IngressProxy { config } => cmd::ingress_proxy::run(&config),
+        Cmd::Swarm { .. } => docker_api_shim("swarm"),
+        Cmd::Node { .. } => docker_api_shim("node"),
+        Cmd::Service { .. } => docker_api_shim("service"),
+        Cmd::Machine { .. } => docker_api_shim("machine"),
+        Cmd::Context { .. } => docker_api_shim("context"),
+        Cmd::Plugin { .. } => docker_api_shim("plugin"),
+        Cmd::Buildx { .. } => buildkit_shim("buildx"),
+        Cmd::Builder { .. } => buildkit_shim("builder"),
+        Cmd::Bake { .. } => buildkit_shim("bake"),
+        Cmd::Checkpoint { .. } => criu_shim("checkpoint"),
         Cmd::Dashboard { scope, once, json } => {
             cmd::dash::run(scope.unwrap_or(cmd::dash::DashScope::Global), once, json)
         }
@@ -1311,6 +2072,37 @@ fn run() -> Result<()> {
 /// `COMPLETE=<shell> delonix -- …` to get command/subcommand/flag suggestions
 /// in real time, from the SAME `Cli` definition used for parsing — it never
 /// goes out of date by hand.
+/// The Docker/Podman compatibility-shim verbs (`swarm`/`node`/`service`/
+/// `machine`/`context`/`plugin`): features of a daemon, an orchestrator or a VM
+/// manager this engine does not run. Refuse with the actionable path — the real
+/// `docker` CLI can drive delonix through `serve docker-api` — instead of the
+/// bare `unrecognized subcommand` a ported script would otherwise hit.
+fn docker_api_shim(verb: &str) -> Result<()> {
+    Err(delonix_model::Error::Invalid(format!(
+        "`{verb}` is a Docker/Podman cluster/daemon/VM feature this engine does not implement — \
+         it is daemonless and rootless, with no Swarm, no machine manager and no remote context \
+         (ADR-0010). The Docker API shim does NOT serve `{verb}` either. For the CONTAINER and \
+         IMAGE surface, `delonix serve docker-api` + DOCKER_HOST lets the real `docker` CLI drive \
+         the engine. See docs/cli-stability.md."
+    )))
+}
+
+fn buildkit_shim(verb: &str) -> Result<()> {
+    Err(delonix_model::Error::Invalid(format!(
+        "`{verb}` is a Docker BuildKit front-end this engine does not implement — it builds with \
+         its own engine. Use `delonix build` for a Dockerfile/Delonixfile (a compose file's \
+         `build:` sections are built by `delonix compose up`). See docs/cli-stability.md."
+    )))
+}
+
+fn criu_shim(verb: &str) -> Result<()> {
+    Err(delonix_model::Error::Invalid(format!(
+        "`{verb}` needs CRIU (checkpoint/restore of a running container), which this engine does \
+         not integrate yet. The per-container form `container {verb}` reports the same. See \
+         docs/cli-stability.md."
+    )))
+}
+
 fn cmd_completion(shell: CompShell) -> Result<()> {
     use clap_complete::env::{Bash, Elvish, EnvCompleter, Fish, Powershell, Zsh};
     use std::io::Write;
@@ -1702,7 +2494,10 @@ mod advisory_flag_tests {
     #[test]
     fn the_docker_spellings_are_not_ours() {
         let real = container_run_flags();
-        for f in ["--memory-swap", "--pids-limit", "--cpuset-mems", "--io-max"] {
+        // `--pids-limit` and `--memory-reservation` DID land (CLI-parity review)
+        // and were added to `flags_of_controller` in the same change; the rest
+        // stay Docker-only spellings this engine does not ship.
+        for f in ["--cpuset-mems", "--io-max"] {
             assert!(
                 !real.contains(f),
                 "{f} passou a existir — se é mesmo nossa, acrescenta-a ao \
@@ -1727,7 +2522,7 @@ mod advisory_flag_tests {
             DELEGATION_LIMITS_APPLY,
             DELEGATION_LIMITS_INERT,
         ] {
-            for f in ["--pids-limit", "--memory-swap", "--cpuset-mems", "--io-max"] {
+            for f in ["--cpuset-mems", "--io-max"] {
                 assert!(
                     !label.contains(f),
                     "advisory label {label:?} names {f}, a flag `container run` does not have"
@@ -1914,6 +2709,26 @@ mod cli_stability_classification_tests {
         "save",
         "load",
         "push",
+        // Added in the CLI-parity review: the remaining Docker/Podman root
+        // verbs, true aliases of their group form.
+        "cp",
+        "port",
+        "login",
+        "logout",
+        "info",
+        "events",
+        // CLI-parity second wave: the remaining Docker/Podman root verbs that
+        // alias a `container <verb>` handler 1:1.
+        "pause",
+        "unpause",
+        "commit",
+        "top",
+        "rename",
+        "history",
+        "untag",
+        "export",
+        "import",
+        "search",
     ];
 
     /// Every other real top-level group, mirroring "NÃO estável" 1:1. A group
@@ -1968,7 +2783,24 @@ mod cli_stability_classification_tests {
     /// tree (so `get_subcommands()` sees it) but not a public surface a user
     /// ever types; `stack apply` launches it by argv, inside the holder's
     /// netns. Neither belongs in either stability list.
-    const NOT_A_GROUP: &[&str] = &["help", "ingress-proxy"];
+    // The hidden Docker/Podman compatibility shims are neither stable nor
+    // unstable PUBLIC surface — they exist only to turn a ported `docker
+    // swarm`/`podman machine` into an actionable error. Excluded like the other
+    // non-group entries.
+    const NOT_A_GROUP: &[&str] = &[
+        "help",
+        "ingress-proxy",
+        "swarm",
+        "node",
+        "service",
+        "machine",
+        "context",
+        "plugin",
+        "buildx",
+        "builder",
+        "bake",
+        "checkpoint",
+    ];
 
     #[test]
     fn every_root_group_is_classified_exactly_once() {
@@ -2096,12 +2928,26 @@ mod container_image_contract_tests {
             "--name",
             "--rm",
             "--net",
+            "--pull",
+            "--platform",
+            "--umask",
+            "--cgroupns",
             "--restart",
             "--memory",
+            "--memory-reservation",
+            "--memory-swap",
+            "--pids-limit",
             "--cpus",
+            "--cpu-shares",
+            "--blkio-weight",
+            "--oom-score-adj",
             "--entrypoint",
             "--add-host",
             "--wait",
+            "--publish-all",
+            "--no-healthcheck",
+            "--label-file",
+            "--annotation",
         ] {
             assert!(long.contains(f), "`container run {f}` desapareceu");
         }
@@ -2110,7 +2956,9 @@ mod container_image_contract_tests {
             "`container run --health-*` desapareceu"
         );
         let short: BTreeSet<char> = run.get_arguments().filter_map(|a| a.get_short()).collect();
-        for f in ['d', 'p', 'v', 'e', 'w', 'u'] {
+        // `-i`/`-t` joined the set so `run -it` parses like docker/podman — the
+        // gap flow 1 of the CLI-parity review hit on its very first line.
+        for f in ['d', 'i', 't', 'p', 'P', 'v', 'e', 'w', 'u'] {
             assert!(short.contains(&f), "`container run -{f}` desapareceu");
         }
     }

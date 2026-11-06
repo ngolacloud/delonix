@@ -41,6 +41,7 @@ pub fn run_spec<'h>(
         dns,
         host_pid: c.host_pid,
         host_ipc: c.host_ipc,
+        uts_host: c.uts_host,
         apparmor: l.apparmor.clone(),
         selinux: c.selinux.clone(),
         log_cri: c.log_cri,

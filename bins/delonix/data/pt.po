@@ -1608,8 +1608,88 @@ msgstr "Detalhe legível de uma ou mais imagens, ao estilo `kubectl describe` (t
 msgid "Give another name/tag to a local image (copies nothing — it's just a new name for the same content)."
 msgstr "Dá outro nome/tag a uma imagem local (não copia nada — é só um nome novo para o mesmo conteúdo)."
 
+msgid "Full detail of one or more images as a JSON array (`docker image inspect`)."
+msgstr "Detalhe completo de uma ou mais imagens como array JSON (`docker image inspect`)."
+
+msgid "Exit 0 if the image exists locally, 1 if not — prints nothing (`podman image exists`)."
+msgstr "Sai 0 se a imagem existir localmente, 1 se não — não imprime nada (`podman image exists`)."
+
+msgid "Remove one name/tag from an image without deleting its content (`podman untag`)."
+msgstr "Remove um nome/tag de uma imagem sem apagar o seu conteúdo (`podman untag`)."
+
+msgid "{name} is not a name of this image"
+msgstr "{name} não é um nome desta imagem"
+
+msgid "untagged: {name}"
+msgstr "sem tag: {name}"
+
 msgid "Layers of an image (digest + size), from base to top."
 msgstr "Layers de uma imagem (digest + tamanho), da base para o topo."
+
+msgid "Show how two images differ at the layer level."
+msgstr "Mostra como duas imagens diferem ao nível dos layers."
+
+msgid ""
+"Show how two images differ at the layer level.\n"
+"\n"
+"Lists the layer blobs only in the first image, only in the second, and the "
+"ones they share, read straight from the stored records (the same layer set "
+"`image history` prints). Read-only — nothing is pulled. Podman has `podman "
+"image diff`; Docker does not."
+msgstr ""
+"Mostra como duas imagens diferem ao nível dos layers.\n"
+"\n"
+"Lista os blobs de layer que só estão na primeira imagem, só na segunda, e os "
+"que partilham, lidos directamente dos registos guardados (o mesmo conjunto de "
+"layers que o `image history` imprime). Só de leitura — nada é puxado. O Podman "
+"tem `podman image diff`; o Docker não."
+
+msgid "Layer stack of one image, base to top, as an indented tree."
+msgstr "Pilha de layers de uma imagem, da base ao topo, como uma árvore indentada."
+
+msgid ""
+"Layer stack of one image, base to top, as an indented tree.\n"
+"\n"
+"Like `podman image tree`, trimmed to what the record holds: an indented list "
+"of the image's layers with each blob's size, base at the top and the newest "
+"layer at the bottom. Same data source as `image history`, read-only."
+msgstr ""
+"Pilha de layers de uma imagem, da base ao topo, como uma árvore indentada.\n"
+"\n"
+"Como o `podman image tree`, reduzido ao que o registo guarda: uma lista "
+"indentada dos layers da imagem com o tamanho de cada blob, a base no topo e o "
+"layer mais recente em baixo. A mesma fonte de dados do `image history`, só de "
+"leitura."
+
+msgid "Comparing {a} and {b} by layer"
+msgstr "A comparar {a} e {b} por layer"
+
+msgid "Only in {image} ({n}):"
+msgstr "Só em {image} ({n}):"
+
+msgid "Shared ({n}):"
+msgstr "Partilhados ({n}):"
+
+msgid "{name} ({id})  {size}"
+msgstr "{name} ({id})  {size}"
+
+msgid "<no layers>"
+msgstr "<sem layers>"
+
+msgid "Layers (base -> top):"
+msgstr "Layers (base -> topo):"
+
+msgid "which layers two images keep apart and which they share"
+msgstr "que layers duas imagens mantêm à parte e quais partilham"
+
+msgid "confirm a rebuild only added layers on top of the same base"
+msgstr "confirmar que uma reconstrução só acrescentou layers sobre a mesma base"
+
+msgid "the layer stack of an image, base to top, as an indented tree"
+msgstr "a pilha de layers de uma imagem, da base ao topo, como uma árvore indentada"
+
+msgid "read where the weight sits before trimming the Dockerfile"
+msgstr "ver onde está o peso antes de aparar o Dockerfile"
 
 msgid "Verify the cosign signature of a local image against a public key."
 msgstr "Verifica a assinatura cosign de uma imagem local contra uma chave pública."
@@ -1725,6 +1805,36 @@ msgstr "Detalhe legível de uma ou mais redes, ao estilo `kubectl describe` (par
 msgid "Remove a network."
 msgstr "Remove uma rede."
 
+msgid "Remove every network that nothing is attached to."
+msgstr "Remove todas as redes a que nada está ligado."
+
+msgid "Remove every network that nothing is attached to.\n\nDocker's `network prune`. A network with a container (running OR stopped) or a VM still attached is KEPT and the reason printed — the same \"refuse while in use\" rule `volume prune` follows, because a prune that silently detached live workloads would be worse than one that skips. Unlike `volume prune` this destroys no data: a removed network can be recreated."
+msgstr "Remove todas as redes a que nada está ligado.\n\nÉ o `network prune` do Docker. Uma rede com um container (a correr OU parado) ou uma VM ainda ligados é MANTIDA e a razão é impressa — a mesma regra de \"recusar enquanto em uso\" que o `volume prune` segue, porque um prune que desligasse cargas vivas em silêncio seria pior do que um que salta. Ao contrário do `volume prune`, este não destrói dados: uma rede removida pode ser recriada."
+
+msgid "Exit 0 if the network exists, 1 if not (prints nothing)."
+msgstr "Sai com 0 se a rede existir, 1 caso contrário (não imprime nada)."
+
+msgid "remove every network nothing is attached to"
+msgstr "remove todas as redes a que nada está ligado"
+
+msgid "exit 0 if it is there, 1 if not — for a script"
+msgstr "sai com 0 se existir, 1 caso contrário — para um script"
+
+msgid "no unused network to remove"
+msgstr "nenhuma rede sem uso para remover"
+
+msgid "kept {name}: in use by {what}"
+msgstr "mantida {name}: em uso por {what}"
+
+msgid "`network prune` removes every network nothing is attached to — pass --force to confirm when not on a terminal"
+msgstr "`network prune` remove todas as redes a que nada está ligado — passe --force para confirmar quando não está num terminal"
+
+msgid "This will remove {n} network(s): {list}"
+msgstr "Isto vai remover {n} rede(s): {list}"
+
+msgid "Continue? [y/N]"
+msgstr "Continuar? [s/N]"
+
 msgid "Apply the `kind: Network` documents of a manifest (idempotent by name)."
 msgstr "Aplica os documentos `kind: Network` de um manifesto (idempotente por nome)."
 
@@ -1811,6 +1921,9 @@ msgstr "Detalhe legível de um ou mais volumes, ao estilo kubectl describe (para
 
 msgid "Remove a volume."
 msgstr "Remove um volume."
+
+msgid "Exit 0 if the volume exists, 1 if not (prints nothing)."
+msgstr "Sai com 0 se o volume existir, 1 caso contrário (não imprime nada)."
 
 msgid "Apply the kind: Volume documents from a manifest (idempotent by name)."
 msgstr "Aplica os documentos kind: Volume de um manifesto (idempotente por nome)."
@@ -3747,6 +3860,70 @@ msgstr "{ref}: guardada em {path}"
 msgid "loaded: {tags}"
 msgstr "carregada: {tags}"
 
+msgid "imported: {tags}"
+msgstr "importada: {tags}"
+
+msgid "Create an image from a rootfs tarball (`docker import`)."
+msgstr "Cria uma imagem a partir de um tarball de rootfs (`docker import`)."
+
+msgid ""
+"Create an image from a rootfs tarball (`docker import`)."
+"\n"
+"\n"
+"The counterpart of `export`: a filesystem tar (plain or gzip) becomes a single-layer image. Unlike `load`, the tar carries no image metadata, so the new image has an empty config (no CMD/ENV) — set those at `run` time."
+msgstr ""
+"Cria uma imagem a partir de um tarball de rootfs (`docker import`)."
+"\n"
+"\n"
+"O inverso do `export`: um tar de sistema de ficheiros (simples ou gzip) torna-se uma imagem de camada única. Ao contrário do `load`, o tar não leva metadados de imagem, logo a imagem nova tem config vazia (sem CMD/ENV) — define-os no `run`."
+
+msgid "The rootfs tar (plain or gzip). `-` reads from stdin."
+msgstr "O tar do rootfs (simples ou gzip). `-` lê do stdin."
+
+msgid "Name/tag for the new image (e.g. `app:imported`). Optional, like Docker."
+msgstr "Nome/etiqueta da imagem nova (ex. `app:imported`). Opcional, como no Docker."
+
+msgid "turn a rootfs tar (e.g. from `export`) into an image"
+msgstr "transforma um tar de rootfs (ex. de `export`) numa imagem"
+
+msgid "import a gzipped rootfs read from stdin"
+msgstr "importa um rootfs comprimido lido do stdin"
+
+msgid "turn a rootfs tar into an image"
+msgstr "transforma um tar de rootfs numa imagem"
+
+msgid "import a gzipped rootfs from stdin"
+msgstr "importa um rootfs comprimido do stdin"
+
+msgid "Search Docker Hub for images (`docker search`)."
+msgstr "Procura imagens no Docker Hub (`docker search`)."
+
+msgid ""
+"Search Docker Hub for images (`docker search`)."
+"\n"
+"\n"
+"Queries the public Docker Hub catalog (docker.io) and prints the matches: name, stars, official, and a short description."
+msgstr ""
+"Procura imagens no Docker Hub (`docker search`)."
+"\n"
+"\n"
+"Consulta o catálogo público do Docker Hub (docker.io) e lista as correspondências: nome, estrelas, oficial e uma descrição curta."
+
+msgid "The term to search for (e.g. `nginx`)."
+msgstr "O termo a procurar (ex. `nginx`)."
+
+msgid "Cap the number of results (`docker search --limit`). Default 25."
+msgstr "Limita o número de resultados (`docker search --limit`). Por omissão 25."
+
+msgid "no image on Docker Hub matches '{term}'"
+msgstr "nenhuma imagem do Docker Hub corresponde a '{term}'"
+
+msgid "find images on Docker Hub"
+msgstr "encontra imagens no Docker Hub"
+
+msgid "cap the number of results"
+msgstr "limita o número de resultados"
+
 msgid "Save an image to a portable archive (`docker save`'s counterpart) — the way to move an image to another machine with no registry. The archive is an OCI layout WITH the legacy `manifest.json`, so `delonix image load`, `docker load`, `podman load` and `ctr images import` all read it"
 msgstr "Guarda uma imagem num arquivo portátil (o equivalente ao `docker save`) — a forma de levar uma imagem para outra máquina sem registo. O arquivo é um OCI layout COM o `manifest.json` legado, por isso `delonix image load`, `docker load`, `podman load` e `ctr images import` leem-no todos"
 
@@ -4526,6 +4703,32 @@ msgstr "Processos a correr dentro de um container (lidos do `cgroup.procs`)."
 msgid "Files changed relative to the image: `A` = created/changed, `D` = deleted."
 msgstr "Ficheiros alterados face à imagem: `A` = criado/alterado, `D` = apagado."
 
+msgid "Export a container's filesystem as a tar archive (`docker export`)."
+msgstr "Exporta o sistema de ficheiros de um container como arquivo tar (`docker export`)."
+
+msgid ""
+"Export a container's filesystem as a tar archive (`docker export`)."
+"\n"
+"\n"
+"The whole rootfs as an UNCOMPRESSED tar; `/proc`, `/sys` and `/dev` travel as empty mount points. Unlike `image save`, this carries no image metadata — just the files, as the container sees their owners."
+msgstr ""
+"Exporta o sistema de ficheiros de um container como arquivo tar (`docker export`)."
+"\n"
+"\n"
+"O rootfs inteiro como tar NÃO comprimido; `/proc`, `/sys` e `/dev` viajam como pontos de montagem vazios. Ao contrário do `image save`, não leva metadados de imagem — só os ficheiros, com os donos que o container vê."
+
+msgid "Write to this file instead of stdout (`docker export -o`)."
+msgstr "Escreve neste ficheiro em vez do stdout (`docker export -o`)."
+
+msgid "stream a container's rootfs as a tar"
+msgstr "transmite o rootfs de um container como tar"
+
+msgid "write the tar straight to a file"
+msgstr "escreve o tar directamente num ficheiro"
+
+msgid "Test whether a container exists in the store (Podman's `container exists`): prints nothing, exit 0/1."
+msgstr "Verifica se um container existe no store (o `container exists` do Podman): não imprime nada, sai com 0/1."
+
 msgid "Copy files between the host and a container. Exactly one side is `container:/path` (e.g. `delonix container cp web:/etc/nginx.conf .`)."
 msgstr "Copia ficheiros entre o host e um container. Exactamente um dos lados é `container:/caminho` (ex.: `delonix container cp web:/etc/nginx.conf .`)."
 
@@ -5018,6 +5221,12 @@ msgstr "Label (`CHAVE=VALOR`), repetível — ex.: `io.x-k8s.kind.role=control-p
 msgid "Load variables from a `.env` file (`KEY=VAL` per line). Repeatable"
 msgstr "Carrega variáveis de um ficheiro `.env` (`CHAVE=VALOR` por linha). Repetível"
 
+msgid "Read labels from a file (`KEY=VAL` per line), like `--env-file`. Repeatable. An explicit `--label` on the same key wins"
+msgstr "Lê labels de um ficheiro (`CHAVE=VALOR` por linha), como `--env-file`. Repetível. Um `--label` explícito na mesma chave prevalece"
+
+msgid "OCI annotation (`key=value`), repeatable — non-identifying metadata stored on the container (shown in `delonix inspect`)"
+msgstr "Anotação OCI (`chave=valor`), repetível — metadados não identificadores guardados no container (mostrados em `delonix inspect`)"
+
 msgid "Log driver (`json`, `cri`, ...)"
 msgstr "Driver de log (`json`, `cri`, ...)"
 
@@ -5078,11 +5287,234 @@ msgstr "Peso relativo de CPU (`cpu.weight`, 1–10000) sob contenção"
 msgid "Relative I/O weight (`io.weight`, 1–10000)"
 msgstr "Peso relativo de I/O (`io.weight`, 1–10000)"
 
+msgid "Docker/Podman `--cpu-shares` (2–262144), converted onto `cpu.weight`; `--cpu-weight` wins if both are given"
+msgstr "`--cpu-shares` do Docker/Podman (2–262144), convertido para `cpu.weight`; o `--cpu-weight` prevalece se ambos forem dados"
+
+msgid "Docker/Podman `--blkio-weight` (10–1000), mapped onto `io.weight`; `--io-weight` wins if both are given"
+msgstr "`--blkio-weight` do Docker/Podman (10–1000), mapeado para `io.weight`; o `--io-weight` prevalece se ambos forem dados"
+
+msgid "Tune the out-of-memory killer score (Docker/Podman `--oom-score-adj`, -1000 to 1000); higher means killed sooner. Also the CRI `LinuxContainerResources.oom_score_adj` (ADR 0038 item 3), written to `/proc/<pid>/oom_score_adj` at spawn"
+msgstr "Afina a pontuação do assassino de memória (`--oom-score-adj` do Docker/Podman, -1000 a 1000); mais alto significa morto mais cedo. Também o `LinuxContainerResources.oom_score_adj` do CRI (ADR 0038 item 3), escrito em `/proc/<pid>/oom_score_adj` no arranque"
+
 msgid "Remove the bandwidth cap"
 msgstr "Remove o tecto de largura de banda"
 
 msgid "Remove the container when the process exits (with `-d`, a detached watcher handles removal when the container dies)"
 msgstr "Remove o container quando o processo sair (com `-d`, um vigia desanexado trata da remoção quando o container morrer)"
+
+msgid "Keep STDIN open (Docker/Podman `-i`); a daemonless foreground `run` already inherits it, so `-it` gives an interactive shell. See `docs/cli-stability.md`."
+msgstr "Mantém o STDIN aberto (Docker/Podman `-i`); um `run` em primeiro plano, sem daemon, já o herda, por isso `-it` dá uma shell interactiva. Ver `docs/cli-stability.md`."
+
+msgid "Allocate a TTY (Docker/Podman `-t`); a foreground `run` inherits the operator's terminal (no pty is synthesized when stdout is not one). See `docs/cli-stability.md`."
+msgstr "Aloca um TTY (Docker/Podman `-t`); um `run` em primeiro plano herda o terminal do operador (não se sintetiza um pty quando o stdout não o é). Ver `docs/cli-stability.md`."
+
+msgid "When to pull the image (Docker/Podman `--pull`): `missing` (default — pull only if absent), `always` (pull before starting), `never` (fail if absent, never fetch)."
+msgstr "Quando puxar a imagem (Docker/Podman `--pull`): `missing` (por omissão — puxa só se faltar), `always` (puxa antes de arrancar), `never` (falha se faltar, nunca busca)."
+
+msgid "Write the created container's id to this file (Docker/Podman `--cidfile`); refused if the file already exists."
+msgstr "Escreve o id do container criado neste ficheiro (Docker/Podman `--cidfile`); recusado se o ficheiro já existir."
+
+msgid "Size of `/dev/shm` (Docker/Podman `--shm-size`, e.g. `64m`, `1g`); default 64 MiB."
+msgstr "Tamanho de `/dev/shm` (Docker/Podman `--shm-size`, ex. `64m`, `1g`); por omissão 64 MiB."
+
+msgid "Soft memory reservation (`memory.low`, Docker/Podman `--memory-reservation`, e.g. `256m`): memory the kernel tries NOT to reclaim under pressure. A floor, not a cap."
+msgstr "Reserva de memória suave (`memory.low`, Docker/Podman `--memory-reservation`, ex. `256m`): memória que o kernel tenta NÃO recuperar sob pressão. Um piso, não um tecto."
+
+msgid "Max number of processes (`pids.max`, Docker/Podman `--pids-limit`); `-1` = unlimited. Default: the engine's anti-fork-bomb ceiling."
+msgstr "Número máximo de processos (`pids.max`, Docker/Podman `--pids-limit`); `-1` = ilimitado. Por omissão: o tecto anti-fork-bomb do motor."
+
+msgid "PID namespace (Docker/Podman `--pid`): `host` shares the host's, `private` (default) its own. `--pid host` == `--host-pid`."
+msgstr "Namespace de PID (Docker/Podman `--pid`): `host` partilha o do host, `private` (por omissão) o seu próprio. `--pid host` == `--host-pid`."
+
+msgid "IPC namespace (Docker/Podman `--ipc`): `host` shares the host's, `private` (default) its own. `--ipc host` == `--host-ipc`."
+msgstr "Namespace de IPC (Docker/Podman `--ipc`): `host` partilha o do host, `private` (por omissão) o seu próprio. `--ipc host` == `--host-ipc`."
+
+msgid "UTS namespace (Docker/Podman `--uts`): `host` shares the host's hostname, `private` (default) its own. `--hostname` cannot be combined with `--uts host`"
+msgstr "Namespace de UTS (Docker/Podman `--uts`): `host` partilha o hostname do host, `private` (por omissão) o seu próprio. `--hostname` não pode ser combinado com `--uts host`"
+
+msgid "Docker/Podman daemon/orchestration feature not run by this daemonless engine — see `serve docker-api`"
+msgstr "Funcionalidade de daemon/orquestração do Docker/Podman que este motor sem daemon não corre — ver `serve docker-api`"
+
+msgid "Docker BuildKit front-end not implemented — use `delonix build`."
+msgstr "Front-end BuildKit do Docker não implementado — use `delonix build`."
+
+msgid "Checkpoint/restore needs CRIU, which this engine does not integrate yet."
+msgstr "Checkpoint/restore precisa do CRIU, que este motor ainda não integra."
+
+msgid "Platform of the image to pull (Docker/Podman `--platform`, e.g. `linux/amd64`, `linux/arm64`). Fetches that variant; a cross-arch image may not run on this host"
+msgstr "Plataforma da imagem a puxar (Docker/Podman `--platform`, ex. `linux/amd64`, `linux/arm64`). Busca essa variante; uma imagem de outra arquitectura pode não correr neste host"
+
+msgid "File-mode creation mask for the container process, in octal (Podman `--umask`, e.g. `0077`). Default keeps the runtime `0022`."
+msgstr "Máscara de criação de ficheiros para o processo do contentor, em octal (Podman `--umask`, ex. `0077`). Por omissão mantém o `0022` do motor."
+
+msgid "Cgroup namespace mode: `private` (own cgroup namespace) or `host` (share the host's view) (Docker/Podman `--cgroupns`). Default `host`."
+msgstr "Modo do espaço de nomes de cgroup: `private` (espaço de nomes próprio) ou `host` (partilha a vista do host) (Docker/Podman `--cgroupns`). Por omissão `host`."
+
+msgid "Signal `stop` sends first (Docker/Podman `--stop-signal`, e.g. `SIGINT` or `2`). Default `SIGTERM`; `SIGKILL` still follows after the grace period"
+msgstr "Sinal que o `stop` envia primeiro (Docker/Podman `--stop-signal`, ex. `SIGINT` ou `2`). Por omissão `SIGTERM`; o `SIGKILL` ainda vem a seguir ao período de graça"
+
+msgid "Seconds `stop` waits before `SIGKILL` (Docker/Podman `--stop-timeout`). An explicit `stop -t` overrides it"
+msgstr "Segundos que o `stop` espera antes do `SIGKILL` (Docker/Podman `--stop-timeout`). Um `stop -t` explícito tem prioridade"
+
+msgid "Seconds until SIGKILL (default: the container's `--stop-timeout`, else 10)"
+msgstr "Segundos até ao SIGKILL (por omissão: o `--stop-timeout` do container, senão 10)"
+
+msgid "Mount all the volumes of another container (Docker/Podman `--volumes-from`), `<container>[:ro|:rw]`. Repeatable."
+msgstr "Monta todos os volumes de outro container (Docker/Podman `--volumes-from`), `<container>[:ro|:rw]`. Repetível."
+
+msgid "Publish every port the image EXPOSEs, each on an ephemeral host port (Docker/Podman `--publish-all`/`-P`)."
+msgstr "Publica todas as portas que a imagem EXPÕE, cada uma numa porta efémera do hospedeiro (Docker/Podman `--publish-all`/`-P`)."
+
+msgid "Disable the image's HEALTHCHECK entirely (Docker/Podman `--no-healthcheck`): no monitor, no probe."
+msgstr "Desactiva por completo o HEALTHCHECK da imagem (Docker/Podman `--no-healthcheck`): sem monitor, sem sonda."
+
+msgid "Run a tiny init as PID 1 that reaps orphaned processes and forwards signals (Docker/Podman `--init`); the image command runs as its child."
+msgstr "Corre um init minúsculo como PID 1 que recolhe processos órfãos e reenvia sinais (Docker/Podman `--init`); o comando da imagem corre como seu filho."
+
+msgid "Mount in Docker/Podman `--mount` syntax: `type=bind|volume|tmpfs,source=…,target=…[,readonly]`. An alternative to `-v`. Repeatable."
+msgstr "Montagem na sintaxe `--mount` do Docker/Podman: `type=bind|volume|tmpfs,source=…,target=…[,readonly]`. Alternativa ao `-v`. Repetível."
+
+msgid "Memory + swap TOTAL (Docker/Podman `--memory-swap`, e.g. `1g`; `-1` = unlimited swap). The swap allowance is this minus `--memory`."
+msgstr "TOTAL de memória + swap (Docker/Podman `--memory-swap`, ex. `1g`; `-1` = swap ilimitado). A permissão de swap é este valor menos o `--memory`."
+
+msgid "copy a file OUT of a container to the host"
+msgstr "copiar um ficheiro PARA FORA de um container, para o host"
+
+msgid "copy a file INTO a container"
+msgstr "copiar um ficheiro PARA DENTRO de um container"
+
+msgid "the published ports of a container"
+msgstr "as portas publicadas de um container"
+
+msgid "freeze a container's processes (cgroup v2 freezer)"
+msgstr "congela os processos de um container (freezer do cgroup v2)"
+
+msgid "resume a frozen container"
+msgstr "retoma um container congelado"
+
+msgid "snapshot a container's rootfs into a new image"
+msgstr "fotografa o rootfs de um container numa nova imagem"
+
+msgid "the processes running inside a container"
+msgstr "os processos a correr dentro de um container"
+
+msgid "give a container a new name"
+msgstr "dá um novo nome a um container"
+
+msgid "the layers of an image, base to top"
+msgstr "as camadas de uma imagem, da base ao topo"
+
+msgid "drop one name from an image, keeping its content"
+msgstr "larga um nome de uma imagem, mantendo o conteúdo"
+
+msgid "authenticate to a registry, reading the token from stdin (never an argument)"
+msgstr "autenticar num registry, lendo o token do stdin (nunca de um argumento)"
+
+msgid "rootless?, cgroup delegation, network infra and resource counts"
+msgstr "rootless?, delegação de cgroups, infra de rede e contagem de recursos"
+
+msgid "the engine's event log, oldest to newest"
+msgstr "o registo de eventos do motor, do mais antigo ao mais recente"
+
+msgid "follow continuously, as JSON lines for a script"
+msgstr "seguir continuamente, em linhas JSON para um script"
+
+# ---- Imperative pod lifecycle verbs (Podman-style) ----
+msgid "Stop every member of a pod (SIGTERM, then SIGKILL) — Podman `pod stop`"
+msgstr "Pára todos os membros de um pod (SIGTERM, depois SIGKILL) — `pod stop` do Podman"
+
+msgid "Start every member of a pod — Podman `pod start`"
+msgstr "Arranca todos os membros de um pod — `pod start` do Podman"
+
+msgid "Stop then start every member of a pod — Podman `pod restart`"
+msgstr "Pára e volta a arrancar todos os membros de um pod — `pod restart` do Podman"
+
+msgid "Remove a pod and all its members — Podman `pod rm` (same as `delete pod`)"
+msgstr "Remove um pod e todos os seus membros — `pod rm` do Podman (igual a `delete pod`)"
+
+msgid "Seconds to wait before SIGKILL (default 10)"
+msgstr "Segundos a esperar antes do SIGKILL (por omissão 10)"
+
+msgid "Seconds to wait before SIGKILL on the stop half (default 10)"
+msgstr "Segundos a esperar antes do SIGKILL na parte da paragem (por omissão 10)"
+
+msgid "Remove even if members are running (stops them first)"
+msgstr "Remover mesmo com membros a correr (pára-os primeiro)"
+
+msgid "List pods and their members — Docker/Podman `pod ps` (same as `get pods`)"
+msgstr "Lista os pods e os seus membros — `pod ps` do Docker/Podman (igual a `get pods`)"
+
+msgid "Exit 0 if the pod exists, 1 if not (prints nothing) — Podman `pod exists`"
+msgstr "Sai com 0 se o pod existir, 1 caso contrário (não imprime nada) — `pod exists` do Podman"
+
+msgid "Remove every stopped pod (no running member) — Podman `pod prune`"
+msgstr "Remove todos os pods parados (sem membro a correr) — `pod prune` do Podman"
+
+msgid "Send a signal to every member of a pod — Podman `pod kill`"
+msgstr "Envia um sinal a todos os membros de um pod — `pod kill` do Podman"
+
+msgid "Suspend every member of a pod (freeze its cgroup) — Podman `pod pause`"
+msgstr "Suspende todos os membros de um pod (congela o seu cgroup) — `pod pause` do Podman"
+
+msgid "Resume every member of a pod suspended with `pause` — Podman `pod unpause`"
+msgstr "Retoma todos os membros de um pod suspensos com `pause` — `pod unpause` do Podman"
+
+msgid "Live resource usage of every member of a pod — Podman `pod stats`"
+msgstr "Utilização de recursos em tempo real de todos os membros de um pod — `pod stats` do Podman"
+
+msgid "Processes running in every member of a pod — Podman `pod top`"
+msgstr "Processos a correr em todos os membros de um pod — `pod top` do Podman"
+
+msgid "JSON detail of a pod and its members — Docker/Podman `pod inspect`"
+msgstr "Detalhe em JSON de um pod e dos seus membros — `pod inspect` do Docker/Podman"
+
+msgid "Show only pods in this isolation namespace"
+msgstr "Mostra apenas os pods neste namespace de isolamento"
+
+msgid "Remove without asking for confirmation"
+msgstr "Remover sem pedir confirmação"
+
+msgid "exit 0 if the pod is there, 1 if not — scriptable, prints nothing"
+msgstr "sai com 0 se o pod existir, 1 caso contrário — automatizável, não imprime nada"
+
+msgid "the full JSON of a pod and every member"
+msgstr "o JSON completo de um pod e de cada membro"
+
+msgid "live CPU/memory/pids of every member"
+msgstr "CPU/memória/pids em tempo real de cada membro"
+
+msgid "the processes running in every member"
+msgstr "os processos a correr em cada membro"
+
+msgid "SIGKILL every member"
+msgstr "enviar SIGKILL a cada membro"
+
+msgid "a specific signal instead"
+msgstr "um sinal específico em vez disso"
+
+msgid "freeze every member's cgroup"
+msgstr "congelar o cgroup de cada membro"
+
+msgid "resume a pod suspended with `pause`"
+msgstr "retomar um pod suspenso com `pause`"
+
+msgid "remove every stopped pod — asks first"
+msgstr "remover todos os pods parados — pede confirmação primeiro"
+
+msgid "stop every member of the pod"
+msgstr "parar todos os membros do pod"
+
+msgid "start every member of the pod"
+msgstr "arrancar todos os membros do pod"
+
+msgid "stop then start every member of the pod"
+msgstr "parar e voltar a arrancar todos os membros do pod"
+
+msgid "remove a pod and all its members"
+msgstr "remover um pod e todos os seus membros"
+
+msgid "force-remove even if members are running"
+msgstr "remover à força mesmo com membros a correr"
 
 msgid "Restart policy (only with `-d`): `no` (default), `on-failure[:max]`, `always`, `unless-stopped`. A detached supervisor (one per container, ephemeral — there's no daemon) becomes the container's parent, captures the real exit code, and restarts it according to the policy"
 msgstr "Política de reinício (só com `-d`): `no` (por omissão), `on-failure[:max]`, `always`, `unless-stopped`. Um supervisor desanexado (um por container, efémero — não há daemon) passa a ser o pai do container, captura o código de saída real, e reinicia-o segundo a política"
@@ -5882,6 +6314,9 @@ msgstr "as últimas 50 linhas com timestamps (exige --log-cri no `run`)"
 msgid "the full record as JSON, for a script"
 msgstr "o registo completo em JSON, para um script"
 
+msgid "exit 0 if it is in the store, 1 if not — prints nothing, for a script"
+msgstr "sai com 0 se estiver no store, 1 se não — não imprime nada, para um script"
+
 msgid "the readable detail — kubectl describe style"
 msgstr "o detalhe legível — ao estilo do kubectl describe"
 
@@ -5947,6 +6382,24 @@ msgstr "tags, digest, tamanho, layers e a config OCI (entrypoint/cmd/env/workdir
 
 msgid "several at once, to compare what two images actually run"
 msgstr "várias de uma vez, para comparar o que duas imagens correm de facto"
+
+msgid "the full record as a JSON array a script can read with `jq`"
+msgstr "o registo completo como array JSON que um script lê com `jq`"
+
+msgid "several at once — one object per image, like `docker image inspect`"
+msgstr "várias de uma vez — um objecto por imagem, como `docker image inspect`"
+
+msgid "a silent probe for a script: exit 0 if present, 1 if not"
+msgstr "uma sonda silenciosa para um script: sai 0 se existir, 1 se não"
+
+msgid "pull only when it is missing"
+msgstr "só faz pull quando está em falta"
+
+msgid "drop one name, keeping the content and every other name"
+msgstr "larga um nome, mantendo o conteúdo e todos os outros nomes"
+
+msgid "remove the registry name from a locally-built image after pushing it"
+msgstr "remove o nome de registo de uma imagem construída localmente depois do push"
 
 msgid "the layers from base to top, with the digest and size of each"
 msgstr "as layers da base ao topo, com o digest e o tamanho de cada uma"
@@ -17163,3 +17616,134 @@ msgstr "desmonta o estado de um container parado"
 
 msgid "kill it first, then delete"
 msgstr "mata-o primeiro, depois apaga"
+
+msgid "Print the host path to a container's root filesystem (Podman `mount`)."
+msgstr "Imprime o caminho no host para o sistema de ficheiros raiz de um container (`mount` do Podman)."
+
+msgid ""
+"Print the host path to a container's root filesystem (Podman `mount`)."
+"\n"
+"\n"
+"For a RUNNING container the path is `/proc/<pid>/root`, valid only while it runs; for a stopped flat rootless container it is a real, usable directory on disk."
+msgstr ""
+"Imprime o caminho no host para o sistema de ficheiros raiz de um container (`mount` do Podman)."
+"\n"
+"\n"
+"Para um container A CORRER o caminho é `/proc/<pid>/root`, válido só enquanto ele corre; para um container rootless plano e parado é um directório real e utilizável no disco."
+
+msgid "Counterpart of `mount` (Podman `unmount`, alias `umount`)."
+msgstr "Contraparte do `mount` (`unmount` do Podman, com o alias `umount`)."
+
+msgid ""
+"Counterpart of `mount` (Podman `unmount`, alias `umount`)."
+"\n"
+"\n"
+"A safe no-op in this engine: `mount` only PRINTS an existing path, it never creates a new mount to tear down, so this leaves the container in exactly the same state."
+msgstr ""
+"Contraparte do `mount` (`unmount` do Podman, com o alias `umount`)."
+"\n"
+"\n"
+"Uma operação segura e sem efeito neste motor: o `mount` só IMPRIME um caminho já existente, nunca cria uma montagem nova para desmontar, por isso isto deixa o container exactamente no mesmo estado."
+
+msgid "Create a new STOPPED container from an existing one's configuration (Podman `container clone`)."
+msgstr "Cria um novo container PARADO a partir da configuração de um já existente (`container clone` do Podman)."
+
+msgid ""
+"Create a new STOPPED container from an existing one's configuration (Podman `container clone`)."
+"\n"
+"\n"
+"Copies the source's spec — image, command, env, mounts, limits — under a new id and name and provisions its own rootfs, WITHOUT starting it. Launch it later with `container start`."
+msgstr ""
+"Cria um novo container PARADO a partir da configuração de um já existente (`container clone` do Podman)."
+"\n"
+"\n"
+"Copia a especificação da origem — imagem, comando, ambiente, montagens, limites — sob um novo id e nome e provisiona o seu próprio rootfs, SEM o arrancar. Arranca-o mais tarde com `container start`."
+
+msgid "Name for the clone (default: `<source>-clone`)."
+msgstr "Nome para o clone (por omissão: `<origem>-clone`)."
+
+msgid "Checkpoint a running container to disk with CRIU (Podman `container checkpoint`)."
+msgstr "Grava um ponto de restauro de um container a correr no disco com o CRIU (`container checkpoint` do Podman)."
+
+msgid "Restore a container from a CRIU checkpoint (Podman `container restore`)."
+msgstr "Restaura um container a partir de um ponto de restauro do CRIU (`container restore` do Podman)."
+
+msgid "print the host path to the container's root filesystem"
+msgstr "imprime o caminho no host para o sistema de ficheiros raiz do container"
+
+msgid "the counterpart of mount — a safe no-op here"
+msgstr "a contraparte do mount — uma operação segura e sem efeito aqui"
+
+msgid "copy a container's configuration into a new stopped one"
+msgstr "copia a configuração de um container para um novo container parado"
+
+msgid "clone under a chosen name"
+msgstr "clona com um nome à escolha"
+
+msgid "checkpoint needs CRIU, which this engine does not yet integrate"
+msgstr "o checkpoint precisa do CRIU, que este motor ainda não integra"
+
+msgid "restore needs CRIU, which this engine does not yet integrate"
+msgstr "o restore precisa do CRIU, que este motor ainda não integra"
+
+# --- volume/network parity subcommands (export/import/mount/unmount, network reload) ---
+
+msgid "Export a volume's contents as an uncompressed tar, to a file or stdout"
+msgstr "Exporta o conteúdo de um volume como um tar NÃO comprimido, para um ficheiro ou o stdout"
+
+msgid "Export a volume's contents as an uncompressed tar, to a file or stdout.\n\n`podman volume export`: packs the volume's data directory into a tar that an operator can archive or pipe into `volume import` on another host. Refuses to write the archive to a terminal — redirect stdout or use `-o <PATH>`."
+msgstr "Exporta o conteúdo de um volume como um tar NÃO comprimido, para um ficheiro ou o stdout.\n\n`podman volume export`: empacota o directório de dados do volume num tar que um operador pode arquivar ou encaminhar para `volume import` noutro host. Recusa escrever o arquivo num terminal — redireccione o stdout ou use `-o <PATH>`."
+
+msgid "Extract a tar INTO an existing volume"
+msgstr "Extrai um tar PARA DENTRO de um volume existente"
+
+msgid "Extract a tar INTO an existing volume.\n\n`podman volume import`: the volume must already exist (create it with `volume create`). The archive may be a plain or a gzip-compressed tar — the compression is detected from the file's magic bytes — and its contents are extracted on top of whatever the volume already holds."
+msgstr "Extrai um tar PARA DENTRO de um volume existente.\n\n`podman volume import`: o volume tem de existir já (crie-o com `volume create`). O arquivo pode ser um tar simples ou comprimido com gzip — a compressão é detectada pelos bytes mágicos do ficheiro — e o seu conteúdo é extraído por cima do que o volume já contém."
+
+msgid "Print the host path of a volume's data directory (`podman volume mount`)"
+msgstr "Imprime o caminho no host do directório de dados de um volume (`podman volume mount`)"
+
+msgid "Counterpart of `mount`; a no-op here because volumes are plain directories"
+msgstr "Contraparte do `mount`; aqui não faz nada porque os volumes são directórios simples"
+
+msgid "Counterpart of `mount`; a no-op here because volumes are plain directories.\n\n`podman volume unmount` drops the fuse-overlayfs mount Podman may set up for a volume. A Delonix volume is a plain host directory with nothing to actively unmount, so this checks the volume exists, prints nothing and exits 0 — kept for script parity."
+msgstr "Contraparte do `mount`; aqui não faz nada porque os volumes são directórios simples.\n\nO `podman volume unmount` desfaz a montagem fuse-overlayfs que o Podman pode criar para um volume. Um volume Delonix é um directório simples no host, sem nada para desmontar activamente, por isso isto apenas verifica que o volume existe, não imprime nada e sai com 0 — mantido por paridade de scripts."
+
+msgid "Write to this file instead of stdout."
+msgstr "Escreve neste ficheiro em vez do stdout."
+
+msgid "Re-apply a network's dataplane from its stored record (`podman network reload`)"
+msgstr "Reaplica o dataplane de uma rede a partir do seu registo guardado (`podman network reload`)"
+
+msgid "Re-apply a network's dataplane from its stored record (`podman network reload`).\n\nA rootless holder that respawned loses the ephemeral dataplane it held — an overlay's VXLAN FDB and WireGuard peers, or the bridge record the holder reads on every attach. This re-realizes them from the `NetworkStore` WITHOUT recreating the network, so the containers already attached keep their addresses. macvlan/ipvlan are never realized in the rootless model, so there is nothing to reload and this says so rather than faking it."
+msgstr "Reaplica o dataplane de uma rede a partir do seu registo guardado (`podman network reload`).\n\nUm holder rootless que renasceu perde o dataplane efémero que mantinha — a FDB VXLAN e os peers WireGuard de um overlay, ou o registo da bridge que o holder lê em cada attach. Isto volta a realizá-los a partir do `NetworkStore` SEM recriar a rede, por isso os containers já ligados mantêm os seus endereços. macvlan/ipvlan nunca são realizados no modelo rootless, por isso não há dataplane para reaplicar e isto di-lo em vez de o fingir."
+
+msgid "overlay dataplane re-applied (bridge, VXLAN FDB, WireGuard)"
+msgstr "dataplane do overlay reaplicado (bridge, FDB VXLAN, WireGuard)"
+
+msgid "bridge record re-aligned in the holder"
+msgstr "registo da bridge re-alinhado no holder"
+
+msgid "network '{name}' (driver {driver}) is not realized in the rootless model, so there is no dataplane to reload — macvlan/ipvlan need CAP_NET_ADMIN in the host init-netns"
+msgstr "a rede '{name}' (driver {driver}) não é realizada no modelo rootless, por isso não há dataplane para reaplicar — macvlan/ipvlan precisam de CAP_NET_ADMIN no init-netns do host"
+
+msgid "pack a volume's contents into a tar file, to archive or move"
+msgstr "empacota o conteúdo de um volume num ficheiro tar, para arquivar ou mover"
+
+msgid "gzip it on the way out, piping the tar through stdout"
+msgstr "comprime-o com gzip à saída, encaminhando o tar pelo stdout"
+
+msgid "restore a tar into an existing volume — create it first"
+msgstr "restaura um tar para um volume existente — crie-o primeiro"
+
+msgid "a gzip tar is detected and inflated automatically"
+msgstr "um tar com gzip é detectado e descomprimido automaticamente"
+
+msgid "print the host path of a volume's data, to feed another command"
+msgstr "imprime o caminho no host dos dados de um volume, para alimentar outro comando"
+
+msgid "the no-op counterpart of mount — volumes are plain directories here"
+msgstr "a contraparte sem efeito do mount — aqui os volumes são directórios simples"
+
+msgid "re-apply a network's dataplane after the holder respawned, keeping the attached workloads"
+msgstr "reaplica o dataplane de uma rede depois de o holder renascer, mantendo os workloads ligados"

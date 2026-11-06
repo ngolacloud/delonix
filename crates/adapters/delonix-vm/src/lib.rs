@@ -446,15 +446,16 @@ fn select_for_create(
     // only in the bin, so any consumer of the API inherits it. Without volumes,
     // the normal auto-detection is kept.
     //
-    // Cloud image (boot via FIRMWARE, without an explicit kernel) ⇒ prefer
-    // libvirt. Cloud Hypervisor's `rust-hypervisor-fw` does not load the
-    // initrd of Ubuntu cloud images (the initrd via EFI LoadFile2 is
-    // not implemented in the minimalist firmware) → the kernel boots but
-    // panics "Unable to mount root fs" (LABEL=cloudimg-rootfs
-    // does not resolve without the initrd's udev). libvirt (full UEFI/SeaBIOS)
-    // boots them. CH is left for DIRECT-KERNEL boot (k8s nodes with their own
-    // kernel), where it is the best. Only if libvirt exists; otherwise CH with
-    // a warning (better to try than to refuse).
+    // Cloud image (boot via FIRMWARE, without an explicit kernel). Native-VMM-
+    // first (owner decision, Nov 2026): Cloud Hypervisor is the default when it
+    // can boot the image — which, for a cloud image, needs the EDK2 `CLOUDHV.fd`
+    // (`cloud_image_firmware_ready()`), NOT the minimalist `rust-hypervisor-fw`
+    // that cannot load the initrd via EFI LoadFile2 (→ "Unable to mount root
+    // fs"). When CH has only that minimalist firmware, or lacks /dev/kvm, or the
+    // caller's `--require` capabilities land only on libvirt, libvirt (full
+    // UEFI/SeaBIOS via QEMU) takes the cloud image. DIRECT-KERNEL boot (k8s nodes
+    // with their own kernel) already resolves to CH through `select_backend_
+    // requiring`'s order. A backend that cannot boot still fails LOUD at boot.
     //
     // Precedence for "no opinion from the caller" (`cfg.backend` is
     // `None`): `DELONIX_VM_BACKEND` (session-wide), then the
@@ -470,18 +471,41 @@ fn select_for_create(
         Some(b) => Some(b.to_string()),
         None if !cfg.volumes.is_empty() => Some("libvirt".to_string()),
         None if cfg.kernel.is_none() => {
-            let available = LibvirtBackend.available();
-            let meets = available && require_capabilities("libvirt", required).is_ok();
-            match firmware_boot_preference(available, meets) {
-                FirmwareBootPreference::Libvirt => Some("libvirt".to_string()),
-                FirmwareBootPreference::AnyMeetingRequirements => None,
-                FirmwareBootPreference::CloudHypervisorFallback => {
-                    tracing::warn!(
-                        vm = %cfg.name,
-                        "booting a cloud image on Cloud Hypervisor (libvirt not found) — if it \
-                         panics on 'unable to mount root fs', install libvirt+qemu"
-                    );
-                    None
+            // Native-VMM-first (owner decision, Nov 2026). Cloud Hypervisor is a
+            // from-scratch Rust KVM VMM: it talks to `/dev/kvm` directly, boots a
+            // real Linux kernel, and brings the fewest moving parts. It is now the
+            // DEFAULT whenever it can actually boot THIS workload — for a cloud
+            // image that means `/dev/kvm` plus a known firmware (OVMF/edk2) AND
+            // the caller's `--require` capabilities. libvirt (QEMU) stays the
+            // fallback for a host where CH cannot boot (no firmware) and for the
+            // capabilities only it has. A backend that cannot actually boot still
+            // fails LOUD at boot, never silently — the model this precedence keeps.
+            let ch = delonix_provider_cloud_hypervisor::CloudHypervisorHost::probe();
+            // `ch.firmware` is true for ANY known firmware, including the
+            // minimalist `rust-hypervisor-fw` that cannot load a cloud image's
+            // initrd. `cloud_image_firmware_ready()` is the precise test: only
+            // the EDK2 `CLOUDHV.fd` boots cloud images, so CH becomes the
+            // default for them ONLY when that is the firmware in place.
+            let ch_boots = ch.kvm
+                && delonix_provider_cloud_hypervisor::cloud_image_firmware_ready()
+                && require_capabilities("cloud-hypervisor", required).is_ok();
+            if ch_boots {
+                Some("cloud-hypervisor".to_string())
+            } else {
+                let available = LibvirtBackend.available();
+                let meets = available && require_capabilities("libvirt", required).is_ok();
+                match firmware_boot_preference(available, meets) {
+                    FirmwareBootPreference::Libvirt => Some("libvirt".to_string()),
+                    FirmwareBootPreference::AnyMeetingRequirements => None,
+                    FirmwareBootPreference::CloudHypervisorFallback => {
+                        tracing::warn!(
+                            vm = %cfg.name,
+                            "no firmware for Cloud Hypervisor and libvirt not found — trying CH \
+                             anyway; if it panics on 'unable to mount root fs', install a CH \
+                             firmware (OVMF/edk2) or libvirt+qemu"
+                        );
+                        None
+                    }
                 }
             }
         }

@@ -604,6 +604,31 @@ pub enum NetworkCmd {
         #[arg(add = ArgValueCandidates::new(super::complete::networks))]
         name: String,
     },
+    /// Remove every network that nothing is attached to.
+    ///
+    /// Docker's `network prune`. A network with a container (running OR
+    /// stopped) or a VM still attached is KEPT and the reason printed — the
+    /// same "refuse while in use" rule `volume prune` follows, because a prune
+    /// that silently detached live workloads would be worse than one that
+    /// skips. Unlike `volume prune` this destroys no data: a removed network
+    /// can be recreated.
+    Prune {
+        /// Skip the confirmation prompt (REQUIRED when stdin is not a terminal).
+        #[arg(short = 'f', long)]
+        force: bool,
+    },
+    /// Exit 0 if the network exists, 1 if not (prints nothing).
+    Exists {
+        #[arg(add = ArgValueCandidates::new(super::complete::networks))]
+        name: String,
+    },
+    /// Re-apply a network's dataplane from its stored record (`podman network reload`).
+    ///
+    /// A rootless holder that respawned loses the ephemeral dataplane it held — an overlay's VXLAN FDB and WireGuard peers, or the bridge record the holder reads on every attach. This re-realizes them from the `NetworkStore` WITHOUT recreating the network, so the containers already attached keep their addresses. macvlan/ipvlan are never realized in the rootless model, so there is nothing to reload and this says so rather than faking it.
+    Reload {
+        #[arg(add = ArgValueCandidates::new(super::complete::networks))]
+        name: String,
+    },
     /// Apply the `kind: Network` documents of a manifest (idempotent by name).
     Apply {
         #[arg(value_hint = clap::ValueHint::FilePath, short = 'f', long = "file")]
@@ -685,6 +710,9 @@ pub fn run(action: NetworkCmd) -> Result<()> {
         NetworkCmd::Inspect { name, output } => cmd_inspect(&store, &name, output),
         NetworkCmd::Describe { names } => cmd_describe(&store, &names),
         NetworkCmd::Rm { name } => cmd_rm(&store, &name),
+        NetworkCmd::Prune { force } => cmd_prune(&store, force),
+        NetworkCmd::Exists { name } => cmd_exists(&store, &name),
+        NetworkCmd::Reload { name } => cmd_reload(&store, &name),
         NetworkCmd::Apply { file } => {
             let path = manifest::resolve_path(file)?;
             let docs = manifest::load(&path)?;
@@ -1309,6 +1337,43 @@ fn realize_overlay(net: &Network) -> Result<()> {
     Ok(())
 }
 
+/// `network reload` — re-realizes a network's dataplane from its stored record,
+/// WITHOUT recreating the network (the attached workloads keep their addresses).
+///
+/// This is the recovery path a respawned holder needs: `realize_overlay` already
+/// re-seeds an overlay's VXLAN FDB and WireGuard peers (it is idempotent, and its
+/// own doc-comment names the holder-respawn case), and `infra::network_create_with`
+/// re-aligns the bridge record the holder reads on every attach. macvlan/ipvlan
+/// are never realized in the rootless model, so there is no dataplane to reload —
+/// said out loud instead of a success that did nothing.
+fn cmd_reload(store: &NetworkStore, name: &str) -> Result<()> {
+    let net = store.get(name)?;
+    match net.driver.as_str() {
+        "overlay" => {
+            realize_overlay(&net)?;
+            println!(
+                "network/{name}: {}",
+                super::po::t("overlay dataplane re-applied (bridge, VXLAN FDB, WireGuard)")
+            );
+        }
+        "bridge" => {
+            infra::network_create_with(&net.name, &net.prefix)?;
+            println!(
+                "network/{name}: {}",
+                super::po::t("bridge record re-aligned in the holder")
+            );
+        }
+        other => {
+            return Err(Error::Invalid(super::po::tf(
+                "network '{name}' (driver {driver}) is not realized in the rootless model, so there \
+                 is no dataplane to reload — macvlan/ipvlan need CAP_NET_ADMIN in the host init-netns",
+                &[("name", name), ("driver", other)],
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// The machine view of a network (`inspect -o json`).
 ///
 /// `Network` is not `Serialize` — its record is `key=value` lines with several
@@ -1562,6 +1627,72 @@ fn network_dependents(name: &str, subnet: &str) -> Result<Vec<String>> {
 fn remove_unchecked(store: &NetworkStore, name: &str) -> Result<()> {
     delonix_sdn::netops::remove(store, name)?;
     println!("{name}");
+    Ok(())
+}
+
+/// `network prune`: remove every network nothing is attached to.
+///
+/// Mirrors `volume prune`'s shape — classify, keep the in-use ones out loud,
+/// then confirm before sweeping. A network is KEPT (never force-removed) while
+/// a container or a VM is still on it, using the SAME [`network_dependents`]
+/// check `network rm` refuses on; that check fails closed, so an unreadable
+/// container/VM store aborts the whole prune rather than sweeping a network
+/// whose users it could not see. No data is destroyed here (unlike `volume
+/// prune`), so the confirmation only guards against removing a network an
+/// operator still wants — a recreatable change.
+fn cmd_prune(store: &NetworkStore, force: bool) -> Result<()> {
+    let nets = store.list()?;
+    let mut take: Vec<String> = Vec::new();
+    for n in &nets {
+        let attached = network_dependents(&n.name, &n.subnet)?;
+        if attached.is_empty() {
+            take.push(n.name.clone());
+        } else {
+            println!(
+                "{}",
+                super::po::tf(
+                    "kept {name}: in use by {what}",
+                    &[("name", &n.name), ("what", &attached.join(", "))],
+                )
+            );
+        }
+    }
+    if take.is_empty() {
+        println!("{}", super::po::t("no unused network to remove"));
+        return Ok(());
+    }
+    if !super::prune::confirm(
+        force,
+        super::po::t(
+            "`network prune` removes every network nothing is attached to — pass --force to \
+             confirm when not on a terminal",
+        ),
+        Some(super::po::tf(
+            "This will remove {n} network(s): {list}",
+            &[("n", &take.len().to_string()), ("list", &take.join(", "))],
+        )),
+        super::po::t("Continue? [y/N]"),
+    )? {
+        return Ok(());
+    }
+    for name in &take {
+        remove_unchecked(store, name)?;
+    }
+    Ok(())
+}
+
+/// `network exists` — Podman's quiet existence probe: nothing on stdout, exit 0
+/// when the network is there and exit 1 when it is not.
+///
+/// It goes through the SAME `NetworkStore::get` that `rm`/`inspect` use, so
+/// "exists" means exactly what those two mean by it. The exit is 1 (not the 4
+/// a bare `NotFound` would map to) and silent on purpose: Podman's `exists` is
+/// a plain yes/no in `$?`, with no message on either path — returning the
+/// error variant would both print a line and classify it as `NOT_FOUND`.
+fn cmd_exists(store: &NetworkStore, name: &str) -> Result<()> {
+    if store.get(name).is_err() {
+        std::process::exit(1);
+    }
     Ok(())
 }
 
