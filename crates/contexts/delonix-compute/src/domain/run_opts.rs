@@ -144,6 +144,9 @@ pub struct RunOpts {
     // (see `compose_io_max` for how the four `--device-*` flags become this)
     #[serde(default)]
     pub read_only: bool,
+    /// Docker `--init`: run a tiny reaping init as pid 1.
+    #[serde(default)]
+    pub init: bool,
     #[serde(default)]
     pub cap_add: Vec<String>,
     /// Anti-spoofing: source prefixes this container may use besides its own

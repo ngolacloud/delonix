@@ -1115,6 +1115,12 @@ mod run_interactive_flag_parity_tests {
     }
 
     #[test]
+    fn run_accepts_init() {
+        assert!(parses(&["delonix", "run", "--init", "busybox", "sh"]));
+        assert!(parses(&["delonix", "create", "--init", "busybox"]));
+    }
+
+    #[test]
     fn run_accepts_volumes_from() {
         assert!(parses(&["delonix", "run", "--volumes-from", "data", "busybox"]));
         assert!(parses(&["delonix", "run", "--volumes-from", "data:ro", "busybox"]));

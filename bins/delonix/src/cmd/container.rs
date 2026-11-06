@@ -1290,6 +1290,9 @@ pub struct RunArgs {
     /// Read-only rootfs (writes go to tmpfs/volumes).
     #[arg(long = "read-only")]
     read_only: bool,
+    /// Run a tiny init as PID 1 that reaps orphaned processes and forwards signals (Docker/Podman `--init`); the image command runs as its child.
+    #[arg(long)]
+    init: bool,
     /// Add a capability (e.g. `NET_ADMIN`). Repeatable.
     #[arg(long = "cap-add")]
     cap_add: Vec<String>,
@@ -1954,6 +1957,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         device_read_iops,
         device_write_iops,
         read_only,
+        init,
         cap_add,
         cap_drop,
         allow_source,
@@ -2092,6 +2096,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         )
         .map_err(delonix_model::Error::Invalid)?,
         read_only,
+        init,
         cap_add,
         cap_drop,
         allow_source,

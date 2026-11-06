@@ -3962,6 +3962,8 @@ struct ProcessSpec<'a> {
     /// the kernel/cgroup already gave this process (today's behavior for
     /// everything that is not a CRI container with the field set).
     oom_score_adj: Option<i32>,
+    /// Docker `--init`: wrap the command in a tiny reaping init as pid 1.
+    init: bool,
 }
 
 /// What the container sees on disk.
@@ -4037,6 +4039,64 @@ struct IoSpec {
     exec_w: Option<i32>,
 }
 
+/// Minimal reaping init for Docker/Podman `--init`: forward termination signals
+/// to the container's main process and reap EVERY orphan, returning the main
+/// process's exit status (128+signal when it was killed). A tini in ~30 lines,
+/// no extra binary. Runs as pid 1 inside the container after the fork in
+/// [`container_init`]; the confinement (seccomp/caps/uid) was already applied
+/// before the fork, so the reaper is as sandboxed as the workload.
+fn reap_as_init(main_child: libc::pid_t) -> isize {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    static MAIN: AtomicI32 = AtomicI32::new(0);
+    extern "C" fn forward(sig: libc::c_int) {
+        let m = MAIN.load(Ordering::Relaxed);
+        if m > 0 {
+            // SAFETY: async-signal-safe — `kill` is the only call, and it is on
+            // the seccomp allowlist.
+            unsafe {
+                libc::kill(m, sig);
+            }
+        }
+    }
+    MAIN.store(main_child, Ordering::Relaxed);
+    // A `stop` sends SIGTERM to pid 1 (us); forward it (and the other usual
+    // termination signals) to the workload instead of dying and orphaning it.
+    for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGQUIT, libc::SIGHUP] {
+        // SAFETY: a zeroed `sigaction` with our handler; no preconditions.
+        unsafe {
+            let mut sa: libc::sigaction = std::mem::zeroed();
+            sa.sa_sigaction = forward as extern "C" fn(libc::c_int) as libc::sighandler_t;
+            libc::sigemptyset(&mut sa.sa_mask);
+            libc::sigaction(sig, &sa, std::ptr::null_mut());
+        }
+    }
+    let mut main_code: isize = 0;
+    loop {
+        let mut status: libc::c_int = 0;
+        // SAFETY: reap any child; `status` is a valid local.
+        let pid = unsafe { libc::waitpid(-1, &mut status, 0) };
+        if pid == -1 {
+            let e = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            if e == libc::EINTR {
+                continue; // interrupted by a forwarded signal — keep reaping
+            }
+            break; // ECHILD: nothing left
+        }
+        if pid == main_child {
+            main_code = if libc::WIFEXITED(status) {
+                libc::WEXITSTATUS(status) as isize
+            } else if libc::WIFSIGNALED(status) {
+                (128 + libc::WTERMSIG(status)) as isize
+            } else {
+                0
+            };
+            // Do NOT stop here: drain the main process's orphans until ECHILD so
+            // none linger as zombies — the whole point of `--init`.
+        }
+    }
+    main_code
+}
+
 fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     let ContainerInitSpec {
         rootfs,
@@ -4053,6 +4113,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 ulimits,
                 sysctls,
                 oom_score_adj,
+                init,
             },
         filesystem:
             FilesystemSpec {
@@ -4421,6 +4482,24 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             eprintln!(
                 "delonix: setgroups({groups:?}) failed — are the gids inside the mapped range?"
             );
+        }
+    }
+    // Docker/Podman `--init`: become a tiny reaping init. Everything above (the
+    // namespace entry, privilege drop, seccomp, cgroup) has already run, so BOTH
+    // sides inherit the same confinement — the simplest correct model (the child
+    // needs no second drop). The PARENT stays pid 1, forwards termination signals
+    // to the command and reaps every orphan; the CHILD execs the command. A
+    // failed `fork` falls through to exec directly (no reaper) rather than
+    // refusing to start. Seccomp already allows `clone`/`wait4`/`kill`/
+    // `rt_sigaction` (a container must be able to fork), so this needs no profile
+    // change.
+    if init {
+        // SAFETY: a plain fork in pid 1 after all setup; no allocator work runs
+        // in the child before `execvp` below.
+        match unsafe { libc::fork() } {
+            -1 => { /* fork failed — run the command directly, without a reaper */ }
+            0 => { /* child: fall through to the exec below */ }
+            main_child => return reap_as_init(main_child),
         }
     }
     let err = execvp(&argv[0], argv).unwrap_err();
@@ -7840,6 +7919,7 @@ struct InitInputs {
     ulimits: Vec<String>,
     sysctls: Vec<String>,
     oom_score_adj: Option<i32>,
+    init: bool,
     mounts: Vec<Mount>,
     read_only: bool,
     tmpfs: Vec<String>,
@@ -7898,6 +7978,7 @@ impl InitInputs {
             ulimits: container.ulimits.clone(),
             sysctls: container.sysctls.clone(),
             oom_score_adj: container.oom_score_adj,
+            init: container.init,
             mounts: spec.mounts.clone(),
             read_only: container.read_only,
             tmpfs: container.tmpfs.clone(),
@@ -7955,6 +8036,7 @@ impl InitInputs {
                 ulimits: &self.ulimits,
                 sysctls: &self.sysctls,
                 oom_score_adj: self.oom_score_adj,
+                init: self.init,
             },
             filesystem: FilesystemSpec {
                 mounts: &self.mounts,
@@ -12764,12 +12846,15 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             ]
         );
 
-        // `pids` is delegated on every host that delegates anything and has NO
-        // `container run` flag behind it — the ceiling is a cgroup-group
-        // property. An empty row is correct here; inventing a flag to fill it
-        // is the defect this replaced.
-        assert!(flags_of_controller("pids").is_empty());
-        for c in ["cpu", "memory", "cpuset", "io"] {
+        // `pids` is delegated on every host that delegates anything and now has
+        // `--pids-limit` behind it (CLI-parity review); `memory` gained
+        // `--memory-reservation` alongside `--memory`.
+        assert_eq!(flags_of_controller("pids"), ["--pids-limit"]);
+        assert_eq!(
+            flags_of_controller("memory"),
+            ["--memory", "--memory-reservation"]
+        );
+        for c in ["cpu", "memory", "cpuset", "io", "pids"] {
             assert!(!flags_of_controller(c).is_empty(), "{c} sem flags");
         }
         assert!(flags_of_controller("hugetlb").is_empty());
