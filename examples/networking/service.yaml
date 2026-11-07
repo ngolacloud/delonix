@@ -31,12 +31,12 @@
 # ── 0. Recursos de apoio INLINE — a rede e os workloads que os Services apanham
 #      Supporting resources INLINE — the network and workloads the Services pick
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: appnet }
 spec: { driver: bridge }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: web-1
@@ -45,7 +45,7 @@ spec:
   type: container
   container: { image: "nginx:alpine", network: appnet }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: web-2
@@ -54,7 +54,7 @@ spec:
   type: container
   container: { image: "nginx:alpine", network: appnet }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: api-1
@@ -70,7 +70,7 @@ spec:
 # PT: Clientes resolvem web.default.delonix.internal e recebem web-1 e web-2 em rotação.
 # EN: Clients resolve web.default.delonix.internal and get web-1 and web-2 in rotation.
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Service
 metadata:
   name: web
@@ -84,7 +84,7 @@ spec:
 # ── 2. selector multi-label — estreita o conjunto só ao track estável (web-1) ─
 #      multi-label selector — narrows the set to the stable track only (web-1)
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Service
 metadata:
   name: web-stable
@@ -103,7 +103,7 @@ spec:                          # PT: namespace omitido = `default` | EN: namespa
 # EN: Namespace isolation applies to DNS: other namespaces get NXDOMAIN (except
 #     services in `default`).
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Service
 metadata:
   name: api
@@ -126,7 +126,7 @@ spec:
 #     from the holder AND (if declared) is healthy. Pool set via
 #     `delonix network vip-pool set`.
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Service
 metadata:
   name: web-vip

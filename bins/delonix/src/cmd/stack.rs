@@ -147,6 +147,9 @@ pub enum StackCmd {
         /// anything is written.
         #[arg(long = "plan-digest", value_name = "DIGEST")]
         plan_digest: Vec<String>,
+        /// Apply a saved plan from `stack plan -o json`: its change digests gate the apply exactly as `--plan-digest` (ADR-0088 A5). `-f` stays the input.
+        #[arg(long = "plan", value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+        plan: Option<PathBuf>,
     },
     /// Removes everything this stack owns (by the `delonix.io/stack` label).
     ///
@@ -363,7 +366,14 @@ pub fn run(action: StackCmd) -> Result<()> {
             reboot,
             prune,
             plan_digest,
-        } => apply(file, name, dry_run, replace, reboot, prune, plan_digest),
+            plan,
+        } => {
+            let mut digests = plan_digest;
+            if let Some(plan_file) = plan {
+                digests.extend(digests_from_plan_file(&plan_file)?);
+            }
+            apply(file, name, dry_run, replace, reboot, prune, digests)
+        }
         StackCmd::Plan {
             file,
             name,
@@ -411,12 +421,23 @@ pub fn run(action: StackCmd) -> Result<()> {
 // row, so they cannot any more. The doc-comment on that module has the measured
 // symptoms.
 
-/// Everything the manifest asks for, in the reconciler's comparable form.
-pub(crate) fn desired_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile::Desired>> {
+/// Per-resource set of fields another actor owns, keyed exactly as the reconciler
+/// keys a resource — `(kind, name)` — so the diff can leave them alone (ADR-0088
+/// A5, `reconcile::IGNORE_FIELDS`). Sparse: a resource with no such annotation has
+/// no entry, which the planner reads as «ignore nothing», the pre-annotation case.
+pub(crate) type IgnoreFields =
+    std::collections::BTreeMap<(String, String), std::collections::BTreeSet<String>>;
+
+/// Everything the manifest asks for, in the reconciler's comparable form, plus the
+/// per-resource ignore-fields map derived from the same documents.
+pub(crate) fn desired_of(
+    docs: &[manifest::ManifestDoc],
+) -> Result<(Vec<reconcile::Desired>, IgnoreFields)> {
     let mut out = Vec::new();
+    let mut ignore = IgnoreFields::new();
     for kind in super::kinds::stack_kinds() {
         for doc in manifest::of_kind(docs, kind) {
-            out.push(match kind {
+            let d = match kind {
                 k::RUNTIME_POLICY => super::policy::desired(doc)?,
                 k::CONTAINER => super::container::desired(doc)?,
                 k::VOLUME => super::volume::desired(doc)?,
@@ -446,10 +467,28 @@ pub(crate) fn desired_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile
                     converges: false,
                     ownable: true,
                 },
-            });
+            };
+            // Keyed by the SAME (kind, name) the reconciler uses — `d` carries the
+            // Kind's own plan name, so the lookup cannot drift from the resource.
+            let fields: std::collections::BTreeSet<String> = doc
+                .metadata
+                .annotations
+                .get(reconcile::IGNORE_FIELDS)
+                .map(|v| {
+                    v.split(',')
+                        .map(str::trim)
+                        .filter(|f| !f.is_empty())
+                        .map(String::from)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !fields.is_empty() {
+                ignore.insert((d.kind.clone(), d.name.clone()), fields);
+            }
+            out.push(d);
         }
     }
-    Ok(out)
+    Ok((out, ignore))
 }
 
 /// Everything on the machine, in the same form.
@@ -497,6 +536,7 @@ pub(crate) fn actual_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile:
                     fields: Default::default(),
                     owner: None,
                     last_applied: None,
+                    protect: false,
                 });
             }
         }
@@ -567,11 +607,13 @@ fn reboot_for_converge(changes: &[Change]) -> Result<()> {
 /// Reads both sides and decides. The decision itself is
 /// [`reconcile::plan`] — pure, and tested as data.
 pub(crate) fn build_plan(docs: &[manifest::ManifestDoc], stack: &str) -> Result<Vec<Change>> {
+    let (desired, ignore) = desired_of(docs)?;
     let mut changes = reconcile::plan_with_facts(
-        &desired_of(docs)?,
+        &desired,
         &actual_of(docs)?,
         stack,
         &facts_of(docs)?,
+        &ignore,
     );
     // Attach the prerequisites the host does not meet — the difference between
     // «will exist» and «will work». They were already computed before this, but
@@ -803,6 +845,7 @@ fn form_label(form: super::kinds::Form) -> String {
         Form::Sugar(_) => "sugar",
         Form::Compat(_) => "compat",
         Form::Sunset(_) => "sunset",
+        Form::Reserved => "reserved",
     });
     // The target comes from `successor` and not from this `match`, so the two
     // cannot disagree about which forms have one. `successor` and not
@@ -940,6 +983,10 @@ fn plan_cmd(
     let docs = manifest::load(&path)?;
     let stack = stack_name(&path, name.as_deref());
     super::gitops::refuse_self_target(&docs, &stack, super::gitops::Applier::Operator)?;
+    // The apply order is derived from the reference graph; a cyclic graph has no
+    // valid order, so the plan refuses it up front naming the path — the same
+    // refusal the apply makes, so the preview cannot disagree with the apply.
+    refuse_reference_cycle(&docs)?;
     let changes = mark_unpruned(plan_with_digests(&docs, &stack)?, prune);
     match output {
         super::output::OutputFormat::Json => super::output::print_json(&changes)?,
@@ -1239,7 +1286,10 @@ fn wait(file: Option<PathBuf>, timeout: u64) -> Result<()> {
         for kind in super::kinds::stack_kinds() {
             for doc in manifest::of_kind(&docs, kind) {
                 let (present, status) = presence(kind, doc, &containers);
-                if is_pending(&present, kind, &status) {
+                // `wait` blocks on exactly one condition — `Ready` — in every
+                // Kind (ADR-0088 A2). `is_ready` is the uniform inverse of the
+                // internal `is_pending`, so this is identical to what it did.
+                if !is_ready(&present, kind, &status) {
                     pending.push(format!(
                         "{kind}/{} ({})",
                         doc.metadata.name,
@@ -1313,6 +1363,16 @@ fn is_pending(present: &str, kind: &str, status: &str) -> bool {
         // "no" (absent) and "?" (unknown/unreadable) both keep waiting.
         _ => true,
     }
+}
+
+/// Whether a resource is READY — the one condition that means the same thing in
+/// every Kind (ADR-0088 A2). It is the inverse of [`is_pending`]: the four-mode
+/// presence marker and the per-Kind runtime `status` are its INTERNAL
+/// computation, not a user-facing knob, and `stack wait` waits on exactly this.
+/// DERIVED on read, never stored — the engine persists no status (see [`wait`]),
+/// so `Ready` is computed from what the machine reports, not from a stale field.
+pub(crate) fn is_ready(present: &str, kind: &str, status: &str) -> bool {
+    !is_pending(present, kind, status)
 }
 
 /// Whether a resource's reported status counts as ready.
@@ -2020,6 +2080,41 @@ fn network_plan_digest(doc: &manifest::ManifestDoc) -> Result<Option<String>> {
     }
 }
 
+/// The `planDigest` of every change in a saved `stack plan -o json` file
+/// (`stack apply --plan <file>`, ADR-0088 A5). These are exactly the values
+/// `--plan-digest` takes, so applying a saved plan reuses the staleness gate and
+/// adds no second notion of state. An empty result (a plan with nothing to
+/// change) gates nothing, the same as passing no `--plan-digest` — consistent
+/// with the existing flag. A file that is not a plan array is a clear error.
+fn digests_from_plan_file(path: &Path) -> Result<Vec<String>> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        delonix_model::Error::Invalid(super::po::tf(
+            "cannot read the plan file {path}: {err}",
+            &[
+                ("path", &path.display().to_string()),
+                ("err", &e.to_string()),
+            ],
+        ))
+    })?;
+    let changes: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|e| {
+        delonix_model::Error::Invalid(super::po::tf(
+            "{path} is not a `stack plan -o json` document: {err}",
+            &[
+                ("path", &path.display().to_string()),
+                ("err", &e.to_string()),
+            ],
+        ))
+    })?;
+    Ok(changes
+        .iter()
+        .filter_map(|c| {
+            c.get("planDigest")
+                .and_then(|d| d.as_str())
+                .map(String::from)
+        })
+        .collect())
+}
+
 /// `--plan-digest`: every network document's digest, recomputed now, has to
 /// be one of those given — the `If-Match` rule applied to a plan. Checked
 /// before the first write; without the flag nothing is checked and `apply`
@@ -2123,6 +2218,11 @@ fn decide(
             )],
         )));
     }
+    // The creation pass walks the layers in the order the reference graph derives
+    // (`run_layers_inner`); a cyclic graph has no order, so refuse it here — before
+    // the first write — naming the path, rather than letting `run_layers_inner`
+    // fail halfway. Acyclic by construction today; the guard is for ADR-0088 A4.
+    refuse_reference_cycle(docs)?;
     // Decide EVERYTHING before changing anything, and refuse up front what this
     // invocation is not allowed to do (a conflict, or a recreation nobody asked
     // for). Only then start creating.
@@ -2192,6 +2292,13 @@ pub(crate) fn apply_docs(
     by: super::gitops::Applier,
 ) -> Result<()> {
     let stack = stack_name(path, stack_override);
+    // One apply of a stack at a time (ADR-0088 A5). Two concurrent applies of the
+    // same stack would race the per-resource stores and lose updates the same way
+    // the record `update` methods guard against; held (RAII) until this returns.
+    let _apply_lock = delonix_state::PathLock::acquire(&super::revision::apply_lock_path(
+        &super::util::state_root(),
+        &stack,
+    ))?;
     let changes = decide(docs, &stack, &replace, &reboot, by)?;
     // A resource that has to be recreated is destroyed FIRST, so the normal
     // creation pass below builds it fresh. Doing it in this order means there is
@@ -2439,91 +2546,435 @@ fn run_layers(
     result
 }
 
+/// One layer of the apply: a Kind and the progress icon announced before it runs.
+///
+/// The slice of `LAYERS` is this engine's historical apply order, unchanged. What
+/// is new (ADR-0088 A4) is that the sequence the apply WALKS is DERIVED from the
+/// manifest's reference graph by [`apply_order_for`], with this declaration order
+/// only breaking ties — instead of a second hand-kept copy of the dependencies.
+struct Layer {
+    kind: &'static str,
+    icon: &'static str,
+}
+
+const LAYERS: &[Layer] = &[
+    // The node's own admission ceiling, before ANYTHING else: a stricter policy
+    // declared in this very manifest already governs the Container/VM/Pod layers below.
+    Layer {
+        kind: k::RUNTIME_POLICY,
+        icon: "🛡",
+    },
+    // Secrets early: `Storage.passwordSecret` and `Container.secret` reference them.
+    Layer {
+        kind: k::SECRET,
+        icon: "🔑",
+    },
+    Layer {
+        kind: k::NETWORK,
+        icon: "🌐",
+    },
+    // A route names TWO networks that have to exist; nothing below depends on it.
+    Layer {
+        kind: k::NETWORK_ROUTE,
+        icon: "🔗",
+    },
+    // Cluster-native SDN before anything that might attach to it.
+    Layer {
+        kind: k::NETWORK_ZONE,
+        icon: "🗺",
+    },
+    // Before the volumes: one with `spec.pool` is allocated in a pool in use by then.
+    Layer {
+        kind: k::STORAGE_POOL,
+        icon: "🗄️",
+    },
+    Layer {
+        kind: k::VOLUME,
+        icon: "💽",
+    },
+    // Independent of the volumes; provisions a tenant's S3 identity and a Secret.
+    Layer {
+        kind: k::OBJECT_STORAGE,
+        icon: "🪣",
+    },
+    Layer {
+        kind: k::IMAGE,
+        icon: "📦",
+    },
+    Layer {
+        kind: k::APP,
+        icon: "🏗",
+    },
+    Layer {
+        kind: k::VM,
+        icon: "🖥",
+    },
+    Layer {
+        kind: k::SYSTEM_CONTAINER,
+        icon: "🧊",
+    },
+    Layer {
+        kind: k::CONTAINER,
+        icon: "📦",
+    },
+    Layer {
+        kind: k::POD,
+        icon: "🧩",
+    },
+    // After the compute Kinds it selects, so its match-count reflects workloads
+    // that already exist in this same apply.
+    Layer {
+        kind: k::SERVICE,
+        icon: "🧭",
+    },
+    // A reservation ledger HTTPRoute claims addresses from; before HTTPRoute.
+    Layer {
+        kind: k::IPPOOL,
+        icon: "🎫",
+    },
+    Layer {
+        kind: k::FIREWALL_POLICY,
+        icon: "🧱",
+    },
+    Layer {
+        kind: k::NETWORK_ACCESS_RULE,
+        icon: "🎯",
+    },
+    Layer {
+        kind: k::NETWORK_GATEWAY,
+        icon: "🛰",
+    },
+    // HTTPRoute needs the backend containers already created (with IP) to resolve
+    // the routes; brings up/reloads the L7 reverse-proxy.
+    Layer {
+        kind: k::HTTP_ROUTE,
+        icon: "🔀",
+    },
+    // Tunnel LAST of all: its `localPort` is typically the HTTPRoute proxy's own port.
+    Layer {
+        kind: k::GATEWAY,
+        icon: "🌍",
+    },
+    // A pull source LAST of all (ADR-0021): its timer may fire the moment it is written.
+    Layer {
+        kind: k::GITOPS_SOURCE,
+        icon: "🔁",
+    },
+];
+
+/// The index of a layer in [`LAYERS`], or `None` for a Kind that is not a layer of
+/// its own. `Ingress` folds into the `HTTPRoute` layer at load (see
+/// `output::Layers::run`), so a reference a `kind: Ingress` document carries is
+/// attributed to that layer — the one place its documents are ever applied.
+fn layer_index(kind: &str) -> Option<usize> {
+    let kind = if kind == k::INGRESS {
+        k::HTTP_ROUTE
+    } else {
+        kind
+    };
+    LAYERS.iter().position(|l| l.kind == kind)
+}
+
+/// The progress icon for a layer Kind.
+fn layer_icon(kind: &str) -> &'static str {
+    LAYERS
+        .iter()
+        .find(|l| l.kind == kind)
+        .map(|l| l.icon)
+        .unwrap_or("")
+}
+
+/// The manifest's reference graph, as edges between LAYER indices: `(before,
+/// after)` means the `before` layer must run before the `after` layer, because a
+/// document of the latter NAMES a document of the former. Built from exactly the
+/// references `validate_graph` already resolves (`volume_refs` and the per-Kind
+/// spec lookups), lifted from resource to Kind.
+///
+/// Only a reference to a document DECLARED in this same manifest makes an edge: one
+/// to a resource that already exists on the machine is applied already, so it
+/// constrains nothing. Every edge points to a LOWER `LAYERS` index today — which is
+/// what makes the derived order reproduce the historical one — and the graph is
+/// acyclic by construction. `refuse_reference_cycle` guards the day `dependsOn`/
+/// `outputRef` (catalog v1) let a manifest describe a cycle.
+fn reference_edges(docs: &[manifest::ManifestDoc]) -> Vec<(usize, usize)> {
+    use std::collections::HashMap;
+    // name -> the layer a declared document of that name belongs to.
+    let mut owner: HashMap<&str, usize> = HashMap::new();
+    for d in docs {
+        if let Some(i) = layer_index(&d.kind) {
+            owner.entry(d.metadata.name.as_str()).or_insert(i);
+        }
+    }
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    for doc in docs {
+        let Some(after) = layer_index(&doc.kind) else {
+            continue;
+        };
+        let dep = |name: &str, edges: &mut Vec<(usize, usize)>| {
+            if let Some(&before) = owner.get(name) {
+                if before != after {
+                    edges.push((before, after));
+                }
+            }
+        };
+        match doc.kind.as_str() {
+            k::CONTAINER | k::VM | k::POD => {
+                if let Some(net) = doc.spec.get("network").and_then(|v| v.as_str()) {
+                    dep(net, &mut edges);
+                }
+                for v in volume_refs(doc) {
+                    dep(&v, &mut edges);
+                }
+                // `Vm.volumes` is a list of `{name, mountPath}` objects, not the
+                // docker string syntax `volume_refs` reads.
+                if doc.kind == k::VM {
+                    if let Some(seq) = doc.spec.get("volumes").and_then(|v| v.as_sequence()) {
+                        for vn in seq
+                            .iter()
+                            .filter_map(|it| it.get("name"))
+                            .filter_map(|v| v.as_str())
+                        {
+                            dep(vn, &mut edges);
+                        }
+                    }
+                }
+                if let Some(seq) = doc.spec.get("secret").and_then(|v| v.as_sequence()) {
+                    for s in seq.iter().filter_map(|v| v.as_str()) {
+                        dep(s, &mut edges);
+                    }
+                }
+            }
+            k::VOLUME => {
+                let sref = ["nfs", "cifs", "webdav"].iter().find_map(|b| {
+                    doc.spec
+                        .get(b)
+                        .and_then(|v| v.get("passwordSecret"))
+                        .and_then(|v| v.as_str())
+                });
+                if let Some(s) = sref {
+                    dep(s, &mut edges);
+                }
+            }
+            k::NETWORK_ROUTE => {
+                for side in ["from", "to"] {
+                    if let Some(n) = doc.spec.get(side).and_then(|v| v.as_str()) {
+                        dep(n, &mut edges);
+                    }
+                }
+            }
+            k::FIREWALL_POLICY | k::NETWORK_ACCESS_RULE => {
+                if let Some(t) = doc.spec.get("target").and_then(|v| v.as_str()) {
+                    dep(t, &mut edges);
+                }
+            }
+            k::HTTP_ROUTE | k::INGRESS => {
+                let parsed = if doc.kind == k::INGRESS {
+                    super::httproute::ingress_spec_of(doc)
+                } else {
+                    manifest::spec_of::<super::httproute::HttpRouteSpec>(doc)
+                };
+                if let Ok(spec) = parsed {
+                    if let Some(pool) = &spec.pool {
+                        dep(pool, &mut edges);
+                    }
+                    for rule in &spec.rules {
+                        for pr in &rule.paths {
+                            dep(&pr.backend.service, &mut edges);
+                        }
+                    }
+                    if let Some(tls) = &spec.tls {
+                        if tls.mode.as_deref() == Some("secretRef") {
+                            if let Some(s) = &tls.secret_ref {
+                                dep(s, &mut edges);
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    edges
+}
+
+/// Deterministic topological sort of `n` nodes. `preds[i]` lists the nodes that
+/// must come BEFORE node `i`. Ties are broken by index, so a graph whose every edge
+/// points to a lower index sorts straight back into `0..n` — the property the apply
+/// order relies on to stay byte-for-byte what it always was. `Err` returns ONE
+/// cycle, as a path of node indices that ends where it began.
+fn toposort(n: usize, preds: &[Vec<usize>]) -> std::result::Result<Vec<usize>, Vec<usize>> {
+    use std::collections::BTreeSet;
+    let uniq: Vec<BTreeSet<usize>> = preds.iter().map(|p| p.iter().copied().collect()).collect();
+    let mut indeg: Vec<usize> = uniq.iter().map(|p| p.len()).collect();
+    let mut succ: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, ps) in uniq.iter().enumerate() {
+        for &p in ps {
+            succ[p].push(i);
+        }
+    }
+    let mut placed = vec![false; n];
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        let Some(next) = (0..n).find(|&i| !placed[i] && indeg[i] == 0) else {
+            break;
+        };
+        placed[next] = true;
+        out.push(next);
+        for &s in &succ[next] {
+            indeg[s] = indeg[s].saturating_sub(1);
+        }
+    }
+    if out.len() == n {
+        Ok(out)
+    } else {
+        Err(find_cycle(n, preds, &placed))
+    }
+}
+
+/// Extracts one cycle from the nodes the sort could not place — each of them is on,
+/// or leads into, a cycle. Walks predecessor edges among the unplaced nodes until a
+/// node repeats, then returns the loop (first node repeated at the end).
+fn find_cycle(n: usize, preds: &[Vec<usize>], placed: &[bool]) -> Vec<usize> {
+    let start = (0..n)
+        .find(|&i| !placed[i])
+        .expect("a cycle exists when a node is unplaced");
+    let mut path: Vec<usize> = Vec::new();
+    let mut seen = vec![false; n];
+    let mut cur = start;
+    loop {
+        if seen[cur] {
+            let at = path.iter().position(|&x| x == cur).unwrap_or(0);
+            let mut cyc = path[at..].to_vec();
+            cyc.push(cur);
+            return cyc;
+        }
+        seen[cur] = true;
+        path.push(cur);
+        match preds[cur].iter().copied().find(|&p| !placed[p]) {
+            Some(p) => cur = p,
+            None => return path,
+        }
+    }
+}
+
+/// The apply order for this manifest: the [`LAYERS`], topologically sorted by the
+/// reference graph ([`reference_edges`]) with the declaration order breaking ties.
+/// `Err` gives the reference cycle as the Kind names on its path.
+fn apply_order_for(
+    docs: &[manifest::ManifestDoc],
+) -> std::result::Result<Vec<&'static str>, Vec<&'static str>> {
+    let n = LAYERS.len();
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (before, after) in reference_edges(docs) {
+        preds[after].push(before);
+    }
+    match toposort(n, &preds) {
+        Ok(order) => Ok(order.into_iter().map(|i| LAYERS[i].kind).collect()),
+        Err(cycle) => Err(cycle.into_iter().map(|i| LAYERS[i].kind).collect()),
+    }
+}
+
+/// Refuses a manifest whose reference graph has a cycle, naming the path that forms
+/// it. Shared by `stack plan` and the `apply` gate so the preview cannot answer
+/// differently from the apply. Today the reference graph is acyclic by construction
+/// — this is the guard ADR-0088 A4 installs for when `dependsOn`/`outputRef`
+/// (catalog v1) let a manifest describe one.
+pub(crate) fn refuse_reference_cycle(docs: &[manifest::ManifestDoc]) -> Result<()> {
+    if let Err(cycle) = apply_order_for(docs) {
+        let path = cycle.join(" -> ");
+        return Err(delonix_model::Error::Invalid(super::po::tf(
+            "stack: a reference cycle prevents ordering the apply: {path} (each Kind needs the next applied first; break the cycle)",
+            &[("path", &path)],
+        )));
+    }
+    Ok(())
+}
+
+/// Applies ALL documents of one Kind (one layer). Each per-Kind `apply` filters the
+/// documents itself, so a layer whose Kind is absent from the manifest is a silent
+/// no-op — which is why `run_layers_inner` walks every layer, present or not, exactly
+/// as the straight-line pass always did. This match and [`LAYERS`] are the same list.
+fn apply_layer(kind: &str, docs: &[manifest::ManifestDoc], base: &std::path::Path) -> Result<()> {
+    match kind {
+        k::RUNTIME_POLICY => super::policy::apply(docs),
+        k::SECRET => super::secret::apply(docs, base),
+        k::NETWORK => super::network::apply(docs),
+        k::NETWORK_ROUTE => super::netroute::apply(docs),
+        k::NETWORK_ZONE => super::network_zone::apply(docs),
+        k::STORAGE_POOL => super::storage_pool::apply(docs),
+        k::VOLUME => super::volume::apply(docs),
+        k::OBJECT_STORAGE => super::objectstorage::apply(docs),
+        k::IMAGE => super::image::apply(docs),
+        k::APP => super::app::apply(docs),
+        k::VM => super::vm::apply(docs, base),
+        k::SYSTEM_CONTAINER => super::system_container::apply(docs),
+        k::CONTAINER => super::container::apply(docs),
+        k::POD => super::pod::apply(docs),
+        k::SERVICE => super::service::apply(docs),
+        k::IPPOOL => super::ippool::apply(docs),
+        k::FIREWALL_POLICY => super::firewall::apply(docs),
+        k::NETWORK_ACCESS_RULE => super::network_access_rule::apply(docs),
+        k::NETWORK_GATEWAY => super::network_gateway::apply(docs),
+        k::HTTP_ROUTE => super::httproute::apply(docs),
+        k::GATEWAY => super::tunnel::apply(docs),
+        k::GITOPS_SOURCE => super::gitops::apply(docs),
+        other => unreachable!("a layer with no applier: {other}"),
+    }
+}
+
+/// The resolution steps that ride on a specific layer rather than being layers of
+/// their own, kept at their historical position. Run unconditionally after their
+/// layer — each is a no-op when it has nothing to do — exactly as before.
+fn run_post_layer(kind: &str, docs: &[manifest::ManifestDoc]) -> Result<()> {
+    match kind {
+        // A NetworkZone reservation naming a workload (`VirtualMachine/<name>`,
+        // ADR-0063 D3.3) cannot resolve the VM's MAC until the VM layer has run.
+        // A no-op whenever nothing is held.
+        k::VM => super::network_zone::ensure_workload_reservations(docs),
+        // The workloads these policies govern were created closed; the policy is in
+        // place now, so they open — to exactly what it says (ADR-0069).
+        k::NETWORK_ACCESS_RULE => {
+            let released = super::firewall::release_policy_holds(docs)?
+                + super::firewall::release_vm_holds(docs)?
+                + super::firewall::release_system_container_holds(docs)?;
+            if released > 0 {
+                println!(
+                    "{}",
+                    super::po::tf(
+                        "{n} workload(s) opened: their policy is in place",
+                        &[("n", &released.to_string())],
+                    )
+                );
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 fn run_layers_inner(
     layers: &mut super::output::Layers,
     docs: &[manifest::ManifestDoc],
     base: &std::path::Path,
 ) -> Result<()> {
-    // The node's own admission ceiling, before ANYTHING else: a stricter
-    // policy declared in this very manifest already governs the Container/Vm/
-    // Pod layers further down, in the SAME apply — see `kinds.rs`'s row.
-    layers.run(k::RUNTIME_POLICY, "🛡", || super::policy::apply(docs))?;
-    // Secrets first: `Storage.passwordSecret` and `Container.secret` reference
-    // them. `base` = the manifest folder, so `fromEnvFile` resolves next to it.
-    layers.run(k::SECRET, "🔑", || super::secret::apply(docs, base))?;
-    layers.run(k::NETWORK, "🌐", || super::network::apply(docs))?;
-    // Logo a seguir às redes: uma rota nomeia DUAS que têm de existir, e nada
-    // do que vem abaixo depende dela para ser criado.
-    layers.run(k::NETWORK_ROUTE, "🔗", || super::netroute::apply(docs))?;
-    // Cluster-native SDN before anything that might attach to it — mirrors
-    // NETWORK's own early position.
-    layers.run(k::NETWORK_ZONE, "🗺", || super::network_zone::apply(docs))?;
-    // Before the volumes: one with `spec.pool` is allocated in a pool that has
-    // to be in use by then.
-    layers.run(k::STORAGE_POOL, "🗄️", || {
-        super::storage_pool::apply(docs)
+    // The sequence is DERIVED from the manifest's reference graph (ADR-0088 A4), not
+    // a hand-kept list: `apply_order_for` topologically sorts the LAYERS by which
+    // references which, with the historical declaration order breaking ties — so this
+    // is byte-for-byte the order the apply always had, now a CONSEQUENCE of the
+    // dependencies rather than a copy of them. The cycle case was already refused by
+    // `decide`/`plan`; reaching it here is a bug, reported rather than panicked.
+    let order = apply_order_for(docs).map_err(|cycle| {
+        delonix_model::Error::Invalid(super::po::tf(
+            "stack: a reference cycle prevents ordering the apply: {path}",
+            &[("path", &cycle.join(" -> "))],
+        ))
     })?;
-    layers.run(k::VOLUME, "💽", || super::volume::apply(docs))?;
-    // After the volumes, in FACTS order: an object store is independent of them
-    // but provisions a tenant's S3 identity and its credentials Secret.
-    layers.run(k::OBJECT_STORAGE, "🪣", || {
-        super::objectstorage::apply(docs)
-    })?;
-    layers.run(k::IMAGE, "📦", || super::image::apply(docs))?;
-    layers.run(k::APP, "🏗", || super::app::apply(docs))?;
-    layers.run(k::VM, "🖥", || super::vm::apply(docs, base))?;
-    // A NetworkZone reservation naming a workload (`VirtualMachine/<name>`,
-    // ADR-0063 D3.3) cannot resolve the VM's MAC until the VM layer just
-    // above has had its turn — the zone's own layer ran before it. Not
-    // wrapped in `layers.run`: it is a resolution step of the NetworkZone
-    // layer already announced above, not a layer of its own, and it is a
-    // no-op whenever nothing is held.
-    super::network_zone::ensure_workload_reservations(docs)?;
-    layers.run(k::SYSTEM_CONTAINER, "🧊", || {
-        super::system_container::apply(docs)
-    })?;
-    layers.run(k::CONTAINER, "📦", || super::container::apply(docs))?;
-    layers.run(k::POD, "🧩", || super::pod::apply(docs))?;
-    // After the compute Kinds it selects, so the match-count warning it
-    // prints reflects workloads that already exist in this same apply.
-    layers.run(k::SERVICE, "🧭", || super::service::apply(docs))?;
-    layers.run(k::IPPOOL, "🎫", || super::ippool::apply(docs))?;
-    layers.run(k::FIREWALL_POLICY, "🧱", || super::firewall::apply(docs))?;
-    layers.run(k::NETWORK_ACCESS_RULE, "🎯", || {
-        super::network_access_rule::apply(docs)
-    })?;
-    // The workloads these policies govern were created closed; the policy is in
-    // place now, so they open — to exactly what it says (ADR-0069).
-    let released = super::firewall::release_policy_holds(docs)?
-        + super::firewall::release_vm_holds(docs)?
-        + super::firewall::release_system_container_holds(docs)?;
-    if released > 0 {
-        println!(
-            "{}",
-            super::po::tf(
-                "{n} workload(s) opened: their policy is in place",
-                &[("n", &released.to_string())],
-            )
-        );
+    for kind in order {
+        layers.run(kind, layer_icon(kind), || apply_layer(kind, docs, base))?;
+        run_post_layer(kind, docs)?;
     }
-    layers.run(k::NETWORK_GATEWAY, "🛰", || {
-        super::network_gateway::apply(docs)
-    })?;
-    // HTTPRoute LAST: it needs the backend containers already created (with IP) to
-    // resolve the routes; brings up/reloads the L7 reverse-proxy.
-    layers.run(k::HTTP_ROUTE, "🔀", || super::httproute::apply(docs))?;
-    // Tunnel LAST of all: its `localPort` is typically the HTTPRoute proxy's own
-    // listening port (see `cmd::tunnel`'s module doc) — must already be up.
-    layers.run(k::GATEWAY, "🌍", || super::tunnel::apply(docs))?;
-    // A pull source LAST of all (ADR-0021): the timer it installs may fire as
-    // soon as it is written, and what it reconciles into is what this same
-    // apply just declared.
-    layers.run(k::GITOPS_SOURCE, "🔁", || super::gitops::apply(docs))?;
     Ok(())
 }
-
-/// Destroys the resources the plan marked for recreation (already authorized by
-/// [`refuse_unallowed`]), so the normal creation pass rebuilds them.
 fn destroy_for_replace(changes: &[Change]) -> Result<()> {
     for c in changes.iter().filter(|c| c.action == Action::Replace) {
         println!(
@@ -2718,6 +3169,12 @@ fn prune_cmd(file: Option<PathBuf>, name: Option<String>, dry_run: bool) -> Resu
         }
         return Ok(());
     }
+    // Serialise against a concurrent apply/destroy of the same stack (ADR-0088
+    // A5); held until prune returns.
+    let _prune_lock = delonix_state::PathLock::acquire(&super::revision::apply_lock_path(
+        &super::util::state_root(),
+        &stack,
+    ))?;
     prune(&changes)
 }
 
@@ -2762,6 +3219,12 @@ fn destroy(file: Option<PathBuf>, name: Option<String>, dry_run: bool) -> Result
         }
         return Ok(());
     }
+    // Serialise against a concurrent apply/prune of the same stack (ADR-0088 A5);
+    // held until the teardown finishes.
+    let _destroy_lock = delonix_state::PathLock::acquire(&super::revision::apply_lock_path(
+        &super::util::state_root(),
+        &stack,
+    ))?;
     for c in ordered {
         println!(
             "{}",
@@ -3065,7 +3528,7 @@ fn stamp_all(
     only: Option<&std::collections::BTreeSet<(String, String)>>,
     created: &std::collections::BTreeSet<(String, String)>,
 ) -> Result<()> {
-    for d in desired_of(docs)? {
+    for d in desired_of(docs)?.0 {
         if !super::kinds::converges(&d.kind) {
             continue;
         }
@@ -3074,33 +3537,53 @@ fn stamp_all(
                 continue;
             }
         }
+        // Whether the author marked this resource protected (`delonix.io/protect`
+        // annotation == "true"). It travels to each `stamp()` so the mark can be
+        // persisted on the record; absent ⇒ `false` ⇒ no mark is written.
+        let protected = manifest::of_kind(docs, &d.kind)
+            .into_iter()
+            .find(|doc| manifest::plan_name(doc) == d.name)
+            .map(|doc| {
+                doc.metadata
+                    .annotations
+                    .get(reconcile::PROTECT)
+                    .map(|v| v == "true")
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
         let r = match d.kind.as_str() {
             k::CONTAINER => {
                 let spec = created_doc(docs, created, &d.kind, &d.name)
                     .and_then(super::container::created_spec_of);
-                super::container::stamp(&d.name, stack, &d.fields, spec.as_ref())
+                super::container::stamp(&d.name, stack, &d.fields, spec.as_ref(), protected)
             }
-            k::VOLUME => super::volume::stamp(&d.name, stack, &d.fields),
-            k::OBJECT_STORAGE => super::objectstorage::stamp(&d.name, stack, &d.fields),
-            k::NETWORK => super::network::stamp(&d.name, stack, &d.fields),
-            k::NETWORK_ROUTE => super::netroute::stamp(&d.name, stack, &d.fields),
-            k::SERVICE => super::service::stamp(&d.name, stack, &d.fields),
-            k::GITOPS_SOURCE => super::gitops::stamp(&d.name, stack, &d.fields),
-            k::NETWORK_GATEWAY => super::network_gateway::stamp(&d.name, stack, &d.fields),
-            k::NETWORK_ZONE => super::network_zone::stamp(&d.name, stack, &d.fields),
-            k::SYSTEM_CONTAINER => super::system_container::stamp(&d.name, stack, &d.fields),
-            k::IPPOOL => super::ippool::stamp(&d.name, stack, &d.fields),
-            k::STORAGE_POOL => super::storage_pool::stamp(&d.name, stack, &d.fields),
+            k::VOLUME => super::volume::stamp(&d.name, stack, &d.fields, protected),
+            k::OBJECT_STORAGE => super::objectstorage::stamp(&d.name, stack, &d.fields, protected),
+            k::NETWORK => super::network::stamp(&d.name, stack, &d.fields, protected),
+            k::NETWORK_ROUTE => super::netroute::stamp(&d.name, stack, &d.fields, protected),
+            k::SERVICE => super::service::stamp(&d.name, stack, &d.fields, protected),
+            k::GITOPS_SOURCE => super::gitops::stamp(&d.name, stack, &d.fields, protected),
+            k::NETWORK_GATEWAY => {
+                super::network_gateway::stamp(&d.name, stack, &d.fields, protected)
+            }
+            k::NETWORK_ZONE => super::network_zone::stamp(&d.name, stack, &d.fields, protected),
+            k::SYSTEM_CONTAINER => {
+                super::system_container::stamp(&d.name, stack, &d.fields, protected)
+            }
+            k::IPPOOL => super::ippool::stamp(&d.name, stack, &d.fields, protected),
+            k::STORAGE_POOL => super::storage_pool::stamp(&d.name, stack, &d.fields, protected),
             k::HTTP_ROUTE | k::INGRESS => {
-                super::httproute::stamp(&d.kind, &d.name, stack, &d.fields)
+                super::httproute::stamp(&d.kind, &d.name, stack, &d.fields, protected)
             }
-            k::POD => super::pod::stamp(&d.name, stack, &d.fields),
+            k::POD => super::pod::stamp(&d.name, stack, &d.fields, protected),
             k::VM => {
                 let spec =
                     created_doc(docs, created, &d.kind, &d.name).map(super::vm::created_spec_of);
-                super::vm::stamp(&d.name, stack, &d.fields, spec.as_ref())
+                super::vm::stamp(&d.name, stack, &d.fields, spec.as_ref(), protected)
             }
-            k::NETWORK_ACCESS_RULE => super::network_access_rule::stamp(&d.name, stack, &d.fields),
+            k::NETWORK_ACCESS_RULE => {
+                super::network_access_rule::stamp(&d.name, stack, &d.fields, protected)
+            }
             // `Image` is shared content and deliberately not ownable — stamping
             // it for one stack would hand another stack's cache an owner.
             k::IMAGE => Ok(()),
@@ -5383,6 +5866,124 @@ spec: {}
         assert_eq!(super::stack_name(&file, Some("x")), "x");
     }
 
+    /// The exact apply order this engine has always had, written out as the
+    /// parity oracle for the graph-derived sequence. `run_layers_inner` used to BE
+    /// this list, hand-kept; now it is derived, and this is what it must still
+    /// produce byte-for-byte.
+    fn historical_apply_order() -> Vec<&'static str> {
+        vec![
+            k::RUNTIME_POLICY,
+            k::SECRET,
+            k::NETWORK,
+            k::NETWORK_ROUTE,
+            k::NETWORK_ZONE,
+            k::STORAGE_POOL,
+            k::VOLUME,
+            k::OBJECT_STORAGE,
+            k::IMAGE,
+            k::APP,
+            k::VM,
+            k::SYSTEM_CONTAINER,
+            k::CONTAINER,
+            k::POD,
+            k::SERVICE,
+            k::IPPOOL,
+            k::FIREWALL_POLICY,
+            k::NETWORK_ACCESS_RULE,
+            k::NETWORK_GATEWAY,
+            k::HTTP_ROUTE,
+            k::GATEWAY,
+            k::GITOPS_SOURCE,
+        ]
+    }
+
+    /// With no references at all, the derived order is just the `LAYERS`
+    /// declaration order — which has to be, byte-for-byte, the historical apply
+    /// order. This is the snapshot that catches a `LAYERS` row moved by accident,
+    /// and it pins the tie-break the whole parity argument rests on.
+    #[test]
+    fn the_derived_order_without_references_is_the_historical_one() {
+        let derived = apply_order_for(&[]).expect("empty graph is acyclic");
+        assert_eq!(derived, historical_apply_order());
+        // The dispatch (`apply_layer`) and the icons are keyed off the same list.
+        for kind in &derived {
+            assert!(layer_index(kind).is_some(), "{kind} is not a layer");
+            assert!(!layer_icon(kind).is_empty(), "{kind} has no icon");
+        }
+    }
+
+    /// **Parity on the published examples (ADR-0088 A4).** For every manifest in
+    /// `examples/`, the order the reference graph derives is byte-for-byte the
+    /// historical apply order. The FACTS/declaration order is the topological
+    /// tie-break, and every reference an example expresses points DOWN that order,
+    /// so the sort reproduces it — this is the proof, run on the real files and
+    /// the real reference extraction, that deriving the order changed nothing.
+    #[test]
+    fn the_reference_graph_does_not_reorder_the_examples() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        // Depth-first over the tree, collecting *.yaml / *.yml.
+        let mut stack = vec![root.clone()];
+        let mut files = Vec::new();
+        while let Some(dir) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if matches!(
+                    p.extension().and_then(|x| x.to_str()),
+                    Some("yaml") | Some("yml")
+                ) {
+                    files.push(p);
+                }
+            }
+        }
+        assert!(
+            files.len() >= 10,
+            "expected the examples tree at {root:?} — found {} files",
+            files.len()
+        );
+        let hist = historical_apply_order();
+        let mut checked = 0;
+        for f in &files {
+            // The real `load` — a manifest an example cannot even load is not this
+            // test's subject (another test owns that); skip it.
+            let Ok(docs) = manifest::load(f) else {
+                continue;
+            };
+            let order = apply_order_for(&docs)
+                .unwrap_or_else(|cycle| panic!("{f:?}: unexpected reference cycle {cycle:?}"));
+            assert_eq!(order, hist, "{f:?} derived a different apply order");
+            checked += 1;
+        }
+        assert!(
+            checked >= 5,
+            "only {checked} examples loaded — the walk is wrong"
+        );
+    }
+
+    /// The order derivation refuses a cyclic graph, naming the loop. Today no
+    /// manifest can express one (every reference points down the Kind order, so
+    /// the graph is acyclic by construction) — this exercises the guard ADR-0088
+    /// A4 installs for when `dependsOn`/`outputRef` arrive, on the very sort the
+    /// apply and the plan call.
+    #[test]
+    fn a_cycle_in_the_graph_is_refused_naming_the_path() {
+        // A clean DAG sorts back into declaration order (index tie-break).
+        assert_eq!(toposort(3, &[vec![], vec![0], vec![1]]), Ok(vec![0, 1, 2]));
+        // 0 -> 1 -> 2 -> 0 (each needs the next): no order exists.
+        let cyclic = vec![vec![2], vec![0], vec![1]];
+        let err = toposort(3, &cyclic).expect_err("a cycle has no topological order");
+        // The path names every node on the loop and ends where it began.
+        assert_eq!(err.first(), err.last());
+        let on_loop: std::collections::BTreeSet<usize> = err.iter().copied().collect();
+        assert_eq!(on_loop, [0, 1, 2].into_iter().collect());
+        // An acyclic manifest is accepted — the plan/apply gate stays silent.
+        assert!(refuse_reference_cycle(&[]).is_ok());
+    }
+
     /// Teardown must be the REVERSE of creation: pulling a network out from
     /// under the containers still attached to it, or a volume from under a
     /// container that mounts it, is how a destroy leaves a mess behind.
@@ -5588,6 +6189,63 @@ spec: {}
             "Volume",
             "permission denied: /var/lib/delonix/volumes"
         ));
+    }
+
+    /// ADR-0088 A2: `Ready` is the uniform condition `wait` blocks on, and it is
+    /// the exact INVERSE of the internal `is_pending` — the proof that adding it
+    /// did not change what `wait` does. Covers the four presence markers and the
+    /// Kinds with and without a runtime status.
+    #[test]
+    fn ready_is_the_uniform_inverse_of_pending() {
+        assert!(super::is_ready("-", "HTTPRoute", "-")); // declarative: ready
+        assert!(!super::is_ready("no", "Container", "absent")); // absent
+        assert!(!super::is_ready("?", "Volume", "?")); // unreadable store
+        assert!(super::is_ready("yes", "Container", "Running"));
+        assert!(!super::is_ready("yes", "Container", "starting"));
+        assert!(super::is_ready("yes", "VirtualMachine", "running"));
+        assert!(super::is_ready("yes", "Volume", "anything")); // store-only: ready by existing
+        for p in ["yes", "no", "-", "?"] {
+            for kind in ["Container", "VirtualMachine", "Volume", "HTTPRoute"] {
+                for st in ["Running", "starting", "healthy", "-", "absent", "?"] {
+                    assert_eq!(
+                        super::is_ready(p, kind, st),
+                        !super::is_pending(p, kind, st),
+                        "{p}/{kind}/{st}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// ADR-0088 A5: `stack apply --plan <file>` reads the `planDigest` of each
+    /// change from a saved `stack plan -o json`, feeding them to the SAME stale
+    /// gate `--plan-digest` uses. A file that is not a plan array is a clear
+    /// error; a plan with no digests gates nothing (like no `--plan-digest`).
+    #[test]
+    fn plan_file_digests_are_read_for_the_stale_gate() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("plan.json");
+        std::fs::write(
+            &good,
+            r#"[{"kind":"NetworkGateway","name":"gw","action":"update","planDigest":"abc123"},
+                {"kind":"Container","name":"web","action":"create"}]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            super::digests_from_plan_file(&good).unwrap(),
+            vec!["abc123".to_string()],
+            "only the changes that carry a planDigest are read"
+        );
+
+        // A plan with nothing to gate (no digests) is an empty list, not an error.
+        let empty = dir.path().join("empty.json");
+        std::fs::write(&empty, "[]").unwrap();
+        assert!(super::digests_from_plan_file(&empty).unwrap().is_empty());
+
+        // A file that is not a plan array is refused, not read as "gate nothing".
+        let bad = dir.path().join("bad.json");
+        std::fs::write(&bad, "not a plan").unwrap();
+        assert!(super::digests_from_plan_file(&bad).is_err());
     }
 
     /// Um Kind que o `apply` aplica tem de ter braço no `presence()`, senão cai

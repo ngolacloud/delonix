@@ -37,7 +37,7 @@
 #     in the manifest — that is the reason `passwordSecret` exists. Cleartext
 #     only here because this is an example (the apply warns you about it).
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: nas-creds
@@ -49,7 +49,7 @@ spec:
 # ── 1. local — volume local simples (o caso comum) ──────────────────────────
 #      local — a plain local volume (the common case)
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: local-data
@@ -63,7 +63,7 @@ spec:
 # ── 2. driver cru — montar um export NFS sem o bloco amigável ────────────────
 #      raw driver — mount an NFS export without the friendly block
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: raw-nfs
@@ -79,7 +79,7 @@ spec:
 # EN: This is the volume a VM consumes via `spec.volumes` (libvirt 9p) — see
 #     examples/compute/virtualmachine.yaml.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: nfs-media
@@ -95,7 +95,7 @@ spec:
 # ── 4. cifs: — partilha SMB/CIFS (Samba, Windows, TrueNAS SMB) ───────────────
 #      cifs: — an SMB/CIFS share (Samba, Windows, TrueNAS SMB)
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: cifs-backups
@@ -112,7 +112,7 @@ spec:
 # ── 5. webdav: — partilha WebDAV (Nextcloud, ownCloud) ───────────────────────
 #      webdav: — a WebDAV share (Nextcloud, ownCloud)
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: webdav-cloud
@@ -137,7 +137,7 @@ spec:
 #     OPTIONAL — absent = the unscoped root (not the `default` tenant). Exclusive
 #     with nfs/cifs/webdav, device, a non-local driver and provision.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: team-share
@@ -162,7 +162,7 @@ spec:
 #     twice. Destroy the remote side (irreversible):
 #     `delonix volume rm truenas-dados --destroy-remote`.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: truenas-dados
@@ -187,7 +187,7 @@ spec:
 # ── 7b. provision.truenas: com conta em vez de chave de API ──────────────────
 #       provision.truenas: with account credentials instead of an API key
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: truenas-account
@@ -211,7 +211,7 @@ spec:
 #     every other backing. The pool must be in the node's allowlist and applied
 #     first.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: pg-data

@@ -55,7 +55,7 @@ on:
         default: ""
       dest_repo:
         description: "Repositório OCI de destino"
-        default: "ghcr.io/angolardevops/delonix-vm-appliances"
+        default: "ghcr.io/ngolacloud/delonix-vm-appliances"
 
 permissions:
   contents: read

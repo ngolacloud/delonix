@@ -12,11 +12,11 @@ version: 1
 
 images:
   fedora:
-    tag: fedora-${TAG:-42}
+    tag: fedora-${TAG:-44}
 
     # ── base ──────────────────────────────────────────────────────────────
     distro: fedora
-    release: "${TAG:-42}"
+    release: "${TAG:-44}"
     size: 10G                     # grown BEFORE any step runs
 
     # ── identity & defaults recorded in the image (used by `vm create`) ────
@@ -65,4 +65,4 @@ images:
       history: true
       tmp: true
       machine_id: true
-      ssh_host_keys: false
+      ssh_host_keys: true

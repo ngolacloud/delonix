@@ -1503,6 +1503,7 @@ pub(crate) fn actual(docs: &[ManifestDoc]) -> Result<Vec<super::reconcile::Actua
             owner: stamp.map(|s| s.stack.clone()),
             last_applied: stamp
                 .and_then(|s| super::reconcile::decode_last_applied(&s.last_applied)),
+            protect: stamp.is_some_and(|s| s.protect),
         });
     }
     Ok(out)
@@ -1515,18 +1516,35 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     use ingress_proxy::Where;
+    let encoded = super::reconcile::encode_last_applied(fields);
+    let version = super::kinds::facts(k::HTTP_ROUTE)
+        .map(|f| f.api_version.to_string())
+        .unwrap_or_default();
     for w in [Where::Holder, Where::Host] {
         ingress_proxy::update_manual(w, |cfg| {
             if !cfg.routes.iter().any(|r| r.source == name) {
                 return false;
             }
+            // ADR-0090: bump when the applied spec changed vs the previous stamp
+            // for this source, read before it is replaced below.
+            let prev = cfg.stamps.iter().find(|x| x.source == name);
+            let gen = super::reconcile::next_generation(
+                prev.map(|s| s.last_applied.as_str()),
+                prev.map(|s| s.generation.to_string()).as_deref(),
+                &encoded,
+            );
             let st = ingress_proxy::Stamp {
                 source: name.to_string(),
                 kind: kind.to_string(),
                 stack: stack.to_string(),
-                last_applied: super::reconcile::encode_last_applied(fields),
+                last_applied: encoded.clone(),
+                protect: protected,
+                generation: gen,
+                observed_generation: gen,
+                stored_version: version.clone(),
             };
             cfg.stamps.retain(|x| x.source != name);
             cfg.stamps.push(st);

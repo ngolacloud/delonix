@@ -1474,7 +1474,7 @@ fn commit_flat_rootless(
     user: String,
     tag: &str,
     arch: &str,
-    healthcheck: Option<String>,
+    healthcheck: Option<Vec<String>>,
     exposed_ports: Vec<String>,
 ) -> Result<Image> {
     let tar_path = std::env::temp_dir().join(format!("delonix-build-{id}.tar"));

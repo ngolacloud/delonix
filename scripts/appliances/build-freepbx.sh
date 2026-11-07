@@ -191,7 +191,7 @@ echo "      --default-vcpus 2 --default-memory 4G"
 echo
 echo "Publish it with:"
 echo "  delonix vm image push freepbx:17-asterisk$ASTERISK_MAJOR-r$IMAGE_REV \\"
-echo "      ghcr.io/angolardevops/delonix-vm-appliances:freepbx-17-asterisk$ASTERISK_MAJOR-r$IMAGE_REV"
+echo "      ghcr.io/ngolacloud/delonix-vm-appliances:freepbx-17-asterisk$ASTERISK_MAJOR-r$IMAGE_REV"
 echo
 echo "PROVEN by this script: the base image matched Debian's SHA512SUMS, the"
 echo "  installer matched its pinned commit's sha256, the FreePBX apt key matched"
