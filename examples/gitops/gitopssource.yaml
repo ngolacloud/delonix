@@ -50,7 +50,7 @@
 # ── 1. ssh + commits assinados — a fonte de produção, tudo declarado ────────
 #      ssh + signed commits — the production source, everything declared
 ---
-apiVersion: gitops.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: GitOpsSource
 metadata:
   name: production
@@ -79,7 +79,7 @@ spec:
 # ── 2. https anónimo — leitura pública, sem credenciais nem assinatura ──────
 #      anonymous https — public read, no credentials and no signature
 ---
-apiVersion: gitops.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: GitOpsSource
 metadata:
   name: public-addons

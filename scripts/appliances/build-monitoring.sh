@@ -217,7 +217,7 @@ echo "      --default-vcpus 2 --default-memory 4G"
 echo
 echo "Publish it with:"
 echo "  delonix vm image push monitoring:$ZABBIX_SERIES-r$IMAGE_REV \\"
-echo "      ghcr.io/angolardevops/delonix-vm-appliances:monitoring-$ZABBIX_SERIES-r$IMAGE_REV"
+echo "      ghcr.io/ngolacloud/delonix-vm-appliances:monitoring-$ZABBIX_SERIES-r$IMAGE_REV"
 echo
 echo "PROVEN by this script: the versions are pinned, the base image matched"
 echo "  the checksum Canonical published, the guest's own script ran to the"

@@ -61,8 +61,121 @@ pub const STACK_LABEL: &str = "delonix.io/stack";
 /// annotation and not a label: it is not identifying and it is large — a whole
 /// spec inside a label would wreck every listing that prints labels.
 pub const LAST_APPLIED: &str = "delonix.io/last-applied";
+/// Annotation naming manifest fields that another actor owns, so the diff leaves
+/// them alone (ADR-0088 A5) — e.g. `spec.replicas` when a control plane scales.
+/// A comma-separated list of field names as the diff sees them. Absent (the
+/// normal case) changes nothing: the ignore set is empty and every field is
+/// compared, exactly as before this annotation existed.
+pub const IGNORE_FIELDS: &str = "delonix.io/ignore-fields";
+/// Annotation marking a resource as protected. The author writes it on the
+/// manifest; the engine persists it as a LABEL of the same name on the record
+/// (the uniform channel ownership already travels on), and reads it back into
+/// [`Actual::protect`]. A protected resource is never a `Delete` candidate —
+/// `destroy` and `--prune` leave it alone and SAY so (ADR-0088 A5). Absent (the
+/// normal case) leaves every removal path exactly as it was.
+pub const PROTECT: &str = "delonix.io/protect";
 /// Label marking a resource as created by a declarative apply.
 pub const MANAGED_BY: &str = "delonix.io/managed-by";
+
+/// Annotation: the spec-version counter (ADR-0090). A monotonic integer, bumped
+/// at stamp when the applied spec changed vs the one already on the record, kept
+/// otherwise; `1` on first apply. Record metadata, akin to [`LAST_APPLIED`] —
+/// not a user knob (a `metadata.generation` in an input manifest is ignored).
+pub const GENERATION: &str = "delonix.io/generation";
+/// Annotation: the generation the machine was last reconciled to (ADR-0090).
+/// Written at stamp, which is post-success, so it equals [`GENERATION`] on the
+/// happy path — persisted so a reader states it without recomputing.
+pub const OBSERVED_GENERATION: &str = "delonix.io/observed-generation";
+/// Annotation: the `apiVersion` the record was written under (ADR-0090). One
+/// version per Kind today; the field a future `manifest convert` (ADR-0086)
+/// reads to migrate a stored record on read.
+pub const STORED_VERSION: &str = "delonix.io/stored-version";
+
+/// The next generation for a stamp (ADR-0090): bump when the applied spec
+/// changed vs the one already stored, keep it otherwise. A record with no stored
+/// generation counts as `0` (unversioned), so its first stamped apply writes `1`.
+/// Pure — the one place the counter's rule lives.
+pub fn next_generation(
+    prev_last_applied: Option<&str>,
+    prev_generation: Option<&str>,
+    new_last_applied: &str,
+) -> u64 {
+    let prev_gen: u64 = prev_generation.and_then(|s| s.parse().ok()).unwrap_or(0);
+    if prev_last_applied != Some(new_last_applied) {
+        prev_gen + 1
+    } else {
+        prev_gen.max(1)
+    }
+}
+
+/// The three ADR-0090 version annotations to write at stamp time, as `(key,
+/// value)` pairs to insert into the record's annotations ALONGSIDE
+/// [`LAST_APPLIED`]. `prev` is the record's annotations BEFORE this stamp (where
+/// the previous generation and last-applied are read); `new_last_applied` is
+/// what this stamp writes; `api_version` the Kind's stored version. Absent-safe:
+/// a `prev` with none of them yields generation `1` and the given version.
+pub fn version_annotations(
+    prev: &BTreeMap<String, String>,
+    new_last_applied: &str,
+    api_version: &str,
+) -> [(String, String); 3] {
+    let gen = next_generation(
+        prev.get(LAST_APPLIED).map(String::as_str),
+        prev.get(GENERATION).map(String::as_str),
+        new_last_applied,
+    );
+    [
+        (GENERATION.to_string(), gen.to_string()),
+        (OBSERVED_GENERATION.to_string(), gen.to_string()),
+        (STORED_VERSION.to_string(), api_version.to_string()),
+    ]
+}
+
+/// Write the whole apply stamp into a record's annotations map in one call: the
+/// [`LAST_APPLIED`] fingerprint AND the ADR-0090 version counters, so a Kind's
+/// stamp cannot persist one without the other. The previous generation and
+/// last-applied are read from the SAME map before it is overwritten, so the map
+/// passed in must be the record's CURRENT annotations. `kind` resolves the
+/// `storedVersion` off the catalog, so the caller need not know its apiVersion.
+pub fn stamp_annotations(
+    annotations: &mut BTreeMap<String, String>,
+    fields: &BTreeMap<String, String>,
+    kind: &str,
+) {
+    let encoded = encode_last_applied(fields);
+    let version = crate::kinds::facts(kind)
+        .map(|f| f.api_version)
+        .unwrap_or("");
+    // Version first — it reads the PREVIOUS last-applied out of the map, which the
+    // next line overwrites.
+    for (k, v) in version_annotations(annotations, &encoded, version) {
+        annotations.insert(k, v);
+    }
+    annotations.insert(LAST_APPLIED.to_string(), encoded);
+}
+
+/// [`stamp_annotations`] for a record written through an annotation DELTA — the
+/// `&[(key, Option<value>)]` shape `*Store::set_metadata` takes. `prev` is the
+/// record's CURRENT annotations, which the caller loads (the stores merge a
+/// delta and never hand the previous state back), so the generation can be read
+/// from it. Returns the four entries to apply: the three ADR-0090 version
+/// annotations and [`LAST_APPLIED`].
+pub fn stamp_annotation_delta(
+    prev: &BTreeMap<String, String>,
+    fields: &BTreeMap<String, String>,
+    kind: &str,
+) -> Vec<(String, Option<String>)> {
+    let encoded = encode_last_applied(fields);
+    let version = crate::kinds::facts(kind)
+        .map(|f| f.api_version)
+        .unwrap_or("");
+    let mut out: Vec<(String, Option<String>)> = version_annotations(prev, &encoded, version)
+        .into_iter()
+        .map(|(k, v)| (k, Some(v)))
+        .collect();
+    out.push((LAST_APPLIED.to_string(), Some(encoded)));
+    out
+}
 
 /// What a resource in the manifest asks for.
 #[derive(Debug, Clone)]
@@ -100,6 +213,11 @@ pub struct Actual {
     pub owner: Option<String>,
     /// Decoded [`LAST_APPLIED`], if any.
     pub last_applied: Option<BTreeMap<String, String>>,
+    /// Whether the record carries the [`PROTECT`] label. A protected resource is
+    /// never a `Delete` candidate — `--prune` and `destroy` leave it alone and SAY
+    /// so (ADR-0088 A5). `false` (the default for a resource with no such label)
+    /// changes nothing.
+    pub protect: bool,
 }
 
 /// What will happen to one resource.
@@ -371,6 +489,7 @@ fn hot_fields(kind: &str) -> &'static [&'static str] {
             "protectedResources",
             "kinds",
             "stack",
+            "driftPolicy",
         ],
         // An apply that died mid-way is finished by applying again: the
         // record's ledger says where it stopped, and the provider adopts what
@@ -437,8 +556,41 @@ fn hot_fields(kind: &str) -> &'static [&'static str] {
     }
 }
 
-fn is_hot(kind: &str, field: &str) -> bool {
-    hot_fields(kind).contains(&field)
+/// The STATIC update class of one field of one Kind — the machine-readable
+/// classification ADR-0088 A1 adds, read by the diff (here) and emitted into the
+/// published schema as `x-delonix-update` (phase 2b-ii). "Static" because it is a
+/// property of the `(Kind, field)` pair alone; the RESTART class is per-resource
+/// and lives in [`Facts`] (a backend decides it), so it is not here.
+///
+/// This is the ONE place the diff consults for a field's static class;
+/// [`hot_fields`] and [`grow_only_fields`] are its documented backing data (each
+/// entry carries WHY it is what it is). A field named in neither is [`Replace`].
+///
+/// [`Replace`]: UpdateClass::Replace
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateClass {
+    /// Converges in place, same PID (ADR-0088 `live`). Backing: [`hot_fields`].
+    Live,
+    /// Converges live only when it GROWS up to a ceiling (ADR-0088 `live`,
+    /// grow-only); a shrink is a [`Replace`]. Backing: [`grow_only_fields`].
+    ///
+    /// [`Replace`]: UpdateClass::Replace
+    GrowOnly,
+    /// Does not converge in place — a change is a `Replace` (ADR-0088 `replace`),
+    /// refused unless authorised. The safe default for any unlisted field.
+    Replace,
+}
+
+/// The single static classifier (ADR-0088 A1). Every `(Kind, field)` maps to
+/// exactly one [`UpdateClass`]; an unlisted field is [`UpdateClass::Replace`].
+pub fn update_class(kind: &str, field: &str) -> UpdateClass {
+    if hot_fields(kind).contains(&field) {
+        UpdateClass::Live
+    } else if grow_only_fields(kind).contains(&field) {
+        UpdateClass::GrowOnly
+    } else {
+        UpdateClass::Replace
+    }
 }
 
 /// Fields that converge live only when they GROW, per Kind: a number the
@@ -458,18 +610,16 @@ fn grow_only_fields(kind: &str) -> &'static [&'static str] {
 /// Whether one field change converges live: a hot field always does, a
 /// grow-only field when both sides are numbers and it does not shrink.
 pub fn is_hot_change(kind: &str, field: &str, from: Option<&str>, to: Option<&str>) -> bool {
-    if is_hot(kind, field) {
-        return true;
-    }
-    if !grow_only_fields(kind).contains(&field) {
-        return false;
-    }
-    match (
-        from.and_then(|v| v.parse::<u64>().ok()),
-        to.and_then(|v| v.parse::<u64>().ok()),
-    ) {
-        (Some(f), Some(t)) => t >= f,
-        _ => false,
+    match update_class(kind, field) {
+        UpdateClass::Live => true,
+        UpdateClass::Replace => false,
+        UpdateClass::GrowOnly => matches!(
+            (
+                from.and_then(|v| v.parse::<u64>().ok()),
+                to.and_then(|v| v.parse::<u64>().ok()),
+            ),
+            (Some(f), Some(t)) if t >= f
+        ),
     }
 }
 
@@ -607,6 +757,7 @@ fn diff_fields(
     desired: &Desired,
     actual: &Actual,
     facts: Option<&Facts>,
+    ignore: &BTreeSet<String>,
 ) -> Vec<FieldDiff> {
     let empty = BTreeMap::new();
     let last = actual.last_applied.as_ref().unwrap_or(&empty);
@@ -618,6 +769,13 @@ fn diff_fields(
         .collect();
     let mut out = Vec::new();
     for key in keys {
+        // A field another actor owns (`delonix.io/ignore-fields`): it is neither
+        // converged towards nor reverted — the diff never sees it, so the whole
+        // decision (Update/Replace/NoOp) is taken as if the manifest and the
+        // machine agreed on it. An empty set (the default) skips nothing.
+        if ignore.contains(key) {
+            continue;
+        }
         let d = desired.fields.get(key);
         let a = actual.fields.get(key);
         match (d, a) {
@@ -646,7 +804,7 @@ fn diff_fields(
 /// `stack` is the name that owns this apply; it is what separates «mine, gone
 /// from the file, so remove it» from «someone else's, never touch it».
 pub fn plan(desired: &[Desired], actual: &[Actual], stack: &str) -> Vec<Change> {
-    plan_with_facts(desired, actual, stack, &BTreeMap::new())
+    plan_with_facts(desired, actual, stack, &BTreeMap::new(), &BTreeMap::new())
 }
 
 /// [`plan`], with what the owning modules read off the machine about each
@@ -656,7 +814,9 @@ pub fn plan_with_facts(
     actual: &[Actual],
     stack: &str,
     facts: &BTreeMap<(String, String), Facts>,
+    ignore: &BTreeMap<(String, String), BTreeSet<String>>,
 ) -> Vec<Change> {
+    let empty_ignore = BTreeSet::new();
     let mut out = Vec::new();
     for d in desired {
         let found = actual.iter().find(|a| a.kind == d.kind && a.name == d.name);
@@ -684,7 +844,10 @@ pub fn plan_with_facts(
             continue;
         }
         let f = facts.get(&(d.kind.clone(), d.name.clone()));
-        let diffs = diff_fields(&d.kind, d, a, f);
+        let ig = ignore
+            .get(&(d.kind.clone(), d.name.clone()))
+            .unwrap_or(&empty_ignore);
+        let diffs = diff_fields(&d.kind, d, a, f, ig);
         // A non-ownable resource is never «unowned and therefore to adopt»:
         // having no owner is its normal state, not something to fix.
         let unmanaged = d.ownable && a.owner.is_none();
@@ -744,6 +907,17 @@ pub fn plan_with_facts(
         // (A non-ownable resource never carries the label, so it never reaches
         // here — the guard above is what keeps shared content out of `--prune`.)
         if desired.iter().any(|d| d.kind == a.kind && d.name == a.name) {
+            continue;
+        }
+        // Protected (`delonix.io/protect`): gone from the manifest, but `--prune`
+        // and `destroy` must not remove it. It is NOT a `Delete` — it is a `NoOp`
+        // that NAMES why, so the plan shows the resource was kept on purpose
+        // rather than quietly dropping it from the output.
+        if a.protect {
+            out.push(
+                Change::new(&a.kind, &a.name, Action::NoOp)
+                    .with_reason("protected by delonix.io/protect — not pruned"),
+            );
             continue;
         }
         out.push(
@@ -875,6 +1049,60 @@ mod tests {
             .collect()
     }
 
+    /// The generation counter (ADR-0090): `1` on first apply, bumped only when
+    /// the applied spec changed, kept when it did not — and an unversioned record
+    /// (no stored generation) starts at `0`, so its first stamp writes `1`.
+    #[test]
+    fn generation_bumps_only_when_the_applied_spec_changed() {
+        // First apply: no previous last-applied at all -> generation 1.
+        assert_eq!(next_generation(None, None, "la-v1"), 1);
+        // Re-apply of the SAME spec: kept.
+        assert_eq!(next_generation(Some("la-v1"), Some("1"), "la-v1"), 1);
+        // A changed spec: bumped.
+        assert_eq!(next_generation(Some("la-v1"), Some("1"), "la-v2"), 2);
+        assert_eq!(next_generation(Some("la-v2"), Some("2"), "la-v3"), 3);
+        // Unchanged spec but an unversioned record (migration): floor at 1.
+        assert_eq!(next_generation(Some("la-v1"), None, "la-v1"), 1);
+    }
+
+    /// The MIGRATION (ADR-0090): a record written before this slice carries none
+    /// of the three annotations. The first stamp reads it as unversioned and
+    /// writes generation `1`, observedGeneration `1`, and the Kind's version —
+    /// additively, nothing moved.
+    #[test]
+    fn an_unversioned_record_is_upgraded_by_the_next_stamp() {
+        let mut ann = map(&[("some.other/label", "x")]); // no delonix.io/* version keys
+        stamp_annotations(
+            &mut ann,
+            &map(&[("image", "nginx:1.27")]),
+            crate::kinds::CONTAINER,
+        );
+        assert_eq!(ann.get(GENERATION).map(String::as_str), Some("1"));
+        assert_eq!(ann.get(OBSERVED_GENERATION).map(String::as_str), Some("1"));
+        assert_eq!(
+            ann.get(STORED_VERSION).map(String::as_str),
+            Some("compute.delonix.io/v1beta1")
+        );
+        assert!(ann.contains_key(LAST_APPLIED));
+
+        // A second stamp with the SAME spec keeps generation 1 (ensure-present,
+        // not a new version); observedGeneration tracks it.
+        stamp_annotations(
+            &mut ann,
+            &map(&[("image", "nginx:1.27")]),
+            crate::kinds::CONTAINER,
+        );
+        assert_eq!(ann.get(GENERATION).map(String::as_str), Some("1"));
+        // A changed spec bumps both.
+        stamp_annotations(
+            &mut ann,
+            &map(&[("image", "nginx:1.28")]),
+            crate::kinds::CONTAINER,
+        );
+        assert_eq!(ann.get(GENERATION).map(String::as_str), Some("2"));
+        assert_eq!(ann.get(OBSERVED_GENERATION).map(String::as_str), Some("2"));
+    }
+
     fn desired(name: &str, fields: &[(&str, &str)]) -> Desired {
         Desired {
             kind: "Container".into(),
@@ -892,6 +1120,104 @@ mod tests {
             fields: map(fields),
             owner: owner.map(String::from),
             last_applied: None,
+            protect: false,
+        }
+    }
+
+    /// An ignore map (`delonix.io/ignore-fields`) for one Container resource.
+    fn ignoring(name: &str, fields: &[&str]) -> BTreeMap<(String, String), BTreeSet<String>> {
+        let mut m = BTreeMap::new();
+        m.insert(
+            ("Container".to_string(), name.to_string()),
+            fields.iter().map(|s| s.to_string()).collect(),
+        );
+        m
+    }
+
+    /// ADR-0088 A5: a resource that differs only in an IGNORED hot field plans no
+    /// change — the field another actor owns is neither converged nor reverted.
+    #[test]
+    fn an_ignored_hot_field_that_differs_plans_no_change() {
+        let d = [desired("web", &[("image", "nginx"), ("memory", "512M")])];
+        let a = [actual(
+            "web",
+            &[("image", "nginx"), ("memory", "256M")],
+            Some("s"),
+        )];
+        // Without the annotation, the hot `memory` difference is an Update.
+        assert_eq!(plan(&d, &a, "s")[0].action, Action::Update);
+        // Ignoring `memory`, the only difference is gone: NoOp.
+        let p = plan_with_facts(&d, &a, "s", &BTreeMap::new(), &ignoring("web", &["memory"]));
+        assert_eq!(p[0].action, Action::NoOp);
+        assert!(p[0].diffs.is_empty());
+    }
+
+    /// A cold field normally forces a (refused) Replace; ignored, it drops out of
+    /// the diff entirely, so it never escalates the action.
+    #[test]
+    fn an_ignored_cold_field_does_not_force_a_replace() {
+        let d = [desired("web", &[("image", "nginx2")])];
+        let a = [actual("web", &[("image", "nginx1")], Some("s"))];
+        assert_eq!(plan(&d, &a, "s")[0].action, Action::Replace);
+        let p = plan_with_facts(&d, &a, "s", &BTreeMap::new(), &ignoring("web", &["image"]));
+        assert_eq!(p[0].action, Action::NoOp);
+        assert!(p[0].cold_fields.is_empty());
+    }
+
+    /// The zero-behaviour-change invariant of phase 2: an empty ignore map yields
+    /// exactly the plan the engine produced before the annotation existed.
+    #[test]
+    fn an_empty_ignore_map_is_the_pre_annotation_behaviour() {
+        let d = [desired("web", &[("image", "nginx"), ("memory", "512M")])];
+        let a = [actual(
+            "web",
+            &[("image", "nginx"), ("memory", "256M")],
+            Some("s"),
+        )];
+        let base = plan(&d, &a, "s");
+        let same = plan_with_facts(&d, &a, "s", &BTreeMap::new(), &BTreeMap::new());
+        assert_eq!(base[0].action, same[0].action);
+        assert_eq!(base[0].diffs, same[0].diffs);
+    }
+
+    /// ADR-0088 A5: a protected resource that left the manifest is NOT pruned —
+    /// it becomes a `NoOp` naming the protection, where an unprotected one is a
+    /// `Delete`. The unprotected path is unchanged.
+    #[test]
+    fn a_protected_resource_is_kept_not_pruned() {
+        let kept = Actual {
+            protect: true,
+            ..actual("keepme", &[("image", "nginx")], Some("s"))
+        };
+        let p = plan(&[], &[kept], "s");
+        assert_eq!(p[0].action, Action::NoOp);
+        assert!(p[0].reason.as_deref().unwrap().contains("protect"));
+        let unprotected = actual("keepme", &[("image", "nginx")], Some("s"));
+        assert_eq!(plan(&[], &[unprotected], "s")[0].action, Action::Delete);
+    }
+
+    /// ADR-0088 A1: `update_class` is the ONE static classifier the diff reads,
+    /// and it reproduces exactly the hand-written `hot_fields`/`grow_only_fields`
+    /// for every Kind — the parity that lets the class become the source of truth
+    /// with no plan changing. It also proves the two sets are DISJOINT (no field
+    /// is both Live and GrowOnly), the well-formedness the A1 gate rests on.
+    #[test]
+    fn update_class_matches_the_hand_tables_for_every_kind() {
+        for kind in k::stack_kinds() {
+            let hot: BTreeSet<_> = hot_fields(kind).iter().collect();
+            let grow: BTreeSet<_> = grow_only_fields(kind).iter().collect();
+            assert!(
+                hot.is_disjoint(&grow),
+                "{kind}: a field cannot be both Live and GrowOnly"
+            );
+            for f in hot_fields(kind) {
+                assert_eq!(update_class(kind, f), UpdateClass::Live, "{kind}/{f}");
+            }
+            for f in grow_only_fields(kind) {
+                assert_eq!(update_class(kind, f), UpdateClass::GrowOnly, "{kind}/{f}");
+            }
+            // A field named in neither table is Replace, the safe default.
+            assert_eq!(update_class(kind, "__absent__"), UpdateClass::Replace);
         }
     }
 
@@ -1076,6 +1402,7 @@ mod tests {
             fields: map(&[("memory", "2G")]),
             owner: Some("s".into()),
             last_applied: None,
+            protect: false,
         };
         let p = plan(&[d], &[a], "s");
         assert_eq!(p[0].action, Action::NotConverged);
@@ -1140,6 +1467,7 @@ mod tests {
             fields: map(&[("ref", "alpine:latest")]),
             owner: None,
             last_applied: None,
+            protect: false,
         };
         let p = plan(&[d], std::slice::from_ref(&a), "s");
         assert_eq!(
@@ -1176,6 +1504,7 @@ mod tests {
             fields: map(&[("memory", "2G")]),
             owner: Some("s".into()),
             last_applied: None,
+            protect: false,
         };
         let p = plan(&[d], &[a], "s");
         assert_eq!(p[0].action, Action::Replace);
@@ -1213,6 +1542,7 @@ mod tests {
                 fields: map(&[(field, "false")]),
                 owner: None,
                 last_applied: None,
+                protect: false,
             };
             let p = plan(&[d], &[a], "s");
             assert_eq!(
@@ -1319,10 +1649,11 @@ mod tests {
             fields: map(actual_fields),
             owner: Some("s".into()),
             last_applied: None,
+            protect: false,
         };
         let mut all = BTreeMap::new();
         all.insert((k::VM.to_string(), "db".to_string()), facts);
-        plan_with_facts(&[d], &[a], "s", &all).remove(0)
+        plan_with_facts(&[d], &[a], "s", &all, &BTreeMap::new()).remove(0)
     }
 
     fn vm_facts(running: Option<bool>) -> Facts {
@@ -1399,6 +1730,7 @@ mod tests {
                     fields: have,
                     owner: Some("s".into()),
                     last_applied: None,
+                    protect: false,
                 }],
                 "s",
             )

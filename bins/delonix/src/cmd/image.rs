@@ -126,6 +126,7 @@ pub(crate) fn actual(docs: &[ManifestDoc]) -> Result<Vec<super::reconcile::Actua
             fields: f,
             owner: None,
             last_applied: None,
+            protect: false,
         });
     }
     Ok(out)
@@ -1281,7 +1282,10 @@ fn describe_one(images: &ImageStore, img: &delonix_oci::Image) {
     // `HEALTHCHECK`) — omitted entirely on images that do not have them.
     d.sub_opt("CPUs", c.cpus.as_deref());
     d.sub_opt("Memory", c.memory.as_deref());
-    d.sub_opt("Healthcheck", c.healthcheck.as_deref());
+    d.sub_opt(
+        "Healthcheck",
+        c.healthcheck.as_ref().map(|t| t.join(" ")).as_deref(),
+    );
     if !c.security.is_empty() {
         d.sub("Security", c.security.join(", "));
     }

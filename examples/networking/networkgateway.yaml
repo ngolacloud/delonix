@@ -1,6 +1,8 @@
 # ============================================================================
-# kind: NetworkGateway — aliases, regras, NAT e políticas num appliance de perímetro
-# kind: NetworkGateway — aliases, rules, NAT and policies on a perimeter appliance
+# kind: Router — aliases, rules, NAT and policies on a perimeter appliance (renamed from NetworkGateway, ADR-0086 D3)
+#
+# EN: `NetworkGateway` still loads as a silent alias; `Router` is the canonical name.
+#     (`kind: Gateway` is a different Kind: the ADR-0086 D4 entry-point/tunnel.)
 #
 # PT: `spec.provider` nomeia um provider de gateway registado: `opnsense`,
 #     registado por DELONIX_OPNSENSE_URL e uma credencial — um par chave/segredo de
@@ -37,8 +39,8 @@
 # ── 1. edge — aliases, uma regra de filtro, NAT (SNAT+DNAT) e uma política ───
 #      edge — aliases, a filter rule, NAT (SNAT+DNAT) and a policy
 ---
-apiVersion: networking.delonix.io/v1alpha1
-kind: NetworkGateway
+apiVersion: networking.delonix.io/v1beta1
+kind: Router
 metadata: { name: edge }
 spec:
   # PT: forma-bloco do ADR-0071; o escalar `provider: opnsense` é o mesmo.

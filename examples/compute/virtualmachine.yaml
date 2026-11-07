@@ -20,14 +20,14 @@
 # ── 1. recursos de apoio — um Volume 9p, um Volume NAS e uma Network ─────────
 #      supporting resources — a 9p Volume, a NAS Volume and a Network
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: vm-data                       # PT: partilhado para o guest por virtio-9p (backend libvirt) | EN: shared into the guest over virtio-9p (libvirt backend)
 spec:
   driver: local
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: dados-nas                     # PT: um volume de rede (NAS) montado na VM por 9p | EN: a network (NAS) volume mounted into the VM via 9p
@@ -36,7 +36,7 @@ spec:
     server: 10.0.0.5
     share: /mnt/pool/dados
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: vm-net                        # PT: a rede SDN a que o tap da VM se liga (backend CH) | EN: the SDN network the VM's tap joins (CH backend)
@@ -46,7 +46,7 @@ spec:
 # ── 2. forma agrupada com os defaults à vista ───────────────────────────────
 #      grouped shape with the defaults made explicit
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: node1
@@ -105,7 +105,7 @@ spec:
 # ── 3. forma plana completa — todos os campos do backend libvirt ─────────────
 #      full flat — every field the libvirt backend understands
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: full-flat
@@ -164,7 +164,7 @@ spec:
 # ── 4. forma agrupada completa — os mesmos knobs, por tema ───────────────────
 #      full grouped — the same knobs, organised by concern
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: full-grouped
@@ -214,7 +214,7 @@ spec:
 # ── 5. modo bridge — a VM liga-se a uma bridge do host (incompatível com ip estático, que é só-nat)
 #      bridge mode — the VM attaches to a host bridge (mutually exclusive with a static ip, which is nat-only)
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: bridge-vm
@@ -229,7 +229,7 @@ spec:
 # ── 6. arranque por kernel directo (alternativa ao firmware) — Cloud Hypervisor
 #      direct-kernel boot (alternative to firmware) — Cloud Hypervisor
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: direct-kernel
@@ -246,7 +246,7 @@ spec:
 # ── 7. firmware UEFI explícito (modo habitual de uma imagem cloud) — Cloud Hypervisor
 #      explicit UEFI firmware (the usual way to boot a cloud image) — Cloud Hypervisor
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: firmware-boot
@@ -261,7 +261,7 @@ spec:
 # ── 8. seed cloud-init pronto — substitui o gerado (hostname/sshKeys/userData não se põem)
 #      prebuilt cloud-init seed — replaces the generated one (hostname/sshKeys/userData not set)
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: prebuilt-seed
@@ -272,7 +272,7 @@ spec:
 # ── 9. escape hatch — o <domain> XML libvirt inteiro, usado tal e qual (SÓ confiança)
 #      escape hatch — the whole libvirt <domain> XML, used verbatim (TRUSTED only)
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: raw-domain
@@ -292,7 +292,7 @@ spec:
 # ── 10. o disco é CONSTRUÍDO de um VMfile (spec.build) — incompatível com `disk`
 #       the disk is BUILT from a VMfile (spec.build) — mutually exclusive with `disk`
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: built-disk
@@ -309,7 +309,7 @@ spec:
 # ── 11. volumes 9p de um NAS — storage a uma VM sem escrever cloud-init nem XML
 #       9p volumes from a NAS — storage for a VM without writing cloud-init or XML
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: app-vm

@@ -31,14 +31,14 @@
 # ── 1. recursos de apoio para os cenários abaixo ────────────────────────────
 #      supporting resources for the scenarios below
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: wl-net
 spec:
   driver: bridge
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: wl-secret
@@ -46,7 +46,7 @@ spec:
   stringData:
     API_TOKEN: example-token-not-real
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: wl-data
@@ -56,7 +56,7 @@ spec:
 # ── 2. type: container — o spec de Container plano, todos os campos ──────────
 #      type: container — the flat Container spec, every field
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-container
@@ -104,7 +104,7 @@ spec:
 # ── 3. type: container — o spec de Container agrupado ────────────────────────
 #      type: container — the grouped Container spec
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-container-grouped
@@ -124,7 +124,7 @@ spec:
 # ── 4. type: pod — um pod multi-contentor (forma k8s), todos os campos de pod ─
 #      type: pod — a multi-container pod (k8s-shaped), every pod-level field
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-pod
@@ -173,7 +173,7 @@ spec:
 # ── 5. type: vm — um spec de VirtualMachine completo (backend libvirt), plano ─
 #      type: vm — a full VirtualMachine spec (libvirt backend), flat shape
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-vm
@@ -212,7 +212,7 @@ spec:
 # ── 6. type: vm — o spec de VirtualMachine agrupado ──────────────────────────
 #      type: vm — the grouped VirtualMachine spec
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-vm-grouped
@@ -228,7 +228,7 @@ spec:
 # ── 7. type: microvm — VM no hipervisor microVM; backend FORÇADO a cloud-hypervisor
 #      type: microvm — a VM on the microVM hypervisor; backend FORCED to cloud-hypervisor
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-microvm

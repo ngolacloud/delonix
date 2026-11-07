@@ -2000,6 +2000,7 @@ pub(crate) fn actual(docs: &[ManifestDoc]) -> Result<Vec<super::reconcile::Actua
                 .annotations
                 .get(&format!("{}/{}", super::reconcile::LAST_APPLIED, dir))
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: c.labels.contains_key(super::reconcile::PROTECT),
         });
     }
     Ok(out)
@@ -2069,6 +2070,7 @@ fn actual_vm(doc: &ManifestDoc, spec: &FwDocSpec) -> Result<Option<super::reconc
         fields: f,
         owner: None,
         last_applied: None,
+        protect: false,
     }))
 }
 

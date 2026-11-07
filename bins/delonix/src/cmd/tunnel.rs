@@ -86,7 +86,29 @@ pub(crate) struct TunnelSpec {
     /// TCP and never inspects what is behind it).
     #[serde(default, rename = "insecureSkipTlsVerify")]
     insecure_skip_tls_verify: bool,
+    /// Which kind of Gateway this is (ADR-0086 D4): `tunnel` (the default, and
+    /// everything above — a public edge via `pinggy`/`ngrok`/`cloudflare`) or
+    /// `native` (a Gateway-API entry point: `listeners[]`, addresses from an
+    /// `IPPool`, TLS). One Kind, two classes, no second `Gateway`. The `native`
+    /// apply is NOT built yet — `lower_tunnel_provider` refuses it with a flag
+    /// (it lands in a later phase); until then the field exists so a manifest
+    /// can DECLARE the class and the collision is resolved at the catalog level.
+    ///
+    /// Read off the raw document in `lower_tunnel_provider` (before `provider`,
+    /// which `native` lacks), never off this typed struct — it is here only so
+    /// the generated schema carries the field and a round-trip preserves it, the
+    /// same reason `ApplicationSpec.pod` is `#[allow(dead_code)]`.
+    #[serde(default)]
+    #[allow(dead_code)]
+    class: Option<String>,
 }
+
+/// The two `class` values of a `kind: Gateway` (ADR-0086 D4). `tunnel` is the
+/// default when the field is absent, so every Gateway written before this field
+/// existed keeps its meaning.
+pub(crate) const GATEWAY_CLASS_TUNNEL: &str = "tunnel";
+pub(crate) const GATEWAY_CLASS_NATIVE: &str = "native";
+const GATEWAY_CLASSES: &[&str] = &[GATEWAY_CLASS_TUNNEL, GATEWAY_CLASS_NATIVE];
 
 /// Keys of `provider.spec` of a tunnel, by provider: what only that service
 /// understands. `insecureSkipTlsVerify` is about the LOCAL backend and stays
@@ -110,6 +132,29 @@ pub(crate) fn lower_tunnel_provider(docs: &mut [ManifestDoc]) -> Result<()> {
         let Value::Mapping(spec) = &mut doc.spec else {
             continue;
         };
+        // ADR-0086 D4: resolve the `class` first, before anything reads
+        // `provider` — a `native` Gateway has none. `tunnel` (or absent) is the
+        // only class with an apply today; `native` is declared but refused with
+        // a flag until its apply lands.
+        match spec.get("class").and_then(Value::as_str) {
+            None => {}
+            Some(GATEWAY_CLASS_TUNNEL) => {}
+            Some(GATEWAY_CLASS_NATIVE) => {
+                return Err(bad(
+                    "class: native (a Gateway-API entry point — listeners, addresses from an \
+                     IPPool, TLS) is declared by ADR-0086 D4 but its apply is not built yet; \
+                     it lands in a later phase. Write class: tunnel (or omit it) for a \
+                     pinggy/ngrok/cloudflare edge."
+                        .into(),
+                ));
+            }
+            Some(other) => {
+                return Err(bad(format!(
+                    "spec.class '{other}' is not a Gateway class (known: {})",
+                    GATEWAY_CLASSES.join(", ")
+                )));
+            }
+        }
         let Some(Value::Mapping(p)) = spec.get("provider").cloned() else {
             continue;
         };
@@ -165,6 +210,7 @@ pub const TUNNEL_SPEC_FIELDS: &[&str] = &[
     "token",
     "tokenSecretRef",
     "insecureSkipTlsVerify",
+    "class",
 ];
 
 /// `pinggy` | `ngrok` | `cloudflare`, as a CLI-level choice (`expose` only —
@@ -327,6 +373,9 @@ pub fn run(action: TunnelCmd) -> Result<()> {
                 token,
                 token_secret_ref: token_secret,
                 insecure_skip_tls_verify,
+                // This path is the `expose`/CLI tunnel edge — always the tunnel
+                // class; `native` never reaches here (it has no apply yet).
+                class: Some(GATEWAY_CLASS_TUNNEL.to_string()),
             };
             apply_one(&name, &spec)
         }
@@ -394,6 +443,7 @@ pub(crate) fn actual(docs: &[ManifestDoc]) -> Result<Vec<super::reconcile::Actua
             fields: f,
             owner: None,
             last_applied: None,
+            protect: false,
         });
     }
     Ok(out)
@@ -2089,6 +2139,34 @@ mod tests {
         }
     }
 
+    /// ADR-0086 D4: one `kind: Gateway`, a `class` discriminator. `tunnel` (or
+    /// absent) is the edge we build today; `native` is declared but refused with
+    /// a flag until its apply lands; anything else is a typo.
+    #[test]
+    fn the_gateway_class_resolves_the_collision_and_native_is_flagged() {
+        // Absent and explicit `tunnel` both pass, unchanged.
+        let mut d = gw("{ localPort: 80, provider: pinggy }");
+        lower_tunnel_provider(&mut d).unwrap();
+        let mut d = gw("{ localPort: 80, provider: pinggy, class: tunnel }");
+        lower_tunnel_provider(&mut d).unwrap();
+        assert_eq!(d[0].spec["provider"], serde_yaml::Value::from("pinggy"));
+        // `native` is declared (no second Gateway) but its apply is not built —
+        // refused before `provider`, which a native Gateway does not carry.
+        let mut d = gw("{ class: native }");
+        let e = lower_tunnel_provider(&mut d).unwrap_err().to_string();
+        assert!(
+            e.contains("class: native") && e.contains("not built yet"),
+            "{e}"
+        );
+        // A class that is neither is a typo, named with the known set.
+        let mut d = gw("{ localPort: 80, provider: pinggy, class: edge }");
+        let e = lower_tunnel_provider(&mut d).unwrap_err().to_string();
+        assert!(
+            e.contains("not a Gateway class") && e.contains("tunnel"),
+            "{e}"
+        );
+    }
+
     use super::*;
 
     #[test]
@@ -2198,6 +2276,7 @@ mod tests {
             token: None,
             token_secret_ref: None,
             insecure_skip_tls_verify: false,
+            class: None,
         };
         let h0 = config_hash(&base, &None);
         let mut port_changed = base.clone();

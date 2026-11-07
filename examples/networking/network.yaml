@@ -29,7 +29,7 @@
 # ── 1. bridge — todos os campos relevantes de bridge, explícitos ─────────────
 #      bridge — every bridge-relevant field spelled out
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-bridge-full
@@ -45,7 +45,7 @@ spec:
 # ── 2. bridge por defeito — tudo omitido, driver=bridge, subnet auto ─────────
 #      bridge default — everything omitted, driver=bridge, subnet auto-picked
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-bridge-default
@@ -54,7 +54,7 @@ spec: {}                      # PT: driver cai em bridge, subnet é escolhido | 
 # ── 3. overlay (VXLAN) entre nós — vni + peers, em claro ─────────────────────
 #      overlay (VXLAN) between nodes — vni + peers, clear-text
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-overlay-plain
@@ -68,7 +68,7 @@ spec:
 # ── 4. overlay cifrado (transporte WireGuard) — peers "<ip>=<wg_pubkey>=<wg_ip>"
 #      encrypted overlay (WireGuard transport) — peers "<ip>=<wg_pubkey>=<wg_ip>"
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-overlay-encrypted
@@ -82,7 +82,7 @@ spec:
 # ── 5. macvlan — o container ganha endereço no segmento L2 da NIC pai ────────
 #      macvlan — the container gets an address on the parent NIC's L2 segment
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-macvlan
@@ -95,7 +95,7 @@ spec:
 # ── 6. ipvlan — como macvlan, mas todos partilham o MAC da NIC pai ───────────
 #      ipvlan — like macvlan, but all share the parent's MAC
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-ipvlan
@@ -122,7 +122,7 @@ spec:
 #     every network of that zone. With no provider configured `apply` refuses;
 #     `stack validate` does not need one.
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: labnet1 }
 spec:
@@ -145,7 +145,7 @@ spec:
 ---
 # PT: Segunda rede da MESMA zona `lab` — forma mínima: só o provider e a zona.
 # EN: Second network of the SAME `lab` zone — minimal form: just the provider and zone.
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: labnet2 }
 spec:

@@ -458,7 +458,7 @@ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hi
 # EN: The VALUES are CLEARTEXT in the file, so the apply prints a warning.
 #     Fine for dev; never commit real values to a repository.
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: nas-creds
@@ -479,7 +479,7 @@ spec:
 # EN: Keeps the values OUT of the manifest. A relative path resolves against the
 #     manifest&#x27;s own folder.
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: app-env
@@ -495,7 +495,7 @@ spec:
 #     consumer looks up; the variable is whatever the CI job exports. A variable
 #     that is NOT set is an ERROR at apply time, never an empty secret.
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: env-map-secret
@@ -507,7 +507,7 @@ spec:
 # ── 4. fromEnv (lista) — atalho quando chave == variável ─────────────────────
 #      fromEnv (list) — shorthand when key name == variable name
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: env-list-secret
@@ -523,7 +523,7 @@ spec:
 # EN: The file gives the base, `stringData` overrides `LOG_LEVEL`, `fromEnv` adds a
 #     value read from the process environment.
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: combined-secret
@@ -558,7 +558,7 @@ spec:
 # ── 1. mínimo — só containers[].image é obrigatório ─────────────────────────
 #      minimal — only containers[].image is mandatory
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata:
   name: minimal-pod
@@ -570,21 +570,21 @@ spec:
 # ── 2. recursos de apoio para os cenários abaixo ────────────────────────────
 #      supporting resources for the scenarios below
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: pod-net
 spec:
   driver: bridge
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: pod-data                      # PT: referido por `persistentVolumeClaim.claimName` | EN: referenced via `persistentVolumeClaim.claimName`
 spec:
   driver: local
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: pod-cache                     # PT: referido por `source` (extensão delonix) | EN: referenced via `source` (delonix extension)
@@ -594,7 +594,7 @@ spec:
 # ── 3. um contentor — esquema k8s com ports/env/volumes/securityContext ─────
 #      single container — k8s schema with ports/env/volumes/securityContext
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata:
   name: web
@@ -643,7 +643,7 @@ spec:
 # ── 4. multi-contentor completo — todos os campos de pod e de contentor ──────
 #      full multi-container — every pod-level and container field
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata:
   name: full-pod
@@ -728,7 +728,7 @@ spec:
 # ── 5. PID partilhado — os membros veem os processos uns dos outros ──────────
 #      shared PID — the members see each other&#x27;s processes
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata:
   name: shared-pid
@@ -787,14 +787,14 @@ spec:
 # ── 1. recursos de apoio para os cenários abaixo ────────────────────────────
 #      supporting resources for the scenarios below
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: wl-net
 spec:
   driver: bridge
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: wl-secret
@@ -802,7 +802,7 @@ spec:
   stringData:
     API_TOKEN: example-token-not-real
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: wl-data
@@ -812,7 +812,7 @@ spec:
 # ── 2. type: container — o spec de Container plano, todos os campos ──────────
 #      type: container — the flat Container spec, every field
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-container
@@ -860,7 +860,7 @@ spec:
 # ── 3. type: container — o spec de Container agrupado ────────────────────────
 #      type: container — the grouped Container spec
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-container-grouped
@@ -880,7 +880,7 @@ spec:
 # ── 4. type: pod — um pod multi-contentor (forma k8s), todos os campos de pod ─
 #      type: pod — a multi-container pod (k8s-shaped), every pod-level field
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-pod
@@ -929,7 +929,7 @@ spec:
 # ── 5. type: vm — um spec de VirtualMachine completo (backend libvirt), plano ─
 #      type: vm — a full VirtualMachine spec (libvirt backend), flat shape
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-vm
@@ -968,7 +968,7 @@ spec:
 # ── 6. type: vm — o spec de VirtualMachine agrupado ──────────────────────────
 #      type: vm — the grouped VirtualMachine spec
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-vm-grouped
@@ -984,7 +984,7 @@ spec:
 # ── 7. type: microvm — VM no hipervisor microVM; backend FORÇADO a cloud-hypervisor
 #      type: microvm — a VM on the microVM hypervisor; backend FORCED to cloud-hypervisor
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: wl-microvm
@@ -1040,12 +1040,12 @@ spec:
 # ── 0. Recursos de apoio INLINE — a rede e os workloads ──────────────────────
 #      Supporting resources INLINE — the network and the workloads
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: appnet }
 spec: { driver: bridge }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: db }
 spec:
@@ -1056,7 +1056,7 @@ spec:
       env:
         - { name: POSTGRES_PASSWORD, value: example }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: cache }
 spec:
@@ -1065,7 +1065,7 @@ spec:
     - name: cache
       image: &quot;redis:7-alpine&quot;
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: app }
 spec:
@@ -1075,7 +1075,7 @@ spec:
       image: &quot;alpine:3.19&quot;
       command: [&quot;sleep&quot;, &quot;infinity&quot;]
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: worker }
 spec:
@@ -1088,7 +1088,7 @@ spec:
 # ── 1. todos os campos, `to` como um nome único — app alcança db só em TCP/5432
 #      every field, `to` as a single name — app may reach db on TCP/5432 only
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Dependency
 metadata: { name: app-knows-db }
 spec:
@@ -1100,7 +1100,7 @@ spec:
 # ── 2. `to` como LISTA — uma declaração protege dois alvos de uma vez ────────
 #      `to` as a LIST — one declaration protecting two targets at once
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Dependency
 metadata: { name: app-knows-cache }
 spec:
@@ -1115,7 +1115,7 @@ spec:
 # PT: Fundido com o documento 1, db aceita app (5432/tcp) E worker (qualquer porta/proto).
 # EN: Merged with document 1, db accepts app (5432/tcp) AND worker (any port, any proto).
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Dependency
 metadata: { name: worker-knows-db }
 spec:
@@ -1157,17 +1157,17 @@ spec:
 # ── 0. Recursos de apoio INLINE — as redes que as rotas ligam ────────────────
 #      Supporting resources INLINE — the networks the routes connect
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: frontend }
 spec: { driver: bridge }
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: backend }
 spec: { driver: bridge }
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: mgmt }
 spec: { driver: bridge }
@@ -1178,7 +1178,7 @@ spec: { driver: bridge }
 # PT: O retorno dessas conversas flui; backend NÃO inicia de volta.
 # EN: Return traffic of those conversations flows; backend cannot initiate back.
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
 metadata:
   name: frontend-to-backend
@@ -1191,14 +1191,14 @@ spec:
 # ── 2. um segundo par independente — mgmt alcança as outras duas ────────────
 #      a second independent pair — mgmt reaches both others
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
 metadata: { name: mgmt-to-backend }
 spec:
   from: mgmt
   to: backend
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
 metadata: { name: mgmt-to-frontend }
 spec:
@@ -1208,7 +1208,7 @@ spec:
 # ── 3. um caminho bidireccional são duas rotas (o par inverso, explícito) ────
 #      a bidirectional path is two explicit routes (the reverse pair)
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
 metadata: { name: backend-to-mgmt }
 spec:
@@ -1223,7 +1223,7 @@ spec:
 # EN: The workloads exist so the &quot;is it allowed?&quot; question has something to protect.
 #     Without this Dependency the path exists but `api` still decides who it accepts.
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: web }
 spec:
@@ -1233,7 +1233,7 @@ spec:
       image: &quot;alpine:3.19&quot;
       command: [&quot;sleep&quot;, &quot;infinity&quot;]
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: api }
 spec:
@@ -1243,7 +1243,7 @@ spec:
       image: &quot;alpine:3.19&quot;
       command: [&quot;sleep&quot;, &quot;infinity&quot;]
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Dependency
 metadata: { name: web-knows-api }
 spec:
@@ -1290,14 +1290,14 @@ spec:
 # ── 1. Backends — rede SDN + containers que o Ingress nomeia ─────────────────
 #      Backends — SDN network + containers the Ingress names
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: sdn-demo
 spec:
   driver: bridge              # PT: o proxy L7 só alcança backends na SDN | EN: the L7 proxy only reaches backends on the SDN
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: web
@@ -1305,7 +1305,7 @@ spec:
   image: &quot;nginx:alpine&quot;       # PT: nginx serve em :80 | EN: nginx serves on :80
   network: sdn-demo
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: api
@@ -1313,7 +1313,7 @@ spec:
   image: &quot;caddy:alpine&quot;       # PT: caddy:alpine serve em :80 | EN: caddy:alpine serves on :80
   network: sdn-demo
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: docs
@@ -1328,7 +1328,7 @@ spec:
 #     os placeholders por um par real antes de servir tráfego real.
 # EN: PEM pair under tls_crt / tls_key (tls.crt / tls.key also work). Replace the
 #     placeholders with a real pair before serving real traffic.
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: shop-tls
@@ -1340,7 +1340,7 @@ spec:
 # ── 3. Ingress completo — listeners, TLS, dois hosts, paths, defaultBackend ──
 #      Full Ingress — listeners, TLS, two hosts, paths, defaultBackend
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Ingress
 metadata:
   name: shop
@@ -1390,7 +1390,7 @@ spec:
 ---
 # PT: Sem `entrypoints`: default porta 80. Sem `tls`: só serve HTTP.
 # EN: No `entrypoints`: defaults to port 80. No `tls`: serves HTTP only.
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Ingress
 metadata:
   name: status
@@ -1479,7 +1479,7 @@ spec:
 # ── 1. O Stack blog — um documento que nomeia todos os grupos ───────────────
 #      The blog Stack — one document naming every group
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Stack
 metadata:
   name: blog
@@ -1631,6 +1631,27 @@ spec:
             image: alpine:3.20
             command: [&quot;sleep&quot;, &quot;infinity&quot;]
 
+  # Application (ADR-0086 D4) — the service Kind. Lowers into its `replicas` Pod
+  # instances (`frontend-0`/`frontend-1`); the Pod is the instance, not written
+  # by hand.
+  applications:
+    - name: frontend
+      spec:
+        replicas: 2
+        containers:
+          - name: frontend
+            image: nginx:1.27-alpine
+
+  # Job (ADR-0086 D3) — run-to-completion. Lowers to a Pod whose restartPolicy
+  # defaults to OnFailure (retried until it succeeds).
+  jobs:
+    - name: db-migrate
+      spec:
+        containers:
+          - name: migrate
+            image: migrate/migrate:v4.17.0
+            command: [&quot;migrate&quot;, &quot;-path&quot;, &quot;/m&quot;, &quot;-database&quot;, &quot;$DB&quot;, &quot;up&quot;]
+
   # PT: DNS round-robin sobre cada contentor que o selector casa, sob
   #     web.&lt;ns&gt;.delonix.internal. Sem VIP, sem daemon.
   # EN: Round-robin DNS over every container the selector matches, under
@@ -1774,7 +1795,7 @@ spec:
           url: file:///srv/git/web-infra.git
           ref: refs/heads/main
           path: environments/production</code></pre>
-<details class="fields"><summary><span class='lang-pt'>Campos de <code>spec</code> — 26</span><span class='lang-en'><code>spec</code> fields — 26</span><span class='chev' aria-hidden='true'></span></summary><table class='params'><tr><th><span class='lang-pt'>Campo</span><span class='lang-en'>Field</span></th><th><span class='lang-pt'>Tipo</span><span class='lang-en'>Type</span></th><th><span class='lang-pt'>Obrig.</span><span class='lang-en'>Req.</span></th><th><span class='lang-pt'>Default</span><span class='lang-en'>Default</span></th><th><span class='lang-pt'>Descrição</span><span class='lang-en'>Description</span></th></tr><tr><td><code>apps</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>containers</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>dependencies</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>firewallPolicies</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>gateways</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>gitopsSources</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>httpRoutes</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>images</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>ingress</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>ipPools</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networkAccessRules</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networkGateways</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networkRoutes</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networkZones</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networks</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>objectStorages</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>pods</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>runtimePolicies</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>secrets</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>services</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>storagePools</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>systemContainers</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>tunnels</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>vms</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>volumes</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>workloads</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr></table></details>
+<details class="fields"><summary><span class='lang-pt'>Campos de <code>spec</code> — 28</span><span class='lang-en'><code>spec</code> fields — 28</span><span class='chev' aria-hidden='true'></span></summary><table class='params'><tr><th><span class='lang-pt'>Campo</span><span class='lang-en'>Field</span></th><th><span class='lang-pt'>Tipo</span><span class='lang-en'>Type</span></th><th><span class='lang-pt'>Obrig.</span><span class='lang-en'>Req.</span></th><th><span class='lang-pt'>Default</span><span class='lang-en'>Default</span></th><th><span class='lang-pt'>Descrição</span><span class='lang-en'>Description</span></th></tr><tr><td><code>applications</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>apps</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>containers</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>dependencies</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>firewallPolicies</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>gateways</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>gitopsSources</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>httpRoutes</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>images</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>ingress</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>ipPools</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>jobs</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networkAccessRules</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networkGateways</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networkRoutes</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networkZones</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>networks</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>objectStorages</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>pods</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>runtimePolicies</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>secrets</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>services</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>storagePools</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>systemContainers</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>tunnels</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>vms</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>volumes</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>workloads</code></td><td>array&lt;object&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr></table></details>
 <h2 id='kubernetescluster'>KubernetesCluster</h2>
 <p class='lang-pt'>Bootstrap kubeadm idempotente sobre hosts JÁ vivos, por SSH. Sem ficheiro de estado: cada passo tem um <code>check</code>, por isso nunca dessincroniza. Ver também <code>cluster-vm.yaml</code> (provisiona as VMs) e <code>cluster-kind.yaml</code> (modo kind).</p><p class='lang-en'>Idempotent kubeadm bootstrap on hosts that are ALREADY alive, over SSH. No state file: every step has a <code>check</code>, so it can never drift. See also <code>cluster-vm.yaml</code> (provisions the VMs) and <code>cluster-kind.yaml</code> (kind mode).</p>
 <pre data-file="examples/cluster/kubernetescluster.yaml" data-validated="schema"><code># ============================================================================
@@ -1813,7 +1834,7 @@ spec:
 # ── 1. modo kind — cluster local em containers, aqui mesmo ──────────────────
 #      mode kind — a local cluster in containers, right here
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: kind-lab
@@ -1834,7 +1855,7 @@ spec:
 # ── 2. modo ssh — hosts remotos já existentes, control-plane HA ─────────────
 #      mode ssh — remote hosts that already exist, HA control plane
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: ssh-prod
@@ -1864,7 +1885,7 @@ spec:
 # ── 3. modo vm — cada nó é uma microVM da imagem dourada ────────────────────
 #      mode vm — every node is a microVM from the golden image
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: vm-lab
@@ -1889,7 +1910,7 @@ spec:
 # ── 4. perfil CNI Cilium (modo vm) — a rede de pods instalada pelo bootstrap ─
 #      Cilium CNI profile (mode vm) — the pod network the bootstrap installs
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: cilium-lab
@@ -1923,7 +1944,7 @@ spec:
 # ── 5. modo ssh com etcd EXTERNO dedicado (CA própria, nº ímpar de membros) ──
 #      mode ssh with a dedicated EXTERNAL etcd cluster (own CA, odd member count)
 ---
-apiVersion: infrastructure.delonix.io/v1alpha1
+apiVersion: cluster.delonix.io/v1beta1
 kind: KubernetesCluster
 metadata:
   name: ssh-etcd-prod
@@ -1986,7 +2007,7 @@ spec:
 # ── 1. bridge — todos os campos relevantes de bridge, explícitos ─────────────
 #      bridge — every bridge-relevant field spelled out
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-bridge-full
@@ -2002,7 +2023,7 @@ spec:
 # ── 2. bridge por defeito — tudo omitido, driver=bridge, subnet auto ─────────
 #      bridge default — everything omitted, driver=bridge, subnet auto-picked
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-bridge-default
@@ -2011,7 +2032,7 @@ spec: {}                      # PT: driver cai em bridge, subnet é escolhido | 
 # ── 3. overlay (VXLAN) entre nós — vni + peers, em claro ─────────────────────
 #      overlay (VXLAN) between nodes — vni + peers, clear-text
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-overlay-plain
@@ -2025,7 +2046,7 @@ spec:
 # ── 4. overlay cifrado (transporte WireGuard) — peers &quot;&lt;ip&gt;=&lt;wg_pubkey&gt;=&lt;wg_ip&gt;&quot;
 #      encrypted overlay (WireGuard transport) — peers &quot;&lt;ip&gt;=&lt;wg_pubkey&gt;=&lt;wg_ip&gt;&quot;
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-overlay-encrypted
@@ -2039,7 +2060,7 @@ spec:
 # ── 5. macvlan — o container ganha endereço no segmento L2 da NIC pai ────────
 #      macvlan — the container gets an address on the parent NIC&#x27;s L2 segment
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-macvlan
@@ -2052,7 +2073,7 @@ spec:
 # ── 6. ipvlan — como macvlan, mas todos partilham o MAC da NIC pai ───────────
 #      ipvlan — like macvlan, but all share the parent&#x27;s MAC
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: net-ipvlan
@@ -2079,7 +2100,7 @@ spec:
 #     every network of that zone. With no provider configured `apply` refuses;
 #     `stack validate` does not need one.
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: labnet1 }
 spec:
@@ -2102,7 +2123,7 @@ spec:
 ---
 # PT: Segunda rede da MESMA zona `lab` — forma mínima: só o provider e a zona.
 # EN: Second network of the SAME `lab` zone — minimal form: just the provider and zone.
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: labnet2 }
 spec:
@@ -2151,7 +2172,7 @@ spec:
 #     in the manifest — that is the reason `passwordSecret` exists. Cleartext
 #     only here because this is an example (the apply warns you about it).
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: nas-creds
@@ -2163,7 +2184,7 @@ spec:
 # ── 1. local — volume local simples (o caso comum) ──────────────────────────
 #      local — a plain local volume (the common case)
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: local-data
@@ -2177,7 +2198,7 @@ spec:
 # ── 2. driver cru — montar um export NFS sem o bloco amigável ────────────────
 #      raw driver — mount an NFS export without the friendly block
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: raw-nfs
@@ -2193,7 +2214,7 @@ spec:
 # EN: This is the volume a VM consumes via `spec.volumes` (libvirt 9p) — see
 #     examples/compute/virtualmachine.yaml.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: nfs-media
@@ -2209,7 +2230,7 @@ spec:
 # ── 4. cifs: — partilha SMB/CIFS (Samba, Windows, TrueNAS SMB) ───────────────
 #      cifs: — an SMB/CIFS share (Samba, Windows, TrueNAS SMB)
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: cifs-backups
@@ -2226,7 +2247,7 @@ spec:
 # ── 5. webdav: — partilha WebDAV (Nextcloud, ownCloud) ───────────────────────
 #      webdav: — a WebDAV share (Nextcloud, ownCloud)
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: webdav-cloud
@@ -2251,7 +2272,7 @@ spec:
 #     OPTIONAL — absent = the unscoped root (not the `default` tenant). Exclusive
 #     with nfs/cifs/webdav, device, a non-local driver and provision.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: team-share
@@ -2276,7 +2297,7 @@ spec:
 #     twice. Destroy the remote side (irreversible):
 #     `delonix volume rm truenas-dados --destroy-remote`.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: truenas-dados
@@ -2301,7 +2322,7 @@ spec:
 # ── 7b. provision.truenas: com conta em vez de chave de API ──────────────────
 #       provision.truenas: with account credentials instead of an API key
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: truenas-account
@@ -2325,7 +2346,7 @@ spec:
 #     every other backing. The pool must be in the node&#x27;s allowlist and applied
 #     first.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: pg-data
@@ -2362,7 +2383,7 @@ spec:
 # ── 1. pull — puxar uma imagem pública (idempotente) ────────────────────────
 #      pull — pull a public image (idempotent)
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Image
 metadata:
   name: alpine
@@ -2376,7 +2397,7 @@ spec:
 # EN: From the ENVIRONMENT (nothing secret is written in the manifest; the shape
 #     a CI job has). Alternative: `stringData: { username, password }` (cleartext).
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: registry-cred
@@ -2396,12 +2417,12 @@ spec:
 #     applied cleanly on the host where someone logged in and failed on every
 #     other one. Naming a Secret makes the document self-contained.
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Image
 metadata:
   name: private-app
 spec:
-  pull: ghcr.io/angolardevops/private-app:1.0
+  pull: ghcr.io/ngolacloud/private-app:1.0
   pullSecret: registry-cred    # PT: `kind: Secret` com username+password; só com pull | EN: `kind: Secret` with username+password; only with pull
 
 # ── 3. build — construir a partir de um Delonixfile/Dockerfile ───────────────
@@ -2411,7 +2432,7 @@ spec:
 # EN: Every BuildSpec field. Only `tag` is required; the rest mirror the CLI&#x27;s
 #     flags (`delonix image build`).
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Image
 metadata:
   name: app-built
@@ -2453,14 +2474,14 @@ spec:
 # ── 1. recursos de apoio — um Volume 9p, um Volume NAS e uma Network ─────────
 #      supporting resources — a 9p Volume, a NAS Volume and a Network
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: vm-data                       # PT: partilhado para o guest por virtio-9p (backend libvirt) | EN: shared into the guest over virtio-9p (libvirt backend)
 spec:
   driver: local
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: dados-nas                     # PT: um volume de rede (NAS) montado na VM por 9p | EN: a network (NAS) volume mounted into the VM via 9p
@@ -2469,7 +2490,7 @@ spec:
     server: 10.0.0.5
     share: /mnt/pool/dados
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: vm-net                        # PT: a rede SDN a que o tap da VM se liga (backend CH) | EN: the SDN network the VM&#x27;s tap joins (CH backend)
@@ -2479,7 +2500,7 @@ spec:
 # ── 2. forma agrupada com os defaults à vista ───────────────────────────────
 #      grouped shape with the defaults made explicit
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: node1
@@ -2538,7 +2559,7 @@ spec:
 # ── 3. forma plana completa — todos os campos do backend libvirt ─────────────
 #      full flat — every field the libvirt backend understands
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: full-flat
@@ -2597,7 +2618,7 @@ spec:
 # ── 4. forma agrupada completa — os mesmos knobs, por tema ───────────────────
 #      full grouped — the same knobs, organised by concern
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: full-grouped
@@ -2647,7 +2668,7 @@ spec:
 # ── 5. modo bridge — a VM liga-se a uma bridge do host (incompatível com ip estático, que é só-nat)
 #      bridge mode — the VM attaches to a host bridge (mutually exclusive with a static ip, which is nat-only)
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: bridge-vm
@@ -2662,7 +2683,7 @@ spec:
 # ── 6. arranque por kernel directo (alternativa ao firmware) — Cloud Hypervisor
 #      direct-kernel boot (alternative to firmware) — Cloud Hypervisor
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: direct-kernel
@@ -2679,7 +2700,7 @@ spec:
 # ── 7. firmware UEFI explícito (modo habitual de uma imagem cloud) — Cloud Hypervisor
 #      explicit UEFI firmware (the usual way to boot a cloud image) — Cloud Hypervisor
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: firmware-boot
@@ -2694,7 +2715,7 @@ spec:
 # ── 8. seed cloud-init pronto — substitui o gerado (hostname/sshKeys/userData não se põem)
 #      prebuilt cloud-init seed — replaces the generated one (hostname/sshKeys/userData not set)
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: prebuilt-seed
@@ -2705,7 +2726,7 @@ spec:
 # ── 9. escape hatch — o &lt;domain&gt; XML libvirt inteiro, usado tal e qual (SÓ confiança)
 #      escape hatch — the whole libvirt &lt;domain&gt; XML, used verbatim (TRUSTED only)
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: raw-domain
@@ -2725,7 +2746,7 @@ spec:
 # ── 10. o disco é CONSTRUÍDO de um VMfile (spec.build) — incompatível com `disk`
 #       the disk is BUILT from a VMfile (spec.build) — mutually exclusive with `disk`
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: built-disk
@@ -2742,7 +2763,7 @@ spec:
 # ── 11. volumes 9p de um NAS — storage a uma VM sem escrever cloud-init nem XML
 #       9p volumes from a NAS — storage for a VM without writing cloud-init or XML
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata:
   name: app-vm
@@ -2786,7 +2807,7 @@ spec:
 # ── 1. mínimo — só o campo obrigatório ──────────────────────────────────────
 #      minimal — the only mandatory field
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: minimal
@@ -2796,7 +2817,7 @@ spec:
 # ── 2. forma agrupada com os defaults à vista ───────────────────────────────
 #      grouped shape with the defaults made explicit
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: web
@@ -2861,14 +2882,14 @@ spec:
 # ── 3. recursos de apoio para os cenários completos abaixo ───────────────────
 #      supporting resources for the full scenarios below
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: app-net
 spec:
   driver: bridge
 ---
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: app-secret
@@ -2876,7 +2897,7 @@ spec:
   stringData:
     DB_PASSWORD: change-me-example   # PT: injectado como env (ou /run/secrets/, ver secretFiles) | EN: injected as env (or /run/secrets/, see secretFiles)
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: app-data
@@ -2885,7 +2906,7 @@ spec:
 ---
 # PT: um contentor-par, para `knows:` ter algo a resolver.
 # EN: a peer container so `knows:` has something to resolve.
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: peer
@@ -2897,7 +2918,7 @@ spec:
 # ── 4. forma plana completa — todos os campos no topo de spec ────────────────
 #      full flat — every field at the top level of spec
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: full-flat
@@ -2981,7 +3002,7 @@ spec:
 # ── 5. forma agrupada completa — os mesmos campos, por tema ──────────────────
 #      full grouped — the same fields, organised by concern
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: full-grouped
@@ -3047,7 +3068,7 @@ spec:
 # ── 6. env como mapa KEY: value (o que escrevem utilizadores de compose/k8s) ──
 #      env as a plain KEY: value mapping (what compose/k8s users write)
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: env-map
@@ -3062,7 +3083,7 @@ spec:
 # ── 7. primeiro plano — detach false bloqueia o apply até o processo sair ─────
 #      foreground — detach false blocks apply until the process exits
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: foreground
@@ -3121,17 +3142,17 @@ spec:
 # ── 0. Recursos de apoio INLINE — redes e workloads que as políticas protegem
 #      Supporting resources INLINE — networks and workloads the policies protect
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: sdn-demo }
 spec: { driver: bridge }
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: sdn-locked }
 spec: { driver: bridge }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: db }
 spec:
@@ -3142,7 +3163,7 @@ spec:
       env:
         - { name: POSTGRES_PASSWORD, value: example }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: app }
 spec:
@@ -3152,7 +3173,7 @@ spec:
       image: &quot;alpine:3.19&quot;
       command: [&quot;sleep&quot;, &quot;infinity&quot;]
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: cache }
 spec:
@@ -3164,7 +3185,7 @@ spec:
 # ── 1. INGRESS allowlist (scope container) — cada forma de regra ingress ─────
 #      INGRESS allowlist (scope container) — every ingress-side rule form
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkPolicy
 metadata: { name: db-inbound }
 spec:
@@ -3195,7 +3216,7 @@ spec:
 # ── 2. INGRESS com defaultPolicy allow — só os denies listados actuam ────────
 #      INGRESS with defaultPolicy allow — only the listed denies apply
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkPolicy
 metadata: { name: cache-inbound-open }
 spec:
@@ -3211,7 +3232,7 @@ spec:
 # ── 3. EGRESS allowlist de um workload — CIDR, nome de workload e wildcard ───
 #      EGRESS allowlist for a workload — a CIDR, a workload name and a wildcard
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkPolicy
 metadata: { name: app-outbound }
 spec:
@@ -3234,7 +3255,7 @@ spec:
 # ── 4. EGRESS mínimo — sem regras, default deny → sem saída possível ─────────
 #      Minimal EGRESS — no rules, default deny → no outbound possible
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkPolicy
 metadata: { name: cache-outbound-locked }
 spec:
@@ -3250,7 +3271,7 @@ spec:
 # EN: CIDR allowlist + FQDN allowlist (learnt live from DNS) + global L4 rate limit
 #     of the rootless ingress. The declarative form of `delonix net egress`.
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkPolicy
 metadata: { name: sdn-locked-egress }
 spec:
@@ -3271,7 +3292,7 @@ spec:
 # ── 6. EGRESS por-REDE totalmente aberto (defaultPolicy allow) ───────────────
 #      PER-NETWORK EGRESS fully open (defaultPolicy allow)
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkPolicy
 metadata: { name: sdn-demo-egress-open }
 spec:
@@ -3294,7 +3315,7 @@ spec:
 #     that switch). Rules are evaluated IN ORDER on the node (first match wins),
 #     above any hand-added rule, which is never touched.
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: VirtualMachine
 metadata: { name: web-vm }
 spec:
@@ -3303,7 +3324,7 @@ spec:
   vcpus: 2
   memory: 2G
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkPolicy
 metadata: { name: web-vm-in }
 spec:
@@ -3316,7 +3337,7 @@ spec:
     - { proto: tcp, port: &quot;443&quot; }
     - { port: &quot;53&quot;, from: 10.0.0.0/8 }   # PT: qualquer protocolo + uma porta = TCP e UDP | EN: any protocol + a port = TCP and UDP
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkPolicy
 metadata: { name: web-vm-out }
 spec:
@@ -3366,14 +3387,14 @@ spec:
 # ── 1. Backends — rede SDN + containers que as rotas nomeiam ─────────────────
 #      Backends — SDN network + containers the routes name
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: appnet
 spec:
   driver: bridge              # PT: rede custom: dá IP interno aos backends | EN: custom network: gives backends an internal IP
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: web
@@ -3381,7 +3402,7 @@ spec:
   image: &quot;nginx:1.27-alpine&quot;
   network: appnet             # PT: numa rede custom, para o proxy o alcançar por IP | EN: on a custom network, so the proxy reaches it by IP
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: api
@@ -3390,7 +3411,7 @@ spec:
   command: [&quot;-listen=:3000&quot;, &quot;-text=hello from api&quot;]   # PT: serve em :3000 | EN: serves on :3000
   network: appnet
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Container
 metadata:
   name: admin
@@ -3402,7 +3423,7 @@ spec:
 # ── 2. selfSigned (default) — rota principal, dois listeners ─────────────────
 #      selfSigned (default) — main route, two listeners
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: HTTPRoute
 metadata:
   name: loja
@@ -3427,7 +3448,7 @@ spec:
 #     os placeholders por um par real antes de servir tráfego real.
 # EN: PEM pair under tls.crt / tls.key (tls_crt / tls_key also work). Replace the
 #     placeholders with a real pair before serving real traffic.
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: painel-cert
@@ -3436,7 +3457,7 @@ spec:
     tls.crt: &quot;-----BEGIN CERTIFICATE-----\nplaceholder\n-----END CERTIFICATE-----&quot;
     tls.key: &quot;-----BEGIN PRIVATE KEY-----\nplaceholder\n-----END PRIVATE KEY-----&quot;
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: HTTPRoute
 metadata:
   name: painel
@@ -3460,7 +3481,7 @@ spec:
 #     Sem `entrypoints`: default porta 80 (+443 com TLS se `tls` estivesse posto).
 # EN: No `host` matches ANY Host (a catch-all by path); `path` omitted defaults to
 #     `/`. No `entrypoints`: defaults to port 80 (plus 443 with TLS if `tls` were set).
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: HTTPRoute
 metadata:
   name: catch-all
@@ -3508,7 +3529,7 @@ spec:
 # ── 1. Mínimo — pinggy free, sem conta e sem binário extra ───────────────────
 #      Minimal — pinggy free tier, no account and no extra binary
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-min
@@ -3519,7 +3540,7 @@ spec:
 # ── 2. pinggy com pro token literal (funciona, mas prefere tokenSecretRef) ───
 #      pinggy with a pro token given literally (works, but prefer tokenSecretRef)
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-pinggy-pro
@@ -3535,7 +3556,7 @@ spec:
 ---
 # PT: O provider lê a credencial da chave `token` deste Secret (valor placeholder).
 # EN: The provider reads the credential from this Secret&#x27;s `token` key (placeholder value).
-apiVersion: core.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: Secret
 metadata:
   name: tunnel-token
@@ -3546,7 +3567,7 @@ spec:
 # ── 4. ngrok com hostname reservado e o token lido de um Secret ──────────────
 #      ngrok with a reserved hostname and the token read from a Secret
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-ngrok
@@ -3569,7 +3590,7 @@ spec:
 #     lives in the Cloudflare dashboard. `insecureSkipTlsVerify` skips verification of
 #     the LOCAL backend&#x27;s self-signed cert (origin https://localhost:&lt;localPort&gt;); the
 #     public URL always has a real certificate.
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-cloudflare
@@ -3585,14 +3606,14 @@ spec:
 # ── 6. cloudflare quick tunnel — sem token (URL efémero trycloudflare.com) ───
 #      cloudflare quick tunnel — no token at all (an ephemeral trycloudflare.com URL)
 ---
-apiVersion: gateway.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Gateway
 metadata:
   name: public-cloudflare-quick
 spec:
   provider: cloudflare
   localPort: 80</code></pre>
-<details class="fields"><summary><span class='lang-pt'>Campos de <code>spec</code> — 6</span><span class='lang-en'><code>spec</code> fields — 6</span><span class='chev' aria-hidden='true'></span></summary><table class='params'><tr><th><span class='lang-pt'>Campo</span><span class='lang-en'>Field</span></th><th><span class='lang-pt'>Tipo</span><span class='lang-en'>Type</span></th><th><span class='lang-pt'>Obrig.</span><span class='lang-en'>Req.</span></th><th><span class='lang-pt'>Default</span><span class='lang-en'>Default</span></th><th><span class='lang-pt'>Descrição</span><span class='lang-en'>Description</span></th></tr><tr><td><code>hostname</code></td><td>string</td><td><span class="req-no">—</span></td><td>—</td><td>Custom/reserved hostname — provider-dependent support (see module doc). For `cloudflare` this is informational only: it does not create the route, it just labels the URL this tunnel is expected to answer on — the route itself lives in the Cloudflare dashboard for that tunnel.</td></tr><tr><td><code>insecureSkipTlsVerify</code></td><td>boolean</td><td><span class="req-no">—</span></td><td><code>false</code></td><td>Skip TLS verification when the tunnel connects to the LOCAL backend (a self-signed cert on `localhost:&lt;localPort&gt;`) — never affects the public tunnel URL, which every provider here always serves over a real, provider-issued TLS cert. No-op for `pinggy` (it forwards raw TCP and never inspects what is behind it).</td></tr><tr><td><code>localPort</code></td><td>integer</td><td><strong class='lang-pt'>sim</strong><strong class='lang-en'>yes</strong></td><td>—</td><td>—</td></tr><tr><td><code>provider</code></td><td>string | object</td><td><strong class='lang-pt'>sim</strong><strong class='lang-en'>yes</strong></td><td>—</td><td>—</td></tr><tr><td><code>token</code></td><td>string</td><td><span class="req-no">—</span></td><td>—</td><td>Literal provider token (pinggy pro token / ngrok authtoken / a cloudflare NAMED tunnel&#x27;s token, from `cloudflared tunnel token &lt;name&gt;` or the Zero Trust dashboard). Prefer `tokenSecretRef` for anything checked into a manifest.</td></tr><tr><td><code>tokenSecretRef</code></td><td>string</td><td><span class="req-no">—</span></td><td>—</td><td>Pull the token from a `kind: Secret`&#x27;s `token` key — same convention as `storage`&#x27;s `--password-secret`.</td></tr></table></details>
+<details class="fields"><summary><span class='lang-pt'>Campos de <code>spec</code> — 7</span><span class='lang-en'><code>spec</code> fields — 7</span><span class='chev' aria-hidden='true'></span></summary><table class='params'><tr><th><span class='lang-pt'>Campo</span><span class='lang-en'>Field</span></th><th><span class='lang-pt'>Tipo</span><span class='lang-en'>Type</span></th><th><span class='lang-pt'>Obrig.</span><span class='lang-en'>Req.</span></th><th><span class='lang-pt'>Default</span><span class='lang-en'>Default</span></th><th><span class='lang-pt'>Descrição</span><span class='lang-en'>Description</span></th></tr><tr><td><code>class</code></td><td>string</td><td><span class="req-no">—</span></td><td>—</td><td>Which kind of Gateway this is (ADR-0086 D4): `tunnel` (the default, and everything above — a public edge via `pinggy`/`ngrok`/`cloudflare`) or `native` (a Gateway-API entry point: `listeners[]`, addresses from an `IPPool`, TLS). One Kind, two classes, no second `Gateway`. The `native` apply is NOT built yet — `lower_tunnel_provider` refuses it with a flag (it lands in a later phase); until then the field exists so a manifest can DECLARE the class and the collision is resolved at the catalog level. Read off the raw document in `lower_tunnel_provider` (before `provider`, which `native` lacks), never off this typed struct — it is here only so the generated schema carries the field and a round-trip preserves it, the same reason `ApplicationSpec.pod` is `#[allow(dead_code)]`.</td></tr><tr><td><code>hostname</code></td><td>string</td><td><span class="req-no">—</span></td><td>—</td><td>Custom/reserved hostname — provider-dependent support (see module doc). For `cloudflare` this is informational only: it does not create the route, it just labels the URL this tunnel is expected to answer on — the route itself lives in the Cloudflare dashboard for that tunnel.</td></tr><tr><td><code>insecureSkipTlsVerify</code></td><td>boolean</td><td><span class="req-no">—</span></td><td><code>false</code></td><td>Skip TLS verification when the tunnel connects to the LOCAL backend (a self-signed cert on `localhost:&lt;localPort&gt;`) — never affects the public tunnel URL, which every provider here always serves over a real, provider-issued TLS cert. No-op for `pinggy` (it forwards raw TCP and never inspects what is behind it).</td></tr><tr><td><code>localPort</code></td><td>integer</td><td><strong class='lang-pt'>sim</strong><strong class='lang-en'>yes</strong></td><td>—</td><td>—</td></tr><tr><td><code>provider</code></td><td>string | object</td><td><strong class='lang-pt'>sim</strong><strong class='lang-en'>yes</strong></td><td>—</td><td>—</td></tr><tr><td><code>token</code></td><td>string</td><td><span class="req-no">—</span></td><td>—</td><td>Literal provider token (pinggy pro token / ngrok authtoken / a cloudflare NAMED tunnel&#x27;s token, from `cloudflared tunnel token &lt;name&gt;` or the Zero Trust dashboard). Prefer `tokenSecretRef` for anything checked into a manifest.</td></tr><tr><td><code>tokenSecretRef</code></td><td>string</td><td><span class="req-no">—</span></td><td>—</td><td>Pull the token from a `kind: Secret`&#x27;s `token` key — same convention as `storage`&#x27;s `--password-secret`.</td></tr></table></details>
 <h2 id='app'>App</h2>
 <p class='lang-pt'>Build por Cloud Native Buildpacks (Paketo/Heroku), sem Dockerfile: aponta para o código e o motor detecta a linguagem, constrói e deixa a imagem no store local.</p><p class='lang-en'>Build with Cloud Native Buildpacks (Paketo/Heroku), no Dockerfile: point it at the source and the engine detects the language, builds, and leaves the image in the local store.</p>
 <pre data-file="examples/artifact/app.yaml" data-validated="schema"><code># ============================================================================
@@ -3627,7 +3648,7 @@ spec:
 # ── 1. auto — stack detectado automaticamente (builder Paketo) ───────────────
 #      auto — auto-detected stack (Paketo builder)
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: App
 metadata:
   name: shop-auto
@@ -3641,7 +3662,7 @@ spec:
 # ── 2. heroku — a família de builders Heroku ─────────────────────────────────
 #      heroku — the Heroku builder family
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: App
 metadata:
   name: shop-heroku
@@ -3657,7 +3678,7 @@ spec:
 # EN: `runImage` is required here (omitting it is an error) and meaningless with
 #     auto/heroku — the engine only reads it in this case.
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: App
 metadata:
   name: shop-custom
@@ -3672,7 +3693,7 @@ spec:
 # PT: source assume &quot;.&quot;, builder assume &quot;auto&quot;.
 # EN: source defaults to &quot;.&quot;, builder to &quot;auto&quot;.
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: App
 metadata:
   name: shop-defaults
@@ -3714,12 +3735,12 @@ spec:
 # ── 0. Recursos de apoio INLINE — a rede e os workloads que os Services apanham
 #      Supporting resources INLINE — the network and workloads the Services pick
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: appnet }
 spec: { driver: bridge }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: web-1
@@ -3728,7 +3749,7 @@ spec:
   type: container
   container: { image: &quot;nginx:alpine&quot;, network: appnet }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: web-2
@@ -3737,7 +3758,7 @@ spec:
   type: container
   container: { image: &quot;nginx:alpine&quot;, network: appnet }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Workload
 metadata:
   name: api-1
@@ -3753,7 +3774,7 @@ spec:
 # PT: Clientes resolvem web.default.delonix.internal e recebem web-1 e web-2 em rotação.
 # EN: Clients resolve web.default.delonix.internal and get web-1 and web-2 in rotation.
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Service
 metadata:
   name: web
@@ -3767,7 +3788,7 @@ spec:
 # ── 2. selector multi-label — estreita o conjunto só ao track estável (web-1) ─
 #      multi-label selector — narrows the set to the stable track only (web-1)
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Service
 metadata:
   name: web-stable
@@ -3786,7 +3807,7 @@ spec:                          # PT: namespace omitido = `default` | EN: namespa
 # EN: Namespace isolation applies to DNS: other namespaces get NXDOMAIN (except
 #     services in `default`).
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Service
 metadata:
   name: api
@@ -3809,7 +3830,7 @@ spec:
 #     from the holder AND (if declared) is healthy. Pool set via
 #     `delonix network vip-pool set`.
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Service
 metadata:
   name: web-vip
@@ -3866,12 +3887,12 @@ spec:
 # ── 0. Recursos de apoio INLINE — a rede e o workload alvo ───────────────────
 #      Supporting resources INLINE — the network and the target workload
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata: { name: appnet }
 spec: { driver: bridge }
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata: { name: web }
 spec:
@@ -3883,7 +3904,7 @@ spec:
 # ── 1. todos os campos explícitos — allow TCP/8080 para `web` de um CIDR ─────
 #      every field explicitly set — allow TCP/8080 into `web` from one CIDR
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkAccessRule
 metadata: { name: web-8080-from-lan }
 spec:
@@ -3897,7 +3918,7 @@ spec:
 # ── 2. acumula com a regra 1 no mesmo alvo — 2ª regra ingress independente ───
 #      accumulates with rule 1 on the same target — a 2nd independent ingress rule
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkAccessRule
 metadata: { name: web-metrics-from-monitoring }
 spec:
@@ -3910,7 +3931,7 @@ spec:
 # ── 3. intervalo de portas, UDP, defaults de action (allow) e from (qualquer)
 #      port range, UDP, defaults for action (allow) and from (anywhere)
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkAccessRule
 metadata: { name: web-udp-range }
 spec:
@@ -3922,7 +3943,7 @@ spec:
 # ── 4. deny explícito de uma origem abusiva, qualquer protocolo e porta ──────
 #      explicit deny of one abusive source, any protocol, any port
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkAccessRule
 metadata: { name: web-block-bad-host }
 spec:
@@ -3936,7 +3957,7 @@ spec:
 # ── 5. EGRESS — `from` nomeia o CIDR de DESTINO que o workload pode alcançar ─
 #      EGRESS — `from` names the DESTINATION CIDR the workload may reach
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkAccessRule
 metadata: { name: web-egress-https }
 spec:
@@ -3950,7 +3971,7 @@ spec:
 # ── 6. forma mínima — só os campos obrigatórios (direction + port + target) ──
 #      minimal form — only the required fields (direction + port + target)
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: NetworkAccessRule
 metadata: { name: web-minimal }
 spec:
@@ -3996,7 +4017,7 @@ spec:
 # ── 1. o tecto do nó — todos os 13 campos, explícitos ───────────────────────
 #      the node ceiling — all 13 fields, made explicit
 ---
-apiVersion: security.delonix.io/v1alpha1
+apiVersion: policy.delonix.io/v1beta1
 kind: RuntimePolicy
 metadata:
   name: node-ceiling
@@ -4056,7 +4077,7 @@ spec:
 # ── 1. local — uma gama já presente no loopback ──────────────────────────────
 #      local — a range already present on the loopback
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: IPPool
 metadata: { name: edge }
 spec:
@@ -4066,8 +4087,10 @@ spec:
 <h2 id='networkgateway'>NetworkGateway</h2>
 <p class='lang-pt'>Aliases e regras de filtro numa firewall de perímetro (ADR-0051), hoje o OPNsense, registado por <code>DELONIX_OPNSENSE_URL</code> e um par key/secret de API. Aliases entram antes das regras e saem depois delas; a identidade de uma regra é a sua <code>description</code>. Uma alteração ao spec é remover e voltar a aplicar.</p><p class='lang-en'>Aliases and filter rules on a perimeter firewall (ADR-0051), today OPNsense, registered through <code>DELONIX_OPNSENSE_URL</code> and an API key/secret pair. Aliases go in before rules and come out after them; a rule's identity is its <code>description</code>. A spec change is a remove and re-apply.</p>
 <pre data-file="examples/networking/networkgateway.yaml" data-validated="schema"><code># ============================================================================
-# kind: NetworkGateway — aliases, regras, NAT e políticas num appliance de perímetro
-# kind: NetworkGateway — aliases, rules, NAT and policies on a perimeter appliance
+# kind: Router — aliases, rules, NAT and policies on a perimeter appliance (renamed from NetworkGateway, ADR-0086 D3)
+#
+# EN: `NetworkGateway` still loads as a silent alias; `Router` is the canonical name.
+#     (`kind: Gateway` is a different Kind: the ADR-0086 D4 entry-point/tunnel.)
 #
 # PT: `spec.provider` nomeia um provider de gateway registado: `opnsense`,
 #     registado por DELONIX_OPNSENSE_URL e uma credencial — um par chave/segredo de
@@ -4104,8 +4127,8 @@ spec:
 # ── 1. edge — aliases, uma regra de filtro, NAT (SNAT+DNAT) e uma política ───
 #      edge — aliases, a filter rule, NAT (SNAT+DNAT) and a policy
 ---
-apiVersion: networking.delonix.io/v1alpha1
-kind: NetworkGateway
+apiVersion: networking.delonix.io/v1beta1
+kind: Router
 metadata: { name: edge }
 spec:
   # PT: forma-bloco do ADR-0071; o escalar `provider: opnsense` é o mesmo.
@@ -4144,12 +4167,14 @@ spec:
         - { proto: tcp, port: &quot;443&quot;, from: 192.168.1.0/24 }
         - { proto: tcp, port: &quot;22&quot;, from: 10.9.0.0/24, log: true }       # PT: log: regista cada match | EN: log: logs every match
         - { port: &quot;8000-8080&quot;, action: deny, stateful: false }           # PT: stateful false: não guarda estado do fluxo | EN: stateful false: keeps no state for the flow</code></pre>
-<details class="fields"><summary><span class='lang-pt'>Campos de <code>spec</code> — 5</span><span class='lang-en'><code>spec</code> fields — 5</span><span class='chev' aria-hidden='true'></span></summary><table class='params'><tr><th><span class='lang-pt'>Campo</span><span class='lang-en'>Field</span></th><th><span class='lang-pt'>Tipo</span><span class='lang-en'>Type</span></th><th><span class='lang-pt'>Obrig.</span><span class='lang-en'>Req.</span></th><th><span class='lang-pt'>Default</span><span class='lang-en'>Default</span></th><th><span class='lang-pt'>Descrição</span><span class='lang-en'>Description</span></th></tr><tr><td><code>aliases</code></td><td>array&lt;GatewayAliasSpec&gt;</td><td><span class="req-no">—</span></td><td><code>[]</code></td><td>—</td></tr><tr><td><code>nat</code></td><td>array&lt;GatewayNatSpec&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>Address translation on the appliance (ADR-0059 F5): source NAT for a network leaving through an interface, destination NAT forwarding a port of an interface to a host. Served by the document&#x27;s provider, which has to be registered for the NAT role too.</td></tr><tr><td><code>policies</code></td><td>array&lt;GatewayPolicySpec&gt;</td><td><span class="req-no">—</span></td><td>—</td><td>Policies for a target behind the gateway, in the same shape a `NetworkPolicy` has, lowered to the appliance&#x27;s filter rules through the policy IR (ADR-0059 F3d/F3e).</td></tr><tr><td><code>provider</code></td><td>string | object</td><td><span class="req-no">—</span></td><td>—</td><td>—</td></tr><tr><td><code>rules</code></td><td>array&lt;GatewayRuleSpec&gt;</td><td><span class="req-no">—</span></td><td><code>[]</code></td><td>—</td></tr></table></details>
+
 <h2 id='objectstorage'>ObjectStorage</h2>
 <p class='lang-pt'>Armazenamento de objectos compatível com S3 (ADR-0081). Dois backends, consumidos da MESMA forma (endpoint + accessKey/secretKey lidos de um Secret): <code>cephRgw</code> provisiona uma identidade S3 de tenant no Ceph Object Gateway do nó e escreve as chaves num Secret gerado (<code>&lt;nome&gt;-s3</code>); <code>external</code> aponta para um S3 que já corres, com credenciais de um Secret teu.</p><p class='lang-en'>S3-compatible object storage (ADR-0081). Two backends, consumed the SAME way (endpoint + accessKey/secretKey read from a Secret): <code>cephRgw</code> provisions a tenant S3 identity on the node's Ceph Object Gateway and writes its keys into a generated Secret (<code>&lt;name&gt;-s3</code>); <code>external</code> points at a foreign S3 you already run, with credentials from a Secret you provide.</p>
 <pre data-file="examples/storage/objectstorage.yaml" data-validated="schema"><code># ============================================================================
-# kind: ObjectStorage — armazenamento de objectos S3 (ADR-0081)
-# kind: ObjectStorage — S3-compatible object storage (ADR-0081)
+# kind: Bucket — armazenamento de objectos S3 (ADR-0081; renomeado de ObjectStorage, ADR-0086 D3)
+# kind: Bucket — S3-compatible object storage (ADR-0081; renamed from ObjectStorage, ADR-0086 D3)
+#
+# EN: `ObjectStorage` still loads as a silent alias; `Bucket` is the canonical name.
 #
 # PT: Dois backends. `cephRgw` provisiona uma identidade S3 de tenant no Ceph
 #     Object Gateway do nó e escreve as chaves num Secret gerado (&lt;nome&gt;-s3).
@@ -4169,8 +4194,8 @@ spec:
 # ── 1. cephRgw — provisionar no Ceph Object Gateway do nó ────────────────────
 #      cephRgw — provision on the node&#x27;s Ceph Object Gateway
 ---
-apiVersion: storage.delonix.io/v1alpha1
-kind: ObjectStorage
+apiVersion: storage.delonix.io/v1beta1
+kind: Bucket
 metadata:
   name: media
 spec:
@@ -4189,8 +4214,8 @@ spec:
 # ── 2. external — trazer o teu próprio S3 (AWS, MinIO, Backblaze, …) ─────────
 #      external — bring your own S3 (AWS, MinIO, Backblaze, …)
 ---
-apiVersion: storage.delonix.io/v1alpha1
-kind: ObjectStorage
+apiVersion: storage.delonix.io/v1beta1
+kind: Bucket
 metadata:
   name: backups
 spec:
@@ -4200,7 +4225,7 @@ spec:
     endpoint: https://s3.eu-west-1.amazonaws.com
     region: eu-west-1         # PT: só quando o store precisa | EN: only when the store needs one
     credentialsSecret: aws-s3 # PT: Secret existente com accessKey + secretKey | EN: existing Secret with accessKey + secretKey</code></pre>
-<details class="fields"><summary><span class='lang-pt'>Campos de <code>spec</code> — 4</span><span class='lang-en'><code>spec</code> fields — 4</span><span class='chev' aria-hidden='true'></span></summary><table class='params'><tr><th><span class='lang-pt'>Campo</span><span class='lang-en'>Field</span></th><th><span class='lang-pt'>Tipo</span><span class='lang-en'>Type</span></th><th><span class='lang-pt'>Obrig.</span><span class='lang-en'>Req.</span></th><th><span class='lang-pt'>Default</span><span class='lang-en'>Default</span></th><th><span class='lang-pt'>Descrição</span><span class='lang-en'>Description</span></th></tr><tr><td><code>backend</code></td><td>string</td><td><strong class='lang-pt'>sim</strong><strong class='lang-en'>yes</strong></td><td>—</td><td>Which store backs this: `cephRgw` (the engine provisions an S3 identity on the node&#x27;s Ceph gateway) or `external` (bring your own S3).</td></tr><tr><td><code>bucket</code></td><td>string</td><td><strong class='lang-pt'>sim</strong><strong class='lang-en'>yes</strong></td><td>—</td><td>The bucket name. For `cephRgw` the tenant creates it over S3 with the keys handed back; for `external` it names the bucket on the foreign store.</td></tr><tr><td><code>cephRgw</code></td><td>CephRgwBlock</td><td><span class="req-no">—</span></td><td>—</td><td>Present for (and only for) `backend: cephRgw`.</td></tr><tr><td><code>external</code></td><td>ExternalBlock</td><td><span class="req-no">—</span></td><td>—</td><td>Present for (and only for) `backend: external`.</td></tr></table></details>
+
 <h2 id='storagepool'>StoragePool</h2>
 <p class='lang-pt'>Usar uma storage pool que o administrador JÁ declarou no allowlist do nó (<code>/etc/delonix/storage-pools.yaml</code>): o driver e o que a suporta (btrfs/zfs/lvm-thin/directório/ceph) vêm de LÁ e só de lá. Este Kind diz apenas «este nó usa a pool X, com este tecto de sobre-alocação» — device/path/comando são recusados pelo NOME. O motor nunca cria nem destrói uma pool; tirar o Kind só deixa de a usar. Alocam-se volumes nela com um <code>kind: Volume</code> que traz <code>pool: &lt;nome&gt;</code>.</p><p class='lang-en'>Use a storage pool the administrator has ALREADY declared in the node's allowlist (<code>/etc/delonix/storage-pools.yaml</code>): its driver and backing (btrfs/zfs/lvm-thin/directory/ceph) come from THERE and there only. This Kind only says «this node uses pool X, with this over-allocation ceiling» — device/path/command are refused by NAME. The engine never creates or destroys a pool; dropping the Kind just stops using it. Allocate volumes on it with a <code>kind: Volume</code> carrying <code>pool: &lt;name&gt;</code>.</p>
 <pre data-file="examples/storage/storagepool.yaml" data-validated="schema"><code># ============================================================================
@@ -4244,7 +4269,7 @@ spec:
 # EN: No `spec`: no over-allocation (maxRatio 1.0, allocated sizes never exceed
 #     capacity) and an alert at 80% usage.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: StoragePool
 metadata:
   name: fast          # PT: tem de existir no allowlist do nó | EN: must exist in the node&#x27;s allowlist
@@ -4261,7 +4286,7 @@ spec: {}
 #     `alertPct` is the pool-usage % above which an allocation warns (1..=99,
 #     default 80). A pool at ≥95% usage refuses ANY new volume.
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: StoragePool
 metadata:
   name: bulk
@@ -4324,7 +4349,7 @@ spec:
 # ── 1. ssh + commits assinados — a fonte de produção, tudo declarado ────────
 #      ssh + signed commits — the production source, everything declared
 ---
-apiVersion: gitops.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: GitOpsSource
 metadata:
   name: production
@@ -4353,7 +4378,7 @@ spec:
 # ── 2. https anónimo — leitura pública, sem credenciais nem assinatura ──────
 #      anonymous https — public read, no credentials and no signature
 ---
-apiVersion: gitops.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: GitOpsSource
 metadata:
   name: public-addons
@@ -4375,7 +4400,7 @@ spec:
     maximumDeletes: 5
     kinds: []
   stack: cluster-addons                              # PT: um stack próprio, distinto do bootstrap | EN: a stack of its own, distinct from the bootstrap</code></pre>
-<details class="fields"><summary><span class='lang-pt'>Campos de <code>spec</code> — 4</span><span class='lang-en'><code>spec</code> fields — 4</span><span class='chev' aria-hidden='true'></span></summary><table class='params'><tr><th><span class='lang-pt'>Campo</span><span class='lang-en'>Field</span></th><th><span class='lang-pt'>Tipo</span><span class='lang-en'>Type</span></th><th><span class='lang-pt'>Obrig.</span><span class='lang-en'>Req.</span></th><th><span class='lang-pt'>Default</span><span class='lang-en'>Default</span></th><th><span class='lang-pt'>Descrição</span><span class='lang-en'>Description</span></th></tr><tr><td><code>safety</code></td><td>SafetySpec</td><td><span class="req-no">—</span></td><td><code>{&quot;allow&quot;: [&quot;Create&quot;, &quot;Update&quot;], &quot;kinds&quot;: [], &quot;maximumDeletes&quot;: 5, &quot;protectedResources&quot;: [], &quot;prune&quot;: false}</code></td><td>What a pass may do to the machine.</td></tr><tr><td><code>source</code></td><td>SourceSpec</td><td><strong class='lang-pt'>sim</strong><strong class='lang-en'>yes</strong></td><td>—</td><td>Where the manifests come from.</td></tr><tr><td><code>stack</code></td><td>string</td><td><span class="req-no">—</span></td><td>—</td><td>The stack a pass applies into. Defaults to `gitops.&lt;namespace&gt;.&lt;name&gt;`, a name no `spec.stack` and no bootstrap `--name` spells by accident. The stack that applies the source itself must be another one: a local plan, apply or prune of the pass&#x27;s stack would see only the source and plan everything the passes applied for deletion (refused, DX-1601).</td></tr><tr><td><code>sync</code></td><td>SyncSpec</td><td><span class="req-no">—</span></td><td><code>{&quot;automated&quot;: false}</code></td><td>Whether a timer reconciles it.</td></tr></table></details>
+<details class="fields"><summary><span class='lang-pt'>Campos de <code>spec</code> — 5</span><span class='lang-en'><code>spec</code> fields — 5</span><span class='chev' aria-hidden='true'></span></summary><table class='params'><tr><th><span class='lang-pt'>Campo</span><span class='lang-en'>Field</span></th><th><span class='lang-pt'>Tipo</span><span class='lang-en'>Type</span></th><th><span class='lang-pt'>Obrig.</span><span class='lang-en'>Req.</span></th><th><span class='lang-pt'>Default</span><span class='lang-en'>Default</span></th><th><span class='lang-pt'>Descrição</span><span class='lang-en'>Description</span></th></tr><tr><td><code>driftPolicy</code></td><td>DriftPolicy</td><td><span class="req-no">—</span></td><td>—</td><td>What the timer does about DRIFT — a field someone changed on the node, OUTSIDE the declarative path (ADR-0088 A5). Absent: the pass only syncs the repository, exactly as before, and `delonix drift` stays a manual verb. `report`: each pass also computes the drift of the target stack and records it, so hand-tampering is visible in `gitops status`. `correct`: the pass re-applies the manifest to reconcile the drift away. Opt-in and still daemonless — the timer is systemd&#x27;s (ADR-0021), not a process.</td></tr><tr><td><code>safety</code></td><td>SafetySpec</td><td><span class="req-no">—</span></td><td><code>{&quot;allow&quot;: [&quot;Create&quot;, &quot;Update&quot;], &quot;kinds&quot;: [], &quot;maximumDeletes&quot;: 5, &quot;protectedResources&quot;: [], &quot;prune&quot;: false}</code></td><td>What a pass may do to the machine.</td></tr><tr><td><code>source</code></td><td>SourceSpec</td><td><strong class='lang-pt'>sim</strong><strong class='lang-en'>yes</strong></td><td>—</td><td>Where the manifests come from.</td></tr><tr><td><code>stack</code></td><td>string</td><td><span class="req-no">—</span></td><td>—</td><td>The stack a pass applies into. Defaults to `gitops.&lt;namespace&gt;.&lt;name&gt;`, a name no `spec.stack` and no bootstrap `--name` spells by accident. The stack that applies the source itself must be another one: a local plan, apply or prune of the pass&#x27;s stack would see only the source and plan everything the passes applied for deletion (refused, DX-1601).</td></tr><tr><td><code>sync</code></td><td>SyncSpec</td><td><span class="req-no">—</span></td><td><code>{&quot;automated&quot;: false}</code></td><td>Whether a timer reconciles it.</td></tr></table></details>
 <h2 id='systemcontainer'>SystemContainer</h2>
 <p class='lang-pt'>Um userland inteiro como UMA unidade num nó provider (ADR-0058) — NÃO é um <code>kind: Container</code>: sem exec, logs nem exit status. A parte genérica (image/entrypoint/env/memory/cores/rootfs) é a intenção; o que só o nó Proxmox entende — a folga de swap e a bridge/VLAN do nó — vive inline em <code>provider.spec</code> (ADR-0071). O motor puxa a imagem, nunca o provider.</p><p class='lang-en'>A whole userland run as one unit on a provider node (ADR-0058) — NOT a <code>kind: Container</code>: no exec, logs or exit status. The generic part (image/entrypoint/env/memory/cores/rootfs) is the intent; what only the Proxmox node understands — the swap allowance and the node bridge/VLAN — lives inline in <code>provider.spec</code> (ADR-0071). The engine pulls the image, never the provider.</p>
 <pre data-file="examples/compute/systemcontainer.yaml" data-validated="schema"><code># ============================================================================
@@ -4402,7 +4427,7 @@ spec:
 # ── 1. bloco provider — o Proxmox, com swap + bridge/DHCP inline ─────────────
 #      provider block — Proxmox, with swap + bridge/DHCP inline
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: proxmox.delonix.io/v1alpha1
 kind: SystemContainer
 metadata: { name: edge-dns }
 spec:
@@ -4419,7 +4444,7 @@ spec:
 # ── 2. grafia antiga (swap/network no topo) + entrypoint/env e VLAN ──────────
 #      old spelling (swap/network at the top) + entrypoint/env and a VLAN
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: proxmox.delonix.io/v1alpha1
 kind: SystemContainer
 metadata: { name: edge-proxy }
 spec:
