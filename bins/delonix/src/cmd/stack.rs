@@ -448,6 +448,7 @@ pub(crate) fn desired_of(
                 k::CONFIG => super::config_kind::desired(doc)?,
                 k::SERVICE => super::service::desired(doc)?,
                 k::IPPOOL => super::ippool::desired(doc)?,
+                k::IP_ADDRESS => super::ipaddress::desired(doc)?,
                 k::STORAGE_POOL => super::storage_pool::desired(doc)?,
                 k::POD => super::pod::desired(doc)?,
                 k::IMAGE => super::image::desired(doc)?,
@@ -510,6 +511,7 @@ pub(crate) fn actual_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile:
     out.extend(super::config_kind::actual()?);
     out.extend(super::service::actual()?);
     out.extend(super::ippool::actual()?);
+    out.extend(super::ipaddress::actual()?);
     out.extend(super::storage_pool::actual()?);
     out.extend(super::pod::actual()?);
     out.extend(super::image::actual(docs)?);
@@ -904,6 +906,10 @@ pub(crate) fn compared_fields_table() -> Vec<(&'static str, &'static [&'static s
         (k::CONFIG, super::config_kind::RECONCILED_CONFIG_FIELDS),
         (k::SERVICE, super::service::RECONCILED_SERVICE_FIELDS),
         (k::IPPOOL, super::ippool::RECONCILED_IPPOOL_FIELDS),
+        (
+            k::IP_ADDRESS,
+            super::ipaddress::RECONCILED_IP_ADDRESS_FIELDS,
+        ),
         (
             k::STORAGE_POOL,
             super::storage_pool::RECONCILED_STORAGE_POOL_FIELDS,
@@ -1722,6 +1728,7 @@ fn presence(
         k::NETWORK_ROUTE => super::netroute::presence_of(doc),
         k::SERVICE => super::service::presence_of(doc),
         k::IPPOOL => super::ippool::presence_of(doc),
+        k::IP_ADDRESS => super::ipaddress::presence_of(doc),
         k::STORAGE_POOL => super::storage_pool::presence_of(doc),
         k::NETWORK_GATEWAY => super::network_gateway::presence_of(doc),
         k::NETWORK_ZONE => super::network_zone::presence_of(doc),
@@ -2646,6 +2653,12 @@ const LAYERS: &[Layer] = &[
         kind: k::IPPOOL,
         icon: "🎫",
     },
+    // A pinned claim of one address from the pool above; right after it, since
+    // the pool it claims from has to exist first.
+    Layer {
+        kind: k::IP_ADDRESS,
+        icon: "📍",
+    },
     Layer {
         kind: k::FIREWALL_POLICY,
         icon: "🧱",
@@ -2805,6 +2818,12 @@ fn reference_edges(docs: &[manifest::ManifestDoc]) -> Vec<(usize, usize)> {
                     }
                 }
             }
+            // An IPAddress claims from its `pool`, so the IPPool must apply first.
+            k::IP_ADDRESS => {
+                if let Ok(spec) = manifest::spec_of::<super::ipaddress::IpAddressSpec>(doc) {
+                    dep(&spec.pool, &mut edges);
+                }
+            }
             _ => {}
         }
     }
@@ -2927,6 +2946,7 @@ fn apply_layer(kind: &str, docs: &[manifest::ManifestDoc], base: &std::path::Pat
         k::POD => super::pod::apply(docs),
         k::SERVICE => super::service::apply(docs),
         k::IPPOOL => super::ippool::apply(docs),
+        k::IP_ADDRESS => super::ipaddress::apply(docs),
         k::FIREWALL_POLICY => super::firewall::apply(docs),
         k::NETWORK_ACCESS_RULE => super::network_access_rule::apply(docs),
         k::NETWORK_GATEWAY => super::network_gateway::apply(docs),
@@ -3090,6 +3110,7 @@ fn destroy_one(kind: &str, name: &str) -> Result<()> {
         k::NETWORK_ROUTE => super::netroute::remove_for_replace(name),
         k::SERVICE => super::service::remove_for_replace(name),
         k::IPPOOL => super::ippool::remove_for_replace(name),
+        k::IP_ADDRESS => super::ipaddress::remove_for_replace(name),
         k::STORAGE_POOL => super::storage_pool::remove_for_replace(name),
         k::HTTP_ROUTE | k::INGRESS => super::httproute::remove_for_prune(name),
         k::POD => super::pod::remove_pod(name, true),
@@ -3445,6 +3466,18 @@ fn converge_and_stamp(
                         })?;
                     super::ippool::converge_doc(doc)?
                 }
+                k::IP_ADDRESS => {
+                    let doc = docs
+                        .iter()
+                        .find(|d| d.kind == c.kind && manifest::plan_name(d) == c.name)
+                        .ok_or_else(|| {
+                            delonix_model::Error::Invalid(format!(
+                                "IPAddress/{}: not in the manifest",
+                                c.name
+                            ))
+                        })?;
+                    super::ipaddress::converge_doc(doc)?
+                }
                 k::STORAGE_POOL => {
                     let doc = docs
                         .iter()
@@ -3590,6 +3623,7 @@ fn stamp_all(
                 super::system_container::stamp(&d.name, stack, &d.fields, protected)
             }
             k::IPPOOL => super::ippool::stamp(&d.name, stack, &d.fields, protected),
+            k::IP_ADDRESS => super::ipaddress::stamp(&d.name, stack, &d.fields, protected),
             k::STORAGE_POOL => super::storage_pool::stamp(&d.name, stack, &d.fields, protected),
             k::HTTP_ROUTE | k::INGRESS => {
                 super::httproute::stamp(&d.kind, &d.name, stack, &d.fields, protected)
@@ -4497,6 +4531,25 @@ fn validate_graph_full(
                                     }
                                 }
                             }
+                        }
+                    }
+                    Err(e) => issues.push(e.to_string()),
+                }
+            }
+            k::IP_ADDRESS => {
+                // Its `pool` must be a declared/existing IPPool — the same check
+                // an HTTPRoute's `pool` gets, so the example stays self-contained
+                // and a claim against an undeclared pool fails validate.
+                match manifest::spec_of::<super::ipaddress::IpAddressSpec>(doc) {
+                    Ok(spec) => {
+                        let declared = docs
+                            .iter()
+                            .any(|d| d.kind == k::IPPOOL && d.metadata.name == spec.pool);
+                        if !declared && super::ippool::pool_get(&spec.pool).is_none() {
+                            issues.push(super::po::tf(
+                                "{kind} '{name}' → pool '{pool}' is not a declared or existing IPPool",
+                                &[("kind", &doc.kind), ("name", name), ("pool", &spec.pool)],
+                            ));
                         }
                     }
                     Err(e) => issues.push(e.to_string()),
@@ -5934,6 +5987,7 @@ spec: {}
             k::POD,
             k::SERVICE,
             k::IPPOOL,
+            k::IP_ADDRESS,
             k::FIREWALL_POLICY,
             k::NETWORK_ACCESS_RULE,
             k::NETWORK_GATEWAY,

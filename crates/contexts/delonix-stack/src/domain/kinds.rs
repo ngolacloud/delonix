@@ -107,9 +107,10 @@ pub const NETWORK_ACCESS_RULE: &str = "NetworkAccessRule";
 /// handle; only the spelling becomes `Router`, and `NetworkGateway` keeps
 /// loading as a silent alias (`KIND_ALIASES`).
 pub const NETWORK_GATEWAY: &str = "Router";
-/// A single address claimed from an `IPPool` (ADR-0086 D3, D4c). **Reserved**:
-/// declared at `v1beta1` with no apply of its own yet — the ledger today is the
-/// `IPPool`; the claim-as-a-Kind lands in a later phase under ADR-0090.
+/// A single address claimed from an `IPPool` (ADR-0086 D3/D4c, ADR-0090), now
+/// LIVE: a declarative claim of ONE address, recorded in the IPAM ledger under
+/// `IPAddress/<name>` so nothing else leases it. Node-scoped, like the `IPPool`
+/// it claims from.
 pub const IP_ADDRESS: &str = "IPAddress";
 /// A point-in-time copy of a `Volume` or `VirtualMachine` (ADR-0086 D3, D5d).
 /// **Reserved**: declared at `v1beta1` with no apply of its own yet — snapshots
@@ -737,6 +738,32 @@ const FACTS: &[KindFacts] = &[
         presence: Presence::Registry,
     },
     KindFacts {
+        // ADR-0086 D3/D4c, ADR-0090: a declarative claim of ONE address from the
+        // `IPPool` above, now LIVE. The claim is recorded in the IPAM ledger
+        // (`cmd::ipaddress`) so nothing else leases it — its own apply, converges
+        // per document, read back by `get ipaddresses`/`describe ipaddress`,
+        // released by `delete ipaddress`. Applied right AFTER `IPPool`, which it
+        // claims from (the pool has to exist by then — the same reason `HTTPRoute`
+        // follows the pool). Node-scoped (D7), like the pool.
+        kind: IP_ADDRESS,
+        plural: "ipaddresses",
+        short: &["ip"],
+        api_version: "networking.delonix.io/v1beta1",
+        domain: Domain::NetExposure,
+        form: Form::Primary,
+        in_stack: true,
+        stack_group: "ipAddresses",
+        // Converges per document: `ipaddress::converge_doc` re-reserves and
+        // rewrites the record in place, so a changed `address`/`pool` is applied
+        // without a destroy-and-recreate.
+        converges: true,
+        teardown: true,
+        // Node-scoped like the `IPPool` it claims from (D7) — an IPAM claim is a
+        // property of the node, not of one tenant.
+        namespaced: Namespaced::Never,
+        presence: Presence::Registry,
+    },
+    KindFacts {
         kind: HTTP_ROUTE,
         plural: "httproutes",
         short: &["hr"],
@@ -852,28 +879,6 @@ const FACTS: &[KindFacts] = &[
         // lowers it away, so a document that somehow reaches `ls` is described
         // rather than called unsupported.
         presence: Presence::Declarative,
-    },
-    KindFacts {
-        // ADR-0086 D3/D4c. RESERVED: the name, group and version are reserved at
-        // `v1beta1`; there is no apply yet (the `IPPool` is the live ledger). So
-        // it is out of the stack cycle, has no group, and is not observable — the
-        // claim-as-a-Kind lands in a later phase under ADR-0090.
-        kind: IP_ADDRESS,
-        plural: "ipaddresses",
-        short: &["ip"],
-        api_version: "networking.delonix.io/v1beta1",
-        domain: Domain::NetExposure,
-        form: Form::Reserved,
-        in_stack: false,
-        stack_group: "",
-        converges: false,
-        teardown: false,
-        // Provisional: a reserved Kind has no apply to honor the field. Settled
-        // when the apply lands (ADR-0090). `Never` keeps it out of the
-        // namespaced-Kinds message until then, rather than advertising a scope it
-        // does not yet enforce.
-        namespaced: Namespaced::Never,
-        presence: Presence::NotObservable,
     },
     KindFacts {
         // ADR-0086 D3/D5d. RESERVED: declared at `v1beta1` with no apply yet —
@@ -1037,7 +1042,7 @@ pub fn stack_group_absent_reason(kind: &str) -> Option<&'static str> {
              exist, not a resource of this node, so `stack apply` never runs it — grouping \
              it would promise an apply that does not happen"
         }
-        IP_ADDRESS | SNAPSHOT | NODE => {
+        SNAPSHOT | NODE => {
             "a Reserved Kind has no apply yet (ADR-0086 D3, built under ADR-0090), so \
              `stack apply` never runs it — grouping it would promise an apply that does \
              not happen"
@@ -1101,7 +1106,14 @@ pub fn namespaced_kinds() -> Vec<&'static str> {
 /// live VM adapter and needs a VM-capable environment to prove). Until then this
 /// list guards the node-scoped set from drift (`is_node_scoped` and the test),
 /// so the decision is recorded where the relayout will read it.
-pub const D7_NODE_SCOPED: &[&str] = &[NODE, STORAGE_POOL, IPPOOL, NETWORK_GATEWAY, RUNTIME_POLICY];
+pub const D7_NODE_SCOPED: &[&str] = &[
+    NODE,
+    STORAGE_POOL,
+    IPPOOL,
+    IP_ADDRESS,
+    NETWORK_GATEWAY,
+    RUNTIME_POLICY,
+];
 
 /// Whether a Kind is node-scoped per ADR-0086 D7. The membership is the
 /// decision (`D7_NODE_SCOPED`); `Node` is on the list even though it is still
