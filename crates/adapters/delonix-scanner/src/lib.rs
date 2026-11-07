@@ -19,7 +19,7 @@ pub mod pytree;
 pub use error::{Error, Result};
 
 /// The package manager that registered a package (determines the advisory source).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Ecosystem {
     /// Alpine (`/lib/apk/db/installed`).
     Apk,
@@ -27,6 +27,10 @@ pub enum Ecosystem {
     Dpkg,
     /// Python/PyPI (`requirements.txt` of modules — e.g. Odoo modules).
     PyPi,
+    /// Go modules read from a binary's embedded build info (`go version -m`).
+    Go,
+    /// Rust crates read from a binary's embedded `cargo-auditable` section.
+    Cargo,
 }
 
 /// A package installed in the image.
@@ -110,6 +114,85 @@ fn read_member(blob: &[u8], suffix: &str) -> Option<Vec<u8>> {
     None
 }
 
+/// Reads the content of the tar member at EXACTLY `rel_path` (after an optional
+/// `./`), if present. Unlike [`read_member`]'s `ends_with` match, this is an
+/// exact-path lookup — used to resolve a single-binary image's `Entrypoint`
+/// (e.g. `/app`) to its member without accidentally matching `myapp` or
+/// `usr/bin/app`.
+fn read_member_exact(blob: &[u8], rel_path: &str) -> Option<Vec<u8>> {
+    let is_gzip = blob.len() >= 2 && blob[0] == 0x1f && blob[1] == 0x8b;
+    let reader: Box<dyn Read> = if is_gzip {
+        Box::new(flate2::read::GzDecoder::new(blob))
+    } else {
+        Box::new(blob)
+    };
+    let mut archive = tar::Archive::new(reader);
+    for entry in archive.entries().ok()? {
+        let mut entry = entry.ok()?;
+        let path = entry.path().ok()?.to_string_lossy().into_owned();
+        if path.trim_start_matches("./") == rel_path {
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf).ok()?;
+            return Some(buf);
+        }
+    }
+    None
+}
+
+/// The tar member path of the image's main binary — `argv[0]` of `Entrypoint`
+/// (or `Cmd` when there is no entrypoint), but ONLY when it is an absolute path
+/// (`/app`, `/usr/local/bin/server`), which a single-binary scratch/distroless
+/// image always uses. Returns `None` for a relative or absent command:
+/// resolving those would need the image's `PATH`/`WorkingDir` and is
+/// deliberately left to a follow-up rather than guessed at here.
+fn entrypoint_member_path(config: &delonix_oci::ImageConfig) -> Option<String> {
+    let argv0 = config.entrypoint.first().or_else(|| config.cmd.first())?;
+    let rel = argv0.strip_prefix('/')?;
+    if rel.is_empty() {
+        None
+    } else {
+        Some(rel.to_string())
+    }
+}
+
+/// Enumerates EVERY tar member whose path (after an optional `./`) begins with
+/// `prefix`, returning `(relative_path, bytes)` for each regular file found.
+/// Distroless images keep one dpkg stanza per file under
+/// `var/lib/dpkg/status.d/` instead of the monolithic `var/lib/dpkg/status`, so
+/// a single `read_member` (first match only) can never see them all — this
+/// reads the whole directory. The directory marker itself and any nested
+/// directory entry are skipped; unreadable entries are ignored rather than
+/// failing the whole layer.
+fn read_members_with_prefix(blob: &[u8], prefix: &str) -> Vec<(String, Vec<u8>)> {
+    let is_gzip = blob.len() >= 2 && blob[0] == 0x1f && blob[1] == 0x8b;
+    let reader: Box<dyn Read> = if is_gzip {
+        Box::new(flate2::read::GzDecoder::new(blob))
+    } else {
+        Box::new(blob)
+    };
+    let mut out = Vec::new();
+    let mut archive = tar::Archive::new(reader);
+    let Ok(entries) = archive.entries() else {
+        return out;
+    };
+    for entry in entries {
+        let Ok(mut entry) = entry else { continue };
+        let Ok(path) = entry.path() else { continue };
+        let path = path.to_string_lossy().into_owned();
+        let rel = path.trim_start_matches("./");
+        if let Some(name) = rel.strip_prefix(prefix) {
+            if name.is_empty() || name.ends_with('/') {
+                continue;
+            }
+            let mut buf = Vec::new();
+            if entry.read_to_end(&mut buf).is_ok() {
+                out.push((rel.to_string(), buf));
+            }
+        }
+    }
+    out
+}
+
 /// Packages from an `apk` database (`P:` name, `V:` version, records separated
 /// by a blank line).
 fn parse_apk(db: &str) -> Vec<Package> {
@@ -153,11 +236,264 @@ fn parse_dpkg(db: &str) -> Vec<Package> {
     out
 }
 
+// ---------------------------------------------------------------------------
+// Inventory embedded IN BINARIES — for distroless/scratch images that ship a
+// single static binary and no package manager database at all.
+// ---------------------------------------------------------------------------
+
+/// Reads an unsigned LEB128 varint at `data[*off..]`, advancing `off`. Returns
+/// `None` on truncation or an over-long encoding. Used by the Go build-info
+/// decoder, whose inline strings are length-prefixed this way.
+fn uvarint(data: &[u8], off: &mut usize) -> Option<u64> {
+    let mut x: u64 = 0;
+    let mut shift = 0u32;
+    loop {
+        let b = *data.get(*off)?;
+        *off += 1;
+        if b < 0x80 {
+            if shift >= 64 || (shift == 63 && b > 1) {
+                return None;
+            }
+            return Some(x | ((b as u64) << shift));
+        }
+        x |= ((b & 0x7f) as u64) << shift;
+        shift += 7;
+        if shift >= 64 {
+            return None;
+        }
+    }
+}
+
+/// Reads one uvarint-length-prefixed byte string at `data[*off..]`, advancing
+/// `off` past it. The encoding Go's linker uses for the inline build-info
+/// version and module strings.
+fn decode_string<'a>(data: &'a [u8], off: &mut usize) -> Option<&'a [u8]> {
+    let len = uvarint(data, off)? as usize;
+    let s = data.get(*off..*off + len)?;
+    *off += len;
+    Some(s)
+}
+
+/// Extracts the Go module list embedded by the linker in a Go binary — the same
+/// data `go version -m` prints. Scans the raw bytes for the 14-byte build-info
+/// magic (`\xff Go buildinf:`), then reads the modern *inline* format
+/// (`flags & 0x2`): a pointer-size byte, a flags byte, 16 bytes of (zeroed, in
+/// inline mode) pointer slots, then two uvarint-length strings — the Go version
+/// and the module info. The module info is bracketed by two 16-byte sentinels
+/// and holds tab-separated `path`/`mod`/`dep`/`build` lines; `mod` and `dep`
+/// lines carry `name`, `version`. Pure: takes bytes, returns packages, no ELF
+/// crate and no network. The older pointer-indirection format (pre-Go-1.18) is
+/// not decoded — resolving those pointers needs the section's virtual address,
+/// which is not worth an ELF parser here; such a binary yields no Go packages
+/// rather than a wrong answer.
+pub fn go_buildinfo_packages(binary: &[u8]) -> Vec<Package> {
+    const MAGIC: &[u8] = b"\xff Go buildinf:";
+    let mut out = Vec::new();
+    let Some(base) = find_subslice(binary, MAGIC) else {
+        return out;
+    };
+    // Header: magic(14) + ptrSize(1) + flags(1) = 16 bytes, then in inline mode
+    // 16 zeroed pointer-slot bytes, so the strings begin at offset 32.
+    let flags = match binary.get(base + 15) {
+        Some(f) => *f,
+        None => return out,
+    };
+    if flags & 0x2 == 0 {
+        return out; // old pointer format — not decoded
+    }
+    let mut off = base + 32;
+    let Some(_version) = decode_string(binary, &mut off) else {
+        return out;
+    };
+    let Some(modinfo) = decode_string(binary, &mut off) else {
+        return out;
+    };
+    // Strip the 16-byte sentinels the runtime brackets the module string with,
+    // if present (`3077af0c…` … `f9324331…`).
+    let body = {
+        let mut b = modinfo;
+        if b.len() >= 32 {
+            b = &b[16..b.len() - 16];
+        }
+        b
+    };
+    for line in body.split(|&c| c == b'\n') {
+        let mut fields = line.split(|&c| c == b'\t');
+        let kind = fields.next().unwrap_or(b"");
+        if kind != b"mod" && kind != b"dep" {
+            continue;
+        }
+        let (Some(name), Some(version)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        let name = String::from_utf8_lossy(name).into_owned();
+        let version = String::from_utf8_lossy(version).into_owned();
+        // The main module of a `go build` with no version carries `(devel)`;
+        // it is not a resolvable module version, so skip it.
+        if name.is_empty() || version.is_empty() || version == "(devel)" {
+            continue;
+        }
+        out.push(Package {
+            name,
+            version,
+            ecosystem: Ecosystem::Go,
+        });
+    }
+    out
+}
+
+/// Extracts the Rust crate list embedded by `cargo auditable` in the ELF
+/// section `.dep-v0` — zlib-compressed JSON of the shape
+/// `{"packages":[{"name":..,"version":..}, …]}`. Locates the section by name
+/// through the ELF section-header table (32- or 64-bit, either endianness),
+/// inflates it with the `flate2` the crate already carries, and reads
+/// name+version off each package. Pure, no new dependency. A non-ELF input, a
+/// binary without the section, or malformed JSON yields no packages rather than
+/// an error.
+pub fn cargo_auditable_packages(binary: &[u8]) -> Vec<Package> {
+    let Some(section) = elf_section(binary, b".dep-v0") else {
+        return Vec::new();
+    };
+    let mut json = Vec::new();
+    if flate2::read::ZlibDecoder::new(section)
+        .read_to_end(&mut json)
+        .is_err()
+    {
+        return Vec::new();
+    }
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&json) else {
+        return Vec::new();
+    };
+    let Some(packages) = v.get("packages").and_then(|p| p.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for p in packages {
+        let name = p.get("name").and_then(|x| x.as_str()).unwrap_or("");
+        let version = p.get("version").and_then(|x| x.as_str()).unwrap_or("");
+        if name.is_empty() || version.is_empty() {
+            continue;
+        }
+        out.push(Package {
+            name: name.to_string(),
+            version: version.to_string(),
+            ecosystem: Ecosystem::Cargo,
+        });
+    }
+    out
+}
+
+/// First index of `needle` in `haystack`, naive scan — fine for the one-shot
+/// magic search over a binary we already hold in memory.
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    (0..=haystack.len() - needle.len()).find(|&i| &haystack[i..i + needle.len()] == needle)
+}
+
+/// Returns the bytes of the ELF section named `want`, resolving it through the
+/// section-header string table. Supports 32- and 64-bit, little- and
+/// big-endian — the four shapes a Linux binary can take — and nothing else
+/// (program headers, relocations and symbol tables are irrelevant here).
+/// Returns `None` for a non-ELF input or a missing section.
+fn elf_section<'a>(bin: &'a [u8], want: &[u8]) -> Option<&'a [u8]> {
+    if bin.get(0..4)? != b"\x7fELF" {
+        return None;
+    }
+    let is64 = *bin.get(4)? == 2;
+    let le = *bin.get(5)? == 1;
+    let rd16 = |o: usize| -> Option<u64> {
+        let b = bin.get(o..o + 2)?;
+        Some(if le {
+            u16::from_le_bytes([b[0], b[1]]) as u64
+        } else {
+            u16::from_be_bytes([b[0], b[1]]) as u64
+        })
+    };
+    let rd32 = |o: usize| -> Option<u64> {
+        let b = bin.get(o..o + 4)?;
+        let a = [b[0], b[1], b[2], b[3]];
+        Some(if le {
+            u32::from_le_bytes(a) as u64
+        } else {
+            u32::from_be_bytes(a) as u64
+        })
+    };
+    let rd64 = |o: usize| -> Option<u64> {
+        let b = bin.get(o..o + 8)?;
+        let a = [b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]];
+        Some(if le {
+            u64::from_le_bytes(a)
+        } else {
+            u64::from_be_bytes(a)
+        })
+    };
+    // Offsets of e_shoff/e_shentsize/e_shnum/e_shstrndx differ by word size.
+    let (shoff, shentsize, shnum, shstrndx) = if is64 {
+        (
+            rd64(0x28)? as usize,
+            rd16(0x3a)? as usize,
+            rd16(0x3c)? as usize,
+            rd16(0x3e)? as usize,
+        )
+    } else {
+        (
+            rd32(0x20)? as usize,
+            rd16(0x2e)? as usize,
+            rd16(0x30)? as usize,
+            rd16(0x32)? as usize,
+        )
+    };
+    if shoff == 0 || shentsize == 0 || shnum == 0 {
+        return None;
+    }
+    // A section header: sh_name(u32) at 0, sh_offset and sh_size at word-size
+    // dependent offsets.
+    let sh_fields = |idx: usize| -> Option<(usize, usize, usize)> {
+        let hdr = shoff + idx * shentsize;
+        let name = rd32(hdr)? as usize;
+        let (offset, size) = if is64 {
+            (rd64(hdr + 0x18)? as usize, rd64(hdr + 0x20)? as usize)
+        } else {
+            (rd32(hdr + 0x10)? as usize, rd32(hdr + 0x14)? as usize)
+        };
+        Some((name, offset, size))
+    };
+    // The section-header string table gives every section its name.
+    let (_, strtab_off, strtab_size) = sh_fields(shstrndx)?;
+    let strtab = bin.get(strtab_off..strtab_off + strtab_size)?;
+    for i in 0..shnum {
+        let (name_off, offset, size) = sh_fields(i)?;
+        let name_end = strtab[name_off..]
+            .iter()
+            .position(|&c| c == 0)
+            .map(|p| name_off + p)?;
+        if &strtab[name_off..name_end] == want {
+            return bin.get(offset..offset + size);
+        }
+    }
+    None
+}
+
 /// Extracts the SBOM of an image, reading the *layers* from the top down to the
 /// base (the most recent package database wins).
 pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> {
     let mut apk_db: Option<String> = None;
     let mut dpkg_db: Option<String> = None;
+    // Distroless images register each package as its own dpkg stanza file under
+    // `var/lib/dpkg/status.d/<package>` instead of the monolithic
+    // `var/lib/dpkg/status`. Collect every such member, topmost layer winning
+    // per path (the same precedence the monolithic status already follows),
+    // keyed by the member path so a package re-shipped by an upper layer is not
+    // read twice.
+    let mut statusd: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    // A scratch/distroless image carrying a single static binary has no package
+    // database at all — its only inventory is embedded IN that binary. Resolve
+    // the Entrypoint/Cmd to its layer member (topmost wins) and read it once; a
+    // relative or absent command leaves this `None` and the behaviour unchanged.
+    let entry_path = entrypoint_member_path(&image.config);
+    let mut entry_bin: Option<Vec<u8>> = None;
     for digest in image.layers.iter().rev() {
         let blob = images.cas().read(digest)?;
         if apk_db.is_none() {
@@ -170,6 +506,16 @@ pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> 
                 dpkg_db = Some(String::from_utf8_lossy(&b).into_owned());
             }
         }
+        for (path, bytes) in read_members_with_prefix(&blob, "var/lib/dpkg/status.d/") {
+            statusd
+                .entry(path)
+                .or_insert_with(|| String::from_utf8_lossy(&bytes).into_owned());
+        }
+        if entry_bin.is_none() {
+            if let Some(ref p) = entry_path {
+                entry_bin = read_member_exact(&blob, p);
+            }
+        }
     }
     let mut pkgs = Vec::new();
     if let Some(db) = apk_db {
@@ -178,6 +524,24 @@ pub fn extract_sbom(images: &ImageStore, image: &Image) -> Result<Vec<Package>> 
     if let Some(db) = dpkg_db {
         pkgs.extend(parse_dpkg(&db));
     }
+    // Each status.d/ file is a single dpkg stanza — reuse the same parser. A
+    // `.md5sums` sibling (which carries no `Package:`/`Version:` lines) yields
+    // nothing, so it is harmlessly ignored.
+    for stanza in statusd.values() {
+        pkgs.extend(parse_dpkg(stanza));
+    }
+    // The Entrypoint binary's embedded inventory (Go build info / Rust
+    // cargo-auditable). Each reader returns nothing for the other ecosystem (or
+    // for a non-matching binary), so feeding both is safe.
+    if let Some(bin) = entry_bin {
+        pkgs.extend(go_buildinfo_packages(&bin));
+        pkgs.extend(cargo_auditable_packages(&bin));
+    }
+    // An image may carry BOTH the monolithic status and status.d/ stanzas (or an
+    // upper layer may re-list a package); de-duplicate by (ecosystem, name),
+    // keeping the first seen — apk, then monolithic dpkg, then status.d.
+    let mut seen = std::collections::HashSet::new();
+    pkgs.retain(|p| seen.insert((p.ecosystem, p.name.clone())));
     if pkgs.is_empty() {
         return Err(Error::EmptySbom);
     }
@@ -214,6 +578,8 @@ fn purl(pkg: &Package) -> String {
         Ecosystem::Apk => "apk/alpine",
         Ecosystem::Dpkg => "deb",
         Ecosystem::PyPi => "pypi",
+        Ecosystem::Go => "golang",
+        Ecosystem::Cargo => "cargo",
     };
     format!("pkg:{ecosystem}/{}@{}", pkg.name, pkg.version)
 }
@@ -430,6 +796,10 @@ fn map_osv_ecosystem(s: &str) -> Option<Ecosystem> {
         Some(Ecosystem::Dpkg)
     } else if s == "PyPI" {
         Some(Ecosystem::PyPi)
+    } else if s == "Go" {
+        Some(Ecosystem::Go)
+    } else if s == "crates.io" {
+        Some(Ecosystem::Cargo)
     } else {
         None
     }
@@ -751,6 +1121,256 @@ mod tests {
         assert_eq!(pkgs[1].name, "bash");
     }
 
+    /// Builds a gzipped tar layer from `(path, bytes)` members and writes it to
+    /// the store's CAS, returning a single-layer `Image` over it — the real path
+    /// `extract_sbom` reads (no mounting, no running).
+    fn layer_image(store: &ImageStore, files: &[(&str, &[u8])]) -> Image {
+        use std::io::Write;
+        let mut tar_buf = Vec::new();
+        {
+            let mut ar = tar::Builder::new(&mut tar_buf);
+            for (path, data) in files {
+                let mut header = tar::Header::new_gnu();
+                header.set_path(path).unwrap();
+                header.set_size(data.len() as u64);
+                header.set_mode(0o644);
+                header.set_cksum();
+                ar.append(&header, *data).unwrap();
+            }
+            ar.finish().unwrap();
+        }
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&tar_buf).unwrap();
+        let layer = gz.finish().unwrap();
+        let digest = store.cas().write(&layer).unwrap();
+        Image {
+            id: "sha256:distroless".into(),
+            repo_tags: vec!["cc-debian13:test".into()],
+            layers: vec![digest],
+            config: delonix_oci::ImageConfig::default(),
+            created_unix: 0,
+        }
+    }
+
+    #[test]
+    fn parses_dpkg_status_d() {
+        // Distroless (gcr.io/distroless/cc-debian13) keeps ONE stanza per file
+        // under var/lib/dpkg/status.d/ — the scanner must read the whole
+        // directory, not just a single `status` file (which does not exist).
+        let dir = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(dir.path()).unwrap();
+        let img = layer_image(
+            &store,
+            &[
+                (
+                    "var/lib/dpkg/status.d/base-files",
+                    b"Package: base-files\nStatus: install ok installed\nVersion: 13.1\n",
+                ),
+                (
+                    "var/lib/dpkg/status.d/libc6",
+                    b"Package: libc6\nStatus: install ok installed\nVersion: 2.37-15\n",
+                ),
+                // A .md5sums sibling (no Package:/Version:) must be ignored, not
+                // turned into a junk package.
+                (
+                    "var/lib/dpkg/status.d/libc6.md5sums",
+                    b"abc123  usr/lib/x86_64-linux-gnu/libc.so.6\n",
+                ),
+            ],
+        );
+        let sbom = extract_sbom(&store, &img).unwrap();
+        assert_eq!(sbom.len(), 2, "two real packages, the .md5sums ignored");
+        assert_eq!(sbom[0].name, "base-files");
+        assert_eq!(sbom[0].version, "13.1");
+        assert_eq!(sbom[0].ecosystem, Ecosystem::Dpkg);
+        assert_eq!(sbom[1].name, "libc6");
+        assert_eq!(sbom[1].version, "2.37-15");
+    }
+
+    #[test]
+    fn extract_sbom_merges_status_and_status_d_without_duplicates() {
+        // An image carrying BOTH the monolithic status and a status.d/ stanza:
+        // the shared package (libc6) must appear once, the extras from each side
+        // must all be present.
+        let dir = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(dir.path()).unwrap();
+        let img = layer_image(
+            &store,
+            &[
+                (
+                    "var/lib/dpkg/status",
+                    b"Package: libc6\nVersion: 2.37-15\n\nPackage: bash\nVersion: 5.2-15\n",
+                ),
+                (
+                    "var/lib/dpkg/status.d/libc6",
+                    b"Package: libc6\nVersion: 2.37-15\n",
+                ),
+                (
+                    "var/lib/dpkg/status.d/tzdata",
+                    b"Package: tzdata\nVersion: 2025a-1\n",
+                ),
+            ],
+        );
+        let sbom = extract_sbom(&store, &img).unwrap();
+        let names: Vec<&str> = sbom.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["bash", "libc6", "tzdata"]);
+        assert_eq!(
+            sbom.iter().filter(|p| p.name == "libc6").count(),
+            1,
+            "libc6 listed by both sources must not be duplicated"
+        );
+    }
+
+    /// A hand-built Go binary carrying a build-info blob in the modern inline
+    /// format (the one `go version -m` reads), embedded between junk bytes so
+    /// the magic scan is exercised. The parser does not check the 16-byte
+    /// sentinel VALUES, only strips them, so zero padding stands in for the real
+    /// sentinels. Lists `rsc.io/quote@v1.5.2` and `golang.org/x/text@v0.3.0`;
+    /// the `(devel)` main module and `path`/`build` lines must be skipped.
+    fn go_buildinfo_fixture() -> Vec<u8> {
+        fn uvarint_enc(mut n: u64, out: &mut Vec<u8>) {
+            loop {
+                let mut b = (n & 0x7f) as u8;
+                n >>= 7;
+                if n != 0 {
+                    b |= 0x80;
+                }
+                out.push(b);
+                if n == 0 {
+                    break;
+                }
+            }
+        }
+        let body = b"path\texample.com/app\nmod\texample.com/app\t(devel)\t\ndep\trsc.io/quote\tv1.5.2\th1:aaa\ndep\tgolang.org/x/text\tv0.3.0\th1:bbb\n";
+        let mut modinfo = vec![0u8; 16];
+        modinfo.extend_from_slice(body);
+        modinfo.extend_from_slice(&[0u8; 16]);
+
+        let mut blob = Vec::new();
+        blob.extend_from_slice(b"\xff Go buildinf:"); // magic (14)
+        blob.push(8); // ptrSize
+        blob.push(2); // flags: inline
+        blob.extend_from_slice(&[0u8; 16]); // zeroed pointer slots
+        let version = b"go1.21";
+        uvarint_enc(version.len() as u64, &mut blob);
+        blob.extend_from_slice(version);
+        uvarint_enc(modinfo.len() as u64, &mut blob);
+        blob.extend_from_slice(&modinfo);
+
+        let mut binary = vec![0xABu8; 100];
+        binary.extend_from_slice(&blob);
+        binary.extend_from_slice(&[0xCDu8; 50]);
+        binary
+    }
+
+    #[test]
+    fn go_buildinfo_extracts_modules_and_ignores_devel() {
+        let binary = go_buildinfo_fixture();
+        let pkgs = go_buildinfo_packages(&binary);
+        let got: Vec<(&str, &str)> = pkgs
+            .iter()
+            .map(|p| (p.name.as_str(), p.version.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![("rsc.io/quote", "v1.5.2"), ("golang.org/x/text", "v0.3.0")],
+            "the (devel) main module and path/build lines must be skipped"
+        );
+        assert!(pkgs.iter().all(|p| p.ecosystem == Ecosystem::Go));
+        // A binary with no build-info magic yields nothing (not a panic).
+        assert!(go_buildinfo_packages(b"not a go binary").is_empty());
+    }
+
+    #[test]
+    fn cargo_auditable_extracts_crates_from_the_dep_v0_section() {
+        use std::io::Write;
+        // The cargo-auditable payload: zlib-compressed JSON in the ELF section
+        // `.dep-v0`.
+        let json = br#"{"packages":[{"name":"serde","version":"1.0.197","source":"registry"},{"name":"libc","version":"0.2.153","source":"registry"}]}"#;
+        let mut enc = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(json).unwrap();
+        let dep = enc.finish().unwrap();
+
+        // Minimal 64-bit little-endian ELF: sections [0]=null, [1]=.dep-v0,
+        // [2]=.shstrtab. Enough for `elf_section` to resolve a section by name;
+        // no program headers, symbols or relocations.
+        let shstrtab: &[u8] = b"\0.dep-v0\0.shstrtab\0"; // names at offsets 1 and 9
+        let ehsize = 64usize;
+        let dep_off = ehsize;
+        let strtab_off = dep_off + dep.len();
+        let shoff = strtab_off + shstrtab.len();
+        let shentsize = 64usize;
+
+        let mut elf = vec![0u8; shoff + 3 * shentsize];
+        elf[0..4].copy_from_slice(b"\x7fELF");
+        elf[4] = 2; // 64-bit
+        elf[5] = 1; // little-endian
+        elf[6] = 1; // ELF version
+        elf[0x28..0x30].copy_from_slice(&(shoff as u64).to_le_bytes()); // e_shoff
+        elf[0x3a..0x3c].copy_from_slice(&(shentsize as u16).to_le_bytes()); // e_shentsize
+        elf[0x3c..0x3e].copy_from_slice(&3u16.to_le_bytes()); // e_shnum
+        elf[0x3e..0x40].copy_from_slice(&2u16.to_le_bytes()); // e_shstrndx
+        elf[dep_off..dep_off + dep.len()].copy_from_slice(&dep);
+        elf[strtab_off..strtab_off + shstrtab.len()].copy_from_slice(shstrtab);
+
+        let write_sh = |elf: &mut [u8], idx: usize, name: u32, off: u64, size: u64| {
+            let h = shoff + idx * shentsize;
+            elf[h..h + 4].copy_from_slice(&name.to_le_bytes());
+            elf[h + 0x18..h + 0x20].copy_from_slice(&off.to_le_bytes());
+            elf[h + 0x20..h + 0x28].copy_from_slice(&size.to_le_bytes());
+        };
+        write_sh(&mut elf, 1, 1, dep_off as u64, dep.len() as u64);
+        write_sh(&mut elf, 2, 9, strtab_off as u64, shstrtab.len() as u64);
+
+        let pkgs = cargo_auditable_packages(&elf);
+        let mut names: Vec<&str> = pkgs.iter().map(|p| p.name.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, vec!["libc", "serde"]);
+        assert!(pkgs.iter().all(|p| p.ecosystem == Ecosystem::Cargo));
+        assert_eq!(
+            pkgs.iter().find(|p| p.name == "serde").unwrap().version,
+            "1.0.197"
+        );
+        // A non-ELF input and an ELF without the section both yield nothing.
+        assert!(cargo_auditable_packages(b"not an elf").is_empty());
+    }
+
+    #[test]
+    fn extract_sbom_reads_the_entrypoint_binary_in_a_scratch_image() {
+        // A single-binary Go `scratch` image: NO dpkg/apk database anywhere,
+        // just a binary at /app. extract_sbom must resolve the Entrypoint to
+        // that layer member and read the embedded Go module list — instead of
+        // failing EmptySbom, which is what leaves `require-sbom` rejecting it.
+        let dir = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(dir.path()).unwrap();
+        let mut img = layer_image(&store, &[("app", &go_buildinfo_fixture())]);
+        img.config.entrypoint = vec!["/app".into()];
+
+        let sbom = extract_sbom(&store, &img).unwrap();
+        let go: Vec<&str> = sbom
+            .iter()
+            .filter(|p| p.ecosystem == Ecosystem::Go)
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(go, vec!["golang.org/x/text", "rsc.io/quote"]); // sorted by name
+        assert!(
+            sbom.iter()
+                .any(|p| p.name == "rsc.io/quote" && p.version == "v1.5.2"),
+            "the Go module version must survive the end-to-end read"
+        );
+    }
+
+    #[test]
+    fn extract_sbom_ignores_a_relative_or_absent_entrypoint() {
+        // A relative command (or none) must NOT be resolved — the behaviour
+        // stays exactly as before (EmptySbom when there is nothing else).
+        let dir = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(dir.path()).unwrap();
+        let mut img = layer_image(&store, &[("app", &go_buildinfo_fixture())]);
+        img.config.entrypoint = vec!["app".into()]; // relative → not resolved
+        assert!(matches!(extract_sbom(&store, &img), Err(Error::EmptySbom)));
+    }
+
     #[test]
     fn matches_only_vulnerable() {
         let sbom = vec![
@@ -829,7 +1449,7 @@ mod tests {
     fn advs_json(advs: &[Advisory]) -> Vec<serde_json::Value> {
         advs.iter().map(|a| serde_json::json!({
             "id": a.id, "package": a.package,
-            "ecosystem": match a.ecosystem { Ecosystem::Apk => "Apk", Ecosystem::Dpkg => "Dpkg", Ecosystem::PyPi => "PyPi" },
+            "ecosystem": match a.ecosystem { Ecosystem::Apk => "Apk", Ecosystem::Dpkg => "Dpkg", Ecosystem::PyPi => "PyPi", Ecosystem::Go => "Go", Ecosystem::Cargo => "Cargo" },
             "fixed": a.fixed,
             "severity": match a.severity { Severity::Low=>"low", Severity::Medium=>"medium", Severity::High=>"high", Severity::Critical=>"critical" },
             "summary": a.summary,

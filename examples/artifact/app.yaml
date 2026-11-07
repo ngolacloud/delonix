@@ -30,7 +30,7 @@
 # ── 1. auto — stack detectado automaticamente (builder Paketo) ───────────────
 #      auto — auto-detected stack (Paketo builder)
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: App
 metadata:
   name: shop-auto
@@ -44,7 +44,7 @@ spec:
 # ── 2. heroku — a família de builders Heroku ─────────────────────────────────
 #      heroku — the Heroku builder family
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: App
 metadata:
   name: shop-heroku
@@ -60,7 +60,7 @@ spec:
 # EN: `runImage` is required here (omitting it is an error) and meaningless with
 #     auto/heroku — the engine only reads it in this case.
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: App
 metadata:
   name: shop-custom
@@ -75,7 +75,7 @@ spec:
 # PT: source assume ".", builder assume "auto".
 # EN: source defaults to ".", builder to "auto".
 ---
-apiVersion: artifact.delonix.io/v1alpha1
+apiVersion: core.delonix.io/v1beta1
 kind: App
 metadata:
   name: shop-defaults

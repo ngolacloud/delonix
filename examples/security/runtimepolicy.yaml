@@ -34,7 +34,7 @@
 # ── 1. o tecto do nó — todos os 13 campos, explícitos ───────────────────────
 #      the node ceiling — all 13 fields, made explicit
 ---
-apiVersion: security.delonix.io/v1alpha1
+apiVersion: policy.delonix.io/v1beta1
 kind: RuntimePolicy
 metadata:
   name: node-ceiling

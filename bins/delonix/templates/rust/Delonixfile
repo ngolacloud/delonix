@@ -7,14 +7,17 @@
 # cached until it changes. The build context is filtered by .dockerignore.
 FROM rust:__TEMPLATE_VERSION__-slim AS build
 WORKDIR /src
+# No `|| true`: a real dependency error must fail here, not hide until the next
+# stage. `--locked` needs a committed Cargo.lock (see the Dockerfile sibling);
+# the fallback keeps a lock-less scaffold building, with the error visible.
 COPY Cargo.toml ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs && echo "" > src/lib.rs \
-    && cargo build --release --quiet || true
+    && cargo build --release --quiet
 COPY . /src
-RUN cargo build --release --quiet
+RUN cargo build --release --locked --quiet || cargo build --release --quiet
 RUN cp "target/release/__NAME__" /usr/local/bin/__NAME__
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \

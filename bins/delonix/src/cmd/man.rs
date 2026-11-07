@@ -245,7 +245,7 @@ fn render(cmd: &clap::Command, path: &str) -> String {
     o.push_str(".SH AUTHOR\n");
     o.push_str("Walter Angolar and the Delonix Runtime contributors.\n");
     o.push_str(".SH LICENSE\n");
-    o.push_str("Apache\\-2.0. https://github.com/angolardevops/delonix\\-runtime\n");
+    o.push_str("Apache\\-2.0. https://github.com/ngolacloud/delonix\\-runtime\n");
     o
 }
 

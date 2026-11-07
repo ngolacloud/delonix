@@ -597,7 +597,7 @@ EXAMPLES:
   delonix image scan --sbom nginx
 
   # a CI gate: exit 1 if anything high or worse is found
-  delonix image scan --fail-on high ghcr.io/angolardevops/app:1.2.0
+  delonix image scan --fail-on high ghcr.io/ngolacloud/app:1.2.0
 
   # refresh the local feed first — a scan is only as fresh as the database
   # behind it
@@ -626,7 +626,7 @@ Options:
 EXAMPLES:
   # check the cosign signature of an image you already have against the
   # publisher&#x27;s key
-  delonix image verify ghcr.io/angolardevops/app:1.2.0 cosign.pub
+  delonix image verify ghcr.io/ngolacloud/app:1.2.0 cosign.pub
 
   # the gate to run before promoting a local build to production
   delonix image verify kaeso-odoo:18 keys/kaeso.pub
@@ -681,7 +681,7 @@ EXAMPLES:
 
   # the shape a locally-built image needs before it can be pushed to your
   # registry
-  delonix image tag kaeso-odoo:18 ghcr.io/angolardevops/kaeso-odoo:18
+  delonix image tag kaeso-odoo:18 ghcr.io/ngolacloud/kaeso-odoo:18
 
 SEE ALSO:
   delonix image push · delonix image ls · delonix image remove
@@ -734,10 +734,10 @@ EXAMPLES:
   delonix image pull postgres:16
 
   # a registry other than Docker Hub — write it out in the reference
-  delonix image pull ghcr.io/angolardevops/kaeso-odoo:18
+  delonix image pull ghcr.io/ngolacloud/kaeso-odoo:18
 
   # refuse the image unless it carries a cosign signature made by this key
-  delonix image pull --verify cosign.pub ghcr.io/angolardevops/app:1.2.0
+  delonix image pull --verify cosign.pub ghcr.io/ngolacloud/app:1.2.0
 
 SEE ALSO:
   delonix image ls · delonix image scan · delonix image verify · delonix vm
@@ -848,11 +848,11 @@ Options:
 
 EXAMPLES:
   # publish under the image&#x27;s own reference
-  delonix image push ghcr.io/angolardevops/app:1.2.0
+  delonix image push ghcr.io/ngolacloud/app:1.2.0
 
   # publish a locally-named image under another reference, without tagging it
   # first
-  delonix image push kaeso-odoo:18 ghcr.io/angolardevops/kaeso-odoo:18
+  delonix image push kaeso-odoo:18 ghcr.io/ngolacloud/kaeso-odoo:18
 
 SEE ALSO:
   delonix image login · delonix image tag · delonix vm image push

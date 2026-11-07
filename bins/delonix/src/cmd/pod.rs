@@ -1026,17 +1026,20 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     let (_images, store) = open_stores()?;
-    let encoded = super::reconcile::encode_last_applied(fields);
     for c in members_of(&store, name)? {
         store.update(&c.id, |cur| {
             cur.labels
                 .insert(super::reconcile::STACK_LABEL.into(), stack.to_string());
+            if protected {
+                cur.labels
+                    .insert(super::reconcile::PROTECT.into(), "true".into());
+            }
             cur.labels
                 .insert(super::reconcile::MANAGED_BY.into(), "delonix".into());
-            cur.annotations
-                .insert(super::reconcile::LAST_APPLIED.into(), encoded.clone());
+            super::reconcile::stamp_annotations(&mut cur.annotations, fields, k::POD);
             true
         })?;
     }
@@ -1124,6 +1127,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                 last_applied: head
                     .and_then(|c| c.annotations.get(super::reconcile::LAST_APPLIED))
                     .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+                protect: head.is_some_and(|c| c.labels.contains_key(super::reconcile::PROTECT)),
             }
         })
         .collect())

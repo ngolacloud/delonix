@@ -659,18 +659,21 @@ pub(crate) fn stamp(
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
     created: Option<&std::collections::BTreeMap<String, String>>,
+    protected: bool,
 ) -> Result<()> {
     let (_, store) = open_stores()?;
     let c = find(&store, name)?;
-    let encoded = super::reconcile::encode_last_applied(fields);
     let created = created.map(super::reconcile::encode_last_applied);
     store.update(&c.id, |cur| {
         cur.labels
             .insert(super::reconcile::STACK_LABEL.into(), stack.to_string());
+        if protected {
+            cur.labels
+                .insert(super::reconcile::PROTECT.into(), "true".into());
+        }
         cur.labels
             .insert(super::reconcile::MANAGED_BY.into(), "delonix".into());
-        cur.annotations
-            .insert(super::reconcile::LAST_APPLIED.into(), encoded.clone());
+        super::reconcile::stamp_annotations(&mut cur.annotations, fields, k::CONTAINER);
         if let Some(created) = &created {
             cur.annotations
                 .insert(super::conditions::CREATED_SPEC.into(), created.clone());
@@ -723,6 +726,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                 .annotations
                 .get(super::reconcile::LAST_APPLIED)
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: c.labels.contains_key(super::reconcile::PROTECT),
         })
         .collect())
 }
@@ -1476,6 +1480,16 @@ pub struct RunArgs {
     /// Disable the image's HEALTHCHECK entirely (Docker/Podman `--no-healthcheck`): no monitor, no probe.
     #[arg(long = "no-healthcheck")]
     no_healthcheck: bool,
+    /// Native HTTP probe the engine runs in the container's netns — no shell or
+    /// tools in the image needed. `[:]PORT[/path]`, path defaults to `/`;
+    /// healthy on a 2xx/3xx. Excludes `--health-cmd`/`--health-tcp`.
+    #[arg(long = "health-http", value_name = "[:]PORT[/path]")]
+    health_http: Option<String>,
+    /// Native TCP probe the engine runs in the container's netns — healthy if a
+    /// connection to the container's own `127.0.0.1:PORT` is accepted. Excludes
+    /// `--health-cmd`/`--health-http`.
+    #[arg(long = "health-tcp", value_name = "PORT")]
+    health_tcp: Option<u16>,
     /// Restrict DNS resolution to these containers (isolation). Repeatable.
     #[arg(long, add = ArgValueCandidates::new(super::complete::containers))]
     knows: Vec<String>,
@@ -2180,6 +2194,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         health_retries,
         health_start_period,
         no_healthcheck,
+        health_http,
+        health_tcp,
         knows,
         knows_none,
         pod,
@@ -2284,6 +2300,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     // its value passes straight through to `io.weight`, and `--io-weight` wins
     // when both are set.
     let io_weight = io_weight.or(blkio_weight);
+    let health_net = parse_health_net(health_http.as_deref(), health_tcp, health_cmd.is_some())?;
     Ok(RunOpts {
         policy_hold: false,
         no_start,
@@ -2381,6 +2398,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         } else {
             health_opts(
                 health_cmd,
+                health_net,
                 health_interval,
                 health_timeout,
                 health_retries,
@@ -4145,17 +4163,17 @@ fn wait_until_healthy(
     };
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
     let mut attempt: u32 = 0;
-    // Same self-limiting wrapper the monitor uses: a probe that hangs would
-    // otherwise pin `--wait` past its own deadline, which is the one thing the
-    // flag exists to prevent.
-    let script = argv.join(" ");
-    let argv = if argv.len() == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
-        health_probe_argv(&argv[2], 30)
+    // Same self-limiting probe the monitor uses: one that hangs would otherwise
+    // pin `--wait` past its own deadline, the one thing the flag exists to
+    // prevent. The exec form (image `HEALTHCHECK ["CMD", …]`) now runs with NO
+    // `/bin/sh` — it used to be joined into a shell string and lost its argv.
+    let probe = if argv.len() == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
+        ProbeKind::Shell(argv[2].clone())
     } else {
-        health_probe_argv(&script, 30)
+        ProbeKind::Exec(argv)
     };
     loop {
-        if runtime::exec(&c, &argv, false).unwrap_or(1) == 0 {
+        if run_probe(&c, &probe, 30) == 0 {
             return Ok(());
         }
         // Morreu enquanto esperávamos: dizer "não ficou saudável em 60s" seria
@@ -6305,6 +6323,8 @@ pub(crate) fn cmd_exec(
         extra_env: &extra_env,
         workdir,
         user: user_override,
+        // An interactive `exec` runs for as long as the user wants it to.
+        timeout_secs: None,
     };
     let code = runtime::exec_with(&c, command, tty, &overrides)?;
     std::process::exit(code);
@@ -6417,7 +6437,7 @@ fn cmd_healthcheck(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
     // HEALTHCHECK` and exited 1 — a permanent red in the CI script this verb
     // exists for. The resolution order was already written down one function
     // below; this caller was the one that never used it.
-    let hc = health_command(images, &c).ok_or_else(|| {
+    let probe = health_probe(images, &c).ok_or_else(|| {
         Error::Invalid(super::po::tf(
             "no health probe for '{name}': the container has no --health-cmd and image '{image}' defines no HEALTHCHECK",
             &[("name", &c.name), ("image", &c.image)],
@@ -6426,7 +6446,10 @@ fn cmd_healthcheck(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
     if !c.is_live() {
         return Err(Error::NotRunning(short_id(&c.id).to_string()));
     }
-    let code = runtime::exec(&c, &["/bin/sh".to_string(), "-c".to_string(), hc], false)?;
+    // 30s is the default `--health-timeout`; this one-shot verb had no deadline
+    // at all before (a hanging probe hung the CLI forever), so a bound is a
+    // strict improvement, and the exec form now runs with no `/bin/sh`.
+    let code = run_probe(&c, &probe, 30);
     if code == 0 {
         println!("healthy");
         Ok(())
@@ -8049,6 +8072,7 @@ fn cmd_init(
 /// image cannot know whether this particular run wants that.
 pub(crate) fn health_opts(
     cmd: Option<String>,
+    net: Option<delonix_compute::NetProbe>,
     interval: u64,
     timeout: u64,
     retries: u32,
@@ -8056,6 +8080,7 @@ pub(crate) fn health_opts(
 ) -> Option<HealthConfig> {
     let d = HealthConfig::default();
     let asked = cmd.is_some()
+        || net.is_some()
         || interval != d.interval_secs
         || timeout != d.timeout_secs
         || retries != d.retries
@@ -8065,11 +8090,73 @@ pub(crate) fn health_opts(
     }
     Some(HealthConfig {
         cmd: cmd.unwrap_or_default(),
+        net,
         interval_secs: interval.max(1),
         timeout_secs: timeout.max(1),
         retries: retries.max(1),
         start_period_secs: start_period,
     })
+}
+
+/// Parses `--health-http`/`--health-tcp` into a [`NetProbe`], rejecting the
+/// combinations that cannot mean anything: the two are mutually exclusive, and
+/// neither can pair with `--health-cmd` — a container has ONE probe. `None` when
+/// neither flag was given (the common case). PURE.
+fn parse_health_net(
+    http: Option<&str>,
+    tcp: Option<u16>,
+    has_cmd: bool,
+) -> Result<Option<delonix_compute::NetProbe>> {
+    if http.is_some() && tcp.is_some() {
+        return Err(Error::Invalid(
+            "--health-http and --health-tcp are mutually exclusive".into(),
+        ));
+    }
+    if (http.is_some() || tcp.is_some()) && has_cmd {
+        return Err(Error::Invalid(
+            "--health-cmd cannot be combined with --health-http/--health-tcp".into(),
+        ));
+    }
+    if let Some(port) = tcp {
+        if port == 0 {
+            return Err(Error::Invalid(
+                "--health-tcp: port must be in 1..=65535".into(),
+            ));
+        }
+        return Ok(Some(delonix_compute::NetProbe {
+            port,
+            http_path: None,
+        }));
+    }
+    if let Some(spec) = http {
+        let (port, path) = parse_http_spec(spec)?;
+        return Ok(Some(delonix_compute::NetProbe {
+            port,
+            http_path: Some(path),
+        }));
+    }
+    Ok(None)
+}
+
+/// Splits `--health-http`'s `[:]PORT[/path]` into `(port, path)`: the leading
+/// `:` is optional sugar so it reads like an address, and a missing path means
+/// `/`. PURE.
+fn parse_http_spec(spec: &str) -> Result<(u16, String)> {
+    let body = spec.strip_prefix(':').unwrap_or(spec);
+    let (port_str, path) = match body.find('/') {
+        Some(i) => (&body[..i], &body[i..]),
+        None => (body, "/"),
+    };
+    let port = port_str
+        .parse::<u16>()
+        .ok()
+        .filter(|p| *p != 0)
+        .ok_or_else(|| {
+            Error::Invalid(format!(
+                "--health-http: '{spec}' is not [:]PORT[/path] with a port in 1..=65535"
+            ))
+        })?;
+    Ok((port, path.to_string()))
 }
 
 /// Wraps a probe so it enforces its OWN timeout, inside the container.
@@ -8134,9 +8221,27 @@ pub(crate) fn health_probe_argv(cmd: &str, timeout_secs: u64) -> Vec<String> {
     vec!["/bin/sh".to_string(), "-c".to_string(), script]
 }
 
-/// The probe command line for a container: its own `--health-cmd`, else the
-/// image's `HEALTHCHECK`. `None` when neither exists.
-fn health_command(images: &ImageStore, c: &Container) -> Option<String> {
+/// How a resolved probe runs, keeping the exec-vs-shell form the image declared.
+/// The distinction is the whole point of the distroless work (review 2026-11-04):
+/// an [`Exec`](ProbeKind::Exec) probe runs with NO `/bin/sh`, so an image that
+/// ships none can still be health-checked.
+enum ProbeKind {
+    /// A shell command line — the container's `--health-cmd`, a compose
+    /// `CMD-SHELL`, or an image `HEALTHCHECK <script>`. Run through the
+    /// `/bin/sh -c` self-killing deadline script ([`health_probe_argv`]).
+    Shell(String),
+    /// An exec-form argv (OCI `HEALTHCHECK ["CMD", prog, …]`). Run directly, with
+    /// the deadline enforced by the supervisor — no shell in the image needed.
+    Exec(Vec<String>),
+    /// A native HTTP/TCP probe (`--health-http`/`--health-tcp`) the ENGINE runs
+    /// inside the container's netns — no shell AND no tools in the image needed.
+    Net(delonix_compute::NetProbe),
+}
+
+/// The health probe for a container: its own `--health-cmd` (always a shell
+/// command line), else the image's `HEALTHCHECK` — PRESERVING the exec-vs-shell
+/// form the image declared. `None` when neither exists.
+fn health_probe(images: &ImageStore, c: &Container) -> Option<ProbeKind> {
     // `--no-healthcheck`: the image's HEALTHCHECK is disabled for this
     // container, so there is no probe anywhere — the monitor loop stops and
     // `container healthcheck` reports "no probe".
@@ -8144,8 +8249,13 @@ fn health_command(images: &ImageStore, c: &Container) -> Option<String> {
         return None;
     }
     if let Some(h) = &c.health {
+        // A native HTTP/TCP probe is engine-run and needs nothing in the image —
+        // it wins over the image's `HEALTHCHECK` when the operator asked for it.
+        if let Some(net) = &h.net {
+            return Some(ProbeKind::Net(net.clone()));
+        }
         if !h.cmd.is_empty() {
-            return Some(h.cmd.clone());
+            return Some(ProbeKind::Shell(h.cmd.clone()));
         }
     }
     // Resolved from the image EVERY time rather than frozen at create: a
@@ -8153,11 +8263,37 @@ fn health_command(images: &ImageStore, c: &Container) -> Option<String> {
     // resolution `--wait` and compose's `service_healthy` use.
     let argv = super::compose::image_health_argv(images, &c.image)?;
     // `image_health_argv` already returns `["/bin/sh","-c",<script>]` for the
-    // shell form; anything else is an exec-form vector we re-join.
+    // shell form; anything else is the exec-form vector, kept verbatim.
     if argv.len() == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
-        Some(argv[2].clone())
+        Some(ProbeKind::Shell(argv[2].clone()))
     } else {
-        Some(argv.join(" "))
+        Some(ProbeKind::Exec(argv))
+    }
+}
+
+/// Runs a resolved probe once and returns its exit code, enforcing `timeout_secs`
+/// either way. The shell form carries the deadline INSIDE its `/bin/sh -c` script
+/// (it may fork — see [`health_probe_argv`]); the exec form hands the deadline to
+/// the supervisor, which kills and reaps the single probe process directly — no
+/// `/bin/sh` required, so a distroless image is health-checkable. A probe that
+/// cannot be spawned at all comes back as -1 (treated as a failure).
+fn run_probe(c: &Container, probe: &ProbeKind, timeout_secs: u64) -> i32 {
+    match probe {
+        ProbeKind::Shell(cmd) => {
+            let argv = health_probe_argv(cmd, timeout_secs);
+            runtime::exec(c, &argv, false).unwrap_or(-1)
+        }
+        ProbeKind::Exec(argv) => {
+            let overrides = runtime::ExecOverrides {
+                timeout_secs: Some(timeout_secs),
+                ..Default::default()
+            };
+            runtime::exec_with(c, argv, false, &overrides).unwrap_or(-1)
+        }
+        ProbeKind::Net(net) => {
+            runtime::health_probe_net(c, net.port, net.http_path.as_deref(), timeout_secs)
+                .unwrap_or(-1)
+        }
     }
 }
 
@@ -8396,14 +8532,13 @@ fn health_monitor_loop(id: String, cfg: HealthConfig) {
         if !c.is_live() {
             continue;
         }
-        let Some(cmd) = health_command(&images, &c) else {
+        let Some(probe) = health_probe(&images, &c) else {
             // Asked to monitor something with no probe anywhere. Saying so once
             // and stopping beats an empty column nobody can explain.
             eprintln!("delonix: no health probe for '{}' — monitoring off", c.name);
             return;
         };
-        let argv = health_probe_argv(&cmd, cfg.timeout_secs);
-        let exit = runtime::exec(&c, &argv, false).unwrap_or(-1);
+        let exit = run_probe(&c, &probe, cfg.timeout_secs);
         let age = c
             .pid_starttime
             .and_then(output::uptime_from_starttime)
@@ -10118,7 +10253,10 @@ containers:
 
     // ---- health check contínuo ----
 
-    use super::{apply_probe, fmt_status_of, health_opts, health_probe_argv};
+    use super::{
+        apply_probe, fmt_status_of, health_opts, health_probe_argv, parse_health_net,
+        parse_http_spec,
+    };
     use delonix_compute::{Health, HealthConfig, HealthState};
 
     fn hc(retries: u32, start_period: u64) -> HealthConfig {
@@ -10136,6 +10274,7 @@ containers:
         // não passa a custar um processo por intervalo só por existir.
         assert!(health_opts(
             None,
+            None,
             d.interval_secs,
             d.timeout_secs,
             d.retries,
@@ -10144,17 +10283,66 @@ containers:
         .is_none());
         // Um --health-interval sozinho basta para ligar sobre o HEALTHCHECK da
         // imagem, sem obrigar a repetir o comando.
-        let on = health_opts(None, 5, d.timeout_secs, d.retries, d.start_period_secs).unwrap();
+        let on = health_opts(
+            None,
+            None,
+            5,
+            d.timeout_secs,
+            d.retries,
+            d.start_period_secs,
+        )
+        .unwrap();
         assert_eq!(on.interval_secs, 5);
         assert!(on.cmd.is_empty());
+        // A native probe on its own also turns the monitor on.
+        let net = health_opts(
+            None,
+            Some(delonix_compute::NetProbe {
+                port: 8080,
+                http_path: Some("/healthz".into()),
+            }),
+            d.interval_secs,
+            d.timeout_secs,
+            d.retries,
+            d.start_period_secs,
+        )
+        .unwrap();
+        assert_eq!(net.net.as_ref().map(|n| n.port), Some(8080));
     }
 
     #[test]
     fn health_opts_nunca_aceita_zero() {
         // Um intervalo de 0 seria um ciclo apertado a correr um processo dentro
         // do container para sempre — o clap aceita o número, nós não.
-        let o = health_opts(Some("true".into()), 0, 0, 0, 0).unwrap();
+        let o = health_opts(Some("true".into()), None, 0, 0, 0, 0).unwrap();
         assert_eq!((o.interval_secs, o.timeout_secs, o.retries), (1, 1, 1));
+    }
+
+    #[test]
+    fn health_net_parse_e_conflitos() {
+        // `[:]PORT[/path]` with and without sugar/path.
+        assert_eq!(parse_http_spec("8080").unwrap(), (8080, "/".to_string()));
+        assert_eq!(
+            parse_http_spec(":8080/healthz").unwrap(),
+            (8080, "/healthz".to_string())
+        );
+        assert_eq!(
+            parse_http_spec("9090/livez").unwrap(),
+            (9090, "/livez".to_string())
+        );
+        assert!(parse_http_spec("0/x").is_err(), "porta 0 é inválida");
+        assert!(parse_http_spec("abc").is_err());
+
+        // Plain TCP: no path.
+        let tcp = parse_health_net(None, Some(5432), false).unwrap().unwrap();
+        assert_eq!((tcp.port, tcp.http_path), (5432, None));
+
+        // HTTP and TCP together, or either with --health-cmd: refused.
+        assert!(parse_health_net(Some(":80/"), Some(80), false).is_err());
+        assert!(parse_health_net(Some(":80/"), None, true).is_err());
+        assert!(parse_health_net(None, Some(80), true).is_err());
+        // Neither: no native probe.
+        assert!(parse_health_net(None, None, true).unwrap().is_none());
     }
 
     #[test]

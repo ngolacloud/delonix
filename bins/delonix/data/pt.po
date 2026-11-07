@@ -4050,6 +4050,12 @@ msgstr "Falhas seguidas antes de o container ficar `unhealthy`."
 msgid "Grace at startup: failures inside this window do not count, and the container reads `starting` rather than `unhealthy`."
 msgstr "Tolerância no arranque: falhas dentro desta janela não contam, e o container lê-se `starting` em vez de `unhealthy`."
 
+msgid "Native HTTP probe the engine runs in the container's netns — no shell or tools in the image needed. `[:]PORT[/path]`, path defaults to `/`; healthy on a 2xx/3xx. Excludes `--health-cmd`/`--health-tcp`"
+msgstr "Sonda HTTP nativa que o motor corre na netns do container — não precisa de shell nem ferramentas na imagem. `[:]PORTA[/caminho]`, o caminho é `/` por omissão; saudável com 2xx/3xx. Exclui `--health-cmd`/`--health-tcp`"
+
+msgid "Native TCP probe the engine runs in the container's netns — healthy if a connection to the container's own `127.0.0.1:PORT` is accepted. Excludes `--health-cmd`/`--health-http`"
+msgstr "Sonda TCP nativa que o motor corre na netns do container — saudável se uma ligação ao próprio `127.0.0.1:PORTA` do container for aceite. Exclui `--health-cmd`/`--health-http`"
+
 msgid "DNS server for the container's `/etc/resolv.conf`. Repeatable. Overrides the resolver the engine would pick (network gateway, slirp, or the host's copy)."
 msgstr "Servidor DNS para o `/etc/resolv.conf` do container. Repetível. Substitui o resolvedor que o motor escolheria (gateway da rede, slirp, ou a cópia do host)."
 
@@ -6530,8 +6536,8 @@ msgstr "tudo o que está registado sobre uma imagem dourada, ao estilo do `kubec
 msgid "two at once, to compare the bases before choosing one to build on"
 msgstr "duas de uma vez, para comparar as bases antes de escolher uma para construir por cima"
 
-msgid "the official Kubernetes golden (`ghcr.io/angolardevops/delonix-vm-k8s`) — no argument needed"
-msgstr "a dourada oficial de Kubernetes (`ghcr.io/angolardevops/delonix-vm-k8s`) — não é preciso argumento"
+msgid "the official Kubernetes golden (`ghcr.io/ngolacloud/delonix-vm-k8s`) — no argument needed"
+msgstr "a dourada oficial de Kubernetes (`ghcr.io/ngolacloud/delonix-vm-k8s`) — não é preciso argumento"
 
 msgid "the Kubernetes-free golden instead: the same base with `delonix` on board and rootless already set up"
 msgstr "em vez dela, a dourada sem Kubernetes: a mesma base com o `delonix` a bordo e o rootless já configurado"
@@ -14279,6 +14285,18 @@ msgstr "o perfil '{other}' é desconhecido — custom, rootless ou k8s"
 msgid "`k8s:` and `node_exporter:` belong to `profile: rootless|k8s`"
 msgstr "`k8s:` e `node_exporter:` pertencem a `profile: rootless|k8s`"
 
+msgid "baseline '{b}' unknown — cloud-v1"
+msgstr "a baseline '{b}' é desconhecida — cloud-v1"
+
+msgid "`baseline:` applies to a custom distro image, not profile '{profile}'"
+msgstr "`baseline:` aplica-se a uma imagem de distro custom, não ao perfil '{profile}'"
+
+msgid "`baseline:` needs an apt base — set `distro: debian|ubuntu` or `package_manager: apt`"
+msgstr "`baseline:` precisa de uma base apt — defina `distro: debian|ubuntu` ou `package_manager: apt`"
+
+msgid "`baseline: cloud-v1` is apt-only today (debian/ubuntu)"
+msgstr "`baseline: cloud-v1` só suporta apt por agora (debian/ubuntu)"
+
 msgid "distro '{d}' unknown — ubuntu, debian, rocky or fedora"
 msgstr "a distro '{d}' é desconhecida — ubuntu, debian, rocky ou fedora"
 
@@ -14414,6 +14432,24 @@ msgstr "Só os recursos desta stack (por omissão: todas as stacks deste nó)"
 
 msgid "Exit 2 when there IS drift (0 = none, 1 = error) — the `terraform plan -detailed-exitcode` contract, for a CI drift gate"
 msgstr "Sai com 2 quando HÁ deriva (0 = nenhuma, 1 = erro) — o contrato do `terraform plan -detailed-exitcode`, para um portão de deriva em CI"
+
+msgid "Re-apply the manifest to reconcile the drift away, instead of only reporting it (needs a manifest)."
+msgstr "Re-aplica o manifesto para reconciliar a deriva, em vez de só a reportar (precisa de um manifesto)."
+
+msgid "Rewrite the file in place instead of printing the converted manifest."
+msgstr "Reescreve o ficheiro no lugar em vez de imprimir o manifesto convertido."
+
+msgid "rewrite an old manifest to the catalog-v1 apiVersions (ADR-0086)"
+msgstr "reescreve um manifesto antigo para as apiVersions do catálogo v1 (ADR-0086)"
+
+msgid "rewrite the file in place instead of printing it"
+msgstr "reescreve o ficheiro no lugar em vez de o imprimir"
+
+msgid "Rewrite an old manifest to the catalog-v1 apiVersions (ADR-0086)"
+msgstr "Reescreve um manifesto antigo para as apiVersions do catálogo v1 (ADR-0086)"
+
+msgid "Rewrite an old manifest to the catalog-v1 apiVersions (ADR-0086).\n\nThe nine `v1alpha1` groups fold into the six the catalog is born with at `v1beta1` (`security`→`policy`, `artifact`/`gitops`→`core`, `gateway`→`networking`, `infrastructure`→`cluster`). Only the `apiVersion` lines change — the specs are unchanged in this phase, and every comment and byte of layout is preserved. The old groups still load with a warning; this is how the warning is made to stop. Prints the result by default; `--write` rewrites the file in place."
+msgstr "Reescreve um manifesto antigo para as apiVersions do catálogo v1 (ADR-0086).\n\nOs nove grupos `v1alpha1` fundem-se nos seis com que o catálogo nasce em `v1beta1` (`security`→`policy`, `artifact`/`gitops`→`core`, `gateway`→`networking`, `infrastructure`→`cluster`). Só as linhas `apiVersion` mudam — os specs ficam inalterados nesta fase, e cada comentário e byte do layout é preservado. Os grupos antigos ainda carregam com um aviso; é assim que o aviso pára. Imprime o resultado por omissão; `--write` reescreve o ficheiro no lugar."
 
 msgid "what the machine changed since the last apply, every stack"
 msgstr "o que a máquina mudou desde o último apply, em todas as stacks"
@@ -15222,6 +15258,12 @@ msgstr "Move uma VM para outro nó do seu cluster — a mesma VM, o mesmo regist
 
 msgid "The node of the VM's cluster to move it to"
 msgstr "O nó do cluster da VM para onde a mover"
+
+msgid "Move a STOPPED VM to another isolation namespace instead of another node: its disk is kept, its network identity (MAC/tap/seed) is reborn in the new namespace. Mutually exclusive with `--node`."
+msgstr "Move uma VM PARADA para outra namespace de isolamento em vez de outro nó: o disco é mantido, a identidade de rede (MAC/tap/seed) renasce na nova namespace. Mutuamente exclusivo com `--node`."
+
+msgid "vm/{name} moved to namespace '{ns}' — start it to boot under the new identity"
+msgstr "vm/{name} movida para a namespace '{ns}' — arranca-a para iniciar sob a nova identidade"
 
 msgid "Move the VM while it runs (online migration)"
 msgstr "Move a VM enquanto corre (migração a quente)"
@@ -16131,6 +16173,9 @@ msgstr "Tamanho pedido ao pool (ex.: `10g`) — só com `--pool`"
 # ---- ADR-0069 items 3-4: plan digest for every Kind, provider-aware VM plan ----
 msgid "Apply only if this is still the plan: the `planDigest` of each change from `stack plan -o json` (repeatable). A change whose digest, recomputed now, is not among them is a stale plan — refused before anything is written."
 msgstr "Aplica só se o plano ainda for este: o `planDigest` de cada mudança do `stack plan -o json` (repetível). Uma mudança cujo digest, recalculado agora, não esteja entre eles é um plano obsoleto — recusada antes de se escrever seja o que for."
+
+msgid "Apply a saved plan from `stack plan -o json`: its change digests gate the apply exactly as `--plan-digest` (ADR-0088 A5). `-f` stays the input."
+msgstr "Aplica um plano guardado do `stack plan -o json`: os digests das suas mudanças validam o apply exactamente como `--plan-digest` (ADR-0088 A5). O `-f` continua a ser a entrada."
 
 msgid "--plan-digest was given, and the manifest has nothing to check it against"
 msgstr "--plan-digest foi dado, e o manifesto não tem nada contra que o verificar"

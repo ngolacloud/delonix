@@ -557,6 +557,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                 fields: f,
                 owner: None,
                 last_applied: None,
+                protect: false,
             }
         })
         .collect())

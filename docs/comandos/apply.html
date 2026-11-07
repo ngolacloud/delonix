@@ -423,6 +423,9 @@ Options:
       --plan-digest &lt;DIGEST&gt;
           Apply only if this is still the plan: a `planDigest` from `stack plan -o json` (repeatable, one per network document). A network document whose digest, recomputed now, is not among them is a stale plan — refused before anything is written
 
+      --plan &lt;FILE&gt;
+          Apply a saved plan from `stack plan -o json`: its change digests gate the apply exactly as `--plan-digest` (ADR-0088 A5). `-f` stays the input
+
   -h, --help
           Print help (see a summary with &#x27;-h&#x27;)
 
