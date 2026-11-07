@@ -194,6 +194,9 @@ where
     for name in &o.secret {
         host.check_secret(name)?;
     }
+    for name in &o.config {
+        host.check_config(name)?;
+    }
     let log_path = o
         .log_file
         .clone()
@@ -473,6 +476,10 @@ pub fn build_record(o: &RunOpts, r: ResolvedRun) -> Result<Container> {
     if !o.secret.is_empty() {
         c.secrets = o.secret.clone();
         c.secret_files = o.secret_files;
+    }
+    if !o.config.is_empty() {
+        c.configs = o.config.clone();
+        c.config_files = o.config_files;
     }
     c.log_path = r.log_path;
     c.selinux = o.selinux.clone();
@@ -833,6 +840,12 @@ mod tests {
             match name {
                 "db" => Ok(()),
                 _ => Err(Error::NotFound(format!("secret {name}"))),
+            }
+        }
+        fn check_config(&self, name: &str) -> Result<()> {
+            match name {
+                "tune" => Ok(()),
+                _ => Err(Error::NotFound(format!("config {name}"))),
             }
         }
         fn default_log_path(&self, id: &str) -> String {

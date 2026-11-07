@@ -299,6 +299,9 @@ CLI_DESTINATION = {
     "gitops": "delonix-stack",
     # delonix-security (renamed from delonix-security in R1)
     "secret": "delonix-security", "policy": "delonix-security", "credentials": "delonix-security",
+    # `config_kind` is the `kind: Config` surface — the cleartext sibling of
+    # `secret`, so it extracts to the same context as `secret`.
+    "config_kind": "delonix-security",
     # delonix-node (the context half of the R2 split)
     "boot": "delonix-node", "prune": "delonix-node", "system": "delonix-node", "migrate": "delonix-node",
     # delonix-cli (presentation; `serve` becomes the mode dispatcher, R5)

@@ -39,9 +39,18 @@ pub enum Error {
     #[error("invalid secret name: {0:?}")]
     InvalidSecretName(String),
 
-    /// A secret key that is not a valid environment variable name.
+    /// A secret key that is not a valid environment variable name. Shared with
+    /// the plaintext `ConfigStore`: a config key is an env key too.
     #[error("invalid env key: {0:?}")]
     InvalidEnvKey(String),
+
+    /// No config of that name — the cleartext `kind: Config` sibling of a secret.
+    #[error("config {0}")]
+    NoSuchConfig(String),
+
+    /// A config name outside `[a-z0-9._-]`.
+    #[error("invalid config name: {0:?}")]
+    InvalidConfigName(String),
 
     /// A credential name outside `[a-z0-9._:-]`.
     #[error("invalid credential name: {0}")]
@@ -97,6 +106,11 @@ impl Error {
             Error::NoSuchSecret(_) => 4801,
             Error::InvalidSecretName(_) => 1801,
             Error::InvalidEnvKey(_) => 1802,
+            // A Config is a generic, non-secret resource: it carries the shared
+            // class entries (`4000` not-found, `1000` invalid) rather than a
+            // Security-domain code of its own — it is not a credential.
+            Error::NoSuchConfig(_) => 4000,
+            Error::InvalidConfigName(_) => 1000,
             Error::InvalidCredentialName(_) => 1803,
             Error::CorruptMasterKey(_) => 1804,
             Error::Vault(_) => 1805,
@@ -127,9 +141,10 @@ impl From<Error> for Dx {
     fn from(e: Error) -> Self {
         let number = e.number();
         let class = match e {
-            Error::NoSuchContainer(_) | Error::NoSuchRecord(_) | Error::NoSuchSecret(_) => {
-                Dx::NotFound(e.to_string())
-            }
+            Error::NoSuchContainer(_)
+            | Error::NoSuchRecord(_)
+            | Error::NoSuchSecret(_)
+            | Error::NoSuchConfig(_) => Dx::NotFound(e.to_string()),
             Error::Lock(message) => Dx::Runtime {
                 context: "state lock",
                 message,
@@ -165,6 +180,8 @@ mod tests {
             Error::NoSuchSecret("tok".into()),
             Error::InvalidSecretName("../x".into()),
             Error::InvalidEnvKey("1A".into()),
+            Error::NoSuchConfig("tune".into()),
+            Error::InvalidConfigName("../x".into()),
             Error::InvalidCredentialName("../x".into()),
             Error::CorruptMasterKey("/k".into()),
             Error::Vault("failed to encrypt".into()),

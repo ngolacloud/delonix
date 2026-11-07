@@ -467,6 +467,10 @@ fn hot_fields(kind: &str) -> &'static [&'static str] {
         // `Image`'s ref/digest just above.
         // The apply layer writes a Secret in place; nothing is recreated.
         k::SECRET => &["keys", "fingerprint"],
+        // A Config is the cleartext sibling of a Secret and converges the same
+        // way: its key NAMES and a content fingerprint of its values. The apply
+        // layer writes it in place; nothing is recreated.
+        k::CONFIG => &["keys", "fingerprint"],
         // ADR-0066 D1: the VIP fields rewrite the record and the holder's
         // dataplane; nothing is recreated (a moved VIP says so out loud).
         k::SERVICE => &["matchLabels", "port", "type", "vip", "readiness", "publish"],
