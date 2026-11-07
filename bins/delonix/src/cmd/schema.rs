@@ -57,6 +57,7 @@ const TYPED_KINDS: &[&str] = &[
     k::NETWORK,
     k::VM,
     k::SECRET,
+    k::CONFIG,
     k::IMAGE,
     k::APP,
     k::GATEWAY,
@@ -248,6 +249,11 @@ fn typed_spec_parts(
             generator.subschema_for::<super::secret::SecretSpec>(),
             "SecretSpec",
             super::secret::SECRET_SPEC_FIELDS,
+        ),
+        k::CONFIG => (
+            generator.subschema_for::<super::config_kind::ConfigSpec>(),
+            "ConfigSpec",
+            super::config_kind::CONFIG_SPEC_FIELDS,
         ),
         k::IMAGE => (
             generator.subschema_for::<super::image::ImageSpec>(),

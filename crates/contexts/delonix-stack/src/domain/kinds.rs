@@ -406,6 +406,35 @@ const FACTS: &[KindFacts] = &[
         presence: Presence::Registry,
     },
     KindFacts {
+        // ADR-0086 D3 / ADR-0090: the ConfigMap-shaped sibling of `Secret`, now
+        // LIVE. Same lifecycle as `Secret` — its own apply, converges per
+        // document, read back by `get configs`/`describe config`, removed by
+        // `delete config` — but the data is stored in CLEARTEXT (never through
+        // the cred vault). That cleartext is the whole point against a Secret.
+        // Applied right after `Secret` (both are consumed by the workloads
+        // below) and, like `Secret`, deliberately not ownable/stamped, so no
+        // stack prunes it (ADR-0090: shared content carries no owner).
+        kind: CONFIG,
+        plural: "configs",
+        short: &["cfg"],
+        api_version: "core.delonix.io/v1beta1",
+        // Consumed by a workload, like `Secret` and `Image` beside it.
+        domain: Domain::Artifact,
+        form: Form::Primary,
+        in_stack: true,
+        stack_group: "configs",
+        // Converges per DOCUMENT (`config_kind::desired`), exactly as `Secret`:
+        // one that carries its values (`data`) is compared by a content
+        // fingerprint; one that reads `fromEnv`/`fromEnvFile` stays
+        // ensure-present, and `not_converged_reason` says why.
+        converges: true,
+        teardown: false,
+        // Not namespaced, matching `Secret` beside it (both are node-global
+        // key/value stores keyed by name).
+        namespaced: Namespaced::Never,
+        presence: Presence::Registry,
+    },
+    KindFacts {
         kind: NETWORK,
         plural: "networks",
         short: &["net"],
@@ -866,27 +895,6 @@ const FACTS: &[KindFacts] = &[
         presence: Presence::NotObservable,
     },
     KindFacts {
-        // ADR-0086 D3. RESERVED: the ConfigMap-shaped sibling of `Secret`,
-        // declared at `v1beta1` with no apply yet — non-secret data rides on
-        // `Secret` today. Out of the stack cycle, no group, not observable; the
-        // cleartext store lands in a later phase under ADR-0090.
-        kind: CONFIG,
-        plural: "configs",
-        short: &["cfg"],
-        api_version: "core.delonix.io/v1beta1",
-        // Consumed by a workload, like `Secret` and `Image` beside it.
-        domain: Domain::Artifact,
-        form: Form::Reserved,
-        in_stack: false,
-        stack_group: "",
-        converges: false,
-        teardown: false,
-        // Will be namespaced like `Secret` when it has an apply; `Never` until
-        // then keeps it out of the namespaced-Kinds message (see `IPAddress`).
-        namespaced: Namespaced::Never,
-        presence: Presence::NotObservable,
-    },
-    KindFacts {
         // ADR-0086 D3/D7. RESERVED: this node as a readable resource, declared at
         // `v1beta1` with no apply yet — `NodeService.GetCapacity` already serves
         // the capacity, but the declarative Kind's read-back/labels/taints land
@@ -1029,7 +1037,7 @@ pub fn stack_group_absent_reason(kind: &str) -> Option<&'static str> {
              exist, not a resource of this node, so `stack apply` never runs it — grouping \
              it would promise an apply that does not happen"
         }
-        IP_ADDRESS | SNAPSHOT | CONFIG | NODE => {
+        IP_ADDRESS | SNAPSHOT | NODE => {
             "a Reserved Kind has no apply yet (ADR-0086 D3, built under ADR-0090), so \
              `stack apply` never runs it — grouping it would promise an apply that does \
              not happen"

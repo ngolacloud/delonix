@@ -209,6 +209,13 @@ pub struct RunOpts {
     pub secret: Vec<String>,
     #[serde(default)]
     pub secret_files: bool,
+    /// Referenced configs (`--config`): the cleartext sibling of `secret`.
+    #[serde(default)]
+    pub config: Vec<String>,
+    /// `--config-files`: deliver the configs as files at `/run/config` instead of
+    /// env vars (mirrors `secret_files`).
+    #[serde(default)]
+    pub config_files: bool,
     #[serde(default)]
     pub env_file: Vec<String>,
     #[serde(default)]

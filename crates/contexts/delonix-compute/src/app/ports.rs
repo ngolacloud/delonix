@@ -104,6 +104,9 @@ pub trait RunHost {
     fn ensure_apparmor(&self, profile: &str) -> Result<()>;
     /// Refuses a `--secret` naming a secret that does not exist.
     fn check_secret(&self, name: &str) -> Result<()>;
+    /// Refuses a `--config` naming a config that does not exist (the cleartext
+    /// sibling of [`RunHost::check_secret`]).
+    fn check_config(&self, name: &str) -> Result<()>;
     /// Where a detached container's log goes when `--log-file` is not given.
     fn default_log_path(&self, id: &str) -> String;
 }

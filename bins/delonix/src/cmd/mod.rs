@@ -11,6 +11,7 @@ pub mod complete;
 pub mod compose;
 pub mod conditions;
 pub mod config;
+pub mod config_kind;
 pub mod container;
 pub mod credentials;
 pub mod dash;

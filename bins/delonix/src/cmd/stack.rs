@@ -445,6 +445,7 @@ pub(crate) fn desired_of(
                 k::NETWORK => super::network::desired(doc)?,
                 k::NETWORK_ROUTE => super::netroute::desired(doc)?,
                 k::SECRET => super::secret::desired(doc)?,
+                k::CONFIG => super::config_kind::desired(doc)?,
                 k::SERVICE => super::service::desired(doc)?,
                 k::IPPOOL => super::ippool::desired(doc)?,
                 k::STORAGE_POOL => super::storage_pool::desired(doc)?,
@@ -506,6 +507,7 @@ pub(crate) fn actual_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile:
     out.extend(super::network::actual()?);
     out.extend(super::netroute::actual()?);
     out.extend(super::secret::actual()?);
+    out.extend(super::config_kind::actual()?);
     out.extend(super::service::actual()?);
     out.extend(super::ippool::actual()?);
     out.extend(super::storage_pool::actual()?);
@@ -899,6 +901,7 @@ pub(crate) fn compared_fields_table() -> Vec<(&'static str, &'static [&'static s
         (k::NETWORK, super::network::RECONCILED_NETWORK_FIELDS),
         (k::NETWORK_ROUTE, super::netroute::RECONCILED_ROUTE_FIELDS),
         (k::SECRET, super::secret::RECONCILED_SECRET_FIELDS),
+        (k::CONFIG, super::config_kind::RECONCILED_CONFIG_FIELDS),
         (k::SERVICE, super::service::RECONCILED_SERVICE_FIELDS),
         (k::IPPOOL, super::ippool::RECONCILED_IPPOOL_FIELDS),
         (
@@ -1117,9 +1120,10 @@ fn explain(c: &Change) -> Option<String> {
                 .to_string(),
         ),
         Action::Delete => Some(super::po::t("no longer declared in the manifest").to_string()),
-        // A Secret converges per document, so reaching here means THIS one reads
-        // its values from the environment or a file, which a plan does not.
-        Action::NotConverged if c.kind == k::SECRET => Some(
+        // A Secret (and its cleartext sibling Config) converges per document, so
+        // reaching here means THIS one reads its values from the environment or a
+        // file, which a plan does not.
+        Action::NotConverged if c.kind == k::SECRET || c.kind == k::CONFIG => Some(
             super::po::t(
                 "its values come from fromEnv/fromEnvFile, which a plan does not read — ensured at apply",
             )
@@ -1685,6 +1689,10 @@ fn presence(
         },
         k::SECRET => match delonix_state::SecretStore::open(&root) {
             Ok(s) => yes_no(s.list().iter().any(|sec| sec.name == name)),
+            Err(e) => ("?".into(), delonix_model::Error::from(e).to_string()),
+        },
+        k::CONFIG => match delonix_state::ConfigStore::open(&root) {
+            Ok(s) => yes_no(s.list().iter().any(|cfg| cfg.name == name)),
             Err(e) => ("?".into(), delonix_model::Error::from(e).to_string()),
         },
         // `status` (and not the raw record) so the state comes reconciled with the
@@ -2569,6 +2577,12 @@ const LAYERS: &[Layer] = &[
         kind: k::SECRET,
         icon: "🔑",
     },
+    // Configs right after secrets, for the same reason: `Container.config`
+    // references them, and they are the cleartext sibling of the layer above.
+    Layer {
+        kind: k::CONFIG,
+        icon: "🗂",
+    },
     Layer {
         kind: k::NETWORK,
         icon: "🌐",
@@ -2898,6 +2912,7 @@ fn apply_layer(kind: &str, docs: &[manifest::ManifestDoc], base: &std::path::Pat
     match kind {
         k::RUNTIME_POLICY => super::policy::apply(docs),
         k::SECRET => super::secret::apply(docs, base),
+        k::CONFIG => super::config_kind::apply(docs, base),
         k::NETWORK => super::network::apply(docs),
         k::NETWORK_ROUTE => super::netroute::apply(docs),
         k::NETWORK_ZONE => super::network_zone::apply(docs),
@@ -3036,6 +3051,10 @@ pub(crate) fn no_teardown_reason(kind: &str) -> Option<&'static str> {
         k::SECRET => {
             "a secret has no record of ownership to stamp, so no stack prunes or destroys it; \
              remove one on purpose with `delonix secret rm`"
+        }
+        k::CONFIG => {
+            "a config has no record of ownership to stamp, so no stack prunes or destroys it; \
+             remove one on purpose with `delonix delete config <name>`"
         }
         k::APP => "an App's output is an image — shared content-addressed cache, owned by no stack",
         // A tunnel's record is keyed by a live agent.
@@ -3326,8 +3345,8 @@ fn converge_and_stamp(
                 k::IMAGE => super::image::converge(&c.name, &c.diffs)?,
                 // The Secret layer of this same apply already wrote the new
                 // values (it runs before this step), and it is what reports the
-                // rotation by key name.
-                k::SECRET => {}
+                // rotation by key name. The Config layer does the same.
+                k::SECRET | k::CONFIG => {}
                 // A firewall policy re-applies WHOLE: `apply_fw_doc` already
                 // replaces the entire direction, so there is no per-field path
                 // to write — and writing one would be a second way to build the
@@ -3587,7 +3606,9 @@ fn stamp_all(
             // `Image` is shared content and deliberately not ownable — stamping
             // it for one stack would hand another stack's cache an owner.
             k::IMAGE => Ok(()),
-            k::SECRET => Ok(()),
+            // A Secret and its cleartext sibling Config carry no owner (ADR-0090:
+            // shared content is not stamped), so no stack prunes them.
+            k::SECRET | k::CONFIG => Ok(()),
             // Same reasoning as `Image` — an App's output is shared content,
             // stamping it for one stack would hand another stack's cache an
             // owner.
@@ -4003,6 +4024,11 @@ pub(crate) fn validate_graph(docs: &[manifest::ManifestDoc]) -> Vec<String> {
     let existing_secrets: Vec<String> = delonix_state::SecretStore::open(&root)
         .map(|s| s.list().into_iter().map(|sec| sec.name).collect())
         .unwrap_or_default();
+    let existing_configs: Vec<String> = delonix_state::ConfigStore::open_existing(&root)
+        .ok()
+        .flatten()
+        .map(|c| c.list().into_iter().map(|cfg| cfg.name).collect())
+        .unwrap_or_default();
 
     validate_graph_full(
         docs,
@@ -4010,6 +4036,7 @@ pub(crate) fn validate_graph(docs: &[manifest::ManifestDoc]) -> Vec<String> {
         &existing_volumes,
         &existing_containers,
         &existing_secrets,
+        &existing_configs,
         &super::system_container::registered_names(),
     )
 }
@@ -4053,6 +4080,7 @@ fn validate_graph_with(
         existing_containers,
         existing_secrets,
         &[],
+        &[],
     )
 }
 
@@ -4064,6 +4092,7 @@ fn validate_graph_full(
     existing_volumes: &[String],
     existing_containers: &[String],
     existing_secrets: &[String],
+    existing_configs: &[String],
     existing_system_containers: &[String],
 ) -> Vec<String> {
     use std::collections::HashSet;
@@ -4099,12 +4128,14 @@ fn validate_graph_full(
     let plain_containers = declared(&[k::CONTAINER]);
     let declared_vms = declared(&[k::VM]);
     let mut secrets = declared(&[k::SECRET]);
+    let mut configs = declared(&[k::CONFIG]);
     let mut system_containers = declared(&[k::SYSTEM_CONTAINER]);
     system_containers.extend(existing_system_containers.iter().cloned());
     networks.extend(existing_networks.iter().cloned());
     volumes.extend(existing_volumes.iter().cloned());
     containers.extend(existing_containers.iter().cloned());
     secrets.extend(existing_secrets.iter().cloned());
+    configs.extend(existing_configs.iter().cloned());
 
     // Known keys of each Secret DECLARED inline (stringData). `None` = the
     // keys are not knowable at validation time (it uses `fromEnvFile`, whose file
@@ -4252,6 +4283,20 @@ fn validate_graph_full(
                             issues.push(super::po::tf(
                                 "{kind} '{name}' → secret '{sref}' is not a declared or existing Secret",
                                 &[("kind", &doc.kind), ("name", name), ("sref", sref)],
+                            ));
+                        }
+                    }
+                }
+                // `Container.config: [names]` — each one must be a Config (the
+                // cleartext sibling). Keeps the example self-contained: a
+                // reference to an undeclared Config fails validate, just as a
+                // secret does.
+                if let Some(seq) = doc.spec.get("config").and_then(|v| v.as_sequence()) {
+                    for cref in seq.iter().filter_map(|v| v.as_str()) {
+                        if !configs.contains(cref) {
+                            issues.push(super::po::tf(
+                                "{kind} '{name}' → config '{cref}' is not a declared or existing Config",
+                                &[("kind", &doc.kind), ("name", name), ("cref", cref)],
                             ));
                         }
                     }
@@ -5375,10 +5420,10 @@ kind: NetworkPolicy
 metadata: {name: p2}
 spec: {target: other, direction: ingress, scope: systemcontainer}
 "#;
-        let issues = validate_graph_full(&docs(yaml), &[], &[], &["other".into()], &[], &[]);
+        let issues = validate_graph_full(&docs(yaml), &[], &[], &["other".into()], &[], &[], &[]);
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(issues[0].contains("'other'"), "{issues:?}");
-        let issues = validate_graph_full(&docs(yaml), &[], &[], &[], &[], &["other".into()]);
+        let issues = validate_graph_full(&docs(yaml), &[], &[], &[], &[], &[], &["other".into()]);
         assert!(issues.is_empty(), "{issues:?}");
     }
 
@@ -5874,6 +5919,7 @@ spec: {}
         vec![
             k::RUNTIME_POLICY,
             k::SECRET,
+            k::CONFIG,
             k::NETWORK,
             k::NETWORK_ROUTE,
             k::NETWORK_ZONE,
