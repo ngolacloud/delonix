@@ -36,6 +36,7 @@ pub mod httproute;
 pub mod image;
 pub mod ingress_proxy;
 pub mod init;
+pub mod ipaddress;
 pub mod ippool;
 pub mod job;
 pub mod k8s_recipes;

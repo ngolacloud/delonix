@@ -530,6 +530,9 @@ fn hot_fields(kind: &str) -> &'static [&'static str] {
         ],
         // `ippool::apply_one` overwrites the definition and keeps the leases.
         k::IPPOOL => &["addresses", "announce", "interface"],
+        // `ipaddress::apply_one` re-reserves and rewrites the record in place: a
+        // changed `address`/`pool`/`owner` converges without a recreate.
+        k::IP_ADDRESS => &["address", "pool", "owner"],
         // The use of a pool is two numbers in a record; the pool itself is
         // never recreated by the engine.
         k::STORAGE_POOL => &["maxRatio", "alertPct"],
