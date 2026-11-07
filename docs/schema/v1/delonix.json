@@ -287,6 +287,40 @@
       },
       "type": "object"
     },
+    "ConfigSpec": {
+      "additionalProperties": false,
+      "description": "`spec` of `kind: Config` — a bag of key/value pairs in CLEARTEXT, consumed by\n`Container.config` (env/files). The ConfigMap shape: the inline field is\n`data` (not `stringData`), because the values are not secret.",
+      "properties": {
+        "data": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Inline `KEY: value` pairs — the ConfigMap `data`. In cleartext in the\nmanifest, which is fine: a Config is non-secret by definition (that is the\ndifference from a `Secret`'s `stringData`, which warns).",
+          "type": "object"
+        },
+        "fromEnv": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FromEnv"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Keys read from the PROCESS's environment at apply time — the same two\nshapes a Secret's `fromEnv` accepts (a list of names, or a `key: VAR`\nmapping)."
+        },
+        "fromEnvFile": {
+          "default": null,
+          "description": "Path to a `KEY=value` file (e.g. `.env`) — keeps the values out of the\nmanifest. Applied BEFORE `data` (inline overrides the file). Same shape as\na Secret's `fromEnvFile`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ContainerSpec": {
       "additionalProperties": false,
       "properties": {
@@ -336,6 +370,17 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "config": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "configFiles": {
+          "default": false,
+          "type": "boolean"
         },
         "cpuWeight": {
           "default": null,
@@ -3353,6 +3398,39 @@
           },
           "type": "array"
         },
+        "configs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "annotations": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "labels": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "name": {
+                "type": "string"
+              },
+              "namespace": {
+                "type": "string"
+              },
+              "spec": {
+                "$ref": "#/$defs/ConfigSpec"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
         "containers": {
           "items": {
             "additionalProperties": false,
@@ -5613,6 +5691,31 @@
           },
           "spec": {
             "$ref": "#/$defs/SecretSpec"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Config"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "apiVersion": {
+            "enum": [
+              "core.delonix.io/v1beta1",
+              "delonix.io/v1"
+            ]
+          },
+          "spec": {
+            "$ref": "#/$defs/ConfigSpec"
           }
         }
       }

@@ -181,7 +181,7 @@ impl FromEnv {
     ///
     /// Both sides go through [`env_var_name`], so a leading `$` never reaches
     /// either the reader or the renderer.
-    fn pairs(&self) -> Vec<(String, String)> {
+    pub(crate) fn pairs(&self) -> Vec<(String, String)> {
         match self {
             FromEnv::Names(v) => v
                 .iter()
@@ -229,7 +229,7 @@ fn env_var_name(s: &str) -> String {
 /// whatever consumes it fails later with an authentication error that names
 /// nothing. All the missing names are reported at once, so a broken pipeline is
 /// fixed in one pass instead of one variable per run.
-fn read_env_keys(name: &str, from: &FromEnv) -> Result<BTreeMap<String, String>> {
+pub(crate) fn read_env_keys(name: &str, from: &FromEnv) -> Result<BTreeMap<String, String>> {
     let mut out = BTreeMap::new();
     let mut missing = Vec::new();
     for (key, var) in from.pairs() {
@@ -382,7 +382,7 @@ pub fn spec_with_defaults(doc: &ManifestDoc) -> Result<serde_yaml::Value> {
 /// (the CWD for the `secret create` CLI; the MANIFEST folder for `kind: Secret` —
 /// otherwise a `fromEnvFile: ./app.env` would look in the CWD of whoever runs the
 /// command, not next to the manifest). Shared by `create` and `apply`.
-fn load_env_file(base: &Path, f: &Path) -> Result<BTreeMap<String, String>> {
+pub(crate) fn load_env_file(base: &Path, f: &Path) -> Result<BTreeMap<String, String>> {
     // BUG FOUND (code review, live testing): the docs' own flagship example
     // — "secret value via stdin, never in argv" — was `printf 's3nha' |
     // delonix secret create db-pass`, but there was NO way to actually get a

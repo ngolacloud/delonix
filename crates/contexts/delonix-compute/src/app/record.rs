@@ -448,6 +448,17 @@ pub struct Container {
     /// `environ`/`inspect`, nor on the host or container fs. [[Secret Manager]]
     #[serde(default)]
     pub secret_files: bool,
+    /// Referenced configs (`--config <name>`): the cleartext sibling of
+    /// `secrets`. Resolved to env at startup from the `ConfigStore`. The NAMES are
+    /// stored (not the values), to re-resolve fresh at each start.
+    #[serde(default)]
+    pub configs: Vec<String>,
+    /// `true` → injects the configs as **files** into a tmpfs at `/run/config`
+    /// inside the container namespace (`--config-files`), instead of environment
+    /// variables. The mirror of `secret_files`; a config is cleartext, so this is
+    /// a delivery choice, not a confidentiality one.
+    #[serde(default)]
+    pub config_files: bool,
     /// Process working directory (Docker/OCI `WorkingDir` of the image, or `-w`).
     /// The runtime does `chdir` to here before the `exec`. Empty/None = `/`. Without this,
     /// entrypoints that operate on the CWD (redis/postgres `chown -R`) run from `/`.
@@ -924,6 +935,8 @@ impl Container {
             env: Vec::new(),
             secrets: Vec::new(),
             secret_files: false,
+            configs: Vec::new(),
+            config_files: false,
             workdir: None,
             read_only: false,
             privileged: false,
