@@ -19,4 +19,13 @@ spec:
   containers:
     - name: web
       image: nginx:1.27-alpine
-  network: shop-net                 # the pod netns' shared network
+  network: shop-net                 # the pod netns' shared network (declared below)
+---
+# The network the instances share. Declared here so the example is
+# self-contained — `stack validate` resolves the `network:` reference above.
+apiVersion: networking.delonix.io/v1beta1
+kind: Network
+metadata:
+  name: shop-net
+spec:
+  driver: bridge
