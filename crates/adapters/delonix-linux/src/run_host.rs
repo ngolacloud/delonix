@@ -65,6 +65,11 @@ impl delonix_compute::ports::RunHost for HostRuntime<'_> {
         Ok(())
     }
 
+    fn check_config(&self, name: &str) -> delonix_model::Result<()> {
+        delonix_state::ConfigStore::open(&self.state_root)?.load(name)?;
+        Ok(())
+    }
+
     fn default_log_path(&self, id: &str) -> String {
         self.state_root
             .join("containers")

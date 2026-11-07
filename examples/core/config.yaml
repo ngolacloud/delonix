@@ -1,0 +1,76 @@
+# ============================================================================
+# kind: Config — saco de pares CHAVE=valor em CLARO, irmão do Secret (ADR-0086 D3 / ADR-0090)
+# kind: Config — a bag of KEY=value pairs in CLEARTEXT, the Secret's sibling (ADR-0086 D3 / ADR-0090)
+#
+# PT: Um Config é a forma ConfigMap do motor: guarda dados NÃO secretos (níveis
+#     de log, flags de funcionalidade, URLs) em CLARO em disco
+#     (`<root>/configs/<nome>.json`, 0644) — nunca cifrado. É o que o separa de
+#     um Secret. É consumido por `Container.config` (como env ou ficheiros em
+#     /run/config/<chave>), exactamente como `Container.secret`.
+# EN: A Config is the engine's ConfigMap form: it holds NON-secret data (log
+#     levels, feature flags, URLs) in CLEARTEXT on disk
+#     (`<root>/configs/<name>.json`, 0644) — never encrypted. That is what
+#     separates it from a Secret. It is consumed by `Container.config` (as env or
+#     /run/config/<key> files), exactly like `Container.secret`.
+#
+# PT: DECLARATIVO — não há verbo `delonix config` (o motor já usa esse nome para
+#     a preferência local). Aplica-se com `stack apply -f` e lê-se/remove-se pelos
+#     verbos genéricos: `delonix get configs`, `delonix describe config <nome>`,
+#     `delonix delete config <nome>`.
+# EN: DECLARATIVE — there is no `delonix config` verb (the engine already uses that
+#     name for the local preference). Apply it with `stack apply -f` and
+#     read/remove it through the generic verbs: `delonix get configs`,
+#     `delonix describe config <name>`, `delonix delete config <name>`.
+#
+# PT: Fontes — `data` (inline, em claro, SEM aviso), `fromEnvFile`, `fromEnv` —
+#     combináveis num só documento, com a mesma precedência do Secret.
+# EN: Sources — `data` (inline, cleartext, NO warning), `fromEnvFile`, `fromEnv` —
+#     combinable in one document, with the same precedence as a Secret.
+#
+# PT: Aplicar:  delonix stack apply -f examples/core/config.yaml
+# EN: Apply:    delonix stack apply -f examples/core/config.yaml
+#   PT: Os Configs são aplicados ANTES do que os referencia (logo a seguir aos Secrets).
+#   EN: Configs are applied BEFORE whatever references them (right after Secrets).
+# ============================================================================
+
+# ── 1. data — inline, em claro (é o objectivo de um Config) ──────────────────
+#      data — inline, cleartext (that is the point of a Config)
+---
+apiVersion: core.delonix.io/v1beta1
+kind: Config
+metadata:
+  name: app-tuning
+  labels:
+    app: demo
+spec:
+  data:
+    LOG_LEVEL: debug              # PT: injectado como env no container | EN: injected as env into the container
+    FEATURE_FLAGS: "beta,metrics" # PT: valor em claro, visível em `describe config` | EN: cleartext value, shown by `describe config`
+
+# ── 2. fromEnvFile — carregar linhas KEY=value de um ficheiro ────────────────
+#      fromEnvFile — load KEY=value lines from a file
+---
+apiVersion: core.delonix.io/v1beta1
+kind: Config
+metadata:
+  name: app-settings
+spec:
+  fromEnvFile: ./config-source.env   # PT: resolvido contra a pasta do manifesto | EN: resolved against the manifest's folder
+
+# ── 3. Um Container que CONSOME o config (env), exactamente como um Secret ────
+#      A Container that CONSUMES the config (env), exactly like a Secret
+# PT: `config: [app-tuning]` resolve as chaves do Config para variáveis de
+#     ambiente no arranque. Com `configFiles: true` iriam para /run/config/<chave>.
+# EN: `config: [app-tuning]` resolves the Config's keys to environment variables
+#     at startup. With `configFiles: true` they would go to /run/config/<key>.
+---
+apiVersion: compute.delonix.io/v1beta1
+kind: Container
+metadata:
+  name: demo-app
+spec:
+  image: busybox:latest
+  command: ["sh", "-c", "echo LOG_LEVEL=$LOG_LEVEL FEATURE_FLAGS=$FEATURE_FLAGS; sleep 3600"]
+  config:                         # PT: nomes de Config, injectados como env | EN: Config names, injected as env
+    - app-tuning
+  configFiles: false              # PT: true => configs em /run/config/<chave> em vez de env | EN: true => configs as /run/config/<key> instead of env

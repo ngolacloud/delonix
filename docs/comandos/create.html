@@ -605,6 +605,12 @@ Options:
       --secret-files
           The `--secret`s come in as files in `/run/secrets/` (tmpfs), not env
 
+      --config &lt;CONFIG&gt;
+          Inject a config from the store (`name`), as an environment variable. The cleartext sibling of `--secret`. Repeatable. With `--config-files`, it goes to `/run/config/&lt;key&gt;`
+
+      --config-files
+          The `--config`s come in as files in `/run/config/` (tmpfs), not env
+
       --env-file &lt;ENV_FILE&gt;
           Load variables from a `.env` file (`KEY=VAL` per line). Repeatable
 
