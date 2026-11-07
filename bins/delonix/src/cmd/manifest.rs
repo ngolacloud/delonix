@@ -96,6 +96,8 @@ fn filled_spec(doc: &ManifestDoc) -> Result<serde_yaml::Value> {
         // one with no `--dry-run` — the one place you most want to check what
         // was read before applying was the one place you could not.
         k::SECRET => cmd::secret::spec_with_defaults(doc),
+        // A Config round-trips too, and its values ARE shown (cleartext).
+        k::CONFIG => cmd::config_kind::spec_with_defaults(doc),
         k::IMAGE => cmd::image::spec_with_defaults(doc),
         k::APP => cmd::app::spec_with_defaults(doc),
         k::VM => cmd::vm::spec_with_defaults(doc),
@@ -521,6 +523,7 @@ pub(crate) fn spec_fields_for(kind: &str) -> Option<&'static [&'static str]> {
         k::NETWORK => Some(crate::cmd::network::NETWORK_SPEC_FIELDS),
         k::IMAGE => Some(crate::cmd::image::IMAGE_SPEC_FIELDS),
         k::SECRET => Some(crate::cmd::secret::SECRET_SPEC_FIELDS),
+        k::CONFIG => Some(crate::cmd::config_kind::CONFIG_SPEC_FIELDS),
         k::APP => Some(crate::cmd::app::APP_SPEC_FIELDS),
         k::INGRESS => Some(crate::cmd::httproute::INGRESS_SPEC_FIELDS),
         k::FIREWALL_POLICY => Some(crate::cmd::firewall::FW_SPEC_FIELDS),
@@ -2170,6 +2173,7 @@ spec: { image: nginx }
         Some(match group {
             "runtimePolicies" => ("{ denyPrivileged: true }", "RuntimePolicy"),
             "secrets" => ("{ stringData: { K: v } }", "Secret"),
+            "configs" => ("{ data: { K: v } }", "Config"),
             "networks" => ("{ driver: bridge }", "Network"),
             "networkRoutes" => ("{ from: a, to: b }", "NetworkRoute"),
             "networkZones" => ("{ vnets: [{ name: prod }] }", "NetworkZone"),

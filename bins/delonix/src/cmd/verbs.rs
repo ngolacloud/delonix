@@ -31,6 +31,7 @@ pub(crate) const GET_ROUTES: &[&str] = &[
     kinds::NETWORK,
     kinds::VOLUME,
     kinds::SECRET,
+    kinds::CONFIG,
     kinds::VM,
     kinds::IMAGE,
     kinds::CLUSTER,
@@ -68,6 +69,7 @@ pub(crate) const DESCRIBE_ROUTES: &[&str] = &[
     kinds::IMAGE,
     kinds::GATEWAY,
     kinds::SECRET,
+    kinds::CONFIG,
     kinds::NETWORK_ROUTE,
     kinds::FIREWALL_POLICY,
     kinds::SERVICE,
@@ -85,6 +87,7 @@ pub(crate) const DELETE_ROUTES: &[&str] = &[
     kinds::VOLUME,
     kinds::VM,
     kinds::SECRET,
+    kinds::CONFIG,
     kinds::IMAGE,
     kinds::CLUSTER,
     kinds::GATEWAY,
@@ -330,6 +333,9 @@ pub(crate) fn get(
             all_namespaces: false,
         }),
         k if k == kinds::SECRET => super::secret::run(super::secret::SecretCmd::Ls { output }),
+        // No imperative `config` verb (the engine owns that name): `get configs`
+        // routes straight into the Kind's own listing.
+        k if k == kinds::CONFIG => super::config_kind::cmd_ls(output),
         k if k == kinds::IMAGE => {
             super::image::run(super::image::ImageCmd::Ls(super::image::LsArgs { output }))
         }
@@ -422,6 +428,9 @@ pub(crate) fn describe(kind: &str, names: &[String]) -> Result<()> {
             }
             Ok(())
         }
+        // A config is cleartext, so `describe config <name>` shows keys AND values
+        // (no redaction) — exactly where it differs from `secret inspect`.
+        k if k == kinds::CONFIG => super::config_kind::cmd_describe(&n),
         k if k == kinds::NETWORK_ROUTE => super::netroute::cmd_describe(&n),
         k if k == kinds::SERVICE => super::service::cmd_describe(&n),
         k if k == kinds::GITOPS_SOURCE => super::gitops::cmd_describe(&n),
@@ -502,6 +511,9 @@ pub(crate) fn delete(kind: &str, names: &[String], force: bool) -> Result<()> {
             }
             Ok(())
         }
+        // `delete config <name>` — the only way a config comes down (no owner to
+        // prune, ADR-0090). Routes into the Kind's own removal.
+        k if k == kinds::CONFIG => super::config_kind::cmd_rm(names),
         k if k == kinds::IMAGE => {
             for n in names {
                 super::image::run(super::image::ImageCmd::Remove(super::image::RemoveArgs {

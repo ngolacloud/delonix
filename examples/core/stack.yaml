@@ -31,6 +31,7 @@
 #   grupo / group        Kind               referência / reference
 #   runtimePolicies      RuntimePolicy      full-runtimepolicy.yaml
 #   secrets              Secret             core/secret.yaml
+#   configs              Config             core/config.yaml
 #   networks             Network            full-network.yaml
 #   networkRoutes        NetworkRoute       full-networkroute.yaml
 #   networkZones         NetworkZone        networkzone.yaml
@@ -94,6 +95,13 @@ spec:
       spec:
         stringData:
           POSTGRES_PASSWORD: change-me
+
+  # PT: Configs a seguir aos Secrets: o irmão em claro (dados não secretos). | EN: Configs right after Secrets: the cleartext sibling (non-secret data).
+  configs:
+    - name: app-tuning
+      spec:
+        data:
+          LOG_LEVEL: info
 
   networks:
     - name: blog-net

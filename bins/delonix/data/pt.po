@@ -5573,6 +5573,12 @@ msgstr "O alias de DNS do container na rede. Repetível"
 msgid "The `--secret`s come in as files in `/run/secrets/` (tmpfs), not env"
 msgstr "Os `--secret` entram como ficheiros em `/run/secrets/` (tmpfs), e não no ambiente"
 
+msgid "The `--config`s come in as files in `/run/config/` (tmpfs), not env"
+msgstr "Os `--config` entram como ficheiros em `/run/config/` (tmpfs), e não no ambiente"
+
+msgid "Inject a config from the store (`name`), as an environment variable. The cleartext sibling of `--secret`. Repeatable. With `--config-files`, it goes to `/run/config/<key>`"
+msgstr "Injecta uma configuração do armazém (`nome`), como variável de ambiente. O irmão em claro de `--secret`. Repetível. Com `--config-files`, vai para `/run/config/<chave>`"
+
 msgid "Ulimit (`nofile=1024:2048`). Repeatable"
 msgstr "Ulimit (`nofile=1024:2048`). Repetível"
 

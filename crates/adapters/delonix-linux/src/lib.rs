@@ -3547,6 +3547,49 @@ fn write_secret_files(pairs: &[(String, String)]) -> std::result::Result<(), Str
     .map_err(|e| format!("remount {dir} read-only: {e}"))
 }
 
+/// Mounts a **tmpfs** at `/run/config` and writes the key→value pairs (0644)
+/// there, for `--config-files`. The cleartext sibling of [`write_secret_files`]:
+/// same in-namespace tmpfs mechanism, but the files are world-readable (0644,
+/// mode=0755 dir) because a config is non-secret. Fail-closed for the same
+/// reason — a container that asked for its config as files must not start
+/// silently without them.
+fn write_config_files(pairs: &[(String, String)]) -> std::result::Result<(), String> {
+    let dir = "/run/config";
+    std::fs::create_dir_all(dir).map_err(|e| format!("create {dir}: {e}"))?;
+    mount(
+        Some("tmpfs"),
+        dir,
+        Some("tmpfs"),
+        MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+        Some("mode=0755"),
+    )
+    .map_err(|e| format!("mount tmpfs on {dir}: {e}"))?;
+    write_config_values(dir, pairs)?;
+    mount(
+        None::<&str>,
+        dir,
+        None::<&str>,
+        MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY | MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+        None::<&str>,
+    )
+    .map_err(|e| format!("remount {dir} read-only: {e}"))
+}
+
+/// Writes each pair as `{dir}/{key}` (0644). Pure I/O, no mount(2) — the testable
+/// half of [`write_config_files`], the cleartext sibling of `write_secret_values`.
+fn write_config_values(dir: &str, pairs: &[(String, String)]) -> std::result::Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    for (k, v) in pairs {
+        if k.is_empty() || k.contains('/') {
+            continue;
+        }
+        let p = std::path::Path::new(dir).join(k);
+        std::fs::write(&p, v).map_err(|e| format!("write {}: {e}", p.display()))?;
+        let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644));
+    }
+    Ok(())
+}
+
 /// The two mount(2) calls of `write_secret_files`, isolated so the pure
 /// value-writing half (`write_secret_values`) is testable without
 /// `CAP_SYS_ADMIN` or a mount namespace.
@@ -4029,6 +4072,9 @@ struct FilesystemSpec<'a> {
     /// Decrypted `--secret-files` values, written into an in-namespace tmpfs.
     /// Held in the child's memory only — never touches the host filesystem.
     secret_files: &'a [(String, String)],
+    /// `--config-files` values, written into an in-namespace tmpfs at
+    /// `/run/config`. The cleartext sibling of `secret_files`.
+    config_files: &'a [(String, String)],
 }
 
 /// The barriers raised around the container. Every field here can only weaken
@@ -4187,6 +4233,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 tmpfs,
                 devices,
                 secret_files,
+                config_files,
             },
         security:
             SecuritySpec {
@@ -4348,6 +4395,15 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         // fall through to the container's persistent rootfs.
         if let Err(e) = write_secret_files(secret_files) {
             return setup_abort(&format!("failed to confine secret files to tmpfs: {e}"));
+        }
+    }
+    if !config_files.is_empty() {
+        // --config-files: the cleartext sibling at `/run/config`. Not a
+        // confidentiality barrier (a config is cleartext), but still fail-closed
+        // so a container that asked for its config as files never starts silently
+        // without it.
+        if let Err(e) = write_config_files(config_files) {
+            return setup_abort(&format!("failed to write config files to tmpfs: {e}"));
         }
     }
     // `--read-only`: remounts the rootfs (`/`) read-only. Volumes/dev/proc are
@@ -7842,6 +7898,8 @@ fn spawn(
     // --secret-files: read and decrypted here, at the same point of the start it
     // always was — see `secret_file_pairs`.
     inputs.secret_files = secret_file_pairs(store, container);
+    // --config-files: the cleartext sibling, read here the same way.
+    inputs.config_files = config_file_pairs(store, container);
     let io = IoSpec {
         detach,
         log_fd: log_pipe.map(|(_, w)| w), // the container writes to the write end
@@ -7976,6 +8034,16 @@ fn spawn_env(store: &Store, container: &Container) -> Vec<String> {
             env.extend(ss.resolve_env(&container.secrets));
         }
     }
+    // Configs: the cleartext sibling. In env mode they are resolved here too,
+    // from the plaintext `ConfigStore`, and re-read per spawn so a changed config
+    // takes effect on the next start. A config carries no secret, so (unlike a
+    // secret) it is fine for its values to live in the record's env — they still
+    // resolve fresh here rather than being pinned at create time.
+    if !container.config_files && !container.configs.is_empty() {
+        if let Ok(cs) = delonix_state::ConfigStore::open(store.base()) {
+            env.extend(cs.resolve_env(&container.configs));
+        }
+    }
     env
 }
 
@@ -8022,6 +8090,30 @@ fn secret_file_pairs(store: &Store, container: &Container) -> Vec<(String, Strin
     }
 }
 
+/// `--config-files`: reads the values NOW from the cleartext `ConfigStore`, to
+/// write them into an in-namespace tmpfs at `/run/config`. The cleartext sibling
+/// of [`secret_file_pairs`].
+fn config_file_pairs(store: &Store, container: &Container) -> Vec<(String, String)> {
+    if container.config_files && !container.configs.is_empty() {
+        match delonix_state::ConfigStore::open(store.base()) {
+            Ok(cs) => {
+                let mut map = std::collections::BTreeMap::new();
+                for n in &container.configs {
+                    if let Ok(c) = cs.load(n) {
+                        for (k, v) in c.data {
+                            map.insert(k, v);
+                        }
+                    }
+                }
+                map.into_iter().collect()
+            }
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    }
+}
+
 /// Everything the init reads that is not a descriptor, OWNED: the clone's
 /// closure outlives every borrow `spawn` holds, so it takes this by move and
 /// the child builds its [`ContainerInitSpec`] of borrows into it — no
@@ -8053,6 +8145,9 @@ struct InitInputs {
     /// Filled by [`secret_file_pairs`] just before the clone, where it always
     /// was read — not by `gather`, which touches no vault.
     secret_files: Vec<(String, String)>,
+    /// Filled by [`config_file_pairs`] just before the clone — the cleartext
+    /// sibling of `secret_files`, written into a tmpfs at `/run/config`.
+    config_files: Vec<(String, String)>,
     cap_keep: u64,
     apparmor: Option<String>,
     selinux: Option<String>,
@@ -8113,6 +8208,7 @@ impl InitInputs {
             tmpfs: container.tmpfs.clone(),
             devices: container.devices.clone(),
             secret_files: Vec::new(),
+            config_files: Vec::new(),
             cap_keep,
             apparmor: spec.apparmor.clone(),
             selinux: spec.selinux.clone(),
@@ -8179,6 +8275,7 @@ impl InitInputs {
                 tmpfs: &self.tmpfs,
                 devices: &self.devices,
                 secret_files: &self.secret_files,
+                config_files: &self.config_files,
             },
             security: SecuritySpec {
                 cap_keep: self.cap_keep,
