@@ -478,6 +478,7 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     let (store, name) = store_for_plan_name(name)?;
     // The document's own labels go on with the stamp: this is the one step
@@ -498,15 +499,22 @@ pub(crate) fn stamp(
             Some("delonix".to_string()),
         ),
     ]);
+    if protected {
+        labels.push((
+            super::reconcile::PROTECT.to_string(),
+            Some("true".to_string()),
+        ));
+    }
     let name = name.as_str();
-    store.set_metadata(
-        name,
-        &labels,
-        &[(
-            super::reconcile::LAST_APPLIED.to_string(),
-            Some(super::reconcile::encode_last_applied(fields)),
-        )],
-    )?;
+    // The record's CURRENT annotations, so the generation counter sees the
+    // previous spec (ADR-0090). `set_metadata` merges a delta and never hands the
+    // previous state back, so it is read here.
+    let prev = store
+        .inspect(name)
+        .map(|v| v.annotations)
+        .unwrap_or_default();
+    let annotations = super::reconcile::stamp_annotation_delta(&prev, fields, k::VOLUME);
+    store.set_metadata(name, &labels, &annotations)?;
     Ok(())
 }
 
@@ -584,6 +592,7 @@ fn actual_of(name: String, v: &delonix_volume::Volume) -> super::reconcile::Actu
                 .annotations
                 .get(super::reconcile::LAST_APPLIED)
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: v.labels.contains_key(super::reconcile::PROTECT),
         }
     }
 }

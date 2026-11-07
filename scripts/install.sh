@@ -731,7 +731,7 @@ if [ "$WITH_BINARY" = 1 ]; then
             warn "$ed could not list its extensions (exit $ed_rc) — skipping it: $(tail -1 "$TMP/.ed-list" 2>/dev/null)"
             continue
           fi
-          HAVE=$(grep -i '^angolardevops\.delonix@' "$TMP/.ed-list" | head -1 || true)
+          HAVE=$(grep -i '^ngolacloud\.delonix@' "$TMP/.ed-list" | head -1 || true)
           if [ -n "$HAVE" ]; then
             # A frase NÃO promete que o editor a actualiza: isso só passa a ser
             # verdade quando a extensão estiver nas galerias, e hoje não está.

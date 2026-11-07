@@ -684,6 +684,12 @@ Options:
       --no-healthcheck
           Disable the image&#x27;s HEALTHCHECK entirely (Docker/Podman `--no-healthcheck`): no monitor, no probe
 
+      --health-http &lt;[:]PORT[/path]&gt;
+          Native HTTP probe the engine runs in the container&#x27;s netns — no shell or tools in the image needed. `[:]PORT[/path]`, path defaults to `/`; healthy on a 2xx/3xx. Excludes `--health-cmd`/`--health-tcp`
+
+      --health-tcp &lt;PORT&gt;
+          Native TCP probe the engine runs in the container&#x27;s netns — healthy if a connection to the container&#x27;s own `127.0.0.1:PORT` is accepted. Excludes `--health-cmd`/`--health-http`
+
       --knows &lt;KNOWS&gt;
           Restrict DNS resolution to these containers (isolation). Repeatable
 

@@ -15,7 +15,7 @@ fn bench_parse_reference(c: &mut Criterion) {
     // repo:tag@digest form that once broke the parser.
     let cases = [
         "nginx:alpine",
-        "ghcr.io/angolardevops/delonix-vm-k8s:1.34",
+        "ghcr.io/ngolacloud/delonix-vm-k8s:1.34",
         "kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac1b8f0e0a5d2f3b4c5d6e7f8a9b0c1d2e3f",
         "registry.k8s.io/pause:3.10.1",
     ];

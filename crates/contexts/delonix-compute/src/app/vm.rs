@@ -63,15 +63,63 @@ fn refuse_template_start(vm: &Vm) -> Result<()> {
 /// it), the serial capture, the VMM log and pidfile, libvirt's domain XML. ONE
 /// list for the two places that take them back — `destroy` and the undo of a
 /// failed create — so the second cannot miss what the first knows.
-const RUNTIME_LEFTOVERS: [&str; 6] = ["sock", "sock.lock", "serial", "log", "pid", "xml"];
+const RUNTIME_LEFTOVERS: [&str; 7] = [
+    "sock",
+    "sock.lock",
+    "serial",
+    "log",
+    "pid",
+    "xml",
+    "console",
+];
 
 /// `--disk-size`'s unit, everywhere in this crate: whole GiB.
 const GIB_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The VM use cases over the ports one call needs.
+/// Where a namespace's VM records and per-VM directories live under `root`.
+///
+/// `default` (or the empty string) keeps the historical flat `<root>/vms`, so
+/// existing state needs **no migration** and a node that never used namespaces
+/// is byte-for-byte unchanged. Every other namespace gets its own
+/// `<root>/vms/<namespace>` subtree — the same `(namespace, name)` keying
+/// gitops sources already use (`<root>/gitops/<namespace>/<name>`), and what
+/// makes a `web` in `prod` and a `web` in `staging` two VMs rather than one
+/// (ADR-0086 D7, reverting ADR-0069 #2's node-global VM name).
+pub fn vms_root(root: &Path, namespace: &str) -> PathBuf {
+    if namespace.is_empty() || namespace == "default" {
+        root.join("vms")
+    } else {
+        root.join("vms").join(namespace)
+    }
+}
+
+/// The node-wide IDENTITY of a VM — `<namespace>/<name>`, or the bare name in
+/// `default`. Everything that must be unique per VM across the node and not
+/// just per namespace is keyed by this: the deterministic MAC ([`crate::vm_registry::mac_for`]),
+/// the SDN tap/owner/IPAM/firewall ref (`delonix_sdn::infra::vm_attach`), and
+/// the cloud-init network match. `default`→bare keeps an existing node's taps,
+/// MACs and leases byte-for-byte (zero migration); any other namespace gets a
+/// distinct identity, so a `web` in `prod` and a `web` in `staging` no longer
+/// collide on one tap/MAC (ADR-0086 D7, reverting ADR-0069 #2). A VM name never
+/// contains '/' (`valid_vm_name`), so the separator is unambiguous.
+pub fn scoped_vm_name(namespace: &str, name: &str) -> String {
+    if namespace.is_empty() || namespace == "default" {
+        name.to_string()
+    } else {
+        format!("{namespace}/{name}")
+    }
+}
+
 pub struct VmEngine<'a, R, B, D, S> {
-    /// The state root; the VMs live under `<root>/vms`.
+    /// The state root; the VMs live under [`vms_root`]`(root, namespace)`.
     pub root: &'a Path,
+    /// The isolation namespace this engine is scoped to. `default` (or empty)
+    /// keeps the flat `<root>/vms`; any other namespace lives under its own
+    /// `<root>/vms/<namespace>` subtree, which is what lets a `web` in `prod`
+    /// and a `web` in `staging` be two VMs (ADR-0086 D7, reverting ADR-0069 #2).
+    /// The injected `repo` MUST already be rooted at the same [`vms_root`].
+    pub namespace: &'a str,
     pub repo: R,
     pub backends: B,
     pub disks: D,
@@ -88,7 +136,7 @@ where
     S: SeedBuilder,
 {
     fn vmdir(&self) -> PathBuf {
-        self.root.join("vms")
+        vms_root(self.root, self.namespace)
     }
 
     /// The registered network, or the reason there is none — a VM on the SDN
@@ -2124,21 +2172,27 @@ pub fn resolve_required_capabilities(names: &[String]) -> Result<Vec<Capability>
     Ok(out)
 }
 
-/// Path of the UNIX socket of the serial console of a Cloud Hypervisor VM
-/// (`<base>/vms/<name>.console`). `delonix vm console` connects here.
-pub fn console_socket(base: &Path, name: &str) -> PathBuf {
-    base.join("vms").join(format!("{name}.console"))
+/// Path of the UNIX socket of the serial console of a Cloud Hypervisor VM,
+/// beside its record inside the VM's own directory (`<vmdir>/<name>.console`,
+/// i.e. `<root>/vms/<name>.console` in `default` and
+/// `<root>/vms/<namespace>/<name>.console` elsewhere — ADR-0086 D7). `delonix vm
+/// console` connects here. `vmdir` is [`vms_root`]`(root, namespace)`, the same
+/// directory the `.sock`/`.log`/`.pid` siblings already live in.
+pub fn console_socket(vmdir: &Path, name: &str) -> PathBuf {
+    vmdir.join(format!("{name}.console"))
 }
 
-/// Where a capture-mode VM's serial console is written (`<base>/vms/<name>.serial`).
+/// Where a capture-mode VM's serial console is written
+/// (`<vmdir>/<name>.serial`, keyed per namespace the same way
+/// [`console_socket`] is).
 ///
 /// THE formula, with one owner. It used to be spelled out separately in `boot_ch`
 /// and in a reader in another program, which is exactly how the two came to
 /// disagree: the interactive console moved the writer to a socket and the reader
 /// went on opening a file nobody wrote. Same discipline as `fw_rule_tail` — the
 /// writer and the reader share the format or they drift.
-pub fn serial_log_path(base: &Path, name: &str) -> PathBuf {
-    base.join("vms").join(format!("{name}.serial"))
+pub fn serial_log_path(vmdir: &Path, name: &str) -> PathBuf {
+    vmdir.join(format!("{name}.serial"))
 }
 
 #[cfg(test)]
@@ -2528,6 +2582,7 @@ mod tests {
     ) -> VmEngine<'_, MemRepo, FakeBackends, FakeDisks, FakeSeed> {
         VmEngine {
             root,
+            namespace: "default",
             repo: MemRepo::default(),
             backends: FakeBackends(seen.clone()),
             disks: FakeDisks(seen.clone()),

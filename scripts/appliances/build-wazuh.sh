@@ -177,7 +177,7 @@ echo "      --default-vcpus 4 --default-memory 8G"
 echo
 echo "Publish it with:"
 echo "  delonix vm image push wazuh:${WAZUH_VERSION%-*}-r$IMAGE_REV \\"
-echo "      ghcr.io/angolardevops/delonix-vm-appliances:wazuh-${WAZUH_VERSION%-*}-r$IMAGE_REV"
+echo "      ghcr.io/ngolacloud/delonix-vm-appliances:wazuh-${WAZUH_VERSION%-*}-r$IMAGE_REV"
 echo
 echo "PROVEN by this script: the versions are pinned, the vendor's signing key matched"
 echo "  its documented fingerprint, every downloaded asset matched its pinned sha256,"

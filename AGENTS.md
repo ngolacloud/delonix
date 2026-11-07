@@ -1374,7 +1374,12 @@ scrape Prometheus nunca divergirem na aritmética.
   breaking change e não se fez.
 - `stack describe` não inventa estado: o stack **não tem registo próprio**, por isso parte do
   manifesto e vai confirmar a presença de cada recurso ao store respectivo (mesma filosofia do
-  `cluster ls`, que deriva das labels). Não faz drift-detection — isso é trabalho de orchestrator.
+  `cluster ls`, que deriva das labels). Drift-detection existe desde a ADR-0088 (A5) e **reverte**
+  a nota anterior de que era «trabalho de orchestrator»: `delonix drift` reporta o que a MÁQUINA
+  mudou desde o último apply (carimbo `last-applied` vs observado), `drift --correct` re-aplica o
+  manifesto para reconciliar, e um `kind: GitOpsSource` com `spec.driftPolicy: report|correct`
+  deixa o timer (systemd, ADR-0021) fazê-lo — opt-in e sem daemon. Sem `driftPolicy`, sem `drift`
+  à mão, o nó comporta-se exactamente como antes.
 
 ## Reconfiguração a quente (`delonix container update`)
 
@@ -1818,9 +1823,12 @@ Ingress(k8s)/Egress/FirewallPolicy/Container (flat E Pod-shape, via `pod_spec_wi
 - **`delonix stack apply [-f ficheiro]`** — aplica TODOS os Kinds, por esta ordem (dependência
   por nome): Network → Volume → Image → Vm → Container. **Fail-fast, sem transacionalidade**: o
   que já foi aplicado antes de um erro FICA aplicado (sem rollback).
-- **Semântica de `apply`: "garante presente", não um reconciliador.** Sem diffing/rollout/
-  drift-detection contínua — isso é trabalho de um orchestrator com controllers (deliberadamente
-  fora de escopo aqui; o equivalente privado, `delonix-orchestrator`, fica só no `delonix-paas`).
+- **Semântica de `apply`: "garante presente".** Diffing existe (`stack plan`, three-way) e
+  drift-detection também, desde a ADR-0088 (A5): `delonix drift` (+`--correct`) e o
+  `GitOpsSource.spec.driftPolicy` conduzido pelo timer. O que continua FORA de escopo é um
+  reconciliador CONTÍNUO com controllers residentes — isso é trabalho de um orchestrator
+  (o equivalente privado, `delonix-orchestrator`, fica só no `delonix-paas`); o drift daqui é
+  opt-in e daemonless, sobre o timer systemd (ADR-0021), nunca um processo residente.
   Idempotência por Kind: `Network`/`Container` verificam existência por nome antes de criar
   (`store.get`/procura no `Store` por `c.name`); `Volume`/`Vm` já são idempotentes na própria API
   do crate (`VolumeStore::create*`, `delonix_vm::create`); `Image` com `spec.pull` é idempotente

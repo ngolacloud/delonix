@@ -762,6 +762,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                     .annotations
                     .get(super::reconcile::LAST_APPLIED)
                     .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+                protect: rec.labels.contains_key(super::reconcile::PROTECT),
             })
         })
         .collect()
@@ -1599,21 +1600,27 @@ pub(crate) fn converge_doc(doc: &ManifestDoc) -> Result<()> {
 }
 
 /// Records ownership + last-applied — mirrors `network_gateway::stamp`.
-pub(crate) fn stamp(name: &str, stack: &str, fields: &BTreeMap<String, String>) -> Result<()> {
+pub(crate) fn stamp(
+    name: &str,
+    stack: &str,
+    fields: &BTreeMap<String, String>,
+    protected: bool,
+) -> Result<()> {
     let s = store()?;
     let mut rec = s
         .load(name)
         .map_err(|_| Error::NotFound(format!("network zone: {name}")))?;
     rec.labels
         .insert(super::reconcile::STACK_LABEL.to_string(), stack.to_string());
+    if protected {
+        rec.labels
+            .insert(super::reconcile::PROTECT.to_string(), "true".to_string());
+    }
     rec.labels.insert(
         super::reconcile::MANAGED_BY.to_string(),
         "delonix".to_string(),
     );
-    rec.annotations.insert(
-        super::reconcile::LAST_APPLIED.to_string(),
-        super::reconcile::encode_last_applied(fields),
-    );
+    super::reconcile::stamp_annotations(&mut rec.annotations, fields, k::NETWORK_ZONE);
     s.save(name, &rec).map_err(Into::into)
 }
 

@@ -360,6 +360,7 @@ pub(crate) fn stamp(
     name: &str,
     stack: &str,
     fields: &std::collections::BTreeMap<String, String>,
+    protected: bool,
 ) -> Result<()> {
     let store = NetworkStore::open(state_root())?;
     // The document's own labels go on with the stamp: this is the one step
@@ -380,14 +381,17 @@ pub(crate) fn stamp(
             Some("delonix".to_string()),
         ),
     ]);
-    store.set_metadata(
-        name,
-        &labels,
-        &[(
-            super::reconcile::LAST_APPLIED.to_string(),
-            Some(super::reconcile::encode_last_applied(fields)),
-        )],
-    )?;
+    if protected {
+        labels.push((
+            super::reconcile::PROTECT.to_string(),
+            Some("true".to_string()),
+        ));
+    }
+    // Previous annotations, so the generation counter sees the prior spec
+    // (ADR-0090) — `set_metadata` merges a delta without returning the old state.
+    let prev = store.get(name).map(|n| n.annotations).unwrap_or_default();
+    let annotations = super::reconcile::stamp_annotation_delta(&prev, fields, k::NETWORK);
+    store.set_metadata(name, &labels, &annotations)?;
     Ok(())
 }
 
@@ -429,6 +433,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                 .annotations
                 .get(super::reconcile::LAST_APPLIED)
                 .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+            protect: n.labels.contains_key(super::reconcile::PROTECT),
         })
         .collect())
 }

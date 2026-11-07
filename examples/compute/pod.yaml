@@ -20,7 +20,7 @@
 # ── 1. mínimo — só containers[].image é obrigatório ─────────────────────────
 #      minimal — only containers[].image is mandatory
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata:
   name: minimal-pod
@@ -32,21 +32,21 @@ spec:
 # ── 2. recursos de apoio para os cenários abaixo ────────────────────────────
 #      supporting resources for the scenarios below
 ---
-apiVersion: networking.delonix.io/v1alpha1
+apiVersion: networking.delonix.io/v1beta1
 kind: Network
 metadata:
   name: pod-net
 spec:
   driver: bridge
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: pod-data                      # PT: referido por `persistentVolumeClaim.claimName` | EN: referenced via `persistentVolumeClaim.claimName`
 spec:
   driver: local
 ---
-apiVersion: storage.delonix.io/v1alpha1
+apiVersion: storage.delonix.io/v1beta1
 kind: Volume
 metadata:
   name: pod-cache                     # PT: referido por `source` (extensão delonix) | EN: referenced via `source` (delonix extension)
@@ -56,7 +56,7 @@ spec:
 # ── 3. um contentor — esquema k8s com ports/env/volumes/securityContext ─────
 #      single container — k8s schema with ports/env/volumes/securityContext
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata:
   name: web
@@ -105,7 +105,7 @@ spec:
 # ── 4. multi-contentor completo — todos os campos de pod e de contentor ──────
 #      full multi-container — every pod-level and container field
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata:
   name: full-pod
@@ -190,7 +190,7 @@ spec:
 # ── 5. PID partilhado — os membros veem os processos uns dos outros ──────────
 #      shared PID — the members see each other's processes
 ---
-apiVersion: compute.delonix.io/v1alpha1
+apiVersion: compute.delonix.io/v1beta1
 kind: Pod
 metadata:
   name: shared-pid

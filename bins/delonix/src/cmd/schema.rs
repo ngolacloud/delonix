@@ -50,6 +50,8 @@ const TYPED_KINDS: &[&str] = &[
     k::RUNTIME_POLICY,
     k::CONTAINER,
     k::POD,
+    k::APPLICATION,
+    k::JOB,
     k::VOLUME,
     k::OBJECT_STORAGE,
     k::NETWORK,
@@ -143,8 +145,20 @@ fn untyped_hint(kind: &str) -> &'static str {
                 `share: {from: ...}` block, which is what it is rewritten to at load";
     }
     if kind.eq_ignore_ascii_case(k::STORAGE) {
-        " — `kind: Storage` is the deprecated spelling: write `kind: Volume` with an \
-         `nfs:`/`cifs:`/`webdav:` block, which is what it is rewritten to at load"
+        return " — `kind: Storage` is the deprecated spelling: write `kind: Volume` with an \
+                `nfs:`/`cifs:`/`webdav:` block, which is what it is rewritten to at load";
+    }
+    // A Reserved Kind (ADR-0086 D3): declared at v1beta1 with no apply yet, so
+    // deliberately no typed spec. Derived from the Form so any future Reserved
+    // Kind gets the hint without being named here — the hint says so rather than
+    // reading as a forgotten Kind. `canonical_kind` resolves any casing/alias to
+    // the spelling `facts` keys on.
+    if matches!(
+        super::kinds::facts(super::manifest::canonical_kind(kind)).map(|f| f.form),
+        Some(super::kinds::Form::Reserved)
+    ) {
+        " — a Reserved Kind: its name and group are declared at v1beta1, but the apply and \
+         its typed schema land in a later phase (ADR-0090). Nothing validates its spec yet."
     } else {
         ""
     }
@@ -192,6 +206,16 @@ fn typed_spec_parts(
         k::POD => (
             generator.subschema_for::<super::container::PodSpec>(),
             "PodSpec",
+            super::container::POD_SPEC_FIELDS,
+        ),
+        k::APPLICATION => (
+            generator.subschema_for::<super::application::ApplicationSpec>(),
+            "ApplicationSpec",
+            super::application::APPLICATION_SPEC_FIELDS,
+        ),
+        k::JOB => (
+            generator.subschema_for::<super::job::JobSpec>(),
+            "JobSpec",
             super::container::POD_SPEC_FIELDS,
         ),
         k::VOLUME => (
@@ -637,6 +661,42 @@ fn manifest_schema(only: Option<&str>) -> Result<serde_json::Value> {
     api_versions.push(super::manifest::LEGACY_API_VERSION);
     api_versions.sort_unstable();
     api_versions.dedup();
+    // ADR-0088 A1: tag each top-level spec property that is a reconciled
+    // comparison key with its static update class (`x-delonix-update`), so an
+    // editor or a generator reads the class beside the field it governs. The
+    // class is `reconcile::update_class` — the ONE classifier the diff reads.
+    // Best-effort BY DESIGN: a reconciled key that is not a top-level schema
+    // property (a derived or renamed field — the two namespaces do not fully
+    // align, see ADR-0088's addendum) is left unannotated here; its class still
+    // lives in `update_class`, which is the source of truth.
+    let reconciled: std::collections::HashMap<&str, &[&str]> =
+        super::stack::compared_fields_table().into_iter().collect();
+    for (kind, def_name, _) in &strict {
+        let Some(fields) = reconciled.get(kind.as_str()) else {
+            continue;
+        };
+        let Some(props) = defs
+            .get_mut(*def_name)
+            .and_then(|d| d.get_mut("properties"))
+            .and_then(|p| p.as_object_mut())
+        else {
+            continue;
+        };
+        for &field in *fields {
+            let Some(p) = props.get_mut(field).and_then(|v| v.as_object_mut()) else {
+                continue;
+            };
+            let (class, grow_only) = match delonix_stack::reconcile::update_class(kind, field) {
+                delonix_stack::reconcile::UpdateClass::Live => ("live", false),
+                delonix_stack::reconcile::UpdateClass::GrowOnly => ("live", true),
+                delonix_stack::reconcile::UpdateClass::Replace => ("replace", false),
+            };
+            p.insert("x-delonix-update".into(), serde_json::json!(class));
+            if grow_only {
+                p.insert("x-delonix-grow-only".into(), serde_json::json!(true));
+            }
+        }
+    }
     Ok(serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Delonix manifest (delonix.io/v1)",
@@ -860,6 +920,34 @@ fn type_of(node: &serde_json::Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR-0088 A1: a reconciled comparison key that is a top-level spec property
+    /// carries its static update class in the schema (`x-delonix-update`), and a
+    /// grow-only field also carries `x-delonix-grow-only`. The class is whatever
+    /// `reconcile::update_class` says — this proves the emission is wired and
+    /// correct end to end, for a live field, a replace field and a grow-only one.
+    #[test]
+    fn reconciled_fields_carry_their_update_class_in_the_schema() {
+        let s = manifest_schema(None).unwrap();
+        let defs = s.get("$defs").unwrap();
+        let class = |defn: &str, field: &str| -> Option<String> {
+            defs.pointer(&format!("/{defn}/properties/{field}/x-delonix-update"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        };
+        assert_eq!(class("ContainerSpec", "memory").as_deref(), Some("live"));
+        assert_eq!(class("ContainerSpec", "image").as_deref(), Some("replace"));
+        assert_eq!(
+            class("SystemContainerSpecDoc", "rootfs").as_deref(),
+            Some("live")
+        );
+        assert_eq!(
+            defs.pointer("/SystemContainerSpecDoc/properties/rootfs/x-delonix-grow-only")
+                .and_then(|v| v.as_bool()),
+            Some(true),
+            "a grow-only field is marked as such"
+        );
+    }
 
     /// The whole point of ADR-0007: the schema comes from the STRUCTS. If a
     /// field is renamed in Rust and nobody touches the docs, this is what

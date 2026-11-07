@@ -518,11 +518,6 @@ kinds	networkaccessrules diff	B	nenhuma corrida real conduz este verbo neste kin
 kinds	networkaccessrules plan	B	nenhuma corrida real conduz este verbo neste kind
 kinds	networkaccessrules delete	D	ausente de DELETE_ROUTES E de no_verb_reason: 'not wired yet' sem razao escrita
 kinds	networkaccessrules drift	B	nenhuma corrida real conduz este verbo neste kind
-kinds	networkgateways apply	E	appliance OPNsense; o ADR-0071 diz por escrito que a VM de lab nao arranca
-kinds	networkgateways diff	E	appliance OPNsense
-kinds	networkgateways plan	E	appliance OPNsense
-kinds	networkgateways delete	A	scripts/e2e.sh §5656 posse pela marca
-kinds	networkgateways drift	E	appliance OPNsense
 kinds	networkpolicies apply	A	scripts/e2e.sh
 kinds	networkpolicies diff	B	nenhuma corrida real conduz este verbo neste kind
 kinds	networkpolicies plan	A	scripts/e2e.sh
@@ -593,14 +588,49 @@ kinds	workloads diff	D	n/a: reporta o filho, nunca o Workload
 kinds	workloads plan	D	n/a: reporta o filho
 kinds	workloads delete	D	recusado com razao (verbs.rs:234)
 kinds	workloads drift	D	n/a: reporta o filho
+kinds	applications apply	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	applications diff	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	applications plan	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	applications delete	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	applications drift	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	buckets apply	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	buckets diff	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	buckets plan	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	buckets delete	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	buckets drift	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	configs apply	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	configs diff	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	configs plan	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	configs delete	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	configs drift	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	ipaddresses apply	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	ipaddresses diff	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	ipaddresses plan	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	ipaddresses delete	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	ipaddresses drift	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	jobs apply	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	jobs diff	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	jobs plan	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	jobs delete	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	jobs drift	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	nodes apply	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	nodes diff	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	nodes plan	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	nodes delete	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	nodes drift	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	routers apply	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	routers diff	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	routers plan	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	routers delete	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	routers drift	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	snapshots apply	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	snapshots diff	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	snapshots plan	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	snapshots delete	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
+kinds	snapshots drift	B	kind catalog-v1 (ADR-0086); no real run drives this verb on this kind yet
 cli	bucket ls	B	implementada; provada ao vivo 2026-10-27 contra MicroCeph (sessao), ainda nao em scripts/cli_exec_trace.tsv
 cli	bucket inspect	B	implementada; provada ao vivo 2026-10-27 contra MicroCeph (sessao), ainda nao em scripts/cli_exec_trace.tsv
 cli	bucket rm	B	implementada; provada ao vivo 2026-10-27 (user RGW + Secret + registo removidos), ainda nao em scripts/cli_exec_trace.tsv
-kinds	objectstorages apply	B	kind novo; apply provado ao vivo 2026-10-27 (cephRgw+external), ainda nao conduzido por scripts/e2e.sh
-kinds	objectstorages plan	B	kind novo; plan provado ao vivo 2026-10-27 (recusa DX-1000 + Create/NoOp), ainda nao em scripts/e2e.sh
-kinds	objectstorages diff	B	kind novo; nenhuma corrida real conduz este verbo neste kind
-kinds	objectstorages delete	B	kind novo; teardown=false, remocao explicita via `bucket rm`; nenhuma corrida real conduz este verbo
-kinds	objectstorages drift	B	kind novo; nenhuma corrida real conduz este verbo neste kind
 node-api	GetCephStatus	B	ADR-0081; provada ao vivo na sessao ceph (reports/ceph-live), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
 node-api	ListRbdImages	B	ADR-0081; provada ao vivo (reports/ceph-live), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
 node-api	ListCephfsSubvolumes	B	ADR-0081; provada ao vivo (reports/ceph-live), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
@@ -659,3 +689,4 @@ cli	volume export	B	implementado na campanha de paridade Docker/Podman; provado 
 cli	volume import	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
 cli	volume mount	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
 cli	volume unmount	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	manifest convert	B	ADR-0086 D5 convert; no cli_exec run drives it yet

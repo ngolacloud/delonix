@@ -707,6 +707,7 @@ pub(crate) fn actual(docs: &[ManifestDoc]) -> Result<Vec<super::reconcile::Actua
             fields: fields_of(&current),
             owner: None,
             last_applied: None,
+            protect: false,
         });
     }
     Ok(out)

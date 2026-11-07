@@ -284,6 +284,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
                     .annotations
                     .get(super::reconcile::LAST_APPLIED)
                     .and_then(|raw| super::reconcile::decode_last_applied(raw)),
+                protect: def.labels.contains_key(super::reconcile::PROTECT),
             }
         })
         .collect())
@@ -294,27 +295,37 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
 /// registry entry (unlike `NetworkAccessRule`, a `Service` does not target a
 /// container it does not own — its record is entirely its own, so stamping it
 /// directly carries none of that Kind's risk).
-pub(crate) fn stamp(plan: &str, stack: &str, fields: &BTreeMap<String, String>) -> Result<()> {
+pub(crate) fn stamp(
+    plan: &str,
+    stack: &str,
+    fields: &BTreeMap<String, String>,
+    protected: bool,
+) -> Result<()> {
     let (namespace, name) = manifest::split_plan_name(plan);
-    delonix_sdn::infra::service_set_metadata(
-        namespace,
-        name,
-        &[
-            (
-                super::reconcile::STACK_LABEL.to_string(),
-                Some(stack.to_string()),
-            ),
-            (
-                super::reconcile::MANAGED_BY.to_string(),
-                Some("delonix".to_string()),
-            ),
-        ],
-        &[(
-            super::reconcile::LAST_APPLIED.to_string(),
-            Some(super::reconcile::encode_last_applied(fields)),
-        )],
-    )
-    .map_err(Into::into)
+    let mut labels = vec![
+        (
+            super::reconcile::STACK_LABEL.to_string(),
+            Some(stack.to_string()),
+        ),
+        (
+            super::reconcile::MANAGED_BY.to_string(),
+            Some("delonix".to_string()),
+        ),
+    ];
+    if protected {
+        labels.push((
+            super::reconcile::PROTECT.to_string(),
+            Some("true".to_string()),
+        ));
+    }
+    // Previous annotations, so the generation counter sees the prior spec
+    // (ADR-0090) — `service_set_metadata` merges a delta without returning the old.
+    let prev = delonix_sdn::infra::service_get(namespace, name)
+        .map(|d| d.annotations)
+        .unwrap_or_default();
+    let annotations = super::reconcile::stamp_annotation_delta(&prev, fields, k::SERVICE);
+    delonix_sdn::infra::service_set_metadata(namespace, name, &labels, &annotations)
+        .map_err(Into::into)
 }
 
 /// `--prune`/`stack destroy`'s teardown.
@@ -842,6 +853,7 @@ mod tests {
             fields: f,
             owner: dono.map(String::from),
             last_applied: None,
+            protect: false,
         }
     }
 

@@ -402,6 +402,7 @@ hand-written <code>kind:</code> will actually become once the engine reads it.</
 <div class='help'><div class='help-note lang-pt'>Saída real do binário (em inglês).</div><div class='help-note lang-en'>Real output of the binary (English).</div><pre><code>Usage: delonix manifest &lt;COMMAND&gt;
 
 Commands:
+  convert   Rewrite an old manifest to the catalog-v1 apiVersions (ADR-0086)
   render    Print the manifest as the engine will read it, with defaults filled in
   schema    The JSON Schema, generated from the Rust types (ADR-0007)
   validate  Check a manifest against the schema, the references and the graph
@@ -412,7 +413,7 @@ Options:
           Print help (see a summary with &#x27;-h&#x27;)
 
 COMMAND MAP:
-  manifest  validate · render · schema
+  manifest  validate · render · schema · convert
 
 EXAMPLES:
   # everything here is host-free — it reads the file, not the machine
