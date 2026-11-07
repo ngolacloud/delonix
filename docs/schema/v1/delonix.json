@@ -1717,6 +1717,36 @@
       },
       "type": "object"
     },
+    "IpAddressSpec": {
+      "additionalProperties": false,
+      "description": "`spec` of `kind: IPAddress`.",
+      "properties": {
+        "address": {
+          "description": "The specific IPv4 address to claim. It must be one of the addresses the\nnamed `pool` owns.",
+          "type": "string",
+          "x-delonix-update": "live"
+        },
+        "owner": {
+          "default": null,
+          "description": "An optional note of what the address is reserved for — a workload name, a\npurpose. Purely descriptive; it changes nothing the engine does.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-delonix-update": "live"
+        },
+        "pool": {
+          "description": "The `IPPool` the address is claimed from. The pool must already exist (it\nis applied before this, like an `HTTPRoute`'s pool), and the address must\nbelong to it.",
+          "type": "string",
+          "x-delonix-update": "live"
+        }
+      },
+      "required": [
+        "address",
+        "pool"
+      ],
+      "type": "object"
+    },
     "IpPoolSpec": {
       "additionalProperties": false,
       "description": "`spec` of `kind: IPPool`.",
@@ -3693,6 +3723,39 @@
               },
               "spec": {
                 "$ref": "#/$defs/IngressSpec"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "ipAddresses": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "annotations": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "labels": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "name": {
+                "type": "string"
+              },
+              "namespace": {
+                "type": "string"
+              },
+              "spec": {
+                "$ref": "#/$defs/IpAddressSpec"
               }
             },
             "required": [
@@ -6066,6 +6129,31 @@
           },
           "spec": {
             "$ref": "#/$defs/IpPoolSpec"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "IPAddress"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "apiVersion": {
+            "enum": [
+              "networking.delonix.io/v1beta1",
+              "delonix.io/v1"
+            ]
+          },
+          "spec": {
+            "$ref": "#/$defs/IpAddressSpec"
           }
         }
       }

@@ -1,0 +1,50 @@
+# ============================================================================
+# kind: IPAddress (ADR-0086 D3/D4c, ADR-0090) — uma reserva de UM endereço do pool
+# kind: IPAddress (ADR-0086 D3/D4c, ADR-0090) — a claim of ONE address from a pool
+#
+# PT: O IPPool diz que endereços existem; o IPAddress fixa UM deles a um nome, para
+#     que mais nada o alugue. A reserva fica no livro de IPAM vivo (o mesmo que
+#     `delonix network ipam ls` mostra), sob o id `IPAddress/<nome>` — por isso um
+#     segundo IPAddress que peça o MESMO endereço é recusado. Observável e
+#     declarativo: `delonix get ipaddresses`, `delonix describe ipaddress <nome>`,
+#     `delonix delete ipaddress <nome>` (que liberta a lease). Não há verbo
+#     imperativo — aplica-se com `stack apply -f`.
+# EN: The IPPool says which addresses exist; the IPAddress pins ONE of them to a name
+#     so nothing else leases it. The claim is recorded in the live IPAM ledger (the
+#     same one `delonix network ipam ls` shows), under the id `IPAddress/<name>` — so
+#     a second IPAddress asking for the SAME address is refused. Observable and
+#     declarative: `delonix get ipaddresses`, `delonix describe ipaddress <name>`,
+#     `delonix delete ipaddress <name>` (which releases the lease). There is no
+#     imperative verb — apply it with `stack apply -f`.
+#
+# PT: Campos spec: address (o endereço IPv4 a reivindicar; tem de pertencer ao pool),
+#     pool (o IPPool de onde vem), owner (nota opcional do que o reserva).
+# EN: spec fields: address (the IPv4 address to claim; must belong to the pool),
+#     pool (the IPPool it comes from), owner (an optional note of what reserves it).
+#
+# PT: 198.51.100.0/24 é TEST-NET-2 (RFC 5737, documentação) — a reserva é aritmética
+#     no livro e não precisa de setup de rede.
+#     Aplicar:  delonix stack apply -f examples/networking/ipaddress.yaml
+# EN: 198.51.100.0/24 is TEST-NET-2 (RFC 5737, documentation) — the claim is ledger
+#     arithmetic and needs no network setup.
+#     Apply:  delonix stack apply -f examples/networking/ipaddress.yaml
+# ============================================================================
+
+# ── 1. the pool the address is claimed from ──────────────────────────────────
+---
+apiVersion: networking.delonix.io/v1beta1
+kind: IPPool
+metadata: { name: edge }
+spec:
+  addresses: ["198.51.100.0/24"]   # PT: um CIDR de documentação | EN: a documentation CIDR
+  announce: local
+
+# ── 2. the claim: ONE address pinned to a name ───────────────────────────────
+---
+apiVersion: networking.delonix.io/v1beta1
+kind: IPAddress
+metadata: { name: api-vip }
+spec:
+  address: 198.51.100.42   # PT: tem de ser um endereço do pool | EN: must be an address of the pool
+  pool: edge               # PT: o IPPool de onde vem | EN: the IPPool it comes from
+  owner: api-gateway       # PT: nota opcional | EN: optional note
