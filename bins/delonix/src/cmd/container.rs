@@ -143,6 +143,10 @@ pub(crate) struct ContainerSpec {
     #[serde(default, rename = "secretFiles")]
     secret_files: bool,
     #[serde(default)]
+    config: Vec<String>,
+    #[serde(default, rename = "configFiles")]
+    config_files: bool,
+    #[serde(default)]
     tmpfs: Vec<String>,
     #[serde(default)]
     ulimit: Vec<String>,
@@ -769,6 +773,8 @@ pub(crate) const CONTAINER_SPEC_FIELDS: &[&str] = &[
     "detect",
     "secret",
     "secretFiles",
+    "config",
+    "configFiles",
     "tmpfs",
     "ulimit",
     "sysctl",
@@ -1386,6 +1392,14 @@ pub struct RunArgs {
     /// The `--secret`s come in as files in `/run/secrets/` (tmpfs), not env.
     #[arg(long = "secret-files")]
     secret_files: bool,
+    /// Inject a config from the store (`name`), as an environment variable. The
+    /// cleartext sibling of `--secret`. Repeatable. With `--config-files`, it goes
+    /// to `/run/config/<key>`.
+    #[arg(long, add = ArgValueCandidates::new(super::complete::configs))]
+    config: Vec<String>,
+    /// The `--config`s come in as files in `/run/config/` (tmpfs), not env.
+    #[arg(long = "config-files")]
+    config_files: bool,
     /// Load variables from a `.env` file (`KEY=VAL` per line). Repeatable.
     #[arg(long = "env-file")]
     env_file: Vec<String>,
@@ -2171,6 +2185,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         detect,
         secret,
         secret_files,
+        config,
+        config_files,
         env_file,
         env_file0,
         tmpfs,
@@ -2374,6 +2390,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         detect,
         secret,
         secret_files,
+        config,
+        config_files,
         env_file,
         tmpfs,
         ulimit,
@@ -2681,6 +2699,8 @@ pub(crate) fn doc_run_opts(doc: &ManifestDoc) -> Result<RunOpts> {
         detect: spec.detect,
         secret: spec.secret,
         secret_files: spec.secret_files,
+        config: spec.config,
+        config_files: spec.config_files,
         env_file: spec.env_file,
         tmpfs: spec.tmpfs,
         ulimit: spec.ulimit,
@@ -6318,6 +6338,13 @@ pub(crate) fn cmd_exec(
             extra_env.extend(ss.resolve_env(&c.secrets));
         }
     }
+    // Same for `--config` (env mode) — the cleartext sibling — so an `exec` shell
+    // sees the container's own environment, configs included.
+    if !c.config_files && !c.configs.is_empty() {
+        if let Ok(cs) = delonix_state::ConfigStore::open(super::util::state_root()) {
+            extra_env.extend(cs.resolve_env(&c.configs));
+        }
+    }
     extra_env.extend(env.iter().cloned());
     let overrides = runtime::ExecOverrides {
         extra_env: &extra_env,
@@ -7141,6 +7168,10 @@ fn describe_one(c: &Container) {
             .collect();
         d.list("Secret versions", &lines);
     }
+    // The configs this container consumes, by NAME (the values are cleartext and
+    // readable with `describe config <name>`; the container view keeps to names,
+    // as it does for secrets).
+    d.list("Configs", &c.configs);
 
     if c.labels.is_empty() {
         d.field("Labels", "<none>");

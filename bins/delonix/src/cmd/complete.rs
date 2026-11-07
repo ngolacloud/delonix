@@ -221,6 +221,14 @@ pub fn secrets() -> Vec<CompletionCandidate> {
     cands(store.list().into_iter().map(|s| s.name))
 }
 
+/// Names of the cleartext configs (`kind: Config`).
+pub fn configs() -> Vec<CompletionCandidate> {
+    match delonix_state::ConfigStore::open_existing(state_root()) {
+        Ok(Some(store)) => cands(store.list().into_iter().map(|c| c.name)),
+        _ => Vec::new(),
+    }
+}
+
 /// Pods — derived from the `delonix.io/pod` label on their members, which is
 /// where pod membership lives (there is no pod registry; see `cmd::pod`).
 /// Deduped, because a pod of N containers carries the label N times.
