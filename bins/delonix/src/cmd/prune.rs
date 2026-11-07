@@ -238,7 +238,21 @@ pub(crate) fn lease_owners(store: &Store) -> Result<std::collections::HashMap<St
         .map(|d| (d.namespace, d.name))
         .collect();
     add_service_owners(&mut owners, &services);
+    add_ipaddress_owners(&mut owners);
     Ok(owners)
+}
+
+/// A declared `IPAddress` owns its lease (`IPAddress/<name>`, ADR-0086 D4c).
+/// Without this the IPAM reaper would find no live container holding the address
+/// and reclaim the very claim the `IPAddress` exists to make — the same trap
+/// `add_service_owners` closes for a Service's VIP.
+fn add_ipaddress_owners(owners: &mut std::collections::HashMap<String, String>) {
+    for a in super::ipaddress::address_list() {
+        owners.insert(
+            super::ipaddress::claimant_id(&a.name),
+            format!("ipaddress {}", a.name),
+        );
+    }
 }
 
 /// A declared Service that holds a VIP owns its lease (`svc:<ns>/<name>`,
