@@ -88,6 +88,7 @@ fn filled_spec(doc: &ManifestDoc) -> Result<serde_yaml::Value> {
         k::SERVICE => cmd::service::spec_with_defaults(doc),
         k::GITOPS_SOURCE => cmd::gitops::spec_with_defaults(doc),
         k::IPPOOL => cmd::ippool::spec_with_defaults(doc),
+        k::IP_ADDRESS => cmd::ipaddress::spec_with_defaults(doc),
         k::STORAGE_POOL => cmd::storage_pool::spec_with_defaults(doc),
         k::VOLUME => cmd::volume::spec_with_defaults(doc),
         // Secret DOES get a round-trip, and its values are redacted on the way
@@ -539,6 +540,7 @@ pub(crate) fn spec_fields_for(kind: &str) -> Option<&'static [&'static str]> {
         k::SERVICE => Some(crate::cmd::service::SERVICE_SPEC_FIELDS),
         k::GITOPS_SOURCE => Some(crate::cmd::gitops::GITOPS_SOURCE_SPEC_FIELDS),
         k::IPPOOL => Some(crate::cmd::ippool::IPPOOL_SPEC_FIELDS),
+        k::IP_ADDRESS => Some(crate::cmd::ipaddress::IP_ADDRESS_SPEC_FIELDS),
         k::STORAGE_POOL => Some(crate::cmd::storage_pool::STORAGE_POOL_SPEC_FIELDS),
         k::GATEWAY => Some(crate::cmd::tunnel::TUNNEL_SPEC_FIELDS),
         k::WORKLOAD => Some(crate::cmd::workload::WORKLOAD_SPEC_FIELDS),
@@ -2174,6 +2176,7 @@ spec: { image: nginx }
             "runtimePolicies" => ("{ denyPrivileged: true }", "RuntimePolicy"),
             "secrets" => ("{ stringData: { K: v } }", "Secret"),
             "configs" => ("{ data: { K: v } }", "Config"),
+            "ipAddresses" => ("{ address: 198.51.100.42, pool: edge }", "IPAddress"),
             "networks" => ("{ driver: bridge }", "Network"),
             "networkRoutes" => ("{ from: a, to: b }", "NetworkRoute"),
             "networkZones" => ("{ vnets: [{ name: prod }] }", "NetworkZone"),

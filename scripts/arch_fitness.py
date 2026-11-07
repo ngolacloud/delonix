@@ -277,6 +277,9 @@ CLI_DESTINATION = {
     "gatewayproviders": "delonix-networking", "net_profiles": "delonix-networking",
     "net_profiles_install": "delonix-networking", "network_provider": "delonix-networking",
     "ippool": "delonix-networking", "hosts": "delonix-networking", "hosts_file": "delonix-networking",
+    # `ipaddress` is the `kind: IPAddress` surface — a claim from an `IPPool`, so
+    # it extracts to the same context as `ippool`.
+    "ipaddress": "delonix-networking",
     "dns_cleanup": "delonix-networking", "vm_expose": "delonix-networking",
     # delonix-gateway (created in R4)
     "httproute": "delonix-gateway", "tunnel": "delonix-gateway",

@@ -50,6 +50,7 @@
 #   networkAccessRules   NetworkAccessRule  full-networkaccessrule.yaml
 #   networkGateways      NetworkGateway     networkgateway.yaml
 #   ipPools              IPPool             full-ippool.yaml
+#   ipAddresses          IPAddress          networking/ipaddress.yaml
 #   httpRoutes           HTTPRoute          full-httproute.yaml
 #   gateways             Gateway            full-gateway.yaml
 #   gitopsSources        GitOpsSource       full-gitopssource.yaml
@@ -268,6 +269,14 @@ spec:
     - name: edge
       spec:
         addresses: ["127.0.0.10-127.0.0.12"]
+
+  # PT: Uma reserva de UM endereço do pool acima, fixada a um nome — nada mais o aluga.
+  # EN: A claim of ONE address from the pool above, pinned to a name — nothing else leases it.
+  ipAddresses:
+    - name: blog-vip
+      spec:
+        address: 127.0.0.11
+        pool: edge
 
   # PT: Ingress L7 à maneira do Kubernetes: host/path → serviço de backend.
   # EN: Kubernetes-shaped L7 Ingress: host/path → backend service.
