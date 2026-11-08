@@ -92,6 +92,7 @@ pub mod secret;
 pub mod serve;
 pub mod service;
 pub mod sharevolume;
+pub mod snapshot;
 pub mod stack;
 pub mod storage;
 pub mod storage_pool;

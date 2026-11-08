@@ -1837,7 +1837,6 @@ pub(crate) fn volsnap_run(
 fn cmd_snapshot(store: &VolumeStore, action: SnapshotCmd) -> Result<()> {
     match action {
         SnapshotCmd::Create { volume, name } => {
-            let v = store.inspect(&volume)?;
             let snap = name.unwrap_or_else(default_snap_name);
             let tarball = store.snapshot_path(&volume, &snap)?;
             if tarball.exists() {
@@ -1846,7 +1845,9 @@ fn cmd_snapshot(store: &VolumeStore, action: SnapshotCmd) -> Result<()> {
                     &[("snap", &snap)],
                 )));
             }
-            volsnap_run("create", std::path::Path::new(&v.mountpoint), &tarball)?;
+            // ONE implementation of the pack, shared with `kind: Snapshot` — the
+            // mapped-userns re-exec is injected (see `VolumeStore::create_snapshot`).
+            store.create_snapshot(&volume, &snap, &|data, tb| volsnap_run("create", data, tb))?;
             let size = std::fs::metadata(&tarball).map(|m| m.len()).unwrap_or(0);
             println!(
                 "{}",

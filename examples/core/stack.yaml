@@ -44,6 +44,7 @@
 #   systemContainers     SystemContainer    systemcontainer.yaml
 #   containers           Container          full-container.yaml
 #   pods                 Pod                full-pod.yaml
+#   snapshots            Snapshot           storage/snapshot.yaml
 #   services             Service            full-service.yaml
 #   ingress              Ingress            full-ingress.yaml
 #   firewallPolicies     NetworkPolicy      full-networkpolicy.yaml
@@ -250,6 +251,16 @@ spec:
           - name: migrate
             image: migrate/migrate:v4.17.0
             command: ["migrate", "-path", "/m", "-database", "$DB", "up"]
+
+  # PT: Um snapshot ponto-no-tempo do volume `db-data` acima — garante que existe
+  #     (idempotente); apagá-lo remove-o. Alvo: VirtualMachine ou Volume.
+  # EN: A point-in-time snapshot of the `db-data` volume above — ensures it exists
+  #     (idempotent); deleting it removes it. Target: VirtualMachine or Volume.
+  snapshots:
+    - name: db-data-nightly
+      spec:
+        targetKind: Volume
+        targetName: db-data
 
   # PT: DNS round-robin sobre cada contentor que o selector casa, sob
   #     web.<ns>.delonix.internal. Sem VIP, sem daemon.

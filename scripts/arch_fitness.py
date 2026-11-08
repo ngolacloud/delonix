@@ -287,6 +287,9 @@ CLI_DESTINATION = {
     "volume": "delonix-storage", "storage": "delonix-storage", "storage_pool": "delonix-storage",
     "sharevolume": "delonix-storage", "provision": "delonix-storage", "backup": "delonix-storage",
     "rbackup": "delonix-storage", "objectstorage": "delonix-storage",
+    # `snapshot` is the `kind: Snapshot` surface — a point-in-time snapshot of a
+    # Volume or VM; it belongs with the storage context like `volume`.
+    "snapshot": "delonix-storage",
     # delonix-artifact (created in R4; vmimage's guestfs half goes to delonix-guestfs)
     "image": "delonix-artifact", "build": "delonix-artifact", "scan": "delonix-artifact",
     "app": "delonix-artifact", "vmfile": "delonix-artifact", "vmimage": "delonix-artifact",
