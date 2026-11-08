@@ -3230,6 +3230,36 @@
       },
       "type": "object"
     },
+    "SnapshotSpec": {
+      "additionalProperties": false,
+      "description": "`spec` of `kind: Snapshot`.",
+      "properties": {
+        "snapshotName": {
+          "default": null,
+          "description": "The snapshot's own name. Defaults to `metadata.name`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-delonix-update": "live"
+        },
+        "targetKind": {
+          "description": "The kind of the resource to snapshot: `VirtualMachine` or `Volume`.",
+          "type": "string",
+          "x-delonix-update": "live"
+        },
+        "targetName": {
+          "description": "The name of the target resource. It must already exist (a VM or a Volume,\napplied before this), the way an `IPAddress`'s `pool` must.",
+          "type": "string",
+          "x-delonix-update": "live"
+        }
+      },
+      "required": [
+        "targetKind",
+        "targetName"
+      ],
+      "type": "object"
+    },
     "SourceSpec": {
       "additionalProperties": false,
       "description": "`spec.source`.",
@@ -4152,6 +4182,39 @@
               },
               "spec": {
                 "$ref": "#/$defs/ServiceSpec"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "snapshots": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "annotations": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "labels": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "name": {
+                "type": "string"
+              },
+              "namespace": {
+                "type": "string"
+              },
+              "spec": {
+                "$ref": "#/$defs/SnapshotSpec"
               }
             },
             "required": [
@@ -6154,6 +6217,31 @@
           },
           "spec": {
             "$ref": "#/$defs/IpAddressSpec"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Snapshot"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "apiVersion": {
+            "enum": [
+              "storage.delonix.io/v1beta1",
+              "delonix.io/v1"
+            ]
+          },
+          "spec": {
+            "$ref": "#/$defs/SnapshotSpec"
           }
         }
       }

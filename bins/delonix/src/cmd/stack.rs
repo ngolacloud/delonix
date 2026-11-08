@@ -449,6 +449,7 @@ pub(crate) fn desired_of(
                 k::SERVICE => super::service::desired(doc)?,
                 k::IPPOOL => super::ippool::desired(doc)?,
                 k::IP_ADDRESS => super::ipaddress::desired(doc)?,
+                k::SNAPSHOT => super::snapshot::desired(doc)?,
                 k::STORAGE_POOL => super::storage_pool::desired(doc)?,
                 k::POD => super::pod::desired(doc)?,
                 k::IMAGE => super::image::desired(doc)?,
@@ -512,6 +513,7 @@ pub(crate) fn actual_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile:
     out.extend(super::service::actual()?);
     out.extend(super::ippool::actual()?);
     out.extend(super::ipaddress::actual()?);
+    out.extend(super::snapshot::actual()?);
     out.extend(super::storage_pool::actual()?);
     out.extend(super::pod::actual()?);
     out.extend(super::image::actual(docs)?);
@@ -910,6 +912,7 @@ pub(crate) fn compared_fields_table() -> Vec<(&'static str, &'static [&'static s
             k::IP_ADDRESS,
             super::ipaddress::RECONCILED_IP_ADDRESS_FIELDS,
         ),
+        (k::SNAPSHOT, super::snapshot::RECONCILED_SNAPSHOT_FIELDS),
         (
             k::STORAGE_POOL,
             super::storage_pool::RECONCILED_STORAGE_POOL_FIELDS,
@@ -1729,6 +1732,7 @@ fn presence(
         k::SERVICE => super::service::presence_of(doc),
         k::IPPOOL => super::ippool::presence_of(doc),
         k::IP_ADDRESS => super::ipaddress::presence_of(doc),
+        k::SNAPSHOT => super::snapshot::presence_of(doc),
         k::STORAGE_POOL => super::storage_pool::presence_of(doc),
         k::NETWORK_GATEWAY => super::network_gateway::presence_of(doc),
         k::NETWORK_ZONE => super::network_zone::presence_of(doc),
@@ -2642,6 +2646,13 @@ const LAYERS: &[Layer] = &[
         kind: k::POD,
         icon: "🧩",
     },
+    // A point-in-time snapshot of a Volume or a VM: AFTER both, since its target
+    // (which it depends on) has to exist first. A storage Kind, but it cannot sit
+    // with the early ones — a VM snapshot needs the VM, which comes later.
+    Layer {
+        kind: k::SNAPSHOT,
+        icon: "📸",
+    },
     // After the compute Kinds it selects, so its match-count reflects workloads
     // that already exist in this same apply.
     Layer {
@@ -2824,6 +2835,13 @@ fn reference_edges(docs: &[manifest::ManifestDoc]) -> Vec<(usize, usize)> {
                     dep(&spec.pool, &mut edges);
                 }
             }
+            // A Snapshot depends on its target (a VM or a Volume), which must
+            // apply first — `dep` resolves the name to whatever layer declares it.
+            k::SNAPSHOT => {
+                if let Ok(spec) = manifest::spec_of::<super::snapshot::SnapshotSpec>(doc) {
+                    dep(&spec.target_name, &mut edges);
+                }
+            }
             _ => {}
         }
     }
@@ -2947,6 +2965,7 @@ fn apply_layer(kind: &str, docs: &[manifest::ManifestDoc], base: &std::path::Pat
         k::SERVICE => super::service::apply(docs),
         k::IPPOOL => super::ippool::apply(docs),
         k::IP_ADDRESS => super::ipaddress::apply(docs),
+        k::SNAPSHOT => super::snapshot::apply(docs),
         k::FIREWALL_POLICY => super::firewall::apply(docs),
         k::NETWORK_ACCESS_RULE => super::network_access_rule::apply(docs),
         k::NETWORK_GATEWAY => super::network_gateway::apply(docs),
@@ -3111,6 +3130,7 @@ fn destroy_one(kind: &str, name: &str) -> Result<()> {
         k::SERVICE => super::service::remove_for_replace(name),
         k::IPPOOL => super::ippool::remove_for_replace(name),
         k::IP_ADDRESS => super::ipaddress::remove_for_replace(name),
+        k::SNAPSHOT => super::snapshot::remove_for_replace(name),
         k::STORAGE_POOL => super::storage_pool::remove_for_replace(name),
         k::HTTP_ROUTE | k::INGRESS => super::httproute::remove_for_prune(name),
         k::POD => super::pod::remove_pod(name, true),
@@ -3478,6 +3498,20 @@ fn converge_and_stamp(
                         })?;
                     super::ipaddress::converge_doc(doc)?
                 }
+                // `snapshot::apply_one` re-points (removes the old artifact) and
+                // re-ensures the new one, so converging IS applying.
+                k::SNAPSHOT => {
+                    let doc = docs
+                        .iter()
+                        .find(|d| d.kind == c.kind && manifest::plan_name(d) == c.name)
+                        .ok_or_else(|| {
+                            delonix_model::Error::Invalid(format!(
+                                "Snapshot/{}: not in the manifest",
+                                c.name
+                            ))
+                        })?;
+                    super::snapshot::converge_doc(doc)?
+                }
                 k::STORAGE_POOL => {
                     let doc = docs
                         .iter()
@@ -3624,6 +3658,7 @@ fn stamp_all(
             }
             k::IPPOOL => super::ippool::stamp(&d.name, stack, &d.fields, protected),
             k::IP_ADDRESS => super::ipaddress::stamp(&d.name, stack, &d.fields, protected),
+            k::SNAPSHOT => super::snapshot::stamp(&d.name, stack, &d.fields, protected),
             k::STORAGE_POOL => super::storage_pool::stamp(&d.name, stack, &d.fields, protected),
             k::HTTP_ROUTE | k::INGRESS => {
                 super::httproute::stamp(&d.kind, &d.name, stack, &d.fields, protected)
@@ -4549,6 +4584,37 @@ fn validate_graph_full(
                             issues.push(super::po::tf(
                                 "{kind} '{name}' → pool '{pool}' is not a declared or existing IPPool",
                                 &[("kind", &doc.kind), ("name", name), ("pool", &spec.pool)],
+                            ));
+                        }
+                    }
+                    Err(e) => issues.push(e.to_string()),
+                }
+            }
+            k::SNAPSHOT => {
+                // Its target must be a declared/existing VM or Volume — the same
+                // self-containment check an IPAddress's `pool` gets. `targetKind`
+                // must be one the engine can snapshot (VirtualMachine | Volume).
+                match manifest::spec_of::<super::snapshot::SnapshotSpec>(doc) {
+                    Ok(spec) => {
+                        let canon = manifest::canonical_kind(&spec.target_kind);
+                        let resolved = match canon {
+                            k::VOLUME => volumes.contains(&spec.target_name),
+                            k::VM => {
+                                declared_vms.contains(&spec.target_name)
+                                    || existing_containers.contains(&spec.target_name)
+                            }
+                            _ => {
+                                issues.push(super::po::tf(
+                                    "Snapshot '{name}' → targetKind '{kind}' is not snapshottable (use VirtualMachine or Volume)",
+                                    &[("name", name), ("kind", &spec.target_kind)],
+                                ));
+                                continue;
+                            }
+                        };
+                        if !resolved {
+                            issues.push(super::po::tf(
+                                "Snapshot '{name}' → target '{target}' is not a declared or existing {kind}",
+                                &[("name", name), ("target", &spec.target_name), ("kind", canon)],
                             ));
                         }
                     }
@@ -5985,6 +6051,7 @@ spec: {}
             k::SYSTEM_CONTAINER,
             k::CONTAINER,
             k::POD,
+            k::SNAPSHOT,
             k::SERVICE,
             k::IPPOOL,
             k::IP_ADDRESS,
