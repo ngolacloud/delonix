@@ -3247,6 +3247,87 @@ impl Drop for HeldChild {
     }
 }
 
+/// The per-pod PID-namespace anchor for a `shareProcessNamespace` sandbox
+/// (ADR-0092): a minimal "pause" that OWNS the shared PID namespace as PID 1, so
+/// no container's first process is PID 1 — the k8s contract `critest` PodPID
+/// asserts (`/proc/1/cmdline` must not be a container's). Invoked as a fresh,
+/// single-threaded re-exec (`delonix-cri __pid-anchor`), so the `fork` here is
+/// safe. The PARENT prints the anchor's HOST pid (for the CRI to record and have
+/// members `setns(CLONE_NEWPID)` into `/proc/<pid>/ns/pid`) and returns its exit
+/// code; the CHILD becomes PID 1 of the new namespace and never returns.
+///
+/// `unshare(CLONE_NEWPID)` needs CAP_SYS_ADMIN (root) or a user namespace — the
+/// rootful node the kubelet/`critest` drive has it; a rootless caller without a
+/// user namespace gets a clean non-zero exit, never a half-made anchor.
+pub fn run_pid_namespace_anchor() -> i32 {
+    use std::io::Write as _;
+    if let Err(e) = unshare(CloneFlags::CLONE_NEWPID) {
+        eprintln!(
+            "delonix-cri: pid-anchor: unshare(CLONE_NEWPID) failed ({e}) — \
+             needs root or a user namespace"
+        );
+        return 1;
+    }
+    // SAFETY: this process was just exec'd fresh for `__pid-anchor`, so it is
+    // single-threaded and `fork` is async-signal-safe here.
+    match unsafe { fork() } {
+        Ok(ForkResult::Parent { child }) => {
+            // Report the anchor's HOST pid, then exit — the child stays as the
+            // daemon PID 1 of the new namespace, holding it alive for the pod.
+            println!("{}", child.as_raw());
+            let _ = std::io::stdout().flush();
+            0
+        }
+        Ok(ForkResult::Child) => pid_anchor_reap_forever(),
+        Err(e) => {
+            eprintln!("delonix-cri: pid-anchor: fork failed ({e})");
+            1
+        }
+    }
+}
+
+/// PID 1 of a shared pod PID namespace: detach, then reap every orphan the kernel
+/// reparents here (a joined member's workload once its own parent is gone) and
+/// otherwise block. SIGCHLD is blocked and consumed with `sigwait`, so there is no
+/// handler and no busy loop; SIGTERM keeps its default (terminate), which is how the
+/// CRI tears the anchor down with the sandbox. Never returns.
+fn pid_anchor_reap_forever() -> ! {
+    use nix::sys::signal::SigSet;
+    use nix::sys::wait::WaitPidFlag;
+    let _ = nix::unistd::setsid();
+    // Detach stdio: the child inherited the spawner's stdout pipe, and until it
+    // releases that fd the spawner's `Command::output()` (and a shell `$(...)`)
+    // never sees EOF and HANGS waiting for the writer to close. Redirect 0/1/2 to
+    // /dev/null so the only remaining writer is the parent, which exits right after
+    // printing the pid. SAFETY: plain fd ops on a just-forked single-threaded child.
+    unsafe {
+        let devnull = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
+        if devnull >= 0 {
+            libc::dup2(devnull, 0);
+            libc::dup2(devnull, 1);
+            libc::dup2(devnull, 2);
+            if devnull > 2 {
+                libc::close(devnull);
+            }
+        }
+    }
+    let mut chld = SigSet::empty();
+    chld.add(Signal::SIGCHLD);
+    let _ = chld.thread_block();
+    loop {
+        // Reap all currently-reapable children; stop on StillAlive or ECHILD.
+        loop {
+            match waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WNOHANG)) {
+                Ok(WaitStatus::StillAlive) | Err(_) => break,
+                Ok(_) => continue,
+            }
+        }
+        // Block until the next child dies — SIGCHLD is blocked, so this is a clean
+        // `sigwait`, not a handler and not a poll.
+        let _ = chld.wait();
+    }
+}
+
 /// Without rootless/helpers → direct removal.
 pub fn remove_tree_mapped(path: &std::path::Path) {
     if !is_rootless() || !have_subid_helpers() {

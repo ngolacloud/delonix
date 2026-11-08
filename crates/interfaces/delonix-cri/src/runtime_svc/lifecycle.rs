@@ -81,6 +81,14 @@ struct SandboxRec {
     /// changed in the meantime.
     #[serde(default)]
     cni_conf: String,
+    /// ADR-0092: the HOST pid of the per-pod PID-namespace anchor ("pause"), for a
+    /// `shareProcessNamespace` sandbox that got one (rootful only). PID 1 of the
+    /// shared namespace; members `setns` into `/proc/<pause_pid>/ns/pid`, and it is
+    /// killed when the sandbox is removed. `None` = no anchor (not shared, rootless,
+    /// or a sandbox written before this field — `serde(default)`, so the old record
+    /// loads and behaves as before).
+    #[serde(default)]
+    pause_pid: Option<i32>,
 }
 
 /// `NODE` when the sandbox shares the host's namespace, `POD` otherwise — the
@@ -1284,6 +1292,19 @@ pub fn run_pod_sandbox(
             cni_conf = conf_json;
         }
     }
+    // ADR-0092: a `shareProcessNamespace` pod's PID 1 must NOT be a container's
+    // process (`critest` PodPID). Spawn a per-pod pause that OWNS the shared PID
+    // namespace as PID 1; the members join it (anchor = this pid, in
+    // `start_container`). Rootful only — `unshare(CLONE_NEWPID)` needs the privilege
+    // a rootless member does not have, so rootless keeps the refusal
+    // (`shared_pid_host_cni_refusal`). Spawned AFTER the network so a failure here
+    // tears down nothing the sandbox had not already built; its own failure is the
+    // pod's, surfaced to the kubelet.
+    let pause_pid = if shared_pid && !rt.is_rootless() {
+        Some(spawn_pid_anchor()?)
+    } else {
+        None
+    };
     let rec = SandboxRec {
         id: id.clone(),
         name: md.name,
@@ -1321,6 +1342,7 @@ pub fn run_pod_sandbox(
         cni_ip,
         cni_netns,
         cni_conf,
+        pause_pid,
     };
     write_rec(&sb_dir(base), &id, &rec)?;
     delonix_telemetry::metrics::inc_pod_sandbox_created();
@@ -1433,6 +1455,14 @@ pub fn remove_pod_sandbox(
             // No root branch without `cni_netns`: it used to run `pod rm cri-<id>`,
             // a command that does not exist, with its result discarded. A root
             // sandbox record is only ever written after the CNI `ADD` succeeded.
+        }
+        // ADR-0092: tear down the per-pod PID-namespace anchor ("pause") now that
+        // its members are gone (removed above), so the shared namespace is empty
+        // when it dies. Independent of `host_network` (a shared-PID pod may also be
+        // host-networked). `None` on every non-shared/rootless sandbox.
+        if let Some(pid) = sb.pause_pid {
+            // SAFETY: a plain `kill(2)`; an already-dead pid is a harmless ESRCH.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
         }
     }
     remove_rec(&sb_dir(base), &id);
@@ -1990,6 +2020,32 @@ fn apply_shared_pid_rootful(opts: &mut delonix_compute::RunOpts, head_pid: Optio
     }
 }
 
+/// Spawn the per-pod PID-namespace anchor ("pause", ADR-0092) and return its HOST
+/// pid. Re-execs THIS binary as `__pid-anchor` — a fresh, single-threaded process
+/// whose `unshare(CLONE_NEWPID)` + `fork` is safe (unlike a fork inside the
+/// multi-threaded server). That process prints the anchor's host pid and exits,
+/// leaving the anchor (PID 1 of the new namespace) running as a daemon until the
+/// sandbox is removed. Rootful only — the caller gates on `!rt.is_rootless()`.
+fn spawn_pid_anchor() -> Result<i32, Status> {
+    let exe = std::env::current_exe()
+        .map_err(|e| Status::internal(format!("pid-anchor: current_exe: {e}")))?;
+    let out = std::process::Command::new(exe)
+        .arg("__pid-anchor")
+        .output()
+        .map_err(|e| Status::internal(format!("pid-anchor: spawn: {e}")))?;
+    if !out.status.success() {
+        return Err(Status::internal(format!(
+            "pid-anchor: exited {:?}: {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse::<i32>()
+        .map_err(|e| Status::internal(format!("pid-anchor: unparseable pid output: {e}")))
+}
+
 /// Conformance-only opt-in that maps a NIL/absent CRI seccomp profile to
 /// `unconfined` — the CRI's historical contract that `critest`'s "nil profile,
 /// which is unconfined" spec asserts. OFF by default: production keeps the engine's
@@ -2205,7 +2261,15 @@ pub fn start_container(
     //   sidecar that signals its peer would simply find no peer — the gap is refused
     //   with the reason and the fix.
     if sandbox.as_ref().is_some_and(|sb| sb.shared_pid) {
-        let head = sandbox_shared_pid_anchor(base, ops, rt, &rec.sandbox_id, &id);
+        // ADR-0092: with a per-pod pause anchor, EVERY member — including the FIRST
+        // — joins the pause's PID namespace, so PID 1 is the pause and no container's
+        // process is PID 1 (the `critest` PodPID contract). Fall back to the
+        // first-live-container anchor only when there is no pause (the sandbox did
+        // not get one: rootless, or a record written before ADR-0092).
+        let head = sandbox
+            .as_ref()
+            .and_then(|sb| sb.pause_pid)
+            .or_else(|| sandbox_shared_pid_anchor(base, ops, rt, &rec.sandbox_id, &id));
         if opts.pod.is_some() {
             apply_shared_pid(&mut opts, true, head);
         } else if !rt.is_rootless() {
