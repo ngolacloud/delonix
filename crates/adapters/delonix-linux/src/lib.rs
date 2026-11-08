@@ -7300,6 +7300,14 @@ pub struct RunSpec<'a> {
     /// IPC/UTS `setns` works. The infra container (the pod's first member) is
     /// PID 1 of the shared namespace and reaps the orphans reparented to it.
     pub pod_shared_pid: bool,
+    /// **Pod PID sharing on the ROOT single-pass path** (ADR-0092): the host pid of a
+    /// per-pod pause anchor whose PID namespace this container joins on THIS pass,
+    /// decoupled from `pod_infra_pid`/`pod_shared_pid` (which are gated to the `--pod`
+    /// re-exec and also carry IPC/UTS). When `Some`, the container does NOT create its
+    /// own PID namespace (`clone_flags`) and `spawn` `setns`es into the anchor before
+    /// the `clone` — exactly as the `pod_shared_pid` path, but WITHOUT a holder user
+    /// namespace (root has the privilege) and WITHOUT touching IPC/UTS.
+    pub pod_pidns_pid: Option<i32>,
     /// Volumes/bind mounts to inject into the rootfs.
     pub mounts: Vec<Mount>,
     /// Log file for the stdout/stderr (detached) — the "file" *log driver*.
@@ -8483,13 +8491,16 @@ fn clone_flags(spec: &RunSpec<'_>) -> (CloneFlags, bool) {
     let join_pod = spec.pod_infra_pid.is_some();
     // Pod PID sharing: the member is cloned straight into the infra's PID
     // namespace (the parent `setns`es there just before the `clone`, see
-    // `spawn`), so it must NOT be given a fresh one here.
+    // `spawn`), so it must NOT be given a fresh one here. TWO sources: the native
+    // `--pod` pair (`pod_infra_pid` + `pod_shared_pid`, which also carries IPC/UTS),
+    // or the root single-pass pause anchor (`pod_pidns_pid`, PID only — ADR-0092).
     let share_pod_pid = join_pod && spec.pod_shared_pid;
+    let join_pidns = share_pod_pid || spec.pod_pidns_pid.is_some();
     let mut flags = CloneFlags::CLONE_NEWNS;
     if !join_pod && !spec.uts_host {
         flags |= CloneFlags::CLONE_NEWUTS;
     }
-    if !spec.host_pid && !share_pod_pid {
+    if !spec.host_pid && !join_pidns {
         flags |= CloneFlags::CLONE_NEWPID;
     }
     if !spec.host_ipc && !join_pod {
@@ -8604,10 +8615,16 @@ impl Drop for PidnsGuard {
 /// re-exec), which owns the infra's PID namespace — the same reason the IPC/UTS
 /// `setns` in `container_init` works.
 fn enter_pod_pidns(spec: &RunSpec<'_>) -> Result<Option<PidnsGuard>> {
-    if !spec.pod_shared_pid {
-        return Ok(None);
-    }
-    let Some(infra) = spec.pod_infra_pid else {
+    // The PID namespace to join: the root single-pass pause anchor (ADR-0092) takes
+    // precedence; otherwise the native `--pod` pair. Root `setns(CLONE_NEWPID)` into
+    // the anchor needs no holder user namespace — that privilege question is the
+    // caller's (the CRI only sets `pod_pidns_pid` on the rootful path).
+    let target = spec.pod_pidns_pid.or(if spec.pod_shared_pid {
+        spec.pod_infra_pid
+    } else {
+        None
+    });
+    let Some(infra) = target else {
         return Ok(None);
     };
     // Our OWN PID namespace first, opened before the `setns` so the restore

@@ -1,14 +1,18 @@
 # ADR-0092 — Um pod `shareProcessNamespace` precisa de um processo pause como PID 1
 
-**Estado:** Proposto (2026-11-08) — identificado e medido na campanha de
-conformância CRI que levou o `critest v1.36.0` de **84 → 99/103** em rootful-VM+CNI
+**Estado:** Proposto — **IMPLEMENTADO e PROVADO** (2026-11-08). O `critest` PodPID
+passa em rootful-VM+CNI com o pause como PID 1; a suite subiu para **102/103** (só
+resta `rshared`, ADR-0093). Aguarda GO do dono para Aceite. Identificado e medido na
+campanha de conformância CRI que levou o `critest v1.36.0` de **84 → 102/103** em
+rootful-VM+CNI
 (`reports/cri-conformance-0.1.1/00-baseline-develop.md`). O caminho de partilha de
 PID no root-CNI já foi ligado (ADR-sem-número nesta campanha: `apply_shared_pid_rootful`
 em `lifecycle.rs`, que fechou HostNetwork×2/HostIpc×2/portforward-host), mas o spec
-**PodPID** continua a falhar por uma razão arquitectural distinta descrita aqui.
-**NÃO implementado** — adiciona um processo por-pod (decisão de recurso/ciclo de
-vida) que exige GO do dono. **Relaciona:** ADR-0020 (envelope/semântica de pod),
-`reports/cri-conformance-0.1.1/00-baseline-develop.md`.
+**PodPID** falhava por uma razão arquitectural distinta descrita aqui — agora
+**implementada e provada** (ver «RESOLVIDO» no fim). Aguarda GO do dono para Aceite
+(adiciona um processo pause por-pod partilhado + um campo de estado persistido).
+**Relaciona:** ADR-0020 (envelope/semântica de pod), ADR-0093 (`rshared`, o único
+spec que resta), `reports/cri-conformance-0.1.1/00-baseline-develop.md`.
 
 ## Contexto
 
@@ -180,3 +184,13 @@ de `pod_shared_pid`/`pod_infra_pid`. **Blast radius alto** (`clone_flags` afecta
 o arranque de containers) → exige re-validação critest completa numa VM. Ficheiros:
 `run_opts.rs`, `launch.rs` (+ construções em `bins/delonix/src/cmd/container.rs:4040,5708`),
 `launch_spec.rs`, `lib.rs` (RunSpec + clone_flags + enter_pod_pidns).
+
+### RESOLVIDO (2026-11-08) — campo `pod_pidns_pid` + validação
+
+O bloqueio do `second_pass` foi fechado com o campo dedicado **`pod_pidns_pid`**
+(só-PID, desacoplado de `pod_infra_pid`/IPC/UTS), enfiado `RunOpts → Launch
+(accessor ungated) → launch_spec → RunSpec` e honrado em `clone_flags` (suprime
+`CLONE_NEWPID`) + `enter_pod_pidns` (`setns` no pause). `apply_shared_pid_rootful`
+passou a pôr `pod_pidns_pid`. **PROVADO:** `critest` PodPID **passa** em rootful-VM+CNI
+(`/proc/1` = o pause `delonix-cri __pid-anchor`, não o nginx), suite **102/103**
+(só resta `rshared`, ADR-0093). Testes: compute `launch` 6/6, cri 4/4.

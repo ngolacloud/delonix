@@ -28,6 +28,7 @@ pub fn run_spec<'h>(
         new_netns: l.new_netns(),
         pod_infra_pid: l.pod_infra_pid(),
         pod_shared_pid: l.pod_shared_pid(),
+        pod_pidns_pid: l.pod_pidns_pid(),
         userns: l.userns(c),
         inherit_userns: l.inherit_userns(),
         log_path: l.log_path.clone(),
