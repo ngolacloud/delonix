@@ -111,3 +111,42 @@ pelos pods que pedem partilha de PID.
   pods não-partilhados não ganham pause.
 - **Recuperação:** derrube/recriação do pause com o sandbox; nenhum membro fica
   órfão num namespace morto.
+
+## Notas de implementação (investigação de GO, 2026-11-08)
+
+Levantamento do código que o build tem de tocar, e o fork confirmado:
+
+- **Caminho nativo (não-CNI):** já existe um infra container `pod-cri-<id>`
+  («pause»-style) que detém o netns (`run_pod_sandbox`, `lifecycle.rs` ~1155; o seu
+  PID é lido em ~1514). Candidato a passar a deter TAMBÉM o PID-namespace partilhado
+  — mas serve hoje a rede, não o PID.
+- **Caminho root-CNI (o que o `critest` exercita):** **não há processo por-pod** — a
+  rede vem dos plugins CNI no host; não há onde ancorar o PID-1.
+- **Rootless-CNI:** o netns é servido pelo ingress holder por-UID (partilhado por
+  muitos pods), logo também não serve de anchor de PID por-pod.
+
+**Decisão de implementação:** um **pause dedicado e uniforme** por sandbox com
+`shared_pid` (não reaproveitar o `pod-cri-<id>`, que só cobre o caminho nativo e
+mistura responsabilidades rede/PID). O pause é um processo mínimo (`CLONE_NEWPID` +
+filho que `pause()`), spawned no `RunPodSandbox`, derrubado no `RemovePodSandbox`.
+
+**Superfícies a tocar (e o cuidado que cada uma exige):**
+1. **ESTADO PERSISTIDO — `SandboxRec` ganha `pause_pid: Option<i32>`** (e talvez o
+   inode do PID-ns): mudança de serialização → **nota de migração** (`#[serde(default)]`,
+   sandboxes antigos sem o campo = sem pause, comportamento anterior) e compat com o
+   estado no disco. É um invariante do produto.
+2. **Spawn do pause** no `RunPodSandbox` (primitivo novo — não há hoje um «spawn de
+   processo que detém um PID-ns»; o padrão mais próximo é o keep-alive `sleep
+   infinity` do build, `bins/delonix/src/cmd/build.rs`).
+3. **Anchor** = `pause_pid` em vez de `sandbox_shared_pid_anchor` (primeiro
+   container) — `apply_shared_pid`/`apply_shared_pid_rootful` passam a receber o PID
+   do pause.
+4. **Teardown** no `RemovePodSandbox` + **reaping**; **reconciliação pós-crash** (o
+   pause tem de ser recriado/limpo com o sandbox, sem deixar o namespace órfão).
+5. **Validação:** `critest` PodPID (PID 1 = pause) + o positivo (membro vê o nginx
+   num PID > 1) + recuperação, numa VM rootful.
+
+**Recomendação:** por mudar estado persistido e tocar o isolamento de pods, é uma
+frente própria (slice a slice, teste de comportamento antes de remover o mecanismo
+anterior — padrão ADR-0088), não um remendo no fim de uma campanha. O caminho está
+aqui cravado; falta o tempo de engenharia dedicado + a corrida critest de validação.
