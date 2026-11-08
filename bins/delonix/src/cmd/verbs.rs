@@ -42,6 +42,7 @@ pub(crate) const GET_ROUTES: &[&str] = &[
     kinds::SERVICE,
     kinds::IPPOOL,
     kinds::IP_ADDRESS,
+    kinds::SNAPSHOT,
     kinds::STORAGE_POOL,
     kinds::NETWORK_GATEWAY,
     kinds::NETWORK_ZONE,
@@ -76,6 +77,7 @@ pub(crate) const DESCRIBE_ROUTES: &[&str] = &[
     kinds::SERVICE,
     kinds::IPPOOL,
     kinds::IP_ADDRESS,
+    kinds::SNAPSHOT,
     kinds::STORAGE_POOL,
     kinds::CLUSTER,
     kinds::NETWORK_GATEWAY,
@@ -98,6 +100,7 @@ pub(crate) const DELETE_ROUTES: &[&str] = &[
     kinds::SERVICE,
     kinds::IPPOOL,
     kinds::IP_ADDRESS,
+    kinds::SNAPSHOT,
     kinds::STORAGE_POOL,
     kinds::NETWORK_GATEWAY,
     kinds::NETWORK_ZONE,
@@ -353,6 +356,7 @@ pub(crate) fn get(
         k if k == kinds::GITOPS_SOURCE => super::gitops::cmd_ls(output, namespace.as_deref()),
         k if k == kinds::IPPOOL => super::ippool::cmd_ls(output),
         k if k == kinds::IP_ADDRESS => super::ipaddress::cmd_ls(output),
+        k if k == kinds::SNAPSHOT => super::snapshot::cmd_ls(output),
         k if k == kinds::STORAGE_POOL => super::storage_pool::cmd_ls(output),
         k if k == kinds::NETWORK_GATEWAY => super::network_gateway::cmd_ls(output),
         k if k == kinds::NETWORK_ZONE => super::network_zone::cmd_ls(output),
@@ -440,6 +444,7 @@ pub(crate) fn describe(kind: &str, names: &[String]) -> Result<()> {
         k if k == kinds::GITOPS_SOURCE => super::gitops::cmd_describe(&n),
         k if k == kinds::IPPOOL => super::ippool::cmd_describe(&n),
         k if k == kinds::IP_ADDRESS => super::ipaddress::cmd_describe(&n),
+        k if k == kinds::SNAPSHOT => super::snapshot::cmd_describe(&n),
         k if k == kinds::STORAGE_POOL => super::storage_pool::cmd_describe(&n),
         k if k == kinds::NETWORK_GATEWAY => super::network_gateway::cmd_describe(&n),
         k if k == kinds::NETWORK_ZONE => super::network_zone::cmd_describe(&n),
@@ -577,6 +582,16 @@ pub(crate) fn delete(kind: &str, names: &[String], force: bool) -> Result<()> {
                 println!(
                     "{}",
                     super::po::tf("ipaddress {name}: released", &[("name", n)])
+                );
+            }
+            Ok(())
+        }
+        k if k == kinds::SNAPSHOT => {
+            for n in names {
+                super::snapshot::remove_for_replace(n)?;
+                println!(
+                    "{}",
+                    super::po::tf("snapshot {name}: removed", &[("name", n)])
                 );
             }
             Ok(())

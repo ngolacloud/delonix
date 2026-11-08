@@ -639,6 +639,33 @@ const FACTS: &[KindFacts] = &[
         presence: Presence::Derived,
     },
     KindFacts {
+        // ADR-0086 D3/D5d, ADR-0090. LIVE: a convergent declarative snapshot of a
+        // target `VirtualMachine` or `Volume` — it ensures a named point-in-time
+        // snapshot EXISTS on that target (idempotent: created if missing, a no-op
+        // if already there), and `delete`/prune removes it. The imperative `vm
+        // snapshot`/`volume snapshot` stay (like `network ipam` did for
+        // IPAddress). Retention policy and `Bucket`-destination offload are a
+        // later phase under ADR-0090 and are NOT built here. In the stack prefix
+        // AFTER the compute Kinds, since its target (VM/Volume) must exist first.
+        kind: SNAPSHOT,
+        plural: "snapshots",
+        short: &["snap"],
+        api_version: "storage.delonix.io/v1beta1",
+        domain: Domain::Storage,
+        form: Form::Primary,
+        in_stack: true,
+        stack_group: "snapshots",
+        converges: true,
+        teardown: true,
+        // A snapshot artifact is a node resource (it lives beside the target's
+        // data/disk), node-scoped like `IPPool`/`IPAddress`/`StoragePool` — on
+        // `D7_NODE_SCOPED`. `metadata.namespace` does nothing on it in v1.
+        namespaced: Namespaced::Never,
+        // A record of its own (`<root>/snapshot/<name>.json`) answers yes/no, the
+        // same shape `IPAddress` keeps beside the IPAM ledger.
+        presence: Presence::Registry,
+    },
+    KindFacts {
         // ADR-0032: a selector-matched set, DNS round-robin, no VIP. Placed
         // right after the compute Kinds it selects — a Service's own registry
         // entry is independent of them, but the match count printed on
@@ -881,25 +908,6 @@ const FACTS: &[KindFacts] = &[
         presence: Presence::Declarative,
     },
     KindFacts {
-        // ADR-0086 D3/D5d. RESERVED: declared at `v1beta1` with no apply yet —
-        // snapshots today are imperative (`vm snapshot`). The declarative Kind,
-        // its retention and its `Bucket` destination land in a later phase under
-        // ADR-0090. Out of the stack cycle, no group, not observable.
-        kind: SNAPSHOT,
-        plural: "snapshots",
-        short: &["snap"],
-        api_version: "storage.delonix.io/v1beta1",
-        domain: Domain::Storage,
-        form: Form::Reserved,
-        in_stack: false,
-        stack_group: "",
-        converges: false,
-        teardown: false,
-        // Provisional, as for `IPAddress` above: `Never` until the apply exists.
-        namespaced: Namespaced::Never,
-        presence: Presence::NotObservable,
-    },
-    KindFacts {
         // ADR-0086 D3/D7. RESERVED: this node as a readable resource, declared at
         // `v1beta1` with no apply yet — `NodeService.GetCapacity` already serves
         // the capacity, but the declarative Kind's read-back/labels/taints land
@@ -1042,7 +1050,7 @@ pub fn stack_group_absent_reason(kind: &str) -> Option<&'static str> {
              exist, not a resource of this node, so `stack apply` never runs it — grouping \
              it would promise an apply that does not happen"
         }
-        SNAPSHOT | NODE => {
+        NODE => {
             "a Reserved Kind has no apply yet (ADR-0086 D3, built under ADR-0090), so \
              `stack apply` never runs it — grouping it would promise an apply that does \
              not happen"
@@ -1111,6 +1119,7 @@ pub const D7_NODE_SCOPED: &[&str] = &[
     STORAGE_POOL,
     IPPOOL,
     IP_ADDRESS,
+    SNAPSHOT,
     NETWORK_GATEWAY,
     RUNTIME_POLICY,
 ];
