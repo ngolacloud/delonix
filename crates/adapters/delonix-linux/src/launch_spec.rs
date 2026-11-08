@@ -90,6 +90,7 @@ mod tests {
             attached_ip: None,
             pod_infra_pid: None,
             pod_shared_pid: false,
+            pod_pidns_pid: None,
             apparmor: None,
             log_path: None,
             replaces_record: false,
