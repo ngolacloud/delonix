@@ -1,0 +1,283 @@
+[2m2026-11-08T12:53:24.452801Z[0m [32m INFO[0m [2mdelonix_cri[0m[2m:[0m delonix-cri starting [3maddr[0m[2m=[0munix:///tmp/delonix-cri-critest-446346.sock [3mroot[0m[2m=[0m/tmp/delonix-cri-critest-root.JTYu5y
+delonix-cri (CRI v1) listening on unix:///tmp/delonix-cri-critest-446346.sock
+delonix-cri: streaming (exec/attach) at http://127.0.0.1:24329
+delonix-cri: WARNING: no capability ceiling (DELONIX_CRI_CAP_CEILING=all) — a privileged pod gets all capabilities; unset it, or set 'default' or a list of names, to bound it
+[2m2026-11-08T12:53:24.453261Z[0m [33m WARN[0m [2mdelonix_cri[0m[2m:[0m delonix-cri: WARNING: no capability ceiling (DELONIX_CRI_CAP_CEILING=all) — a privileged pod gets all capabilities; unset it, or set 'default' or a list of names, to bound it
+[2m2026-11-08T12:53:24.804120Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/hostnet-nginx-amd64:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/hostnet-nginx-amd64 [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T12:54:18.533049Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md1f3ed64d62218fd
+[2m2026-11-08T12:54:18.550110Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md1f3ed64d62218fd
+[2m2026-11-08T12:54:18.566074Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container rm -f failed [3mcontainer[0m[2m=[0mcri-b17971c353df3b4c [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-b17971c353df3b4c: [DX-4101] no such container: cri-b17971c353df3b4c
+[2m2026-11-08T12:54:19.459129Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling e2e-test-images/busybox:1.29-2 from registry.k8s.io [3mrepo[0m[2m=[0me2e-test-images/busybox [3mreference[0m[2m=[0m1.29-2 [3mhost[0m[2m=[0mregistry.k8s.io
+[2m2026-11-08T12:54:22.562386Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T12:55:28.716618Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mab692ce1f0842feb
+[2m2026-11-08T12:55:28.944831Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mab692ce1f0842feb
+[2m2026-11-08T12:55:29.842719Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m110c9421a26e07c4
+[2m2026-11-08T12:55:29.966419Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m110c9421a26e07c4
+[2m2026-11-08T12:55:30.537457Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m1b91ea4eb75b5851
+[2m2026-11-08T12:55:30.661312Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m1b91ea4eb75b5851
+[2m2026-11-08T12:55:31.133964Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling e2e-test-images/nginx:1.14-2 from registry.k8s.io [3mrepo[0m[2m=[0me2e-test-images/nginx [3mreference[0m[2m=[0m1.14-2 [3mhost[0m[2m=[0mregistry.k8s.io
+[2m2026-11-08T12:55:37.340542Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T12:57:09.480948Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m637dedc9e96d5661
+[2m2026-11-08T12:57:09.635433Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m637dedc9e96d5661
+[2m2026-11-08T12:57:12.217667Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mb8df438f2d8c4893
+[2m2026-11-08T12:57:12.360879Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mb8df438f2d8c4893
+[2m2026-11-08T12:57:12.585910Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tag:test from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tag [3mreference[0m[2m=[0mtest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T12:57:14.042807Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T12:57:18.229000Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tag:test from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tag [3mreference[0m[2m=[0mtest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T12:57:19.664021Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T12:57:20.173987Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tag:test from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tag [3mreference[0m[2m=[0mtest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T12:57:21.579450Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T12:57:22.413694Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m894e0949e3a9e8a5
+[2m2026-11-08T12:57:22.414724Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m894e0949e3a9e8a5
+[2m2026-11-08T12:57:22.867917Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0ma6132552096f6d9e
+[2m2026-11-08T12:57:22.868926Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0ma6132552096f6d9e
+[2m2026-11-08T12:57:24.343612Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m47f0abe08746c24e
+[2m2026-11-08T12:57:24.344584Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m47f0abe08746c24e
+[2m2026-11-08T12:57:24.832975Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m687722d2be081c08
+[2m2026-11-08T12:57:24.860661Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m687722d2be081c08
+[2m2026-11-08T12:57:24.883684Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container rm -f failed [3mcontainer[0m[2m=[0mcri-01716aa96d8719f5 [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-01716aa96d8719f5: [DX-4101] no such container: cri-01716aa96d8719f5
+[2m2026-11-08T12:57:25.425015Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m44a90b179ffb8ce1
+[2m2026-11-08T12:57:25.547367Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m44a90b179ffb8ce1
+[2m2026-11-08T12:57:27.363550Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0me6137ca471bb7ce0
+[2m2026-11-08T12:57:27.488390Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0me6137ca471bb7ce0
+[2m2026-11-08T12:57:29.111413Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m7d310467d7f5eced
+[2m2026-11-08T12:57:29.233263Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m7d310467d7f5eced
+[2m2026-11-08T12:57:30.859175Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m473fc3851fcc54be
+[2m2026-11-08T12:57:30.978968Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m473fc3851fcc54be
+[2m2026-11-08T12:57:31.191701Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m473fc3851fcc54be
+[2m2026-11-08T12:57:31.192433Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m473fc3851fcc54be
+[2m2026-11-08T12:57:31.519608Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mf3d09b7547ade8f1
+[2m2026-11-08T12:57:31.538941Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mf3d09b7547ade8f1
+[2m2026-11-08T12:57:32.109249Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mbb1c1bd2c52ad56f
+[2m2026-11-08T12:57:32.247320Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mbb1c1bd2c52ad56f
+[2m2026-11-08T12:57:34.075905Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m27f1efc2c0766fd7
+[2m2026-11-08T12:57:34.199175Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m27f1efc2c0766fd7
+[2m2026-11-08T12:57:34.795629Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m865b59e2b057b292
+[2m2026-11-08T12:57:34.930718Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m865b59e2b057b292
+[2m2026-11-08T12:57:35.508726Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mcc67d76c2c1ad9fe
+[2m2026-11-08T12:57:35.526958Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mcc67d76c2c1ad9fe
+[2m2026-11-08T12:57:36.486490Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc9bf20ba7ab1871d
+[2m2026-11-08T12:57:36.487453Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc9bf20ba7ab1871d
+[2m2026-11-08T12:57:37.798566Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m9e4ae2bf7c2c7e43
+[2m2026-11-08T12:57:37.822385Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m9e4ae2bf7c2c7e43
+[2m2026-11-08T12:57:38.401100Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mbe0a7eaca924f39b
+[2m2026-11-08T12:57:38.430332Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mbe0a7eaca924f39b
+[2m2026-11-08T12:57:39.024245Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0ma4c411551a42def9
+[2m2026-11-08T12:57:39.154582Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0ma4c411551a42def9
+[2m2026-11-08T12:57:40.899306Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m42494003b44f8cfd
+[2m2026-11-08T12:57:41.041970Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m42494003b44f8cfd
+[2m2026-11-08T12:57:41.756696Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mdcf81ec523863e24
+[2m2026-11-08T12:57:42.060262Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mdcf81ec523863e24
+[2m2026-11-08T12:57:42.720041Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mf36fb25aa0cc088b
+[2m2026-11-08T12:57:42.844208Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mf36fb25aa0cc088b
+[2m2026-11-08T12:57:44.435345Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mb433d8b8e2d572e3
+[2m2026-11-08T12:57:44.575255Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mb433d8b8e2d572e3
+[2m2026-11-08T12:57:45.171029Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m26b935c2079b8d56
+[2m2026-11-08T12:57:45.338356Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m26b935c2079b8d56
+[2m2026-11-08T12:57:45.914823Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m749884e57f5d0686
+[2m2026-11-08T12:57:46.041011Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m749884e57f5d0686
+[2m2026-11-08T12:57:47.862016Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md29c7c8c7cdd3384
+[2m2026-11-08T12:57:47.988791Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md29c7c8c7cdd3384
+[2m2026-11-08T12:57:48.215663Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md29c7c8c7cdd3384
+[2m2026-11-08T12:57:48.216343Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md29c7c8c7cdd3384
+[2m2026-11-08T12:57:48.219903Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md29c7c8c7cdd3384
+[2m2026-11-08T12:57:48.220674Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md29c7c8c7cdd3384
+[2m2026-11-08T12:57:48.606698Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m8b73ab028549f893
+[2m2026-11-08T12:57:48.764148Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m8b73ab028549f893
+[2m2026-11-08T12:57:49.358862Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md56651ddab631d6e
+[2m2026-11-08T12:57:49.515192Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md56651ddab631d6e
+[2m2026-11-08T12:57:51.131245Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m610c774f37c0f9c9
+[2m2026-11-08T12:57:51.263915Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m610c774f37c0f9c9
+[2m2026-11-08T12:57:51.867536Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mf0158ea2cb1e9881
+[2m2026-11-08T12:57:51.998739Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mf0158ea2cb1e9881
+[2m2026-11-08T12:57:52.597953Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m420fb0cffcee342b
+[2m2026-11-08T12:57:52.732163Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m420fb0cffcee342b
+[2m2026-11-08T12:57:54.529565Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m729234d7fe850233
+[2m2026-11-08T12:57:54.657307Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m729234d7fe850233
+[2m2026-11-08T12:57:55.280982Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m354a4888239f6818
+[2m2026-11-08T12:57:55.410582Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m354a4888239f6818
+[2m2026-11-08T12:57:55.940006Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling e2e-test-images/nonewprivs:1.3 from registry.k8s.io [3mrepo[0m[2m=[0me2e-test-images/nonewprivs [3mreference[0m[2m=[0m1.3 [3mhost[0m[2m=[0mregistry.k8s.io
+[2m2026-11-08T12:57:57.688730Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T12:58:01.804372Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mec3d12e6aa9aa2e0
+[2m2026-11-08T12:58:01.827811Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mec3d12e6aa9aa2e0
+[2m2026-11-08T12:58:02.387105Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.407769Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.651901Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.652709Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.655266Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.656017Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.658929Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.659566Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.662662Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.663352Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.666231Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.666962Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.669951Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:02.670764Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc56b7993e40a4c95
+[2m2026-11-08T12:58:04.311162Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m68c99d8bf436838c
+[2m2026-11-08T12:58:04.439611Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m68c99d8bf436838c
+[2m2026-11-08T12:58:05.034794Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m6cf9b10c10b00309
+[2m2026-11-08T12:58:05.159257Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m6cf9b10c10b00309
+[2m2026-11-08T12:58:06.040191Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m659ed56a162b8461
+[2m2026-11-08T12:58:06.065476Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m659ed56a162b8461
+[2m2026-11-08T12:59:08.935138Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m266af6e9d5266360
+[2m2026-11-08T12:59:09.068853Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m266af6e9d5266360
+[2m2026-11-08T12:59:10.578687Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tag:test from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tag [3mreference[0m[2m=[0mtest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T12:59:11.906658Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T12:59:14.134675Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-9a593a13b588f3f6
+[2m2026-11-08T12:59:14.180592Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mbec0793633ee0cbd
+[2m2026-11-08T12:59:14.181384Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mbec0793633ee0cbd
+[2m2026-11-08T12:59:14.379646Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling pause:3.9 from registry.k8s.io [3mrepo[0m[2m=[0mpause [3mreference[0m[2m=[0m3.9 [3mhost[0m[2m=[0mregistry.k8s.io
+[2m2026-11-08T12:59:16.667934Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T12:59:19.844785Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling pause:3.9 from k8s.gcr.io [3mrepo[0m[2m=[0mpause [3mreference[0m[2m=[0m3.9 [3mhost[0m[2m=[0mk8s.gcr.io
+[2m2026-11-08T12:59:27.385045Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T12:59:28.897546Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-2318b0dcb6ae04bd
+[2m2026-11-08T12:59:29.043255Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mb26e19e68ee0dc4a
+[2m2026-11-08T12:59:29.044069Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mb26e19e68ee0dc4a
+[2m2026-11-08T12:59:29.215953Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mf9196c48-524c-460a-a16b-c18fde95a5c6
+[2m2026-11-08T12:59:29.487749Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m05a599b79602088d
+[2m2026-11-08T12:59:29.489316Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m05a599b79602088d
+[2m2026-11-08T12:59:29.490796Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m05a599b79602088d
+[2m2026-11-08T12:59:30.846300Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mfad933fc-dd4b-4812-b14c-a2e0b3eb6e2b
+[2m2026-11-08T12:59:30.849378Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopContainer [3mcontainer[0m[2m=[0mcri-ba93039a-1a3a-4814-9747-12a47e9d0070 [3mgrace_secs[0m[2m=[0m0
+[2m2026-11-08T12:59:30.877513Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container stop failed [3mcontainer[0m[2m=[0mcri-ba93039a-1a3a-4814-9747-12a47e9d0070 [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-ba93039a-1a3a-4814-9747-12a47e9d0070: [DX-4101] no such container: cri-ba93039a-1a3a-4814-9747-12a47e9d0070
+[2m2026-11-08T12:59:31.200082Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopContainer [3mcontainer[0m[2m=[0mcri-2dee84a16fc93f6c [3mgrace_secs[0m[2m=[0m60
+[2m2026-11-08T12:59:31.331615Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-2dee84a16fc93f6c
+[2m2026-11-08T12:59:31.376450Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-2dee84a16fc93f6c
+[2m2026-11-08T12:59:31.398840Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container rm -f failed [3mcontainer[0m[2m=[0mcri-2dee84a16fc93f6c [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-2dee84a16fc93f6c: [DX-4101] no such container: cri-2dee84a16fc93f6c
+[2m2026-11-08T12:59:31.399986Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc190ff3e18045899
+[2m2026-11-08T12:59:31.400879Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc190ff3e18045899
+[2m2026-11-08T12:59:31.605080Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-8af588ea-12e1-47bf-acbb-ce5629f32efd
+[2m2026-11-08T12:59:31.624500Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container rm -f failed [3mcontainer[0m[2m=[0mcri-8af588ea-12e1-47bf-acbb-ce5629f32efd [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-8af588ea-12e1-47bf-acbb-ce5629f32efd: [DX-4101] no such container: cri-8af588ea-12e1-47bf-acbb-ce5629f32efd
+[2m2026-11-08T12:59:31.987329Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0me6323b1892c57f22
+[2m2026-11-08T12:59:32.135740Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0me6323b1892c57f22
+[2m2026-11-08T12:59:32.705856Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mb9df50f666eb7f46
+[2m2026-11-08T12:59:32.828969Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mb9df50f666eb7f46
+[2m2026-11-08T12:59:34.569353Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc54df3d92bd7056e
+[2m2026-11-08T12:59:34.570343Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc54df3d92bd7056e
+[2m2026-11-08T12:59:35.057932Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m03abdbbe0be9e840
+[2m2026-11-08T12:59:35.058593Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m03abdbbe0be9e840
+[2m2026-11-08T12:59:35.579779Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mf841c04ab89f1367
+[2m2026-11-08T12:59:35.580878Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mf841c04ab89f1367
+[2m2026-11-08T12:59:37.641485Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m8245b9063fa97f89
+[2m2026-11-08T12:59:37.642289Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m8245b9063fa97f89
+[2m2026-11-08T12:59:38.133502Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m6c87596ecce37035
+[2m2026-11-08T12:59:38.134536Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m6c87596ecce37035
+[2m2026-11-08T12:59:38.612905Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md8d7b590175e3a2e
+[2m2026-11-08T12:59:38.613783Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md8d7b590175e3a2e
+[2m2026-11-08T12:59:39.150655Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m70a411bd64ef931c
+[2m2026-11-08T12:59:39.151522Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m70a411bd64ef931c
+[2m2026-11-08T12:59:39.626228Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m6df8f50763766207
+[2m2026-11-08T12:59:39.627008Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m6df8f50763766207
+[2m2026-11-08T12:59:41.329814Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m82ff24724b304c94
+[2m2026-11-08T12:59:41.330712Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m82ff24724b304c94
+[2m2026-11-08T12:59:41.797616Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling e2e-test-images/httpd:2.4.39-4 from registry.k8s.io [3mrepo[0m[2m=[0me2e-test-images/httpd [3mreference[0m[2m=[0m2.4.39-4 [3mhost[0m[2m=[0mregistry.k8s.io
+[2m2026-11-08T12:59:43.129754Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:02:14.867748Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m4aacb4975200c14a
+[2m2026-11-08T13:02:15.137737Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m4aacb4975200c14a
+[2m2026-11-08T13:02:15.952109Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md465206ac27c5e61
+[2m2026-11-08T13:02:16.231005Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md465206ac27c5e61
+[2m2026-11-08T13:02:18.249716Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m7d3c5482d337d30f
+[2m2026-11-08T13:02:18.490822Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m7d3c5482d337d30f
+[2m2026-11-08T13:02:19.049674Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mf2b0036e92f291c2
+[2m2026-11-08T13:02:19.050732Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mf2b0036e92f291c2
+[2m2026-11-08T13:02:19.512024Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m1c7bcee77d1e21c0
+[2m2026-11-08T13:02:19.512959Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m1c7bcee77d1e21c0
+[2m2026-11-08T13:02:19.987861Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc03a65fc81fd99cd
+[2m2026-11-08T13:02:19.988729Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc03a65fc81fd99cd
+[2m2026-11-08T13:02:21.582852Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m27e41bcadf22b936
+[2m2026-11-08T13:02:21.583812Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m27e41bcadf22b936
+[2m2026-11-08T13:02:22.022154Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mec2c0b528de1393f
+[2m2026-11-08T13:02:22.023518Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mec2c0b528de1393f
+[2m2026-11-08T13:02:22.461687Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0maba8a20be1a41b21
+[2m2026-11-08T13:02:22.462707Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0maba8a20be1a41b21
+[2m2026-11-08T13:02:22.895916Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md9213e1f8554c0ea
+[2m2026-11-08T13:02:22.897665Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md9213e1f8554c0ea
+[2m2026-11-08T13:02:22.898321Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md9213e1f8554c0ea
+[2m2026-11-08T13:02:24.484091Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m4229d90d2b1a5c9c
+[2m2026-11-08T13:02:24.485073Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m4229d90d2b1a5c9c
+[2m2026-11-08T13:02:24.917002Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mc24791e2afbcd418
+[2m2026-11-08T13:02:24.917786Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mc24791e2afbcd418
+[2m2026-11-08T13:02:25.338148Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0ma470c9d81957d136
+[2m2026-11-08T13:02:25.362789Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0ma470c9d81957d136
+[2m2026-11-08T13:02:25.380399Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container rm -f failed [3mcontainer[0m[2m=[0mcri-fb23220f5149da8d [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-fb23220f5149da8d: [DX-4101] no such container: cri-fb23220f5149da8d
+[2m2026-11-08T13:02:25.836293Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m4ff4e388c11cac98
+[2m2026-11-08T13:02:25.858333Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m4ff4e388c11cac98
+[2m2026-11-08T13:02:25.874092Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container rm -f failed [3mcontainer[0m[2m=[0mcri-2fa4930a6b928774 [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-2fa4930a6b928774: [DX-4101] no such container: cri-2fa4930a6b928774
+[2m2026-11-08T13:02:26.372630Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mb075079acd4ce4d0
+[2m2026-11-08T13:02:26.502931Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mb075079acd4ce4d0
+[2m2026-11-08T13:02:28.024953Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopContainer [3mcontainer[0m[2m=[0mcri-a8c678a5e9471737 [3mgrace_secs[0m[2m=[0m60
+[2m2026-11-08T13:02:28.147207Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m60529d896d8de60a
+[2m2026-11-08T13:02:28.173176Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m60529d896d8de60a
+[2m2026-11-08T13:02:28.672774Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-07597ebd3b904bfd
+[2m2026-11-08T13:02:28.691822Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container rm -f failed [3mcontainer[0m[2m=[0mcri-07597ebd3b904bfd [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-07597ebd3b904bfd: [DX-4101] no such container: cri-07597ebd3b904bfd
+[2m2026-11-08T13:02:28.693622Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mac9baa6c54854a15
+[2m2026-11-08T13:02:28.694342Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mac9baa6c54854a15
+[2m2026-11-08T13:02:29.191032Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-7a25ba4c73a8cdfb
+[2m2026-11-08T13:02:29.350921Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0ma80b2bbe3834f05f
+[2m2026-11-08T13:02:29.351804Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0ma80b2bbe3834f05f
+[2m2026-11-08T13:02:29.847741Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopContainer [3mcontainer[0m[2m=[0mcri-fd31dfda72a8d2b2 [3mgrace_secs[0m[2m=[0m60
+[2m2026-11-08T13:02:29.972413Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-fd31dfda72a8d2b2
+[2m2026-11-08T13:02:30.017827Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m9f12dbfdbe99798d
+[2m2026-11-08T13:02:30.018698Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m9f12dbfdbe99798d
+[2m2026-11-08T13:02:31.409995Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m215cc508e6bca4a9
+[2m2026-11-08T13:02:31.535089Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m215cc508e6bca4a9
+[2m2026-11-08T13:02:33.478308Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m2367b5c0dc324504
+[2m2026-11-08T13:02:34.016741Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m2367b5c0dc324504
+[2m2026-11-08T13:02:34.771366Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m284886337d049785
+[2m2026-11-08T13:02:34.911966Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m284886337d049785
+[2m2026-11-08T13:02:35.478460Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mfd99b7453ac9c2b4
+[2m2026-11-08T13:02:35.622665Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mfd99b7453ac9c2b4
+[2m2026-11-08T13:02:36.162956Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m014a3879fda977d1
+[2m2026-11-08T13:02:36.319286Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m014a3879fda977d1
+[2m2026-11-08T13:02:38.039184Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m803f41ea9b20f255
+[2m2026-11-08T13:02:38.486672Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m803f41ea9b20f255
+[2m2026-11-08T13:02:39.142492Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m7528e0fbe656af4c
+[2m2026-11-08T13:02:39.262018Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m7528e0fbe656af4c
+[2m2026-11-08T13:02:40.863303Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m1e32a93591b8d071
+[2m2026-11-08T13:02:40.983917Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m1e32a93591b8d071
+[2m2026-11-08T13:02:41.590111Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m7b91f0a9dfa71049
+[2m2026-11-08T13:02:41.715427Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m7b91f0a9dfa71049
+[2m2026-11-08T13:02:42.252787Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m1a2d04d055d2d003
+[2m2026-11-08T13:02:42.282835Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m1a2d04d055d2d003
+[2m2026-11-08T13:02:48.846513Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0ma514f40b4e1aa8cc
+[2m2026-11-08T13:02:48.994125Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0ma514f40b4e1aa8cc
+[2m2026-11-08T13:02:49.245308Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tag:test from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tag [3mreference[0m[2m=[0mtest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:02:50.671654Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:02:51.293043Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tag:test from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tag [3mreference[0m[2m=[0mtest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:02:51.296899Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-latest:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-latest [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:02:52.325720Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:02:52.325731Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:02:54.403115Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-digest:sha256:9700f9a2f5bf2c45f2f605a0bd3bce7cf37420ec9d3ed50ac2758413308766bf from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-digest [3mreference[0m[2m=[0msha256:9700f9a2f5bf2c45f2f605a0bd3bce7cf37420ec9d3ed50ac2758413308766bf [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:02:58.625269Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tag:all from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tag [3mreference[0m[2m=[0mall [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:00.172351Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:02.148308Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-user-uid:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-user-uid [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:03.771634Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:04.884172Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-user-username:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-user-username [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:06.324930Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:07.428454Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-user-uid-group:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-user-uid-group [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:08.395160Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:10.502317Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-user-username-group:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-user-username-group [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:11.942547Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:13.285197Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-1:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-1 [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:14.413671Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:15.923715Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-2:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-2 [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:17.357474Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:19.355342Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-3:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-3 [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:20.782425Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:22.768249Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:1 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m1 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:24.479581Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:26.105280Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:2 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m2 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:27.745819Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:28.249151Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:3 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m3 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:29.777779Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:30.282346Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:1 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m1 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:31.248634Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:31.730993Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:2 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m2 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:32.697244Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:33.187518Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:3 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m3 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-08T13:03:34.686826Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:35.177198Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling pause:3.9 from registry.k8s.io [3mrepo[0m[2m=[0mpause [3mreference[0m[2m=[0m3.9 [3mhost[0m[2m=[0mregistry.k8s.io
+[2m2026-11-08T13:03:37.081788Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-08T13:03:37.537937Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling pause:3.9 from k8s.gcr.io [3mrepo[0m[2m=[0mpause [3mreference[0m[2m=[0m3.9 [3mhost[0m[2m=[0mk8s.gcr.io
+[2m2026-11-08T13:03:39.888258Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
