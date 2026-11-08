@@ -150,3 +150,33 @@ filho que `pause()`), spawned no `RunPodSandbox`, derrubado no `RemovePodSandbox
 frente própria (slice a slice, teste de comportamento antes de remover o mecanismo
 anterior — padrão ADR-0088), não um remendo no fim de uma campanha. O caminho está
 aqui cravado; falta o tempo de engenharia dedicado + a corrida critest de validação.
+
+### Estado da implementação (2026-11-08, ramo `feat/cri-conformance-rootful`, WIP)
+
+FEITO e validado: (1) o **primitivo pause** `delonix_linux::run_pid_namespace_anchor`
++ arg escondido `delonix-cri __pid-anchor` — smoke ao vivo na VM confirma que é
+**PID 1 num PID-namespace distinto** do host (`NSpid: <host> 1`), com o stdio
+desligado (senão `Command::output()` pendura à espera de EOF); (2) ciclo de vida —
+`SandboxRec.pause_pid` (serde(default)), spawn no `RunPodSandbox` (shared_pid +
+rootful), teardown (`SIGKILL`) no `RemovePodSandbox`; (3) anchor = `pause_pid` para
+TODOS os membros. critest **100/103** (de 99).
+
+**BLOQUEIO cravado — o PodPID ainda falha** (`/proc/1` continua a ser o nginx):
+`Launch::pod_infra_pid()` e `pod_shared_pid()` (`launch.rs:68-81`) estão **gated em
+`second_pass`** — o join de PID só dispara no RE-EXEC (caminho nativo `--pod`, que
+entra no userns do holder). O caminho **root-CNI** corre `delonix __apirun` em
+**passe único** (`second_pass=false`, `container.rs:4040/5708`), logo o join nunca
+dispara: `clone_flags` dá `CLONE_NEWPID` ao membro e o nginx vira PID 1. O pause é
+spawned mas **ninguém se junta a ele**.
+
+**Correcção precisa (por fazer):** NÃO basta tirar o gate — `pod_infra_pid` também
+controla IPC/UTS (`clone_flags`: `join_pod` suprime `NEWIPC`/`NEWUTS`; RunSpec
+`has_own_ipcns`), por isso ungate-lo regride o isolamento de IPC/UTS no root. É
+preciso um **campo dedicado só-PID** `pod_pidns_pid: Option<i32>`, ungated, enfiado
+`RunOpts → Launch → launch_spec → RunSpec`, usado APENAS em (a) `clone_flags`
+(suprimir `CLONE_NEWPID` quando `Some`) e (b) `enter_pod_pidns` (`setns` nesse pid),
+sem tocar IPC/UTS. `apply_shared_pid_rootful` passa a pôr `opts.pod_pidns_pid` em vez
+de `pod_shared_pid`/`pod_infra_pid`. **Blast radius alto** (`clone_flags` afecta TODO
+o arranque de containers) → exige re-validação critest completa numa VM. Ficheiros:
+`run_opts.rs`, `launch.rs` (+ construções em `bins/delonix/src/cmd/container.rs:4040,5708`),
+`launch_spec.rs`, `lib.rs` (RunSpec + clone_flags + enter_pod_pidns).
