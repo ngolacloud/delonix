@@ -3289,8 +3289,13 @@ pub fn run_pid_namespace_anchor() -> i32 {
 /// PID 1 of a shared pod PID namespace: detach, then reap every orphan the kernel
 /// reparents here (a joined member's workload once its own parent is gone) and
 /// otherwise block. SIGCHLD is blocked and consumed with `sigwait`, so there is no
-/// handler and no busy loop; SIGTERM keeps its default (terminate), which is how the
-/// CRI tears the anchor down with the sandbox. Never returns.
+/// handler and no busy loop. Never returns.
+///
+/// Teardown is a **SIGKILL** from the host (ancestor) namespace at
+/// `RemovePodSandbox`, which also kills the whole PID namespace. It is NOT SIGTERM:
+/// a namespace PID 1 with no handler has SIGTERM discarded by the kernel (the init
+/// protection), so a graceful signal would be ignored — SIGKILL is the only reliable
+/// one and is exactly what the CRI sends.
 fn pid_anchor_reap_forever() -> ! {
     use nix::sys::signal::SigSet;
     use nix::sys::wait::WaitPidFlag;
@@ -3299,16 +3304,18 @@ fn pid_anchor_reap_forever() -> ! {
     // releases that fd the spawner's `Command::output()` (and a shell `$(...)`)
     // never sees EOF and HANGS waiting for the writer to close. Redirect 0/1/2 to
     // /dev/null so the only remaining writer is the parent, which exits right after
-    // printing the pid. SAFETY: plain fd ops on a just-forked single-threaded child.
+    // printing the pid. If `dup2` ever fails we `close` the inherited descriptor
+    // instead, so the pipe still gets its EOF. SAFETY: plain fd ops on a just-forked
+    // single-threaded child.
     unsafe {
         let devnull = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
-        if devnull >= 0 {
-            libc::dup2(devnull, 0);
-            libc::dup2(devnull, 1);
-            libc::dup2(devnull, 2);
-            if devnull > 2 {
-                libc::close(devnull);
+        for fd in 0..3 {
+            if devnull < 0 || libc::dup2(devnull, fd) < 0 {
+                libc::close(fd);
             }
+        }
+        if devnull > 2 {
+            libc::close(devnull);
         }
     }
     let mut chld = SigSet::empty();
@@ -3323,8 +3330,11 @@ fn pid_anchor_reap_forever() -> ! {
             }
         }
         // Block until the next child dies — SIGCHLD is blocked, so this is a clean
-        // `sigwait`, not a handler and not a poll.
-        let _ = chld.wait();
+        // `sigwait`, not a handler and not a poll. On the (not-expected) error path,
+        // a short sleep keeps a persistent `Err` from becoming a busy loop.
+        if chld.wait().is_err() {
+            let _ = nix::unistd::sleep(1);
+        }
     }
 }
 
@@ -15292,6 +15302,29 @@ mod spawn_step_tests {
         assert!(clone_flags(&orphan_shared)
             .0
             .contains(CloneFlags::CLONE_NEWPID));
+
+        // ADR-0092: the root single-pass pause anchor (`pod_pidns_pid`) suppresses
+        // CLONE_NEWPID — the member joins the pause's PID namespace — but leaves
+        // IPC and UTS isolation ALONE (unlike `pod_infra_pid`, which also waives
+        // them). This decoupling is what lets the root path share PID without
+        // regressing IPC/UTS.
+        let pidns_anchor = RunSpec {
+            pod_pidns_pid: Some(99),
+            ..Default::default()
+        };
+        let (f, _) = clone_flags(&pidns_anchor);
+        assert!(
+            !f.contains(CloneFlags::CLONE_NEWPID),
+            "joins the anchor's PID namespace"
+        );
+        assert!(
+            f.contains(CloneFlags::CLONE_NEWIPC),
+            "own IPC namespace kept"
+        );
+        assert!(
+            f.contains(CloneFlags::CLONE_NEWUTS),
+            "own UTS namespace kept"
+        );
 
         let host = RunSpec {
             host_pid: true,
