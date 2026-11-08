@@ -718,6 +718,36 @@ impl VolumeStore {
         Ok(self.snapshots_dir(volume).join(format!("{snap}.tar.gz")))
     }
 
+    /// Creates a snapshot of `volume` named `snap`: a tar.gz of its `_data`,
+    /// written to `<vol>/_snapshots/<snap>.tar.gz`. Returns the tarball path.
+    ///
+    /// **The tar itself is INJECTED** (`tar`), exactly as [`Self::remove_with`]
+    /// injects its tree remover, and for the same reason: in rootless the data is
+    /// owned by subuids, so the pack must run in a mapped userns (the CLI's
+    /// `__volsnap` re-exec), which lives above this layer — this crate knows only
+    /// about paths and names. A rootful caller or a test passes a direct tar. The
+    /// one implementation of "inspect → path → pack" lives here, so the Snapshot
+    /// Kind and the imperative `volume snapshot create` cannot drift apart.
+    ///
+    /// It does NOT itself refuse an existing snapshot: the imperative command
+    /// wants a conflict there, the convergent `kind: Snapshot` wants a no-op, so
+    /// that decision is each caller's. The pack is expected to write atomically
+    /// (tmp + rename), so a re-pack is safe.
+    pub fn create_snapshot(
+        &self,
+        volume: &str,
+        snap: &str,
+        tar: &dyn Fn(
+            &std::path::Path,
+            &std::path::Path,
+        ) -> std::result::Result<(), delonix_model::Error>,
+    ) -> Result<PathBuf> {
+        let v = self.inspect(volume)?;
+        let tarball = self.snapshot_path(volume, snap)?;
+        tar(std::path::Path::new(&v.mountpoint), &tarball).map_err(Error::Engine)?;
+        Ok(tarball)
+    }
+
     /// Lists the snapshots of a volume: `(name, bytes, mtime-unix)`.
     pub fn list_snapshots(&self, name: &str) -> Result<Vec<(String, u64, i64)>> {
         let dir = self.snapshots_dir(name);
@@ -1986,6 +2016,34 @@ mod tests {
         // remove
         vs.remove_snapshot("v1", "s1").unwrap();
         assert!(vs.remove_snapshot("v1", "s1").is_err());
+    }
+
+    #[test]
+    fn create_snapshot_runs_the_injected_pack_at_the_derived_path() {
+        let (vs, _tmp) = store();
+        let v = vs.create("v1").unwrap();
+        // The injected pack records the (data, tarball) it was handed and writes
+        // a byte there, standing in for the real tar the CLI runs in a userns.
+        let seen = std::cell::RefCell::new(None);
+        let got = vs
+            .create_snapshot("v1", "nightly", &|data, tarball| {
+                *seen.borrow_mut() = Some((data.to_path_buf(), tarball.to_path_buf()));
+                std::fs::create_dir_all(tarball.parent().unwrap()).unwrap();
+                std::fs::write(tarball, b"snap").unwrap();
+                Ok(())
+            })
+            .unwrap();
+        // It packs the volume's data dir into the validated `<vol>/_snapshots/..` path.
+        let (data, tarball) = seen.into_inner().unwrap();
+        assert_eq!(data, std::path::Path::new(&v.mountpoint));
+        assert_eq!(tarball, got);
+        assert_eq!(got, vs.snapshot_path("v1", "nightly").unwrap());
+        // And the result is visible to the listing, like any snapshot.
+        assert_eq!(vs.list_snapshots("v1").unwrap()[0].0, "nightly");
+        // An unknown volume is an error BEFORE the pack ever runs.
+        assert!(vs.create_snapshot("ghost", "x", &|_, _| Ok(())).is_err());
+        // An unsafe name is refused by `snapshot_path`.
+        assert!(vs.create_snapshot("v1", "../evil", &|_, _| Ok(())).is_err());
     }
 
     /// REGRESSION (silent overflow): the alert arithmetic must hold for quotas
