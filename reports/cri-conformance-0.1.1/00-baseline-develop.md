@@ -193,3 +193,23 @@ candidatos a investigação dedicada / ADR.
   dedicado, com desenho validado antes de mexer no spawn/mount path.
 - Flakiness de OOM/Multiple-Containers: investigar separadamente (estabilidade do
   harness sob corridas repetidas na mesma VM), não é gap de conformância do motor.
+
+---
+
+# PodPID RESOLVIDO (2026-11-08): 100 → 102/103
+
+O pause-PID-1 (ADR-0092) + o campo de engine `pod_pidns_pid` fecharam o PodPID.
+
+| Passo | Passed/103 |
+|---|---|
+| rootless | 84 |
+| rootful-VM+CNI | 90 |
+| + A + C + B(harness) | 97 |
+| + B (fix bug AppArmor) | 99 |
+| + pause anchor (ADR-0092) | 100 |
+| **+ `pod_pidns_pid` (join no passe único root)** | **102** |
+
+`/proc/1/cmdline` num membro de pod shareProcessNamespace = `delonix-cri __pid-anchor`
+(o pause), não `nginx: master process` → PodPID passa. **Única falha restante:
+`rshared`** (ADR-0093 — propagação de mount bidireccional atrás de privilégio, por
+implementar). OOM = flaky (passou nesta corrida).

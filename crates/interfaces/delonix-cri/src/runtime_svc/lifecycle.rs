@@ -2014,9 +2014,13 @@ fn apply_shared_pid(opts: &mut delonix_compute::RunOpts, shared_pid: bool, head_
 /// namespace. `head_pid == None` → this member IS the anchor and keeps its own PID
 /// namespace. PURE.
 fn apply_shared_pid_rootful(opts: &mut delonix_compute::RunOpts, head_pid: Option<i32>) {
+    // The dedicated PID-only anchor (ADR-0092), NOT `pod_infra_pid`/`pod_shared_pid`:
+    // those are gated to the `--pod` re-exec and also drive IPC/UTS, whereas the root
+    // path is single-pass and must join ONLY the pause's PID namespace. The engine
+    // (`enter_pod_pidns` + `clone_flags`) honours `pod_pidns_pid` on this pass without
+    // a holder user namespace — root has the `setns(CLONE_NEWPID)` privilege.
     if let Some(pid) = head_pid {
-        opts.pod_shared_pid = true;
-        opts.pod_infra_pid = Some(pid);
+        opts.pod_pidns_pid = Some(pid);
     }
 }
 
@@ -5410,19 +5414,21 @@ mod tests {
     /// unlike `apply_shared_pid`, which gates on `opts.pod`. The anchor itself
     /// (`head == None`) still keeps its own PID namespace.
     #[test]
-    fn apply_shared_pid_rootful_wires_the_pair_without_opts_pod() {
-        // A later member, no `opts.pod` (root CNI/hostNetwork), live anchor → joins.
+    fn apply_shared_pid_rootful_wires_the_pidns_anchor_only() {
+        // A member on the root path joins the pause via the PID-ONLY `pod_pidns_pid`,
+        // never `pod_infra_pid`/`pod_shared_pid` (those are the native `--pod` pair and
+        // also carry IPC/UTS, which the root path must NOT change).
         let mut member = delonix_compute::RunOpts::default();
         assert!(member.pod.is_none());
         apply_shared_pid_rootful(&mut member, Some(4321));
-        assert!(member.pod_shared_pid);
-        assert_eq!(member.pod_infra_pid, Some(4321));
+        assert_eq!(member.pod_pidns_pid, Some(4321));
+        assert!(!member.pod_shared_pid, "IPC/UTS path untouched");
+        assert_eq!(member.pod_infra_pid, None, "IPC/UTS path untouched");
 
-        // The anchor itself (no live peer yet) keeps its own PID namespace.
+        // No anchor pid (pause not yet live) → nothing wired; keeps its own PID ns.
         let mut head = delonix_compute::RunOpts::default();
         apply_shared_pid_rootful(&mut head, None);
-        assert!(!head.pod_shared_pid);
-        assert_eq!(head.pod_infra_pid, None);
+        assert_eq!(head.pod_pidns_pid, None);
     }
 
     /// The seccomp nil-profile policy: the production default keeps the engine's

@@ -874,6 +874,7 @@ fn work_launch(rootfs: &str) -> delonix_compute::launch::Launch {
         slirp_ports: vec![],
         pod_infra_pid: None,
         pod_shared_pid: false,
+        pod_pidns_pid: None,
         apparmor: None,
         log_path: None,
         replaces_record: false,
