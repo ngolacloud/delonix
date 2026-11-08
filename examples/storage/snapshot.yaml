@@ -1,0 +1,51 @@
+# ============================================================================
+# kind: Snapshot (ADR-0086 D3/D5d, ADR-0090) — um snapshot ponto-no-tempo
+# kind: Snapshot (ADR-0086 D3/D5d, ADR-0090) — a point-in-time snapshot
+#
+# PT: Um Snapshot GARANTE que existe um snapshot nomeado do seu alvo (um Volume ou
+#     uma VirtualMachine): aplicá-lo cria-o se faltar e não faz nada se já existir
+#     (idempotente); apagá-lo remove-o. Observável e declarativo: `delonix get
+#     snapshots`, `delonix describe snapshot <nome>`, `delonix delete snapshot
+#     <nome>` (que remove o artefacto). Não há verbo imperativo novo — aplica-se
+#     com `stack apply -f`; `delonix volume snapshot` continua a funcionar.
+# EN: A Snapshot ENSURES a named snapshot of its target (a Volume or a
+#     VirtualMachine) exists: applying it creates it if missing and does nothing if
+#     it is already there (idempotent); deleting it removes it. Observable and
+#     declarative: `delonix get snapshots`, `delonix describe snapshot <name>`,
+#     `delonix delete snapshot <name>` (which removes the artifact). No new
+#     imperative verb — apply it with `stack apply -f`; `delonix volume snapshot`
+#     still works.
+#
+# PT: Campos spec: targetKind (Volume | VirtualMachine), targetName (o nome do
+#     recurso-alvo, que tem de existir), snapshotName (opcional; por omissão o
+#     metadata.name).
+# EN: spec fields: targetKind (Volume | VirtualMachine), targetName (the name of
+#     the target resource, which must exist), snapshotName (optional; defaults to
+#     metadata.name).
+#
+# PT: Auto-contido: o Volume é declarado aqui, por isso `stack apply` cria-o e
+#     depois snapshota-o numa só corrida.
+#     Aplicar:  delonix stack apply -f examples/storage/snapshot.yaml
+# EN: Self-contained: the Volume is declared here, so `stack apply` creates it and
+#     then snapshots it in one run.
+#     Apply:  delonix stack apply -f examples/storage/snapshot.yaml
+# ============================================================================
+
+# ── 1. the volume the snapshot is taken of ───────────────────────────────────
+---
+apiVersion: storage.delonix.io/v1beta1
+kind: Volume
+metadata: { name: shop-data }
+spec:
+  alertPct: 80   # PT: avisa aos 80% de uso | EN: warn when it is 80% full
+
+# ── 2. the snapshot: a named point-in-time copy of the volume above ───────────
+---
+apiVersion: storage.delonix.io/v1beta1
+kind: Snapshot
+metadata: { name: shop-data-backup }
+spec:
+  targetKind: Volume      # PT: Volume ou VirtualMachine | EN: Volume or VirtualMachine
+  targetName: shop-data   # PT: tem de existir (declarado acima) | EN: must exist (declared above)
+  # PT: snapshotName omitido → usa metadata.name (shop-data-backup).
+  # EN: snapshotName omitted → uses metadata.name (shop-data-backup).

@@ -533,6 +533,9 @@ fn hot_fields(kind: &str) -> &'static [&'static str] {
         // `ipaddress::apply_one` re-reserves and rewrites the record in place: a
         // changed `address`/`pool`/`owner` converges without a recreate.
         k::IP_ADDRESS => &["address", "pool", "owner"],
+        // `snapshot::apply_one` re-points (drops the old artifact) and re-ensures
+        // the new one in place: a changed target or snapshot name converges hot.
+        k::SNAPSHOT => &["targetKind", "targetName", "snapshotName"],
         // The use of a pool is two numbers in a record; the pool itself is
         // never recreated by the engine.
         k::STORAGE_POOL => &["maxRatio", "alertPct"],
