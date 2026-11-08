@@ -32,6 +32,13 @@ pub struct Mount {
     /// mount events from the host reach the container for EVERY mount, not just
     /// this one. That is what Docker and runc do by default; here it is opt-in,
     /// and only turns on when a mount actually asks for it.
+    ///
+    /// `rshared` goes further still: it is bidirectional (a mount made inside
+    /// the container also appears on the host), which the engine confines to the
+    /// rootfs subtree so the volume joins the host source's peer group without
+    /// leaking the container's other mounts out. It is a genuine privilege —
+    /// accepted only for a privileged container on a rootful engine, refused
+    /// otherwise (never silently downgraded to `rslave`). See ADR-0093.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub propagation: Option<String>,
     /// If `true`, a mount the engine INJECTED rather than the user requested —
@@ -56,6 +63,15 @@ impl Mount {
     /// Does this mount ask for host events to reach the container?
     pub fn wants_propagation(&self) -> bool {
         matches!(self.propagation.as_deref(), Some("rslave" | "rshared"))
+    }
+
+    /// Does this mount ask for `rshared` (bidirectional) propagation — a mount
+    /// made inside the container must also appear on the host? That is a
+    /// genuine privilege (it opens a peer group with the host's mount tree), so
+    /// the engine confines the sharing to the rootfs subtree and refuses it for
+    /// an unprivileged or rootless container (ADR-0093).
+    pub fn is_rshared(&self) -> bool {
+        matches!(self.propagation.as_deref(), Some("rshared" | "shared"))
     }
 }
 

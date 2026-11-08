@@ -1439,6 +1439,96 @@ fn mount_point_should_be_dir(source: &std::path::Path) -> bool {
         .unwrap_or(true)
 }
 
+/// The per-mount propagation flag for a mount's `propagation` field, applied as
+/// its OWN `mount()` after the bind (the kernel ignores a propagation flag
+/// combined with `MS_BIND`). Pure, so the mapping is testable without `mount(2)`.
+///
+/// `None` (and any unknown string) maps to `MS_PRIVATE`, and it is applied
+/// anyway rather than skipped: under the rec-SHARED root an `rshared` mount
+/// forces ([`root_propagation`]) a plain bind would otherwise INHERIT the shared
+/// root's peer group and could leak a non-propagating volume back to the host.
+/// Saying `private` severs that. Under the rec-private / rec-slave roots the
+/// other modes use it is a harmless no-op (a fresh bind is already private
+/// there, bar the slave inheritance it is right to drop).
+fn per_mount_propagation(propagation: Option<&str>) -> MsFlags {
+    let base = match propagation {
+        Some("rslave" | "slave") => MsFlags::MS_SLAVE,
+        Some("rshared" | "shared") => MsFlags::MS_SHARED,
+        _ => MsFlags::MS_PRIVATE,
+    };
+    base | MsFlags::MS_REC
+}
+
+/// The container mount-ns ROOT propagation for the NON-`rshared` cases, decided
+/// by what the mounts ask for. Pure (no `mount(2)`), so the choice is unit-tested
+/// directly.
+///
+/// - No mount wants host events → `MS_REC | MS_PRIVATE`: full isolation, the
+///   default, and it stays the default.
+/// - A mount wants `rslave` (host→container) → `MS_REC | MS_SLAVE`: the one-way
+///   link host events need, and what Docker and runc give EVERY container. It
+///   costs nothing to a container that did not ask.
+///
+/// `rshared` (bidirectional) does NOT go through here: a recursive change on `/`
+/// would drag the host source's mount out of its peer group (which it can never
+/// rejoin), so `setup_rootfs` leaves the root untouched for `rshared` and confines
+/// the work to the rootfs subtree instead (ADR-0093). `wants_propagation` is true
+/// for `rshared` too, so a stray `rshared` reaching here would fall to the safe
+/// `MS_SLAVE` arm — but the caller routes it away first.
+fn root_propagation(mounts: &[Mount]) -> MsFlags {
+    if mounts.iter().any(Mount::wants_propagation) {
+        MsFlags::MS_REC | MsFlags::MS_SLAVE
+    } else {
+        MsFlags::MS_REC | MsFlags::MS_PRIVATE
+    }
+}
+
+/// May this engine honour an `rshared` (bidirectional) mount? Pure.
+///
+/// Bidirectional propagation is container→host: a mount made inside the
+/// container appears on the host. That is real privilege over the host's mount
+/// tree, so Kubernetes requires a privileged container for
+/// `mountPropagation: Bidirectional`, and the same bar applies here. A ROOTLESS
+/// engine is refused even for a "privileged" container: privilege there is
+/// confined to the user namespace and cannot touch the host's peer groups, so
+/// the propagation would silently do nothing — the class of silent failure this
+/// engine refuses. [`spawn`] turns a `false` here into a named refusal, never a
+/// quiet downgrade to `rslave`.
+fn rshared_allowed(privileged: bool, rootless: bool) -> bool {
+    privileged && !rootless
+}
+
+/// The mount point of the mount that CONTAINS `path` — the longest mount point in
+/// `mountinfo` that is a prefix of `path` (a path component boundary, so `/run`
+/// matches `/run/dlx/...` but `/ru` does not). Used by the `rshared` setup to
+/// make the rootfs's enclosing mount PRIVATE before the overlay lands on it, so a
+/// container mount under a rec-SHARED root does not propagate out to the host
+/// (ADR-0093 blast radius). Returns `None` if `mountinfo` can't be read.
+fn enclosing_mount_point(path: &str) -> Option<String> {
+    let text = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
+    enclosing_mount_point_from(&text, path)
+}
+
+/// The pure core of [`enclosing_mount_point`]: the longest mount point in a
+/// `mountinfo` body that contains `path` at a component boundary. Split out so the
+/// prefix rule is unit-testable without `/proc`.
+fn enclosing_mount_point_from(mountinfo: &str, path: &str) -> Option<String> {
+    let mut best: Option<String> = None;
+    for line in mountinfo.lines() {
+        // field 4 (0-based) is the mount point.
+        let Some(mp) = line.split_whitespace().nth(4) else {
+            continue;
+        };
+        let is_prefix = path == mp
+            || (path.starts_with(mp)
+                && (mp == "/" || path.as_bytes().get(mp.len()) == Some(&b'/')));
+        if is_prefix && best.as_deref().is_none_or(|b| mp.len() > b.len()) {
+            best = Some(mp.to_string());
+        }
+    }
+    best
+}
+
 fn bind_volume(rootfs: &str, m: &Mount) -> nix::Result<()> {
     if !mount_target_safe(&m.target) {
         return Err(nix::errno::Errno::EINVAL);
@@ -1502,23 +1592,20 @@ fn bind_volume(rootfs: &str, m: &Mount) -> nix::Result<()> {
     // Propagation LAST, and as its OWN `mount()` by kernel rule: the propagation
     // flag cannot be combined with `MS_BIND` in a single call — passed together
     // it is silently ignored, the same trap `MS_RDONLY` on a first bind has.
-    if let Some(p) = m.propagation.as_deref() {
-        let flag = match p {
-            "rslave" | "slave" => MsFlags::MS_SLAVE,
-            "rshared" | "shared" => MsFlags::MS_SHARED,
-            // `private` is already the kernel's default for a fresh bind under a
-            // private root — but say it anyway: under a SLAVE root, which
-            // ANOTHER mount on the same container may have forced, it is not.
-            _ => MsFlags::MS_PRIVATE,
-        };
-        mount(
-            None::<&str>,
-            dst.as_str(),
-            None::<&str>,
-            flag | MsFlags::MS_REC,
-            None::<&str>,
-        )?;
-    }
+    //
+    // Applied for EVERY mount, including the ones that asked for nothing: see
+    // `per_mount_propagation` — a bind left alone under the rec-shared root an
+    // `rshared` mount forces would inherit that sharedness and could leak back
+    // to the host, so each non-propagating mount is pinned `rprivate`. `private`
+    // is also the right thing under a SLAVE root another mount may have forced,
+    // where a fresh bind would otherwise be slave.
+    mount(
+        None::<&str>,
+        dst.as_str(),
+        None::<&str>,
+        per_mount_propagation(m.propagation.as_deref()),
+        None::<&str>,
+    )?;
     Ok(())
 }
 
@@ -2505,18 +2592,53 @@ fn setup_rootfs(
     // tree, which is the right default and stays the default — but it also makes
     // `rslave`/`rshared` on any individual mount a no-op, because there is no
     // peer group left to receive events from. `MS_SLAVE` keeps the one-way link
-    // the propagating mounts need (and is what Docker and runc use for ALL
-    // containers; here it costs nothing to anyone who did not ask).
+    // host→container needs. The two-way choice for those lives in
+    // `root_propagation`, pure and unit-tested.
     //
-    // Deliberately decided by what the mounts ask for, not by a flag: a root
-    // that is slave for a container with no propagating mount would be a wider
-    // opening than the caller requested, and invisible.
-    let root_prop = if mounts.iter().any(|m| m.wants_propagation()) {
-        MsFlags::MS_REC | MsFlags::MS_SLAVE
+    // `rshared` (bidirectional) is the exception, and its whole shape is dictated
+    // by what `/proc/self/mountinfo` showed on a golden VM (ADR-0093), not theory.
+    // Two forces pull opposite ways:
+    //
+    //  - A volume only lands as a PEER of the host source's group (`shared:N`, so
+    //    a mount made inside the container reaches the host) when the host source
+    //    keeps the peer group it was cloned with AND the bind's DESTINATION parent
+    //    — the rootfs — is shared at bind time.
+    //  - Any RECURSIVE propagation change on `/` destroys the first condition: it
+    //    would drag the host source's own mount out of its peer group (to slave or
+    //    private), and a mount can never REJOIN a peer group once it leaves. A
+    //    rec-SHARED `/` keeps the source but then leaks the container's OWN mounts
+    //    (overlay, `/dev`, the leaf cgroup) back to the host namespace where the
+    //    CRI server runs — measured to break the cgroup setup there (`cgroup:
+    //    could not create delonix.slice/...`): the blast radius the ADR warned of.
+    //
+    // So for `rshared` the root is NOT touched recursively at all. The host source
+    // keeps its cloned `shared:N` group untouched; isolation of the container's
+    // own mounts is confined to the rootfs subtree by making the mount that
+    // ENCLOSES the rootfs (e.g. `/run` under the CRI) PRIVATE — nothing the
+    // container mounts beneath it escapes. The rootfs is then bound and made
+    // shared so the volumes bind as peers (see below), and `/` is made private
+    // (non-recursively) only just before `pivot_root`, which refuses a shared
+    // current root.
+    let rshared_rootfs = mounts.iter().any(Mount::is_rshared);
+    if rshared_rootfs {
+        if let Some(enc) = enclosing_mount_point(rootfs) {
+            mount(
+                None::<&str>,
+                enc.as_str(),
+                None::<&str>,
+                MsFlags::MS_PRIVATE,
+                None::<&str>,
+            )?;
+        }
     } else {
-        MsFlags::MS_REC | MsFlags::MS_PRIVATE
-    };
-    mount(None::<&str>, "/", None::<&str>, root_prop, None::<&str>)?;
+        mount(
+            None::<&str>,
+            "/",
+            None::<&str>,
+            root_propagation(mounts),
+            None::<&str>,
+        )?;
+    }
     // AFTER the root propagation (so the overlay never escapes into the host's
     // mount tree) and BEFORE the bind below, which needs `rootfs` to already
     // hold the merged image.
@@ -2528,6 +2650,17 @@ fn setup_rootfs(
         MsFlags::MS_BIND | MsFlags::MS_REC,
         None::<&str>,
     )?;
+    if rshared_rootfs {
+        // rootfs → shared: the volumes bound below join the host source's peer
+        // group through it (its enclosing mount is private, so this does not leak).
+        mount(
+            None::<&str>,
+            rootfs,
+            None::<&str>,
+            MsFlags::MS_SHARED,
+            None::<&str>,
+        )?;
+    }
     // clean /dev with the essential nodes (tmpfs + bind of the host's real device nodes:
     // the only way to have real `crw-rw-rw-` without CAP_MKNOD). Without a user ns it runs HERE,
     // before pivot_root, as real root and while the host's `/dev` is the root. With
@@ -2634,6 +2767,30 @@ fn setup_rootfs(
     // the container does not start. It is what runc/Docker do (they create the mountpoints).
     let _ = std::fs::create_dir_all(format!("{rootfs}/proc"));
     let _ = std::fs::create_dir_all(format!("{rootfs}/sys"));
+    // `rshared` only: the rootfs was made SHARED so the volumes joined the host
+    // source's peer group, and `/` is still at its cloned (shared) propagation
+    // because the root was deliberately not touched recursively. `pivot_root`
+    // refuses to run while the CURRENT root is shared (`EINVAL`), so make `/`
+    // private now that every volume is bound — non-recursively, so the volumes
+    // (mounts of their own) keep `shared:N`. The rootfs itself is reverted to
+    // private too (tidy; the new root's PARENT, the overlay, was already made
+    // private via the enclosing-mount step before the self-bind).
+    if rshared_rootfs {
+        mount(
+            None::<&str>,
+            rootfs,
+            None::<&str>,
+            MsFlags::MS_PRIVATE,
+            None::<&str>,
+        )?;
+        mount(
+            None::<&str>,
+            "/",
+            None::<&str>,
+            MsFlags::MS_PRIVATE,
+            None::<&str>,
+        )?;
+    }
     chdir(rootfs)?;
     pivot_root(".", ".delonix_old")?;
     chdir("/")?;
@@ -2724,9 +2881,35 @@ fn setup_rootfs(
     // With a user ns the old root is unmounted only AFTER setuid + setup_dev_userns
     // (which needs it to wire the host's real nodes into /dev) — done in the caller.
     if !userns {
-        umount2("/.delonix_old", MntFlags::MNT_DETACH)?;
-        let _ = std::fs::remove_dir("/.delonix_old");
+        detach_old_root("/.delonix_old", rshared_rootfs)?;
     }
+    Ok(())
+}
+
+/// Lazily detaches the pivoted-away old root tree.
+///
+/// For an `rshared` container the root was deliberately left at its cloned (often
+/// SHARED) propagation so the host source keeps its peer group — which means this
+/// `MNT_DETACH` would, through that sharing, propagate the unmount of EVERY old
+/// submount (`/`, `/run`, `/sys/fs/cgroup`, …) back out to the host mount
+/// namespace where the engine runs, tearing down the host's own `/sys/fs/cgroup`
+/// (measured: the next container's `cgroup: could not create delonix.slice/...`,
+/// ADR-0093). Making the old tree `MS_REC|MS_PRIVATE` first severs that
+/// propagation; the container's volumes live under the NEW root, not here, so they
+/// keep their peer group untouched. The other modes already rec-slaved the root,
+/// so the detach never propagated — the extra call is a harmless reaffirmation.
+fn detach_old_root(old: &str, rshared: bool) -> nix::Result<()> {
+    if rshared {
+        mount(
+            None::<&str>,
+            old,
+            None::<&str>,
+            MsFlags::MS_REC | MsFlags::MS_PRIVATE,
+            None::<&str>,
+        )?;
+    }
+    umount2(old, MntFlags::MNT_DETACH)?;
+    let _ = std::fs::remove_dir(old);
     Ok(())
 }
 
@@ -4454,10 +4637,11 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             libc::setuid(0);
         }
         // /dev: tmpfs (now owned by uid 0) + bind of the host's real nodes from the
-        // old root preserved by pivot_root. Then unmount it (no longer needed).
+        // old root preserved by pivot_root. Then unmount it (no longer needed) —
+        // `detach_old_root` severs the old tree's propagation first for an
+        // `rshared` container, so the lazy unmount never reaches the host.
         setup_dev_userns("/.delonix_old", devices);
-        let _ = umount2("/.delonix_old", MntFlags::MNT_DETACH);
-        let _ = std::fs::remove_dir("/.delonix_old");
+        let _ = detach_old_root("/.delonix_old", mounts.iter().any(Mount::is_rshared));
     }
     // Kind node: masks the systemd units that FAIL and delay boot in a rootless
     // container (kernel-fs mounts, module modprobe, udev/modules-load). Without
@@ -7947,6 +8131,31 @@ fn spawn(
     // entry the limits are enforced at — and this is the earlier copy of it.
     if let Some(gp) = &container.cgroup_parent {
         group_ceiling_files(gp, "0").map_err(Error::InvalidCgroupParent)?;
+    }
+    // `rshared` (bidirectional) mount propagation is a privilege, refused HERE —
+    // before the rootfs is touched or a child cloned — rather than degraded to
+    // `rslave` in silence (ADR-0093). It opens a peer group with the host's mount
+    // tree, so a mount made inside the container shows up on the host; Kubernetes
+    // requires `privileged` for `mountPropagation: Bidirectional`, and a rootless
+    // engine cannot touch the host's peer groups however privileged the container
+    // claims to be. `root_propagation` only turns the container root rec-SHARED
+    // once this check has passed.
+    if spec.mounts.iter().any(Mount::is_rshared)
+        && !rshared_allowed(container.privileged, is_rootless())
+    {
+        let why = if is_rootless() {
+            "this engine is rootless, so it has no privilege over the host's mount tree"
+        } else {
+            "this container is not privileged"
+        };
+        return Err(Error::BidirectionalNeedsPrivileged(format!(
+            "mount propagation 'rshared' (bidirectional, Kubernetes \
+             `mountPropagation: Bidirectional`) is refused: {why}. It would open a \
+             peer group with the host's mount tree so a mount made inside the \
+             container appears on the host, which needs a privileged container on \
+             a rootful engine. Use 'rslave' for one-way host\u{2192}container \
+             propagation, or run privileged on a rootful node."
+        )));
     }
     // `--hostname` (CRI `PodSandboxConfig.hostname`) overrides the container's
     // name in the UTS namespace and in `/etc/hostname`+`/etc/hosts`; without it,
@@ -15957,5 +16166,147 @@ mod whiteout_synthesis_tests {
         let (expanded, userxattr) = build_whiteout_sidecars(base, &lower_refs);
         assert_eq!(expanded, vec![layer.to_string_lossy().into_owned()]);
         assert!(!userxattr);
+    }
+}
+
+#[cfg(test)]
+mod mount_propagation_tests {
+    use super::*;
+
+    fn mnt(propagation: Option<&str>) -> Mount {
+        Mount {
+            source: "/src".into(),
+            target: "/dst".into(),
+            readonly: false,
+            propagation: propagation.map(str::to_string),
+            optional: false,
+        }
+    }
+
+    // ---- per-mount flag selection (ADR-0093) --------------------------------
+
+    #[test]
+    fn per_mount_rslave_is_slave_recursive() {
+        assert_eq!(
+            per_mount_propagation(Some("rslave")),
+            MsFlags::MS_SLAVE | MsFlags::MS_REC
+        );
+        assert_eq!(
+            per_mount_propagation(Some("slave")),
+            MsFlags::MS_SLAVE | MsFlags::MS_REC
+        );
+    }
+
+    #[test]
+    fn per_mount_rshared_is_shared_recursive() {
+        assert_eq!(
+            per_mount_propagation(Some("rshared")),
+            MsFlags::MS_SHARED | MsFlags::MS_REC
+        );
+        assert_eq!(
+            per_mount_propagation(Some("shared")),
+            MsFlags::MS_SHARED | MsFlags::MS_REC
+        );
+    }
+
+    #[test]
+    fn per_mount_none_and_unknown_are_private_recursive() {
+        // `None` is pinned `rprivate` ON PURPOSE (not skipped): under the
+        // rec-shared root an `rshared` mount forces, an unnamed bind would
+        // otherwise inherit sharedness and could leak back to the host.
+        assert_eq!(
+            per_mount_propagation(None),
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC
+        );
+        assert_eq!(
+            per_mount_propagation(Some("rprivate")),
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC
+        );
+        assert_eq!(
+            per_mount_propagation(Some("garbage")),
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC
+        );
+    }
+
+    // ---- root propagation selection -----------------------------------------
+
+    #[test]
+    fn root_is_private_when_nothing_propagates() {
+        assert_eq!(
+            root_propagation(&[mnt(None), mnt(Some("rprivate"))]),
+            MsFlags::MS_REC | MsFlags::MS_PRIVATE
+        );
+        assert_eq!(root_propagation(&[]), MsFlags::MS_REC | MsFlags::MS_PRIVATE);
+    }
+
+    #[test]
+    fn root_is_slave_for_rslave_only() {
+        assert_eq!(
+            root_propagation(&[mnt(None), mnt(Some("rslave"))]),
+            MsFlags::MS_REC | MsFlags::MS_SLAVE
+        );
+    }
+
+    #[test]
+    fn root_propagation_never_returns_shared() {
+        // `rshared` is handled OUTSIDE `root_propagation` (the root is left
+        // untouched, see `setup_rootfs`/ADR-0093); the function never recursively
+        // shares the root, so a stray `rshared` falls to the safe slave arm.
+        let r = root_propagation(&[mnt(Some("rshared"))]);
+        assert!(!r.contains(MsFlags::MS_SHARED));
+        assert_eq!(r, MsFlags::MS_REC | MsFlags::MS_SLAVE);
+    }
+
+    // ---- privilege gate -----------------------------------------------------
+
+    #[test]
+    fn rshared_allowed_only_privileged_and_rootful() {
+        assert!(rshared_allowed(true, false)); // privileged, rootful → yes
+        assert!(!rshared_allowed(false, false)); // unprivileged → no
+        assert!(!rshared_allowed(true, true)); // rootless → no, even privileged
+        assert!(!rshared_allowed(false, true)); // neither → no
+    }
+
+    #[test]
+    fn is_rshared_matches_both_spellings_only() {
+        assert!(mnt(Some("rshared")).is_rshared());
+        assert!(mnt(Some("shared")).is_rshared());
+        assert!(!mnt(Some("rslave")).is_rshared());
+        assert!(!mnt(None).is_rshared());
+    }
+
+    // ---- enclosing mount point ----------------------------------------------
+
+    const MI: &str = "\
+23 29 0:22 / / rw,relatime shared:1 - ext4 /dev/vda4 rw
+25 23 0:25 / /run rw,nosuid,nodev shared:5 - tmpfs tmpfs rw
+48 25 0:40 / /run/dlx rw,relatime shared:9 - tmpfs tmpfs rw
+30 23 0:26 / /sys rw,nosuid shared:7 - sysfs sysfs rw";
+
+    #[test]
+    fn enclosing_picks_the_longest_containing_mount() {
+        // The overlay lives under /run/dlx → that is the enclosing mount, not
+        // /run or /.
+        assert_eq!(
+            enclosing_mount_point_from(MI, "/run/dlx/containers/abc/merged").as_deref(),
+            Some("/run/dlx")
+        );
+    }
+
+    #[test]
+    fn enclosing_matches_on_component_boundary_only() {
+        // `/run` must not be chosen for `/running` (not a path-component prefix);
+        // falls back to `/`.
+        assert_eq!(
+            enclosing_mount_point_from(MI, "/running/x").as_deref(),
+            Some("/")
+        );
+        // An exact mount point is its own enclosing mount.
+        assert_eq!(
+            enclosing_mount_point_from(MI, "/run").as_deref(),
+            Some("/run")
+        );
+        // Nothing at all (no root line) → None.
+        assert_eq!(enclosing_mount_point_from("", "/run/dlx/x"), None);
     }
 }

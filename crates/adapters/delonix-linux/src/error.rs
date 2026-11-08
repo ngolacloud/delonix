@@ -122,6 +122,15 @@ pub enum Error {
     #[error("{0}")]
     InvalidCgroupParent(String),
 
+    /// A mount asked for `rshared` (bidirectional, Kubernetes
+    /// `mountPropagation: Bidirectional`) without the privilege it requires: a
+    /// privileged container on a rootful engine. Bidirectional propagation opens
+    /// a peer group with the host's mount tree (a mount made inside the container
+    /// appears on the host), so it is refused — never silently downgraded to
+    /// `rslave` — for an unprivileged or rootless container (ADR-0093).
+    #[error("{0}")]
+    BidirectionalNeedsPrivileged(String),
+
     // ---- not running / already running -------------------------------------
     /// The container exists but is not running, and the operation needs it
     /// running. Converts straight into the shared
@@ -240,6 +249,7 @@ impl Error {
             Error::InvalidCdiDeviceName(_) => 1114,
             Error::KubeCgroupNeedsRoot(_) => 1115,
             Error::InvalidCgroupParent(_) => 1116,
+            Error::BidirectionalNeedsPrivileged(_) => 1117,
             Error::NotRunning(_) => 3101,
             Error::CdiDeviceNotFound(_) => 4102,
             Error::AlreadyRunning(_) => 5101,
@@ -288,6 +298,7 @@ impl From<Error> for Dx {
             | Error::InvalidCdiDeviceName(t)
             | Error::KubeCgroupNeedsRoot(t)
             | Error::InvalidCgroupParent(t)
+            | Error::BidirectionalNeedsPrivileged(t)
             | Error::ApparmorUnavailable(t)
             | Error::NoCdiSpec(t) => Dx::Invalid(t),
             Error::NotRunning(t) => Dx::NotRunning(t),
@@ -334,6 +345,9 @@ mod tests {
                     .into(),
             ),
             Error::InvalidCgroupParent("cgroup group \"../x\": not one safe path segment".into()),
+            Error::BidirectionalNeedsPrivileged(
+                "mount propagation 'rshared' is refused: this container is not privileged".into(),
+            ),
             Error::NotRunning("web".into()),
             Error::CgroupParentUnavailable(
                 "cgroup group build-1: could not write memory.max".into(),
