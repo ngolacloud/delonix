@@ -95,3 +95,30 @@ mantém o isolamento por omissão.
 - **Segurança:** um `rshared` de container não-privilegiado é recusado com a razão;
   um container `rprivate`/`rslave` não ganha nenhuma propagação para o host.
 - **Unit:** a selecção de propagação por-mount e o gate de privilégio, puros.
+
+### Investigação (2026-11-08) — a falha é provavelmente específica do delonix, não do kernel
+
+O `delonix` **já aplica** a abordagem do runc: em `bind_volume` (`lib.rs` ~1505)
+um mount com `propagation: rshared` recebe `mount(dst, MS_SHARED | MS_REC)` como
+`mount()` próprio após o bind. O runc faz exactamente isto e o `Bidirectional`
+mountPropagation do Kubernetes **funciona** sobre runc — com a raiz do rootfs
+`rslave`, igual à nossa (`mount("/", MS_REC|MS_SLAVE)`, `lib.rs` ~2519). Logo a
+abordagem não é o problema; a falha é **específica do delonix**.
+
+Suspeitos (por confirmar com depuração de propagação na VM — ler
+`/proc/self/mountinfo` do holder e do host, comparar `shared:`/`master:` peer-group
+IDs antes/depois):
+1. **Ordem vs `pivot_root`**: os volumes são montados ANTES do `pivot_root`
+   (`lib.rs` ~2541); o `pivot_root` + `MNT_DETACH` do root antigo pode quebrar a
+   pertença ao peer-group do host do mount `rshared`.
+2. **A origem, dentro do mount-ns novo, já é slave** (a raiz foi `MS_REC|MS_SLAVE`
+   antes do bind), por isso o `MS_SHARED` no dst cria um peer-group LOCAL
+   (shared-and-slave), não reentra no grupo do host. runc evita isto por desenho —
+   confirmar a diferença exacta.
+3. O teste `critest` monta a origem rshared NO HOST; confirmar que, da vista do
+   container, essa origem ainda está no peer-group do host no instante do bind.
+
+É **depuração iterativa de propagação de mount** (segurança-sensível: um erro
+propaga mounts do container para o host). Contida aos mounts `rshared` (blast
+radius baixo — não afecta o isolamento geral), mas exige uma sessão dedicada com
+repro na VM. A decisão do ADR (peer-group por-mount + gate de privilégio) mantém-se.
