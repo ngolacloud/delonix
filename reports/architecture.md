@@ -7,14 +7,14 @@
 
 | Layer | Crates | Lines | Share |
 | --- | ---: | ---: | ---: |
-| foundation | 2 | 6,458 | 1.7% |
-| context | 6 | 28,588 | 7.7% |
-| adapter | 10 | 83,012 | 22.4% |
+| foundation | 2 | 6,462 | 1.7% |
+| context | 6 | 28,604 | 7.7% |
+| adapter | 10 | 83,377 | 22.5% |
 | provider | 10 | 54,985 | 14.8% |
 | interface | 4 | 36,482 | 9.8% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 159,932 | 43.2% |
-| **total** | **39** | **370,589** | 100% |
+| bin | 6 | 159,932 | 43.1% |
+| **total** | **39** | **370,974** | 100% |
 
 ## Lines per crate
 
@@ -22,14 +22,14 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-model | 5,337 |
+| delonix-model | 5,341 |
 | delonix-net-rules | 1,121 |
 
 ### context
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-compute | 12,800 |
+| delonix-compute | 12,816 |
 | delonix-networking | 5,559 |
 | delonix-stack | 3,744 |
 | delonix-security | 3,313 |
@@ -41,7 +41,7 @@
 | Crate | Lines |
 | --- | ---: |
 | delonix-sdn ⚠️ >20k | 29,203 |
-| delonix-linux ⚠️ >20k | 23,135 |
+| delonix-linux ⚠️ >20k | 23,500 |
 | delonix-oci | 13,671 |
 | delonix-vm | 5,239 |
 | delonix-state | 3,452 |
