@@ -50,7 +50,15 @@ runs:
           echo "::error::the digests here are for 36.2; bump them together with the version"
           exit 1
         fi
-        curl -fsSL -o /tmp/protoc.zip \
+        # Retry on transient failures: the GitHub release CDN returns 504s in
+        # bursts (observed 2026-11-09 failing clippy/test/cli-parity in waves),
+        # and a single `curl` with no retry turned that infra blip into a red
+        # gate. `--retry-all-errors` covers the 504 (not a connection error, so
+        # plain `--retry` would skip it); the pin's `sha256sum -c` below still
+        # rejects any wrong or truncated download, so retrying moves nothing on
+        # trust.
+        curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+          --connect-timeout 20 -o /tmp/protoc.zip \
           "https://github.com/protocolbuffers/protobuf/releases/download/v$PROTOC_VERSION/protoc-$PROTOC_VERSION-$arch.zip"
         echo "$sum  /tmp/protoc.zip" | sha256sum -c -
         sudo unzip -q -o /tmp/protoc.zip -d /usr/local 'bin/protoc' 'include/*'
