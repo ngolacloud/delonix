@@ -4421,6 +4421,19 @@ struct IoSpec {
     /// The child writes the reason here only when the `execvp` of its command
     /// FAILED; a successful `execvp` closes it (CLOEXEC) with nothing written.
     exec_w: Option<i32>,
+    /// `(read, write)` of the CGROUP-PLACEMENT barrier, the non-userns twin of
+    /// `sync`. The child BLOCKS on it right before `execvp`, and the parent
+    /// releases it only after `setup_cgroup` has written the child into the
+    /// resource-limited leaf — so the workload's FIRST page fault is charged to
+    /// the container's cgroup, not the caller's. Without it, a child cloned
+    /// without a user namespace races: it `execve`s and faults its memory in the
+    /// window before the parent's `cgroup.procs` write, and that memory is never
+    /// charged to the leaf (a cgroup v2 migration moves a task, never the pages
+    /// it already faulted). Measured on the CRI OOM conformance spec: `dd bs=20M`
+    /// under `-m 15Mi` kept running (20 MiB of anon pages, only ~3 MiB charged)
+    /// instead of being OOM-killed. `None` on the userns path, where `sync`
+    /// already carries the GO after `setup_cgroup`.
+    cg_sync: Option<(i32, i32)>,
 }
 
 /// Minimal reaping init for Docker/Podman `--init`: forward termination signals
@@ -4542,6 +4555,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 console_sock,
                 ready_w,
                 exec_w,
+                cg_sync,
             },
     } = spec;
     // User namespace: wait for the PARENT to write uid_map/gid_map before continuing
@@ -4902,6 +4916,27 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         // SAFETY: libc umask always succeeds, returning the previous mask.
         unsafe {
             libc::umask(m as libc::mode_t);
+        }
+    }
+    // CGROUP BEFORE THE WORKLOAD (non-userns twin of the userns GO at the top).
+    // The child cloned WITHOUT a user namespace has, until here, run free: the
+    // parent's `setup_cgroup`/`cgroup.procs` write races the `execvp` below. A
+    // cgroup v2 migration moves a task, never the pages it already faulted, so a
+    // workload that touches its memory in that window (`dd bs=20M` under `-m
+    // 15Mi`) stays uncharged and is never OOM-killed — the CRI OOM conformance
+    // spec failed on exactly this. We block here, the LAST point before the user
+    // command (both the `--init` reaper and the `execvp` are past it), until the
+    // parent writes the GO byte from `place_without_userns` — which it does only
+    // after `setup_cgroup` placed us in the leaf. The userns path never reaches
+    // here with a pipe (its GO is `sync`, already consumed before `setup_cgroup`).
+    if let Some((r, w)) = cg_sync {
+        // SAFETY: pipe fds inherited from the clone; close the write, read the
+        // 1-byte GO from the read, close the read. Same shape as the userns `sync`.
+        unsafe {
+            libc::close(w);
+            let mut b = [0u8; 1];
+            let _ = libc::read(r, b.as_mut_ptr() as *mut libc::c_void, 1);
+            libc::close(r);
         }
     }
     // Docker/Podman `--init`: become a tiny reaping init. Everything above (the
@@ -8216,6 +8251,7 @@ fn spawn(
         console_sock,
         ready_w: Some(pipes.ready.1),
         exec_w: pipes.exec.map(|(_, w)| w),
+        cg_sync: pipes.cg_sync,
     };
     // Pod PID sharing (`shareProcessNamespace`): enter the infra's PID namespace
     // HERE, in the parent, so the `clone` below is born inside it —
@@ -8260,10 +8296,14 @@ fn spawn(
     // it runs uncapped. Mounting allocates nothing, so waiting first would buy
     // no safety and cost that.
     // Already done before the GO on the userns path (the rootless default). The
-    // path without userns has no sync point to block the child on, so it keeps
-    // the historical placement — the same asymmetry the network hook has.
+    // path without userns now has its OWN sync point — the `cg_sync` barrier the
+    // child blocks on right before `execvp` — so this places it in the cgroup
+    // (and runs the network hook) BEFORE releasing the entrypoint, the same
+    // guarantee the userns handshake gives. The child is already past the console
+    // `recv_fd` above (it sent the pty master before reaching the barrier), so
+    // writing the GO here cannot deadlock.
     if !handshaken {
-        place_without_userns(container, pid, spec, io_dev.as_deref())?;
+        place_without_userns(container, pid, spec, io_dev.as_deref(), pipes.cg_sync)?;
     }
 
     // Do not return until the child has finished shaping its mount namespace.
@@ -8752,6 +8792,13 @@ struct StartPipes {
     /// when the `execvp` fails; a successful one closes the CLOEXEC write end with
     /// nothing in it, so the parent reads EOF.
     exec: Option<(i32, i32)>,
+    /// CGROUP-PLACEMENT barrier — the non-userns twin of `sync`. Present only
+    /// WITHOUT a new user namespace (the path that goes through
+    /// `place_without_userns`): the child blocks on it before `execvp` until the
+    /// parent has written it into the resource-limited leaf. Like `sync`, it must
+    /// survive the clone, so NO `O_CLOEXEC`. `None` on the userns path, whose
+    /// `sync` already carries the GO after `setup_cgroup`.
+    cg_sync: Option<(i32, i32)>,
 }
 
 /// Opens the [`StartPipes`], in the order they always were: sync, readiness,
@@ -8798,7 +8845,29 @@ fn open_start_pipes(userns: bool) -> Result<StartPipes> {
             Some((fds[0], fds[1]))
         }
     };
-    Ok(StartPipes { sync, ready, exec })
+    // The cgroup-placement barrier is the userns `sync`'s counterpart: it exists
+    // on the path WITHOUT a new user namespace (where `sync` is `None` and the
+    // child would otherwise `execvp` before the parent's `cgroup.procs` write).
+    // Plain `pipe` (no `O_CLOEXEC`): the child keeps it across the clone and reads
+    // the GO on it before the exec. A failure here only loses the barrier (the
+    // historical race), never the start.
+    let cg_sync = if userns {
+        None
+    } else {
+        let mut fds = [0i32; 2];
+        // SAFETY: pipe() fills the 2-fd array.
+        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+            None
+        } else {
+            Some((fds[0], fds[1]))
+        }
+    };
+    Ok(StartPipes {
+        sync,
+        ready,
+        exec,
+        cg_sync,
+    })
 }
 
 /// `clone`s the init with `inputs` moved into it, and drops the parent's copy
@@ -8893,6 +8962,14 @@ fn clone_init(
             if let Some((r, _)) = pipes.exec {
                 // SAFETY: as above.
                 unsafe { libc::close(r) };
+            }
+            if let Some((r, w)) = pipes.cg_sync {
+                // SAFETY: no child was created, so both ends of the cgroup barrier
+                // are ours alone; closing them avoids leaking a pair per failed clone.
+                unsafe {
+                    libc::close(r);
+                    libc::close(w);
+                }
             }
             Err(syserr("clone")(e))
         }
@@ -9143,25 +9220,57 @@ fn place_without_userns(
     pid: Pid,
     spec: &RunSpec<'_>,
     io_dev: Option<&str>,
+    cg_sync: Option<(i32, i32)>,
 ) -> Result<()> {
+    // The child is BLOCKED on the cgroup barrier right before its `execvp` (see
+    // `cg_sync` in `container_init`), so — unlike before — it has NOT faulted its
+    // workload memory yet. We own the write end and close the read end we do not
+    // use; a failure below SIGKILLs the child via `discard_child` and then frees
+    // both ends.
+    if let Some((r, _)) = cg_sync {
+        // SAFETY: our copy of the child's read end; the child holds its own.
+        unsafe { libc::close(r) };
+    }
+    let release = |cg_sync: Option<(i32, i32)>| {
+        if let Some((_, w)) = cg_sync {
+            // SAFETY: our end of the barrier; write the 1-byte GO and close it,
+            // exactly as the userns path releases the child with its `sync` byte.
+            unsafe {
+                let go = [1u8; 1];
+                let _ = libc::write(w, go.as_ptr() as *const libc::c_void, 1);
+                libc::close(w);
+            }
+        }
+    };
+    let abort = |cg_sync: Option<(i32, i32)>| {
+        if let Some((_, w)) = cg_sync {
+            // SAFETY: the child is being SIGKILLed; closing the write end also
+            // unblocks any read still pending (EOF) and frees our end.
+            unsafe { libc::close(w) };
+        }
+    };
     // A cgroup that could not be set up must not leave the container running: it is
-    // already past `execve` here, outside every ceiling, and still holding the
+    // one GO away from `execve` here, outside every ceiling, and still holding the
     // descriptors its caller waits on — a `run -d` hung forever on exactly this
     // (measured 2026-09-15, a cgroupfs pod parent with no controllers enabled). Same
     // teardown the userns path already does.
     if let Err(e) = setup_cgroup(container, pid.as_raw(), io_dev) {
         discard_child(container, pid);
+        abort(cg_sync);
         return Err(e);
     }
-    // Configures the network (or other startup) BEFORE waiting/returning. Only the
-    // path WITHOUT userns reaches here (no sync point to block the child on) — with
-    // userns the hook already ran before the GO, with the child stopped.
+    // Configures the network (or other startup) BEFORE releasing the child — with
+    // the barrier in place, the hook now runs with the entrypoint STILL stopped, so
+    // the network is ready before it starts, the same guarantee the userns path had.
     if let Some(hook) = spec.on_started {
         if let Err(e) = hook(pid.as_raw()) {
             discard_child(container, pid);
+            abort(cg_sync);
             return Err(e);
         }
     }
+    // In the leaf, network up: release the entrypoint to `execvp` inside the cgroup.
+    release(cg_sync);
     Ok(())
 }
 
@@ -15659,6 +15768,7 @@ mod spawn_step_tests {
             console_sock: None,
             ready_w: Some(9),
             exec_w: Some(11),
+            cg_sync: Some((13, 15)),
         };
         let s = i.init_spec(io);
         assert_eq!((s.rootfs, s.cid, s.process.hostname), ("/r", "abc", "host"));
@@ -15670,8 +15780,8 @@ mod spawn_step_tests {
         assert_eq!(s.namespaces.pod_infra_pid, Some(7));
         assert!(s.namespaces.host_pid);
         assert_eq!(
-            (s.io.ready_w, s.io.exec_w, s.io.sync),
-            (Some(9), Some(11), Some((3, 4)))
+            (s.io.ready_w, s.io.exec_w, s.io.sync, s.io.cg_sync),
+            (Some(9), Some(11), Some((3, 4)), Some((13, 15)))
         );
     }
 
@@ -15711,7 +15821,7 @@ mod spawn_step_tests {
         let p = open_start_pipes(false).unwrap();
         assert!(
             p.sync.is_none(),
-            "no handshake without a new user namespace"
+            "no userns handshake without a new user namespace"
         );
         for fd in [p.ready.0, p.ready.1] {
             assert_ne!(fd_flags(fd) & libc::FD_CLOEXEC, 0);
@@ -15719,6 +15829,12 @@ mod spawn_step_tests {
         let (er, ew) = p.exec.unwrap();
         assert_ne!(fd_flags(er) & libc::FD_CLOEXEC, 0);
         assert_ne!(fd_flags(ew) & libc::FD_CLOEXEC, 0);
+        // Without a user namespace the cgroup barrier IS present (it replaces the
+        // userns GO on this path) and, like `sync`, survives the clone: no CLOEXEC.
+        let (cr, cw) = p.cg_sync.expect("cgroup barrier without userns");
+        assert_eq!(fd_flags(cr) & libc::FD_CLOEXEC, 0);
+        assert_eq!(fd_flags(cw) & libc::FD_CLOEXEC, 0);
+        close_pair(p.cg_sync);
         close_pair(Some(p.ready));
         close_pair(p.exec);
 
@@ -15727,6 +15843,11 @@ mod spawn_step_tests {
         // The child keeps the handshake pipe across the clone: no CLOEXEC.
         assert_eq!(fd_flags(sr) & libc::FD_CLOEXEC, 0);
         assert_eq!(fd_flags(sw) & libc::FD_CLOEXEC, 0);
+        // The userns path carries the GO on `sync`, so there is no separate barrier.
+        assert!(
+            p.cg_sync.is_none(),
+            "the userns GO is `sync`; no second barrier"
+        );
         close_pair(p.sync);
         close_pair(Some(p.ready));
         close_pair(p.exec);
