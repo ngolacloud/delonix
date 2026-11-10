@@ -36,6 +36,11 @@ pub struct Launch {
     /// namespace (not just IPC/UTS), so the pod's containers see each other's
     /// processes. Only meaningful alongside `pod_infra_pid` on the re-exec pass.
     pub pod_shared_pid: bool,
+    /// ADR-0092: a per-pod PID-namespace anchor ("pause") this member joins on THIS
+    /// pass, decoupled from `pod_infra_pid` (PID only, never IPC/UTS) and UNGATED by
+    /// `second_pass` — the CRI's root `shareProcessNamespace` path is single-pass and
+    /// root can `setns(CLONE_NEWPID)` without a holder user namespace.
+    pub pod_pidns_pid: Option<i32>,
     /// The AppArmor profile to apply, `unconfined` included.
     pub apparmor: Option<String>,
     /// Where the process's output goes, if anywhere.
@@ -78,6 +83,14 @@ impl Launch {
     /// [`Self::pod_infra_pid`].
     pub fn pod_shared_pid(&self) -> bool {
         self.second_pass && self.pod_shared_pid && self.pod_infra_pid.is_some()
+    }
+
+    /// ADR-0092: the per-pod PID-namespace anchor to join on THIS pass. UNGATED by
+    /// `second_pass` — the root `shareProcessNamespace` path is single-pass. PID
+    /// only; `pod_infra_pid()`/`pod_shared_pid()` (IPC/UTS + native PID) are
+    /// untouched, so an anchor here never changes IPC/UTS isolation.
+    pub fn pod_pidns_pid(&self) -> Option<i32> {
+        self.pod_pidns_pid
     }
 }
 

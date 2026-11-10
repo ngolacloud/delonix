@@ -17493,6 +17493,16 @@ msgstr "O container nomeia um grupo de cgroup (`cgroup_parent`) cujo nome não �
 msgid "Use a group name made of [a-z0-9._-]; give memory as bytes or a suffix (1G, 512Mi), CPU as a decimal number of cores (0.5, 2) and processes as a whole number or `max`."
 msgstr "Usa um nome de grupo feito de [a-z0-9._-]; dá a memória em bytes ou com sufixo (1G, 512Mi), o CPU como número decimal de cores (0.5, 2) e os processos como número inteiro ou `max`."
 
+# DX-1117 — rshared (propagação de mount bidireccional) exige privilégio (ADR-0093)
+msgid "rshared mount propagation needs a privileged, rootful container"
+msgstr "a propagação de mount `rshared` exige um container privilegiado num motor com raiz"
+
+msgid "A mount asked for `rshared` (bidirectional, Kubernetes `mountPropagation: Bidirectional`): a mount made inside the container must also appear on the host. That opens a peer group with the host's mount tree, a real privilege, so it is refused — never silently downgraded to `rslave` — for an unprivileged container or on a rootless engine (which has no privilege over the host's mount tree)."
+msgstr "Um mount pediu `rshared` (bidireccional, `mountPropagation: Bidirectional` do Kubernetes): um mount feito dentro do container tem também de aparecer no host. Isso abre um grupo de peers com a árvore de mount do host, um privilégio a sério, por isso é recusado — nunca degradado em silêncio para `rslave` — a um container não-privilegiado ou num motor rootless (que não tem privilégio sobre a árvore de mount do host)."
+
+msgid "Use `rslave` for one-way host-to-container propagation, or run the container privileged on a rootful node."
+msgstr "Usa `rslave` para propagação unidireccional host→container, ou corre o container privilegiado num nó com raiz."
+
 msgid "the container's cgroup group could not be created or limited"
 msgstr "não foi possível criar ou limitar o grupo de cgroup do container"
 
