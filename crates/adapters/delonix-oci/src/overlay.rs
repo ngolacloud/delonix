@@ -3,7 +3,7 @@
 
 use crate::cas::strip;
 use crate::image::{Image, ImageStore};
-use crate::owners::Owner;
+use crate::owners::{scoped_resolve, Owner};
 use crate::{Error, Result};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use std::path::{Path, PathBuf};
@@ -208,29 +208,22 @@ fn apply_layer_flat_limited(data: &[u8], dest: &Path, limits: LayerLimits) -> Re
             .into_owned();
         let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         if let Some(target) = name.strip_prefix(".wh.") {
-            // SECURITY: unlike the extraction branch below, this used to join the RAW
-            // tar path (never run through `safe_rel`) straight into `remove_dir_all`/
-            // `remove_file` — a `..`-laden whiteout entry (e.g.
-            // `../../../../home/<u>/.wh..wh..opq`) deleted files outside `dest`. Reject
-            // any whiteout whose path isn't confined (mirrors the extraction branch).
+            // SECURITY: a whiteout is our code, not `unpack_in`, so it has to confine
+            // its OWN deletes. This used to join the RAW tar path straight into
+            // `remove_dir_all`/`remove_file` — a `..`-laden entry (e.g.
+            // `../../../../home/<u>/.wh..wh..opq`) deleted files outside `dest`.
+            // Reject `..` lexically (`safe_rel`), then resolve the parent SCOPED to
+            // `dest` (`scoped_resolve`), so an EARLIER layer entry that planted a
+            // symlink at a parent component (`foo -> /etc`) cannot make the delete
+            // escape `dest` either. One guard, shared with the overlay whiteout path
+            // and `safe_bind_target` — not a third hand-rolled check.
             let Some(safe) = safe_rel(&path) else {
                 continue;
             };
-            let parent = safe
-                .parent()
-                .map(|p| dest.join(p))
-                .unwrap_or_else(|| dest.to_path_buf());
-            // Defense in depth: an EARLIER layer may have planted a symlink at `parent`
-            // pointing outside `dest` (the lexical check above only rejects `..` in the
-            // whiteout's OWN path, not a symlink an unrelated prior entry created) —
-            // canonicalize and confirm we're still inside `dest` before deleting through it.
-            let (Ok(canon_parent), Ok(canon_dest)) = (parent.canonicalize(), dest.canonicalize())
-            else {
+            let parent_rel = safe.parent().unwrap_or(Path::new(""));
+            let Some(parent) = scoped_resolve(dest, parent_rel) else {
                 continue;
             };
-            if !canon_parent.starts_with(&canon_dest) {
-                continue;
-            }
             if target == ".wh..opq" {
                 if let Ok(rd) = std::fs::read_dir(&parent) {
                     for e in rd.flatten() {
@@ -1134,6 +1127,42 @@ mod tests {
             b.finish().unwrap();
         }
         buf
+    }
+
+    /// DC-1/V1 companion to the overlay test in `owners.rs`: the flat/bundle
+    /// whiteout path resists the same symlink-escape, now through the SAME shared
+    /// `scoped_resolve` guard the overlay path uses (this path used to rely on a
+    /// bespoke canonicalize + `starts_with`; the refactor must not weaken it). A
+    /// layer `[symlink foo -> <outside>, whiteout foo/.wh.x]` must leave the file
+    /// beyond the bundle intact.
+    #[test]
+    fn a_flat_whiteout_cannot_escape_the_bundle_through_a_planted_symlink() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("bundle");
+        std::fs::create_dir_all(&dest).unwrap();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let victim = outside.join("x");
+        std::fs::write(&victim, b"keep me").unwrap();
+
+        let mut b = tar::Builder::new(Vec::new());
+        let mut h = tar::Header::new_gnu();
+        h.set_entry_type(tar::EntryType::Symlink);
+        h.set_mode(0o777);
+        h.set_size(0);
+        b.append_link(&mut h, "foo", &outside).unwrap();
+        let mut h = tar::Header::new_gnu();
+        h.set_mode(0o644);
+        h.set_size(0);
+        b.append_data(&mut h, "foo/.wh.x", &[][..]).unwrap();
+        let data = b.into_inner().unwrap();
+
+        apply_layer_flat(&data, &dest).unwrap();
+        assert!(
+            victim.exists(),
+            "flat whiteout escaped the bundle and deleted the file outside it"
+        );
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep me");
     }
 
     /// Coverage guard for `ensure_layers`'s actual extraction path (bulk

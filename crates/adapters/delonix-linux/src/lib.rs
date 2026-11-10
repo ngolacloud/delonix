@@ -1318,53 +1318,16 @@ fn mount_target_safe(target: &str) -> bool {
 /// path by hand just like a bind or a `COPY` does — reusing this instead of
 /// writing the primitive out a third time (the whole lesson of the `cp`/`COPY`
 /// symlink-escape class).
+///
+/// The scoped walk itself lives once, in `delonix_compute::owners::scoped_resolve`
+/// (the lowest crate both this adapter and the OCI whiteout paths share), so the
+/// `&str`-typed `bind`/`cp`/`COPY` API here and the `Path`-typed OCI callers
+/// cannot drift apart. This wrapper is only the string → `Path` adaptation.
 pub fn safe_bind_target(rootfs: &str, target: &str) -> Option<std::path::PathBuf> {
-    use std::collections::VecDeque;
-    use std::ffi::OsString;
-    use std::path::Component;
-    const MAX_LINKS: u32 = 40;
-    let root = std::path::PathBuf::from(rootfs);
-    let parts = |p: &std::path::Path| -> Vec<OsString> {
-        p.components()
-            .filter_map(|c| match c {
-                Component::Normal(n) => Some(n.to_os_string()),
-                Component::ParentDir => Some(OsString::from("..")),
-                _ => None,
-            })
-            .collect()
-    };
-    let mut pending: VecDeque<OsString> = parts(std::path::Path::new(target)).into();
-    // The resolved path so far, relative to `root`: real components only.
-    let mut resolved: Vec<OsString> = Vec::new();
-    let mut links = 0;
-    while let Some(c) = pending.pop_front() {
-        if c == ".." {
-            resolved.pop(); // never above `root`
-            continue;
-        }
-        let mut here = root.clone();
-        here.extend(&resolved);
-        here.push(&c);
-        let is_link = std::fs::symlink_metadata(&here).is_ok_and(|m| m.file_type().is_symlink());
-        if !is_link {
-            resolved.push(c);
-            continue;
-        }
-        links += 1;
-        if links > MAX_LINKS {
-            return None;
-        }
-        let dest = std::fs::read_link(&here).ok()?;
-        if dest.is_absolute() {
-            resolved.clear();
-        }
-        for part in parts(&dest).into_iter().rev() {
-            pending.push_front(part);
-        }
-    }
-    let mut out = root;
-    out.extend(&resolved);
-    Some(out)
+    delonix_compute::owners::scoped_resolve(
+        std::path::Path::new(rootfs),
+        std::path::Path::new(target),
+    )
 }
 
 /// The mount flags the kernel LOCKS on a mount that a user namespace merely
