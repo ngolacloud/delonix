@@ -77,6 +77,21 @@ pub struct PfPending {
     pub created: Instant,
 }
 
+/// Locks one of the streamer's registration maps, **recovering from poisoning**
+/// instead of propagating the panic (DG-1).
+///
+/// `execs`/`pforwards` are plain token→pending tables. If a thread panics while
+/// holding the lock, the `HashMap` is left structurally intact, so a later
+/// `exec`/`attach`/`port-forward` must keep working — a raw `.lock().unwrap()`
+/// would instead inherit the poison and panic every subsequent streaming call,
+/// degrading the whole surface from one unrelated panic. `into_inner` hands back
+/// the guard regardless; the CRI handlers already run in `blocking()`, so a panic
+/// becomes a `Status`, not a dead node — this keeps that true across the lock too.
+fn locked<T>(map: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    map.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 impl Streamer {
     pub fn new(
         base: PathBuf,
@@ -103,7 +118,7 @@ impl Streamer {
         ports: Vec<i32>,
     ) -> std::io::Result<String> {
         let token = random_token()?;
-        let mut m = self.pforwards.lock().unwrap();
+        let mut m = locked(&self.pforwards);
         m.retain(|_, p| Instant::now().duration_since(p.created) < Duration::from_secs(300));
         m.insert(
             token.clone(),
@@ -128,7 +143,7 @@ impl Streamer {
         stderr: bool,
     ) -> std::io::Result<String> {
         let token = random_token()?;
-        let mut m = self.execs.lock().unwrap();
+        let mut m = locked(&self.execs);
         purge_expired(&mut m);
         m.insert(
             token.clone(),
@@ -158,7 +173,7 @@ impl Streamer {
         stderr: bool,
     ) -> std::io::Result<String> {
         let token = random_token()?;
-        let mut m = self.execs.lock().unwrap();
+        let mut m = locked(&self.execs);
         purge_expired(&mut m);
         m.insert(
             token.clone(),
@@ -219,7 +234,7 @@ async fn portforward_upgrade(
     AxPath(token): AxPath<String>,
     req: axum::extract::Request,
 ) -> Response {
-    let pending = st.pforwards.lock().unwrap().remove(&token);
+    let pending = locked(&st.pforwards).remove(&token);
     let Some(p) = pending else {
         return axum::http::StatusCode::NOT_FOUND.into_response();
     };
@@ -377,7 +392,7 @@ async fn exec_upgrade(
     AxPath(token): AxPath<String>,
     req: axum::extract::Request,
 ) -> Response {
-    let pending = st.execs.lock().unwrap().remove(&token);
+    let pending = locked(&st.execs).remove(&token);
     let Some(p) = pending else {
         return axum::http::StatusCode::NOT_FOUND.into_response();
     };
@@ -913,5 +928,33 @@ mod tests_sandbox_pid_identity {
             ),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod tests_lock_poison {
+    use super::locked;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn locked_recovers_from_a_poisoned_mutex() {
+        let map: Arc<Mutex<HashMap<String, u8>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        // Poison the mutex: a thread panics while holding the lock.
+        let poisoner = Arc::clone(&map);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("panic while holding the streamer lock");
+        })
+        .join();
+        assert!(map.lock().is_err(), "the mutex is poisoned after the panic");
+
+        // `locked` still returns a usable guard instead of inheriting the panic, so
+        // a later exec/attach/port-forward keeps working rather than cascading the
+        // poison into a panic on every subsequent streaming call (DG-1).
+        let mut guard = locked(&map);
+        guard.insert("token".into(), 1);
+        assert_eq!(guard.get("token"), Some(&1));
     }
 }
