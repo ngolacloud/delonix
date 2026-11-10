@@ -33,6 +33,72 @@ pub fn relative(path: &Path) -> Option<PathBuf> {
     (!out.as_os_str().is_empty()).then_some(out)
 }
 
+/// Resolves `rel` against `root` the way runc scopes a bind target: component by
+/// component, so a symlink an image planted can never send a write OUT of
+/// `root`. An absolute symlink restarts the walk at `root`; `..` stops at
+/// `root`; an intermediate symlink is followed only INSIDE `root`; a component
+/// that is not a symlink (including one that does not exist yet) is taken
+/// literally. The returned path is therefore always within `root`, so the
+/// caller may `create_dir_all`/`remove_file`/`remove_dir_all`/`mknod` on it — or
+/// on a single leaf joined to it — without the join FOLLOWING a link out of
+/// `root`, which is the symlink-escape that `std::fs`'s path-following
+/// operations are blind to.
+///
+/// `None` only for a link chain too long to be anything but a loop.
+///
+/// This is the ONE primitive every scoped-path site in the engine shares.
+/// `delonix_linux::safe_bind_target` (bind / `cp` / `COPY`) delegates to it, and
+/// so do both OCI whiteout paths (`write_overlay_whiteout` on the per-layer
+/// overlay, and the flat-bundle whiteout branch): the whole lesson of the
+/// `cp`/`COPY` symlink-escape class is to spell this out once, so the next write
+/// path cannot forget the guard the way the overlay whiteout did (DC-1/V1).
+pub fn scoped_resolve(root: &Path, rel: &Path) -> Option<PathBuf> {
+    use std::collections::VecDeque;
+    use std::ffi::OsString;
+    const MAX_LINKS: u32 = 40;
+    let parts = |p: &Path| -> Vec<OsString> {
+        p.components()
+            .filter_map(|c| match c {
+                Component::Normal(n) => Some(n.to_os_string()),
+                Component::ParentDir => Some(OsString::from("..")),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut pending: VecDeque<OsString> = parts(rel).into();
+    // The resolved path so far, relative to `root`: real components only.
+    let mut resolved: Vec<OsString> = Vec::new();
+    let mut links = 0u32;
+    while let Some(c) = pending.pop_front() {
+        if c == ".." {
+            resolved.pop(); // never above `root`
+            continue;
+        }
+        let mut here = root.to_path_buf();
+        here.extend(&resolved);
+        here.push(&c);
+        let is_link = std::fs::symlink_metadata(&here).is_ok_and(|m| m.file_type().is_symlink());
+        if !is_link {
+            resolved.push(c);
+            continue;
+        }
+        links += 1;
+        if links > MAX_LINKS {
+            return None;
+        }
+        let dest = std::fs::read_link(&here).ok()?;
+        if dest.is_absolute() {
+            resolved.clear();
+        }
+        for part in parts(&dest).into_iter().rev() {
+            pending.push_front(part);
+        }
+    }
+    let mut out = root.to_path_buf();
+    out.extend(&resolved);
+    Some(out)
+}
+
 /// On-disk form: one `uid gid path` record per entry, NUL-terminated. A path
 /// may hold a newline or a space; it cannot hold a NUL.
 pub fn encode(owners: &[Owner]) -> Vec<u8> {

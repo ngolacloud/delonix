@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-pub use delonix_compute::owners::{decode, encode, relative, Owner};
+pub use delonix_compute::owners::{decode, encode, relative, scoped_resolve, Owner};
 
 /// Default ceiling on the DECOMPRESSED size of one layer. The download side caps
 /// the COMPRESSED blob at 8 GiB (`registry::MAX_BLOB_BYTES`); that number says
@@ -337,12 +337,19 @@ pub(crate) fn unpack_recording_limited<R: Read>(
                     continue;
                 }
                 if let Some(name) = base.strip_prefix(".wh.") {
-                    let at = rel
-                        .parent()
-                        .map(|p| dst.join(p))
-                        .unwrap_or_else(|| dst.to_path_buf())
-                        .join(name);
-                    write_overlay_whiteout(&at);
+                    // SECURITY (DC-1/V1): resolve the whiteout's parent SCOPED to
+                    // this layer dir before touching disk. An earlier entry in the
+                    // same layer may have planted a symlink at a parent component
+                    // (`foo -> /etc`); taken literally, the `remove_file`/
+                    // `remove_dir_all`/`mknod` in `write_overlay_whiteout` follow it
+                    // and hit the host (real-root/CRI) or the caller's files outside
+                    // the store (rootless). `unpack_in` guards its OWN writes; the
+                    // whiteout is our code and has to confine itself — with the SAME
+                    // primitive `safe_bind_target` and the flat-bundle branch use.
+                    let parent_rel = rel.parent().unwrap_or(Path::new(""));
+                    if let Some(parent) = scoped_resolve(dst, parent_rel) {
+                        write_overlay_whiteout(&parent, name);
+                    }
                     continue;
                 }
             }
@@ -427,28 +434,30 @@ pub(crate) fn sanitize_special_bits(mode: u32, uid: u64, real_root: bool) -> u32
     }
 }
 
+/// Writes the kernel-overlay whiteout for an OCI `.wh.<name>` entry: a 0/0
+/// character device at `parent/name`, which the overlay driver reads as
+/// "deleted — do not show the lower layers' version". `parent` MUST already be
+/// confined to the layer dir by [`scoped_resolve`] (the caller does this), so
+/// the `create_dir_all`/`remove`/`mknod` here cannot follow a planted symlink
+/// out of the layer (DC-1/V1); `name` is a single leaf component. Any entry
+/// already at the target within this freshly-extracted layer is removed first.
+/// Best-effort: on a host that denies the caller `mknod` of a device node the
+/// whiteout is not created and the lower entry stays visible — exactly the
+/// behaviour before this conversion, never worse.
+fn write_overlay_whiteout(parent: &Path, name: &str) {
+    use nix::sys::stat::{mknod, Mode, SFlag};
+    let _ = std::fs::create_dir_all(parent);
+    let at = parent.join(name);
+    let _ = std::fs::remove_file(&at);
+    let _ = std::fs::remove_dir_all(&at);
+    // Character device, major 0 minor 0 — the overlay whiteout representation.
+    let _ = mknod(&at, SFlag::S_IFCHR, Mode::empty(), 0);
+}
+
 /// Drops a foreign setuid bit from a freshly unpacked regular file (the extraction
 /// already wrote the full mode under `set_preserve_permissions`). A no-op unless
 /// [`sanitize_special_bits`] changes the mode, so only the real-root, non-root-uid
 /// setuid case ever touches disk. Never through a symlink, which has no mode.
-/// Writes the kernel-overlay whiteout for an OCI `.wh.<name>` entry: a 0/0
-/// character device at the hidden entry's path, which the overlay driver reads
-/// as "deleted — do not show the lower layers' version". Any entry already at
-/// `at` within this freshly-extracted layer is removed first. Best-effort: on a
-/// host that denies the caller `mknod` of a device node the whiteout is not
-/// created and the lower entry stays visible — exactly the behaviour before this
-/// conversion, never worse.
-fn write_overlay_whiteout(at: &Path) {
-    use nix::sys::stat::{mknod, Mode, SFlag};
-    if let Some(parent) = at.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::remove_file(at);
-    let _ = std::fs::remove_dir_all(at);
-    // Character device, major 0 minor 0 — the overlay whiteout representation.
-    let _ = mknod(at, SFlag::S_IFCHR, Mode::empty(), 0);
-}
-
 fn drop_foreign_setuid<R: Read>(file: &tar::Entry<'_, R>, dst: &Path, real_root: bool) {
     use std::os::unix::fs::PermissionsExt;
     if !real_root || !file.header().entry_type().is_file() {
@@ -772,6 +781,59 @@ mod tests {
             );
             assert_eq!(md.rdev(), 0, "overlay whiteout must be device 0:0");
         }
+    }
+
+    /// DC-1/V1: a hostile layer that plants a symlink at a parent component and
+    /// then whites out a name UNDER it must not delete or `mknod` through the
+    /// symlink — the whiteout stays confined to the layer dir. Before the shared
+    /// `scoped_resolve` guard, `write_overlay_whiteout` joined the raw path and
+    /// `remove_file`/`mknod` followed `foo -> <outside>`, hitting a path beyond
+    /// the layer (host files in real-root/CRI, the caller's files in rootless).
+    /// The guard is root-agnostic (`scoped_resolve` never branches on euid), so
+    /// proving confinement here — unprivileged — proves it for the real-root path
+    /// too, the one where the unconfined delete/`mknod` would reach the host.
+    #[test]
+    fn a_whiteout_cannot_escape_the_layer_through_a_planted_symlink() {
+        use std::os::unix::fs::FileTypeExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let dst = tmp.path().join("layer");
+        std::fs::create_dir_all(&dst).unwrap();
+
+        // A sentinel OUTSIDE the layer dir, holding the file the attack reaches for.
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let sentinel = outside.join("shadow");
+        std::fs::write(&sentinel, b"keep me").unwrap();
+
+        // The layer, in order: (1) a symlink `foo` -> the sentinel dir, (2) a
+        // whiteout `foo/.wh.shadow`. Non-dir entries are unpacked as they come, so
+        // `foo` is on disk as a symlink by the time the whiteout is processed.
+        let mut b = tar::Builder::new(Vec::new());
+        let mut h = tar::Header::new_gnu();
+        h.set_entry_type(tar::EntryType::Symlink);
+        h.set_mode(0o777);
+        h.set_size(0);
+        b.append_link(&mut h, "foo", &outside).unwrap();
+        let mut h = tar::Header::new_gnu();
+        h.set_mode(0o644);
+        h.set_size(0);
+        b.append_data(&mut h, "foo/.wh.shadow", &[][..]).unwrap();
+        let data = b.into_inner().unwrap();
+
+        unpack_recording(&mut tar::Archive::new(&data[..]), &dst).unwrap();
+
+        // The escape target is untouched: the file beyond the layer still exists,
+        // is unchanged, and had no 0/0 whiteout device planted on it.
+        assert!(
+            sentinel.exists(),
+            "whiteout escaped the layer and deleted the file outside it"
+        );
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"keep me");
+        let md = sentinel.symlink_metadata().unwrap();
+        assert!(
+            !md.file_type().is_char_device(),
+            "a whiteout device node was planted outside the layer"
+        );
     }
 
     /// A tar with one file and one directory, with the given modes.
