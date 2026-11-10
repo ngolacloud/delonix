@@ -1,0 +1,216 @@
+Warning: Permanently added '192.168.122.73' (ED25519) to the list of known hosts.
+==> a arrancar delonix-cri (root=/tmp/delonix-cri-critest-root.dEcNgD socket=/tmp/delonix-cri-critest-10644.sock)
+==> smoke: crictl version
+time="2026-11-08T13:57:28Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.0
+RuntimeApiVersion:  v1
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> critest (timeout ginkgo=18m)
++ critest -runtime-endpoint unix:///tmp/delonix-cri-critest-10644.sock -image-endpoint unix:///tmp/delonix-cri-critest-10644.sock -ginkgo.timeout=18m -ginkgo.no-color
++ tee /tmp/critest-rootful3.log
+time="2026-11-08T13:57:28Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1794146248
+
+Will run 117 of 122 specs
+•••E1108 13:57:36.050345   10673 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+•SSS•••••SSSS••••••••••••••••••SS
+------------------------------
+• [FAILED] [24.909 seconds]
+[k8s.io] Multiple Containers [Conformance] when running multiple containers in a pod [BeforeEach] should support network
+  [BeforeEach] /home/runner/work/cri-tools/cri-tools/pkg/validate/multi_container_linux.go:58
+  [It] /home/runner/work/cri-tools/cri-tools/pkg/validate/multi_container_linux.go:87
+
+  Timeline >>
+  STEP: create a PodSandbox @ 11/08/26 13:58:13.048
+  STEP: create a httpd container @ 11/08/26 13:58:13.093
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/httpd:2.4.39-4 @ 11/08/26 13:58:13.093
+  STEP: Pull image : registry.k8s.io/e2e-test-images/httpd:2.4.39-4 @ 11/08/26 13:58:13.093
+  STEP: Create container. @ 11/08/26 13:58:35.267
+  Nov  8 13:58:35.268: INFO: Created container "9221d99e4682790a"
+
+  STEP: start the httpd container @ 11/08/26 13:58:35.268
+  STEP: Start container for containerID: 9221d99e4682790a @ 11/08/26 13:58:35.268
+  Nov  8 13:58:37.422: INFO: Started container "9221d99e4682790a"
+
+  STEP: Get container status for containerID: 9221d99e4682790a @ 11/08/26 13:58:37.422
+  STEP: create a busybox container @ 11/08/26 13:58:37.424
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:58:37.424
+  STEP: Create container. @ 11/08/26 13:58:37.425
+  Nov  8 13:58:37.425: INFO: Created container "687be530ddc812c4"
+
+  STEP: start the busybox container @ 11/08/26 13:58:37.425
+  STEP: Start container for containerID: 687be530ddc812c4 @ 11/08/26 13:58:37.425
+  Nov  8 13:58:37.469: INFO: Started container "687be530ddc812c4"
+
+  STEP: Get container status for containerID: 687be530ddc812c4 @ 11/08/26 13:58:37.469
+  [FAILED] in [BeforeEach] - /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/08/26 13:58:37.472
+  STEP: stop PodSandbox @ 11/08/26 13:58:37.472
+  STEP: delete PodSandbox @ 11/08/26 13:58:37.724
+  STEP: cleanup log path @ 11/08/26 13:58:37.955
+  << Timeline
+
+  [FAILED] Timed out after 60.001s.
+  The stdout of attach should be hello
+  Expected
+      <string>: 
+  to equal
+      <string>: hello
+  In [BeforeEach] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/08/26 13:58:37.472
+------------------------------
+••••E1108 13:58:45.472562   10673 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="da5406dbf9c35f57"
+•••E1108 13:58:46.251579   10673 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="1b64ebce65169b88"
+•••E1108 13:58:47.027958   10673 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="f6593f0ffde495b6"
+••••E1108 13:58:49.601391   10673 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+••••••••••••••••••
+------------------------------
+• [FAILED] [60.398 seconds]
+[k8s.io] Container OOM runtime should output OOMKilled reason [It] should terminate with exitCode 137 and reason OOMKilled
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:161
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 13:59:37.06
+  STEP: create container @ 11/08/26 13:59:37.106
+  STEP: create a container that will be killed by OOMKiller @ 11/08/26 13:59:37.106
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:59:37.106
+  STEP: Create container. @ 11/08/26 13:59:37.107
+  Nov  8 13:59:37.109: INFO: Created container "fcc431126523a250"
+
+  STEP: verifying container status @ 11/08/26 13:59:37.109
+  STEP: start container @ 11/08/26 13:59:37.111
+  STEP: Start container for containerID: fcc431126523a250 @ 11/08/26 13:59:37.111
+  Nov  8 13:59:37.152: INFO: Started container "fcc431126523a250"
+
+  STEP: container is stopped because of OOM @ 11/08/26 13:59:37.152
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 13:59:37.152
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 13:59:41.157
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 13:59:45.163
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 13:59:49.168
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 13:59:53.173
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 13:59:57.178
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 14:00:01.184
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 14:00:05.189
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 14:00:09.195
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 14:00:13.2
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 14:00:17.206
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 14:00:21.211
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 14:00:25.214
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 14:00:29.22
+  STEP: Get container status for containerID: fcc431126523a250 @ 11/08/26 14:00:33.224
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:172 @ 11/08/26 14:00:37.152
+  STEP: stop PodSandbox @ 11/08/26 14:00:37.152
+  STEP: delete PodSandbox @ 11/08/26 14:00:37.313
+  << Timeline
+
+  [FAILED] Timed out after 60.000s.
+  Expected
+      <v1.ContainerState>: 1
+  to equal
+      <v1.ContainerState>: 2
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:172 @ 11/08/26 14:00:37.152
+------------------------------
+S•••••••
+------------------------------
+• [FAILED] [1.405 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:198
+
+  Timeline >>
+  STEP: create podSandbox for sharing process namespace @ 11/08/26 14:01:08.406
+  Nov  8 14:01:08.406: INFO: Pid namespace is "POD"
+  STEP: create NamespaceOption podSandbox @ 11/08/26 14:01:08.406
+  STEP: create nginx container @ 11/08/26 14:01:08.453
+  STEP: create NamespaceOption container @ 11/08/26 14:01:08.453
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/nginx:1.14-2 @ 11/08/26 14:01:08.453
+  STEP: Create container. @ 11/08/26 14:01:08.454
+  Nov  8 14:01:08.455: INFO: Created container "ae09aecf669cb531"
+
+  STEP: start container @ 11/08/26 14:01:08.455
+  STEP: Start container for containerID: ae09aecf669cb531 @ 11/08/26 14:01:08.455
+  Nov  8 14:01:08.501: INFO: Started container "ae09aecf669cb531"
+
+  STEP: Get container status for containerID: ae09aecf669cb531 @ 11/08/26 14:01:08.501
+  STEP: get nginx container pid @ 11/08/26 14:01:08.502
+  STEP: execSync for containerID: ae09aecf669cb531 @ 11/08/26 14:01:09.502
+  Nov  8 14:01:09.538: INFO: Execsync succeed
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226 @ 11/08/26 14:01:09.538
+  STEP: stop PodSandbox @ 11/08/26 14:01:09.538
+  STEP: delete PodSandbox @ 11/08/26 14:01:09.68
+  << Timeline
+
+  [FAILED] Expected
+      <string>: nginx: master process nginx -g daemon off; 
+  not to contain substring
+      <string>: master process
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226 @ 11/08/26 14:01:09.538
+------------------------------
+•••••••E1108 14:01:12.048353   10673 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="6494b081960ee5f1"
+•••••••••••SS•••••••••SSSSSS•
+------------------------------
+• [FAILED] [0.440 seconds]
+[k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:121
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 14:01:25.196
+  STEP: create host path and flag file @ 11/08/26 14:01:25.242
+  STEP: create container with volume @ 11/08/26 14:01:25.242
+  STEP: create a container with volume and name @ 11/08/26 14:01:25.242
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 14:01:25.242
+  STEP: Create container. @ 11/08/26 14:01:25.244
+  Nov  8 14:01:25.245: INFO: Created container "b9fdd6b5fc40c3d9"
+
+  STEP: verifying container status @ 11/08/26 14:01:25.245
+  STEP: verifying container status mount propagation @ 11/08/26 14:01:25.245
+  STEP: test start container with volume @ 11/08/26 14:01:25.245
+  STEP: Start container for containerID: b9fdd6b5fc40c3d9 @ 11/08/26 14:01:25.245
+  Nov  8 14:01:25.287: INFO: Started container "b9fdd6b5fc40c3d9"
+
+  STEP: Get container status for containerID: b9fdd6b5fc40c3d9 @ 11/08/26 14:01:25.287
+  STEP: create a propatation mount point in host @ 11/08/26 14:01:25.289
+  STEP: check whether propagationMntPoint contains file or dir in container @ 11/08/26 14:01:25.29
+  STEP: execSync for containerID: b9fdd6b5fc40c3d9 @ 11/08/26 14:01:25.29
+  Nov  8 14:01:25.315: INFO: Execsync succeed
+  STEP: create a directory named containerMntPoint as a mount point in container @ 11/08/26 14:01:25.315
+  STEP: execSync for containerID: b9fdd6b5fc40c3d9 @ 11/08/26 14:01:25.315
+  Nov  8 14:01:25.351: INFO: Execsync succeed
+  STEP: mount /etc to the mount point in container @ 11/08/26 14:01:25.351
+  STEP: execSync for containerID: b9fdd6b5fc40c3d9 @ 11/08/26 14:01:25.351
+  Nov  8 14:01:25.377: INFO: Execsync succeed
+  STEP: check whether containerMntPoint contains file or dir in host @ 11/08/26 14:01:25.378
+  STEP: clean up the TempDir @ 11/08/26 14:01:25.378
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 14:01:25.378
+  STEP: stop PodSandbox @ 11/08/26 14:01:25.378
+  STEP: delete PodSandbox @ 11/08/26 14:01:25.503
+  << Timeline
+
+  [FAILED] len(fileInfo) should not be zero.
+  Expected
+      <[]fs.DirEntry | len:0, cap:0>: []
+  not to be empty
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 14:01:25.378
+------------------------------
+•S••••
+
+Summarizing 4 Failures:
+  [FAIL] [k8s.io] Multiple Containers [Conformance] when running multiple containers in a pod [BeforeEach] should support network
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317
+  [FAIL] [k8s.io] Container OOM runtime should output OOMKilled reason [It] should terminate with exitCode 137 and reason OOMKilled
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:172
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226
+  [FAIL] [k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113
+
+Ran 103 of 122 Specs in 238.239 seconds
+FAIL! -- 99 Passed | 4 Failed | 0 Pending | 19 Skipped
+--- FAIL: TestCRISuite (238.24s)
+FAIL
++ rc=1
++ set +x
+==> critest terminou com rc=1 (log completo em /tmp/critest-rootful3.log; servidor em /tmp/critest-rootful3.log.server)

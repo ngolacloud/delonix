@@ -1,0 +1,784 @@
+==> a arrancar delonix-cri (root=/tmp/delonix-cri-critest-root.JTYu5y socket=/tmp/delonix-cri-critest-446346.sock)
+==> smoke: crictl version
+time="2026-11-08T13:53:24+01:00" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.0
+RuntimeApiVersion:  v1
+==> critest (timeout ginkgo=18m)
++ critest -runtime-endpoint unix:///tmp/delonix-cri-critest-446346.sock -image-endpoint unix:///tmp/delonix-cri-critest-446346.sock -ginkgo.timeout=18m -ginkgo.no-color
++ tee /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/reports/cri-conformance-0.1.1/baseline-develop.log
+time="2026-11-08T13:53:24+01:00" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/walter/workspaces/NgolaCloud/projects/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/walter/workspaces/NgolaCloud/projects/delonix-runtime
+===========================================================================================
+Random Seed: 1794142404
+
+Will run 117 of 122 specs
+E1108 13:54:18.532316  446423 remote_runtime.go:435] "StartContainer from runtime service failed" err="rpc error: code = FailedPrecondition desc = container b17971c353df3b4c: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec." containerID="b17971c353df3b4c"
+------------------------------
+• [FAILED] [53.772 seconds]
+[k8s.io] Streaming runtime should support streaming interfaces [It] runtime should support portforward in host network
+/home/runner/work/cri-tools/cri-tools/pkg/validate/streaming_linux.go:51
+
+  Timeline >>
+  STEP: create a PodSandbox with container port mapping in host network @ 11/08/26 13:53:24.8
+  STEP: create a web server container @ 11/08/26 13:53:24.802
+  Nov  8 13:53:24.802: INFO: Use latest as default image tag.
+  STEP: Get image status for image: gcr.io/k8s-staging-cri-tools/hostnet-nginx-amd64:latest @ 11/08/26 13:53:24.802
+  STEP: Pull image : gcr.io/k8s-staging-cri-tools/hostnet-nginx-amd64:latest @ 11/08/26 13:53:24.803
+  STEP: Create container. @ 11/08/26 13:54:18.529
+  Nov  8 13:54:18.531: INFO: Created container "b17971c353df3b4c"
+
+  STEP: start the web server container @ 11/08/26 13:54:18.531
+  STEP: Start container for containerID: b17971c353df3b4c @ 11/08/26 13:54:18.531
+  Nov  8 13:54:18.532: INFO: Unexpected error occurred: rpc error: code = FailedPrecondition desc = container b17971c353df3b4c: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:54:18.532
+  STEP: stop PodSandbox @ 11/08/26 13:54:18.532
+  STEP: delete PodSandbox @ 11/08/26 13:54:18.549
+  << Timeline
+
+  [FAILED] failed to start container: rpc error: code = FailedPrecondition desc = container b17971c353df3b4c: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  Unexpected error:
+      <*status.Error | 0x9fd8a182020>: 
+      rpc error: code = FailedPrecondition desc = container b17971c353df3b4c: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 9,
+                  Message: "container b17971c353df3b4c: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:54:18.532
+------------------------------
+• [FAILED] [70.888 seconds]
+[k8s.io] Container OOM runtime should output OOMKilled reason [It] should terminate with exitCode 137 and reason OOMKilled
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:161
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 13:54:18.569
+  STEP: create container @ 11/08/26 13:54:19.457
+  STEP: create a container that will be killed by OOMKiller @ 11/08/26 13:54:19.457
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:54:19.457
+  STEP: Pull image : registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:54:19.458
+  STEP: Create container. @ 11/08/26 13:54:28.618
+  Nov  8 13:54:28.620: INFO: Created container "5614175494bf6908"
+
+  STEP: verifying container status @ 11/08/26 13:54:28.62
+  STEP: start container @ 11/08/26 13:54:28.62
+  STEP: Start container for containerID: 5614175494bf6908 @ 11/08/26 13:54:28.62
+  Nov  8 13:54:28.712: INFO: Started container "5614175494bf6908"
+
+  STEP: container is stopped because of OOM @ 11/08/26 13:54:28.712
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:54:28.712
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:54:32.716
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:54:36.721
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:54:40.726
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:54:44.731
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:54:48.736
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:54:52.74
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:54:56.745
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:55:00.75
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:55:04.755
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:55:08.76
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:55:12.765
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:55:16.77
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:55:20.775
+  STEP: Get container status for containerID: 5614175494bf6908 @ 11/08/26 13:55:24.78
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:172 @ 11/08/26 13:55:28.715
+  STEP: stop PodSandbox @ 11/08/26 13:55:28.715
+  STEP: delete PodSandbox @ 11/08/26 13:55:28.944
+  << Timeline
+
+  [FAILED] Timed out after 60.003s.
+  Expected
+      <v1.ContainerState>: 1
+  to equal
+      <v1.ContainerState>: 2
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:172 @ 11/08/26 13:55:28.715
+------------------------------
+••
+------------------------------
+• [FAILED] [99.001 seconds]
+[k8s.io] Networking runtime should support networking [It] runtime should support port mapping with only container port [Conformance]
+/home/runner/work/cri-tools/cri-tools/pkg/validate/networking.go:98
+
+  Timeline >>
+  STEP: create a PodSandbox with container port mapping @ 11/08/26 13:55:30.865
+  STEP: create a web server container @ 11/08/26 13:55:31.132
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/nginx:1.14-2 @ 11/08/26 13:55:31.132
+  STEP: Pull image : registry.k8s.io/e2e-test-images/nginx:1.14-2 @ 11/08/26 13:55:31.133
+  STEP: Create container. @ 11/08/26 13:56:08.199
+  Nov  8 13:56:08.200: INFO: Created container "9e03514c06c02977"
+
+  STEP: start the web server container @ 11/08/26 13:56:08.2
+  STEP: Start container for containerID: 9e03514c06c02977 @ 11/08/26 13:56:08.2
+  Nov  8 13:56:08.446: INFO: Started container "9e03514c06c02977"
+
+  STEP: check the port mapping with only container port @ 11/08/26 13:56:08.446
+  STEP: get the IP:port needed to be checked @ 11/08/26 13:56:08.446
+  STEP: Get PodSandbox status for podID: 637dedc9e96d5661 @ 11/08/26 13:56:08.446
+  Nov  8 13:56:08.447: INFO: the IP:port is http://10.200.0.2:80
+  STEP: check the content of http://10.200.0.2:80 @ 11/08/26 13:56:08.447
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/networking.go:305 @ 11/08/26 13:57:09.48
+  STEP: stop PodSandbox @ 11/08/26 13:57:09.48
+  STEP: delete PodSandbox @ 11/08/26 13:57:09.635
+  << Timeline
+
+  [FAILED] Timed out after 61.032s.
+  Expected success, but got an error:
+      <*url.Error | 0x9fd8a3a4ed0>: 
+      Get "http://10.200.0.2:80": dial tcp 10.200.0.2:80: i/o timeout
+      {
+          Op: "Get",
+          URL: "http://10.200.0.2:80",
+          Err: <*net.OpError | 0x9fd8a4a2a00>{
+              Op: "dial",
+              Net: "tcp",
+              Source: nil,
+              Addr: <*net.TCPAddr | 0x9fd8a3a4e70>{
+                  IP: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 10, 200, 0, 2],
+                  Port: 80,
+                  Zone: "",
+              },
+              Err: <*poll.DeadlineExceededError | 0x1f24920>{},
+          },
+      }
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/networking.go:305 @ 11/08/26 13:57:09.48
+------------------------------
+••••
+------------------------------
+• [FAILED] [0.491 seconds]
+[k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rprivate' should not support propagation
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:117
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 13:57:22.11
+  STEP: create host path and flag file @ 11/08/26 13:57:22.412
+  Nov  8 13:57:22.412: INFO: Unexpected error occurred: operation not permitted
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:206 @ 11/08/26 13:57:22.413
+  STEP: stop PodSandbox @ 11/08/26 13:57:22.413
+  STEP: delete PodSandbox @ 11/08/26 13:57:22.414
+  << Timeline
+
+  [FAILED] failed to mount "mntSource": operation not permitted
+  Unexpected error:
+      <syscall.Errno>: 
+      operation not permitted
+      0x1
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:206 @ 11/08/26 13:57:22.413
+------------------------------
+• [FAILED] [0.422 seconds]
+[k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:121
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 13:57:22.602
+  STEP: create host path and flag file @ 11/08/26 13:57:22.866
+  Nov  8 13:57:22.867: INFO: Unexpected error occurred: operation not permitted
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:212 @ 11/08/26 13:57:22.867
+  STEP: stop PodSandbox @ 11/08/26 13:57:22.867
+  STEP: delete PodSandbox @ 11/08/26 13:57:22.868
+  << Timeline
+
+  [FAILED] failed to mount "mntSource": operation not permitted
+  Unexpected error:
+      <syscall.Errno>: 
+      operation not permitted
+      0x1
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:212 @ 11/08/26 13:57:22.867
+------------------------------
+• [FAILED] [1.482 seconds]
+[k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rslave' should support propagation from host to container
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:125
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 13:57:23.024
+  STEP: create host path and flag file @ 11/08/26 13:57:24.342
+  Nov  8 13:57:24.342: INFO: Unexpected error occurred: operation not permitted
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:212 @ 11/08/26 13:57:24.343
+  STEP: stop PodSandbox @ 11/08/26 13:57:24.343
+  STEP: delete PodSandbox @ 11/08/26 13:57:24.344
+  << Timeline
+
+  [FAILED] failed to mount "mntSource": operation not permitted
+  Unexpected error:
+      <syscall.Errno>: 
+      operation not permitted
+      0x1
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:212 @ 11/08/26 13:57:24.343
+------------------------------
+E1108 13:57:24.832243  446423 remote_runtime.go:435] "StartContainer from runtime service failed" err="rpc error: code = Internal desc = failed to start container 01716aa96d8719f5: delonix: system call `container start` failed: cri-01716aa96d8719f5: the container's init exited with code 126 before its root filesystem was ready, so the container is not running: delonix: could not bind '/proc/sys' for read-only: EINVAL: Invalid argument; aborting" containerID="01716aa96d8719f5"
+• [FAILED] [0.576 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support HostPID
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:86
+
+  Timeline >>
+  STEP: create podSandbox for security context HostPID @ 11/08/26 13:57:24.506
+  STEP: create NamespaceOption podSandbox @ 11/08/26 13:57:24.506
+  STEP: create nginx container @ 11/08/26 13:57:24.778
+  STEP: create NamespaceOption container @ 11/08/26 13:57:24.778
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/nginx:1.14-2 @ 11/08/26 13:57:24.778
+  STEP: Create container. @ 11/08/26 13:57:24.779
+  Nov  8 13:57:24.780: INFO: Created container "01716aa96d8719f5"
+
+  STEP: start container @ 11/08/26 13:57:24.78
+  STEP: Start container for containerID: 01716aa96d8719f5 @ 11/08/26 13:57:24.78
+  Nov  8 13:57:24.832: INFO: Unexpected error occurred: rpc error: code = Internal desc = failed to start container 01716aa96d8719f5: delonix: system call `container start` failed: cri-01716aa96d8719f5: the container's init exited with code 126 before its root filesystem was ready, so the container is not running: delonix: could not bind '/proc/sys' for read-only: EINVAL: Invalid argument; aborting
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:57:24.832
+  STEP: stop PodSandbox @ 11/08/26 13:57:24.832
+  STEP: delete PodSandbox @ 11/08/26 13:57:24.86
+  << Timeline
+
+  [FAILED] failed to start container: rpc error: code = Internal desc = failed to start container 01716aa96d8719f5: delonix: system call `container start` failed: cri-01716aa96d8719f5: the container's init exited with code 126 before its root filesystem was ready, so the container is not running: delonix: could not bind '/proc/sys' for read-only: EINVAL: Invalid argument; aborting
+  Unexpected error:
+      <*status.Error | 0x9fd89c6e1f0>: 
+      rpc error: code = Internal desc = failed to start container 01716aa96d8719f5: delonix: system call `container start` failed: cri-01716aa96d8719f5: the container's init exited with code 126 before its root filesystem was ready, so the container is not running: delonix: could not bind '/proc/sys' for read-only: EINVAL: Invalid argument; aborting
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 13,
+                  Message: "failed to start container 01716aa96d8719f5: delonix: system call `container start` failed: cri-01716aa96d8719f5: the container's init exited with code 126 before its root filesystem was ready, so the container is not running: delonix: could not bind '/proc/sys' for read-only: EINVAL: Invalid argument; aborting",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:57:24.832
+------------------------------
+••
+------------------------------
+• [FAILED] [2.778 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:198
+
+  Timeline >>
+  STEP: create podSandbox for sharing process namespace @ 11/08/26 13:57:27.739
+  Nov  8 13:57:27.739: INFO: Pid namespace is "POD"
+  STEP: create NamespaceOption podSandbox @ 11/08/26 13:57:27.739
+  STEP: create nginx container @ 11/08/26 13:57:28.012
+  STEP: create NamespaceOption container @ 11/08/26 13:57:28.012
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/nginx:1.14-2 @ 11/08/26 13:57:28.012
+  STEP: Create container. @ 11/08/26 13:57:28.013
+  Nov  8 13:57:28.014: INFO: Created container "32e9577d1f96651c"
+
+  STEP: start container @ 11/08/26 13:57:28.014
+  STEP: Start container for containerID: 32e9577d1f96651c @ 11/08/26 13:57:28.014
+  Nov  8 13:57:28.066: INFO: Started container "32e9577d1f96651c"
+
+  STEP: Get container status for containerID: 32e9577d1f96651c @ 11/08/26 13:57:28.066
+  STEP: get nginx container pid @ 11/08/26 13:57:28.068
+  STEP: execSync for containerID: 32e9577d1f96651c @ 11/08/26 13:57:29.068
+  Nov  8 13:57:29.110: INFO: Execsync succeed
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226 @ 11/08/26 13:57:29.11
+  STEP: stop PodSandbox @ 11/08/26 13:57:29.11
+  STEP: delete PodSandbox @ 11/08/26 13:57:29.232
+  << Timeline
+
+  [FAILED] Expected
+      <string>: nginx: master process nginx -g daemon off; 
+  not to contain substring
+      <string>: master process
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226 @ 11/08/26 13:57:29.11
+------------------------------
+•E1108 13:57:31.190353  446423 remote_runtime.go:435] "StartContainer from runtime service failed" err="rpc error: code = FailedPrecondition desc = container 07b6195efd627c75: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec." containerID="07b6195efd627c75"
+
+------------------------------
+• [FAILED] [0.008 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support HostNetwork is true
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:256
+
+  Timeline >>
+  STEP: creating a podSandbox with hostNetwork true @ 11/08/26 13:57:31.186
+  STEP: create NamespaceOption podSandbox @ 11/08/26 13:57:31.186
+  STEP: create a container in the sandbox @ 11/08/26 13:57:31.188
+  STEP: create NamespaceOption container @ 11/08/26 13:57:31.188
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:57:31.188
+  STEP: Create container. @ 11/08/26 13:57:31.188
+  Nov  8 13:57:31.189: INFO: Created container "07b6195efd627c75"
+
+  STEP: start container @ 11/08/26 13:57:31.189
+  STEP: Start container for containerID: 07b6195efd627c75 @ 11/08/26 13:57:31.189
+  Nov  8 13:57:31.190: INFO: Unexpected error occurred: rpc error: code = FailedPrecondition desc = container 07b6195efd627c75: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:57:31.19
+  STEP: stop PodSandbox @ 11/08/26 13:57:31.191
+  STEP: delete PodSandbox @ 11/08/26 13:57:31.192
+  << Timeline
+
+  [FAILED] failed to start container: rpc error: code = FailedPrecondition desc = container 07b6195efd627c75: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  Unexpected error:
+      <*status.Error | 0x9fd8a4a8310>: 
+      rpc error: code = FailedPrecondition desc = container 07b6195efd627c75: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 9,
+                  Message: "container 07b6195efd627c75: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because its members run with `--net host`, each in its own user namespace, which does not own the pod's PID namespace — so the kernel refuses the join (`setns(CLONE_NEWPID)` → EPERM). Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:57:31.19
+------------------------------
+•••••E1108 13:57:36.486144  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="c9bf20ba7ab1871d"
+•••••••••••SS•••
+------------------------------
+• [FAILED] [0.754 seconds]
+[k8s.io] Security Context SeccompProfilePath [It] should support nil profile, which is unconfined
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:925
+
+  Timeline >>
+  STEP: create seccomp sandbox and container @ 11/08/26 13:57:51.472
+  STEP: create seccomp sandbox @ 11/08/26 13:57:51.472
+  STEP: create container @ 11/08/26 13:57:51.747
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:57:51.747
+  STEP: Create container. @ 11/08/26 13:57:51.747
+  Nov  8 13:57:51.748: INFO: Created container "1197ffa5330f66db"
+
+  STEP: start container @ 11/08/26 13:57:51.748
+  STEP: Start container for containerID: 1197ffa5330f66db @ 11/08/26 13:57:51.748
+  Nov  8 13:57:51.827: INFO: Started container "1197ffa5330f66db"
+
+  STEP: Get container status for containerID: 1197ffa5330f66db @ 11/08/26 13:57:51.827
+  STEP: verify seccomp profile @ 11/08/26 13:57:51.829
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:1616 @ 11/08/26 13:57:51.866
+  STEP: stop PodSandbox @ 11/08/26 13:57:51.866
+  STEP: delete PodSandbox @ 11/08/26 13:57:51.998
+  << Timeline
+
+  [FAILED] Expected
+      <string>: Seccomp:	2
+      
+  to contain substring
+      <string>: 0
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:1616 @ 11/08/26 13:57:51.866
+------------------------------
+•••••SSSSSS••E1108 13:58:06.723326  446423 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+•
+------------------------------
+• [FAILED] [62.985 seconds]
+[k8s.io] Streaming runtime should support streaming interfaces [It] runtime should support portforward [Conformance]
+/home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:130
+
+  Timeline >>
+  STEP: create a PodSandbox with container port mapping @ 11/08/26 13:58:07.593
+  STEP: create a web server container @ 11/08/26 13:58:07.869
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/nginx:1.14-2 @ 11/08/26 13:58:07.869
+  STEP: Create container. @ 11/08/26 13:58:07.87
+  Nov  8 13:58:07.871: INFO: Created container "85f4f3d1058cd7ef"
+
+  STEP: start the web server container @ 11/08/26 13:58:07.871
+  STEP: Start container for containerID: 85f4f3d1058cd7ef @ 11/08/26 13:58:07.871
+  Nov  8 13:58:07.929: INFO: Started container "85f4f3d1058cd7ef"
+
+  STEP: ensure the web server container is serving @ 11/08/26 13:58:07.929
+  STEP: get the IP:port needed to be checked @ 11/08/26 13:58:07.929
+  STEP: Get PodSandbox status for podID: 266af6e9d5266360 @ 11/08/26 13:58:07.929
+  Nov  8 13:58:07.930: INFO: the IP:port is http://10.200.0.2:80
+  STEP: check the content of http://10.200.0.2:80 @ 11/08/26 13:58:07.93
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/08/26 13:59:08.934
+  STEP: stop PodSandbox @ 11/08/26 13:59:08.934
+  STEP: delete PodSandbox @ 11/08/26 13:59:09.068
+  << Timeline
+
+  [FAILED] Timed out after 60.000s.
+  The stdout of attach should be hello
+  Expected
+      <string>: 
+  to equal
+      <string>: hello
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/08/26 13:59:08.934
+------------------------------
+SS•••••••••E1108 13:59:34.568942  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="c54df3d92bd7056e"
+•E1108 13:59:35.057437  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'cri-validate-apparmor-test-deny-write' is not loaded on the host" podSandboxID="03abdbbe0be9e840"
+
+------------------------------
+• [FAILED] [0.506 seconds]
+[k8s.io] AppArmor runtime should support deprecated apparmor_profile field [It] should enforce a apparmor_profile blocking writes
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:114
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:59:35.056
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:59:35.056
+  STEP: Create container. @ 11/08/26 13:59:35.056
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:35.057
+  STEP: stop PodSandbox @ 11/08/26 13:59:35.057
+  STEP: delete PodSandbox @ 11/08/26 13:59:35.058
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x9fd89d82968>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'cri-validate-apparmor-test-deny-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'cri-validate-apparmor-test-deny-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:35.057
+------------------------------
+E1108 13:59:35.579329  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'cri-validate-apparmor-test-audit-write' is not loaded on the host" podSandboxID="f841c04ab89f1367"
+• [FAILED] [1.762 seconds]
+[k8s.io] AppArmor runtime should support deprecated apparmor_profile field [It] should enforce a permissive deprecated profile
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:122
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:59:35.577
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:59:35.577
+  STEP: Create container. @ 11/08/26 13:59:35.578
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:35.579
+  STEP: stop PodSandbox @ 11/08/26 13:59:35.579
+  STEP: delete PodSandbox @ 11/08/26 13:59:35.58
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x9fd89d82ac0>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'cri-validate-apparmor-test-audit-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'cri-validate-apparmor-test-audit-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:35.579
+------------------------------
+E1108 13:59:37.641159  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/non-existent-profile' is not loaded on the host" podSandboxID="8245b9063fa97f89"
+•E1108 13:59:38.132907  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host" podSandboxID="6c87596ecce37035"
+
+------------------------------
+• [FAILED] [0.493 seconds]
+[k8s.io] AppArmor runtime should support apparmor field [It] should enforce a apparmor_profile blocking writes
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:159
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:59:38.131
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:59:38.131
+  STEP: Create container. @ 11/08/26 13:59:38.132
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:38.133
+  STEP: stop PodSandbox @ 11/08/26 13:59:38.133
+  STEP: delete PodSandbox @ 11/08/26 13:59:38.134
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x9fd8a182ee8>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:38.133
+------------------------------
+E1108 13:59:38.612357  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host" podSandboxID="d8d7b590175e3a2e"
+• [FAILED] [0.523 seconds]
+[k8s.io] AppArmor runtime should support apparmor field [It] should enforce a permissive deprecated profile
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:170
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:59:38.61
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:59:38.61
+  STEP: Create container. @ 11/08/26 13:59:38.611
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:38.612
+  STEP: stop PodSandbox @ 11/08/26 13:59:38.612
+  STEP: delete PodSandbox @ 11/08/26 13:59:38.613
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x9fd8a6806a8>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:38.612
+------------------------------
+E1108 13:59:39.150299  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/non-existent-profile' is not loaded on the host" podSandboxID="70a411bd64ef931c"
+•E1108 13:59:39.625835  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host" podSandboxID="6df8f50763766207"
+
+------------------------------
+• [FAILED] [1.687 seconds]
+[k8s.io] AppArmor runtime should prefer new apparmor field [It] should enforce a apparmor_profile blocking writes
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:211
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:59:39.624
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:59:39.624
+  STEP: Create container. @ 11/08/26 13:59:39.625
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:39.625
+  STEP: stop PodSandbox @ 11/08/26 13:59:39.625
+  STEP: delete PodSandbox @ 11/08/26 13:59:39.626
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x9fd8a6801b0>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:39.625
+------------------------------
+E1108 13:59:41.329265  446423 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host" podSandboxID="82ff24724b304c94"
+• [FAILED] [0.524 seconds]
+[k8s.io] AppArmor runtime should prefer new apparmor field [It] should work with apparmor profile
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:223
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:59:41.327
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:59:41.327
+  STEP: Create container. @ 11/08/26 13:59:41.328
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:41.329
+  STEP: stop PodSandbox @ 11/08/26 13:59:41.329
+  STEP: delete PodSandbox @ 11/08/26 13:59:41.33
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x9fd8a1822e8>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:59:41.329
+------------------------------
+• [FAILED] [153.880 seconds]
+[k8s.io] Multiple Containers [Conformance] when running multiple containers in a pod [It] should support network
+/home/runner/work/cri-tools/cri-tools/pkg/validate/multi_container_linux.go:87
+
+  Timeline >>
+  STEP: create a PodSandbox @ 11/08/26 13:59:41.537
+  STEP: create a httpd container @ 11/08/26 13:59:41.796
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/httpd:2.4.39-4 @ 11/08/26 13:59:41.796
+  STEP: Pull image : registry.k8s.io/e2e-test-images/httpd:2.4.39-4 @ 11/08/26 13:59:41.796
+  STEP: Create container. @ 11/08/26 14:01:11.497
+  Nov  8 14:01:11.499: INFO: Created container "f789f336e60e0056"
+
+  STEP: start the httpd container @ 11/08/26 14:01:11.499
+  STEP: Start container for containerID: f789f336e60e0056 @ 11/08/26 14:01:11.499
+  Nov  8 14:01:13.802: INFO: Started container "f789f336e60e0056"
+
+  STEP: Get container status for containerID: f789f336e60e0056 @ 11/08/26 14:01:13.802
+  STEP: create a busybox container @ 11/08/26 14:01:13.805
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 14:01:13.805
+  STEP: Create container. @ 11/08/26 14:01:13.805
+  Nov  8 14:01:13.806: INFO: Created container "9e3439e98e8caaf3"
+
+  STEP: start the busybox container @ 11/08/26 14:01:13.806
+  STEP: Start container for containerID: 9e3439e98e8caaf3 @ 11/08/26 14:01:13.806
+  Nov  8 14:01:13.862: INFO: Started container "9e3439e98e8caaf3"
+
+  STEP: Get container status for containerID: 9e3439e98e8caaf3 @ 11/08/26 14:01:13.862
+  STEP: get the IP:port needed to be checked @ 11/08/26 14:01:13.865
+  STEP: Get PodSandbox status for podID: 4aacb4975200c14a @ 11/08/26 14:01:13.865
+  Nov  8 14:01:13.866: INFO: the IP:port is http://10.200.0.2:80
+  STEP: check the content of http://10.200.0.2:80 @ 11/08/26 14:01:13.866
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/networking.go:305 @ 11/08/26 14:02:14.867
+  STEP: stop PodSandbox @ 11/08/26 14:02:14.867
+  STEP: delete PodSandbox @ 11/08/26 14:02:15.137
+  STEP: cleanup log path @ 11/08/26 14:02:15.414
+  << Timeline
+
+  [FAILED] Timed out after 61.001s.
+  Expected success, but got an error:
+      <*url.Error | 0x9fd8af88000>: 
+      Get "http://10.200.0.2:80": dial tcp 10.200.0.2:80: i/o timeout
+      {
+          Op: "Get",
+          URL: "http://10.200.0.2:80",
+          Err: <*net.OpError | 0x9fd8b134000>{
+              Op: "dial",
+              Net: "tcp",
+              Source: nil,
+              Addr: <*net.TCPAddr | 0x9fd8b2aa150>{
+                  IP: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 10, 200, 0, 2],
+                  Port: 80,
+                  Zone: "",
+              },
+              Err: <*poll.DeadlineExceededError | 0x1f24920>{},
+          },
+      }
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/networking.go:305 @ 11/08/26 14:02:14.867
+------------------------------
+••S
+------------------------------
+• [FAILED] [0.464 seconds]
+[k8s.io] Container Mount Readonly runtime should support readonly mounts [It] should support non-recursive readonly mounts
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:393
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 14:02:18.774
+  STEP: create host path @ 11/08/26 14:02:19.048
+  Nov  8 14:02:19.048: INFO: Unexpected error occurred: operation not permitted
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:484 @ 11/08/26 14:02:19.049
+  STEP: stop PodSandbox @ 11/08/26 14:02:19.049
+  STEP: delete PodSandbox @ 11/08/26 14:02:19.05
+  << Timeline
+
+  [FAILED] failed to mount tmpfs on dir "/tmp/testf2b0036e92f291c22252168284/tmpfs": operation not permitted
+  Unexpected error:
+      <syscall.Errno>: 
+      operation not permitted
+      0x1
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:484 @ 11/08/26 14:02:19.049
+------------------------------
+SSSS••••SSS••S•••••••••••••••••••E1108 14:02:51.293585  446423 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+•••••••••
+
+Summarizing 19 Failures:
+  [FAIL] [k8s.io] Streaming runtime should support streaming interfaces [It] runtime should support portforward in host network
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519
+  [FAIL] [k8s.io] Container OOM runtime should output OOMKilled reason [It] should terminate with exitCode 137 and reason OOMKilled
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:172
+  [FAIL] [k8s.io] Networking runtime should support networking [It] runtime should support port mapping with only container port [Conformance]
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/networking.go:305
+  [FAIL] [k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rprivate' should not support propagation
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:206
+  [FAIL] [k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:212
+  [FAIL] [k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rslave' should support propagation from host to container
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:212
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support HostPID
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support HostNetwork is true
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519
+  [FAIL] [k8s.io] Security Context SeccompProfilePath [It] should support nil profile, which is unconfined
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:1616
+  [FAIL] [k8s.io] Streaming runtime should support streaming interfaces [It] runtime should support portforward [Conformance]
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317
+  [FAIL] [k8s.io] AppArmor runtime should support deprecated apparmor_profile field [It] should enforce a apparmor_profile blocking writes
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should support deprecated apparmor_profile field [It] should enforce a permissive deprecated profile
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should support apparmor field [It] should enforce a apparmor_profile blocking writes
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should support apparmor field [It] should enforce a permissive deprecated profile
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should prefer new apparmor field [It] should enforce a apparmor_profile blocking writes
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should prefer new apparmor field [It] should work with apparmor profile
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] Multiple Containers [Conformance] when running multiple containers in a pod [It] should support network
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/networking.go:305
+  [FAIL] [k8s.io] Container Mount Readonly runtime should support readonly mounts [It] should support non-recursive readonly mounts
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:484
+
+Ran 103 of 122 Specs in 615.771 seconds
+FAIL! -- 84 Passed | 19 Failed | 0 Pending | 19 Skipped
+--- FAIL: TestCRISuite (615.78s)
+FAIL
++ rc=1
++ set +x
+==> critest terminou com rc=1 (log completo em /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/reports/cri-conformance-0.1.1/baseline-develop.log; servidor em /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/reports/cri-conformance-0.1.1/baseline-develop.log.server)

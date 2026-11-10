@@ -1,0 +1,171 @@
+Warning: Permanently added '192.168.122.105' (ED25519) to the list of known hosts.
+==> a arrancar delonix-cri (root=/tmp/delonix-cri-critest-root.dzEoz4 socket=/tmp/delonix-cri-critest-1460.sock)
+==> smoke: crictl version
+time="2026-11-08T15:47:24Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.0
+RuntimeApiVersion:  v1
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> critest (timeout ginkgo=18m)
++ critest -runtime-endpoint unix:///tmp/delonix-cri-critest-1460.sock -image-endpoint unix:///tmp/delonix-cri-critest-1460.sock -ginkgo.timeout=18m -ginkgo.no-color
++ tee /tmp/critest-podpid.log
+time="2026-11-08T15:47:24Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1794152844
+
+Will run 117 of 122 specs
+•••••••E1108 15:47:30.529385    1489 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="d19e27fb46334d53"
+•••E1108 15:47:31.343499    1489 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="0e0ec91087ccd1c0"
+•••E1108 15:47:32.179363    1489 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="2c2a4f7d13fa6c37"
+•••SSSS•••S
+------------------------------
+• [FAILED] [60.284 seconds]
+[k8s.io] Container OOM runtime should output OOMKilled reason [It] should terminate with exitCode 137 and reason OOMKilled
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:161
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 15:48:01.044
+  STEP: create container @ 11/08/26 15:48:01.091
+  STEP: create a container that will be killed by OOMKiller @ 11/08/26 15:48:01.091
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 15:48:01.091
+  STEP: Create container. @ 11/08/26 15:48:01.092
+  Nov  8 15:48:01.093: INFO: Created container "8a4e119191bb67d6"
+
+  STEP: verifying container status @ 11/08/26 15:48:01.093
+  STEP: start container @ 11/08/26 15:48:01.094
+  STEP: Start container for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:01.094
+  Nov  8 15:48:01.146: INFO: Started container "8a4e119191bb67d6"
+
+  STEP: container is stopped because of OOM @ 11/08/26 15:48:01.146
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:01.146
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:01.173
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:05.178
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:09.183
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:13.188
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:17.193
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:21.198
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:25.203
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:29.205
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:33.207
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:37.212
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:41.218
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:45.22
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:49.222
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:53.228
+  STEP: Get container status for containerID: 8a4e119191bb67d6 @ 11/08/26 15:48:57.23
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:176 @ 11/08/26 15:49:01.177
+  STEP: stop PodSandbox @ 11/08/26 15:49:01.177
+  STEP: delete PodSandbox @ 11/08/26 15:49:01.2
+  << Timeline
+
+  [FAILED] Timed out after 60.004s.
+  Expected
+      <string>: Error
+  to equal
+      <string>: OOMKilled
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:176 @ 11/08/26 15:49:01.177
+------------------------------
+•••••••SSSS•••••••••E1108 15:50:32.747087    1489 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+••••••••••
+------------------------------
+• [FAILED] [0.450 seconds]
+[k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:121
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 15:51:28.48
+  STEP: create host path and flag file @ 11/08/26 15:51:28.525
+  STEP: create container with volume @ 11/08/26 15:51:28.525
+  STEP: create a container with volume and name @ 11/08/26 15:51:28.525
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 15:51:28.525
+  STEP: Create container. @ 11/08/26 15:51:28.526
+  Nov  8 15:51:28.526: INFO: Created container "5273977445e4dee7"
+
+  STEP: verifying container status @ 11/08/26 15:51:28.527
+  STEP: verifying container status mount propagation @ 11/08/26 15:51:28.527
+  STEP: test start container with volume @ 11/08/26 15:51:28.527
+  STEP: Start container for containerID: 5273977445e4dee7 @ 11/08/26 15:51:28.527
+  Nov  8 15:51:28.573: INFO: Started container "5273977445e4dee7"
+
+  STEP: Get container status for containerID: 5273977445e4dee7 @ 11/08/26 15:51:28.573
+  STEP: create a propatation mount point in host @ 11/08/26 15:51:28.575
+  STEP: check whether propagationMntPoint contains file or dir in container @ 11/08/26 15:51:28.575
+  STEP: execSync for containerID: 5273977445e4dee7 @ 11/08/26 15:51:28.575
+  Nov  8 15:51:28.607: INFO: Execsync succeed
+  STEP: create a directory named containerMntPoint as a mount point in container @ 11/08/26 15:51:28.607
+  STEP: execSync for containerID: 5273977445e4dee7 @ 11/08/26 15:51:28.607
+  Nov  8 15:51:28.632: INFO: Execsync succeed
+  STEP: mount /etc to the mount point in container @ 11/08/26 15:51:28.632
+  STEP: execSync for containerID: 5273977445e4dee7 @ 11/08/26 15:51:28.632
+  Nov  8 15:51:28.657: INFO: Execsync succeed
+  STEP: check whether containerMntPoint contains file or dir in host @ 11/08/26 15:51:28.657
+  STEP: clean up the TempDir @ 11/08/26 15:51:28.657
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 15:51:28.658
+  STEP: stop PodSandbox @ 11/08/26 15:51:28.658
+  STEP: delete PodSandbox @ 11/08/26 15:51:28.783
+  << Timeline
+
+  [FAILED] len(fileInfo) should not be zero.
+  Expected
+      <[]fs.DirEntry | len:0, cap:0>: []
+  not to be empty
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 15:51:28.658
+------------------------------
+••••E1108 15:51:31.273166    1489 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+•••••••••••••••••••••S•••
+------------------------------
+• [FAILED] [1.380 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:198
+
+  Timeline >>
+  STEP: create podSandbox for sharing process namespace @ 11/08/26 15:51:47.469
+  Nov  8 15:51:47.469: INFO: Pid namespace is "POD"
+  STEP: create NamespaceOption podSandbox @ 11/08/26 15:51:47.469
+  STEP: create nginx container @ 11/08/26 15:51:47.515
+  STEP: create NamespaceOption container @ 11/08/26 15:51:47.515
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/nginx:1.14-2 @ 11/08/26 15:51:47.515
+  STEP: Create container. @ 11/08/26 15:51:47.516
+  Nov  8 15:51:47.517: INFO: Created container "285c4c2711c00c1c"
+
+  STEP: start container @ 11/08/26 15:51:47.517
+  STEP: Start container for containerID: 285c4c2711c00c1c @ 11/08/26 15:51:47.517
+  Nov  8 15:51:47.560: INFO: Started container "285c4c2711c00c1c"
+
+  STEP: Get container status for containerID: 285c4c2711c00c1c @ 11/08/26 15:51:47.56
+  STEP: get nginx container pid @ 11/08/26 15:51:47.562
+  STEP: execSync for containerID: 285c4c2711c00c1c @ 11/08/26 15:51:48.562
+  Nov  8 15:51:48.588: INFO: Execsync succeed
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226 @ 11/08/26 15:51:48.588
+  STEP: stop PodSandbox @ 11/08/26 15:51:48.588
+  STEP: delete PodSandbox @ 11/08/26 15:51:48.722
+  << Timeline
+
+  [FAILED] Expected
+      <string>: nginx: master process nginx -g daemon off; 
+  not to contain substring
+      <string>: master process
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226 @ 11/08/26 15:51:48.588
+------------------------------
+•••••••E1108 15:51:51.001251    1489 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="a1af3c0badcfb146"
+•••••••••••SS•••••••••SSSSSSS
+
+Summarizing 3 Failures:
+  [FAIL] [k8s.io] Container OOM runtime should output OOMKilled reason [It] should terminate with exitCode 137 and reason OOMKilled
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:176
+  [FAIL] [k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226
+
+Ran 103 of 122 Specs in 278.860 seconds
+FAIL! -- 100 Passed | 3 Failed | 0 Pending | 19 Skipped
+--- FAIL: TestCRISuite (278.86s)
+FAIL
++ rc=1
++ set +x
+==> critest terminou com rc=1 (log completo em /tmp/critest-podpid.log; servidor em /tmp/critest-podpid.log.server)

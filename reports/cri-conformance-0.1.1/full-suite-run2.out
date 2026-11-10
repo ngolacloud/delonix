@@ -1,0 +1,97 @@
+Warning: Permanently added '192.168.122.243' (ED25519) to the list of known hosts.
+==> cgroup2 subtree_control: cpuset cpu io memory hugetlb pids
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> arrancar delonix-cri (socket=/run/delonix-cri.sock, CAP_CEILING=all, CNI=1, SECCOMP_NIL=unconfined)
+==> smoke: crictl version
+time="2026-11-10T09:48:53Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.0
+RuntimeApiVersion:  v1
+==> critest (timeout ginkgo=25m) FOCUS='' SKIP=''
++ critest -runtime-endpoint unix:///run/delonix-cri.sock -image-endpoint unix:///run/delonix-cri.sock -ginkgo.timeout=25m -ginkgo.no-color
++ tee /tmp/critest-full2.log
+time="2026-11-10T09:48:53Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1794304133
+
+Will run 117 of 122 specs
+••SSSS•••••••••••••E1110 09:49:40.553618   11019 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="7ba82c3346cff9e4"
+•••••••••••SS•••••••••SSSSSS•••E1110 09:49:49.727982   11019 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+••••••••S•••E1110 09:50:25.087853   11019 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="8adb56531f9053f3"
+•••E1110 09:50:25.933593   11019 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="e3d651efdd4ecb52"
+•••E1110 09:50:26.805115   11019 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="96334dc482f6635a"
+••••SSSS••••••••••••••••••••••S•••S•••••••••
+------------------------------
+• [FAILED] [5.217 seconds]
+[k8s.io] Image Manager [It] public image with tag should be pulled and removed [Conformance] [Serial]
+/home/runner/work/cri-tools/cri-tools/pkg/validate/image.go:46
+
+  Timeline >>
+  STEP: Remove image : gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/10/26 09:50:44.942
+  STEP: Pull image : gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/10/26 09:50:44.943
+  STEP: Check image list to make sure pulling image success : gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/10/26 09:50:50.154
+  STEP: Get image status for image: gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/10/26 09:50:50.154
+  STEP: Remove image : gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/10/26 09:50:50.155
+  STEP: Remove image by ID : sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/10/26 09:50:50.156
+  STEP: Check image list empty @ 11/10/26 09:50:50.157
+  STEP: Get image status for image: gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/10/26 09:50:50.157
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/10/26 09:50:50.157
+  << Timeline
+
+  [FAILED] Timed out after 60.001s.
+  The stdout of attach should be hello
+  Expected
+      <string>: 
+  to equal
+      <string>: hello
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/10/26 09:50:50.157
+------------------------------
+E1110 09:50:50.161794   11019 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+•••••••••
+
+Summarizing 1 Failure:
+  [FAIL] [k8s.io] Image Manager [It] public image with tag should be pulled and removed [Conformance] [Serial]
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317
+
+Ran 103 of 122 Specs in 194.661 seconds
+FAIL! -- 102 Passed | 1 Failed | 0 Pending | 19 Skipped
+--- FAIL: TestCRISuite (194.67s)
+FAIL
+==> critest rc=1 (log=/tmp/critest-full2.log; server=/tmp/critest-full2.log.server)
+=== server log tail ===
++ rc=1
++ set +x
+[2m2026-11-10T09:51:00.455471Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-user-uid:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-user-uid [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:03.346421Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:04.352820Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-user-username:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-user-username [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:07.718434Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:08.807799Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-user-uid-group:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-user-uid-group [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:12.205292Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:13.314555Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-user-username-group:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-user-username-group [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:16.022674Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:17.090882Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-1:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-1 [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:20.438278Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:21.578704Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-2:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-2 [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:24.867885Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:26.024247Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-3:latest from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-3 [3mreference[0m[2m=[0mlatest [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:28.825333Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:29.894207Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:1 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m1 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:33.231927Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:34.219424Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:2 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m2 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:36.753014Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:37.578930Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:3 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m3 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:40.085292Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:40.965346Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:1 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m1 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:43.574233Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:44.466959Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:2 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m2 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:47.067680Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:47.947873Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling k8s-staging-cri-tools/test-image-tags:3 from gcr.io [3mrepo[0m[2m=[0mk8s-staging-cri-tools/test-image-tags [3mreference[0m[2m=[0m3 [3mhost[0m[2m=[0mgcr.io
+[2m2026-11-10T09:51:50.796156Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:51.806831Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling pause:3.9 from registry.k8s.io [3mrepo[0m[2m=[0mpause [3mreference[0m[2m=[0m3.9 [3mhost[0m[2m=[0mregistry.k8s.io
+[2m2026-11-10T09:51:57.324521Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:51:59.170581Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling pause:3.9 from k8s.gcr.io [3mrepo[0m[2m=[0mpause [3mreference[0m[2m=[0m3.9 [3mhost[0m[2m=[0mk8s.gcr.io
+[2m2026-11-10T09:52:05.501594Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64

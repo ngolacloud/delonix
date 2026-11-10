@@ -323,6 +323,14 @@ fn wants_version(args: &[String]) -> bool {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Hidden re-exec mode (ADR-0092): the per-pod PID-namespace anchor for a
+    // `shareProcessNamespace` sandbox. NOT a server — it `unshare`s a PID namespace
+    // and stays its PID 1 (a "pause"), so no container's first process is PID 1 (the
+    // k8s contract). A fresh, single-threaded process, so the `fork` inside is safe.
+    // Answered before telemetry/version/sockets: it is its own tiny program.
+    if args.first().map(String::as_str) == Some("__pid-anchor") {
+        std::process::exit(delonix_linux::run_pid_namespace_anchor());
+    }
     // Answered before telemetry, the release check and any socket: asking which
     // release this binary is must work even for one `check_version` would refuse.
     if wants_version(&args) {

@@ -1439,6 +1439,96 @@ fn mount_point_should_be_dir(source: &std::path::Path) -> bool {
         .unwrap_or(true)
 }
 
+/// The per-mount propagation flag for a mount's `propagation` field, applied as
+/// its OWN `mount()` after the bind (the kernel ignores a propagation flag
+/// combined with `MS_BIND`). Pure, so the mapping is testable without `mount(2)`.
+///
+/// `None` (and any unknown string) maps to `MS_PRIVATE`, and it is applied
+/// anyway rather than skipped: under the rec-SHARED root an `rshared` mount
+/// forces ([`root_propagation`]) a plain bind would otherwise INHERIT the shared
+/// root's peer group and could leak a non-propagating volume back to the host.
+/// Saying `private` severs that. Under the rec-private / rec-slave roots the
+/// other modes use it is a harmless no-op (a fresh bind is already private
+/// there, bar the slave inheritance it is right to drop).
+fn per_mount_propagation(propagation: Option<&str>) -> MsFlags {
+    let base = match propagation {
+        Some("rslave" | "slave") => MsFlags::MS_SLAVE,
+        Some("rshared" | "shared") => MsFlags::MS_SHARED,
+        _ => MsFlags::MS_PRIVATE,
+    };
+    base | MsFlags::MS_REC
+}
+
+/// The container mount-ns ROOT propagation for the NON-`rshared` cases, decided
+/// by what the mounts ask for. Pure (no `mount(2)`), so the choice is unit-tested
+/// directly.
+///
+/// - No mount wants host events → `MS_REC | MS_PRIVATE`: full isolation, the
+///   default, and it stays the default.
+/// - A mount wants `rslave` (host→container) → `MS_REC | MS_SLAVE`: the one-way
+///   link host events need, and what Docker and runc give EVERY container. It
+///   costs nothing to a container that did not ask.
+///
+/// `rshared` (bidirectional) does NOT go through here: a recursive change on `/`
+/// would drag the host source's mount out of its peer group (which it can never
+/// rejoin), so `setup_rootfs` leaves the root untouched for `rshared` and confines
+/// the work to the rootfs subtree instead (ADR-0093). `wants_propagation` is true
+/// for `rshared` too, so a stray `rshared` reaching here would fall to the safe
+/// `MS_SLAVE` arm — but the caller routes it away first.
+fn root_propagation(mounts: &[Mount]) -> MsFlags {
+    if mounts.iter().any(Mount::wants_propagation) {
+        MsFlags::MS_REC | MsFlags::MS_SLAVE
+    } else {
+        MsFlags::MS_REC | MsFlags::MS_PRIVATE
+    }
+}
+
+/// May this engine honour an `rshared` (bidirectional) mount? Pure.
+///
+/// Bidirectional propagation is container→host: a mount made inside the
+/// container appears on the host. That is real privilege over the host's mount
+/// tree, so Kubernetes requires a privileged container for
+/// `mountPropagation: Bidirectional`, and the same bar applies here. A ROOTLESS
+/// engine is refused even for a "privileged" container: privilege there is
+/// confined to the user namespace and cannot touch the host's peer groups, so
+/// the propagation would silently do nothing — the class of silent failure this
+/// engine refuses. [`spawn`] turns a `false` here into a named refusal, never a
+/// quiet downgrade to `rslave`.
+fn rshared_allowed(privileged: bool, rootless: bool) -> bool {
+    privileged && !rootless
+}
+
+/// The mount point of the mount that CONTAINS `path` — the longest mount point in
+/// `mountinfo` that is a prefix of `path` (a path component boundary, so `/run`
+/// matches `/run/dlx/...` but `/ru` does not). Used by the `rshared` setup to
+/// make the rootfs's enclosing mount PRIVATE before the overlay lands on it, so a
+/// container mount under a rec-SHARED root does not propagate out to the host
+/// (ADR-0093 blast radius). Returns `None` if `mountinfo` can't be read.
+fn enclosing_mount_point(path: &str) -> Option<String> {
+    let text = std::fs::read_to_string("/proc/self/mountinfo").ok()?;
+    enclosing_mount_point_from(&text, path)
+}
+
+/// The pure core of [`enclosing_mount_point`]: the longest mount point in a
+/// `mountinfo` body that contains `path` at a component boundary. Split out so the
+/// prefix rule is unit-testable without `/proc`.
+fn enclosing_mount_point_from(mountinfo: &str, path: &str) -> Option<String> {
+    let mut best: Option<String> = None;
+    for line in mountinfo.lines() {
+        // field 4 (0-based) is the mount point.
+        let Some(mp) = line.split_whitespace().nth(4) else {
+            continue;
+        };
+        let is_prefix = path == mp
+            || (path.starts_with(mp)
+                && (mp == "/" || path.as_bytes().get(mp.len()) == Some(&b'/')));
+        if is_prefix && best.as_deref().is_none_or(|b| mp.len() > b.len()) {
+            best = Some(mp.to_string());
+        }
+    }
+    best
+}
+
 fn bind_volume(rootfs: &str, m: &Mount) -> nix::Result<()> {
     if !mount_target_safe(&m.target) {
         return Err(nix::errno::Errno::EINVAL);
@@ -1502,23 +1592,20 @@ fn bind_volume(rootfs: &str, m: &Mount) -> nix::Result<()> {
     // Propagation LAST, and as its OWN `mount()` by kernel rule: the propagation
     // flag cannot be combined with `MS_BIND` in a single call — passed together
     // it is silently ignored, the same trap `MS_RDONLY` on a first bind has.
-    if let Some(p) = m.propagation.as_deref() {
-        let flag = match p {
-            "rslave" | "slave" => MsFlags::MS_SLAVE,
-            "rshared" | "shared" => MsFlags::MS_SHARED,
-            // `private` is already the kernel's default for a fresh bind under a
-            // private root — but say it anyway: under a SLAVE root, which
-            // ANOTHER mount on the same container may have forced, it is not.
-            _ => MsFlags::MS_PRIVATE,
-        };
-        mount(
-            None::<&str>,
-            dst.as_str(),
-            None::<&str>,
-            flag | MsFlags::MS_REC,
-            None::<&str>,
-        )?;
-    }
+    //
+    // Applied for EVERY mount, including the ones that asked for nothing: see
+    // `per_mount_propagation` — a bind left alone under the rec-shared root an
+    // `rshared` mount forces would inherit that sharedness and could leak back
+    // to the host, so each non-propagating mount is pinned `rprivate`. `private`
+    // is also the right thing under a SLAVE root another mount may have forced,
+    // where a fresh bind would otherwise be slave.
+    mount(
+        None::<&str>,
+        dst.as_str(),
+        None::<&str>,
+        per_mount_propagation(m.propagation.as_deref()),
+        None::<&str>,
+    )?;
     Ok(())
 }
 
@@ -2505,18 +2592,53 @@ fn setup_rootfs(
     // tree, which is the right default and stays the default — but it also makes
     // `rslave`/`rshared` on any individual mount a no-op, because there is no
     // peer group left to receive events from. `MS_SLAVE` keeps the one-way link
-    // the propagating mounts need (and is what Docker and runc use for ALL
-    // containers; here it costs nothing to anyone who did not ask).
+    // host→container needs. The two-way choice for those lives in
+    // `root_propagation`, pure and unit-tested.
     //
-    // Deliberately decided by what the mounts ask for, not by a flag: a root
-    // that is slave for a container with no propagating mount would be a wider
-    // opening than the caller requested, and invisible.
-    let root_prop = if mounts.iter().any(|m| m.wants_propagation()) {
-        MsFlags::MS_REC | MsFlags::MS_SLAVE
+    // `rshared` (bidirectional) is the exception, and its whole shape is dictated
+    // by what `/proc/self/mountinfo` showed on a golden VM (ADR-0093), not theory.
+    // Two forces pull opposite ways:
+    //
+    //  - A volume only lands as a PEER of the host source's group (`shared:N`, so
+    //    a mount made inside the container reaches the host) when the host source
+    //    keeps the peer group it was cloned with AND the bind's DESTINATION parent
+    //    — the rootfs — is shared at bind time.
+    //  - Any RECURSIVE propagation change on `/` destroys the first condition: it
+    //    would drag the host source's own mount out of its peer group (to slave or
+    //    private), and a mount can never REJOIN a peer group once it leaves. A
+    //    rec-SHARED `/` keeps the source but then leaks the container's OWN mounts
+    //    (overlay, `/dev`, the leaf cgroup) back to the host namespace where the
+    //    CRI server runs — measured to break the cgroup setup there (`cgroup:
+    //    could not create delonix.slice/...`): the blast radius the ADR warned of.
+    //
+    // So for `rshared` the root is NOT touched recursively at all. The host source
+    // keeps its cloned `shared:N` group untouched; isolation of the container's
+    // own mounts is confined to the rootfs subtree by making the mount that
+    // ENCLOSES the rootfs (e.g. `/run` under the CRI) PRIVATE — nothing the
+    // container mounts beneath it escapes. The rootfs is then bound and made
+    // shared so the volumes bind as peers (see below), and `/` is made private
+    // (non-recursively) only just before `pivot_root`, which refuses a shared
+    // current root.
+    let rshared_rootfs = mounts.iter().any(Mount::is_rshared);
+    if rshared_rootfs {
+        if let Some(enc) = enclosing_mount_point(rootfs) {
+            mount(
+                None::<&str>,
+                enc.as_str(),
+                None::<&str>,
+                MsFlags::MS_PRIVATE,
+                None::<&str>,
+            )?;
+        }
     } else {
-        MsFlags::MS_REC | MsFlags::MS_PRIVATE
-    };
-    mount(None::<&str>, "/", None::<&str>, root_prop, None::<&str>)?;
+        mount(
+            None::<&str>,
+            "/",
+            None::<&str>,
+            root_propagation(mounts),
+            None::<&str>,
+        )?;
+    }
     // AFTER the root propagation (so the overlay never escapes into the host's
     // mount tree) and BEFORE the bind below, which needs `rootfs` to already
     // hold the merged image.
@@ -2528,6 +2650,17 @@ fn setup_rootfs(
         MsFlags::MS_BIND | MsFlags::MS_REC,
         None::<&str>,
     )?;
+    if rshared_rootfs {
+        // rootfs → shared: the volumes bound below join the host source's peer
+        // group through it (its enclosing mount is private, so this does not leak).
+        mount(
+            None::<&str>,
+            rootfs,
+            None::<&str>,
+            MsFlags::MS_SHARED,
+            None::<&str>,
+        )?;
+    }
     // clean /dev with the essential nodes (tmpfs + bind of the host's real device nodes:
     // the only way to have real `crw-rw-rw-` without CAP_MKNOD). Without a user ns it runs HERE,
     // before pivot_root, as real root and while the host's `/dev` is the root. With
@@ -2634,6 +2767,30 @@ fn setup_rootfs(
     // the container does not start. It is what runc/Docker do (they create the mountpoints).
     let _ = std::fs::create_dir_all(format!("{rootfs}/proc"));
     let _ = std::fs::create_dir_all(format!("{rootfs}/sys"));
+    // `rshared` only: the rootfs was made SHARED so the volumes joined the host
+    // source's peer group, and `/` is still at its cloned (shared) propagation
+    // because the root was deliberately not touched recursively. `pivot_root`
+    // refuses to run while the CURRENT root is shared (`EINVAL`), so make `/`
+    // private now that every volume is bound — non-recursively, so the volumes
+    // (mounts of their own) keep `shared:N`. The rootfs itself is reverted to
+    // private too (tidy; the new root's PARENT, the overlay, was already made
+    // private via the enclosing-mount step before the self-bind).
+    if rshared_rootfs {
+        mount(
+            None::<&str>,
+            rootfs,
+            None::<&str>,
+            MsFlags::MS_PRIVATE,
+            None::<&str>,
+        )?;
+        mount(
+            None::<&str>,
+            "/",
+            None::<&str>,
+            MsFlags::MS_PRIVATE,
+            None::<&str>,
+        )?;
+    }
     chdir(rootfs)?;
     pivot_root(".", ".delonix_old")?;
     chdir("/")?;
@@ -2724,9 +2881,35 @@ fn setup_rootfs(
     // With a user ns the old root is unmounted only AFTER setuid + setup_dev_userns
     // (which needs it to wire the host's real nodes into /dev) — done in the caller.
     if !userns {
-        umount2("/.delonix_old", MntFlags::MNT_DETACH)?;
-        let _ = std::fs::remove_dir("/.delonix_old");
+        detach_old_root("/.delonix_old", rshared_rootfs)?;
     }
+    Ok(())
+}
+
+/// Lazily detaches the pivoted-away old root tree.
+///
+/// For an `rshared` container the root was deliberately left at its cloned (often
+/// SHARED) propagation so the host source keeps its peer group — which means this
+/// `MNT_DETACH` would, through that sharing, propagate the unmount of EVERY old
+/// submount (`/`, `/run`, `/sys/fs/cgroup`, …) back out to the host mount
+/// namespace where the engine runs, tearing down the host's own `/sys/fs/cgroup`
+/// (measured: the next container's `cgroup: could not create delonix.slice/...`,
+/// ADR-0093). Making the old tree `MS_REC|MS_PRIVATE` first severs that
+/// propagation; the container's volumes live under the NEW root, not here, so they
+/// keep their peer group untouched. The other modes already rec-slaved the root,
+/// so the detach never propagated — the extra call is a harmless reaffirmation.
+fn detach_old_root(old: &str, rshared: bool) -> nix::Result<()> {
+    if rshared {
+        mount(
+            None::<&str>,
+            old,
+            None::<&str>,
+            MsFlags::MS_REC | MsFlags::MS_PRIVATE,
+            None::<&str>,
+        )?;
+    }
+    umount2(old, MntFlags::MNT_DETACH)?;
+    let _ = std::fs::remove_dir(old);
     Ok(())
 }
 
@@ -3243,6 +3426,97 @@ impl Drop for HeldChild {
             libc::kill(self.pid, libc::SIGKILL);
             let mut st = 0;
             libc::waitpid(self.pid, &mut st, 0);
+        }
+    }
+}
+
+/// The per-pod PID-namespace anchor for a `shareProcessNamespace` sandbox
+/// (ADR-0092): a minimal "pause" that OWNS the shared PID namespace as PID 1, so
+/// no container's first process is PID 1 — the k8s contract `critest` PodPID
+/// asserts (`/proc/1/cmdline` must not be a container's). Invoked as a fresh,
+/// single-threaded re-exec (`delonix-cri __pid-anchor`), so the `fork` here is
+/// safe. The PARENT prints the anchor's HOST pid (for the CRI to record and have
+/// members `setns(CLONE_NEWPID)` into `/proc/<pid>/ns/pid`) and returns its exit
+/// code; the CHILD becomes PID 1 of the new namespace and never returns.
+///
+/// `unshare(CLONE_NEWPID)` needs CAP_SYS_ADMIN (root) or a user namespace — the
+/// rootful node the kubelet/`critest` drive has it; a rootless caller without a
+/// user namespace gets a clean non-zero exit, never a half-made anchor.
+pub fn run_pid_namespace_anchor() -> i32 {
+    use std::io::Write as _;
+    if let Err(e) = unshare(CloneFlags::CLONE_NEWPID) {
+        eprintln!(
+            "delonix-cri: pid-anchor: unshare(CLONE_NEWPID) failed ({e}) — \
+             needs root or a user namespace"
+        );
+        return 1;
+    }
+    // SAFETY: this process was just exec'd fresh for `__pid-anchor`, so it is
+    // single-threaded and `fork` is async-signal-safe here.
+    match unsafe { fork() } {
+        Ok(ForkResult::Parent { child }) => {
+            // Report the anchor's HOST pid, then exit — the child stays as the
+            // daemon PID 1 of the new namespace, holding it alive for the pod.
+            println!("{}", child.as_raw());
+            let _ = std::io::stdout().flush();
+            0
+        }
+        Ok(ForkResult::Child) => pid_anchor_reap_forever(),
+        Err(e) => {
+            eprintln!("delonix-cri: pid-anchor: fork failed ({e})");
+            1
+        }
+    }
+}
+
+/// PID 1 of a shared pod PID namespace: detach, then reap every orphan the kernel
+/// reparents here (a joined member's workload once its own parent is gone) and
+/// otherwise block. SIGCHLD is blocked and consumed with `sigwait`, so there is no
+/// handler and no busy loop. Never returns.
+///
+/// Teardown is a **SIGKILL** from the host (ancestor) namespace at
+/// `RemovePodSandbox`, which also kills the whole PID namespace. It is NOT SIGTERM:
+/// a namespace PID 1 with no handler has SIGTERM discarded by the kernel (the init
+/// protection), so a graceful signal would be ignored — SIGKILL is the only reliable
+/// one and is exactly what the CRI sends.
+fn pid_anchor_reap_forever() -> ! {
+    use nix::sys::signal::SigSet;
+    use nix::sys::wait::WaitPidFlag;
+    let _ = nix::unistd::setsid();
+    // Detach stdio: the child inherited the spawner's stdout pipe, and until it
+    // releases that fd the spawner's `Command::output()` (and a shell `$(...)`)
+    // never sees EOF and HANGS waiting for the writer to close. Redirect 0/1/2 to
+    // /dev/null so the only remaining writer is the parent, which exits right after
+    // printing the pid. If `dup2` ever fails we `close` the inherited descriptor
+    // instead, so the pipe still gets its EOF. SAFETY: plain fd ops on a just-forked
+    // single-threaded child.
+    unsafe {
+        let devnull = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
+        for fd in 0..3 {
+            if devnull < 0 || libc::dup2(devnull, fd) < 0 {
+                libc::close(fd);
+            }
+        }
+        if devnull > 2 {
+            libc::close(devnull);
+        }
+    }
+    let mut chld = SigSet::empty();
+    chld.add(Signal::SIGCHLD);
+    let _ = chld.thread_block();
+    loop {
+        // Reap all currently-reapable children; stop on StillAlive or ECHILD.
+        loop {
+            match waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WNOHANG)) {
+                Ok(WaitStatus::StillAlive) | Err(_) => break,
+                Ok(_) => continue,
+            }
+        }
+        // Block until the next child dies — SIGCHLD is blocked, so this is a clean
+        // `sigwait`, not a handler and not a poll. On the (not-expected) error path,
+        // a short sleep keeps a persistent `Err` from becoming a busy loop.
+        if chld.wait().is_err() {
+            let _ = nix::unistd::sleep(1);
         }
     }
 }
@@ -4147,6 +4421,19 @@ struct IoSpec {
     /// The child writes the reason here only when the `execvp` of its command
     /// FAILED; a successful `execvp` closes it (CLOEXEC) with nothing written.
     exec_w: Option<i32>,
+    /// `(read, write)` of the CGROUP-PLACEMENT barrier, the non-userns twin of
+    /// `sync`. The child BLOCKS on it right before `execvp`, and the parent
+    /// releases it only after `setup_cgroup` has written the child into the
+    /// resource-limited leaf — so the workload's FIRST page fault is charged to
+    /// the container's cgroup, not the caller's. Without it, a child cloned
+    /// without a user namespace races: it `execve`s and faults its memory in the
+    /// window before the parent's `cgroup.procs` write, and that memory is never
+    /// charged to the leaf (a cgroup v2 migration moves a task, never the pages
+    /// it already faulted). Measured on the CRI OOM conformance spec: `dd bs=20M`
+    /// under `-m 15Mi` kept running (20 MiB of anon pages, only ~3 MiB charged)
+    /// instead of being OOM-killed. `None` on the userns path, where `sync`
+    /// already carries the GO after `setup_cgroup`.
+    cg_sync: Option<(i32, i32)>,
 }
 
 /// Minimal reaping init for Docker/Podman `--init`: forward termination signals
@@ -4268,6 +4555,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 console_sock,
                 ready_w,
                 exec_w,
+                cg_sync,
             },
     } = spec;
     // User namespace: wait for the PARENT to write uid_map/gid_map before continuing
@@ -4363,10 +4651,11 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             libc::setuid(0);
         }
         // /dev: tmpfs (now owned by uid 0) + bind of the host's real nodes from the
-        // old root preserved by pivot_root. Then unmount it (no longer needed).
+        // old root preserved by pivot_root. Then unmount it (no longer needed) —
+        // `detach_old_root` severs the old tree's propagation first for an
+        // `rshared` container, so the lazy unmount never reaches the host.
         setup_dev_userns("/.delonix_old", devices);
-        let _ = umount2("/.delonix_old", MntFlags::MNT_DETACH);
-        let _ = std::fs::remove_dir("/.delonix_old");
+        let _ = detach_old_root("/.delonix_old", mounts.iter().any(Mount::is_rshared));
     }
     // Kind node: masks the systemd units that FAIL and delay boot in a rootless
     // container (kernel-fs mounts, module modprobe, udev/modules-load). Without
@@ -4627,6 +4916,27 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         // SAFETY: libc umask always succeeds, returning the previous mask.
         unsafe {
             libc::umask(m as libc::mode_t);
+        }
+    }
+    // CGROUP BEFORE THE WORKLOAD (non-userns twin of the userns GO at the top).
+    // The child cloned WITHOUT a user namespace has, until here, run free: the
+    // parent's `setup_cgroup`/`cgroup.procs` write races the `execvp` below. A
+    // cgroup v2 migration moves a task, never the pages it already faulted, so a
+    // workload that touches its memory in that window (`dd bs=20M` under `-m
+    // 15Mi`) stays uncharged and is never OOM-killed — the CRI OOM conformance
+    // spec failed on exactly this. We block here, the LAST point before the user
+    // command (both the `--init` reaper and the `execvp` are past it), until the
+    // parent writes the GO byte from `place_without_userns` — which it does only
+    // after `setup_cgroup` placed us in the leaf. The userns path never reaches
+    // here with a pipe (its GO is `sync`, already consumed before `setup_cgroup`).
+    if let Some((r, w)) = cg_sync {
+        // SAFETY: pipe fds inherited from the clone; close the write, read the
+        // 1-byte GO from the read, close the read. Same shape as the userns `sync`.
+        unsafe {
+            libc::close(w);
+            let mut b = [0u8; 1];
+            let _ = libc::read(r, b.as_mut_ptr() as *mut libc::c_void, 1);
+            libc::close(r);
         }
     }
     // Docker/Podman `--init`: become a tiny reaping init. Everything above (the
@@ -7219,6 +7529,14 @@ pub struct RunSpec<'a> {
     /// IPC/UTS `setns` works. The infra container (the pod's first member) is
     /// PID 1 of the shared namespace and reaps the orphans reparented to it.
     pub pod_shared_pid: bool,
+    /// **Pod PID sharing on the ROOT single-pass path** (ADR-0092): the host pid of a
+    /// per-pod pause anchor whose PID namespace this container joins on THIS pass,
+    /// decoupled from `pod_infra_pid`/`pod_shared_pid` (which are gated to the `--pod`
+    /// re-exec and also carry IPC/UTS). When `Some`, the container does NOT create its
+    /// own PID namespace (`clone_flags`) and `spawn` `setns`es into the anchor before
+    /// the `clone` — exactly as the `pod_shared_pid` path, but WITHOUT a holder user
+    /// namespace (root has the privilege) and WITHOUT touching IPC/UTS.
+    pub pod_pidns_pid: Option<i32>,
     /// Volumes/bind mounts to inject into the rootfs.
     pub mounts: Vec<Mount>,
     /// Log file for the stdout/stderr (detached) — the "file" *log driver*.
@@ -7849,6 +8167,31 @@ fn spawn(
     if let Some(gp) = &container.cgroup_parent {
         group_ceiling_files(gp, "0").map_err(Error::InvalidCgroupParent)?;
     }
+    // `rshared` (bidirectional) mount propagation is a privilege, refused HERE —
+    // before the rootfs is touched or a child cloned — rather than degraded to
+    // `rslave` in silence (ADR-0093). It opens a peer group with the host's mount
+    // tree, so a mount made inside the container shows up on the host; Kubernetes
+    // requires `privileged` for `mountPropagation: Bidirectional`, and a rootless
+    // engine cannot touch the host's peer groups however privileged the container
+    // claims to be. `root_propagation` only turns the container root rec-SHARED
+    // once this check has passed.
+    if spec.mounts.iter().any(Mount::is_rshared)
+        && !rshared_allowed(container.privileged, is_rootless())
+    {
+        let why = if is_rootless() {
+            "this engine is rootless, so it has no privilege over the host's mount tree"
+        } else {
+            "this container is not privileged"
+        };
+        return Err(Error::BidirectionalNeedsPrivileged(format!(
+            "mount propagation 'rshared' (bidirectional, Kubernetes \
+             `mountPropagation: Bidirectional`) is refused: {why}. It would open a \
+             peer group with the host's mount tree so a mount made inside the \
+             container appears on the host, which needs a privileged container on \
+             a rootful engine. Use 'rslave' for one-way host\u{2192}container \
+             propagation, or run privileged on a rootful node."
+        )));
+    }
     // `--hostname` (CRI `PodSandboxConfig.hostname`) overrides the container's
     // name in the UTS namespace and in `/etc/hostname`+`/etc/hosts`; without it,
     // the name is used (historical behavior).
@@ -7908,6 +8251,7 @@ fn spawn(
         console_sock,
         ready_w: Some(pipes.ready.1),
         exec_w: pipes.exec.map(|(_, w)| w),
+        cg_sync: pipes.cg_sync,
     };
     // Pod PID sharing (`shareProcessNamespace`): enter the infra's PID namespace
     // HERE, in the parent, so the `clone` below is born inside it —
@@ -7952,10 +8296,14 @@ fn spawn(
     // it runs uncapped. Mounting allocates nothing, so waiting first would buy
     // no safety and cost that.
     // Already done before the GO on the userns path (the rootless default). The
-    // path without userns has no sync point to block the child on, so it keeps
-    // the historical placement — the same asymmetry the network hook has.
+    // path without userns now has its OWN sync point — the `cg_sync` barrier the
+    // child blocks on right before `execvp` — so this places it in the cgroup
+    // (and runs the network hook) BEFORE releasing the entrypoint, the same
+    // guarantee the userns handshake gives. The child is already past the console
+    // `recv_fd` above (it sent the pty master before reaching the barrier), so
+    // writing the GO here cannot deadlock.
     if !handshaken {
-        place_without_userns(container, pid, spec, io_dev.as_deref())?;
+        place_without_userns(container, pid, spec, io_dev.as_deref(), pipes.cg_sync)?;
     }
 
     // Do not return until the child has finished shaping its mount namespace.
@@ -8402,13 +8750,16 @@ fn clone_flags(spec: &RunSpec<'_>) -> (CloneFlags, bool) {
     let join_pod = spec.pod_infra_pid.is_some();
     // Pod PID sharing: the member is cloned straight into the infra's PID
     // namespace (the parent `setns`es there just before the `clone`, see
-    // `spawn`), so it must NOT be given a fresh one here.
+    // `spawn`), so it must NOT be given a fresh one here. TWO sources: the native
+    // `--pod` pair (`pod_infra_pid` + `pod_shared_pid`, which also carries IPC/UTS),
+    // or the root single-pass pause anchor (`pod_pidns_pid`, PID only — ADR-0092).
     let share_pod_pid = join_pod && spec.pod_shared_pid;
+    let join_pidns = share_pod_pid || spec.pod_pidns_pid.is_some();
     let mut flags = CloneFlags::CLONE_NEWNS;
     if !join_pod && !spec.uts_host {
         flags |= CloneFlags::CLONE_NEWUTS;
     }
-    if !spec.host_pid && !share_pod_pid {
+    if !spec.host_pid && !join_pidns {
         flags |= CloneFlags::CLONE_NEWPID;
     }
     if !spec.host_ipc && !join_pod {
@@ -8441,6 +8792,13 @@ struct StartPipes {
     /// when the `execvp` fails; a successful one closes the CLOEXEC write end with
     /// nothing in it, so the parent reads EOF.
     exec: Option<(i32, i32)>,
+    /// CGROUP-PLACEMENT barrier — the non-userns twin of `sync`. Present only
+    /// WITHOUT a new user namespace (the path that goes through
+    /// `place_without_userns`): the child blocks on it before `execvp` until the
+    /// parent has written it into the resource-limited leaf. Like `sync`, it must
+    /// survive the clone, so NO `O_CLOEXEC`. `None` on the userns path, whose
+    /// `sync` already carries the GO after `setup_cgroup`.
+    cg_sync: Option<(i32, i32)>,
 }
 
 /// Opens the [`StartPipes`], in the order they always were: sync, readiness,
@@ -8487,7 +8845,29 @@ fn open_start_pipes(userns: bool) -> Result<StartPipes> {
             Some((fds[0], fds[1]))
         }
     };
-    Ok(StartPipes { sync, ready, exec })
+    // The cgroup-placement barrier is the userns `sync`'s counterpart: it exists
+    // on the path WITHOUT a new user namespace (where `sync` is `None` and the
+    // child would otherwise `execvp` before the parent's `cgroup.procs` write).
+    // Plain `pipe` (no `O_CLOEXEC`): the child keeps it across the clone and reads
+    // the GO on it before the exec. A failure here only loses the barrier (the
+    // historical race), never the start.
+    let cg_sync = if userns {
+        None
+    } else {
+        let mut fds = [0i32; 2];
+        // SAFETY: pipe() fills the 2-fd array.
+        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+            None
+        } else {
+            Some((fds[0], fds[1]))
+        }
+    };
+    Ok(StartPipes {
+        sync,
+        ready,
+        exec,
+        cg_sync,
+    })
 }
 
 /// `clone`s the init with `inputs` moved into it, and drops the parent's copy
@@ -8523,10 +8903,16 @@ impl Drop for PidnsGuard {
 /// re-exec), which owns the infra's PID namespace — the same reason the IPC/UTS
 /// `setns` in `container_init` works.
 fn enter_pod_pidns(spec: &RunSpec<'_>) -> Result<Option<PidnsGuard>> {
-    if !spec.pod_shared_pid {
-        return Ok(None);
-    }
-    let Some(infra) = spec.pod_infra_pid else {
+    // The PID namespace to join: the root single-pass pause anchor (ADR-0092) takes
+    // precedence; otherwise the native `--pod` pair. Root `setns(CLONE_NEWPID)` into
+    // the anchor needs no holder user namespace — that privilege question is the
+    // caller's (the CRI only sets `pod_pidns_pid` on the rootful path).
+    let target = spec.pod_pidns_pid.or(if spec.pod_shared_pid {
+        spec.pod_infra_pid
+    } else {
+        None
+    });
+    let Some(infra) = target else {
         return Ok(None);
     };
     // Our OWN PID namespace first, opened before the `setns` so the restore
@@ -8576,6 +8962,14 @@ fn clone_init(
             if let Some((r, _)) = pipes.exec {
                 // SAFETY: as above.
                 unsafe { libc::close(r) };
+            }
+            if let Some((r, w)) = pipes.cg_sync {
+                // SAFETY: no child was created, so both ends of the cgroup barrier
+                // are ours alone; closing them avoids leaking a pair per failed clone.
+                unsafe {
+                    libc::close(r);
+                    libc::close(w);
+                }
             }
             Err(syserr("clone")(e))
         }
@@ -8826,25 +9220,57 @@ fn place_without_userns(
     pid: Pid,
     spec: &RunSpec<'_>,
     io_dev: Option<&str>,
+    cg_sync: Option<(i32, i32)>,
 ) -> Result<()> {
+    // The child is BLOCKED on the cgroup barrier right before its `execvp` (see
+    // `cg_sync` in `container_init`), so — unlike before — it has NOT faulted its
+    // workload memory yet. We own the write end and close the read end we do not
+    // use; a failure below SIGKILLs the child via `discard_child` and then frees
+    // both ends.
+    if let Some((r, _)) = cg_sync {
+        // SAFETY: our copy of the child's read end; the child holds its own.
+        unsafe { libc::close(r) };
+    }
+    let release = |cg_sync: Option<(i32, i32)>| {
+        if let Some((_, w)) = cg_sync {
+            // SAFETY: our end of the barrier; write the 1-byte GO and close it,
+            // exactly as the userns path releases the child with its `sync` byte.
+            unsafe {
+                let go = [1u8; 1];
+                let _ = libc::write(w, go.as_ptr() as *const libc::c_void, 1);
+                libc::close(w);
+            }
+        }
+    };
+    let abort = |cg_sync: Option<(i32, i32)>| {
+        if let Some((_, w)) = cg_sync {
+            // SAFETY: the child is being SIGKILLed; closing the write end also
+            // unblocks any read still pending (EOF) and frees our end.
+            unsafe { libc::close(w) };
+        }
+    };
     // A cgroup that could not be set up must not leave the container running: it is
-    // already past `execve` here, outside every ceiling, and still holding the
+    // one GO away from `execve` here, outside every ceiling, and still holding the
     // descriptors its caller waits on — a `run -d` hung forever on exactly this
     // (measured 2026-09-15, a cgroupfs pod parent with no controllers enabled). Same
     // teardown the userns path already does.
     if let Err(e) = setup_cgroup(container, pid.as_raw(), io_dev) {
         discard_child(container, pid);
+        abort(cg_sync);
         return Err(e);
     }
-    // Configures the network (or other startup) BEFORE waiting/returning. Only the
-    // path WITHOUT userns reaches here (no sync point to block the child on) — with
-    // userns the hook already ran before the GO, with the child stopped.
+    // Configures the network (or other startup) BEFORE releasing the child — with
+    // the barrier in place, the hook now runs with the entrypoint STILL stopped, so
+    // the network is ready before it starts, the same guarantee the userns path had.
     if let Some(hook) = spec.on_started {
         if let Err(e) = hook(pid.as_raw()) {
             discard_child(container, pid);
+            abort(cg_sync);
             return Err(e);
         }
     }
+    // In the leaf, network up: release the entrypoint to `execvp` inside the cgroup.
+    release(cg_sync);
     Ok(())
 }
 
@@ -15195,6 +15621,29 @@ mod spawn_step_tests {
             .0
             .contains(CloneFlags::CLONE_NEWPID));
 
+        // ADR-0092: the root single-pass pause anchor (`pod_pidns_pid`) suppresses
+        // CLONE_NEWPID — the member joins the pause's PID namespace — but leaves
+        // IPC and UTS isolation ALONE (unlike `pod_infra_pid`, which also waives
+        // them). This decoupling is what lets the root path share PID without
+        // regressing IPC/UTS.
+        let pidns_anchor = RunSpec {
+            pod_pidns_pid: Some(99),
+            ..Default::default()
+        };
+        let (f, _) = clone_flags(&pidns_anchor);
+        assert!(
+            !f.contains(CloneFlags::CLONE_NEWPID),
+            "joins the anchor's PID namespace"
+        );
+        assert!(
+            f.contains(CloneFlags::CLONE_NEWIPC),
+            "own IPC namespace kept"
+        );
+        assert!(
+            f.contains(CloneFlags::CLONE_NEWUTS),
+            "own UTS namespace kept"
+        );
+
         let host = RunSpec {
             host_pid: true,
             host_ipc: true,
@@ -15319,6 +15768,7 @@ mod spawn_step_tests {
             console_sock: None,
             ready_w: Some(9),
             exec_w: Some(11),
+            cg_sync: Some((13, 15)),
         };
         let s = i.init_spec(io);
         assert_eq!((s.rootfs, s.cid, s.process.hostname), ("/r", "abc", "host"));
@@ -15330,8 +15780,8 @@ mod spawn_step_tests {
         assert_eq!(s.namespaces.pod_infra_pid, Some(7));
         assert!(s.namespaces.host_pid);
         assert_eq!(
-            (s.io.ready_w, s.io.exec_w, s.io.sync),
-            (Some(9), Some(11), Some((3, 4)))
+            (s.io.ready_w, s.io.exec_w, s.io.sync, s.io.cg_sync),
+            (Some(9), Some(11), Some((3, 4)), Some((13, 15)))
         );
     }
 
@@ -15371,7 +15821,7 @@ mod spawn_step_tests {
         let p = open_start_pipes(false).unwrap();
         assert!(
             p.sync.is_none(),
-            "no handshake without a new user namespace"
+            "no userns handshake without a new user namespace"
         );
         for fd in [p.ready.0, p.ready.1] {
             assert_ne!(fd_flags(fd) & libc::FD_CLOEXEC, 0);
@@ -15379,6 +15829,12 @@ mod spawn_step_tests {
         let (er, ew) = p.exec.unwrap();
         assert_ne!(fd_flags(er) & libc::FD_CLOEXEC, 0);
         assert_ne!(fd_flags(ew) & libc::FD_CLOEXEC, 0);
+        // Without a user namespace the cgroup barrier IS present (it replaces the
+        // userns GO on this path) and, like `sync`, survives the clone: no CLOEXEC.
+        let (cr, cw) = p.cg_sync.expect("cgroup barrier without userns");
+        assert_eq!(fd_flags(cr) & libc::FD_CLOEXEC, 0);
+        assert_eq!(fd_flags(cw) & libc::FD_CLOEXEC, 0);
+        close_pair(p.cg_sync);
         close_pair(Some(p.ready));
         close_pair(p.exec);
 
@@ -15387,6 +15843,11 @@ mod spawn_step_tests {
         // The child keeps the handshake pipe across the clone: no CLOEXEC.
         assert_eq!(fd_flags(sr) & libc::FD_CLOEXEC, 0);
         assert_eq!(fd_flags(sw) & libc::FD_CLOEXEC, 0);
+        // The userns path carries the GO on `sync`, so there is no separate barrier.
+        assert!(
+            p.cg_sync.is_none(),
+            "the userns GO is `sync`; no second barrier"
+        );
         close_pair(p.sync);
         close_pair(Some(p.ready));
         close_pair(p.exec);
@@ -15826,5 +16287,147 @@ mod whiteout_synthesis_tests {
         let (expanded, userxattr) = build_whiteout_sidecars(base, &lower_refs);
         assert_eq!(expanded, vec![layer.to_string_lossy().into_owned()]);
         assert!(!userxattr);
+    }
+}
+
+#[cfg(test)]
+mod mount_propagation_tests {
+    use super::*;
+
+    fn mnt(propagation: Option<&str>) -> Mount {
+        Mount {
+            source: "/src".into(),
+            target: "/dst".into(),
+            readonly: false,
+            propagation: propagation.map(str::to_string),
+            optional: false,
+        }
+    }
+
+    // ---- per-mount flag selection (ADR-0093) --------------------------------
+
+    #[test]
+    fn per_mount_rslave_is_slave_recursive() {
+        assert_eq!(
+            per_mount_propagation(Some("rslave")),
+            MsFlags::MS_SLAVE | MsFlags::MS_REC
+        );
+        assert_eq!(
+            per_mount_propagation(Some("slave")),
+            MsFlags::MS_SLAVE | MsFlags::MS_REC
+        );
+    }
+
+    #[test]
+    fn per_mount_rshared_is_shared_recursive() {
+        assert_eq!(
+            per_mount_propagation(Some("rshared")),
+            MsFlags::MS_SHARED | MsFlags::MS_REC
+        );
+        assert_eq!(
+            per_mount_propagation(Some("shared")),
+            MsFlags::MS_SHARED | MsFlags::MS_REC
+        );
+    }
+
+    #[test]
+    fn per_mount_none_and_unknown_are_private_recursive() {
+        // `None` is pinned `rprivate` ON PURPOSE (not skipped): under the
+        // rec-shared root an `rshared` mount forces, an unnamed bind would
+        // otherwise inherit sharedness and could leak back to the host.
+        assert_eq!(
+            per_mount_propagation(None),
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC
+        );
+        assert_eq!(
+            per_mount_propagation(Some("rprivate")),
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC
+        );
+        assert_eq!(
+            per_mount_propagation(Some("garbage")),
+            MsFlags::MS_PRIVATE | MsFlags::MS_REC
+        );
+    }
+
+    // ---- root propagation selection -----------------------------------------
+
+    #[test]
+    fn root_is_private_when_nothing_propagates() {
+        assert_eq!(
+            root_propagation(&[mnt(None), mnt(Some("rprivate"))]),
+            MsFlags::MS_REC | MsFlags::MS_PRIVATE
+        );
+        assert_eq!(root_propagation(&[]), MsFlags::MS_REC | MsFlags::MS_PRIVATE);
+    }
+
+    #[test]
+    fn root_is_slave_for_rslave_only() {
+        assert_eq!(
+            root_propagation(&[mnt(None), mnt(Some("rslave"))]),
+            MsFlags::MS_REC | MsFlags::MS_SLAVE
+        );
+    }
+
+    #[test]
+    fn root_propagation_never_returns_shared() {
+        // `rshared` is handled OUTSIDE `root_propagation` (the root is left
+        // untouched, see `setup_rootfs`/ADR-0093); the function never recursively
+        // shares the root, so a stray `rshared` falls to the safe slave arm.
+        let r = root_propagation(&[mnt(Some("rshared"))]);
+        assert!(!r.contains(MsFlags::MS_SHARED));
+        assert_eq!(r, MsFlags::MS_REC | MsFlags::MS_SLAVE);
+    }
+
+    // ---- privilege gate -----------------------------------------------------
+
+    #[test]
+    fn rshared_allowed_only_privileged_and_rootful() {
+        assert!(rshared_allowed(true, false)); // privileged, rootful → yes
+        assert!(!rshared_allowed(false, false)); // unprivileged → no
+        assert!(!rshared_allowed(true, true)); // rootless → no, even privileged
+        assert!(!rshared_allowed(false, true)); // neither → no
+    }
+
+    #[test]
+    fn is_rshared_matches_both_spellings_only() {
+        assert!(mnt(Some("rshared")).is_rshared());
+        assert!(mnt(Some("shared")).is_rshared());
+        assert!(!mnt(Some("rslave")).is_rshared());
+        assert!(!mnt(None).is_rshared());
+    }
+
+    // ---- enclosing mount point ----------------------------------------------
+
+    const MI: &str = "\
+23 29 0:22 / / rw,relatime shared:1 - ext4 /dev/vda4 rw
+25 23 0:25 / /run rw,nosuid,nodev shared:5 - tmpfs tmpfs rw
+48 25 0:40 / /run/dlx rw,relatime shared:9 - tmpfs tmpfs rw
+30 23 0:26 / /sys rw,nosuid shared:7 - sysfs sysfs rw";
+
+    #[test]
+    fn enclosing_picks_the_longest_containing_mount() {
+        // The overlay lives under /run/dlx → that is the enclosing mount, not
+        // /run or /.
+        assert_eq!(
+            enclosing_mount_point_from(MI, "/run/dlx/containers/abc/merged").as_deref(),
+            Some("/run/dlx")
+        );
+    }
+
+    #[test]
+    fn enclosing_matches_on_component_boundary_only() {
+        // `/run` must not be chosen for `/running` (not a path-component prefix);
+        // falls back to `/`.
+        assert_eq!(
+            enclosing_mount_point_from(MI, "/running/x").as_deref(),
+            Some("/")
+        );
+        // An exact mount point is its own enclosing mount.
+        assert_eq!(
+            enclosing_mount_point_from(MI, "/run").as_deref(),
+            Some("/run")
+        );
+        // Nothing at all (no root line) → None.
+        assert_eq!(enclosing_mount_point_from("", "/run/dlx/x"), None);
     }
 }
