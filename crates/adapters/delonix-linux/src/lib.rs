@@ -11772,6 +11772,179 @@ mod cmsg_alignment_tests {
 }
 
 #[cfg(test)]
+mod df1_clone3_prefilter_tests {
+    use super::*;
+
+    /// Clears CAP_SYS_ADMIN from the EFFECTIVE set only (permitted left intact), so
+    /// that `install_filter_privileged`'s `seccomp(SET_MODE_FILTER)` without
+    /// NO_NEW_PRIVS fails — it needs effective CAP_SYS_ADMIN — which is exactly what
+    /// forces the DF-1 fallback. Any block on the `clone3(CLONE_NEWUSER)` below is
+    /// then attributable to seccomp, not to a missing capability (creating an
+    /// *unprivileged* user namespace needs no CAP_SYS_ADMIN).
+    unsafe fn drop_effective_cap_sys_admin() -> bool {
+        #[repr(C)]
+        struct H {
+            version: u32,
+            pid: i32,
+        }
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        #[allow(dead_code)] // `perm`/`inh` are part of the v3 cap layout; only `eff` is edited
+        struct D {
+            eff: u32,
+            perm: u32,
+            inh: u32,
+        }
+        const CAP_SYS_ADMIN: u32 = 21; // in the low 32-bit word (caps 0..31)
+        let h = H {
+            version: 0x2008_0522, // _LINUX_CAPABILITY_VERSION_3
+            pid: 0,
+        };
+        let mut d = [D {
+            eff: 0,
+            perm: 0,
+            inh: 0,
+        }; 2];
+        if libc::syscall(libc::SYS_capget, &h as *const H, d.as_mut_ptr()) != 0 {
+            return false;
+        }
+        d[0].eff &= !(1u32 << CAP_SYS_ADMIN);
+        libc::syscall(libc::SYS_capset, &h as *const H, d.as_ptr()) == 0
+    }
+
+    /// Raw `clone3(CLONE_NEWUSER)`. Returns the syscall result (-1 on error, with
+    /// `errno` set; 0 in the new child; >0 the new child's pid in the caller). The
+    /// clone3 pre-filter answers this ENOSYS *before* the kernel validates the
+    /// struct, so a zeroed `clone_args` with the flag is enough to probe it.
+    unsafe fn clone3_newuser() -> i64 {
+        #[repr(C)]
+        #[allow(dead_code)] // the kernel reads the whole `clone_args`; only `flags`/`exit_signal` are set
+        struct CloneArgs {
+            flags: u64,
+            pidfd: u64,
+            child_tid: u64,
+            parent_tid: u64,
+            exit_signal: u64,
+            stack: u64,
+            stack_size: u64,
+            tls: u64,
+            set_tid: u64,
+            set_tid_size: u64,
+            cgroup: u64,
+        }
+        let mut a: CloneArgs = std::mem::zeroed();
+        a.flags = libc::CLONE_NEWUSER as u64;
+        a.exit_signal = libc::SIGCHLD as u64;
+        libc::syscall(
+            libc::SYS_clone3,
+            &mut a as *mut CloneArgs,
+            std::mem::size_of::<CloneArgs>(),
+        ) as i64
+    }
+
+    /// Runs `f` in a forked child (which is expected to `_exit`) and returns the
+    /// child's exit code (-1 if it did not exit normally). The per-thread seccomp
+    /// filter is irreversible, so it has to be installed in a throwaway child, never
+    /// the test process itself.
+    fn run_child<F: FnOnce()>(f: F) -> i32 {
+        // SAFETY: `fork`; the child only runs `f` (raw syscalls + `_exit`) and never
+        // returns. Run under `--test-threads=1` so the harness is not allocating on
+        // another thread at fork time.
+        match unsafe { libc::fork() } {
+            0 => {
+                f();
+                // SAFETY: `f` is expected to `_exit`; this ends the child if it did not.
+                unsafe { libc::_exit(127) } // 127 flags a fall-through
+            }
+            -1 => panic!("fork failed: {}", std::io::Error::last_os_error()),
+            pid => {
+                let mut st = 0;
+                // SAFETY: reaping our own child; `st` is a live local.
+                unsafe { libc::waitpid(pid, &mut st, 0) };
+                if libc::WIFEXITED(st) {
+                    libc::WEXITSTATUS(st)
+                } else {
+                    -1
+                }
+            }
+        }
+    }
+
+    /// DF-1 (privileged/live): in the NNP-off seccomp path WITHOUT CAP_SYS_ADMIN —
+    /// the exact case where `install_filter_privileged` fails — the clone3
+    /// pre-filter must STILL be installed through the fallback, so
+    /// `clone3(CLONE_NEWUSER)` is answered **ENOSYS** (glibc then retries the
+    /// filtered `clone`, which the main allowlist blocks). Before the fix the
+    /// pre-filter was discarded on this path (`let _ = install_filter_privileged`),
+    /// and a `no_new_privs:false` container lacking CAP_SYS_ADMIN could
+    /// `clone3(CLONE_NEWUSER)` to escape via a nested user namespace.
+    ///
+    /// Phase 1 is a control: the SAME cap-drop with NO filter must let
+    /// `clone3(CLONE_NEWUSER)` succeed, proving user namespaces are available here
+    /// so that the ENOSYS in phase 2 is the pre-filter's doing and not a
+    /// userns-disabled kernel (which would answer EPERM, not ENOSYS, anyway).
+    ///
+    /// Root-only: skipped (passes) when not run as root. Run it with
+    /// `cargo test -p delonix-linux --lib
+    /// clone3_newuser_blocked_in_nnp_off_fallback -- --test-threads=1 --nocapture`.
+    #[test]
+    fn clone3_newuser_blocked_in_nnp_off_fallback() {
+        // SAFETY: `geteuid` has no preconditions.
+        if unsafe { libc::geteuid() } != 0 {
+            eprintln!("DF-1 privileged test skipped: not root");
+            return;
+        }
+
+        // Phase 1 — control: cap-drop, NO seccomp. clone3(CLONE_NEWUSER) must work.
+        let control = run_child(|| {
+            // SAFETY: async-signal-safe raw syscalls in a forked child, each path
+            // ending in `_exit`. An unprivileged userns needs no capability.
+            unsafe {
+                if !drop_effective_cap_sys_admin() {
+                    libc::_exit(10);
+                }
+                // rc==0: we ARE the new child inside the fresh userns — exit it.
+                // rc>0: userns created, `rc` is its pid. rc<0: userns unavailable.
+                let rc = clone3_newuser();
+                libc::_exit(if rc >= 0 { 0 } else { 30 });
+            }
+        });
+
+        // Phase 2 — the fix: cap-drop + the REAL apply_seccomp(keep_privs=true),
+        // which must take the fallback and still block clone3(CLONE_NEWUSER).
+        let test = run_child(|| {
+            // SAFETY: async-signal-safe raw syscalls / errno read in a forked child,
+            // each path ending in `_exit`; `apply_seccomp` installs the real filter.
+            unsafe {
+                if !drop_effective_cap_sys_admin() {
+                    libc::_exit(10);
+                }
+                apply_seccomp(false, false, true, None);
+                let rc = clone3_newuser();
+                let errno = *libc::__errno_location();
+                // 2 = escaped, wrong errno, or clone3 returned a child (rc==0).
+                libc::_exit(if rc == -1 && errno == libc::ENOSYS {
+                    0
+                } else {
+                    2
+                });
+            }
+        });
+
+        assert_eq!(
+            control, 0,
+            "control: clone3(CLONE_NEWUSER) should succeed WITHOUT the filter \
+             (exit {control}; 10=cap-drop-failed, 30=userns-unavailable → inconclusive)"
+        );
+        assert_eq!(
+            test, 0,
+            "DF-1: clone3(CLONE_NEWUSER) must be ENOSYS-blocked in the NNP-off \
+             fallback (exit {test}; 2=NOT blocked/wrong errno, 10=cap-drop-failed)"
+        );
+    }
+}
+
+#[cfg(test)]
 mod kube_cgroup_tests {
     use super::*;
 
