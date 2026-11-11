@@ -905,36 +905,19 @@ pub fn move_namespace(base: &Path, reference: &str, new_namespace: &str) -> Resu
     std::fs::create_dir_all(&new_vmdir)?;
 
     let mut vm = old_store.load(name).map_err(state_err)?;
-    // The disk state moves; the seed is regenerated for the new identity, so
-    // the old seed directory is discarded rather than carried.
-    let old_overlay = old_vmdir.join(format!("{name}.qcow2"));
-    if old_overlay.exists() {
-        std::fs::rename(&old_overlay, new_vmdir.join(format!("{name}.qcow2")))?;
-    }
-    let old_seed_dir = old_vmdir.join(name);
-    if old_seed_dir.is_dir() {
-        let _ = std::fs::remove_dir_all(&old_seed_dir);
-    }
-    // Stale runtime files of the stopped VM (log/pid/console/serial/sock/xml):
-    // they are rebuilt at the next boot, so clear them from the source rather
-    // than carry them — which also lets an emptied namespace dir be removed.
-    for ext in [
-        "console",
-        "serial",
-        "log",
-        "pid",
-        "sock",
-        "sock.lock",
-        "xml",
-    ] {
-        let _ = std::fs::remove_file(old_vmdir.join(format!("{name}.{ext}")));
-    }
 
-    // Rewrite the record to the new namespace and identity. `scoped_vm_name`
-    // gives the new MAC; the tap is cleared (the next boot attaches a fresh one
-    // under the new owner); the seed is dropped so `create_with` regenerates it
-    // with the matching network-config; the recorded overlay path follows the
-    // file. The base `disk` and any out-of-vmdir extra disks are untouched.
+    // DE-M1: make the registry DURABLE BEFORE the irreversible file effect. The
+    // record is rewritten to the new namespace/identity first (the recorded
+    // overlay path follows the file) and SAVED; only then is the overlay moved.
+    // So a failed `save` leaves the source VM fully intact — no orphan overlay in
+    // the destination, no dangling source record — and a failed rename is rolled
+    // back. The old order (move the overlay, THEN save) left an orphaned overlay
+    // under the new namespace with no record if the save failed.
+    //
+    // Rewrite the record: `scoped_vm_name` gives the new MAC; the tap is cleared
+    // (the next boot attaches a fresh one under the new owner); the seed is dropped
+    // so `create_with` regenerates it with the matching network-config. The base
+    // `disk` and any out-of-vmdir extra disks are untouched.
     let new_id = delonix_compute::vm::scoped_vm_name(new_ns, name);
     vm.namespace = new_ns.to_string();
     vm.mac = mac_for(&new_id);
@@ -950,8 +933,40 @@ pub fn move_namespace(base: &Path, reference: &str, new_namespace: &str) -> Resu
         .into_owned();
     // The predicted address belonged to the old MAC; let the next boot learn it.
     vm.ip = None;
-
     new_store.save(name, &vm).map_err(state_err)?;
+
+    // Effect: move the disk overlay to the new namespace. On failure, roll the
+    // just-saved record back so the destination is not left with a record whose
+    // overlay never arrived — leaving the source VM exactly as it was.
+    let old_overlay = old_vmdir.join(format!("{name}.qcow2"));
+    if old_overlay.exists() {
+        if let Err(e) = std::fs::rename(&old_overlay, new_vmdir.join(format!("{name}.qcow2"))) {
+            let _ = new_store.remove(name);
+            return Err(e.into());
+        }
+    }
+
+    // The source record is dropped ONLY after the move succeeded. The seed is
+    // regenerated for the new identity, so the old seed directory is discarded;
+    // the stale runtime files (log/pid/console/serial/sock/xml) are rebuilt at the
+    // next boot, so clear them from the source — which also lets an emptied
+    // namespace dir be removed. All best-effort.
+    let old_seed_dir = old_vmdir.join(name);
+    if old_seed_dir.is_dir() {
+        let _ = std::fs::remove_dir_all(&old_seed_dir);
+    }
+    for ext in [
+        "console",
+        "serial",
+        "log",
+        "pid",
+        "sock",
+        "sock.lock",
+        "xml",
+    ] {
+        let _ = std::fs::remove_file(old_vmdir.join(format!("{name}.{ext}")));
+    }
+
     old_store.remove(name).map_err(state_err)?;
     // Remove an emptied non-default source dir (never the shared `default` `vms/`).
     if old_ns != "default" {
