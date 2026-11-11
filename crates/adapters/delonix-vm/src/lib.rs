@@ -905,36 +905,19 @@ pub fn move_namespace(base: &Path, reference: &str, new_namespace: &str) -> Resu
     std::fs::create_dir_all(&new_vmdir)?;
 
     let mut vm = old_store.load(name).map_err(state_err)?;
-    // The disk state moves; the seed is regenerated for the new identity, so
-    // the old seed directory is discarded rather than carried.
-    let old_overlay = old_vmdir.join(format!("{name}.qcow2"));
-    if old_overlay.exists() {
-        std::fs::rename(&old_overlay, new_vmdir.join(format!("{name}.qcow2")))?;
-    }
-    let old_seed_dir = old_vmdir.join(name);
-    if old_seed_dir.is_dir() {
-        let _ = std::fs::remove_dir_all(&old_seed_dir);
-    }
-    // Stale runtime files of the stopped VM (log/pid/console/serial/sock/xml):
-    // they are rebuilt at the next boot, so clear them from the source rather
-    // than carry them — which also lets an emptied namespace dir be removed.
-    for ext in [
-        "console",
-        "serial",
-        "log",
-        "pid",
-        "sock",
-        "sock.lock",
-        "xml",
-    ] {
-        let _ = std::fs::remove_file(old_vmdir.join(format!("{name}.{ext}")));
-    }
 
-    // Rewrite the record to the new namespace and identity. `scoped_vm_name`
-    // gives the new MAC; the tap is cleared (the next boot attaches a fresh one
-    // under the new owner); the seed is dropped so `create_with` regenerates it
-    // with the matching network-config; the recorded overlay path follows the
-    // file. The base `disk` and any out-of-vmdir extra disks are untouched.
+    // DE-M1: make the registry DURABLE BEFORE the irreversible file effect. The
+    // record is rewritten to the new namespace/identity first (the recorded
+    // overlay path follows the file) and SAVED; only then is the overlay moved.
+    // So a failed `save` leaves the source VM fully intact — no orphan overlay in
+    // the destination, no dangling source record — and a failed rename is rolled
+    // back. The old order (move the overlay, THEN save) left an orphaned overlay
+    // under the new namespace with no record if the save failed.
+    //
+    // Rewrite the record: `scoped_vm_name` gives the new MAC; the tap is cleared
+    // (the next boot attaches a fresh one under the new owner); the seed is dropped
+    // so `create_with` regenerates it with the matching network-config. The base
+    // `disk` and any out-of-vmdir extra disks are untouched.
     let new_id = delonix_compute::vm::scoped_vm_name(new_ns, name);
     vm.namespace = new_ns.to_string();
     vm.mac = mac_for(&new_id);
@@ -950,8 +933,40 @@ pub fn move_namespace(base: &Path, reference: &str, new_namespace: &str) -> Resu
         .into_owned();
     // The predicted address belonged to the old MAC; let the next boot learn it.
     vm.ip = None;
-
     new_store.save(name, &vm).map_err(state_err)?;
+
+    // Effect: move the disk overlay to the new namespace. On failure, roll the
+    // just-saved record back so the destination is not left with a record whose
+    // overlay never arrived — leaving the source VM exactly as it was.
+    let old_overlay = old_vmdir.join(format!("{name}.qcow2"));
+    if old_overlay.exists() {
+        if let Err(e) = std::fs::rename(&old_overlay, new_vmdir.join(format!("{name}.qcow2"))) {
+            let _ = new_store.remove(name);
+            return Err(e.into());
+        }
+    }
+
+    // The source record is dropped ONLY after the move succeeded. The seed is
+    // regenerated for the new identity, so the old seed directory is discarded;
+    // the stale runtime files (log/pid/console/serial/sock/xml) are rebuilt at the
+    // next boot, so clear them from the source — which also lets an emptied
+    // namespace dir be removed. All best-effort.
+    let old_seed_dir = old_vmdir.join(name);
+    if old_seed_dir.is_dir() {
+        let _ = std::fs::remove_dir_all(&old_seed_dir);
+    }
+    for ext in [
+        "console",
+        "serial",
+        "log",
+        "pid",
+        "sock",
+        "sock.lock",
+        "xml",
+    ] {
+        let _ = std::fs::remove_file(old_vmdir.join(format!("{name}.{ext}")));
+    }
+
     old_store.remove(name).map_err(state_err)?;
     // Remove an emptied non-default source dir (never the shared `default` `vms/`).
     if old_ns != "default" {
@@ -1378,6 +1393,136 @@ mod tests {
                 other => panic!("expected VmNotFound, got {other:?}"),
             }
         }
+    }
+
+    /// DE-M1: `move_namespace` SAVES the record under the new namespace BEFORE it
+    /// moves the overlay, so a failed `save` leaves the SOURCE untouched — no orphan
+    /// overlay under the destination, the record still readable where it was. The old
+    /// order (move the overlay, THEN save) orphaned the overlay under the new
+    /// namespace with no record whenever the save failed.
+    ///
+    /// Fault injection: in a forked child, `RLIMIT_FSIZE` is lowered below the record
+    /// JSON's size with `SIGXFSZ` ignored, so `new_store.save`'s temp-file WRITE fails
+    /// (EFBIG) while the overlay RENAME — pure metadata, no file growth — would still
+    /// succeed. That is the one shape that tells the two orders apart: under the fix
+    /// the overlay never moves (save failed first); under the old order it is already
+    /// in the destination when the save fails. The limit is set in a throwaway child
+    /// so the test harness is never constrained. Run with
+    /// `cargo test -p delonix-vm --lib move_namespace_failed_save -- --test-threads=1`.
+    #[test]
+    fn move_namespace_failed_save_leaves_the_overlay_in_the_source() {
+        struct Stopped;
+        impl VmBackend for Stopped {
+            fn id(&self) -> &'static str {
+                "demstopmove"
+            }
+            fn available(&self) -> bool {
+                true
+            }
+            fn auto_selectable(&self) -> bool {
+                false
+            }
+            fn boot(
+                &self,
+                _: &Path,
+                _: &VmConfig,
+                _: &str,
+                _: &dyn Fn(CreateStage),
+            ) -> delonix_model::Result<Boot> {
+                unreachable!()
+            }
+            // is_running == false ⇒ status() is Stopped, so the move is allowed.
+            fn is_running(&self, _: &Vm) -> bool {
+                false
+            }
+            fn ip(&self, _: &Vm) -> Option<String> {
+                None
+            }
+            fn stop(&self, _: &Path, _: &Vm) -> delonix_model::Result<()> {
+                Ok(())
+            }
+        }
+        register_backend(BackendRegistration {
+            id: "demstopmove",
+            aliases: &[],
+            auto_selectable: false,
+            report: crate::capabilities::undeclared("fake"),
+            new: Box::new(|| Ok(Box::new(Stopped))),
+        })
+        .expect("registar");
+
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let old_dir = delonix_compute::vm::vms_root(base, "default");
+        let new_dir = delonix_compute::vm::vms_root(base, "prod");
+        std::fs::create_dir_all(&old_dir).unwrap();
+        std::fs::create_dir_all(&new_dir).unwrap();
+
+        // A stopped VM with an overlay on disk, recorded under `default`.
+        let mut vm = Vm::new(
+            "v1".into(),
+            "d".into(),
+            "o".into(),
+            1,
+            "1G".into(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+        );
+        vm.backend = "demstopmove".into();
+        vm.status = Status::Stopped;
+        store(base, "default").unwrap().save("v1", &vm).unwrap();
+        let old_overlay = old_dir.join("v1.qcow2");
+        std::fs::write(&old_overlay, b"OVERLAY").unwrap();
+
+        // The move runs in a child whose RLIMIT_FSIZE is tiny: the save's JSON write
+        // hits EFBIG, the overlay's rename (metadata only) does not. Exit 0 iff the
+        // move failed as expected; the parent reads the on-disk outcome.
+        // SAFETY: `fork`; the child only runs the block below (raw syscalls + `_exit`).
+        let child = unsafe { libc::fork() };
+        if child == 0 {
+            // SAFETY: async-signal-safe-ish child doing only setrlimit/signal/
+            // `move_namespace`/`_exit`; `--test-threads=1` keeps siblings idle at fork.
+            unsafe {
+                let lim = libc::rlimit {
+                    rlim_cur: 64, // < the record JSON (hundreds of bytes), > any trivial write
+                    rlim_max: 64,
+                };
+                libc::setrlimit(libc::RLIMIT_FSIZE, &lim);
+                libc::signal(libc::SIGXFSZ, libc::SIG_IGN); // EFBIG instead of a fatal signal
+                let failed = super::move_namespace(base, "v1", "prod").is_err();
+                libc::_exit(if failed { 0 } else { 1 });
+            }
+        }
+        let mut st = 0;
+        // SAFETY: reaping our own child; `st` is a live local.
+        unsafe { libc::waitpid(child, &mut st, 0) };
+        let code = if libc::WIFEXITED(st) {
+            libc::WEXITSTATUS(st)
+        } else {
+            -1
+        };
+        vm_registry::deregister("demstopmove");
+
+        assert_eq!(
+            code, 0,
+            "the move must fail when the destination save fails (child exit {code})"
+        );
+        // The fix's guarantee, and what tells it apart from the old order: the overlay
+        // is still in the SOURCE (the old order would have left it orphaned in `prod`).
+        assert!(
+            old_overlay.exists(),
+            "DE-M1: a failed save must NOT have moved the overlay out of the source"
+        );
+        assert!(
+            !new_dir.join("v1.qcow2").exists(),
+            "no orphan overlay under the destination namespace"
+        );
+        assert!(
+            store(base, "default").unwrap().exists("v1"),
+            "the source record must still be readable"
+        );
     }
 
     fn test_vm_cfg(mem: &str) -> VmConfig {
