@@ -364,7 +364,18 @@ fn apply_seccomp(unconfined: bool, detect: bool, keep_privs: bool, profile: Opti
             // do nothing at all: this call runs first, and `apply_filter` sets
             // NO_NEW_PRIVS before the main filter ever gets a say.
             if keep_privs {
-                let _ = install_filter_privileged(&pp);
+                // DF-1: the clone3 pre-filter must be installed EVEN when the
+                // privileged (NNP-off) install is impossible. Without CAP_SYS_ADMIN
+                // `install_filter_privileged` fails; the old code discarded that
+                // error (`let _ =`) and never reinstalled, so a
+                // `no_new_privs:false` container lacking CAP_SYS_ADMIN silently
+                // lost `clone3 → ENOSYS` and could `clone3(CLONE_NEWUSER)` to escape
+                // via a nested user namespace. Fall back to the NNP-on install —
+                // the same trade-off the MAIN filter below already makes ("a
+                // stricter NNP than asked for" beats "no confinement").
+                if install_filter_privileged(&pp).is_err() {
+                    let _ = apply_filter(&pp);
+                }
             } else {
                 let _ = apply_filter(&pp);
             }
@@ -7406,6 +7417,12 @@ fn setup_cgroup(c: &Container, pid: i32, io_dev: Option<&str>) -> Result<()> {
         format!("{cg}/memory.swap.max"),
         swap_max_write_value(&c.memory_max, c.memory_swap.as_deref()),
     );
+    // DB-01: `memory.oom.group = 1` so an OOM kills the WHOLE cgroup, not one
+    // process inside it — otherwise a half-dead container keeps reporting Running.
+    // The rootless-delegated leaf already writes this (with a test); the
+    // rootful/non-delegated path here had been left behind. Best-effort: the
+    // controller may be absent on an old kernel.
+    let _ = std::fs::write(format!("{cg}/memory.oom.group"), "1");
     write_limit(cg, "cpu.max", &cpu_max_value(&c.cpus))?; // CPU ceiling
     write_limit(cg, "pids.max", &pids_max_write_value(c.pids_max.as_deref()))?; // process ceiling
                                                                                 // --- scheduling / QoS (cgroup v2, best-effort) ---
@@ -9693,24 +9710,38 @@ fn setup_console(console_sock: (i32, i32)) {
     }
 }
 
+/// A control-message buffer carrying `cmsghdr`'s alignment (DA-1).
+///
+/// A bare `[u8; N]` has alignment 1, so the `*cmsghdr` that `CMSG_FIRSTHDR`
+/// returns into it is **misaligned** — reading or writing its fields
+/// (`cmsg_level`, `cmsg_len`, …) is undefined behaviour. Giving the storage a
+/// `cmsghdr` member forces the correct alignment on every platform (size_t on
+/// 64-bit), while keeping room for one `c_int` of `SCM_RIGHTS` payload.
+#[repr(C)]
+union CmsgBuf {
+    _align: libc::cmsghdr,
+    bytes: [u8; 64],
+}
+
 /// Sends an fd over a Unix socket (SCM_RIGHTS). The grandchild allocates the pty in the container's
 /// devpts and passes the `master` to the parent through here (runc *console socket* model).
 fn send_fd(sock: i32, fd: i32) -> bool {
     // SAFETY: every pointer placed in `msg` (`iov`, `dummy`, `cmsgbuf`) points at a local that
-    // outlives `sendmsg`; `cmsgbuf` (64 bytes) is larger than `CMSG_SPACE(sizeof(c_int))`, so
-    // `CMSG_FIRSTHDR` is non-null and `CMSG_DATA` has room for one `c_int`. `msghdr` is a C
-    // struct for which all-zero is valid.
+    // outlives `sendmsg`; `cmsgbuf` (64 bytes, `cmsghdr`-aligned, DA-1) is larger than
+    // `CMSG_SPACE(sizeof(c_int))`, so `CMSG_FIRSTHDR` is non-null and `CMSG_DATA` has room for
+    // one `c_int`, and the `*cmsghdr` into it is properly aligned. `msghdr` is a C struct for
+    // which all-zero is valid.
     unsafe {
         let mut dummy: u8 = 0;
         let mut iov = libc::iovec {
             iov_base: (&mut dummy as *mut u8).cast::<libc::c_void>(),
             iov_len: 1,
         };
-        let mut cmsgbuf = [0u8; 64];
+        let mut cmsgbuf = CmsgBuf { bytes: [0u8; 64] };
         let mut msg: libc::msghdr = std::mem::zeroed();
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
-        msg.msg_control = cmsgbuf.as_mut_ptr().cast::<libc::c_void>();
+        msg.msg_control = cmsgbuf.bytes.as_mut_ptr().cast::<libc::c_void>();
         // `as _`: the type of the cmsg fields differs between glibc (size_t) and musl (socklen_t).
         msg.msg_controllen = libc::CMSG_SPACE(std::mem::size_of::<libc::c_int>() as u32) as _;
         let cmsg = libc::CMSG_FIRSTHDR(&msg);
@@ -9724,21 +9755,21 @@ fn send_fd(sock: i32, fd: i32) -> bool {
 
 /// Receives an fd sent by SCM_RIGHTS (the parent receives the grandchild's pty master).
 fn recv_fd(sock: i32) -> Option<i32> {
-    // SAFETY: same buffers as `send_fd`, all locals alive across `recvmsg`; the header is
-    // null-checked and its level and type verified before `CMSG_DATA` is read as one `c_int`,
-    // which stays inside the 64-byte `cmsgbuf`.
+    // SAFETY: same buffers as `send_fd` (the `cmsghdr`-aligned `CmsgBuf`, DA-1), all locals alive
+    // across `recvmsg`; the header is null-checked and its level and type verified before
+    // `CMSG_DATA` is read as one `c_int`, which stays inside the 64-byte `cmsgbuf`.
     unsafe {
         let mut dummy: u8 = 0;
         let mut iov = libc::iovec {
             iov_base: (&mut dummy as *mut u8).cast::<libc::c_void>(),
             iov_len: 1,
         };
-        let mut cmsgbuf = [0u8; 64];
+        let mut cmsgbuf = CmsgBuf { bytes: [0u8; 64] };
         let mut msg: libc::msghdr = std::mem::zeroed();
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
-        msg.msg_control = cmsgbuf.as_mut_ptr().cast::<libc::c_void>();
-        msg.msg_controllen = cmsgbuf.len() as _;
+        msg.msg_control = cmsgbuf.bytes.as_mut_ptr().cast::<libc::c_void>();
+        msg.msg_controllen = cmsgbuf.bytes.len() as _;
         if libc::recvmsg(sock, &mut msg, 0) < 0 {
             return None;
         }
@@ -11660,6 +11691,256 @@ fn setup_kube_cgroup(c: &Container, k: &KubeCgroupParent, pid: i32) -> Result<()
             std::fs::write(format!("{leaf}/cgroup.procs"), pid.to_string())?;
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod cmsg_alignment_tests {
+    use super::*;
+
+    /// DA-1: the SCM_RIGHTS control buffer must carry `cmsghdr`'s alignment, or the
+    /// `*cmsghdr` that `CMSG_FIRSTHDR` returns into it is misaligned and reading its
+    /// fields is UB. A bare `[u8; 64]` (alignment 1) would fail this; the `CmsgBuf`
+    /// union borrows `cmsghdr`'s alignment. Offline and deterministic — the live
+    /// fd round-trip stays for the VM/privileged suite.
+    #[test]
+    fn cmsg_buffer_carries_cmsghdr_alignment() {
+        assert!(
+            std::mem::align_of::<CmsgBuf>() >= std::mem::align_of::<libc::cmsghdr>(),
+            "the control buffer must be aligned for cmsghdr (DA-1)"
+        );
+        assert!(
+            std::mem::size_of::<CmsgBuf>() >= 64,
+            "the control buffer must keep room for the SCM_RIGHTS payload"
+        );
+    }
+
+    /// The pure control-buffer round-trip: the exact pointer arithmetic
+    /// `send_fd`/`recv_fd` perform on the `cmsghdr` — fill `cmsg_level`/`cmsg_type`/
+    /// `cmsg_len` and copy the fd in through `CMSG_FIRSTHDR`/`CMSG_DATA`, then read
+    /// them back — with the `sendmsg`/`recvmsg` syscalls removed so it is pure and
+    /// Miri can run it. This is the operation DA-1 is about: on a misaligned buffer
+    /// those `(*cmsghdr).field` accesses are UB; on the `cmsghdr`-aligned `CmsgBuf`
+    /// they are sound, which Miri verifies.
+    unsafe fn cmsg_fd_roundtrip(fd: libc::c_int) -> Option<libc::c_int> {
+        let mut cmsgbuf = CmsgBuf { bytes: [0u8; 64] };
+        let mut msg: libc::msghdr = std::mem::zeroed();
+        msg.msg_control = cmsgbuf.bytes.as_mut_ptr().cast::<libc::c_void>();
+        msg.msg_controllen = libc::CMSG_SPACE(std::mem::size_of::<libc::c_int>() as u32) as _;
+
+        // Write side — identical to `send_fd` minus `sendmsg`.
+        let cmsg = libc::CMSG_FIRSTHDR(&msg);
+        assert!(
+            !cmsg.is_null(),
+            "CMSG_FIRSTHDR must find room in the buffer"
+        );
+        (*cmsg).cmsg_level = libc::SOL_SOCKET;
+        (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<libc::c_int>() as u32) as _;
+        std::ptr::copy_nonoverlapping(&fd, libc::CMSG_DATA(cmsg).cast::<libc::c_int>(), 1);
+
+        // Read side — identical to `recv_fd` minus `recvmsg`.
+        let cmsg = libc::CMSG_FIRSTHDR(&msg);
+        if cmsg.is_null()
+            || (*cmsg).cmsg_level != libc::SOL_SOCKET
+            || (*cmsg).cmsg_type != libc::SCM_RIGHTS
+        {
+            return None;
+        }
+        let mut got: libc::c_int = -1;
+        std::ptr::copy_nonoverlapping(libc::CMSG_DATA(cmsg).cast::<libc::c_int>(), &mut got, 1);
+        Some(got)
+    }
+
+    /// DA-1 under Miri: the `cmsghdr` reads and writes `send_fd`/`recv_fd` do, on the
+    /// aligned `CmsgBuf`, round-trip an fd value with **no misaligned access and no
+    /// UB**. Run with `cargo +nightly miri test -p delonix-linux
+    /// cmsg_fd_value_round_trips_with_no_misaligned_access`; a bare `[u8; 64]` would
+    /// make Miri flag the `*cmsghdr` field accesses. (The live socket round-trip
+    /// stays for the VM/privileged suite.)
+    #[test]
+    fn cmsg_fd_value_round_trips_with_no_misaligned_access() {
+        // SAFETY: no syscalls; every pointer targets `cmsgbuf`, which outlives the
+        // call, and `CMSG_SPACE(c_int)` ≤ 64 keeps each access inside the buffer.
+        let got = unsafe { cmsg_fd_roundtrip(0x4242) };
+        assert_eq!(
+            got,
+            Some(0x4242),
+            "the fd value survives the cmsg round-trip"
+        );
+    }
+}
+
+#[cfg(test)]
+mod df1_clone3_prefilter_tests {
+    use super::*;
+
+    /// Clears CAP_SYS_ADMIN from the EFFECTIVE set only (permitted left intact), so
+    /// that `install_filter_privileged`'s `seccomp(SET_MODE_FILTER)` without
+    /// NO_NEW_PRIVS fails — it needs effective CAP_SYS_ADMIN — which is exactly what
+    /// forces the DF-1 fallback. Any block on the `clone3(CLONE_NEWUSER)` below is
+    /// then attributable to seccomp, not to a missing capability (creating an
+    /// *unprivileged* user namespace needs no CAP_SYS_ADMIN).
+    unsafe fn drop_effective_cap_sys_admin() -> bool {
+        #[repr(C)]
+        struct H {
+            version: u32,
+            pid: i32,
+        }
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        #[allow(dead_code)] // `perm`/`inh` are part of the v3 cap layout; only `eff` is edited
+        struct D {
+            eff: u32,
+            perm: u32,
+            inh: u32,
+        }
+        const CAP_SYS_ADMIN: u32 = 21; // in the low 32-bit word (caps 0..31)
+        let h = H {
+            version: 0x2008_0522, // _LINUX_CAPABILITY_VERSION_3
+            pid: 0,
+        };
+        let mut d = [D {
+            eff: 0,
+            perm: 0,
+            inh: 0,
+        }; 2];
+        if libc::syscall(libc::SYS_capget, &h as *const H, d.as_mut_ptr()) != 0 {
+            return false;
+        }
+        d[0].eff &= !(1u32 << CAP_SYS_ADMIN);
+        libc::syscall(libc::SYS_capset, &h as *const H, d.as_ptr()) == 0
+    }
+
+    /// Raw `clone3(CLONE_NEWUSER)`. Returns the syscall result (-1 on error, with
+    /// `errno` set; 0 in the new child; >0 the new child's pid in the caller). The
+    /// clone3 pre-filter answers this ENOSYS *before* the kernel validates the
+    /// struct, so a zeroed `clone_args` with the flag is enough to probe it.
+    unsafe fn clone3_newuser() -> i64 {
+        #[repr(C)]
+        #[allow(dead_code)] // the kernel reads the whole `clone_args`; only `flags`/`exit_signal` are set
+        struct CloneArgs {
+            flags: u64,
+            pidfd: u64,
+            child_tid: u64,
+            parent_tid: u64,
+            exit_signal: u64,
+            stack: u64,
+            stack_size: u64,
+            tls: u64,
+            set_tid: u64,
+            set_tid_size: u64,
+            cgroup: u64,
+        }
+        let mut a: CloneArgs = std::mem::zeroed();
+        a.flags = libc::CLONE_NEWUSER as u64;
+        a.exit_signal = libc::SIGCHLD as u64;
+        libc::syscall(
+            libc::SYS_clone3,
+            &mut a as *mut CloneArgs,
+            std::mem::size_of::<CloneArgs>(),
+        ) as i64
+    }
+
+    /// Runs `f` in a forked child (which is expected to `_exit`) and returns the
+    /// child's exit code (-1 if it did not exit normally). The per-thread seccomp
+    /// filter is irreversible, so it has to be installed in a throwaway child, never
+    /// the test process itself.
+    fn run_child<F: FnOnce()>(f: F) -> i32 {
+        // SAFETY: `fork`; the child only runs `f` (raw syscalls + `_exit`) and never
+        // returns. Run under `--test-threads=1` so the harness is not allocating on
+        // another thread at fork time.
+        match unsafe { libc::fork() } {
+            0 => {
+                f();
+                // SAFETY: `f` is expected to `_exit`; this ends the child if it did not.
+                unsafe { libc::_exit(127) } // 127 flags a fall-through
+            }
+            -1 => panic!("fork failed: {}", std::io::Error::last_os_error()),
+            pid => {
+                let mut st = 0;
+                // SAFETY: reaping our own child; `st` is a live local.
+                unsafe { libc::waitpid(pid, &mut st, 0) };
+                if libc::WIFEXITED(st) {
+                    libc::WEXITSTATUS(st)
+                } else {
+                    -1
+                }
+            }
+        }
+    }
+
+    /// DF-1 (privileged/live): in the NNP-off seccomp path WITHOUT CAP_SYS_ADMIN —
+    /// the exact case where `install_filter_privileged` fails — the clone3
+    /// pre-filter must STILL be installed through the fallback, so
+    /// `clone3(CLONE_NEWUSER)` is answered **ENOSYS** (glibc then retries the
+    /// filtered `clone`, which the main allowlist blocks). Before the fix the
+    /// pre-filter was discarded on this path (`let _ = install_filter_privileged`),
+    /// and a `no_new_privs:false` container lacking CAP_SYS_ADMIN could
+    /// `clone3(CLONE_NEWUSER)` to escape via a nested user namespace.
+    ///
+    /// Phase 1 is a control: the SAME cap-drop with NO filter must let
+    /// `clone3(CLONE_NEWUSER)` succeed, proving user namespaces are available here
+    /// so that the ENOSYS in phase 2 is the pre-filter's doing and not a
+    /// userns-disabled kernel (which would answer EPERM, not ENOSYS, anyway).
+    ///
+    /// Root-only: skipped (passes) when not run as root. Run it with
+    /// `cargo test -p delonix-linux --lib
+    /// clone3_newuser_blocked_in_nnp_off_fallback -- --test-threads=1 --nocapture`.
+    #[test]
+    fn clone3_newuser_blocked_in_nnp_off_fallback() {
+        // SAFETY: `geteuid` has no preconditions.
+        if unsafe { libc::geteuid() } != 0 {
+            eprintln!("DF-1 privileged test skipped: not root");
+            return;
+        }
+
+        // Phase 1 — control: cap-drop, NO seccomp. clone3(CLONE_NEWUSER) must work.
+        let control = run_child(|| {
+            // SAFETY: async-signal-safe raw syscalls in a forked child, each path
+            // ending in `_exit`. An unprivileged userns needs no capability.
+            unsafe {
+                if !drop_effective_cap_sys_admin() {
+                    libc::_exit(10);
+                }
+                // rc==0: we ARE the new child inside the fresh userns — exit it.
+                // rc>0: userns created, `rc` is its pid. rc<0: userns unavailable.
+                let rc = clone3_newuser();
+                libc::_exit(if rc >= 0 { 0 } else { 30 });
+            }
+        });
+
+        // Phase 2 — the fix: cap-drop + the REAL apply_seccomp(keep_privs=true),
+        // which must take the fallback and still block clone3(CLONE_NEWUSER).
+        let test = run_child(|| {
+            // SAFETY: async-signal-safe raw syscalls / errno read in a forked child,
+            // each path ending in `_exit`; `apply_seccomp` installs the real filter.
+            unsafe {
+                if !drop_effective_cap_sys_admin() {
+                    libc::_exit(10);
+                }
+                apply_seccomp(false, false, true, None);
+                let rc = clone3_newuser();
+                let errno = *libc::__errno_location();
+                // 2 = escaped, wrong errno, or clone3 returned a child (rc==0).
+                libc::_exit(if rc == -1 && errno == libc::ENOSYS {
+                    0
+                } else {
+                    2
+                });
+            }
+        });
+
+        assert_eq!(
+            control, 0,
+            "control: clone3(CLONE_NEWUSER) should succeed WITHOUT the filter \
+             (exit {control}; 10=cap-drop-failed, 30=userns-unavailable → inconclusive)"
+        );
+        assert_eq!(
+            test, 0,
+            "DF-1: clone3(CLONE_NEWUSER) must be ENOSYS-blocked in the NNP-off \
+             fallback (exit {test}; 2=NOT blocked/wrong errno, 10=cap-drop-failed)"
+        );
     }
 }
 
