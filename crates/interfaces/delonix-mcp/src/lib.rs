@@ -24,7 +24,7 @@ use delonix_model::Error as EngineError;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
     ErrorCode, ErrorData, ReadResourceRequestParams, ReadResourceResult, Resource,
-    ResourceContents, ServerCapabilities, ServerInfo,
+    ResourceContents, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::io::stdio;
@@ -833,8 +833,8 @@ impl DelonixMcp {
 
 #[tool_handler]
 impl ServerHandler for DelonixMcp {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
