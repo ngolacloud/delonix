@@ -11714,6 +11714,61 @@ mod cmsg_alignment_tests {
             "the control buffer must keep room for the SCM_RIGHTS payload"
         );
     }
+
+    /// The pure control-buffer round-trip: the exact pointer arithmetic
+    /// `send_fd`/`recv_fd` perform on the `cmsghdr` — fill `cmsg_level`/`cmsg_type`/
+    /// `cmsg_len` and copy the fd in through `CMSG_FIRSTHDR`/`CMSG_DATA`, then read
+    /// them back — with the `sendmsg`/`recvmsg` syscalls removed so it is pure and
+    /// Miri can run it. This is the operation DA-1 is about: on a misaligned buffer
+    /// those `(*cmsghdr).field` accesses are UB; on the `cmsghdr`-aligned `CmsgBuf`
+    /// they are sound, which Miri verifies.
+    unsafe fn cmsg_fd_roundtrip(fd: libc::c_int) -> Option<libc::c_int> {
+        let mut cmsgbuf = CmsgBuf { bytes: [0u8; 64] };
+        let mut msg: libc::msghdr = std::mem::zeroed();
+        msg.msg_control = cmsgbuf.bytes.as_mut_ptr().cast::<libc::c_void>();
+        msg.msg_controllen = libc::CMSG_SPACE(std::mem::size_of::<libc::c_int>() as u32) as _;
+
+        // Write side — identical to `send_fd` minus `sendmsg`.
+        let cmsg = libc::CMSG_FIRSTHDR(&msg);
+        assert!(
+            !cmsg.is_null(),
+            "CMSG_FIRSTHDR must find room in the buffer"
+        );
+        (*cmsg).cmsg_level = libc::SOL_SOCKET;
+        (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<libc::c_int>() as u32) as _;
+        std::ptr::copy_nonoverlapping(&fd, libc::CMSG_DATA(cmsg).cast::<libc::c_int>(), 1);
+
+        // Read side — identical to `recv_fd` minus `recvmsg`.
+        let cmsg = libc::CMSG_FIRSTHDR(&msg);
+        if cmsg.is_null()
+            || (*cmsg).cmsg_level != libc::SOL_SOCKET
+            || (*cmsg).cmsg_type != libc::SCM_RIGHTS
+        {
+            return None;
+        }
+        let mut got: libc::c_int = -1;
+        std::ptr::copy_nonoverlapping(libc::CMSG_DATA(cmsg).cast::<libc::c_int>(), &mut got, 1);
+        Some(got)
+    }
+
+    /// DA-1 under Miri: the `cmsghdr` reads and writes `send_fd`/`recv_fd` do, on the
+    /// aligned `CmsgBuf`, round-trip an fd value with **no misaligned access and no
+    /// UB**. Run with `cargo +nightly miri test -p delonix-linux
+    /// cmsg_fd_value_round_trips_with_no_misaligned_access`; a bare `[u8; 64]` would
+    /// make Miri flag the `*cmsghdr` field accesses. (The live socket round-trip
+    /// stays for the VM/privileged suite.)
+    #[test]
+    fn cmsg_fd_value_round_trips_with_no_misaligned_access() {
+        // SAFETY: no syscalls; every pointer targets `cmsgbuf`, which outlives the
+        // call, and `CMSG_SPACE(c_int)` ≤ 64 keeps each access inside the buffer.
+        let got = unsafe { cmsg_fd_roundtrip(0x4242) };
+        assert_eq!(
+            got,
+            Some(0x4242),
+            "the fd value survives the cmsg round-trip"
+        );
+    }
 }
 
 #[cfg(test)]
