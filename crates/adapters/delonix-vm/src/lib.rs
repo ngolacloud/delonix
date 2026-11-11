@@ -1395,6 +1395,136 @@ mod tests {
         }
     }
 
+    /// DE-M1: `move_namespace` SAVES the record under the new namespace BEFORE it
+    /// moves the overlay, so a failed `save` leaves the SOURCE untouched — no orphan
+    /// overlay under the destination, the record still readable where it was. The old
+    /// order (move the overlay, THEN save) orphaned the overlay under the new
+    /// namespace with no record whenever the save failed.
+    ///
+    /// Fault injection: in a forked child, `RLIMIT_FSIZE` is lowered below the record
+    /// JSON's size with `SIGXFSZ` ignored, so `new_store.save`'s temp-file WRITE fails
+    /// (EFBIG) while the overlay RENAME — pure metadata, no file growth — would still
+    /// succeed. That is the one shape that tells the two orders apart: under the fix
+    /// the overlay never moves (save failed first); under the old order it is already
+    /// in the destination when the save fails. The limit is set in a throwaway child
+    /// so the test harness is never constrained. Run with
+    /// `cargo test -p delonix-vm --lib move_namespace_failed_save -- --test-threads=1`.
+    #[test]
+    fn move_namespace_failed_save_leaves_the_overlay_in_the_source() {
+        struct Stopped;
+        impl VmBackend for Stopped {
+            fn id(&self) -> &'static str {
+                "demstopmove"
+            }
+            fn available(&self) -> bool {
+                true
+            }
+            fn auto_selectable(&self) -> bool {
+                false
+            }
+            fn boot(
+                &self,
+                _: &Path,
+                _: &VmConfig,
+                _: &str,
+                _: &dyn Fn(CreateStage),
+            ) -> delonix_model::Result<Boot> {
+                unreachable!()
+            }
+            // is_running == false ⇒ status() is Stopped, so the move is allowed.
+            fn is_running(&self, _: &Vm) -> bool {
+                false
+            }
+            fn ip(&self, _: &Vm) -> Option<String> {
+                None
+            }
+            fn stop(&self, _: &Path, _: &Vm) -> delonix_model::Result<()> {
+                Ok(())
+            }
+        }
+        register_backend(BackendRegistration {
+            id: "demstopmove",
+            aliases: &[],
+            auto_selectable: false,
+            report: crate::capabilities::undeclared("fake"),
+            new: Box::new(|| Ok(Box::new(Stopped))),
+        })
+        .expect("registar");
+
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let old_dir = delonix_compute::vm::vms_root(base, "default");
+        let new_dir = delonix_compute::vm::vms_root(base, "prod");
+        std::fs::create_dir_all(&old_dir).unwrap();
+        std::fs::create_dir_all(&new_dir).unwrap();
+
+        // A stopped VM with an overlay on disk, recorded under `default`.
+        let mut vm = Vm::new(
+            "v1".into(),
+            "d".into(),
+            "o".into(),
+            1,
+            "1G".into(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+        );
+        vm.backend = "demstopmove".into();
+        vm.status = Status::Stopped;
+        store(base, "default").unwrap().save("v1", &vm).unwrap();
+        let old_overlay = old_dir.join("v1.qcow2");
+        std::fs::write(&old_overlay, b"OVERLAY").unwrap();
+
+        // The move runs in a child whose RLIMIT_FSIZE is tiny: the save's JSON write
+        // hits EFBIG, the overlay's rename (metadata only) does not. Exit 0 iff the
+        // move failed as expected; the parent reads the on-disk outcome.
+        // SAFETY: `fork`; the child only runs the block below (raw syscalls + `_exit`).
+        let child = unsafe { libc::fork() };
+        if child == 0 {
+            // SAFETY: async-signal-safe-ish child doing only setrlimit/signal/
+            // `move_namespace`/`_exit`; `--test-threads=1` keeps siblings idle at fork.
+            unsafe {
+                let lim = libc::rlimit {
+                    rlim_cur: 64, // < the record JSON (hundreds of bytes), > any trivial write
+                    rlim_max: 64,
+                };
+                libc::setrlimit(libc::RLIMIT_FSIZE, &lim);
+                libc::signal(libc::SIGXFSZ, libc::SIG_IGN); // EFBIG instead of a fatal signal
+                let failed = super::move_namespace(base, "v1", "prod").is_err();
+                libc::_exit(if failed { 0 } else { 1 });
+            }
+        }
+        let mut st = 0;
+        // SAFETY: reaping our own child; `st` is a live local.
+        unsafe { libc::waitpid(child, &mut st, 0) };
+        let code = if libc::WIFEXITED(st) {
+            libc::WEXITSTATUS(st)
+        } else {
+            -1
+        };
+        vm_registry::deregister("demstopmove");
+
+        assert_eq!(
+            code, 0,
+            "the move must fail when the destination save fails (child exit {code})"
+        );
+        // The fix's guarantee, and what tells it apart from the old order: the overlay
+        // is still in the SOURCE (the old order would have left it orphaned in `prod`).
+        assert!(
+            old_overlay.exists(),
+            "DE-M1: a failed save must NOT have moved the overlay out of the source"
+        );
+        assert!(
+            !new_dir.join("v1.qcow2").exists(),
+            "no orphan overlay under the destination namespace"
+        );
+        assert!(
+            store(base, "default").unwrap().exists("v1"),
+            "the source record must still be readable"
+        );
+    }
+
     fn test_vm_cfg(mem: &str) -> VmConfig {
         VmConfig {
             name: "t".into(),
