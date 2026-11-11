@@ -11891,7 +11891,7 @@ mod df1_clone3_prefilter_tests {
     fn clone3_newuser_blocked_in_nnp_off_fallback() {
         // SAFETY: `geteuid` has no preconditions.
         if unsafe { libc::geteuid() } != 0 {
-            eprintln!("DF-1 privileged test skipped: not root");
+            // Root-only: skip silently (documented above); no library print.
             return;
         }
 
