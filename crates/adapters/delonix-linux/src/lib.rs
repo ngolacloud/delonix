@@ -364,7 +364,18 @@ fn apply_seccomp(unconfined: bool, detect: bool, keep_privs: bool, profile: Opti
             // do nothing at all: this call runs first, and `apply_filter` sets
             // NO_NEW_PRIVS before the main filter ever gets a say.
             if keep_privs {
-                let _ = install_filter_privileged(&pp);
+                // DF-1: the clone3 pre-filter must be installed EVEN when the
+                // privileged (NNP-off) install is impossible. Without CAP_SYS_ADMIN
+                // `install_filter_privileged` fails; the old code discarded that
+                // error (`let _ =`) and never reinstalled, so a
+                // `no_new_privs:false` container lacking CAP_SYS_ADMIN silently
+                // lost `clone3 → ENOSYS` and could `clone3(CLONE_NEWUSER)` to escape
+                // via a nested user namespace. Fall back to the NNP-on install —
+                // the same trade-off the MAIN filter below already makes ("a
+                // stricter NNP than asked for" beats "no confinement").
+                if install_filter_privileged(&pp).is_err() {
+                    let _ = apply_filter(&pp);
+                }
             } else {
                 let _ = apply_filter(&pp);
             }
@@ -7406,6 +7417,12 @@ fn setup_cgroup(c: &Container, pid: i32, io_dev: Option<&str>) -> Result<()> {
         format!("{cg}/memory.swap.max"),
         swap_max_write_value(&c.memory_max, c.memory_swap.as_deref()),
     );
+    // DB-01: `memory.oom.group = 1` so an OOM kills the WHOLE cgroup, not one
+    // process inside it — otherwise a half-dead container keeps reporting Running.
+    // The rootless-delegated leaf already writes this (with a test); the
+    // rootful/non-delegated path here had been left behind. Best-effort: the
+    // controller may be absent on an old kernel.
+    let _ = std::fs::write(format!("{cg}/memory.oom.group"), "1");
     write_limit(cg, "cpu.max", &cpu_max_value(&c.cpus))?; // CPU ceiling
     write_limit(cg, "pids.max", &pids_max_write_value(c.pids_max.as_deref()))?; // process ceiling
                                                                                 // --- scheduling / QoS (cgroup v2, best-effort) ---
@@ -9693,24 +9710,38 @@ fn setup_console(console_sock: (i32, i32)) {
     }
 }
 
+/// A control-message buffer carrying `cmsghdr`'s alignment (DA-1).
+///
+/// A bare `[u8; N]` has alignment 1, so the `*cmsghdr` that `CMSG_FIRSTHDR`
+/// returns into it is **misaligned** — reading or writing its fields
+/// (`cmsg_level`, `cmsg_len`, …) is undefined behaviour. Giving the storage a
+/// `cmsghdr` member forces the correct alignment on every platform (size_t on
+/// 64-bit), while keeping room for one `c_int` of `SCM_RIGHTS` payload.
+#[repr(C)]
+union CmsgBuf {
+    _align: libc::cmsghdr,
+    bytes: [u8; 64],
+}
+
 /// Sends an fd over a Unix socket (SCM_RIGHTS). The grandchild allocates the pty in the container's
 /// devpts and passes the `master` to the parent through here (runc *console socket* model).
 fn send_fd(sock: i32, fd: i32) -> bool {
     // SAFETY: every pointer placed in `msg` (`iov`, `dummy`, `cmsgbuf`) points at a local that
-    // outlives `sendmsg`; `cmsgbuf` (64 bytes) is larger than `CMSG_SPACE(sizeof(c_int))`, so
-    // `CMSG_FIRSTHDR` is non-null and `CMSG_DATA` has room for one `c_int`. `msghdr` is a C
-    // struct for which all-zero is valid.
+    // outlives `sendmsg`; `cmsgbuf` (64 bytes, `cmsghdr`-aligned, DA-1) is larger than
+    // `CMSG_SPACE(sizeof(c_int))`, so `CMSG_FIRSTHDR` is non-null and `CMSG_DATA` has room for
+    // one `c_int`, and the `*cmsghdr` into it is properly aligned. `msghdr` is a C struct for
+    // which all-zero is valid.
     unsafe {
         let mut dummy: u8 = 0;
         let mut iov = libc::iovec {
             iov_base: (&mut dummy as *mut u8).cast::<libc::c_void>(),
             iov_len: 1,
         };
-        let mut cmsgbuf = [0u8; 64];
+        let mut cmsgbuf = CmsgBuf { bytes: [0u8; 64] };
         let mut msg: libc::msghdr = std::mem::zeroed();
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
-        msg.msg_control = cmsgbuf.as_mut_ptr().cast::<libc::c_void>();
+        msg.msg_control = cmsgbuf.bytes.as_mut_ptr().cast::<libc::c_void>();
         // `as _`: the type of the cmsg fields differs between glibc (size_t) and musl (socklen_t).
         msg.msg_controllen = libc::CMSG_SPACE(std::mem::size_of::<libc::c_int>() as u32) as _;
         let cmsg = libc::CMSG_FIRSTHDR(&msg);
@@ -9724,21 +9755,21 @@ fn send_fd(sock: i32, fd: i32) -> bool {
 
 /// Receives an fd sent by SCM_RIGHTS (the parent receives the grandchild's pty master).
 fn recv_fd(sock: i32) -> Option<i32> {
-    // SAFETY: same buffers as `send_fd`, all locals alive across `recvmsg`; the header is
-    // null-checked and its level and type verified before `CMSG_DATA` is read as one `c_int`,
-    // which stays inside the 64-byte `cmsgbuf`.
+    // SAFETY: same buffers as `send_fd` (the `cmsghdr`-aligned `CmsgBuf`, DA-1), all locals alive
+    // across `recvmsg`; the header is null-checked and its level and type verified before
+    // `CMSG_DATA` is read as one `c_int`, which stays inside the 64-byte `cmsgbuf`.
     unsafe {
         let mut dummy: u8 = 0;
         let mut iov = libc::iovec {
             iov_base: (&mut dummy as *mut u8).cast::<libc::c_void>(),
             iov_len: 1,
         };
-        let mut cmsgbuf = [0u8; 64];
+        let mut cmsgbuf = CmsgBuf { bytes: [0u8; 64] };
         let mut msg: libc::msghdr = std::mem::zeroed();
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
-        msg.msg_control = cmsgbuf.as_mut_ptr().cast::<libc::c_void>();
-        msg.msg_controllen = cmsgbuf.len() as _;
+        msg.msg_control = cmsgbuf.bytes.as_mut_ptr().cast::<libc::c_void>();
+        msg.msg_controllen = cmsgbuf.bytes.len() as _;
         if libc::recvmsg(sock, &mut msg, 0) < 0 {
             return None;
         }
@@ -11660,6 +11691,28 @@ fn setup_kube_cgroup(c: &Container, k: &KubeCgroupParent, pid: i32) -> Result<()
             std::fs::write(format!("{leaf}/cgroup.procs"), pid.to_string())?;
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod cmsg_alignment_tests {
+    use super::*;
+
+    /// DA-1: the SCM_RIGHTS control buffer must carry `cmsghdr`'s alignment, or the
+    /// `*cmsghdr` that `CMSG_FIRSTHDR` returns into it is misaligned and reading its
+    /// fields is UB. A bare `[u8; 64]` (alignment 1) would fail this; the `CmsgBuf`
+    /// union borrows `cmsghdr`'s alignment. Offline and deterministic — the live
+    /// fd round-trip stays for the VM/privileged suite.
+    #[test]
+    fn cmsg_buffer_carries_cmsghdr_alignment() {
+        assert!(
+            std::mem::align_of::<CmsgBuf>() >= std::mem::align_of::<libc::cmsghdr>(),
+            "the control buffer must be aligned for cmsghdr (DA-1)"
+        );
+        assert!(
+            std::mem::size_of::<CmsgBuf>() >= 64,
+            "the control buffer must keep room for the SCM_RIGHTS payload"
+        );
     }
 }
 
