@@ -130,29 +130,45 @@ if want C1; then
 fi
 
 # ===========================================================================
-# C2 — failover de nó: drenar/parar um worker → pods re-escalonam
+# C2 — failover de nó: drenar + matar um worker → o workload RECUPERA
+#
+# A pergunta correcta NÃO é «sobrou algum pod imputado ao nó morto?» — ao matar
+# o container-nó à força, os pods velhos ficam `Terminating`/`Unknown` com
+# `nodeName=vítima` até ao eviction-timeout do k8s (~5 min); contá-los é contar
+# FANTASMAS, não falha de failover. A pergunta é «as réplicas DESEJADAS voltaram
+# a estar disponíveis em nós VIVOS?». Por isso C2 mede duas coisas reais:
+#   (1) o `drain` ESVAZIA o nó graciosamente (0 pods `spread` a correr lá), e
+#   (2) depois de matar o nó, o Deployment volta a `availableReplicas == desejado`
+#       (contagem imune a fantasmas — só conta Running+Ready, em qualquer nó vivo).
 # ===========================================================================
 if want C2 && [ "${RESULT[C1]:-}" = PASS ]; then
   echo "== C2: failover de nó =="
-  VICTIM=$(kubectl get nodes --no-headers 2>/dev/null | awk '/worker|!control/{print $1}' | grep -v control | head -1)
-  [ -z "$VICTIM" ] && VICTIM=$(kubectl get nodes --no-headers 2>/dev/null | awk '{print $1}' | grep -i worker | head -1)
-  if [ -z "$VICTIM" ]; then
-    mark C2 SKIP "sem nó worker identificável"
+  VICTIM=$(kubectl get nodes --no-headers 2>/dev/null | awk '{print $1}' | grep -i worker | head -1)
+  DESIRED=$(kubectl get deploy spread -o jsonpath='{.spec.replicas}' 2>/dev/null)
+  if [ -z "$VICTIM" ] || [ -z "$DESIRED" ]; then
+    mark C2 SKIP "sem worker identificável ou Deployment 'spread' ausente (C1?)"
   else
     BEFORE=$(kubectl get pods -l app=spread --field-selector spec.nodeName="$VICTIM" --no-headers 2>/dev/null | grep -cw Running)
-    echo "  vítima: $VICTIM ($BEFORE pods lá); a drenar + parar o nó..."
+    echo "  vítima: $VICTIM ($BEFORE pods lá, de $DESIRED réplicas); 1) drain gracioso..."
     $BIN cluster drain "$VICTIM" >/dev/null 2>&1 || true
-    # parar o container-nó (falha de nó real, não só cordon)
-    $BIN container rm -f "$VICTIM" >/dev/null 2>&1 || $BIN container stop "$VICTIM" >/dev/null 2>&1 || true
-    # o kube marca NotReady e re-escalona; esperar reconvergência
-    if wait_for 240 "todos os pods spread Running noutro nó" bash -c '
-        bad=$(kubectl get pods -l app=spread --no-headers 2>/dev/null | grep -vcw Running); [ "${bad:-1}" -eq 0 ]'; then
-      STILL=$(kubectl get pods -l app=spread --field-selector spec.nodeName="$VICTIM" --no-headers 2>/dev/null | grep -cw Running)
-      [ "${STILL:-0}" -eq 0 ] \
-        && mark C2 PASS "os $BEFORE pods do nó morto re-escalonaram; 0 ficaram presos" \
-        || mark C2 FAIL "$STILL pods ainda imputados ao nó morto"
+    # (1) ESPERAR o drain esvaziar o nó — o sinal real de failover gracioso.
+    victim_empty() { [ "$(kubectl get pods -l app=spread --field-selector spec.nodeName="$VICTIM" --no-headers 2>/dev/null | grep -cw Running)" -eq 0 ]; }
+    if ! wait_for 180 "o drain a esvaziar '$VICTIM'" victim_empty; then
+      mark C2 FAIL "drain não esvaziou '$VICTIM' em 180s (pods não evictados)"
     else
-      mark C2 FAIL "pods não reconvergiram em 240s após a falha do nó (presos Terminating/Unknown?)"
+      echo "  2) matar o nó (falha dura) + exigir o Deployment de volta a $DESIRED disponíveis..."
+      $BIN container rm -f "$VICTIM" >/dev/null 2>&1 || $BIN container stop "$VICTIM" >/dev/null 2>&1 || true
+      # limpar fantasmas Terminating no nó morto (senão lingeram até ~5 min)
+      kubectl delete pods -l app=spread --field-selector spec.nodeName="$VICTIM" \
+        --grace-period=0 --force --ignore-not-found >/dev/null 2>&1 || true
+      # (2) availableReplicas conta só Running+Ready, em qualquer nó vivo — imune a fantasmas.
+      deploy_recovered() { [ "$(kubectl get deploy spread -o jsonpath='{.status.availableReplicas}' 2>/dev/null)" = "$DESIRED" ]; }
+      if wait_for 180 "o Deployment de volta a $DESIRED réplicas disponíveis" deploy_recovered; then
+        mark C2 PASS "drain esvaziou '$VICTIM' + Deployment recuperou a $DESIRED réplicas em nós vivos após matar o nó"
+      else
+        AVAIL=$(kubectl get deploy spread -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+        mark C2 FAIL "após matar '$VICTIM', o Deployment ficou em ${AVAIL:-0}/$DESIRED disponíveis (não recuperou em 180s)"
+      fi
     fi
   fi
 elif want C2; then
