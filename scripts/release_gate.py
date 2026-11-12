@@ -34,10 +34,18 @@ as the release candidate is validated; the gate (`check`) refuses the tag until
 every required suite is present, passed, and pinned to the tag's commit.
 
 # Usage
-  # as each suite passes on the candidate commit:
+  # 1. Run every suite on the RELEASE-CONTENT commit C (the code being shipped),
+  #    recording each against C as it passes:
   scripts/release_gate.py record --tag v0.1.1 --suite e2e --commit $(git rev-parse HEAD) --passed
+  # 2. Commit the manifest. A manifest cannot record its OWN commit's SHA (that
+  #    is a hash fixpoint — impossible), so the evidence is recorded on C and
+  #    committed as a DOC-ONLY child D (it changes nothing but the manifest). Tag
+  #    D. The gate accepts C as D's validated parent precisely because D added no
+  #    code — the tagged code IS the validated code.
+  git add reports/release-validation/v0.1.1.json && git commit -m "release: v0.1.1 validation evidence"
+  git tag v0.1.1   # D
 
-  # the gate (release.yml guard runs this; exit 1 blocks the publish):
+  # 3. The gate (release.yml guard runs this; exit 1 blocks the publish):
   scripts/release_gate.py check --tag v0.1.1 --commit <tag-commit> [--require-ci --repo o/r]
 
 stdlib only, like `sbom.py`/`release_verify.py`/`verify_release_assets.py`.
@@ -116,9 +124,14 @@ def cmd_record(args) -> int:
 # --- check (the gate) -------------------------------------------------------
 
 
-def evaluate(doc: dict, tag_commit: str) -> list[str]:
+def evaluate(doc: dict, accept) -> list[str]:
     """Pure: the list of reasons the tag is NOT releasable (empty = releasable).
-    Testable without git, gh or the network."""
+    Testable without git, gh or the network.
+
+    `accept` is the commit the tag points at, or a list of acceptable commits
+    (the tag's commit plus its validated parent — see `acceptable_commits`). A
+    suite matches when its recorded commit prefix-matches ANY acceptable one."""
+    accept_list = [accept] if isinstance(accept, str) else list(accept)
     problems: list[str] = []
     suites = doc.get("suites", {})
     for name in REQUIRED_SUITES:
@@ -130,12 +143,46 @@ def evaluate(doc: dict, tag_commit: str) -> list[str]:
             problems.append(f"{name}: recorded as FAILED (at {rec.get('commit', '?')[:12]})")
             continue
         rc = str(rec.get("commit", ""))
-        if not commits_match(rc, tag_commit):
+        if not any(commits_match(rc, c) for c in accept_list):
             problems.append(
                 f"{name}: ran at {rc[:12] or '?'}, not the tag's commit "
-                f"{tag_commit[:12]} — validation is from a DIFFERENT build"
+                f"{accept_list[0][:12]} — validation is from a DIFFERENT build"
             )
     return problems
+
+
+def acceptable_commits(tag_commit: str) -> list[str]:
+    """The commits whose validation counts for this tag: the tag's own commit,
+    plus its first parent IF the tag commit adds NOTHING but the validation
+    manifest. Because a manifest cannot name its own commit (a SHA that contains
+    itself — a hash fixpoint, cryptographically impossible), the suites are
+    recorded on the release-content commit and the manifest is committed as a
+    doc-only child that becomes the tag. Accepting that parent keeps the
+    guarantee — the tagged CODE equals the validated code, since the child
+    touched no code — while making the gate satisfiable at all. Git-dependent,
+    so it lives outside the pure `evaluate`."""
+    accept = [tag_commit]
+    try:
+        parent = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{tag_commit}^"],
+            capture_output=True, text=True, cwd=ROOT,
+        )
+        if parent.returncode != 0:
+            return accept  # root commit, or unknown rev
+        parent_sha = parent.stdout.strip()
+        diff = subprocess.run(
+            ["git", "diff", "--name-only", parent_sha, tag_commit],
+            capture_output=True, text=True, cwd=ROOT,
+        )
+        if diff.returncode != 0:
+            return accept
+        changed = [ln.strip() for ln in diff.stdout.splitlines() if ln.strip()]
+        rel = "reports/release-validation/"
+        if changed and all(p.startswith(rel) for p in changed):
+            accept.append(parent_sha)
+    except OSError:
+        pass
+    return accept
 
 
 def ci_is_green(repo: str, commit: str) -> tuple[bool, str]:
@@ -168,10 +215,13 @@ def ci_is_green(repo: str, commit: str) -> tuple[bool, str]:
 def cmd_check(args) -> int:
     doc = load_manifest(args.tag)
     print(f"Release gate for {args.tag} (commit {args.commit[:12]})\n")
-    problems = evaluate(doc, args.commit)
+    accept = acceptable_commits(args.commit)
+    problems = evaluate(doc, accept)
     for name in REQUIRED_SUITES:
         rec = doc.get("suites", {}).get(name)
-        if rec and rec.get("passed") and commits_match(str(rec.get("commit", "")), args.commit):
+        if rec and rec.get("passed") and any(
+            commits_match(str(rec.get("commit", "")), c) for c in accept
+        ):
             print(f"  ✓ {name}: passed @ {str(rec['commit'])[:12]}")
     for p in problems:
         print(f"  ✗ {p}")
