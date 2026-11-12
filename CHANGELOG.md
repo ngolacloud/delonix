@@ -16,10 +16,56 @@ As notas em prosa de cada release histórica vivem em `docs/releases/v<tag>.md`
 
 ---
 
-## [Não lançado] — linha Delonix 0.x (transição de identidade)
+## [0.1.1] - 2026-11-12 — paridade, catálogo vivo, CRI rootful e supply-chain
 
-Preparação da primeira release oficial Delonix `0.1.0`. Nada aqui foi ainda
-etiquetado nem publicado.
+Patch sobre a `0.1.0`: tudo **aditivo**, **sem quebrar contratos** de CLI/API/
+JSON/schema. Notas em prosa em [docs/releases/v0.1.1.md](docs/releases/v0.1.1.md).
+
+### Added
+
+- **Paridade de CLI Docker/Podman:** `volume export/import/mount/unmount` +
+  `exists/prune`; `network reload/prune/exists`; `container export/mount/unmount/
+  clone/checkpoint/restore`; `image build/diff/tree/search/import/history/untag`;
+  `pod ps/exists/prune/kill/pause/unpause/stats/top/inspect`; atalhos de raiz
+  `search/import/export/history/untag` e shims `buildx/builder/bake/checkpoint`.
+- **Catálogo de Kinds vivo (ADR-0086):** `kind: Config` (irmão em claro do
+  `Secret`), `kind: IPAddress` (reserva de um `IPPool`), `kind: Snapshot`
+  (snapshot convergente de `VM`/`Volume`); catálogo v1 e v2 sobre o motor
+  reestruturado.
+- **Supply-chain:** atestações in-toto (proveniência **SLSA v1** + **SBOM** SPDX)
+  publicadas pela **OCI 1.1 Referrers API** com fallback de tag `sha256-<hex>`;
+  `scan --policy`/`--compare-to` e gating de CI; confiança por política na
+  admissão por assinatura.
+- **Interoperabilidade Kubernetes:** `cluster kube play` e `kube generate`.
+- **Compose:** interpolação `${VAR}` (com `.env` e chavetas).
+
+### Changed
+
+- **Conformância CRI rootful:** propagação `rshared` (ADR-0093), namespace de PID
+  por pod com âncora `pause` (ADR-0092) e shared-PID no root-CNI, normalização de
+  AppArmor `localhost/…` e seccomp com opt-in explícito.
+- `perf(linux)`: `ldconfig` salta em rootfs **musl/scratch** (sem `ld.so.cache`).
+
+### Fixed
+
+- **`boot.rs`: `Restart=` systemd válido** — a política do Delonix
+  (`unless-stopped`/`always` → `always`, `on-failure[:N]` → `on-failure`) deixa de
+  ser escrita como especificador inválido que o systemd ignorava.
+- **`cluster create`: wait de nó consciente de carga** — nó vivo ganha extensão
+  sob contenção; nó morto falha já (deixa de abortar o cluster por um nó lento).
+- **OCI:** whiteout confinado ao directório da camada por `scoped_resolve`
+  partilhado (fuga de symlink), scratch próprio por unpack concorrente.
+- **linux/CRI:** cgroup aplicado antes do workload (não-userns); VM
+  `move_namespace` grava o registo antes de mover o overlay; o *Streamer* CRI
+  tolera *poisoning* do Mutex; endurecimento OOM/cgroup, `clone3` e `cmsghdr`.
+
+---
+
+## [0.1.0] - 2026-10-28 — linha Delonix 0.x (transição de identidade)
+
+Primeira release oficial da linha **Delonix**. Abriu a linha `0.x` re-baseando
+de `5.1.1` (uma linha nova, não uma regressão). O motor é o mesmo da linha
+`delonix-runtime` — ver a secção histórica abaixo.
 
 ### Changed
 - Identidade do produto passa a **Delonix**; o repositório migra para
