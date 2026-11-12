@@ -752,6 +752,13 @@ requested shape, no <code>nft</code> runs at all.</p>
 <td>Used only when no synced database exists at <code>&lt;root&gt;/<wbr>advisories.<wbr>json</code>; the synced one wins. Without either, the embedded placeholder is used and the scan says so.</td>
 </tr>
 <tr>
+<td><code>DELONIX_TRUST_POLICY</code></td>
+<td><code>bins/<wbr>delonix-runtime-bin/<wbr>src/<wbr>cmd/<wbr>scan.<wbr>rs:admission_trust_on_pull</code></td>
+<td>Path to a declarative signature-trust policy applied on every image pull.</td>
+<td>A file path to a JSON policy (<code>{ "mode": "enforce"|"warn", "rules": [ { "repo": "ghcr.<wbr>io/<wbr>ns/<wbr>*", "key": "/<wbr>path/<wbr>to/<wbr>key.<wbr>pub" } ] }</code>).</td>
+<td>Defaults to <code>&lt;root&gt;/trust.json</code>. If a rule's repo pattern matches, the image's cosign signature is verified against the trusted key; <code>enforce</code> refuses an untrusted image, <code>warn</code> only reports. No policy or no matching rule → no trust requirement.</td>
+</tr>
+<tr>
 <td><code>DELONIX_ADVISORY_FEED</code></td>
 <td><code>bins/<wbr>delonix-runtime-bin/<wbr>src/<wbr>cmd/<wbr>scan.<wbr>rs:cmd_scan_update</code></td>
 <td>Source for <code>delonix image scan --update</code>.</td>

@@ -576,6 +576,32 @@ impl Client {
         )
     }
 
+    fn referrers_url(&self, subject_digest: &str) -> String {
+        format!(
+            "{}://{}/v2/{}/referrers/{}",
+            scheme_for(&self.host),
+            self.host,
+            self.repo,
+            subject_digest
+        )
+    }
+
+    /// The OCI 1.1 Referrers API (`GET /v2/<name>/referrers/<digest>`): an image
+    /// index whose `manifests` are the artifacts that name `<digest>` as their
+    /// `subject` — attestations and signatures. Each descriptor carries its
+    /// `artifactType` and annotations, so a caller triages SBOM/provenance/sig
+    /// without fetching the manifests. The `sha256-<digest>` tag fallback is NOT
+    /// attempted here — the targets that matter (registry:2.8+, ghcr, ECR, the
+    /// engine's own internal registry) implement the API natively. A 404 (no
+    /// referrers, or an older registry) surfaces as the error `fetch` returns.
+    fn referrers(&mut self, subject_digest: &str) -> Result<Vec<Descriptor>> {
+        let url = self.referrers_url(subject_digest);
+        let resp = self.fetch(&url, "application/vnd.oci.image.index.v1+json")?;
+        let body = read_capped(resp, MAX_MANIFEST_BYTES, "referrers")?;
+        let index: ImageIndex = serde_json::from_slice(&body)?;
+        Ok(index.manifests().clone())
+    }
+
     /// The repo's tags, per the Registry v2 `GET /v2/<name>/tags/list`
     /// endpoint (`{"name": ..., "tags": [...]}`). Reuses `fetch`'s normal
     /// 401→token→retry flow, so this works against ghcr.io/Docker Hub/any
@@ -1441,6 +1467,19 @@ fn descriptor(media_type: &str, size: usize, digest: &str) -> Result<Descriptor>
         .map_err(oci_err)
 }
 
+/// OCI transport constants for in-toto attestations (GAP-0009). The mediaType an
+/// attestation layer carries (BuildKit reuses `intoto.PayloadType` here) and the
+/// annotation that names a layer's predicate so a consumer triages SBOM vs
+/// provenance WITHOUT fetching the blob. They live here, not in
+/// `delonix-scanner`, because the scanner depends on this crate (not vice
+/// versa) — the predicate-level identity (`PREDICATE_TYPE_SPDX`) stays there.
+pub const INTOTO_LAYER_MEDIA_TYPE: &str = "application/vnd.in-toto+json";
+pub const INTOTO_PREDICATE_TYPE_ANNOTATION: &str = "in-toto.io/predicate-type";
+/// The `artifactType` of a BuildKit attestation manifest
+/// (`exporter/containerimage/writer.go`'s `attestationManifestArtifactType`).
+const ATTESTATION_MANIFEST_ARTIFACT_TYPE: &str =
+    "application/vnd.docker.attestation.manifest.v1+json";
+
 /// The mediaType of a layer by its *magic number* (gzip/zstd/plain tar).
 fn layer_media_type(data: &[u8]) -> &'static str {
     if data.starts_with(&[0x1f, 0x8b]) {
@@ -1728,6 +1767,198 @@ impl RegistryClient {
             data,
             layer_annotations,
         )
+    }
+
+    /// The sha256 hex of the image manifest this client points at — the digest
+    /// an attestation names as its subject. Exposed so a caller can build the
+    /// in-toto Statement (whose internal subject must match the OCI `subject`
+    /// `push_attestation` sets) before pushing it, without re-deriving it.
+    pub fn manifest_sha256_hex(&mut self) -> Result<String> {
+        let refr = self.reference();
+        Ok(sha256_hex(&self.get_manifest(&refr)?))
+    }
+
+    /// Lists the attestations/signatures attached to this client's image, via
+    /// the OCI 1.1 Referrers API — the read side of [`push_attestation`].
+    /// Resolves the image manifest digest, then returns one [`Referrer`] per
+    /// artifact that names it as `subject`. The `predicate_type` is best-effort
+    /// from the referrer descriptor's annotations; a caller that needs it for
+    /// certain (registries vary on copying layer annotations up) can fetch the
+    /// referrer's manifest with [`get_manifest`](Self::get_manifest) and read
+    /// `layers[0]`'s `in-toto.io/predicate-type`.
+    pub fn list_referrers(&mut self) -> Result<Vec<Referrer>> {
+        let subject = with_prefix(&self.manifest_sha256_hex()?);
+        // Primary: the OCI 1.1 Referrers API. Fallback: the referrers tag schema
+        // (`<alg>-<hex>` index) for registries that answer 404 to the API —
+        // exactly what `push_attestation` maintains, and what buildx/cosign/oras
+        // read. A 404 on BOTH means genuinely nothing is attached.
+        let descriptors = match self.inner.referrers(&subject) {
+            Ok(d) => d,
+            Err(e) if e.is_not_found() => {
+                let tag = subject.replace(':', "-");
+                match self.get_manifest(&tag) {
+                    Ok(bytes) => serde_json::from_slice::<ImageIndex>(&bytes)?
+                        .manifests()
+                        .clone(),
+                    Err(e2) if e2.is_not_found() => Vec::new(),
+                    Err(e2) => return Err(e2),
+                }
+            }
+            Err(e) => return Err(e),
+        };
+        Ok(descriptors.iter().map(Referrer::from_descriptor).collect())
+    }
+
+    /// Attaches an in-toto attestation (SBOM or SLSA provenance) to the image
+    /// this client points at, as an OCI 1.1 **referrer**: pushes an attestation
+    /// manifest whose `subject` is the image's manifest descriptor, so a
+    /// Referrers query (`cosign verify-attestation`, `buildx imagetools
+    /// inspect`) discovers it. `statement` is the RAW in-toto Statement bytes
+    /// (not a DSSE envelope — the exact shape BuildKit stores); `predicate_type`
+    /// goes into the layer's `in-toto.io/predicate-type` annotation so a
+    /// consumer tells SBOM from provenance without fetching the blob.
+    ///
+    /// Returns the digest of the attestation manifest. Unlike `push_signature`
+    /// (cosign's `.sig` TAG convention), this binds by `subject`+digest, which
+    /// is what the OCI image-spec 1.1 referrers model and BuildKit use for
+    /// attestations — the two mechanisms are complementary, not alternatives.
+    pub fn push_attestation(&mut self, statement: &[u8], predicate_type: &str) -> Result<String> {
+        // 1) Resolve the subject — the image manifest this client was built for.
+        //    The subject carries whatever mediaType the image manifest declares
+        //    (OCI image manifest, or a docker schema2 manifest), defaulting to
+        //    the OCI image manifest type when the body omits it.
+        let target_ref = self.reference();
+        let manifest_bytes = self.get_manifest(&target_ref)?;
+        let manifest_hex = sha256_hex(&manifest_bytes);
+        let subject_media = serde_json::from_slice::<serde_json::Value>(&manifest_bytes)
+            .ok()
+            .and_then(|v| {
+                v.get("mediaType")
+                    .and_then(|m| m.as_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| MediaType::ImageManifest.to_string());
+        let subject = descriptor(&subject_media, manifest_bytes.len(), &manifest_hex)?;
+
+        // 2) Push the empty config and the attestation blob (the raw Statement).
+        let config_digest = with_prefix(&sha256_hex(EMPTY_CONFIG_BYTES));
+        self.inner.push_blob(&config_digest, EMPTY_CONFIG_BYTES)?;
+        let layer_digest = with_prefix(&sha256_hex(statement));
+        self.inner.push_blob(&layer_digest, statement)?;
+
+        // 3) The attestation layer: raw Statement, tagged with its predicate type.
+        let mut layer_annotations = std::collections::HashMap::new();
+        layer_annotations.insert(
+            INTOTO_PREDICATE_TYPE_ANNOTATION.to_string(),
+            predicate_type.to_string(),
+        );
+        let layer_descriptor = DescriptorBuilder::default()
+            .media_type(MediaType::from(INTOTO_LAYER_MEDIA_TYPE))
+            .size(statement.len() as u64)
+            .digest(Digest::from_str(&layer_digest).map_err(oci_err)?)
+            .annotations(layer_annotations)
+            .build()
+            .map_err(oci_err)?;
+
+        // 4) The attestation manifest: empty config, one in-toto layer, the
+        //    docker attestation artifactType, and the image as `subject`.
+        let manifest = ImageManifestBuilder::default()
+            .schema_version(2u32)
+            .media_type(MediaType::ImageManifest)
+            .artifact_type(MediaType::from(ATTESTATION_MANIFEST_ARTIFACT_TYPE))
+            .config(descriptor(
+                EMPTY_CONFIG_MEDIA_TYPE,
+                EMPTY_CONFIG_BYTES.len(),
+                &config_digest,
+            )?)
+            .layers(vec![layer_descriptor])
+            .subject(subject)
+            .build()
+            .map_err(oci_err)?;
+        let attestation_bytes = serde_json::to_vec(&manifest)?;
+        let attestation_digest = format!("sha256:{}", sha256_hex(&attestation_bytes));
+
+        // 5) Publish BY DIGEST — a referrer is addressed by its own digest, not a
+        //    tag; a registry with the Referrers API then surfaces it under the
+        //    subject's `/referrers/<digest>`.
+        self.inner.push_manifest(
+            &attestation_digest,
+            &attestation_bytes,
+            MediaType::ImageManifest.as_ref(),
+        )?;
+
+        // 6) Maintain the OCI **referrers tag-schema fallback** so discovery
+        //    works even on registries WITHOUT the Referrers API (the one in the
+        //    distribution spec, which buildx/cosign/oras all read): an index
+        //    tagged `<alg>-<hex>` of the subject, listing the referrers. Merge
+        //    with any existing index at that tag, deduping by digest, so a second
+        //    attestation on the same image joins the first instead of replacing it.
+        let fallback_tag = format!("sha256-{manifest_hex}");
+        let referrer_desc = serde_json::json!({
+            "mediaType": MediaType::ImageManifest.to_string(),
+            "digest": attestation_digest,
+            "size": attestation_bytes.len(),
+            "artifactType": ATTESTATION_MANIFEST_ARTIFACT_TYPE,
+            "annotations": { INTOTO_PREDICATE_TYPE_ANNOTATION: predicate_type },
+        });
+        let mut manifests = match self.get_manifest(&fallback_tag) {
+            Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|v| v.get("manifests").and_then(|m| m.as_array()).cloned())
+                .unwrap_or_default(),
+            Err(e) if e.is_not_found() => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        if !manifests
+            .iter()
+            .any(|m| m.get("digest") == referrer_desc.get("digest"))
+        {
+            manifests.push(referrer_desc);
+        }
+        let index = serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": MediaType::ImageIndex.to_string(),
+            "manifests": manifests,
+        });
+        let index_bytes = serde_json::to_vec(&index)?;
+        self.inner
+            .push_manifest(&fallback_tag, &index_bytes, MediaType::ImageIndex.as_ref())?;
+
+        tracing::info!(
+            subject = %format!("sha256:{manifest_hex}"),
+            predicate = %predicate_type,
+            digest = %attestation_digest,
+            "attached in-toto attestation"
+        );
+        Ok(attestation_digest)
+    }
+}
+
+/// One artifact that names an image as its `subject` (an attestation or a
+/// signature), as surfaced by the Referrers API. Carries enough to triage —
+/// which object, what kind, which predicate — without fetching the blob.
+#[derive(Debug, Clone)]
+pub struct Referrer {
+    /// The referrer manifest's own digest (`sha256:…`).
+    pub digest: String,
+    /// The `artifactType` (e.g. `application/vnd.docker.attestation.manifest.v1+json`).
+    pub artifact_type: Option<String>,
+    /// The `in-toto.io/predicate-type` (e.g. `https://spdx.dev/Document`), when
+    /// the registry surfaced it on the descriptor.
+    pub predicate_type: Option<String>,
+}
+
+impl Referrer {
+    fn from_descriptor(d: &Descriptor) -> Referrer {
+        let predicate_type = d
+            .annotations()
+            .as_ref()
+            .and_then(|a| a.get(INTOTO_PREDICATE_TYPE_ANNOTATION).cloned());
+        Referrer {
+            digest: d.digest().to_string(),
+            artifact_type: d.artifact_type().as_ref().map(|m| m.to_string()),
+            predicate_type,
+        }
     }
 }
 
@@ -2947,6 +3178,11 @@ pub(crate) fn serve_anon_registry() -> (
         Arc::new(Mutex::new(Default::default()));
     let manifests: Arc<Mutex<std::collections::HashMap<String, Vec<u8>>>> =
         Arc::new(Mutex::new(Default::default()));
+    // Referrers API state: subject digest -> the descriptors of manifests that
+    // name it as `subject` (how an attestation attaches). Enough to exercise the
+    // OCI 1.1 `GET /v2/<name>/referrers/<digest>` read path end-to-end.
+    let referrers: Arc<Mutex<std::collections::HashMap<String, Vec<serde_json::Value>>>> =
+        Arc::new(Mutex::new(Default::default()));
     let blob_gets = Arc::new(AtomicUsize::new(0));
     let blob_gets_thread = blob_gets.clone();
     let handle = std::thread::spawn(move || {
@@ -3031,8 +3267,52 @@ pub(crate) fn serve_anon_registry() -> (
                 }
             } else if method == "PUT" && path.contains("/manifests/") {
                 let refr = path.rsplit('/').next().unwrap_or("").to_string();
+                // If this manifest names a `subject`, index it as a referrer of
+                // that subject — the state the Referrers API reads back. The
+                // referrer descriptor mirrors what a real registry surfaces:
+                // mediaType, digest (this manifest's), size, artifactType.
+                if let Ok(m) = serde_json::from_slice::<serde_json::Value>(&body) {
+                    if let Some(subject_digest) =
+                        m.pointer("/subject/digest").and_then(|d| d.as_str())
+                    {
+                        let mut desc = serde_json::json!({
+                            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                            "digest": refr,
+                            "size": body.len(),
+                        });
+                        if let Some(at) = m.get("artifactType") {
+                            desc["artifactType"] = at.clone();
+                        }
+                        referrers
+                            .lock()
+                            .unwrap()
+                            .entry(subject_digest.to_string())
+                            .or_default()
+                            .push(desc);
+                    }
+                }
                 manifests.lock().unwrap().insert(refr, body);
                 write_resp(&mut s, "201 Created", "", b"");
+            } else if method == "GET" && path.contains("/referrers/") {
+                let subject = path.rsplit('/').next().unwrap_or("").to_string();
+                let list = referrers
+                    .lock()
+                    .unwrap()
+                    .get(&subject)
+                    .cloned()
+                    .unwrap_or_default();
+                let index = serde_json::json!({
+                    "schemaVersion": 2,
+                    "mediaType": "application/vnd.oci.image.index.v1+json",
+                    "manifests": list,
+                });
+                let body = serde_json::to_vec(&index).unwrap();
+                write_resp(
+                    &mut s,
+                    "200 OK",
+                    "content-type: application/vnd.oci.image.index.v1+json\r\n",
+                    &body,
+                );
             } else if method == "GET" && path.contains("/manifests/") {
                 let refr = path.rsplit('/').next().unwrap_or("").to_string();
                 match manifests.lock().unwrap().get(&refr) {
@@ -3099,6 +3379,73 @@ mod tests {
         assert_eq!(json["layers"].as_array().unwrap().len(), 1);
         // No Docker type survives anywhere in the document.
         assert!(!serde_json::to_string(&oci).unwrap().contains("vnd.docker"));
+    }
+
+    /// GAP-0009: an attestation attached with `push_attestation` is a referrer —
+    /// its `subject` is the image manifest's digest, it carries the docker
+    /// attestation `artifactType`, and its single in-toto layer is tagged with
+    /// the predicate type. End-to-end against the same local registry mock
+    /// `sign`'s round-trip uses: push an image manifest, attach, read it back.
+    #[test]
+    fn push_attestation_binds_to_the_image_as_a_referrer() {
+        use super::{
+            push_oci_artifact, registry_client, serve_anon_registry, INTOTO_LAYER_MEDIA_TYPE,
+            INTOTO_PREDICATE_TYPE_ANNOTATION,
+        };
+        const SPDX: &str = "https://spdx.dev/Document";
+        let (port, _gets, _h) = serve_anon_registry();
+        let tmp = tempfile::tempdir().unwrap();
+        let store = crate::ImageStore::open(tmp.path()).unwrap();
+        let reference = format!("127.0.0.1:{port}/app:v1");
+
+        // Stand-in for the built image: a manifest under the tag. Its digest is
+        // exactly what the attestation must name as `subject`.
+        let image_digest = push_oci_artifact(
+            tmp.path(),
+            &reference,
+            "application/vnd.oci.image.layer.v1.tar",
+            b"rootfs",
+        )
+        .unwrap();
+
+        // Attach a (minimal) in-toto SBOM statement.
+        let statement = br#"{"_type":"https://in-toto.io/Statement/v1","predicateType":"https://spdx.dev/Document","subject":[],"predicate":{}}"#;
+        let mut c = registry_client(&store, &reference).unwrap();
+        let att_digest = c.push_attestation(statement, SPDX).unwrap();
+        assert!(att_digest.starts_with("sha256:"));
+        assert_ne!(
+            att_digest, image_digest,
+            "the attestation is its own object"
+        );
+
+        // Read the attestation manifest back by digest (how a referrer is addressed).
+        let att_bytes = c.get_manifest(&att_digest).unwrap();
+        let m: serde_json::Value = serde_json::from_slice(&att_bytes).unwrap();
+        assert_eq!(m["subject"]["digest"], image_digest, "subject = the image");
+        assert_eq!(
+            m["artifactType"],
+            "application/vnd.docker.attestation.manifest.v1+json"
+        );
+        assert_eq!(m["layers"][0]["mediaType"], INTOTO_LAYER_MEDIA_TYPE);
+        assert_eq!(
+            m["layers"][0]["annotations"][INTOTO_PREDICATE_TYPE_ANNOTATION], SPDX,
+            "predicate type lets a consumer triage without the blob"
+        );
+
+        // The stored blob is the EXACT statement bytes — nothing re-encoded.
+        let layer_digest = m["layers"][0]["digest"].as_str().unwrap();
+        let blob = c.get_blob(layer_digest).unwrap();
+        assert_eq!(blob, statement);
+
+        // Read side: the Referrers API lists exactly this attestation against
+        // the image, carrying its digest and the attestation artifactType.
+        let refs = c.list_referrers().unwrap();
+        assert_eq!(refs.len(), 1, "exactly one attestation attached");
+        assert_eq!(refs[0].digest, att_digest);
+        assert_eq!(
+            refs[0].artifact_type.as_deref(),
+            Some("application/vnd.docker.attestation.manifest.v1+json")
+        );
     }
 
     #[test]

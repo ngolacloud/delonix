@@ -449,6 +449,9 @@ Options:
       --target &lt;TARGET&gt;
           Name or index of a `FROM ... AS &lt;name&gt;` stage to stop the build at and package as the result, instead of the Dockerfile&#x27;s own final stage. Only the stages the target itself needs (everything at or before it, in file order) are built — later stages are skipped entirely
 
+      --provenance [&lt;mode&gt;]
+          Emit SLSA v1 provenance for this build, cached next to the image (attach it to a registry later with `image provenance &lt;ref&gt; --attach`). `--provenance` or `--provenance=max` records build-arg values; `--provenance=min` withholds them (safe on any build). Off by default
+
   -h, --help
           Print help (see a summary with &#x27;-h&#x27;)
 

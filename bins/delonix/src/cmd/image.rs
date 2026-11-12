@@ -377,6 +377,15 @@ pub enum ImageCmd {
         /// (low|medium|high|critical) — gate for CI.
         #[arg(long = "fail-on", value_name = "SEV")]
         fail_on: Option<String>,
+        /// Gate on a declarative policy file (JSON: `fail_on`, `ignore` waiver
+        /// list, `ignore_unfixed`). Richer CI gate than `--fail-on`; takes
+        /// precedence over it. Exits 1 on failure.
+        #[arg(long = "policy", value_name = "FICHEIRO")]
+        policy: Option<String>,
+        /// Report the vulnerability delta against another image (added/removed
+        /// CVEs), like `docker scout compare`, instead of the dashboard.
+        #[arg(long = "compare-to", value_name = "IMAGE")]
+        compare_to: Option<String>,
         /// Sync the CVE feed to the local database (used afterwards by each scan).
         #[arg(long)]
         update: bool,
@@ -395,6 +404,31 @@ pub enum ImageCmd {
     Sbom {
         #[arg(add = ArgValueCandidates::new(super::complete::images))]
         image: String,
+        /// Attach the SBOM to the image in its registry as an in-toto
+        /// attestation (OCI 1.1 referrer, cosign/buildx-compatible), instead of
+        /// only printing it. Requires a registry reference the image was pushed to.
+        #[arg(long)]
+        attach: bool,
+    },
+    /// List the attestations attached to an image in its registry.
+    ///
+    /// The read side of `image sbom --attach`, via the OCI 1.1 Referrers API.
+    /// One line per referrer: digest, artifactType, predicate type.
+    Attestations {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        image: String,
+    },
+    /// Print or attach the SLSA provenance a `build --provenance` cached.
+    ///
+    /// `--attach` publishes it to the image's registry as an in-toto
+    /// attestation (OCI 1.1 referrer), like `sbom --attach`.
+    Provenance {
+        #[arg(add = ArgValueCandidates::new(super::complete::images))]
+        image: String,
+        /// Attach the provenance to the image in its registry as an in-toto
+        /// attestation, instead of only printing it.
+        #[arg(long)]
+        attach: bool,
     },
     /// Remove a local image.
     // `rm` so `delonix image rm` matches `docker image rm` exactly (the root
@@ -559,6 +593,8 @@ pub fn run(action: ImageCmd) -> Result<()> {
             image,
             sbom,
             fail_on,
+            policy,
+            compare_to,
             update,
             feed,
         } => {
@@ -573,10 +609,18 @@ pub fn run(action: ImageCmd) -> Result<()> {
                         .into(),
                     )
                 })?;
-                super::scan::cmd_scan(&image, sbom, fail_on.as_deref())
+                super::scan::cmd_scan(
+                    &image,
+                    sbom,
+                    fail_on.as_deref(),
+                    policy.as_deref(),
+                    compare_to.as_deref(),
+                )
             }
         }
-        ImageCmd::Sbom { image } => super::scan::cmd_sbom(&image),
+        ImageCmd::Sbom { image, attach } => super::scan::cmd_sbom(&image, attach),
+        ImageCmd::Attestations { image } => super::scan::cmd_attestations(&image),
+        ImageCmd::Provenance { image, attach } => super::scan::cmd_provenance(&image, attach),
         ImageCmd::Remove(RemoveArgs { image, force }) => cmd_rm(&images, &store, &image, force),
         ImageCmd::Prune { force, all } => cmd_prune(&images, &store, force, all),
         ImageCmd::Export {
@@ -798,6 +842,11 @@ fn cmd_pull(images: &ImageStore, reference: &str, verify: Option<&std::path::Pat
             )
         );
     }
+    // Signature-trust admission (GAP-0017): declarative per-repo trust, enforced
+    // on every pull without a `--verify` flag each time. Runs BEFORE the CVE
+    // scan — "is it who it says it is" gates before "what does it bring". Off
+    // unless a `trust.json` (or `$DELONIX_TRUST_POLICY`) names this repo.
+    super::scan::admission_trust_on_pull(images, reference)?;
     // CVE admission policy (scan-on-pull): off by default (no latency),
     // opt-in via `DELONIX_SCAN_ON_PULL`. Closes the "pull without looking inside" —
     // see `scan::admission_scan_on_pull`. Runs AFTER the signature

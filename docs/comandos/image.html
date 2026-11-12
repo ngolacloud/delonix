@@ -403,33 +403,35 @@ on.</p>
 <div class='help'><div class='help-note lang-pt'>Saída real do binário (em inglês).</div><div class='help-note lang-en'>Real output of the binary (English).</div><pre><code>Usage: delonix image &lt;COMMAND&gt;
 
 Commands:
-  pull      Pull an image from a registry
-  push      Publish a local image to an OCI registry
-  remove    Remove a local image [alias: rm]
-  describe  Human-readable detail of one or more images, `kubectl describe`-style
-  diff      Show how two images differ at the layer level
-  exists    Exit 0 if the image exists locally, 1 if not — prints nothing (`podman image exists`)
-  history   Layers of an image (digest + size), from base to top
-  inspect   Full detail of one or more images as a JSON array (`docker image inspect`)
-  ls        List local images [alias: list]
-  sbom      The image&#x27;s SBOM as an SPDX 2.3 document, not the table `scan --sbom` prints
-  scan      SBOM + CVE scan of an image
-  tree      Layer stack of one image, base to top, as an indented tree
-  verify    Verify the cosign signature of a local image against a public key
-  login     Authenticate to an OCI registry
-  logout    Remove the stored credentials of a registry
-  sign      Sign an image with cosign-compatible ECDSA-P256, publishing the signature next to it in the registry
-  tag       Give another name/tag to a local image (copies nothing — it&#x27;s just a new name for the same content)
-  untag     Remove one name/tag from an image without deleting its content (`podman untag`)
-  export    Export an OCI runtime bundle (rootfs + config.json) for `runc`/`crun`
-  import    Create an image from a rootfs tarball (`docker import`)
-  load      Load an image from an archive (the counterpart of `save`)
-  save      Save an image to a portable archive (`docker save`&#x27;s counterpart)
-  search    Search Docker Hub for images (`docker search`)
-  apply     Apply the `kind: Image` documents of a manifest
-  prune     Remove unused images and the CAS blobs nobody references any more
-  build     Build an image from a Dockerfile or Delonixfile
-  help      Print this message or the help of the given subcommand(s)
+  pull          Pull an image from a registry
+  push          Publish a local image to an OCI registry
+  remove        Remove a local image [alias: rm]
+  attestations  List the attestations attached to an image in its registry
+  describe      Human-readable detail of one or more images, `kubectl describe`-style
+  diff          Show how two images differ at the layer level
+  exists        Exit 0 if the image exists locally, 1 if not — prints nothing (`podman image exists`)
+  history       Layers of an image (digest + size), from base to top
+  inspect       Full detail of one or more images as a JSON array (`docker image inspect`)
+  ls            List local images [alias: list]
+  provenance    Print or attach the SLSA provenance a `build --provenance` cached
+  sbom          The image&#x27;s SBOM as an SPDX 2.3 document, not the table `scan --sbom` prints
+  scan          SBOM + CVE scan of an image
+  tree          Layer stack of one image, base to top, as an indented tree
+  verify        Verify the cosign signature of a local image against a public key
+  login         Authenticate to an OCI registry
+  logout        Remove the stored credentials of a registry
+  sign          Sign an image with cosign-compatible ECDSA-P256, publishing the signature next to it in the registry
+  tag           Give another name/tag to a local image (copies nothing — it&#x27;s just a new name for the same content)
+  untag         Remove one name/tag from an image without deleting its content (`podman untag`)
+  export        Export an OCI runtime bundle (rootfs + config.json) for `runc`/`crun`
+  import        Create an image from a rootfs tarball (`docker import`)
+  load          Load an image from an archive (the counterpart of `save`)
+  save          Save an image to a portable archive (`docker save`&#x27;s counterpart)
+  search        Search Docker Hub for images (`docker search`)
+  apply         Apply the `kind: Image` documents of a manifest
+  prune         Remove unused images and the CAS blobs nobody references any more
+  build         Build an image from a Dockerfile or Delonixfile
+  help          Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help
@@ -437,7 +439,7 @@ Options:
 
 COMMAND MAP:
   Lifecycle    pull · remove · push
-  Inspect      ls · inspect · exists · describe · history · diff · tree · verify · scan · sbom
+  Inspect      ls · inspect · exists · describe · history · diff · tree · verify · scan · sbom · attestations · provenance
   Configure    untag · tag · sign · login · logout
   Storage      export · save · load · import · search
   Declarative  apply
@@ -579,6 +581,12 @@ Options:
 
       --fail-on &lt;SEV&gt;
           Fail (exit 1) if there are vulnerabilities &gt;= this severity (low|medium|high|critical) — gate for CI
+
+      --policy &lt;FICHEIRO&gt;
+          Gate on a declarative policy file (JSON: `fail_on`, `ignore` waiver list, `ignore_unfixed`). Richer CI gate than `--fail-on`; takes precedence over it. Exits 1 on failure
+
+      --compare-to &lt;IMAGE&gt;
+          Report the vulnerability delta against another image (added/removed CVEs), like `docker scout compare`, instead of the dashboard
 
       --update
           Sync the CVE feed to the local database (used afterwards by each scan)

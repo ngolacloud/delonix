@@ -678,6 +678,291 @@ pub fn sbom_spdx(image: &Image, packages: &[Package]) -> serde_json::Value {
 }
 
 // ---------------------------------------------------------------------------
+// in-toto attestation wrapper (GAP-0009) — wraps a predicate (the SPDX SBOM
+// above, or a SLSA provenance predicate in GAP-0008) in an in-toto Statement so
+// it can be ATTACHED to an image as an OCI attestation, discoverable by a
+// standard consumer (`cosign verify-attestation`, `buildx imagetools inspect`).
+// RAW Statement, NOT a DSSE envelope — the exact form BuildKit stores in the
+// image (`exporter/containerimage/writer.go` marshals the `intoto.Statement`
+// directly as the blob; the DSSE envelope is a separate, signed path).
+// ---------------------------------------------------------------------------
+
+/// SPDX predicate type (BuildKit `intoto.PredicateSPDX`). The predicate-level
+/// identity of an SBOM; the OCI transport constants (layer mediaType, the
+/// `in-toto.io/predicate-type` annotation) live in `delonix-oci`'s `registry`,
+/// since this crate depends on `delonix-oci` and not the other way around.
+pub const PREDICATE_TYPE_SPDX: &str = "https://spdx.dev/Document";
+/// in-toto Statement `_type` (v1).
+const INTOTO_STATEMENT_TYPE: &str = "https://in-toto.io/Statement/v1";
+
+/// Wraps `predicate` in an in-toto Statement v1 bound to one subject
+/// (`subject_name` at digest `sha256:<subject_sha256_hex>`). Generic over the
+/// predicate type on purpose: GAP-0008 (SLSA provenance) reuses this with the
+/// same attach path, only a different `predicate_type`/`predicate`. Returns the
+/// RAW Statement BuildKit stores as the attestation blob — no DSSE envelope.
+pub fn intoto_statement(
+    predicate_type: &str,
+    subject_name: &str,
+    subject_sha256_hex: &str,
+    predicate: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "_type": INTOTO_STATEMENT_TYPE,
+        "predicateType": predicate_type,
+        "subject": [{
+            "name": subject_name,
+            "digest": { "sha256": subject_sha256_hex },
+        }],
+        "predicate": predicate,
+    })
+}
+
+/// Convenience over [`intoto_statement`]: build the SPDX SBOM for
+/// `image`/`packages` (via [`sbom_spdx`]) and wrap it in an in-toto Statement
+/// whose subject is the image at `subject_sha256_hex` — the image MANIFEST
+/// digest the caller resolves at push time (NOT `image.id`, the config digest).
+/// The subject name is the image's first repo tag, or its short id.
+pub fn sbom_intoto_statement(
+    image: &Image,
+    packages: &[Package],
+    subject_sha256_hex: &str,
+) -> serde_json::Value {
+    let name = image
+        .repo_tags
+        .first()
+        .cloned()
+        .unwrap_or_else(|| image.short_id());
+    intoto_statement(
+        PREDICATE_TYPE_SPDX,
+        &name,
+        subject_sha256_hex,
+        sbom_spdx(image, packages),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// SLSA provenance (GAP-0008) — a build provenance predicate, wrapped by the
+// in-toto helper above and attached by the SAME `push_attestation` path the
+// SBOM uses. Pure assembly: the caller gathers the facts (it owns the build),
+// this turns them into the SLSA v1 predicate shape BuildKit emits.
+// ---------------------------------------------------------------------------
+
+/// SLSA provenance predicate type, v1 (BuildKit's default; `slsa1.PredicateSLSAProvenance`).
+pub const PREDICATE_TYPE_SLSA: &str = "https://slsa.dev/provenance/v1";
+
+/// How much the provenance reveals — BuildKit's `mode=min|max`. `Min` is "safe
+/// on all builds": timestamps, builder, and the resolved dependencies, but NOT
+/// the values of build args (which can carry secrets). `Max` adds the build-arg
+/// values. Default is `Max`, as in BuildKit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProvenanceMode {
+    Min,
+    Max,
+}
+
+/// One resolved build dependency — a base image, by reference and (when known)
+/// its manifest/config digest. The `resolvedDependencies` of SLSA v1: what
+/// actually went into the build.
+#[derive(Clone, Debug)]
+pub struct Material {
+    pub uri: String,
+    pub sha256: Option<String>,
+}
+
+/// The facts a build knows about itself, pre-formatted by the caller (which
+/// owns the build and the clock) so this stays a pure, testable function.
+#[derive(Clone, Debug)]
+pub struct ProvenanceFacts {
+    /// `runDetails.builder.id` — e.g. `https://github.com/ngolacloud/delonix@0.1.0`.
+    pub builder_id: String,
+    /// `buildDefinition.buildType` — the recipe URI this engine's builds follow.
+    pub build_type: String,
+    /// The image reference/tag this build produced.
+    pub target: String,
+    /// The Dockerfile path (external parameter).
+    pub dockerfile: String,
+    /// The target platform (`amd64`/`arm64`/…).
+    pub platform: String,
+    /// Build args as `(key, value)` — values included only in `Max` mode.
+    pub build_args: Vec<(String, String)>,
+    /// Resolved base images (SLSA `resolvedDependencies`).
+    pub materials: Vec<Material>,
+    /// `runDetails.metadata.invocationId` — the built image id is a good stable one.
+    pub invocation_id: String,
+    /// `runDetails.metadata.finishedOn`, RFC3339, when known.
+    pub finished_on: Option<String>,
+}
+
+/// Builds the SLSA v1 provenance predicate from `facts`. Shape mirrors
+/// BuildKit's `ProvenancePredicateSLSA1`: `buildDefinition{buildType,
+/// externalParameters, internalParameters, resolvedDependencies}` +
+/// `runDetails{builder, metadata}`. `byproducts` is left out — BuildKit does not
+/// populate it either. In `Min`, build-arg VALUES are omitted (keys kept, so the
+/// shape is stable); in `Max`, values are included.
+pub fn slsa_provenance_predicate(
+    facts: &ProvenanceFacts,
+    mode: ProvenanceMode,
+) -> serde_json::Value {
+    use serde_json::json;
+
+    let build_args = facts
+        .build_args
+        .iter()
+        .map(|(k, v)| {
+            let shown = if mode == ProvenanceMode::Max {
+                v.clone()
+            } else {
+                String::new() // Min: key present, value withheld (may be a secret)
+            };
+            (k.clone(), json!(shown))
+        })
+        .collect::<serde_json::Map<String, serde_json::Value>>();
+
+    let resolved_dependencies = facts
+        .materials
+        .iter()
+        .map(|m| {
+            let mut d = json!({ "uri": m.uri });
+            if let Some(hex) = &m.sha256 {
+                d["digest"] = json!({ "sha256": hex });
+            }
+            d
+        })
+        .collect::<Vec<_>>();
+
+    let mut metadata = json!({ "invocationId": facts.invocation_id });
+    if let Some(ts) = &facts.finished_on {
+        metadata["finishedOn"] = json!(ts);
+    }
+
+    json!({
+        "buildDefinition": {
+            "buildType": facts.build_type,
+            "externalParameters": {
+                "target": facts.target,
+                "dockerfile": facts.dockerfile,
+                "platform": facts.platform,
+                "buildArgs": build_args,
+            },
+            "internalParameters": {},
+            "resolvedDependencies": resolved_dependencies,
+        },
+        "runDetails": {
+            "builder": { "id": facts.builder_id },
+            "metadata": metadata,
+        },
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Scan policy + compare (GAP-0013) — the maturity layer over the OSV match
+// above: a declarative policy (threshold + waivers) a CI gate reads, and a
+// delta between two images' findings. Pure: `cmd_scan` already owns the I/O and
+// the exit code; these turn findings into a verdict and a diff.
+// ---------------------------------------------------------------------------
+
+/// A declarative scan policy, loaded from JSON — the thing a CI pipeline commits
+/// next to its code. Beyond the single `--fail-on` severity: it also carries
+/// **waivers** (advisory ids accepted with an audit trail in the file) and can
+/// ignore findings with no fix available yet.
+#[derive(Deserialize, Default, Clone, Debug)]
+pub struct Policy {
+    /// Fail when the worst NON-WAIVED finding is at least this severe.
+    #[serde(default)]
+    pub fail_on: Option<Severity>,
+    /// Advisory/CVE ids to waive — treated as not present. The file is the audit
+    /// trail (why each is accepted), which a bare `--fail-on` cannot record.
+    #[serde(default)]
+    pub ignore: Vec<String>,
+    /// Drop findings with no fixed version available (`fixed` empty): nothing the
+    /// operator can act on today, so some policies prefer not to gate on them.
+    #[serde(default)]
+    pub ignore_unfixed: bool,
+}
+
+impl Policy {
+    /// Loads a policy from JSON. An empty/absent `fail_on` means the policy
+    /// gates on nothing by severity (only waivers/ignore apply) — explicit, not
+    /// a silent "allow everything".
+    pub fn load(json: &str) -> Result<Policy> {
+        serde_json::from_str(json).map_err(Error::AdvisoryDb)
+    }
+}
+
+/// The verdict of applying a [`Policy`] to a set of findings.
+#[derive(Debug)]
+pub struct PolicyOutcome {
+    /// Findings that survived the waivers / `ignore_unfixed`.
+    pub kept: Vec<Finding>,
+    /// Findings removed by the `ignore` waiver list.
+    pub waived: Vec<Finding>,
+    /// The worst severity among `kept` (what the gate judges).
+    pub worst: Option<Severity>,
+    /// `true` when `worst >= fail_on` — the CI gate should fail.
+    pub failed: bool,
+}
+
+/// Applies `policy` to `findings`: removes waived ids and (optionally) unfixed
+/// findings, then judges the remainder against `fail_on`. Pure — the caller
+/// prints and sets the exit code.
+pub fn evaluate_policy(findings: &[Finding], policy: &Policy) -> PolicyOutcome {
+    let ignored: std::collections::HashSet<&str> =
+        policy.ignore.iter().map(String::as_str).collect();
+    let mut kept = Vec::new();
+    let mut waived = Vec::new();
+    for f in findings {
+        if ignored.contains(f.id.as_str()) {
+            waived.push(f.clone());
+        } else if policy.ignore_unfixed && f.fixed.is_empty() {
+            // Not waived (no audit trail), just not gated on: dropped silently
+            // from the verdict per the policy's own `ignore_unfixed`.
+        } else {
+            kept.push(f.clone());
+        }
+    }
+    let worst = kept.iter().map(|f| f.severity).max();
+    let failed = match (policy.fail_on, worst) {
+        (Some(th), Some(w)) => w >= th,
+        _ => false,
+    };
+    PolicyOutcome {
+        kept,
+        waived,
+        worst,
+        failed,
+    }
+}
+
+/// The difference between two images' findings — what a `scan compare` reports.
+/// Keyed by `(advisory id, package)`: the same CVE on two packages is two
+/// entries, which is what an operator reasoning about a bump wants.
+#[derive(Debug)]
+pub struct ScanDiff {
+    /// Present in `target`, absent in `base` — regressions a bump introduced.
+    pub added: Vec<Finding>,
+    /// Present in `base`, absent in `target` — what the bump fixed.
+    pub removed: Vec<Finding>,
+}
+
+/// Computes `target` − `base` and `base` − `target` by `(id, package)`.
+pub fn compare_findings(base: &[Finding], target: &[Finding]) -> ScanDiff {
+    let key = |f: &Finding| (f.id.clone(), f.package.clone());
+    let base_keys: std::collections::HashSet<(String, String)> = base.iter().map(key).collect();
+    let target_keys: std::collections::HashSet<(String, String)> = target.iter().map(key).collect();
+    let added = target
+        .iter()
+        .filter(|f| !base_keys.contains(&key(f)))
+        .cloned()
+        .collect();
+    let removed = base
+        .iter()
+        .filter(|f| !target_keys.contains(&key(f)))
+        .cloned()
+        .collect();
+    ScanDiff { added, removed }
+}
+
+// ---------------------------------------------------------------------------
 // Version comparison (apk/dpkg style, simplified)
 // ---------------------------------------------------------------------------
 
@@ -1087,6 +1372,174 @@ mod tests {
         );
         let doc = sbom_spdx(&img, &[]);
         assert_eq!(doc["packages"][0]["name"], "deadbeefcafe");
+    }
+
+    #[test]
+    fn intoto_statement_binds_predicate_to_subject() {
+        let st = intoto_statement(
+            PREDICATE_TYPE_SPDX,
+            "myapp:latest",
+            "abc123",
+            serde_json::json!({"spdxVersion": "SPDX-2.3"}),
+        );
+        assert_eq!(st["_type"], "https://in-toto.io/Statement/v1");
+        assert_eq!(st["predicateType"], "https://spdx.dev/Document");
+        // one subject, named, with the sha256 digest the attach binds to.
+        assert_eq!(st["subject"].as_array().unwrap().len(), 1);
+        assert_eq!(st["subject"][0]["name"], "myapp:latest");
+        assert_eq!(st["subject"][0]["digest"]["sha256"], "abc123");
+        // the predicate is carried through verbatim.
+        assert_eq!(st["predicate"]["spdxVersion"], "SPDX-2.3");
+    }
+
+    fn facts() -> ProvenanceFacts {
+        ProvenanceFacts {
+            builder_id: "https://github.com/ngolacloud/delonix@0.1.0".into(),
+            build_type: "https://github.com/ngolacloud/delonix/build@v1".into(),
+            target: "myapp:v1".into(),
+            dockerfile: "Dockerfile".into(),
+            platform: "amd64".into(),
+            build_args: vec![("TOKEN".into(), "s3cr3t".into())],
+            materials: vec![Material {
+                uri: "alpine:3.20".into(),
+                sha256: Some("bf8527eb".into()),
+            }],
+            invocation_id: "sha256:abc".into(),
+            finished_on: Some("2026-11-12T00:00:00Z".into()),
+        }
+    }
+
+    fn finding(id: &str, pkg: &str, sev: Severity, fixed: &str) -> Finding {
+        Finding {
+            id: id.into(),
+            package: pkg.into(),
+            version: "1.0".into(),
+            fixed: fixed.into(),
+            severity: sev,
+            summary: String::new(),
+        }
+    }
+
+    #[test]
+    fn policy_waives_by_id_and_judges_the_rest_against_fail_on() {
+        let findings = vec![
+            finding("CVE-1", "openssl", Severity::Critical, "3.1"),
+            finding("CVE-2", "zlib", Severity::High, "1.3"),
+        ];
+        // Waive the critical; gate on high.
+        let policy = Policy {
+            fail_on: Some(Severity::High),
+            ignore: vec!["CVE-1".into()],
+            ignore_unfixed: false,
+        };
+        let out = evaluate_policy(&findings, &policy);
+        assert_eq!(out.waived.len(), 1);
+        assert_eq!(out.kept.len(), 1);
+        assert_eq!(out.worst, Some(Severity::High));
+        assert!(out.failed, "a kept High meets the High threshold");
+
+        // Waiving the only remaining one too → nothing left → pass.
+        let policy2 = Policy {
+            fail_on: Some(Severity::High),
+            ignore: vec!["CVE-1".into(), "CVE-2".into()],
+            ignore_unfixed: false,
+        };
+        let out2 = evaluate_policy(&findings, &policy2);
+        assert_eq!(out2.worst, None);
+        assert!(!out2.failed);
+    }
+
+    #[test]
+    fn policy_ignore_unfixed_drops_findings_with_no_fix() {
+        let findings = vec![finding("CVE-9", "glibc", Severity::Critical, "")];
+        let gated = evaluate_policy(
+            &findings,
+            &Policy {
+                fail_on: Some(Severity::Low),
+                ignore: vec![],
+                ignore_unfixed: false,
+            },
+        );
+        assert!(gated.failed, "unfixed critical fails when not ignored");
+        let lenient = evaluate_policy(
+            &findings,
+            &Policy {
+                fail_on: Some(Severity::Low),
+                ignore: vec![],
+                ignore_unfixed: true,
+            },
+        );
+        assert!(!lenient.failed, "ignore_unfixed drops it from the gate");
+        assert_eq!(lenient.worst, None);
+    }
+
+    #[test]
+    fn compare_reports_added_and_removed_by_id_and_package() {
+        let base = vec![
+            finding("CVE-1", "openssl", Severity::High, "3.1"),
+            finding("CVE-2", "zlib", Severity::Low, "1.3"),
+        ];
+        let target = vec![
+            finding("CVE-2", "zlib", Severity::Low, "1.3"), // unchanged
+            finding("CVE-3", "curl", Severity::Critical, "8.5"), // new regression
+        ];
+        let diff = compare_findings(&base, &target);
+        assert_eq!(diff.added.len(), 1);
+        assert_eq!(diff.added[0].id, "CVE-3");
+        assert_eq!(diff.removed.len(), 1);
+        assert_eq!(diff.removed[0].id, "CVE-1");
+    }
+
+    #[test]
+    fn slsa_max_includes_build_arg_values_and_materials() {
+        let p = slsa_provenance_predicate(&facts(), ProvenanceMode::Max);
+        assert_eq!(
+            p["buildDefinition"]["buildType"],
+            "https://github.com/ngolacloud/delonix/build@v1"
+        );
+        // Max reveals the build-arg value.
+        assert_eq!(
+            p["buildDefinition"]["externalParameters"]["buildArgs"]["TOKEN"],
+            "s3cr3t"
+        );
+        // The base image is a resolved dependency, by uri + digest.
+        let dep = &p["buildDefinition"]["resolvedDependencies"][0];
+        assert_eq!(dep["uri"], "alpine:3.20");
+        assert_eq!(dep["digest"]["sha256"], "bf8527eb");
+        assert_eq!(
+            p["runDetails"]["builder"]["id"],
+            "https://github.com/ngolacloud/delonix@0.1.0"
+        );
+        assert_eq!(
+            p["runDetails"]["metadata"]["finishedOn"],
+            "2026-11-12T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn slsa_min_withholds_build_arg_values_but_keeps_keys() {
+        let p = slsa_provenance_predicate(&facts(), ProvenanceMode::Min);
+        // Min keeps the key (stable shape) but withholds the value (may be a secret).
+        let args = &p["buildDefinition"]["externalParameters"]["buildArgs"];
+        assert_eq!(args["TOKEN"], "");
+        assert!(args.get("TOKEN").is_some(), "key stays present in min");
+    }
+
+    #[test]
+    fn sbom_intoto_statement_wraps_the_same_spdx_the_direct_call_produces() {
+        let img = image("sha256:abc123", &["myapp:latest"]);
+        let pkgs = vec![Package {
+            name: "busybox".into(),
+            version: "1.36.1-r20".into(),
+            ecosystem: Ecosystem::Apk,
+        }];
+        let st = sbom_intoto_statement(&img, &pkgs, "manifestdigesthex");
+        // subject is the MANIFEST digest the caller resolved, not image.id.
+        assert_eq!(st["subject"][0]["name"], "myapp:latest");
+        assert_eq!(st["subject"][0]["digest"]["sha256"], "manifestdigesthex");
+        // predicate is byte-identical to the standalone SPDX document.
+        assert_eq!(st["predicate"], sbom_spdx(&img, &pkgs));
+        assert_eq!(st["predicateType"], PREDICATE_TYPE_SPDX);
     }
 
     #[test]
