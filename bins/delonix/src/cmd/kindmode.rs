@@ -347,14 +347,46 @@ fn node_must(c: &Container, what: &str, script: &str) -> Result<()> {
 }
 
 /// Waits for a condition inside the node (command with exit 0), with a timeout.
+///
+/// **Load-aware (C1-1).** A `cluster create` on a contended host aborted at
+/// «timeout waiting for containerd (90s)» even though the node was alive and
+/// still bringing the service up — a transient-load failure read as an engine
+/// failure, and it left the create half-done. The timeout is now a *soft*
+/// deadline: when it elapses, a node that is STILL ALIVE (its entrypoint has not
+/// died) gets ONE bounded extension (2×) with a warning, because "slow under
+/// load" and "stuck" are different states. A node that has DIED fails
+/// immediately — there is nothing to wait for. So a healthy-but-slow bring-up
+/// survives a load spike, while a genuinely broken node still fails fast with
+/// the same diagnostics.
 fn wait_in_node(c: &Container, what: &str, check: &str, timeout: Duration) -> Result<()> {
     let start = Instant::now();
-    while start.elapsed() < timeout {
+    let mut deadline = timeout;
+    let mut extended = false;
+    loop {
         // Capture: the `systemctl is-active` writes the state to stdout on each
         // probe, and without this the user would see `inactive`/`activating`/`active`
         // trickling down the terminal during the whole boot.
         if node_exec_capture(c, check).map(|(rc, _)| rc).unwrap_or(1) == 0 {
             return Ok(());
+        }
+        if start.elapsed() >= deadline {
+            // Soft deadline: extend ONCE for a node that is still alive (slow
+            // under load), fail now for one that has died (stuck).
+            if !extended && c.is_live() {
+                extended = true;
+                deadline = timeout.saturating_mul(2);
+                super::output::warn(&super::po::tf(
+                    "node '{name}': {what} slow to come up ({secs}s) but the node is alive — \
+                     waiting longer (host under load?)",
+                    &[
+                        ("name", &c.name),
+                        ("what", what),
+                        ("secs", &timeout.as_secs().to_string()),
+                    ],
+                ));
+                continue;
+            }
+            break;
         }
         std::thread::sleep(Duration::from_secs(2));
     }
