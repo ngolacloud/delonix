@@ -410,16 +410,17 @@ pub enum ImageCmd {
         #[arg(long)]
         attach: bool,
     },
-    /// List the attestations (SBOM, provenance) attached to an image in its
-    /// registry, via the OCI 1.1 Referrers API — the read side of
-    /// `image sbom --attach`. Prints one line per referrer: digest, artifactType,
-    /// predicate type.
+    /// List the attestations attached to an image in its registry.
+    ///
+    /// The read side of `image sbom --attach`, via the OCI 1.1 Referrers API.
+    /// One line per referrer: digest, artifactType, predicate type.
     Attestations {
         #[arg(add = ArgValueCandidates::new(super::complete::images))]
         image: String,
     },
-    /// Print or attach the SLSA provenance a `build --provenance` cached for an
-    /// image. `--attach` publishes it to the image's registry as an in-toto
+    /// Print or attach the SLSA provenance a `build --provenance` cached.
+    ///
+    /// `--attach` publishes it to the image's registry as an in-toto
     /// attestation (OCI 1.1 referrer), like `sbom --attach`.
     Provenance {
         #[arg(add = ArgValueCandidates::new(super::complete::images))]

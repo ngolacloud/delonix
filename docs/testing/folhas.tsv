@@ -660,8 +660,6 @@ cli	image tree	B	implementado na campanha de paridade Docker/Podman; provado ao 
 cli	image untag	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
 cli	image attestations	E	GAP-0009: lista referrers (OCI 1.1 + fallback tag-schema); provado ao vivo contra registry:3 + docker buildx + curl (DELONIX_ROOT isolado)
 cli	image provenance	E	GAP-0008: imprime/anexa proveniencia SLSA v1; provado ao vivo (build --provenance=max -> attach -> discover) contra registry:3
-cli	kube play	E	GAP-0015: corre Pod/Deployment YAML k8s standard (apiVersion v1); provado ao vivo (play de Pod v1 -> pod Running; round-trip play do YAML gerado)
-cli	kube generate	E	GAP-0015: emite YAML k8s de um pod; provado ao vivo (gen -> validacao estrutural Pod v1 + kubectl parse)
 cli	import	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
 cli	info	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
 cli	login	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho

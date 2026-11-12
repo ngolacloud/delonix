@@ -16,14 +16,17 @@ use super::util::open_stores;
 
 #[derive(Subcommand)]
 pub enum KubeCmd {
-    /// Generates a `kind: Pod` from a container (or from every member of a
-    /// pod) and prints it to stdout. Equivalent to `podman kube generate`.
+    /// Generate a `kind: Pod` from a container or pod, to stdout.
+    ///
+    /// Accepts a pod name (every member) or a single container. Equivalent to
+    /// `podman kube generate`.
     Generate {
         #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::containers_or_pods))]
         name: String,
     },
-    /// Runs the workloads described in a **standard Kubernetes YAML** manifest
-    /// (`apiVersion: v1, kind: Pod`, or `apps/v1, kind: Deployment` run as a
+    /// Run workloads from a standard Kubernetes YAML manifest.
+    ///
+    /// Runs `apiVersion: v1, kind: Pod` (and `apps/v1, kind: Deployment` as a
     /// single pod). Equivalent to `podman kube play`. The delonix `PodSpec`
     /// already uses k8s field names, so a plain k8s Pod runs as-is.
     Play {

@@ -584,6 +584,15 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["container describe", "describe", "container apply", "stack apply"],
     },
     Entry {
+        path: "cluster kube play",
+        group: "Declarative",
+        examples: &[
+            ("run a standard Kubernetes Pod manifest on this engine", "delonix cluster kube play pod.yaml"),
+            ("run a Deployment as a single pod (replicas are a scheduler concern)", "delonix cluster kube play deploy.yaml"),
+        ],
+        see_also: &["cluster kube generate", "pod", "container apply", "stack apply"],
+    },
+    Entry {
         path: "completion",
         group: "Engine",
         examples: &[
@@ -1330,8 +1339,26 @@ pub static ENTRIES: &[Entry] = &[
         examples: &[
             ("the SPDX document a `delonix build` already wrote for this image", "delonix image sbom myapp:v1"),
             ("for a pulled image that never went through this engine's build", "delonix image sbom postgres:16"),
+            ("attach the SBOM to the image in its registry as an in-toto attestation", "delonix image sbom ghcr.io/ngolacloud/app:1.2.0 --attach"),
         ],
-        see_also: &["image scan", "build", "image sign"],
+        see_also: &["image scan", "build", "image sign", "image attestations"],
+    },
+    Entry {
+        path: "image attestations",
+        group: "Inspect",
+        examples: &[
+            ("list what is attached to an image (SBOM, provenance) via the Referrers API", "delonix image attestations ghcr.io/ngolacloud/app:1.2.0"),
+        ],
+        see_also: &["image sbom", "image provenance", "image verify"],
+    },
+    Entry {
+        path: "image provenance",
+        group: "Inspect",
+        examples: &[
+            ("print the SLSA provenance a `build --provenance` cached", "delonix image provenance myapp:v1"),
+            ("attach it to the image in its registry as an in-toto attestation", "delonix image provenance ghcr.io/ngolacloud/app:1.2.0 --attach"),
+        ],
+        see_also: &["build", "image sbom", "image attestations"],
     },
     Entry {
         path: "image verify",

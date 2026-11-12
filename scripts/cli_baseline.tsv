@@ -132,8 +132,6 @@
 ~	info
 =	init
 ~	kill
-~	kube generate
-~	kube play
 ~	load
 ~	login
 ~	logout

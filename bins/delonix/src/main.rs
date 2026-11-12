@@ -377,13 +377,6 @@ enum Cmd {
         #[command(subcommand)]
         action: cmd::pod::PodCmd,
     },
-    /// Kubernetes YAML interop: `kube play <k8s.yaml>` runs a standard Pod /
-    /// Deployment; `kube generate <name>` emits k8s YAML from a running pod or
-    /// container. Equivalent to `podman kube play`/`generate`.
-    Kube {
-        #[command(subcommand)]
-        action: cmd::kube::KubeCmd,
-    },
     /// OCI images: pull/ls/remove/export. `vm image <cmd>` for golden VM images.
     Image {
         #[command(subcommand)]
@@ -1939,7 +1932,6 @@ fn run() -> Result<()> {
             output,
         }),
         Cmd::Pod { action } => cmd::pod::run(action),
-        Cmd::Kube { action } => cmd::kube::run(action),
         Cmd::Image { action } => cmd::image::run(action),
         Cmd::OciRuntime(args) => cmd::oci_runtime::run(args),
         Cmd::Build(args) => cmd::build::run(args),
