@@ -5,7 +5,7 @@
   "shared_error_imports": 3,
   "raw_error_variant_matches": 0,
   "context_spawns": 0,
-  "cli_context_lines": 125417,
+  "cli_context_lines": 125462,
   "interface_mechanism_deps": 0,
   "provider_namers": 17,
   "bin_crates": 6,
