@@ -2727,12 +2727,21 @@ fn setup_rootfs(
     // to the container's own view without needing to be inside it. Skipped
     // silently if `ldconfig` isn't on the host — never blocks a container
     // with no injected libraries over this.
-    let _ = std::process::Command::new("ldconfig")
-        .arg("-r")
-        .arg(rootfs)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    // ...but only when the image has a glibc loader cache to refresh. A
+    // musl/scratch rootfs (alpine, distroless-static) has no `/etc/ld.so.cache`,
+    // so `ldconfig -r` scans the lib dirs and does nothing useful — skipping it
+    // removes a subprocess spawn and a filesystem scan from EVERY such
+    // container's start (profiled as a measurable slice of the isolated-net
+    // start cost). For glibc images the behaviour is unchanged: the cache exists,
+    // so the CDI/driver-lib refresh still runs.
+    if std::path::Path::new(&format!("{rootfs}/etc/ld.so.cache")).exists() {
+        let _ = std::process::Command::new("ldconfig")
+            .arg("-r")
+            .arg(rootfs)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
     let put_old = format!("{rootfs}/.delonix_old");
     let _ = std::fs::create_dir_all(&put_old);
     // Essential mount points: MINIMAL images (e.g. the Kubernetes `e2e-test-images`)
