@@ -465,7 +465,8 @@ SEE ALSO:
 <div class='help'><div class='help-note lang-pt'>Saída real do binário (em inglês).</div><div class='help-note lang-en'>Real output of the binary (English).</div><pre><code>Usage: delonix cluster kube &lt;COMMAND&gt;
 
 Commands:
-  generate  Generates a `kind: Pod` from a container (or from every member of a pod) and prints it to stdout
+  generate  Generate a `kind: Pod` from a container or pod, to stdout
+  play      Run workloads from a standard Kubernetes YAML manifest
   help      Print this message or the help of the given subcommand(s)
 
 Options:
@@ -473,7 +474,7 @@ Options:
           Print help (see a summary with &#x27;-h&#x27;)
 
 COMMAND MAP:
-  Declarative  generate
+  Declarative  generate · play
 
 EXAMPLES:
   # the Kubernetes YAML for something you already have running locally

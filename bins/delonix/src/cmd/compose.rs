@@ -2001,6 +2001,208 @@ pub(crate) fn check_unsupported_fields(text: &str) -> Result<()> {
 /// was refused, and `migrate assess` scored `<<` as a missing key while never
 /// seeing the keys it carried. One function for both readers, so the two can
 /// never disagree about what a service declares.
+/// A variable-name byte: `[A-Za-z0-9_]`. (Compose names are a superset of the
+/// POSIX env-name set; being lenient on a leading digit costs nothing.)
+fn is_name_byte(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_'
+}
+
+/// Shell-style `${VAR}` interpolation over a compose document, per the Compose
+/// Specification (`12-interpolation.md`). Supports `$VAR`, `${VAR}`,
+/// `${VAR:-def}`, `${VAR-def}`, `${VAR:?err}`, `${VAR?err}`, `${VAR:+rep}`,
+/// `${VAR+rep}`, nesting inside the argument (`${VAR:-${FOO}}`), and `$$` as an
+/// escaped literal `$`. `lookup` returns a variable's value (the process
+/// environment merged over the project `.env`); an unset BARE reference expands
+/// to empty (compose warns, does not fail), while `:?`/`?` on an unset variable
+/// is a hard error carrying the given message. Pure, so it is unit-testable
+/// without touching the real environment. Works on bytes so multibyte UTF-8
+/// (never `$`/`{`/`}`) passes through untouched.
+fn interpolate(text: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Result<String> {
+    let s = text.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        if s[i] != b'$' {
+            out.push(s[i]);
+            i += 1;
+            continue;
+        }
+        match s.get(i + 1).copied() {
+            Some(b'$') => {
+                out.push(b'$');
+                i += 2;
+            }
+            Some(b'{') => {
+                // Find the matching '}', counting nested braces so
+                // `${VAR:-${FOO}}` closes on the OUTER one.
+                let mut depth = 1usize;
+                let mut j = i + 2;
+                while j < s.len() {
+                    match s[j] {
+                        b'{' => depth += 1,
+                        b'}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                if j >= s.len() {
+                    return Err(Error::Invalid(
+                        "compose interpolation: unterminated '${...}'".into(),
+                    ));
+                }
+                let expr = std::str::from_utf8(&s[i + 2..j]).map_err(|_| {
+                    Error::Invalid("compose interpolation: non-UTF-8 in '${...}'".into())
+                })?;
+                out.extend_from_slice(expand_braced(expr, lookup)?.as_bytes());
+                i = j + 1;
+            }
+            Some(c) if is_name_byte(c) && !c.is_ascii_digit() => {
+                let mut j = i + 1;
+                while j < s.len() && is_name_byte(s[j]) {
+                    j += 1;
+                }
+                let name = std::str::from_utf8(&s[i + 1..j]).unwrap_or("");
+                out.extend_from_slice(lookup(name).unwrap_or_default().as_bytes());
+                i = j;
+            }
+            // A '$' not starting a variable (e.g. `$5`, `$ `) is a literal '$'.
+            _ => {
+                out.push(b'$');
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out)
+        .map_err(|_| Error::Invalid("compose interpolation produced invalid UTF-8".into()))
+}
+
+/// Resolves the inside of a `${...}` expression. Splits the leading variable
+/// name from the operator (`:-`/`-`/`:?`/`?`/`:+`/`+`), applying Compose's
+/// set-vs-set-and-non-empty semantics; the argument is itself interpolated
+/// (nesting).
+fn expand_braced(expr: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Result<String> {
+    let name_len = expr.bytes().take_while(|&c| is_name_byte(c)).count();
+    let (name, rest) = expr.split_at(name_len);
+    if name.is_empty() {
+        return Err(Error::Invalid(format!(
+            "compose interpolation: '${{{expr}}}' has no variable name"
+        )));
+    }
+    let val = lookup(name);
+    // Two-char operators first, so `:-` is not read as `-` on an empty name.
+    let (op, arg) = if let Some(r) = rest.strip_prefix(":-") {
+        (":-", r)
+    } else if let Some(r) = rest.strip_prefix(":?") {
+        (":?", r)
+    } else if let Some(r) = rest.strip_prefix(":+") {
+        (":+", r)
+    } else if let Some(r) = rest.strip_prefix('-') {
+        ("-", r)
+    } else if let Some(r) = rest.strip_prefix('?') {
+        ("?", r)
+    } else if let Some(r) = rest.strip_prefix('+') {
+        ("+", r)
+    } else if rest.is_empty() {
+        ("", "")
+    } else {
+        return Err(Error::Invalid(format!(
+            "compose interpolation: unsupported substitution '${{{expr}}}'"
+        )));
+    };
+    let set_any = val.is_some();
+    let set_nonempty = val.as_deref().map(|v| !v.is_empty()).unwrap_or(false);
+    let err = |arg: &str| {
+        Error::Invalid(format!(
+            "compose interpolation: required variable '{name}' is unset{}",
+            if arg.is_empty() {
+                String::new()
+            } else {
+                format!(": {arg}")
+            }
+        ))
+    };
+    match op {
+        "" => Ok(val.unwrap_or_default()),
+        ":-" => {
+            if set_nonempty {
+                Ok(val.unwrap())
+            } else {
+                interpolate(arg, lookup)
+            }
+        }
+        "-" => {
+            if set_any {
+                Ok(val.unwrap())
+            } else {
+                interpolate(arg, lookup)
+            }
+        }
+        ":?" => {
+            if set_nonempty {
+                Ok(val.unwrap())
+            } else {
+                Err(err(arg))
+            }
+        }
+        "?" => {
+            if set_any {
+                Ok(val.unwrap())
+            } else {
+                Err(err(arg))
+            }
+        }
+        ":+" => {
+            if set_nonempty {
+                interpolate(arg, lookup)
+            } else {
+                Ok(String::new())
+            }
+        }
+        "+" => {
+            if set_any {
+                interpolate(arg, lookup)
+            } else {
+                Ok(String::new())
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Parses a `.env` file: `KEY=VALUE` lines, `#` comments and blanks skipped,
+/// surrounding single/double quotes on the value stripped. Deliberately simple
+/// (no escape processing inside values) — the compose `.env` is a flat
+/// key/value list, not a shell script.
+fn parse_dotenv(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        if let Some((k, v)) = line.split_once('=') {
+            let k = k.trim().to_string();
+            let v = v.trim();
+            let v = v
+                .strip_prefix('"')
+                .and_then(|x| x.strip_suffix('"'))
+                .or_else(|| v.strip_prefix('\'').and_then(|x| x.strip_suffix('\'')))
+                .unwrap_or(v)
+                .to_string();
+            if !k.is_empty() {
+                out.push((k, v));
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn parse_compose_value(text: &str) -> Result<serde_yaml::Value> {
     let mut v: serde_yaml::Value = serde_yaml::from_str(text)
         .map_err(|e| Error::Invalid(format!("parsing compose file: {e}")))?;
@@ -3590,10 +3792,27 @@ fn resolve_one(
 /// FIRST file's — see the module doc-comment ("Multi-file compose").
 fn load_compose(files: Vec<PathBuf>) -> Result<(ComposeFile, String, PathBuf, String)> {
     let paths = resolve_compose_paths(&files)?;
+    // Interpolation environment (Compose `12-interpolation.md`): the project
+    // `.env` (next to the first file, or cwd), with the process environment
+    // OVERRIDING it — the precedence real `docker compose` uses.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let base_dir = absolute_base_dir(&paths[0], &cwd);
+    let dotenv: BTreeMap<String, String> = std::fs::read_to_string(base_dir.join(".env"))
+        .ok()
+        .map(|t| parse_dotenv(&t).into_iter().collect())
+        .unwrap_or_default();
+    let lookup = |name: &str| -> Option<String> {
+        std::env::var(name)
+            .ok()
+            .or_else(|| dotenv.get(name).cloned())
+    };
     let mut parsed = Vec::with_capacity(paths.len());
     for path in &paths {
-        let text = std::fs::read_to_string(path)
+        let raw_text = std::fs::read_to_string(path)
             .map_err(|e| Error::Invalid(format!("reading {}: {e}", path.display())))?;
+        // Variable interpolation runs on the raw document BEFORE YAML parsing,
+        // so `${TAG}` in an image or a port is substituted exactly as a value.
+        let text = interpolate(&raw_text, &lookup)?;
         // Runs on the RAW document of EACH file, before any merge — the typed
         // `ComposeFile` a merge produces has already dropped unrecognized
         // keys, so this is the only point that can still catch them. The YAML
@@ -3613,8 +3832,7 @@ fn load_compose(files: Vec<PathBuf>) -> Result<(ComposeFile, String, PathBuf, St
     // that with "undefined service", which reads as a typo and is not one.
     resolve_extends(&mut compose.services)?;
     let first = &paths[0];
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let base_dir = absolute_base_dir(first, &cwd);
+    // `base_dir`/`cwd` were already computed above (for the `.env` lookup).
     let default_project = compose
         .name
         .clone()
@@ -4035,6 +4253,57 @@ fn cmd_config(file: Vec<PathBuf>, project: Option<String>, profile: Vec<String>)
 mod tests {
     use super::compose_up_should_start;
     use delonix_model::records::Status;
+
+    fn interp(text: &str, vars: &[(&str, &str)]) -> String {
+        let map: std::collections::BTreeMap<String, String> = vars
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        super::interpolate(text, &|n: &str| map.get(n).cloned()).unwrap()
+    }
+
+    #[test]
+    fn interpolation_forms_and_escape() {
+        // bare and braced
+        assert_eq!(interp("$TAG and ${TAG}", &[("TAG", "1.2")]), "1.2 and 1.2");
+        // unset bare → empty
+        assert_eq!(interp("x${MISSING}y", &[]), "xy");
+        // $$ escape → literal $
+        assert_eq!(interp("echo $$HOME", &[]), "echo $HOME");
+        // :- default on unset OR empty; - default only on unset
+        assert_eq!(interp("${A:-def}", &[]), "def");
+        assert_eq!(interp("${A:-def}", &[("A", "")]), "def");
+        assert_eq!(interp("${A-def}", &[("A", "")]), ""); // set-but-empty keeps empty
+        assert_eq!(interp("${A-def}", &[]), "def");
+        // :+ / + replacement
+        assert_eq!(interp("${A:+yes}", &[("A", "v")]), "yes");
+        assert_eq!(interp("${A:+yes}", &[("A", "")]), "");
+        assert_eq!(interp("${A+yes}", &[("A", "")]), "yes");
+        // nested default
+        assert_eq!(interp("${A:-${B}}", &[("B", "fallback")]), "fallback");
+    }
+
+    #[test]
+    fn interpolation_required_unset_is_an_error() {
+        let empty = std::collections::BTreeMap::<String, String>::new();
+        let err = super::interpolate("${NEED:?must be set}", &|n: &str| empty.get(n).cloned())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("NEED") && err.contains("must be set"), "{err}");
+    }
+
+    #[test]
+    fn dotenv_parsing_strips_quotes_and_comments() {
+        let d = super::parse_dotenv("# c\nTAG=1.2\nNAME=\"web\"\nexport E='v'\n\nBAD\n");
+        assert_eq!(
+            d,
+            vec![
+                ("TAG".to_string(), "1.2".to_string()),
+                ("NAME".to_string(), "web".to_string()),
+                ("E".to_string(), "v".to_string()),
+            ]
+        );
+    }
 
     /// DEF-003 regression: `compose up` reconciles a down service back to
     /// `Running`. Before the fix an existing container short-circuited to
