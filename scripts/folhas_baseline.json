@@ -3,12 +3,12 @@
   "surfaces": {
     "cli": {
       "proved": 272,
-      "leaves": 363,
+      "leaves": 368,
       "A": 272,
       "B": 83,
       "C": 0,
       "D": 0,
-      "E": 8
+      "E": 13
     },
     "node-api": {
       "proved": 15,

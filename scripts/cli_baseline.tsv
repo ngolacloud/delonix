@@ -21,6 +21,7 @@
 ~	cluster kubeadm
 ~	cluster kubeconfig
 ~	cluster kube generate
+~	cluster kube play
 =	cluster load
 ~	cluster ls
 ~	cluster network fetch
@@ -99,6 +100,7 @@
 ~	history
 ~	hosts sync
 ~	image apply
+~	image attestations
 =	image build
 ~	image describe
 ~	image diff
@@ -111,6 +113,7 @@
 =	image login
 =	image logout
 ~	image ls
+~	image provenance
 ~	image prune
 =	image pull
 =	image push
@@ -129,6 +132,8 @@
 ~	info
 =	init
 ~	kill
+~	kube generate
+~	kube play
 ~	load
 ~	login
 ~	logout
