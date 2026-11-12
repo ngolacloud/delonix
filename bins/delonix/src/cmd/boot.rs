@@ -492,7 +492,7 @@ mod tests {
         assert_eq!(systemd_restart("on-failure:3"), "on-failure"); // was the bug (`:3`)
         assert_eq!(systemd_restart("no"), "no");
         assert_eq!(systemd_restart("garbage"), "no"); // safe default
-        // The generated unit must never carry the Delonix-only strings.
+                                                      // The generated unit must never carry the Delonix-only strings.
         let u = container_unit("c", "unless-stopped", "/r", "/b", "multi-user.target", None);
         assert!(u.contains("Restart=always"), "{u}");
         assert!(!u.contains("Restart=unless-stopped"), "{u}");
