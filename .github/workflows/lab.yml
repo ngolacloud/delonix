@@ -53,7 +53,7 @@ jobs:
       - name: Build
         run: |
           cargo build --release -p delonix-bin -p delonix-mgmt-bin \
-            -p delonix-mcp-bin -p delonix-node-api-bin -p delonix-cri
+            -p delonix-mcp-bin -p delonix-node-api-bin -p delonix-cri-bin
           ./target/release/delonix --version
 
       - name: E2E battery

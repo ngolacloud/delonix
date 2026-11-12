@@ -75,6 +75,71 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(len(probs), len(rg.REQUIRED_SUITES))
 
 
+class EvaluateAcceptsListTests(unittest.TestCase):
+    def test_a_list_matches_any_acceptable_commit(self):
+        # Suites recorded on the parent (SHA_B) pass when the parent is in the
+        # acceptable set — the doc-only-child-becomes-tag case.
+        doc = all_green(SHA_B)
+        self.assertEqual(rg.evaluate(doc, [SHA_A, SHA_B]), [])
+
+    def test_a_commit_outside_the_set_still_blocks(self):
+        doc = all_green("c" * 40)
+        self.assertTrue(rg.evaluate(doc, [SHA_A, SHA_B]))
+
+
+class AcceptableCommitsTests(unittest.TestCase):
+    """`acceptable_commits` needs a real repo; build a throwaway one."""
+
+    def _git(self, repo, *args):
+        import subprocess
+        subprocess.run(["git", *args], cwd=repo, check=True,
+                       capture_output=True, text=True,
+                       env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                            "PATH": __import__("os").environ.get("PATH", "")})
+
+    def _head(self, repo):
+        import subprocess
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
+                              capture_output=True, text=True).stdout.strip()
+
+    def test_doc_only_child_lets_the_parent_count(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            self._git(repo, "init", "-q")
+            (repo / "code.rs").write_text("fn main() {}\n")
+            self._git(repo, "add", "-A")
+            self._git(repo, "commit", "-q", "-m", "release content")
+            parent = self._head(repo)
+            # doc-only child: only the validation manifest changes.
+            vd = repo / "reports" / "release-validation"
+            vd.mkdir(parents=True)
+            (vd / "v0.1.1.json").write_text("{}\n")
+            self._git(repo, "add", "-A")
+            self._git(repo, "commit", "-q", "-m", "validation evidence")
+            tag = self._head(repo)
+            with mock.patch.object(rg, "ROOT", repo):
+                accept = rg.acceptable_commits(tag)
+            self.assertIn(tag, accept)
+            self.assertIn(parent, accept)  # the validated parent counts
+
+    def test_a_child_that_touches_code_does_not_lend_the_parent(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d)
+            self._git(repo, "init", "-q")
+            (repo / "code.rs").write_text("fn main() {}\n")
+            self._git(repo, "add", "-A")
+            self._git(repo, "commit", "-q", "-m", "c1")
+            parent = self._head(repo)
+            (repo / "code.rs").write_text("fn main() { /* changed */ }\n")
+            self._git(repo, "add", "-A")
+            self._git(repo, "commit", "-q", "-m", "c2 touches code")
+            tag = self._head(repo)
+            with mock.patch.object(rg, "ROOT", repo):
+                accept = rg.acceptable_commits(tag)
+            self.assertEqual(accept, [tag])  # parent NOT accepted
+
+
 class RecordRoundTripTests(unittest.TestCase):
     def test_record_then_check_passes_only_when_complete(self):
         with tempfile.TemporaryDirectory() as d:
