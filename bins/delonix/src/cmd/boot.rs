@@ -240,6 +240,29 @@ pub(crate) fn persistence_installed() -> bool {
 /// The unit text for one container. **Pure, so it is testable** — the same
 /// reason `etcd::build_etcd_unit` is pure. This generator had no test at all,
 /// and it is the artefact that decides whether a host comes back up.
+/// Maps a Delonix restart policy to a VALID systemd `Restart=` specifier.
+///
+/// Delonix policies (`unless-stopped`, `on-failure:3`) are NOT systemd
+/// specifiers — systemd only knows `no|always|on-success|on-failure|on-abnormal|
+/// on-abort|on-watchdog`. Writing the Delonix string verbatim made systemd log
+/// «Failed to parse service restart specifier, ignoring» and drop the directive
+/// entirely, so the unit's own supervisor (`ExecStart`) would NOT be restarted by
+/// systemd if it died mid-run. Found live: a `--restart unless-stopped` container
+/// recovered on a real reboot (the `ExecStart` runs), but its `Restart=` was
+/// ignored, so a supervisor crash between reboots would not recover.
+///
+/// `always`/`unless-stopped` → `always` (keep the supervisor up — the pod comes
+/// back, and `WantedBy=` already handles the reboot case); `on-failure[:max]` →
+/// `on-failure` (the `:max` cap is the Delonix supervisor's business, not
+/// systemd's); anything else → `no`.
+fn systemd_restart(policy: &str) -> &'static str {
+    match policy.split(':').next().unwrap_or(policy) {
+        "always" | "unless-stopped" => "always",
+        "on-failure" => "on-failure",
+        _ => "no",
+    }
+}
+
 fn container_unit(
     name: &str,
     rp: &str,
@@ -259,9 +282,10 @@ fn container_unit(
     // with the anchor, and a member that stops is not a reason to stop its peers
     // — the engine treats them as separate workloads everywhere else too.
     let ordering = anchor.map(|a| format!("After={a}\n")).unwrap_or_default();
+    let sr = systemd_restart(rp);
     format!(
         "[Unit]\nDescription=Delonix container {name}\nAfter=network-online.target\nWants=network-online.target\n{ordering}\n\
-         [Service]\nType=forking\nRestart={rp}\nTimeoutStopSec=15\nEnvironment=DELONIX_INTERNAL=1\nEnvironment=DELONIX_ROOT={root}\n\
+         [Service]\nType=forking\nRestart={sr}\nTimeoutStopSec=15\nEnvironment=DELONIX_INTERNAL=1\nEnvironment=DELONIX_ROOT={root}\n\
          ExecStart={exe} container start {name}\nExecStop={exe} container stop {name}\n\n\
          [Install]\nWantedBy={wanted_by}\n",
     )
@@ -280,9 +304,13 @@ fn container_unit(
 /// systemd to follow — the backend owns it. Claiming otherwise would have
 /// systemd hunting for a main PID that is not there.
 fn vm_unit(name: &str, rp: &str, root: &str, exe: &str, wanted_by: &str) -> String {
+    // `Type=oneshot` + `RemainAfterExit=yes`: a `Restart=` other than `no` is
+    // meaningless for a oneshot that stays "active" — but map it to a valid
+    // specifier anyway so systemd never logs a parse error and drops it.
+    let sr = systemd_restart(rp);
     format!(
         "[Unit]\nDescription=Delonix VM {name}\nAfter=network-online.target\nWants=network-online.target\n\n\
-         [Service]\nType=oneshot\nRemainAfterExit=yes\nRestart={rp}\nTimeoutStopSec=60\nEnvironment=DELONIX_INTERNAL=1\nEnvironment=DELONIX_ROOT={root}\n\
+         [Service]\nType=oneshot\nRemainAfterExit=yes\nRestart={sr}\nTimeoutStopSec=60\nEnvironment=DELONIX_INTERNAL=1\nEnvironment=DELONIX_ROOT={root}\n\
          ExecStart={exe} vm start {name}\nExecStop={exe} vm stop {name}\n\n\
          [Install]\nWantedBy={wanted_by}\n",
     )
@@ -452,6 +480,23 @@ fn enable(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn systemd_restart_maps_delonix_policies_to_valid_specifiers() {
+        // The bug: Delonix policies written verbatim were invalid systemd
+        // specifiers and got dropped. Every output here must be a value systemd
+        // actually accepts (no|always|on-failure|...).
+        assert_eq!(systemd_restart("always"), "always");
+        assert_eq!(systemd_restart("unless-stopped"), "always"); // was the bug
+        assert_eq!(systemd_restart("on-failure"), "on-failure");
+        assert_eq!(systemd_restart("on-failure:3"), "on-failure"); // was the bug (`:3`)
+        assert_eq!(systemd_restart("no"), "no");
+        assert_eq!(systemd_restart("garbage"), "no"); // safe default
+        // The generated unit must never carry the Delonix-only strings.
+        let u = container_unit("c", "unless-stopped", "/r", "/b", "multi-user.target", None);
+        assert!(u.contains("Restart=always"), "{u}");
+        assert!(!u.contains("Restart=unless-stopped"), "{u}");
+    }
 
     /// **O filtro apagava o `delonix-cri.service`.**
     ///
