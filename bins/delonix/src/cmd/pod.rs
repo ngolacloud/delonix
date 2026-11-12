@@ -427,7 +427,12 @@ fn check_pod_namespace(name: &str, want: &str, have: &str) -> Result<()> {
     )))
 }
 
-fn create_pod(name: &str, namespace: Option<String>, spec: PodSpec, hold: bool) -> Result<()> {
+pub(crate) fn create_pod(
+    name: &str,
+    namespace: Option<String>,
+    spec: PodSpec,
+    hold: bool,
+) -> Result<()> {
     valid_pod_name(name)?;
     let (images, store) = open_stores()?;
 

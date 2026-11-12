@@ -2,7 +2,12 @@
 //! a container or pod already running in the engine. It's the "ran it locally,
 //! now give me the YAML for k8s" path (equivalent to `podman generate kube`).
 
+use std::path::PathBuf;
+
 use clap::Subcommand;
+use serde::Deserialize;
+
+use delonix_compute::pod::PodSpec;
 use delonix_compute::Container;
 use delonix_model::{Error, Result};
 use delonix_state::Store;
@@ -12,36 +17,164 @@ use super::util::open_stores;
 #[derive(Subcommand)]
 pub enum KubeCmd {
     /// Generates a `kind: Pod` from a container (or from every member of a
-    /// pod) and prints it to stdout.
+    /// pod) and prints it to stdout. Equivalent to `podman kube generate`.
     Generate {
         #[arg(add = clap_complete::engine::ArgValueCandidates::new(super::complete::containers_or_pods))]
         name: String,
     },
+    /// Runs the workloads described in a **standard Kubernetes YAML** manifest
+    /// (`apiVersion: v1, kind: Pod`, or `apps/v1, kind: Deployment` run as a
+    /// single pod). Equivalent to `podman kube play`. The delonix `PodSpec`
+    /// already uses k8s field names, so a plain k8s Pod runs as-is.
+    Play {
+        #[arg(value_name = "FICHEIRO")]
+        file: PathBuf,
+    },
 }
 
 pub fn run(action: KubeCmd) -> Result<()> {
-    let (_images, store) = open_stores()?;
     match action {
-        KubeCmd::Generate { name } => cmd_generate(&store, &name),
+        KubeCmd::Generate { name } => {
+            let (_images, store) = open_stores()?;
+            cmd_generate(&store, &name)
+        }
+        KubeCmd::Play { file } => cmd_play(&file),
     }
 }
 
-fn cmd_generate(store: &Store, name: &str) -> Result<()> {
-    let all = store.list()?;
-    // Accepts a pod name (generates every member) or a single container.
-    let members: Vec<Container> = if store.load(&format!("pod-{name}")).is_ok() {
-        all.into_iter()
-            .filter(|c| c.pod.as_deref() == Some(name) && !c.name.starts_with("pod-"))
-            .collect()
-    } else {
-        vec![store.load(name)?]
-    };
-    if members.is_empty() {
+/// One document of a standard Kubernetes manifest — just enough to route it:
+/// the api/kind, the name/namespace, and the raw `spec` we hand to the Pod
+/// deserializer (the fields already match, via `serde(rename)` on `PodSpec`).
+#[derive(serde::Deserialize)]
+struct KubeDoc {
+    #[serde(rename = "apiVersion", default)]
+    api_version: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    metadata: KubeMeta,
+    #[serde(default)]
+    spec: serde_yaml::Value,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct KubeMeta {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    namespace: Option<String>,
+}
+
+/// `delonix kube play <k8s.yaml>` — runs every Pod/Deployment the manifest
+/// describes. A Deployment is run as a SINGLE pod from its `spec.template`
+/// (replicas are a scheduler concern a single node does not own); other kinds
+/// are skipped with a note rather than failing the whole file.
+fn cmd_play(file: &std::path::Path) -> Result<()> {
+    let text = std::fs::read_to_string(file).map_err(|e| {
+        Error::Invalid(super::po::tf(
+            "could not read {path}: {err}",
+            &[
+                ("path", &file.display().to_string()),
+                ("err", &e.to_string()),
+            ],
+        ))
+    })?;
+    let mut ran = 0usize;
+    for doc in serde_yaml::Deserializer::from_str(&text) {
+        let doc = KubeDoc::deserialize(doc).map_err(|e| {
+            Error::Invalid(super::po::tf(
+                "invalid Kubernetes YAML in {path}: {err}",
+                &[
+                    ("path", &file.display().to_string()),
+                    ("err", &e.to_string()),
+                ],
+            ))
+        })?;
+        // Recognised api groups (`v1` for Pod, `apps/v1` for the workload
+        // kinds, the delonix envelope for a round-tripped manifest). An
+        // unfamiliar one still tries — the kind drives the routing — but we say
+        // so rather than failing silently on a typo'd apiVersion.
+        if !doc.api_version.is_empty()
+            && !matches!(doc.api_version.as_str(), "v1" | "apps/v1")
+            && !doc.api_version.starts_with("compute.delonix.io/")
+        {
+            super::output::warn(&super::po::tf(
+                "kube play: unfamiliar apiVersion '{av}' — routing by kind anyway",
+                &[("av", &doc.api_version)],
+            ));
+        }
+        // The pod spec, and where to read it from: a Pod carries it directly; a
+        // Deployment wraps it under `spec.template.spec`.
+        let (name, spec_value) = match doc.kind.as_str() {
+            "Pod" => (doc.metadata.name.clone(), doc.spec.clone()),
+            "Deployment" | "ReplicaSet" | "StatefulSet" | "DaemonSet" => {
+                let tmpl = doc
+                    .spec
+                    .get("template")
+                    .and_then(|t| t.get("spec"))
+                    .cloned()
+                    .ok_or_else(|| {
+                        Error::Invalid(super::po::tf(
+                            "{kind} '{name}' has no spec.template.spec to run",
+                            &[("kind", &doc.kind), ("name", &doc.metadata.name)],
+                        ))
+                    })?;
+                (doc.metadata.name.clone(), tmpl)
+            }
+            "" => continue, // empty document (trailing `---`)
+            other => {
+                super::output::warn(&super::po::tf(
+                    "kube play: skipping unsupported kind '{kind}'",
+                    &[("kind", other)],
+                ));
+                continue;
+            }
+        };
+        if name.is_empty() {
+            return Err(Error::Invalid(
+                super::po::t("kube play: a workload has no metadata.name").into(),
+            ));
+        }
+        let spec: PodSpec = serde_yaml::from_value(spec_value).map_err(|e| {
+            Error::Invalid(super::po::tf(
+                "pod '{name}': {err} (a Kubernetes field delonix does not support yet?)",
+                &[("name", &name), ("err", &e.to_string())],
+            ))
+        })?;
+        super::pod::create_pod(&name, doc.metadata.namespace.clone(), spec, false)?;
+        println!("{}", super::po::tf("played pod {name}", &[("name", &name)]));
+        ran += 1;
+    }
+    if ran == 0 {
         return Err(Error::Invalid(super::po::tf(
-            "nothing to generate for '{name}'",
-            &[("name", name)],
+            "no Pod/Deployment found in {path}",
+            &[("path", &file.display().to_string())],
         )));
     }
+    Ok(())
+}
+
+fn cmd_generate(store: &Store, name: &str) -> Result<()> {
+    // A pod is DERIVED from its member containers — the member carries the pod
+    // name in the `delonix.io/pod` LABEL (its `.pod` field holds the netns name,
+    // `pod-<name>`, not the pod name, which is why the old guards never matched a
+    // real pod). Detect by that label: any member → generate the whole pod; else
+    // a lone container.
+    let members: Vec<Container> = store
+        .list()?
+        .into_iter()
+        .filter(|c| c.labels.get(super::pod::POD_LABEL).map(String::as_str) == Some(name))
+        .collect();
+    let members = if members.is_empty() {
+        vec![store.load(name).map_err(|_| {
+            Error::Invalid(super::po::tf(
+                "nothing to generate for '{name}' (no such pod or container)",
+                &[("name", name)],
+            ))
+        })?]
+    } else {
+        members
+    };
     print!("{}", pod_manifest(name, &members));
     Ok(())
 }
