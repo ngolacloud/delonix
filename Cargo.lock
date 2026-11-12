@@ -761,7 +761,7 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "delonix-bin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -819,7 +819,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-compute"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "delonix-net-rules",
@@ -834,7 +834,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-cri"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "delonix-compute",
@@ -865,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-cri-bin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-cri",
@@ -882,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-linux",
@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-host"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "libc",
@@ -909,7 +909,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-linux"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-model",
@@ -928,7 +928,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-host",
@@ -951,7 +951,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-mcp-bin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-engine",
@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-mgmt"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "delonix-compute",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-mgmt-bin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-engine",
@@ -1005,7 +1005,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-model"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1014,11 +1014,11 @@ dependencies = [
 
 [[package]]
 name = "delonix-net-rules"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "delonix-networking"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "delonix-net-rules",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-node"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "libc",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-node-api"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "delonix-compute",
@@ -1082,7 +1082,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-node-api-bin"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-engine",
@@ -1105,7 +1105,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-oci"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "criterion",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-pool-helper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "delonix-storage",
@@ -1143,7 +1143,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-btrfs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-storage",
  "libc",
@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-ceph"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "delonix-storage",
@@ -1167,7 +1167,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-cloud-hypervisor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-model",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-libvirt"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-host",
@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-lvm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-storage",
  "libc",
@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-opnsense"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-model",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-powerdns"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "reqwest 0.12.28",
@@ -1230,7 +1230,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-proxmox"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-model",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-truenas"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "reqwest 0.12.28",
@@ -1261,7 +1261,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-provider-zfs"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-storage",
  "libc",
@@ -1270,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-scanner"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "delonix-oci",
@@ -1284,7 +1284,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-sdn"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-host",
@@ -1304,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-security"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "delonix-node",
@@ -1314,7 +1314,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-stack"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "serde",
@@ -1324,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-state"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chacha20poly1305",
  "delonix-compute",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-storage"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "libc",
@@ -1355,7 +1355,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-storage-helper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-model",
  "delonix-pool-helper",
@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-telemetry"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
@@ -1386,7 +1386,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-vm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-model",
@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "delonix-volume"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "delonix-compute",
  "delonix-model",
