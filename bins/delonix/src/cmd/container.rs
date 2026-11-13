@@ -2429,6 +2429,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         pod,
         pod_infra_pid,
         pod_shared_pid,
+        pod_pidns_pid: None,
         net_bps,
         net_burst,
         log_driver,
@@ -3509,6 +3510,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         pod,
         pod_infra_pid,
         pod_shared_pid,
+        pod_pidns_pid,
         cidfile,
         ..
     } = opts;
@@ -4053,6 +4055,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         attached_ip: attached_ip.clone(),
         pod_infra_pid,
         pod_shared_pid,
+        pod_pidns_pid,
         apparmor: apparmor_profile,
         log_path: c.log_path.clone(),
         replaces_record: false,
@@ -5721,6 +5724,7 @@ fn start_container(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
         attached_ip: c.ip.clone(),
         pod_infra_pid: None,
         pod_shared_pid: false,
+        pod_pidns_pid: None,
         apparmor: c.apparmor.clone(),
         log_path: Some(c.log_path.clone().unwrap_or(default_log)),
         // `start` brings back a container whose record exists: an `rm -f` while

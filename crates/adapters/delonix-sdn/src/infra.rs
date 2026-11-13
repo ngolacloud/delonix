@@ -41,9 +41,10 @@ pub const INGRESS_TABLE: &str = "dlxing";
 /// The nft FAMILY the ingress table lives in. `inet` since ADR-0082 phase 3: one
 /// dual-stack table carries both IPv4 and IPv6. The v4 rules are unchanged — an
 /// `ip saddr` match in an `inet` table matches exactly the v4 packets it did in an
-/// `ip` table — and the v6 side is scaffolding with EMPTY sets until phase 4 wires
-/// v6 egress. v6 forwarding stays refused meanwhile (`ingress_v6_refusal_ruleset`),
-/// so the dual-family table never governs a v6 packet yet. Every `nft` command that
+/// `ip` table — and since ADR-0082 phase 4 the v6 side is LIVE: the v6 sets are
+/// filled from the ULA IPAM and the v6 dispatch governs forwarded v6 the way the v4
+/// side governs v4 (`ingress_v6_refusal_ruleset` is now the `DELONIX_DISABLE_IPV6`
+/// opt-out, not the default). Every `nft` command that
 /// addresses this table is addressed by `<family> <name>`, so this is the single
 /// source of truth for the family half of that pair.
 pub const INGRESS_FAMILY: &str = "inet";
@@ -1024,9 +1025,10 @@ pub fn ingress_table_ruleset() -> String {
             .collect()
     };
     let dispatch = render_dispatch(fw_dispatch_chains());
-    // ADR-0082 phase 3 — the IPv6 twin of the dispatch, in the same dual-family
-    // table. Inert: `@fwmap6` is empty and the v6 refusal drops every forwarded v6
-    // packet before these run, so v6 is governed by NOTHING yet (phase 4).
+    // ADR-0082 phase 4 — the IPv6 twin of the dispatch, in the same dual-family
+    // table and LIVE: `@fwmap6` is filled from the ULA IPAM, so these govern
+    // forwarded v6 exactly as the v4 dispatch governs v4 (off only under
+    // `DELONIX_DISABLE_IPV6`, where the v6 refusal drops forwarded v6 instead).
     let dispatch6 = render_dispatch(fw_dispatch_chains_v6());
     format!(
         "table {INGRESS_FAMILY} {INGRESS_TABLE} {{\n\
@@ -1098,13 +1100,14 @@ pub fn fw_dispatch_chains() -> [(&'static str, i32, String); 2] {
     ]
 }
 
-/// The IPv6 twin of [`fw_dispatch_chains`] — ADR-0082 phase 3 scaffolding in the
+/// The IPv6 twin of [`fw_dispatch_chains`] — LIVE since ADR-0082 phase 4 in the
 /// dual-family table. Same source-before-destination split as the v4 dispatch (so
-/// the P0-1 fix holds for v6 too once phase 4 fills `@fwmap6`), but at priorities of
-/// its OWN: the two families never share a forward-hook priority, because equal
-/// priorities have no defined order between chains. Inert in phase 3 — `@fwmap6` is
-/// empty and `ingress_v6_refusal_ruleset` drops every forwarded v6 packet at -10,
-/// before these at -8/-7 — so it governs nothing while v6 stays off.
+/// the P0-1 fix holds for v6 too), but at priorities of its OWN: the two families
+/// never share a forward-hook priority, because equal priorities have no defined
+/// order between chains. `@fwmap6` is filled from the ULA IPAM, so these govern
+/// forwarded v6 the way the v4 dispatch governs v4. Only with v6 OFF
+/// (`DELONIX_DISABLE_IPV6`) does `ingress_v6_refusal_ruleset` drop forwarded v6 at
+/// -10, before these at -8/-7, leaving them to govern nothing.
 pub fn fw_dispatch_chains_v6() -> [(&'static str, i32, String); 2] {
     [
         ("fwout6", -8, format!("ip6 saddr vmap @{FWMAP6}")),
@@ -2638,19 +2641,18 @@ fn control_plane_threads() -> Vec<(&'static str, fn())> {
         ("dns", dns_server_main),
         ("vip", crate::service_lb::prober_main),
     ];
-    // Router Advertisements emitter (SLAAC IPv6 for VMs/containers) — ONLY when the
-    // v6 SDN is explicitly opted in.
+    // Router Advertisements emitter (SLAAC IPv6 for VMs/containers) — runs whenever
+    // the v6 SDN is on, which ADR-0082 phase 4 makes the DEFAULT (off only under
+    // `DELONIX_DISABLE_IPV6`).
     //
-    // BUG FIXED HERE: this was spawned unconditionally, so in the DEFAULT
-    // configuration the holder advertised a SLAAC `/64` on every ingress bridge —
-    // one RA every 8s — for a dataplane it then refuses to govern. The firewall is a
-    // dual-family `table inet` since ADR-0082 phase 3, but its v6 side is EMPTY (see
-    // the long note on `ipv6_enabled`); the only v6 rule that governs anything is
-    // still the blanket `forward policy drop` of `ingress_v6_refusal_ruleset`.
-    // Announcing a prefix and governing it with a
-    // single drop is not a dual-stack dataplane, it is an invitation: anything that
-    // autoconfigured from the prefix and shared a bridge talked east-west with no
-    // policy applying, which is precisely the bypass the v6 refusal exists to close.
+    // GATED HERE on `ipv6_enabled()`: emitting RAs is correct only when the v6
+    // dataplane actually governs the prefix it announces. Phase 4 fills the v6 sets
+    // from the ULA IPAM and the `inet` table renders both families (see the long note
+    // on `ipv6_enabled`), so a SLAAC `/64` on an ingress bridge is now backed by the
+    // same ingress/egress/`policy deny`/isolation rules as v4. Before phase 4 this
+    // same emitter ran UNCONDITIONALLY while the v6 side was empty — announcing a
+    // prefix governed by a single blanket drop, an invitation to an east-west bypass
+    // — which is why the gate exists and why it must stay tied to `ipv6_enabled()`.
     //
     // The emitter is a plain control-plane thread, not a ruleset, so a gate is the
     // whole fix: the holder is restartable and re-reads this on every start. The
@@ -3722,7 +3724,8 @@ fn dhcp_opt(opts: &[u8], want: u8) -> Option<Vec<u8>> {
 
 // ---- ingress IPv6 (ULA): fd00:<2nd octet>::/64 per network -----------------
 //
-// **IPv6 IS REFUSED BY DEFAULT — and this is a security fix, not a feature removal.**
+// **The refusal below is now the `DELONIX_DISABLE_IPV6=1` opt-out — ADR-0082 phase 4
+// GOVERNS v6 by default. What follows is the history of why that opt-out must exist.**
 //
 // The SDN used to hand every container an IPv6 ULA derived from its v4 address
 // (`fd00:<o2>::<o3>:<o4>`) while the ENTIRE firewall was v4 only. That is a second,
@@ -3730,9 +3733,9 @@ fn dhcp_opt(opts: &[u8], want: u8) -> Option<Vec<u8>> {
 // firewall dropping on IPv4, the same target answered on port 80 over its ULA. It
 // defeats `ingress`/`egress` rules, `policy deny`, namespace isolation,
 // `kind: Dependency` and the L4 guard alike, because every one of them only ever
-// matched v4. (ADR-0082 phase 3 made the table dual-family `inet`, but its v6 side
-// is still EMPTY — so the refusal below is as necessary as ever until phase 4 wires
-// v6 egress and fills the v6 sets.)
+// matched v4. (Phase 3 made the table dual-family `inet` but left its v6 side empty;
+// phase 4 has since filled the v6 sets from the ULA IPAM and added the v6 dispatch, so
+// with v6 ON there is no bypass left — and with v6 OFF this refusal takes its place.)
 // Discovery is a single `ping -6 ff02::1%eth0`, which enumerates every neighbour on
 // the bridge, and the address is derivable from the v4 one anyway.
 //
@@ -3744,17 +3747,17 @@ fn dhcp_opt(opts: &[u8], want: u8) -> Option<Vec<u8>> {
 //      turns v6 back on. Depends on `bridge-nf-call-ip6tables`, which is why it is the
 //      SECOND layer and not the only one.
 //
-// Nothing was lost: there is no v6 uplink (`slirp4netns` runs without
-// `--enable-ipv6`, so v6 to the Internet was always `Network is unreachable`) and the
-// internal resolver only ever answered A records. The ULA served east-west traffic
-// that no policy could govern — which is precisely the problem.
+// When v6 is OFF nothing is lost: there is no v6 uplink (`slirp4netns` then runs
+// without `--enable-ipv6`, so v6 to the Internet is `Network is unreachable`) and the
+// internal resolver only ever answered A records. A ULA with a v4-only firewall
+// served east-west traffic that no policy could govern — which is precisely the
+// problem this refusal closes.
 //
-// `DELONIX_ENABLE_IPV6=1` restores the old behaviour, loudly, for whoever needs the
-// v6 SDN and accepts that no firewall rule applies to it. Same escape-hatch shape as
-// `DELONIX_FORWARD_POLICY=accept`. Real dual-stack is arriving in steps: ADR-0082
-// phase 3 made the firewall a `table inet` with v6 sets and a v6 dispatch already in
-// place — but all EMPTY, so no v6 packet is governed yet. Phase 4 fills the v6 sets
-// from the ULA IPAM and adds v6 egress; THIS refusal is what must exist until it does.
+// `DELONIX_DISABLE_IPV6=1` is the switch that turns v6 fully off and reinstates this
+// refusal; the old opt-IN `DELONIX_ENABLE_IPV6=1` is now a no-op alias (see
+// `ipv6_enabled`). Phase 4 completed the dual stack: the `inet` table's v6 sets are
+// filled from the ULA IPAM and the v6 dispatch governs forwarded v6, so with v6 ON
+// every surface that governs v4 governs v6 too — and this refusal is the off-switch.
 
 /// Is the dual-stack IPv6 SDN on? ADR-0082 phase 4: v6 is GOVERNED and ON by
 /// default. Every container gets a ULA, and every firewall surface that governs v4

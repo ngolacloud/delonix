@@ -451,6 +451,13 @@ and how to tear the isolated infra down, is in
 <td>Off by default so the runtime installed on a cluster never depends on the directory the command ran from. Without it the order is <code>--cri-bin</code>, the <code>delonix-cri</code> next to <code>delonix</code>, then the release asset of the running version, verified against its <code>SHA256SUMS</code>. The origin, path and sha256 are always printed.</td>
 </tr>
 <tr>
+<td><code>DELONIX_CRI_SECCOMP_NIL</code></td>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs" target="_blank" rel="noopener"><code>crates/<wbr>interfaces/<wbr>delonix-cri/<wbr>src/<wbr>runtime_svc/<wbr>lifecycle.<wbr>rs</code></a> (<code>SECCOMP_NIL_ENV</code>, parsed by <code>nil_seccomp_unconfined_from</code>)</td>
+<td>Conformance-only opt-in that maps a NIL/absent CRI seccomp profile to <code>unconfined</code> — the CRI's historical contract that <code>critest</code>'s "nil profile, which is unconfined" spec asserts (ADR-0092 campaign).</td>
+<td>Only <code>unconfined</code> (case-insensitive) turns it on; unset, empty or anything else keeps the engine's seccomp allowlist for a nil profile.</td>
+<td>OFF by default so production stays hardened; set it only on a throwaway conformance node. An explicit seccomp profile (<code>Unconfined</code>/<code>Localhost</code>) is always honoured regardless of this var.</td>
+</tr>
+<tr>
 <td><code>DELONIX_SERVER_FROM_PATH</code></td>
 <td><code>bins/<wbr>delonix-runtime-bin/<wbr>src/<wbr>cmd/<wbr>serve.<wbr>rs:exec_server</code> (<code>FROM_PATH_ENV</code>, decided by <code>choose</code>)</td>
 <td>Opt-in to serve with a sibling server found on the <code>PATH</code> when none sits beside the running <code>delonix</code> (ADR-0075 D2).</td>
@@ -743,6 +750,13 @@ requested shape, no <code>nft</code> runs at all.</p>
 <td>Path to an advisory database file used by <code>image scan</code>.</td>
 <td>A file path.</td>
 <td>Used only when no synced database exists at <code>&lt;root&gt;/<wbr>advisories.<wbr>json</code>; the synced one wins. Without either, the embedded placeholder is used and the scan says so.</td>
+</tr>
+<tr>
+<td><code>DELONIX_TRUST_POLICY</code></td>
+<td><code>bins/<wbr>delonix-runtime-bin/<wbr>src/<wbr>cmd/<wbr>scan.<wbr>rs:admission_trust_on_pull</code></td>
+<td>Path to a declarative signature-trust policy applied on every image pull.</td>
+<td>A file path to a JSON policy (<code>{ "mode": "enforce"|"warn", "rules": [ { "repo": "ghcr.<wbr>io/<wbr>ns/<wbr>*", "key": "/<wbr>path/<wbr>to/<wbr>key.<wbr>pub" } ] }</code>).</td>
+<td>Defaults to <code>&lt;root&gt;/trust.json</code>. If a rule's repo pattern matches, the image's cosign signature is verified against the trusted key; <code>enforce</code> refuses an untrusted image, <code>warn</code> only reports. No policy or no matching rule → no trust requirement.</td>
 </tr>
 <tr>
 <td><code>DELONIX_ADVISORY_FEED</code></td>

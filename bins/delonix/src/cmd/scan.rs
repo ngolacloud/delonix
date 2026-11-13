@@ -28,6 +28,16 @@ fn sbom_path(root: &Path, image_id: &str) -> PathBuf {
     ))
 }
 
+/// `<root>/images/<id>.provenance.json` — the SLSA provenance a `--provenance`
+/// build cached, distinct from the SBOM and the image record. `pub(crate)` so
+/// `build::write_provenance` and `cmd_provenance` agree on one location.
+pub(crate) fn provenance_path(root: &Path, image_id: &str) -> PathBuf {
+    root.join("images").join(format!(
+        "{}.provenance.json",
+        delonix_oci::cas::strip(image_id)
+    ))
+}
+
 /// Writes the SPDX SBOM for `image` to disk (`--build` calls this right
 /// after a successful commit; `image sbom` calls it lazily on read, so an
 /// image pulled/imported before this existed still gets one on first ask).
@@ -58,9 +68,12 @@ pub(crate) fn write_sbom(images: &ImageStore, image: &Image) -> Result<Option<Pa
 /// is one (so this is instant for anything built by THIS engine); computes
 /// and caches it on the spot otherwise (a pulled/imported image, or one
 /// built before this existed).
-pub(crate) fn cmd_sbom(image: &str) -> Result<()> {
+pub(crate) fn cmd_sbom(image: &str, attach: bool) -> Result<()> {
     let (images, _store) = open_stores()?;
     let img = resolve_or_pull(&images, image)?;
+    if attach {
+        return attach_sbom(&images, &img, image);
+    }
     let cached = sbom_path(images.root(), &img.id);
     let path = if cached.is_file() {
         cached
@@ -76,6 +89,128 @@ pub(crate) fn cmd_sbom(image: &str) -> Result<()> {
     };
     let text = std::fs::read_to_string(&path)?;
     print!("{text}");
+    Ok(())
+}
+
+/// `delonix image attestations <ref>` — list what is attached to the image in
+/// its registry (the read side of `--attach`), via the OCI 1.1 Referrers API.
+/// One line per referrer: its digest, the `artifactType`, and the in-toto
+/// predicate type. The predicate type comes from the referrer descriptor when
+/// the registry surfaced it there, else from the referrer manifest's layer
+/// annotation (registries differ on whether they copy it up) — so the column is
+/// filled whenever the attestation carries one.
+pub(crate) fn cmd_attestations(image: &str) -> Result<()> {
+    let (images, _store) = open_stores()?;
+    let mut c = delonix_oci::registry::registry_client(&images, image)?;
+    let refs = c.list_referrers()?;
+    if refs.is_empty() {
+        println!(
+            "{}",
+            super::po::tf("no attestations attached to {ref}", &[("ref", image)])
+        );
+        return Ok(());
+    }
+    for r in &refs {
+        let predicate = r.predicate_type.clone().or_else(|| {
+            c.get_manifest(&r.digest).ok().and_then(|b| {
+                serde_json::from_slice::<serde_json::Value>(&b)
+                    .ok()
+                    .and_then(|m| {
+                        m.pointer("/layers/0/annotations/in-toto.io~1predicate-type")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string)
+                    })
+            })
+        });
+        println!(
+            "{}  {}  {}",
+            r.digest,
+            r.artifact_type.as_deref().unwrap_or("-"),
+            predicate.as_deref().unwrap_or("-"),
+        );
+    }
+    Ok(())
+}
+
+/// `delonix image provenance <ref> [--attach]` — print or attach the SLSA
+/// provenance a `--provenance` build cached. `--attach` wraps it in an in-toto
+/// Statement and pushes it to the registry via the SAME referrer path the SBOM
+/// uses, with the SLSA predicate type. Provenance can only be produced at build
+/// time (it records the build inputs), so this reads the cache rather than
+/// recomputing.
+pub(crate) fn cmd_provenance(image: &str, attach: bool) -> Result<()> {
+    let (images, _store) = open_stores()?;
+    let img = resolve_or_pull(&images, image)?;
+    let path = provenance_path(images.root(), &img.id);
+    let text = std::fs::read_to_string(&path).map_err(|_| {
+        Error::Invalid(super::po::tf(
+            "no provenance cached for '{img}' — build it with `delonix build --provenance` \
+             (provenance records the build inputs, so it can only be produced at build time).",
+            &[("img", image)],
+        ))
+    })?;
+    if !attach {
+        print!("{text}");
+        return Ok(());
+    }
+    let predicate: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| Error::Invalid(format!("cached provenance is not valid JSON: {e}")))?;
+    let name = img
+        .repo_tags
+        .first()
+        .cloned()
+        .unwrap_or_else(|| img.short_id());
+    let mut c = delonix_oci::registry::registry_client(&images, image)?;
+    let manifest_hex = c.manifest_sha256_hex()?;
+    let statement = delonix_scanner::intoto_statement(
+        delonix_scanner::PREDICATE_TYPE_SLSA,
+        &name,
+        &manifest_hex,
+        predicate,
+    );
+    let bytes = serde_json::to_vec(&statement)?;
+    let digest = c.push_attestation(&bytes, delonix_scanner::PREDICATE_TYPE_SLSA)?;
+    println!(
+        "{}",
+        super::po::tf(
+            "attached provenance attestation {att} to {ref} (subject sha256:{sub})",
+            &[("att", &digest), ("ref", image), ("sub", &manifest_hex)],
+        )
+    );
+    Ok(())
+}
+
+/// `delonix image sbom <ref> --attach` — wrap the SPDX SBOM in an in-toto
+/// Statement and attach it to the image in its registry as an OCI 1.1 referrer
+/// (GAP-0009). A `cosign verify-attestation` / `buildx imagetools inspect` then
+/// discovers it. The in-toto subject is the image's MANIFEST digest (resolved
+/// from the registry), so it matches the OCI `subject` the attach sets.
+fn attach_sbom(images: &ImageStore, img: &Image, reference: &str) -> Result<()> {
+    let pkgs = match delonix_scanner::extract_sbom(images, img) {
+        Ok(p) => p,
+        // Same EmptySbom-vs-everything-else split `write_sbom` makes: a
+        // `scratch`-based image has nothing to attach, and that is not a failure.
+        Err(delonix_scanner::Error::EmptySbom) => {
+            return Err(Error::Invalid(super::po::tf(
+                "'{img}' has no package database this scanner reads (apk/dpkg) — there is no \
+                 SBOM to attach. This is not an error for a `scratch`-based image.",
+                &[("img", reference)],
+            )));
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let mut c = delonix_oci::registry::registry_client(images, reference)?;
+    let manifest_hex = c.manifest_sha256_hex()?;
+    let statement = delonix_scanner::sbom_intoto_statement(img, &pkgs, &manifest_hex);
+    let bytes = serde_json::to_vec(&statement)?;
+    let digest = c.push_attestation(&bytes, delonix_scanner::PREDICATE_TYPE_SPDX)?;
+    println!(
+        "{}",
+        super::po::tf(
+            "attached SBOM attestation {att} to {ref} (subject sha256:{sub})",
+            &[("att", &digest), ("ref", reference), ("sub", &manifest_hex),],
+        )
+    );
     Ok(())
 }
 
@@ -147,7 +282,13 @@ fn load_advisories() -> Result<(AdvisoryDb, Provenance)> {
 
 /// `image scan <image>` — vulnerability dashboard. Pulls the image if missing
 /// (like `docker scout`).
-pub fn cmd_scan(image: &str, sbom: bool, fail_on: Option<&str>) -> Result<()> {
+pub fn cmd_scan(
+    image: &str,
+    sbom: bool,
+    fail_on: Option<&str>,
+    policy_file: Option<&str>,
+    compare_to: Option<&str>,
+) -> Result<()> {
     let (images, _store) = open_stores()?;
     let img = match images.resolve(image) {
         Ok(img) => img,
@@ -181,6 +322,9 @@ pub fn cmd_scan(image: &str, sbom: bool, fail_on: Option<&str>) -> Result<()> {
         }
         Err(e) => return Err(e.into()),
     };
+    if let Some(other) = compare_to {
+        return scan_compare(&images, &img, image, other);
+    }
     if sbom {
         let pkgs = delonix_scanner::extract_sbom(&images, &img)?;
         let mut t = output::Table::new(&["PACKAGE", "VERSION", "ECOSYSTEM"]);
@@ -202,6 +346,50 @@ pub fn cmd_scan(image: &str, sbom: bool, fail_on: Option<&str>) -> Result<()> {
         return Ok(());
     }
     let worst = scan_image(&images, &img)?;
+    // A `--policy` file is the richer CI gate (threshold + waivers +
+    // ignore_unfixed) and takes precedence over a bare `--fail-on`.
+    if let Some(path) = policy_file {
+        let policy = delonix_scanner::Policy::load(&std::fs::read_to_string(path)?)?;
+        let findings = findings_for(&images, &img)?;
+        let outcome = delonix_scanner::evaluate_policy(&findings, &policy);
+        if !outcome.waived.is_empty() {
+            println!(
+                "{}",
+                output::dim(&super::po::tf(
+                    "policy waived {n} finding(s): {ids}",
+                    &[
+                        ("n", &outcome.waived.len().to_string()),
+                        (
+                            "ids",
+                            &outcome
+                                .waived
+                                .iter()
+                                .map(|f| f.id.clone())
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        ),
+                    ],
+                ))
+            );
+        }
+        if outcome.failed {
+            eprintln!(
+                "{}",
+                super::po::tf(
+                    "policy FAILED: worst non-waived severity {sev} meets the threshold",
+                    &[(
+                        "sev",
+                        &outcome
+                            .worst
+                            .map(|w| format!("{w:?}"))
+                            .unwrap_or_else(|| "none".into())
+                    )],
+                )
+            );
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     if let Some(threshold) = fail_on {
         let th = Severity::parse(threshold).ok_or_else(|| {
             Error::Invalid(super::po::tf(
@@ -212,6 +400,55 @@ pub fn cmd_scan(image: &str, sbom: bool, fail_on: Option<&str>) -> Result<()> {
         if worst.map(|w| w >= th).unwrap_or(false) {
             std::process::exit(1);
         }
+    }
+    Ok(())
+}
+
+/// The CVE findings for an image — extract SBOM, load advisories, match. The
+/// data behind `scan_image`'s dashboard, without the printing; the policy gate
+/// and `compare` consume it.
+fn findings_for(images: &ImageStore, image: &Image) -> Result<Vec<delonix_scanner::Finding>> {
+    let sbom = delonix_scanner::extract_sbom(images, image)?;
+    let (db, _prov) = load_advisories()?;
+    Ok(db.scan(&sbom))
+}
+
+/// `image scan <base> --compare-to <target>` — the vulnerability delta between
+/// two images (what a bump added/removed), like `docker scout compare`. Honest
+/// about direction: `base` is the image named, `target` is `--compare-to`.
+fn scan_compare(images: &ImageStore, base_img: &Image, base: &str, target: &str) -> Result<()> {
+    let target_img = resolve_or_pull(images, target)?;
+    let base_findings = findings_for(images, base_img)?;
+    let target_findings = findings_for(images, &target_img)?;
+    let diff = delonix_scanner::compare_findings(&base_findings, &target_findings);
+    println!(
+        "{}",
+        output::bold(&super::po::tf(
+            "Scan compare · {base} → {target}",
+            &[("base", base), ("target", target)],
+        ))
+    );
+    let mut t = output::Table::new(&["CHANGE", "ID", "PACKAGE", "SEVERITY"]);
+    for f in &diff.added {
+        t.row(vec![
+            "+ added".into(),
+            f.id.clone(),
+            f.package.clone(),
+            format!("{:?}", f.severity),
+        ]);
+    }
+    for f in &diff.removed {
+        t.row(vec![
+            "- removed".into(),
+            f.id.clone(),
+            f.package.clone(),
+            format!("{:?}", f.severity),
+        ]);
+    }
+    if diff.added.is_empty() && diff.removed.is_empty() {
+        println!("{}", output::dim(super::po::t("no difference in findings")));
+    } else {
+        t.print();
     }
     Ok(())
 }
@@ -502,6 +739,116 @@ fn removed_note(removed: bool) -> &'static str {
     }
 }
 
+/// `true` if `pattern` matches the repo part of `reference` (the `host/repo`,
+/// with the `:tag`/`@digest` dropped so a trust rule names the repo, not a tag).
+/// A single trailing `*` is a prefix wildcard (`ghcr.io/ngolacloud/*`); anything
+/// else is an exact match. Pure, so the trust-policy matching is unit-testable
+/// without a registry.
+fn repo_matches(pattern: &str, reference: &str) -> bool {
+    // host:port/repo:tag -> host:port/repo. The ':' inside host:port is BEFORE
+    // the last '/', so only the trailing ':tag' (after the last '/') is dropped.
+    let repo = match reference.rsplit_once('/') {
+        Some((pre, last)) => {
+            let last_no_tag = last.split([':', '@']).next().unwrap_or(last);
+            format!("{pre}/{last_no_tag}")
+        }
+        None => reference
+            .split([':', '@'])
+            .next()
+            .unwrap_or(reference)
+            .to_string(),
+    };
+    match pattern.strip_suffix('*') {
+        Some(prefix) => repo.starts_with(prefix),
+        None => repo == pattern,
+    }
+}
+
+/// **Signature-trust admission on pull** (GAP-0017, supply-chain). A declarative
+/// trust policy — `$DELONIX_TRUST_POLICY`, else `<root>/trust.json` — maps repo
+/// patterns to the trusted public key that must have signed the image. On pull,
+/// if a rule matches the reference, the image's cosign signature is verified
+/// against that key (reusing `verify_signature`); `mode: "enforce"` (default)
+/// REFUSES an image not signed by the trusted key, `mode: "warn"` only reports.
+/// No policy file, or no rule matching the repo, means no trust requirement —
+/// explicit, never a silent allow for a repo the operator did put under policy.
+///
+/// Shape:
+/// `{ "mode": "enforce", "rules": [ { "repo": "ghcr.io/ngolacloud/*",
+///    "key": "/path/to/key.pub" } ] }`
+pub fn admission_trust_on_pull(images: &ImageStore, reference: &str) -> Result<()> {
+    let path = std::env::var("DELONIX_TRUST_POLICY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| state_root().join("trust.json"));
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(()); // no trust policy configured
+    };
+    let doc: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+        Error::Invalid(super::po::tf(
+            "trust policy {path} is not valid JSON: {err}",
+            &[
+                ("path", &path.display().to_string()),
+                ("err", &e.to_string()),
+            ],
+        ))
+    })?;
+    let enforce = doc
+        .get("mode")
+        .and_then(|m| m.as_str())
+        .unwrap_or("enforce")
+        != "warn";
+    let rules = doc.get("rules").and_then(|r| r.as_array());
+    let Some(rule) = rules.and_then(|rs| {
+        rs.iter().find(|r| {
+            r.get("repo")
+                .and_then(|p| p.as_str())
+                .map(|pat| repo_matches(pat, reference))
+                .unwrap_or(false)
+        })
+    }) else {
+        return Ok(()); // this repo is not under the trust policy
+    };
+    let key = rule.get("key").and_then(|k| k.as_str()).ok_or_else(|| {
+        Error::Invalid(
+            super::po::t("trust policy rule matched but has no 'key' — cannot verify trust").into(),
+        )
+    })?;
+    let pem = std::fs::read_to_string(key).map_err(|e| {
+        Error::Invalid(super::po::tf(
+            "trust policy key {key} unreadable: {err}",
+            &[("key", key), ("err", &e.to_string())],
+        ))
+    })?;
+    match delonix_oci::verify_signature(images, reference, &pem) {
+        Ok(digest) => {
+            eprintln!(
+                "{}",
+                super::po::tf(
+                    "→ trust: valid signature for {reference} ({digest})",
+                    &[("reference", reference), ("digest", &digest)],
+                )
+            );
+            Ok(())
+        }
+        Err(e) if !enforce => {
+            output::warn(&super::po::tf(
+                "trust policy (warn): {reference} failed signature trust: {err}",
+                &[("reference", reference), ("err", &e.to_string())],
+            ));
+            Ok(())
+        }
+        Err(e) => Err(Error::Invalid(super::po::tf(
+            "refused: '{reference}' is not signed by a key trusted for this repo per the \
+             trust policy ({path}): {err}",
+            &[
+                ("reference", reference),
+                ("path", &path.display().to_string()),
+                ("err", &e.to_string()),
+            ],
+        ))),
+    }
+}
+
 /// **CVE admission policy on pull** (supply-chain). Controlled by
 /// `DELONIX_SCAN_ON_PULL`: unset/empty = off (no latency); `warn` = scan +
 /// report; `require-sbom` = fail-closed GATE that refuses an image the scanner
@@ -606,6 +953,31 @@ pub fn admission_scan_on_pull(images: &ImageStore, reference: &str, img: &Image)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repo_matches_exact_wildcard_and_drops_the_tag() {
+        // Exact repo, tag ignored.
+        assert!(repo_matches(
+            "127.0.0.1:5000/alpine",
+            "127.0.0.1:5000/alpine:att"
+        ));
+        // The host's own ':port' is kept; only the trailing ':tag' is dropped.
+        assert!(!repo_matches(
+            "127.0.0.1:5000/alpine",
+            "127.0.0.1:5000/busybox"
+        ));
+        // Prefix wildcard.
+        assert!(repo_matches(
+            "ghcr.io/ngolacloud/*",
+            "ghcr.io/ngolacloud/delonix:1.0"
+        ));
+        assert!(!repo_matches("ghcr.io/ngolacloud/*", "ghcr.io/other/x:1.0"));
+        // A digest reference drops the '@sha256:…' too.
+        assert!(repo_matches(
+            "docker.io/library/alpine",
+            "docker.io/library/alpine@sha256:abc"
+        ));
+    }
 
     #[test]
     fn admissao_rejeita_por_severidade() {

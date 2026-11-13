@@ -371,7 +371,7 @@ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hi
 <span class="lang-pt">Pesquisar</span><span class="lang-en">Search</span>
 <span class="kbd">Ctrl K</span></button>
 <div class="hdr-right">
-<a class="ver-pill" href="../estabilidade.html" title="Versão documentada / Documented version">v0.1.0</a>
+<a class="ver-pill" href="../estabilidade.html" title="Versão documentada / Documented version">v0.1.1</a>
 <button class="lang-toggle" type="button" aria-label="Switch language / Mudar idioma" title="EN / PT">
 <span class="lbl-en">EN</span><span class="lbl-pt">PT</span></button>
 <button class="theme-toggle" type="button" aria-label="Alternar tema claro/escuro" title="Tema claro/escuro">
@@ -448,6 +448,9 @@ Options:
 
       --target &lt;TARGET&gt;
           Name or index of a `FROM ... AS &lt;name&gt;` stage to stop the build at and package as the result, instead of the Dockerfile&#x27;s own final stage. Only the stages the target itself needs (everything at or before it, in file order) are built — later stages are skipped entirely
+
+      --provenance [&lt;mode&gt;]
+          Emit SLSA v1 provenance for this build, cached next to the image (attach it to a registry later with `image provenance &lt;ref&gt; --attach`). `--provenance` or `--provenance=max` records build-arg values; `--provenance=min` withholds them (safe on any build). Off by default
 
   -h, --help
           Print help (see a summary with &#x27;-h&#x27;)

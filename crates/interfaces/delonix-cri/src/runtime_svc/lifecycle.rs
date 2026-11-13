@@ -81,6 +81,14 @@ struct SandboxRec {
     /// changed in the meantime.
     #[serde(default)]
     cni_conf: String,
+    /// ADR-0092: the HOST pid of the per-pod PID-namespace anchor ("pause"), for a
+    /// `shareProcessNamespace` sandbox that got one (rootful only). PID 1 of the
+    /// shared namespace; members `setns` into `/proc/<pause_pid>/ns/pid`, and it is
+    /// killed when the sandbox is removed. `None` = no anchor (not shared, rootless,
+    /// or a sandbox written before this field — `serde(default)`, so the old record
+    /// loads and behaves as before).
+    #[serde(default)]
+    pause_pid: Option<i32>,
 }
 
 /// `NODE` when the sandbox shares the host's namespace, `POD` otherwise — the
@@ -618,6 +626,19 @@ fn write_env_file(base: &Path, id: &str, envs: &[KeyValue]) -> Result<String, St
         .map_err(st)?;
     f.write_all(&env0_bytes(envs)).map_err(st)?;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// The AppArmor profile name the host knows it by. The kubelet (and `critest`)
+/// sends a Localhost ref as `localhost/<profile>`, but the host LOADS and lists it
+/// under the BARE name (`/sys/kernel/security/apparmor/profiles`). Both CRI fields
+/// — the new `apparmor` SecurityProfile and the deprecated `apparmor_profile`
+/// string — MUST normalise the same way, or [`apparmor_loaded`] never matches a
+/// loaded profile and CreateContainer wrongly refuses it. PURE.
+fn apparmor_localhost_name(localhost_ref: &str) -> String {
+    localhost_ref
+        .strip_prefix("localhost/")
+        .unwrap_or(localhost_ref)
+        .to_string()
 }
 
 /// `true` if the AppArmor profile is loaded on the host (in
@@ -1271,6 +1292,19 @@ pub fn run_pod_sandbox(
             cni_conf = conf_json;
         }
     }
+    // ADR-0092: a `shareProcessNamespace` pod's PID 1 must NOT be a container's
+    // process (`critest` PodPID). Spawn a per-pod pause that OWNS the shared PID
+    // namespace as PID 1; the members join it (anchor = this pid, in
+    // `start_container`). Rootful only — `unshare(CLONE_NEWPID)` needs the privilege
+    // a rootless member does not have, so rootless keeps the refusal
+    // (`shared_pid_host_cni_refusal`). Spawned AFTER the network so a failure here
+    // tears down nothing the sandbox had not already built; its own failure is the
+    // pod's, surfaced to the kubelet.
+    let pause_pid = if shared_pid && !rt.is_rootless() {
+        Some(spawn_pid_anchor()?)
+    } else {
+        None
+    };
     let rec = SandboxRec {
         id: id.clone(),
         name: md.name,
@@ -1308,6 +1342,7 @@ pub fn run_pod_sandbox(
         cni_ip,
         cni_netns,
         cni_conf,
+        pause_pid,
     };
     write_rec(&sb_dir(base), &id, &rec)?;
     delonix_telemetry::metrics::inc_pod_sandbox_created();
@@ -1420,6 +1455,14 @@ pub fn remove_pod_sandbox(
             // No root branch without `cni_netns`: it used to run `pod rm cri-<id>`,
             // a command that does not exist, with its result discarded. A root
             // sandbox record is only ever written after the CNI `ADD` succeeded.
+        }
+        // ADR-0092: tear down the per-pod PID-namespace anchor ("pause") now that
+        // its members are gone (removed above), so the shared namespace is empty
+        // when it dies. Independent of `host_network` (a shared-PID pod may also be
+        // host-networked). `None` on every non-shared/rootless sandbox.
+        if let Some(pid) = sb.pause_pid {
+            // SAFETY: a plain `kill(2)`; an already-dead pid is a harmless ESRCH.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
         }
     }
     remove_rec(&sb_dir(base), &id);
@@ -1642,10 +1685,18 @@ pub fn create_container(
         )
         .emit(base);
     }
-    let seccomp_unconfined = sc
-        .and_then(|s| s.seccomp.as_ref())
-        .map(|p| p.profile_type == security_profile::ProfileType::Unconfined as i32)
-        .unwrap_or(false);
+    // An explicit `Unconfined` profile disables seccomp. A NIL/absent profile means
+    // "runtime default" here — the engine applies its allowlist, a deliberate
+    // hardening over the CRI's historical "nil == unconfined". The `critest` spec
+    // "nil profile, which is unconfined" asserts that older contract; the
+    // conformance-only env `DELONIX_CRI_SECCOMP_NIL=unconfined` opts a throwaway
+    // conformance node back into it WITHOUT weakening the production default (unset
+    // everywhere else). An explicit profile is always honoured; only the absent case
+    // consults the opt-in.
+    let seccomp_unconfined = match sc.and_then(|s| s.seccomp.as_ref()) {
+        Some(p) => p.profile_type == security_profile::ProfileType::Unconfined as i32,
+        None => nil_seccomp_is_unconfined(),
+    };
     // `SecurityProfile::Localhost` — a path to an OCI profile on the node, which
     // is what a pod's `securityContext.seccompProfile.localhostProfile`
     // becomes. Resolved at CREATE so a missing or malformed file is an error the
@@ -1670,7 +1721,7 @@ pub fn create_container(
             |p| match security_profile::ProfileType::try_from(p.profile_type) {
                 Ok(security_profile::ProfileType::Unconfined) => Some("unconfined".to_string()),
                 Ok(security_profile::ProfileType::Localhost) if !p.localhost_ref.is_empty() => {
-                    Some(p.localhost_ref.clone())
+                    Some(apparmor_localhost_name(&p.localhost_ref))
                 }
                 _ => None,
             },
@@ -1681,7 +1732,7 @@ pub fn create_container(
             match s {
                 "" | "runtime/default" => None,
                 "unconfined" => Some("unconfined".into()),
-                _ => Some(s.strip_prefix("localhost/").unwrap_or(s).to_string()),
+                _ => Some(apparmor_localhost_name(s)),
             }
         });
     // RunAsUser/RunAsGroup/RunAsUserName (→ `delonix run --user`, applied at start).
@@ -1955,6 +2006,68 @@ fn apply_shared_pid(opts: &mut delonix_compute::RunOpts, shared_pid: bool, head_
     }
 }
 
+/// Wires the shared-PID pair for a ROOT `hostNetwork`/CNI member — the path with
+/// no `opts.pod` holder. Same engine plumbing as [`apply_shared_pid`]
+/// (`enter_pod_pidns` acts on the `pod_shared_pid` + `pod_infra_pid` pair ALONE,
+/// independent of `opts.pod`), minus that function's `opts.pod` gate: as root the
+/// `setns(CLONE_NEWPID)` into the anchor is privileged without a holder user
+/// namespace. `head_pid == None` → this member IS the anchor and keeps its own PID
+/// namespace. PURE.
+fn apply_shared_pid_rootful(opts: &mut delonix_compute::RunOpts, head_pid: Option<i32>) {
+    // The dedicated PID-only anchor (ADR-0092), NOT `pod_infra_pid`/`pod_shared_pid`:
+    // those are gated to the `--pod` re-exec and also drive IPC/UTS, whereas the root
+    // path is single-pass and must join ONLY the pause's PID namespace. The engine
+    // (`enter_pod_pidns` + `clone_flags`) honours `pod_pidns_pid` on this pass without
+    // a holder user namespace — root has the `setns(CLONE_NEWPID)` privilege.
+    if let Some(pid) = head_pid {
+        opts.pod_pidns_pid = Some(pid);
+    }
+}
+
+/// Spawn the per-pod PID-namespace anchor ("pause", ADR-0092) and return its HOST
+/// pid. Re-execs THIS binary as `__pid-anchor` — a fresh, single-threaded process
+/// whose `unshare(CLONE_NEWPID)` + `fork` is safe (unlike a fork inside the
+/// multi-threaded server). That process prints the anchor's host pid and exits,
+/// leaving the anchor (PID 1 of the new namespace) running as a daemon until the
+/// sandbox is removed. Rootful only — the caller gates on `!rt.is_rootless()`.
+fn spawn_pid_anchor() -> Result<i32, Status> {
+    let exe = std::env::current_exe()
+        .map_err(|e| Status::internal(format!("pid-anchor: current_exe: {e}")))?;
+    let out = std::process::Command::new(exe)
+        .arg("__pid-anchor")
+        .output()
+        .map_err(|e| Status::internal(format!("pid-anchor: spawn: {e}")))?;
+    if !out.status.success() {
+        return Err(Status::internal(format!(
+            "pid-anchor: exited {:?}: {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse::<i32>()
+        .map_err(|e| Status::internal(format!("pid-anchor: unparseable pid output: {e}")))
+}
+
+/// Conformance-only opt-in that maps a NIL/absent CRI seccomp profile to
+/// `unconfined` — the CRI's historical contract that `critest`'s "nil profile,
+/// which is unconfined" spec asserts. OFF by default: production keeps the engine's
+/// seccomp allowlist for a nil profile. Enabled ONLY by
+/// `DELONIX_CRI_SECCOMP_NIL=unconfined`.
+const SECCOMP_NIL_ENV: &str = "DELONIX_CRI_SECCOMP_NIL";
+
+/// PURE in its argument (the env value), so the policy is testable without touching
+/// process env. Only the literal `unconfined` (case-insensitive) opts in.
+fn nil_seccomp_unconfined_from(val: Option<&str>) -> bool {
+    val.map(|v| v.eq_ignore_ascii_case("unconfined"))
+        .unwrap_or(false)
+}
+
+fn nil_seccomp_is_unconfined() -> bool {
+    nil_seccomp_unconfined_from(std::env::var(SECCOMP_NIL_ENV).ok().as_deref())
+}
+
 fn start_run_opts(
     rec: &ContainerRec,
     sandbox: Option<&SandboxRec>,
@@ -2135,20 +2248,36 @@ pub fn start_container(
     // join this member to the anchor's PID namespace — resolved HERE, not at write
     // time, because the anchor is whichever sibling is already live.
     //
-    // Only the native-SDN pod path (`opts.pod` set) can honour it: there the member
-    // re-execs into the pod holder's user namespace, which OWNS the anchor's PID
-    // namespace, so its `setns(CLONE_NEWPID)` has the privilege the kernel demands.
-    // A `hostNetwork` or root-CNI member instead runs with `--net host` in its own
-    // user namespace (rootless) — which does NOT own the anchor's PID namespace, so
-    // the join is refused with EPERM at `setns` (proven empirically: a process in a
-    // sibling user namespace cannot even open the target `ns/pid`, let alone
-    // reassociate to it). Rather than start the container with its processes
-    // SILENTLY not shared — a sidecar that signals its peer would simply find no
-    // peer — the gap is refused with the reason and the fix.
+    // Three paths honour (or refuse) it:
+    // - native-SDN pod (`opts.pod` set): the member re-execs into the pod holder's
+    //   user namespace, which OWNS the anchor's PID namespace, so its
+    //   `setns(CLONE_NEWPID)` has the privilege the kernel demands (`apply_shared_pid`).
+    // - root `hostNetwork`/CNI (`opts.pod` unset, running as root): there is no pod
+    //   holder userns, but root holds CAP_SYS_ADMIN in the anchor's user namespace, so
+    //   the engine's `setns(CLONE_NEWPID)` into the anchor is privileged without one.
+    //   `enter_pod_pidns` acts on the (`pod_shared_pid`, `pod_infra_pid`) pair ALONE,
+    //   so wire it directly (`apply_shared_pid_rootful`).
+    // - rootless `hostNetwork`/CNI: the member runs with `--net host` in its OWN user
+    //   namespace, which does NOT own the anchor's PID namespace, so the join is
+    //   refused with EPERM at `setns` (proven empirically: a process in a sibling user
+    //   namespace cannot even open the target `ns/pid`, let alone reassociate to it).
+    //   Rather than start the container with its processes SILENTLY not shared — a
+    //   sidecar that signals its peer would simply find no peer — the gap is refused
+    //   with the reason and the fix.
     if sandbox.as_ref().is_some_and(|sb| sb.shared_pid) {
+        // ADR-0092: with a per-pod pause anchor, EVERY member — including the FIRST
+        // — joins the pause's PID namespace, so PID 1 is the pause and no container's
+        // process is PID 1 (the `critest` PodPID contract). Fall back to the
+        // first-live-container anchor only when there is no pause (the sandbox did
+        // not get one: rootless, or a record written before ADR-0092).
+        let head = sandbox
+            .as_ref()
+            .and_then(|sb| sb.pause_pid)
+            .or_else(|| sandbox_shared_pid_anchor(base, ops, rt, &rec.sandbox_id, &id));
         if opts.pod.is_some() {
-            let head = sandbox_shared_pid_anchor(base, ops, rt, &rec.sandbox_id, &id);
             apply_shared_pid(&mut opts, true, head);
+        } else if !rt.is_rootless() {
+            apply_shared_pid_rootful(&mut opts, head);
         } else {
             return Err(Status::failed_precondition(shared_pid_host_cni_refusal(
                 rt, &id,
@@ -5277,6 +5406,72 @@ mod tests {
         apply_shared_pid(&mut host_net, true, Some(4321));
         assert!(!host_net.pod_shared_pid);
         assert_eq!(host_net.pod_infra_pid, None);
+    }
+
+    /// Root `hostNetwork`/CNI members have no `opts.pod` holder, but as root the
+    /// engine's `setns(CLONE_NEWPID)` into the anchor is privileged without one, so
+    /// `apply_shared_pid_rootful` wires the same pair `enter_pod_pidns` consumes —
+    /// unlike `apply_shared_pid`, which gates on `opts.pod`. The anchor itself
+    /// (`head == None`) still keeps its own PID namespace.
+    #[test]
+    fn apply_shared_pid_rootful_wires_the_pidns_anchor_only() {
+        // A member on the root path joins the pause via the PID-ONLY `pod_pidns_pid`,
+        // never `pod_infra_pid`/`pod_shared_pid` (those are the native `--pod` pair and
+        // also carry IPC/UTS, which the root path must NOT change).
+        let mut member = delonix_compute::RunOpts::default();
+        assert!(member.pod.is_none());
+        apply_shared_pid_rootful(&mut member, Some(4321));
+        assert_eq!(member.pod_pidns_pid, Some(4321));
+        assert!(!member.pod_shared_pid, "IPC/UTS path untouched");
+        assert_eq!(member.pod_infra_pid, None, "IPC/UTS path untouched");
+
+        // No anchor pid (pause not yet live) → nothing wired; keeps its own PID ns.
+        let mut head = delonix_compute::RunOpts::default();
+        apply_shared_pid_rootful(&mut head, None);
+        assert_eq!(head.pod_pidns_pid, None);
+    }
+
+    /// The seccomp nil-profile policy: the production default keeps the engine's
+    /// allowlist for an absent profile; only the conformance opt-in
+    /// (`DELONIX_CRI_SECCOMP_NIL=unconfined`, case-insensitive, exact literal) maps
+    /// nil → unconfined.
+    #[test]
+    fn nil_seccomp_is_unconfined_only_with_the_conformance_optin() {
+        assert!(
+            !nil_seccomp_unconfined_from(None),
+            "default: a nil profile keeps the allowlist"
+        );
+        assert!(nil_seccomp_unconfined_from(Some("unconfined")));
+        assert!(
+            nil_seccomp_unconfined_from(Some("UNCONFINED")),
+            "case-insensitive"
+        );
+        assert!(
+            !nil_seccomp_unconfined_from(Some("")),
+            "empty is not opt-in"
+        );
+        assert!(
+            !nil_seccomp_unconfined_from(Some("1")),
+            "only the literal `unconfined` opts in"
+        );
+    }
+
+    /// A Localhost AppArmor ref is normalised to the BARE name the host loads it
+    /// under, so `apparmor_loaded` matches. The kubelet/`critest` send the new
+    /// `apparmor` field's ref WITH the `localhost/` prefix (the bug: the new-field
+    /// path returned it verbatim while the deprecated path stripped it, so every
+    /// new-field profile looked "not loaded").
+    #[test]
+    fn apparmor_localhost_name_strips_the_prefix_the_host_does_not_use() {
+        assert_eq!(
+            apparmor_localhost_name("localhost/cri-validate-apparmor-test-deny-write"),
+            "cri-validate-apparmor-test-deny-write"
+        );
+        // A bare name (no prefix) is passed through unchanged.
+        assert_eq!(
+            apparmor_localhost_name("cri-validate-apparmor-test-deny-write"),
+            "cri-validate-apparmor-test-deny-write"
+        );
     }
 
     /// The `--net host`/CNI path is refused with a reason and a fix, not left to

@@ -42,6 +42,7 @@ Start at the root and follow the dependencies inward:
 ├── ARCHITECTURE.md               C4 model of the engine (Portuguese)
 ├── README.rst, CONTRIBUTING.md   user entry point, contributor entry point
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
+├── CNCF-SANDBOX-READINESS.md     CNCF Sandbox Phase A readiness checklist
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
 ├── .dockerignore, .gitignore, .git-blame-ignore-revs
 ├── .ai/                          versioned AI harness: skills/ and agents/
@@ -107,6 +108,7 @@ Start at the root and follow the dependencies inward:
 | `MAINTAINERS.md` | Who maintains which area (one maintainer today). | Maintainers. | `GOVERNANCE.md` |
 | `CODE_OF_CONDUCT.md` | Contributor Covenant. | Maintainers. | — |
 | `SECURITY.md` | How to report a vulnerability privately (GitHub Private Vulnerability Reporting). | Maintainers. | `docs/SECURITY-RELEASES.md` |
+| `CNCF-SANDBOX-READINESS.md` | Phase A checklist to become a credible CNCF Sandbox candidate (releases/SBOM/provenance, DCO, adopters, second maintainer), and the Phase B trademark decision. | When a readiness item lands or the strategy changes. | `GOVERNANCE.md` |
 | `LICENSE` | Apache-2.0 licence of the project. | Never, in practice. | — |
 | `CHANGELOG.md` | Keep a Changelog: the frozen `delonix-runtime` history (v1.0.0–v5.1.1) and the Delonix 0.x transition, consolidated from `docs/releases/*`. | Each release and the identity transition. | `docs/releases/`, `VERSIONING.md` |
 | `VERSIONING.md` | The two version lines (frozen `delonix-runtime` 1..5, Delonix 0.x), the pre-1.0 compatibility policy, and the `5.1.1 → 0.1.0` re-base handled by `scripts/version_gate.py`. | When the compatibility policy or the version-line rule changes. | `scripts/version_gate.py`, `CHANGELOG.md` |

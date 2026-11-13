@@ -122,6 +122,12 @@ pub struct BuildArgs {
     /// in file order) are built — later stages are skipped entirely.
     #[arg(long = "target")]
     target: Option<String>,
+    /// Emit SLSA v1 provenance for this build, cached next to the image (attach
+    /// it to a registry later with `image provenance <ref> --attach`).
+    /// `--provenance` or `--provenance=max` records build-arg values;
+    /// `--provenance=min` withholds them (safe on any build). Off by default.
+    #[arg(long = "provenance", value_name = "mode", num_args = 0..=1, default_missing_value = "max")]
+    provenance: Option<String>,
 }
 
 /// Parses `KEY=VALUE` build-arg flags into pairs, dropping anything malformed
@@ -265,7 +271,84 @@ pub fn run(args: BuildArgs) -> Result<()> {
         platform.as_deref(),
         args.target.as_deref(),
     )?;
+    if let Some(mode_raw) = &args.provenance {
+        let mode = match mode_raw.as_str() {
+            "min" => delonix_scanner::ProvenanceMode::Min,
+            "max" | "" => delonix_scanner::ProvenanceMode::Max,
+            other => {
+                return Err(Error::Invalid(super::po::tf(
+                    "--provenance '{mode}': expected 'min' or 'max'",
+                    &[("mode", other)],
+                )))
+            }
+        };
+        write_provenance(
+            mode,
+            &img,
+            &file,
+            &args.tag,
+            platform.as_deref(),
+            &build_args,
+        )?;
+    }
     println!("{}", img.short_id());
+    Ok(())
+}
+
+/// Caches the SLSA provenance for a just-built image at
+/// `<root>/images/<id>.provenance.json`, the read side of `image provenance`.
+/// Re-reads+parses the Dockerfile (cheap) to recover the base-image `FROM`
+/// references and resolves each in the local store — those that resolve are the
+/// build's `resolvedDependencies` (a `FROM <stage>` alias does not resolve and
+/// is correctly skipped). The built image is the statement's subject; the clock
+/// is the image's own commit instant.
+fn write_provenance(
+    mode: delonix_scanner::ProvenanceMode,
+    img: &Image,
+    dockerfile: &Path,
+    tag: &str,
+    platform: Option<&str>,
+    build_args: &[(String, String)],
+) -> Result<()> {
+    let (images, _store) = open_stores()?;
+    let text = std::fs::read_to_string(dockerfile).unwrap_or_default();
+    let materials = match delonix_oci::build::parse_dockerfile_with_args(&text, build_args) {
+        Ok(df) => std::iter::once(df.from.clone())
+            .chain(df.stages.iter().map(|s| s.from.clone()))
+            .filter_map(|r| {
+                images
+                    .resolve(&r)
+                    .ok()
+                    .map(|base| delonix_scanner::Material {
+                        uri: r.clone(),
+                        sha256: Some(base.id.trim_start_matches("sha256:").to_string()),
+                    })
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    let facts = delonix_scanner::ProvenanceFacts {
+        builder_id: format!(
+            "https://github.com/ngolacloud/delonix@{}",
+            env!("CARGO_PKG_VERSION")
+        ),
+        build_type: "https://github.com/ngolacloud/delonix/build@v1".to_string(),
+        target: tag.to_string(),
+        dockerfile: dockerfile.display().to_string(),
+        platform: platform
+            .unwrap_or_else(|| delonix_oci::build::oci_arch())
+            .to_string(),
+        build_args: build_args.to_vec(),
+        materials,
+        invocation_id: img.id.clone(),
+        finished_on: Some(format!(
+            "{}Z",
+            super::container::unix_secs_to_rfc3339_prefix(img.created_unix)
+        )),
+    };
+    let predicate = delonix_scanner::slsa_provenance_predicate(&facts, mode);
+    let path = super::scan::provenance_path(images.root(), &img.id);
+    std::fs::write(&path, serde_json::to_vec_pretty(&predicate)?)?;
     Ok(())
 }
 
@@ -874,6 +957,7 @@ fn work_launch(rootfs: &str) -> delonix_compute::launch::Launch {
         slirp_ports: vec![],
         pod_infra_pid: None,
         pod_shared_pid: false,
+        pod_pidns_pid: None,
         apparmor: None,
         log_path: None,
         replaces_record: false,

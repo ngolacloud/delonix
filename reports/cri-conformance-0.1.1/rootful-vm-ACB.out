@@ -1,0 +1,281 @@
+Warning: Permanently added '192.168.122.73' (ED25519) to the list of known hosts.
+==> a arrancar delonix-cri (root=/tmp/delonix-cri-critest-root.obnHNM socket=/tmp/delonix-cri-critest-1232.sock)
+==> smoke: crictl version
+time="2026-11-08T13:49:25Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.0
+RuntimeApiVersion:  v1
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> critest (timeout ginkgo=18m)
++ tee /tmp/critest-rootful2.log
++ critest -runtime-endpoint unix:///tmp/delonix-cri-critest-1232.sock -image-endpoint unix:///tmp/delonix-cri-critest-1232.sock -ginkgo.timeout=18m -ginkgo.no-color
+time="2026-11-08T13:49:25Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1794145765
+
+Will run 117 of 122 specs
+•E1108 13:49:29.968438    1261 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+••••••••••••••••S••••E1108 13:50:31.012376    1261 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="78d325e05ae3c9df"
+•••E1108 13:50:31.818841    1261 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/non-existent-profile' is not loaded on the host" podSandboxID="b42161c253b34e99"
+•E1108 13:50:32.020266    1261 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host" podSandboxID="2f575ad223fb95e2"
+
+------------------------------
+• [FAILED] [0.202 seconds]
+[k8s.io] AppArmor runtime should support apparmor field [It] should enforce a apparmor_profile blocking writes
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:159
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:50:32.018
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:50:32.018
+  STEP: Create container. @ 11/08/26 13:50:32.019
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:50:32.02
+  STEP: stop PodSandbox @ 11/08/26 13:50:32.02
+  STEP: delete PodSandbox @ 11/08/26 13:50:32.021
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x3b404046eee0>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:50:32.02
+------------------------------
+E1108 13:50:32.228453    1261 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host" podSandboxID="299b2d4dae01eabf"
+• [FAILED] [0.208 seconds]
+[k8s.io] AppArmor runtime should support apparmor field [It] should enforce a permissive deprecated profile
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:170
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:50:32.223
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:50:32.223
+  STEP: Create container. @ 11/08/26 13:50:32.226
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:50:32.228
+  STEP: stop PodSandbox @ 11/08/26 13:50:32.228
+  STEP: delete PodSandbox @ 11/08/26 13:50:32.229
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x3b404046ef90>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:50:32.228
+------------------------------
+E1108 13:50:32.424169    1261 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/non-existent-profile' is not loaded on the host" podSandboxID="73741ea30fe69c5c"
+•E1108 13:50:32.609391    1261 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host" podSandboxID="fd142ccb1f9cd1b8"
+
+------------------------------
+• [FAILED] [0.185 seconds]
+[k8s.io] AppArmor runtime should prefer new apparmor field [It] should enforce a apparmor_profile blocking writes
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:211
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:50:32.607
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:50:32.607
+  STEP: Create container. @ 11/08/26 13:50:32.608
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:50:32.609
+  STEP: stop PodSandbox @ 11/08/26 13:50:32.609
+  STEP: delete PodSandbox @ 11/08/26 13:50:32.61
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x3b4040a32850>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:50:32.609
+------------------------------
+E1108 13:50:32.789339    1261 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host" podSandboxID="406900deea4ceeb7"
+• [FAILED] [0.159 seconds]
+[k8s.io] AppArmor runtime should prefer new apparmor field [It] should work with apparmor profile
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:223
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:50:32.787
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:50:32.787
+  STEP: Create container. @ 11/08/26 13:50:32.788
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:50:32.789
+  STEP: stop PodSandbox @ 11/08/26 13:50:32.789
+  STEP: delete PodSandbox @ 11/08/26 13:50:32.79
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x3b4040a32970>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:50:32.789
+------------------------------
+S•••
+------------------------------
+• [FAILED] [0.443 seconds]
+[k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:121
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 13:50:33.327
+  STEP: create host path and flag file @ 11/08/26 13:50:33.372
+  STEP: create container with volume @ 11/08/26 13:50:33.372
+  STEP: create a container with volume and name @ 11/08/26 13:50:33.372
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:50:33.372
+  STEP: Create container. @ 11/08/26 13:50:33.373
+  Nov  8 13:50:33.374: INFO: Created container "8cb6c561627f2ba1"
+
+  STEP: verifying container status @ 11/08/26 13:50:33.374
+  STEP: verifying container status mount propagation @ 11/08/26 13:50:33.374
+  STEP: test start container with volume @ 11/08/26 13:50:33.374
+  STEP: Start container for containerID: 8cb6c561627f2ba1 @ 11/08/26 13:50:33.374
+  Nov  8 13:50:33.419: INFO: Started container "8cb6c561627f2ba1"
+
+  STEP: Get container status for containerID: 8cb6c561627f2ba1 @ 11/08/26 13:50:33.419
+  STEP: create a propatation mount point in host @ 11/08/26 13:50:33.421
+  STEP: check whether propagationMntPoint contains file or dir in container @ 11/08/26 13:50:33.421
+  STEP: execSync for containerID: 8cb6c561627f2ba1 @ 11/08/26 13:50:33.421
+  Nov  8 13:50:33.444: INFO: Execsync succeed
+  STEP: create a directory named containerMntPoint as a mount point in container @ 11/08/26 13:50:33.444
+  STEP: execSync for containerID: 8cb6c561627f2ba1 @ 11/08/26 13:50:33.444
+  Nov  8 13:50:33.483: INFO: Execsync succeed
+  STEP: mount /etc to the mount point in container @ 11/08/26 13:50:33.483
+  STEP: execSync for containerID: 8cb6c561627f2ba1 @ 11/08/26 13:50:33.483
+  Nov  8 13:50:33.512: INFO: Execsync succeed
+  STEP: check whether containerMntPoint contains file or dir in host @ 11/08/26 13:50:33.512
+  STEP: clean up the TempDir @ 11/08/26 13:50:33.512
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 13:50:33.513
+  STEP: stop PodSandbox @ 11/08/26 13:50:33.513
+  STEP: delete PodSandbox @ 11/08/26 13:50:33.646
+  << Timeline
+
+  [FAILED] len(fileInfo) should not be zero.
+  Expected
+      <[]fs.DirEntry | len:0, cap:0>: []
+  not to be empty
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 13:50:33.513
+------------------------------
+•••••••••••
+------------------------------
+• [FAILED] [1.400 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:198
+
+  Timeline >>
+  STEP: create podSandbox for sharing process namespace @ 11/08/26 13:51:19.013
+  Nov  8 13:51:19.013: INFO: Pid namespace is "POD"
+  STEP: create NamespaceOption podSandbox @ 11/08/26 13:51:19.013
+  STEP: create nginx container @ 11/08/26 13:51:19.059
+  STEP: create NamespaceOption container @ 11/08/26 13:51:19.059
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/nginx:1.14-2 @ 11/08/26 13:51:19.059
+  STEP: Create container. @ 11/08/26 13:51:19.059
+  Nov  8 13:51:19.060: INFO: Created container "de78209d31f90d63"
+
+  STEP: start container @ 11/08/26 13:51:19.06
+  STEP: Start container for containerID: de78209d31f90d63 @ 11/08/26 13:51:19.06
+  Nov  8 13:51:19.104: INFO: Started container "de78209d31f90d63"
+
+  STEP: Get container status for containerID: de78209d31f90d63 @ 11/08/26 13:51:19.104
+  STEP: get nginx container pid @ 11/08/26 13:51:19.106
+  STEP: execSync for containerID: de78209d31f90d63 @ 11/08/26 13:51:20.107
+  Nov  8 13:51:20.136: INFO: Execsync succeed
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226 @ 11/08/26 13:51:20.136
+  STEP: stop PodSandbox @ 11/08/26 13:51:20.136
+  STEP: delete PodSandbox @ 11/08/26 13:51:20.266
+  << Timeline
+
+  [FAILED] Expected
+      <string>: nginx: master process nginx -g daemon off; 
+  not to contain substring
+      <string>: master process
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226 @ 11/08/26 13:51:20.136
+------------------------------
+•••••••E1108 13:51:22.603280    1261 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="7f0278e96715cbd7"
+•••••••••••SS•••••••••SSSSSS•SSSS••••SSSSS•••••••••••••••••••••••E1108 13:52:31.185767    1261 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+••
+
+Summarizing 6 Failures:
+  [FAIL] [k8s.io] AppArmor runtime should support apparmor field [It] should enforce a apparmor_profile blocking writes
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should support apparmor field [It] should enforce a permissive deprecated profile
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should prefer new apparmor field [It] should enforce a apparmor_profile blocking writes
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should prefer new apparmor field [It] should work with apparmor profile
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:226
+
+Ran 103 of 122 Specs in 186.768 seconds
+FAIL! -- 97 Passed | 6 Failed | 0 Pending | 19 Skipped
+--- FAIL: TestCRISuite (186.77s)
+FAIL
++ rc=1
+==> critest terminou com rc=1 (log completo em /tmp/critest-rootful2.log; servidor em /tmp/critest-rootful2.log.server)
++ set +x
