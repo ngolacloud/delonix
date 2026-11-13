@@ -1,0 +1,66 @@
+Warning: Permanently added '192.168.122.243' (ED25519) to the list of known hosts.
+==> cgroup2 subtree_control: cpuset cpu io memory hugetlb pids
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> arrancar delonix-cri (socket=/run/delonix-cri.sock, CAP_CEILING=all, CNI=1, SECCOMP_NIL=unconfined)
+==> smoke: crictl version
+time="2026-11-10T09:55:48Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.0
+RuntimeApiVersion:  v1
+==> critest (timeout ginkgo=25m) FOCUS='' SKIP=''
++ critest -runtime-endpoint unix:///run/delonix-cri.sock -image-endpoint unix:///run/delonix-cri.sock -ginkgo.timeout=25m -ginkgo.no-color
++ tee /tmp/critest-full3.log
+time="2026-11-10T09:55:48Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1794304548
+
+Will run 117 of 122 specs
+•SSSS•S•E1110 09:55:54.755790   20232 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+•••••••••••••SSE1110 09:57:13.967752   20232 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="b61414fd2fb343b2"
+•••E1110 09:57:14.742450   20232 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="fba47728c9f18923"
+•••E1110 09:57:15.565526   20232 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="73dce839fb0c41c5"
+•••SS•••••••••••E1110 09:57:48.568166   20232 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="b9cf1a4d6c14507d"
+•••••••••••SS•••••••••SSSSSS••••E1110 09:58:03.822030   20232 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+••••S••••••••••••••••••••••••••••••S•••••••••
+
+Ran 103 of 122 Specs in 184.548 seconds
+SUCCESS! -- 103 Passed | 0 Failed | 0 Pending | 19 Skipped
+PASS
+==> critest rc=0 (log=/tmp/critest-full3.log; server=/tmp/critest-full3.log.server)
+=== server log tail ===
++ rc=0
++ set +x
+[2m2026-11-10T09:58:30.825767Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m249f02ae76ade767
+[2m2026-11-10T09:58:30.968796Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m7d9ff50d-4987-4316-9449-62121cc131fe
+[2m2026-11-10T09:58:31.036485Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m5e18c3bc21f24edb
+[2m2026-11-10T09:58:31.037419Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m5e18c3bc21f24edb
+[2m2026-11-10T09:58:31.038195Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m5e18c3bc21f24edb
+[2m2026-11-10T09:58:31.164590Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mbc6aa41f-b37c-4aba-baa1-58dc95a6f45f
+[2m2026-11-10T09:58:31.167725Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopContainer [3mcontainer[0m[2m=[0mcri-14cb0d1c-4c11-4b7c-a7fb-e392dea853c3 [3mgrace_secs[0m[2m=[0m0
+[2m2026-11-10T09:58:31.176331Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container stop failed [3mcontainer[0m[2m=[0mcri-14cb0d1c-4c11-4b7c-a7fb-e392dea853c3 [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-14cb0d1c-4c11-4b7c-a7fb-e392dea853c3: [DX-4101] no such container: cri-14cb0d1c-4c11-4b7c-a7fb-e392dea853c3
+[2m2026-11-10T09:58:31.288861Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopContainer [3mcontainer[0m[2m=[0mcri-69891b4c3cc44410 [3mgrace_secs[0m[2m=[0m60
+[2m2026-11-10T09:58:31.407450Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-69891b4c3cc44410
+[2m2026-11-10T09:58:31.421059Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-69891b4c3cc44410
+[2m2026-11-10T09:58:31.428896Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container rm -f failed [3mcontainer[0m[2m=[0mcri-69891b4c3cc44410 [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-69891b4c3cc44410: [DX-4101] no such container: cri-69891b4c3cc44410
+[2m2026-11-10T09:58:31.429850Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m637ed7ad178bc8ee
+[2m2026-11-10T09:58:31.430456Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m637ed7ad178bc8ee
+[2m2026-11-10T09:58:31.536190Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemoveContainer [3mcontainer[0m[2m=[0mcri-1fe750c7-57fd-4b53-bed7-422542a5879e
+[2m2026-11-10T09:58:31.543602Z[0m [33m WARN[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m container rm -f failed [3mcontainer[0m[2m=[0mcri-1fe750c7-57fd-4b53-bed7-422542a5879e [3mstatus[0m[2m=[0mexit status: 4 [3mstderr[0m[2m=[0mcri-1fe750c7-57fd-4b53-bed7-422542a5879e: [DX-4101] no such container: cri-1fe750c7-57fd-4b53-bed7-422542a5879e
+[2m2026-11-10T09:58:42.096895Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0me02f459771d86238
+[2m2026-11-10T09:58:42.339487Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0me02f459771d86238
+[2m2026-11-10T09:58:48.055119Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0maa1f3c49b99516b7
+[2m2026-11-10T09:58:48.295549Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0maa1f3c49b99516b7
+[2m2026-11-10T09:58:49.045143Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m701e1cb4e53bb757
+[2m2026-11-10T09:58:49.280127Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m701e1cb4e53bb757
+[2m2026-11-10T09:58:49.559640Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mdf1458438908c62d
+[2m2026-11-10T09:58:49.674534Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mdf1458438908c62d
+[2m2026-11-10T09:58:49.889918Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mdb8b8cd23a6d9934
+[2m2026-11-10T09:58:50.004498Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mdb8b8cd23a6d9934
+[2m2026-11-10T09:58:51.225628Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m52a982f6ea5d466a
+[2m2026-11-10T09:58:51.341702Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m52a982f6ea5d466a
+[2m2026-11-10T09:58:52.596529Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m07a02a3838a3ff06
+[2m2026-11-10T09:58:52.717669Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m07a02a3838a3ff06

@@ -3,7 +3,7 @@
 
 use crate::cas::strip;
 use crate::image::{Image, ImageStore};
-use crate::owners::Owner;
+use crate::owners::{scoped_resolve, Owner};
 use crate::{Error, Result};
 use nix::mount::{mount, umount2, MntFlags, MsFlags};
 use std::path::{Path, PathBuf};
@@ -208,29 +208,22 @@ fn apply_layer_flat_limited(data: &[u8], dest: &Path, limits: LayerLimits) -> Re
             .into_owned();
         let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
         if let Some(target) = name.strip_prefix(".wh.") {
-            // SECURITY: unlike the extraction branch below, this used to join the RAW
-            // tar path (never run through `safe_rel`) straight into `remove_dir_all`/
-            // `remove_file` — a `..`-laden whiteout entry (e.g.
-            // `../../../../home/<u>/.wh..wh..opq`) deleted files outside `dest`. Reject
-            // any whiteout whose path isn't confined (mirrors the extraction branch).
+            // SECURITY: a whiteout is our code, not `unpack_in`, so it has to confine
+            // its OWN deletes. This used to join the RAW tar path straight into
+            // `remove_dir_all`/`remove_file` — a `..`-laden entry (e.g.
+            // `../../../../home/<u>/.wh..wh..opq`) deleted files outside `dest`.
+            // Reject `..` lexically (`safe_rel`), then resolve the parent SCOPED to
+            // `dest` (`scoped_resolve`), so an EARLIER layer entry that planted a
+            // symlink at a parent component (`foo -> /etc`) cannot make the delete
+            // escape `dest` either. One guard, shared with the overlay whiteout path
+            // and `safe_bind_target` — not a third hand-rolled check.
             let Some(safe) = safe_rel(&path) else {
                 continue;
             };
-            let parent = safe
-                .parent()
-                .map(|p| dest.join(p))
-                .unwrap_or_else(|| dest.to_path_buf());
-            // Defense in depth: an EARLIER layer may have planted a symlink at `parent`
-            // pointing outside `dest` (the lexical check above only rejects `..` in the
-            // whiteout's OWN path, not a symlink an unrelated prior entry created) —
-            // canonicalize and confirm we're still inside `dest` before deleting through it.
-            let (Ok(canon_parent), Ok(canon_dest)) = (parent.canonicalize(), dest.canonicalize())
-            else {
+            let parent_rel = safe.parent().unwrap_or(Path::new(""));
+            let Some(parent) = scoped_resolve(dest, parent_rel) else {
                 continue;
             };
-            if !canon_parent.starts_with(&canon_dest) {
-                continue;
-            }
             if target == ".wh..opq" {
                 if let Ok(rd) = std::fs::read_dir(&parent) {
                     for e in rd.flatten() {
@@ -353,10 +346,27 @@ fn modes_marker(layers_dir: &Path, hex: &str) -> PathBuf {
     layers_dir.join(format!("{hex}.modes"))
 }
 
+/// A scratch-name discriminator unique within this process. The pid keeps two
+/// *processes* from sharing a scratch path; this sequence keeps two *threads* of
+/// one process from it too. Without it, two containers of a pod that mount the
+/// SAME image at once call `ensure_layers` concurrently, hand the same missing
+/// digest to `extract_one`, and both compute `.{hex}.{pid}.tmp` — then one
+/// removes and renames the other's half-written scratch, failing its unpack.
+/// `cas::tmp_path` and `ImageStore::save` already carry this same `{pid}-{seq}`
+/// fix; the overlay scratch paths had been missed.
+fn scratch_seq() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Writes an owners index through a temporary file, so a reader never sees half
 /// of one.
 fn write_owners(path: &Path, owners: &[Owner]) -> Result<()> {
-    let tmp = path.with_extension(format!("owners.{}.tmp", std::process::id()));
+    let tmp = path.with_extension(format!(
+        "owners.{}-{}.tmp",
+        std::process::id(),
+        scratch_seq()
+    ));
     std::fs::write(&tmp, crate::owners::encode(owners))?;
     std::fs::rename(&tmp, path)?;
     Ok(())
@@ -397,7 +407,11 @@ fn publish_layer_dir(tmp: &Path, dir: &Path) -> Result<()> {
         return Ok(());
     };
     let name = dir.file_name().and_then(|s| s.to_str()).unwrap_or("layer");
-    let doomed = parent.join(format!(".{name}.doomed.{}", std::process::id()));
+    let doomed = parent.join(format!(
+        ".{name}.doomed.{}-{}",
+        std::process::id(),
+        scratch_seq()
+    ));
     let _ = std::fs::remove_dir_all(&doomed);
     let displaced = std::fs::rename(dir, &doomed).is_ok();
     match std::fs::rename(tmp, dir) {
@@ -408,6 +422,20 @@ fn publish_layer_dir(tmp: &Path, dir: &Path) -> Result<()> {
             Ok(())
         }
         Err(e) => {
+            // A concurrent extraction of the SAME immutable digest — two
+            // containers of a pod mounting one image — may have published `dir`
+            // between our displacement and this rename. The kernel then refuses
+            // `rename(tmp, dir)` because the target directory is non-empty
+            // (`ENOTEMPTY`). Their copy is a correct extraction of the same
+            // content-addressed blob, so adopt it: drop our scratch (and the
+            // old layer we displaced, now superseded) and report success.
+            if layer_is_current(dir) {
+                let _ = std::fs::remove_dir_all(tmp);
+                if displaced {
+                    let _ = std::fs::remove_dir_all(&doomed);
+                }
+                return Ok(());
+            }
             if displaced {
                 let _ = std::fs::rename(&doomed, dir);
             }
@@ -494,9 +522,16 @@ impl ImageStore {
         if layer_is_current(&dir) {
             return Ok(());
         }
-        // temp exclusive to this process (pid + digest); `ensure_layers` hands
-        // each digest to one worker only.
-        let tmp = layers_dir.join(format!(".{hex}.{}.tmp", std::process::id()));
+        // Scratch exclusive to THIS extraction attempt. Within one
+        // `ensure_layers` each digest goes to a single worker, but two separate
+        // `ensure_layers` calls race the same digest when two containers of a pod
+        // mount the same image at once — so pid alone is not enough to keep their
+        // scratch apart; `scratch_seq` discriminates the concurrent attempts.
+        let tmp = layers_dir.join(format!(
+            ".{hex}.{}-{}.tmp",
+            std::process::id(),
+            scratch_seq()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp)?;
         // The owners go to a SIBLING of the layer directory, never inside it:
@@ -1094,6 +1129,42 @@ mod tests {
         buf
     }
 
+    /// DC-1/V1 companion to the overlay test in `owners.rs`: the flat/bundle
+    /// whiteout path resists the same symlink-escape, now through the SAME shared
+    /// `scoped_resolve` guard the overlay path uses (this path used to rely on a
+    /// bespoke canonicalize + `starts_with`; the refactor must not weaken it). A
+    /// layer `[symlink foo -> <outside>, whiteout foo/.wh.x]` must leave the file
+    /// beyond the bundle intact.
+    #[test]
+    fn a_flat_whiteout_cannot_escape_the_bundle_through_a_planted_symlink() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("bundle");
+        std::fs::create_dir_all(&dest).unwrap();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let victim = outside.join("x");
+        std::fs::write(&victim, b"keep me").unwrap();
+
+        let mut b = tar::Builder::new(Vec::new());
+        let mut h = tar::Header::new_gnu();
+        h.set_entry_type(tar::EntryType::Symlink);
+        h.set_mode(0o777);
+        h.set_size(0);
+        b.append_link(&mut h, "foo", &outside).unwrap();
+        let mut h = tar::Header::new_gnu();
+        h.set_mode(0o644);
+        h.set_size(0);
+        b.append_data(&mut h, "foo/.wh.x", &[][..]).unwrap();
+        let data = b.into_inner().unwrap();
+
+        apply_layer_flat(&data, &dest).unwrap();
+        assert!(
+            victim.exists(),
+            "flat whiteout escaped the bundle and deleted the file outside it"
+        );
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep me");
+    }
+
     /// Coverage guard for `ensure_layers`'s actual extraction path (bulk
     /// `tar::Archive::unpack()`, via `extract_layer` — NOT `apply_layer_flat`,
     /// which `export_rootfs`/the flat bundle path uses). Confirms it is NOT
@@ -1326,6 +1397,51 @@ mod parallel_extract_tests {
             assert!(dir.join(".extracted").exists());
         }
         assert!(scratch_left(root).is_empty(), "{:?}", scratch_left(root));
+    }
+
+    /// Two containers of one pod mount the SAME freshly-cached image at once:
+    /// `ensure_layers` runs concurrently and both extract the same missing
+    /// digests. The scratch name must discriminate the two attempts — a shared
+    /// `.{hex}.{pid}.tmp` let one remove or rename the other's half-written
+    /// directory, failing its unpack ("failed to unpack .../.<hash>.<pid>.tmp").
+    /// Both must finish, every layer must land current, and nothing may be left
+    /// behind. Repeated so the race has room to show.
+    #[test]
+    fn concurrent_ensure_layers_of_one_image_do_not_trample_each_others_scratch() {
+        for _ in 0..24 {
+            let (s, tmp) = store();
+            let root = tmp.path();
+            let mut digests = Vec::new();
+            for i in 0..5 {
+                digests.push(
+                    s.cas()
+                        .write(&layer(
+                            &format!("f{i}.txt"),
+                            format!("layer {i}").as_bytes(),
+                        ))
+                        .unwrap(),
+                );
+            }
+            let img = image(digests.clone());
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = (0..4)
+                    .map(|_| scope.spawn(|| s.ensure_layers(&img)))
+                    .collect();
+                for h in handles {
+                    let dirs = h.join().unwrap().expect("concurrent ensure_layers failed");
+                    assert_eq!(dirs.len(), 5);
+                }
+            });
+            for (i, d) in digests.iter().enumerate() {
+                let dir = root.join("layers").join(crate::cas::strip(d));
+                assert_eq!(
+                    std::fs::read_to_string(dir.join(format!("f{i}.txt"))).unwrap(),
+                    format!("layer {i}")
+                );
+                assert!(dir.join(".extracted").exists());
+            }
+            assert!(scratch_left(root).is_empty(), "{:?}", scratch_left(root));
+        }
     }
 
     /// ADR-0056: an ephemeral container's overlay carries the `volatile` marker,

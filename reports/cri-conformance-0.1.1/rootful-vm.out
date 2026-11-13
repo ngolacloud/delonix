@@ -1,0 +1,622 @@
+Warning: Permanently added '192.168.122.82' (ED25519) to the list of known hosts.
+==> a arrancar delonix-cri (root=/tmp/delonix-cri-critest-root.7vRFna socket=/tmp/delonix-cri-critest-6573.sock)
+==> smoke: crictl version
+time="2026-11-08T13:25:01Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.0
+RuntimeApiVersion:  v1
+==> critest (timeout ginkgo=18m)
++ critest -runtime-endpoint unix:///tmp/delonix-cri-critest-6573.sock -image-endpoint unix:///tmp/delonix-cri-critest-6573.sock -ginkgo.timeout=18m -ginkgo.no-color
++ tee /tmp/critest-rootful.log
+time="2026-11-08T13:25:01Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1794144301
+
+Will run 117 of 122 specs
+S•••••
+------------------------------
+• [FAILED] [0.471 seconds]
+[k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:121
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 13:25:06.091
+  STEP: create host path and flag file @ 11/08/26 13:25:06.137
+  STEP: create container with volume @ 11/08/26 13:25:06.137
+  STEP: create a container with volume and name @ 11/08/26 13:25:06.137
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:25:06.137
+  STEP: Create container. @ 11/08/26 13:25:06.138
+  Nov  8 13:25:06.138: INFO: Created container "6bbe2e26093906c6"
+
+  STEP: verifying container status @ 11/08/26 13:25:06.138
+  STEP: verifying container status mount propagation @ 11/08/26 13:25:06.139
+  STEP: test start container with volume @ 11/08/26 13:25:06.139
+  STEP: Start container for containerID: 6bbe2e26093906c6 @ 11/08/26 13:25:06.139
+  Nov  8 13:25:06.194: INFO: Started container "6bbe2e26093906c6"
+
+  STEP: Get container status for containerID: 6bbe2e26093906c6 @ 11/08/26 13:25:06.194
+  STEP: create a propatation mount point in host @ 11/08/26 13:25:06.196
+  STEP: check whether propagationMntPoint contains file or dir in container @ 11/08/26 13:25:06.196
+  STEP: execSync for containerID: 6bbe2e26093906c6 @ 11/08/26 13:25:06.196
+  Nov  8 13:25:06.220: INFO: Execsync succeed
+  STEP: create a directory named containerMntPoint as a mount point in container @ 11/08/26 13:25:06.22
+  STEP: execSync for containerID: 6bbe2e26093906c6 @ 11/08/26 13:25:06.22
+  Nov  8 13:25:06.245: INFO: Execsync succeed
+  STEP: mount /etc to the mount point in container @ 11/08/26 13:25:06.245
+  STEP: execSync for containerID: 6bbe2e26093906c6 @ 11/08/26 13:25:06.245
+  Nov  8 13:25:06.293: INFO: Execsync succeed
+  STEP: check whether containerMntPoint contains file or dir in host @ 11/08/26 13:25:06.293
+  STEP: clean up the TempDir @ 11/08/26 13:25:06.294
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 13:25:06.294
+  STEP: stop PodSandbox @ 11/08/26 13:25:06.294
+  STEP: delete PodSandbox @ 11/08/26 13:25:06.427
+  << Timeline
+
+  [FAILED] len(fileInfo) should not be zero.
+  Expected
+      <[]fs.DirEntry | len:0, cap:0>: []
+  not to be empty
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 13:25:06.294
+------------------------------
+••••••E1108 13:27:49.335134    6591 remote_runtime.go:435] "StartContainer from runtime service failed" err="rpc error: code = FailedPrecondition desc = container ebc46803a7122c95: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec." containerID="ebc46803a7122c95"
+
+------------------------------
+• [FAILED] [110.811 seconds]
+[k8s.io] Streaming runtime should support streaming interfaces [It] runtime should support portforward in host network
+/home/runner/work/cri-tools/cri-tools/pkg/validate/streaming_linux.go:51
+
+  Timeline >>
+  STEP: create a PodSandbox with container port mapping in host network @ 11/08/26 13:25:58.563
+  STEP: create a web server container @ 11/08/26 13:25:58.564
+  Nov  8 13:25:58.564: INFO: Use latest as default image tag.
+  STEP: Get image status for image: gcr.io/k8s-staging-cri-tools/hostnet-nginx-amd64:latest @ 11/08/26 13:25:58.564
+  STEP: Pull image : gcr.io/k8s-staging-cri-tools/hostnet-nginx-amd64:latest @ 11/08/26 13:25:58.565
+  STEP: Create container. @ 11/08/26 13:27:49.331
+  Nov  8 13:27:49.334: INFO: Created container "ebc46803a7122c95"
+
+  STEP: start the web server container @ 11/08/26 13:27:49.334
+  STEP: Start container for containerID: ebc46803a7122c95 @ 11/08/26 13:27:49.334
+  Nov  8 13:27:49.335: INFO: Unexpected error occurred: rpc error: code = FailedPrecondition desc = container ebc46803a7122c95: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:27:49.335
+  STEP: stop PodSandbox @ 11/08/26 13:27:49.335
+  STEP: delete PodSandbox @ 11/08/26 13:27:49.355
+  << Timeline
+
+  [FAILED] failed to start container: rpc error: code = FailedPrecondition desc = container ebc46803a7122c95: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  Unexpected error:
+      <*status.Error | 0x233d28e8a048>: 
+      rpc error: code = FailedPrecondition desc = container ebc46803a7122c95: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 9,
+                  Message: "container ebc46803a7122c95: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:27:49.335
+------------------------------
+••••SSS•E1108 13:28:06.197796    6591 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+••••••••••••E1108 13:28:59.527895    6591 remote_runtime.go:435] "StartContainer from runtime service failed" err="rpc error: code = FailedPrecondition desc = container 4bc2eab33a3e2479: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec." containerID="4bc2eab33a3e2479"
+
+------------------------------
+• [FAILED] [0.203 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support HostIpc is true
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:190
+
+  Timeline >>
+  STEP: create shared memory segment on the host @ 11/08/26 13:28:59.475
+  STEP: create podSandbox for security context HostIPC is NODE @ 11/08/26 13:28:59.477
+  STEP: create NamespaceOption podSandbox @ 11/08/26 13:28:59.477
+  STEP: create a default container with namespace @ 11/08/26 13:28:59.525
+  STEP: create NamespaceOption container @ 11/08/26 13:28:59.525
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:28:59.525
+  STEP: Create container. @ 11/08/26 13:28:59.526
+  Nov  8 13:28:59.527: INFO: Created container "4bc2eab33a3e2479"
+
+  STEP: start container @ 11/08/26 13:28:59.527
+  STEP: Start container for containerID: 4bc2eab33a3e2479 @ 11/08/26 13:28:59.527
+  Nov  8 13:28:59.527: INFO: Unexpected error occurred: rpc error: code = FailedPrecondition desc = container 4bc2eab33a3e2479: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:28:59.528
+  STEP: stop PodSandbox @ 11/08/26 13:28:59.528
+  STEP: delete PodSandbox @ 11/08/26 13:28:59.552
+  << Timeline
+
+  [FAILED] failed to start container: rpc error: code = FailedPrecondition desc = container 4bc2eab33a3e2479: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  Unexpected error:
+      <*status.Error | 0x233d290ae8f0>: 
+      rpc error: code = FailedPrecondition desc = container 4bc2eab33a3e2479: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 9,
+                  Message: "container 4bc2eab33a3e2479: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:28:59.528
+------------------------------
+E1108 13:28:59.728218    6591 remote_runtime.go:435] "StartContainer from runtime service failed" err="rpc error: code = FailedPrecondition desc = container e1e8e0c7039ada2b: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec." containerID="e1e8e0c7039ada2b"
+• [FAILED] [0.254 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support HostIpc is false
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:194
+
+  Timeline >>
+  STEP: create shared memory segment on the host @ 11/08/26 13:28:59.678
+  STEP: create podSandbox for security context HostIPC is POD @ 11/08/26 13:28:59.679
+  STEP: create NamespaceOption podSandbox @ 11/08/26 13:28:59.679
+  STEP: create a default container with namespace @ 11/08/26 13:28:59.725
+  STEP: create NamespaceOption container @ 11/08/26 13:28:59.725
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:28:59.725
+  STEP: Create container. @ 11/08/26 13:28:59.726
+  Nov  8 13:28:59.727: INFO: Created container "e1e8e0c7039ada2b"
+
+  STEP: start container @ 11/08/26 13:28:59.727
+  STEP: Start container for containerID: e1e8e0c7039ada2b @ 11/08/26 13:28:59.727
+  Nov  8 13:28:59.728: INFO: Unexpected error occurred: rpc error: code = FailedPrecondition desc = container e1e8e0c7039ada2b: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:28:59.728
+  STEP: stop PodSandbox @ 11/08/26 13:28:59.728
+  STEP: delete PodSandbox @ 11/08/26 13:28:59.754
+  << Timeline
+
+  [FAILED] failed to start container: rpc error: code = FailedPrecondition desc = container e1e8e0c7039ada2b: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  Unexpected error:
+      <*status.Error | 0x233d29282548>: 
+      rpc error: code = FailedPrecondition desc = container e1e8e0c7039ada2b: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 9,
+                  Message: "container e1e8e0c7039ada2b: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:28:59.728
+------------------------------
+E1108 13:29:00.076057    6591 remote_runtime.go:435] "StartContainer from runtime service failed" err="rpc error: code = FailedPrecondition desc = container 4270ca734955d125: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec." containerID="4270ca734955d125"
+• [FAILED] [0.391 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:198
+
+  Timeline >>
+  STEP: create podSandbox for sharing process namespace @ 11/08/26 13:28:59.934
+  Nov  8 13:28:59.935: INFO: Pid namespace is "POD"
+  STEP: create NamespaceOption podSandbox @ 11/08/26 13:28:59.935
+  STEP: create nginx container @ 11/08/26 13:29:00.055
+  STEP: create NamespaceOption container @ 11/08/26 13:29:00.055
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/nginx:1.14-2 @ 11/08/26 13:29:00.055
+  STEP: Create container. @ 11/08/26 13:29:00.057
+  Nov  8 13:29:00.069: INFO: Created container "4270ca734955d125"
+
+  STEP: start container @ 11/08/26 13:29:00.069
+  STEP: Start container for containerID: 4270ca734955d125 @ 11/08/26 13:29:00.069
+  Nov  8 13:29:00.076: INFO: Unexpected error occurred: rpc error: code = FailedPrecondition desc = container 4270ca734955d125: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:29:00.076
+  STEP: stop PodSandbox @ 11/08/26 13:29:00.076
+  STEP: delete PodSandbox @ 11/08/26 13:29:00.123
+  << Timeline
+
+  [FAILED] failed to start container: rpc error: code = FailedPrecondition desc = container 4270ca734955d125: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  Unexpected error:
+      <*status.Error | 0x233d28e8aa18>: 
+      rpc error: code = FailedPrecondition desc = container 4270ca734955d125: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 9,
+                  Message: "container 4270ca734955d125: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:29:00.076
+------------------------------
+•E1108 13:29:01.058446    6591 remote_runtime.go:435] "StartContainer from runtime service failed" err="rpc error: code = FailedPrecondition desc = container dadfcebd841821ca: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec." containerID="dadfcebd841821ca"
+
+------------------------------
+• [FAILED] [0.024 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support HostNetwork is true
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:256
+
+  Timeline >>
+  STEP: creating a podSandbox with hostNetwork true @ 11/08/26 13:29:01.048
+  STEP: create NamespaceOption podSandbox @ 11/08/26 13:29:01.048
+  STEP: create a container in the sandbox @ 11/08/26 13:29:01.051
+  STEP: create NamespaceOption container @ 11/08/26 13:29:01.051
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:29:01.051
+  STEP: Create container. @ 11/08/26 13:29:01.053
+  Nov  8 13:29:01.056: INFO: Created container "dadfcebd841821ca"
+
+  STEP: start container @ 11/08/26 13:29:01.056
+  STEP: Start container for containerID: dadfcebd841821ca @ 11/08/26 13:29:01.056
+  Nov  8 13:29:01.058: INFO: Unexpected error occurred: rpc error: code = FailedPrecondition desc = container dadfcebd841821ca: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:29:01.058
+  STEP: stop PodSandbox @ 11/08/26 13:29:01.058
+  STEP: delete PodSandbox @ 11/08/26 13:29:01.062
+  << Timeline
+
+  [FAILED] failed to start container: rpc error: code = FailedPrecondition desc = container dadfcebd841821ca: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  Unexpected error:
+      <*status.Error | 0x233d28e8a0f0>: 
+      rpc error: code = FailedPrecondition desc = container dadfcebd841821ca: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 9,
+                  Message: "container dadfcebd841821ca: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:29:01.058
+------------------------------
+E1108 13:29:01.177632    6591 remote_runtime.go:435] "StartContainer from runtime service failed" err="rpc error: code = FailedPrecondition desc = container 63a5cd35d7446819: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec." containerID="63a5cd35d7446819"
+• [FAILED] [0.118 seconds]
+[k8s.io] Security Context NamespaceOption [It] runtime should support HostNetwork is false
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:282
+
+  Timeline >>
+  STEP: creating a podSandbox with hostNetwork false @ 11/08/26 13:29:01.071
+  STEP: create NamespaceOption podSandbox @ 11/08/26 13:29:01.071
+  STEP: create a container in the sandbox @ 11/08/26 13:29:01.17
+  STEP: create NamespaceOption container @ 11/08/26 13:29:01.17
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:29:01.17
+  STEP: Create container. @ 11/08/26 13:29:01.173
+  Nov  8 13:29:01.175: INFO: Created container "63a5cd35d7446819"
+
+  STEP: start container @ 11/08/26 13:29:01.175
+  STEP: Start container for containerID: 63a5cd35d7446819 @ 11/08/26 13:29:01.175
+  Nov  8 13:29:01.177: INFO: Unexpected error occurred: rpc error: code = FailedPrecondition desc = container 63a5cd35d7446819: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:29:01.178
+  STEP: stop PodSandbox @ 11/08/26 13:29:01.178
+  STEP: delete PodSandbox @ 11/08/26 13:29:01.179
+  << Timeline
+
+  [FAILED] failed to start container: rpc error: code = FailedPrecondition desc = container 63a5cd35d7446819: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+  Unexpected error:
+      <*status.Error | 0x233d290ae228>: 
+      rpc error: code = FailedPrecondition desc = container 63a5cd35d7446819: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 9,
+                  Message: "container 63a5cd35d7446819: shareProcessNamespace is not supported on a hostNetwork or CNI pod sandbox, because this runtime wires the shared PID namespace only through the default pod network, whose holder owns the namespace the members join. Starting the container anyway would leave its processes silently un-shared. Fix: drop hostNetwork from the pod so it uses the default pod network (which does support shareProcessNamespace), or remove shareProcessNamespace from the pod spec.",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519 @ 11/08/26 13:29:01.178
+------------------------------
+••••E1108 13:29:03.614068    6591 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="825fc6e5c763ba01"
+•••••••••••SS•••
+------------------------------
+• [FAILED] [0.391 seconds]
+[k8s.io] Security Context SeccompProfilePath [It] should support nil profile, which is unconfined
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:925
+
+  Timeline >>
+  STEP: create seccomp sandbox and container @ 11/08/26 13:29:10.412
+  STEP: create seccomp sandbox @ 11/08/26 13:29:10.412
+  STEP: create container @ 11/08/26 13:29:10.458
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:29:10.458
+  STEP: Create container. @ 11/08/26 13:29:10.459
+  Nov  8 13:29:10.460: INFO: Created container "967c8b1bddfa233a"
+
+  STEP: start container @ 11/08/26 13:29:10.46
+  STEP: Start container for containerID: 967c8b1bddfa233a @ 11/08/26 13:29:10.46
+  Nov  8 13:29:10.500: INFO: Started container "967c8b1bddfa233a"
+
+  STEP: Get container status for containerID: 967c8b1bddfa233a @ 11/08/26 13:29:10.5
+  STEP: verify seccomp profile @ 11/08/26 13:29:10.502
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:1616 @ 11/08/26 13:29:10.536
+  STEP: stop PodSandbox @ 11/08/26 13:29:10.536
+  STEP: delete PodSandbox @ 11/08/26 13:29:10.662
+  << Timeline
+
+  [FAILED] Expected
+      <string>: Seccomp:	2
+      
+  to contain substring
+      <string>: 0
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:1616 @ 11/08/26 13:29:10.536
+------------------------------
+•••••SSSSSS•SSSSS••••••••••••••••••••••••••••SS
+------------------------------
+• [FAILED] [60.333 seconds]
+[k8s.io] Container OOM runtime should output OOMKilled reason [It] should terminate with exitCode 137 and reason OOMKilled
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:161
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 13:30:25.386
+  STEP: create container @ 11/08/26 13:30:25.435
+  STEP: create a container that will be killed by OOMKiller @ 11/08/26 13:30:25.435
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:30:25.435
+  STEP: Create container. @ 11/08/26 13:30:25.436
+  Nov  8 13:30:25.437: INFO: Created container "fdf8b4eee4c751cb"
+
+  STEP: verifying container status @ 11/08/26 13:30:25.437
+  STEP: start container @ 11/08/26 13:30:25.438
+  STEP: Start container for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:25.438
+  Nov  8 13:30:25.481: INFO: Started container "fdf8b4eee4c751cb"
+
+  STEP: container is stopped because of OOM @ 11/08/26 13:30:25.481
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:25.481
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:29.486
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:33.495
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:37.501
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:41.504
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:45.511
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:49.517
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:53.52
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:30:57.526
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:31:01.529
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:31:05.535
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:31:09.541
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:31:13.546
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:31:17.552
+  STEP: Get container status for containerID: fdf8b4eee4c751cb @ 11/08/26 13:31:21.559
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:172 @ 11/08/26 13:31:25.481
+  STEP: stop PodSandbox @ 11/08/26 13:31:25.481
+  STEP: delete PodSandbox @ 11/08/26 13:31:25.612
+  << Timeline
+
+  [FAILED] Timed out after 60.000s.
+  Expected
+      <v1.ContainerState>: 1
+  to equal
+      <v1.ContainerState>: 2
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:172 @ 11/08/26 13:31:25.481
+------------------------------
+E1108 13:31:25.794450    6591 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="62f4bc6098d426c2"
+•••E1108 13:31:26.601834    6591 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/non-existent-profile' is not loaded on the host" podSandboxID="eb5f88f6f5a76cf6"
+•E1108 13:31:26.787802    6591 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host" podSandboxID="42af2da6053752c1"
+
+------------------------------
+• [FAILED] [0.187 seconds]
+[k8s.io] AppArmor runtime should support apparmor field [It] should enforce a apparmor_profile blocking writes
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:159
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:31:26.786
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:31:26.786
+  STEP: Create container. @ 11/08/26 13:31:26.787
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:31:26.787
+  STEP: stop PodSandbox @ 11/08/26 13:31:26.787
+  STEP: delete PodSandbox @ 11/08/26 13:31:26.788
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x233d290ae5c8>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:31:26.787
+------------------------------
+E1108 13:31:26.973530    6591 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host" podSandboxID="279da20caf20e9cd"
+• [FAILED] [0.204 seconds]
+[k8s.io] AppArmor runtime should support apparmor field [It] should enforce a permissive deprecated profile
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:170
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:31:26.971
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:31:26.971
+  STEP: Create container. @ 11/08/26 13:31:26.972
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:31:26.973
+  STEP: stop PodSandbox @ 11/08/26 13:31:26.973
+  STEP: delete PodSandbox @ 11/08/26 13:31:26.974
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x233d290ae7a8>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:31:26.973
+------------------------------
+E1108 13:31:27.199783    6591 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/non-existent-profile' is not loaded on the host" podSandboxID="f2b1c4d6233ace68"
+•E1108 13:31:27.380740    6591 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host" podSandboxID="36f3e68d1cd9215f"
+
+------------------------------
+• [FAILED] [0.182 seconds]
+[k8s.io] AppArmor runtime should prefer new apparmor field [It] should enforce a apparmor_profile blocking writes
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:211
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:31:27.378
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:31:27.378
+  STEP: Create container. @ 11/08/26 13:31:27.379
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:31:27.38
+  STEP: stop PodSandbox @ 11/08/26 13:31:27.38
+  STEP: delete PodSandbox @ 11/08/26 13:31:27.382
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x233d29282d80>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-deny-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:31:27.38
+------------------------------
+E1108 13:31:27.594775    6591 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host" podSandboxID="2eb8af8cade1ec0d"
+• [FAILED] [0.213 seconds]
+[k8s.io] AppArmor runtime should prefer new apparmor field [It] should work with apparmor profile
+/home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:223
+
+  Timeline >>
+  STEP: create a container with apparmor @ 11/08/26 13:31:27.592
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 13:31:27.592
+  STEP: Create container. @ 11/08/26 13:31:27.593
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:31:27.595
+  STEP: stop PodSandbox @ 11/08/26 13:31:27.595
+  STEP: delete PodSandbox @ 11/08/26 13:31:27.596
+  << Timeline
+
+  [FAILED] Unexpected error:
+      <*status.Error | 0x233d28def2b8>: 
+      rpc error: code = InvalidArgument desc = AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 3,
+                  Message: "AppArmor profile 'localhost/cri-validate-apparmor-test-audit-write' is not loaded on the host",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252 @ 11/08/26 13:31:27.595
+------------------------------
+•••E1108 13:31:29.577622    6591 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+•
+
+Summarizing 13 Failures:
+  [FAIL] [k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113
+  [FAIL] [k8s.io] Streaming runtime should support streaming interfaces [It] runtime should support portforward in host network
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support HostIpc is true
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support HostIpc is false
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support PodPID
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support HostNetwork is true
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519
+  [FAIL] [k8s.io] Security Context NamespaceOption [It] runtime should support HostNetwork is false
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:519
+  [FAIL] [k8s.io] Security Context SeccompProfilePath [It] should support nil profile, which is unconfined
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:1616
+  [FAIL] [k8s.io] Container OOM runtime should output OOMKilled reason [It] should terminate with exitCode 137 and reason OOMKilled
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:172
+  [FAIL] [k8s.io] AppArmor runtime should support apparmor field [It] should enforce a apparmor_profile blocking writes
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should support apparmor field [It] should enforce a permissive deprecated profile
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should prefer new apparmor field [It] should enforce a apparmor_profile blocking writes
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+  [FAIL] [k8s.io] AppArmor runtime should prefer new apparmor field [It] should work with apparmor profile
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/apparmor_linux.go:252
+
+Ran 103 of 122 Specs in 388.967 seconds
+FAIL! -- 90 Passed | 13 Failed | 0 Pending | 19 Skipped
+--- FAIL: TestCRISuite (388.97s)
+FAIL
++ rc=1
++ set +x
+==> critest terminou com rc=1 (log completo em /tmp/critest-rootful.log; servidor em /tmp/critest-rootful.log.server)

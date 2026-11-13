@@ -1,0 +1,84 @@
+Warning: Permanently added '192.168.122.142' (ED25519) to the list of known hosts.
+==> a arrancar delonix-cri (root=/tmp/delonix-cri-critest-root.68B83O socket=/tmp/delonix-cri-critest-1219.sock)
+==> smoke: crictl version
+time="2026-11-08T16:14:07Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.0
+RuntimeApiVersion:  v1
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> critest (timeout ginkgo=18m)
++ critest -runtime-endpoint unix:///tmp/delonix-cri-critest-1219.sock -image-endpoint unix:///tmp/delonix-cri-critest-1219.sock -ginkgo.timeout=18m -ginkgo.no-color
++ tee /tmp/critest-podpid2.log
+time="2026-11-08T16:14:07Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1794154447
+
+Will run 117 of 122 specs
+•••••••••••S••••SS•••SS•
+------------------------------
+• [FAILED] [0.517 seconds]
+[k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+/home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:121
+
+  Timeline >>
+  STEP: create Privileged podSandbox @ 11/08/26 16:15:36.543
+  STEP: create host path and flag file @ 11/08/26 16:15:36.588
+  STEP: create container with volume @ 11/08/26 16:15:36.588
+  STEP: create a container with volume and name @ 11/08/26 16:15:36.588
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/08/26 16:15:36.588
+  STEP: Create container. @ 11/08/26 16:15:36.589
+  Nov  8 16:15:36.589: INFO: Created container "7112278886a4881d"
+
+  STEP: verifying container status @ 11/08/26 16:15:36.589
+  STEP: verifying container status mount propagation @ 11/08/26 16:15:36.59
+  STEP: test start container with volume @ 11/08/26 16:15:36.59
+  STEP: Start container for containerID: 7112278886a4881d @ 11/08/26 16:15:36.59
+  Nov  8 16:15:36.676: INFO: Started container "7112278886a4881d"
+
+  STEP: Get container status for containerID: 7112278886a4881d @ 11/08/26 16:15:36.676
+  STEP: create a propatation mount point in host @ 11/08/26 16:15:36.677
+  STEP: check whether propagationMntPoint contains file or dir in container @ 11/08/26 16:15:36.677
+  STEP: execSync for containerID: 7112278886a4881d @ 11/08/26 16:15:36.677
+  Nov  8 16:15:36.701: INFO: Execsync succeed
+  STEP: create a directory named containerMntPoint as a mount point in container @ 11/08/26 16:15:36.701
+  STEP: execSync for containerID: 7112278886a4881d @ 11/08/26 16:15:36.701
+  Nov  8 16:15:36.729: INFO: Execsync succeed
+  STEP: mount /etc to the mount point in container @ 11/08/26 16:15:36.729
+  STEP: execSync for containerID: 7112278886a4881d @ 11/08/26 16:15:36.729
+  Nov  8 16:15:36.759: INFO: Execsync succeed
+  STEP: check whether containerMntPoint contains file or dir in host @ 11/08/26 16:15:36.759
+  STEP: clean up the TempDir @ 11/08/26 16:15:36.76
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 16:15:36.76
+  STEP: stop PodSandbox @ 11/08/26 16:15:36.76
+  STEP: delete PodSandbox @ 11/08/26 16:15:36.933
+  << Timeline
+
+  [FAILED] len(fileInfo) should not be zero.
+  Expected
+      <[]fs.DirEntry | len:0, cap:0>: []
+  not to be empty
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113 @ 11/08/26 16:15:36.76
+------------------------------
+••E1108 16:15:39.546898    1248 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+••••••••••••••••••••••••••••••••••E1108 16:16:52.822455    1248 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="783c7818dae46a9b"
+•••E1108 16:16:53.581179    1248 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="10d6212fa4857ff9"
+•••E1108 16:16:54.370461    1248 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="8f9efa74772b001e"
+••••••E1108 16:16:56.984362    1248 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+•SS•SSSS•••••••••••••E1108 16:17:21.341718    1248 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="94704a68327756f2"
+•••••••••••SS•••••••••SSSSSS
+
+Summarizing 1 Failure:
+  [FAIL] [k8s.io] Container Mount Propagation runtime should support mount propagation [It] mount with 'rshared' should support propagation from host to container and vice versa
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/container_linux.go:113
+
+Ran 103 of 122 Specs in 206.570 seconds
+FAIL! -- 102 Passed | 1 Failed | 0 Pending | 19 Skipped
+--- FAIL: TestCRISuite (206.57s)
+FAIL
++ rc=1
++ set +x
+==> critest terminou com rc=1 (log completo em /tmp/critest-podpid2.log; servidor em /tmp/critest-podpid2.log.server)

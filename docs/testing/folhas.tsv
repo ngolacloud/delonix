@@ -33,6 +33,7 @@ cli	cluster drain	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 
 cli	cluster health	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)
 cli	cluster init	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)
 cli	cluster kube generate	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)
+cli	cluster kube play	E	GAP-0015: alias de 'kube play' sob cluster (enum KubeCmd partilhado); provado ao vivo via 'kube play' (Pod v1 Running + round-trip)
 cli	cluster kubeadm	E	imagem golden + VMs reais
 cli	cluster kubeconfig	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)
 cli	cluster load	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)
@@ -657,6 +658,8 @@ cli	image inspect	B	implementado na campanha de paridade Docker/Podman; provado 
 cli	image search	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
 cli	image tree	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
 cli	image untag	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
+cli	image attestations	E	GAP-0009: lista referrers (OCI 1.1 + fallback tag-schema); provado ao vivo contra registry:3 + docker buildx + curl (DELONIX_ROOT isolado)
+cli	image provenance	E	GAP-0008: imprime/anexa proveniencia SLSA v1; provado ao vivo (build --provenance=max -> attach -> discover) contra registry:3
 cli	import	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
 cli	info	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
 cli	login	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho

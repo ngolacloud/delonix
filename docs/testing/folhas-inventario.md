@@ -34,7 +34,7 @@
 
 | superfície | folhas | A | B | C | D | E | fonte do denominador |
 |---|---:|---:|---:|---:|---:|---:|---|
-| cli | **363** | 272 | 83 | 0 | 0 | 8 | `scripts/cli_baseline.tsv` (gate `rc=0`) |
+| cli | **366** | 272 | 83 | 0 | 0 | 11 | `scripts/cli_baseline.tsv` (gate `rc=0`) |
 | node-api | **65** | 15 | 6 | 15 | 29 | 0 | `proto/delonix/node/v1/*.proto` (`rpc <Name>`) |
 | mgmt-api | **32** | 1 | 6 | 19 | 6 | 0 | `delonix-mgmt/src/lib.rs` (`.route("…"`) |
 | mcp | **15** | 0 | 5 | 10 | 0 | 0 | `delonix-mcp/src/lib.rs` (`name = "<tool>"`) |

@@ -280,6 +280,15 @@ pub struct RunOpts {
     /// `cmd::pod` from the `Pod` spec; flows through the `--pod` re-exec.
     #[serde(default)]
     pub pod_shared_pid: bool,
+    /// (internal, ADR-0092) The host pid of a per-pod PID-namespace anchor ("pause")
+    /// whose PID namespace this member joins on THIS pass — decoupled from
+    /// `pod_infra_pid` (which also drives IPC/UTS and is gated to the `--pod`
+    /// re-exec). Set by the CRI's root `shareProcessNamespace` path, where the
+    /// member is single-pass and root can `setns(CLONE_NEWPID)` without a holder
+    /// user namespace. Affects ONLY the PID namespace: suppresses `CLONE_NEWPID`
+    /// and `setns`es into the anchor; IPC/UTS are untouched.
+    #[serde(default)]
+    pub pod_pidns_pid: Option<i32>,
     #[serde(default)]
     pub net_bps: Option<String>,
     #[serde(default)]

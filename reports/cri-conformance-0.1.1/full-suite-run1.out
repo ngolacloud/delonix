@@ -1,0 +1,98 @@
+Warning: Permanently added '192.168.122.243' (ED25519) to the list of known hosts.
+==> cgroup2 subtree_control: cpuset cpu io memory hugetlb pids
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> arrancar delonix-cri (socket=/run/delonix-cri.sock, CAP_CEILING=all, CNI=1, SECCOMP_NIL=unconfined)
+==> smoke: crictl version
+time="2026-11-10T09:41:53Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.0
+RuntimeApiVersion:  v1
+==> critest (timeout ginkgo=25m) FOCUS='' SKIP=''
++ critest -runtime-endpoint unix:///run/delonix-cri.sock -image-endpoint unix:///run/delonix-cri.sock -ginkgo.timeout=25m -ginkgo.no-color
++ tee /tmp/critest-full1.log
+time="2026-11-10T09:41:53Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1794303713
+
+Will run 117 of 122 specs
+••••••••••••••••••••••••••••S•SSSS••••••••••SSSSSS•••E1110 09:44:36.492599    1500 portforward.go:502] "Unhandled Error" err="error copying from local connection to remote stream: writeto tcp4 127.0.0.1:12002->127.0.0.1:53510: read tcp4 127.0.0.1:12002->127.0.0.1:53510: read: connection reset by peer" logger="UnhandledError"
+••••••E1110 09:44:42.577750    1500 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+••••••••••••E1110 09:45:07.437459    1500 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="7f76ebad40f02d71"
+•••••••••••SS•••••••••SSSSSS•E1110 09:45:31.696999    1500 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+••
+------------------------------
+• [FAILED] [11.051 seconds]
+[k8s.io] Image Manager [It] public image with digest should be pulled and removed [Conformance] [Serial]
+/home/runner/work/cri-tools/cri-tools/pkg/validate/image.go:74
+
+  Timeline >>
+  STEP: Remove image : gcr.io/k8s-staging-cri-tools/test-image-digest@sha256:9700f9a2f5bf2c45f2f605a0bd3bce7cf37420ec9d3ed50ac2758413308766bf @ 11/10/26 09:45:37.392
+  STEP: Pull image : gcr.io/k8s-staging-cri-tools/test-image-digest@sha256:9700f9a2f5bf2c45f2f605a0bd3bce7cf37420ec9d3ed50ac2758413308766bf @ 11/10/26 09:45:37.392
+  STEP: Check image list to make sure pulling image success : gcr.io/k8s-staging-cri-tools/test-image-digest@sha256:9700f9a2f5bf2c45f2f605a0bd3bce7cf37420ec9d3ed50ac2758413308766bf @ 11/10/26 09:45:48.44
+  STEP: Get image status for image: gcr.io/k8s-staging-cri-tools/test-image-digest@sha256:9700f9a2f5bf2c45f2f605a0bd3bce7cf37420ec9d3ed50ac2758413308766bf @ 11/10/26 09:45:48.44
+  STEP: Remove image : gcr.io/k8s-staging-cri-tools/test-image-digest@sha256:9700f9a2f5bf2c45f2f605a0bd3bce7cf37420ec9d3ed50ac2758413308766bf @ 11/10/26 09:45:48.44
+  STEP: Remove image by ID : sha256:37ebe32bf529799c3da461f55d37ba94f5232e34b8c9488ff70d87749b1d157b @ 11/10/26 09:45:48.441
+  STEP: Check image list empty @ 11/10/26 09:45:48.441
+  STEP: Get image status for image: gcr.io/k8s-staging-cri-tools/test-image-digest@sha256:9700f9a2f5bf2c45f2f605a0bd3bce7cf37420ec9d3ed50ac2758413308766bf @ 11/10/26 09:45:48.441
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/10/26 09:45:48.441
+  << Timeline
+
+  [FAILED] Timed out after 60.001s.
+  The stdout of attach should be hello
+  Expected
+      <string>: 
+  to equal
+      <string>: hello
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/10/26 09:45:48.441
+------------------------------
+••••••E1110 09:47:13.506841    1500 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="2770ddd3e60f926e"
+•••E1110 09:47:14.418855    1500 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="a1b267603d1c7b6a"
+•••E1110 09:47:15.252690    1500 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="7647a89a61edde29"
+•••••••
+
+Summarizing 1 Failure:
+  [FAIL] [k8s.io] Image Manager [It] public image with digest should be pulled and removed [Conformance] [Serial]
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317
+
+Ran 103 of 122 Specs in 325.447 seconds
+FAIL! -- 102 Passed | 1 Failed | 0 Pending | 19 Skipped
+--- FAIL: TestCRISuite (325.45s)
+FAIL
++ rc=1
++ set +x
+==> critest rc=1 (log=/tmp/critest-full1.log; server=/tmp/critest-full1.log.server)
+=== server log tail ===
+[2m2026-11-10T09:46:56.631356Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling pause:3.9 from registry.k8s.io [3mrepo[0m[2m=[0mpause [3mreference[0m[2m=[0m3.9 [3mhost[0m[2m=[0mregistry.k8s.io
+[2m2026-11-10T09:47:02.063164Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:47:03.798850Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m pulling pause:3.9 from k8s.gcr.io [3mrepo[0m[2m=[0mpause [3mreference[0m[2m=[0m3.9 [3mhost[0m[2m=[0mk8s.gcr.io
+[2m2026-11-10T09:47:10.721575Z[0m [32m INFO[0m [2mdelonix_oci::registry[0m[2m:[0m platform selected: linux/amd64 [3march[0m[2m=[0mamd64
+[2m2026-11-10T09:47:13.507030Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m2770ddd3e60f926e
+[2m2026-11-10T09:47:13.507495Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m2770ddd3e60f926e
+[2m2026-11-10T09:47:13.803551Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0ma630a16c760dba7d
+[2m2026-11-10T09:47:13.814502Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0ma630a16c760dba7d
+[2m2026-11-10T09:47:14.116305Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m8a5f65484c28465a
+[2m2026-11-10T09:47:14.128896Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m8a5f65484c28465a
+[2m2026-11-10T09:47:14.419730Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0ma1b267603d1c7b6a
+[2m2026-11-10T09:47:14.420497Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0ma1b267603d1c7b6a
+[2m2026-11-10T09:47:14.702983Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mcf8422c253c4326a
+[2m2026-11-10T09:47:14.719475Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mcf8422c253c4326a
+[2m2026-11-10T09:47:15.014142Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m718a7592ac216d41
+[2m2026-11-10T09:47:15.026060Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m718a7592ac216d41
+[2m2026-11-10T09:47:15.253010Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m7647a89a61edde29
+[2m2026-11-10T09:47:15.253336Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m7647a89a61edde29
+[2m2026-11-10T09:47:15.523375Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md0a3d6de50def81c
+[2m2026-11-10T09:47:15.537275Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md0a3d6de50def81c
+[2m2026-11-10T09:47:15.818364Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md26da4ff76c02486
+[2m2026-11-10T09:47:15.829965Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md26da4ff76c02486
+[2m2026-11-10T09:47:16.067318Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0md5eef8d568cde635
+[2m2026-11-10T09:47:16.186465Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0md5eef8d568cde635
+[2m2026-11-10T09:47:16.442665Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0mbe23684bcd42c23e
+[2m2026-11-10T09:47:16.559852Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0mbe23684bcd42c23e
+[2m2026-11-10T09:47:16.816774Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m60f933db533437d7
+[2m2026-11-10T09:47:16.933721Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m60f933db533437d7
+[2m2026-11-10T09:47:18.206946Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI StopPodSandbox [3msandbox[0m[2m=[0m7369fed73885659b
+[2m2026-11-10T09:47:18.325618Z[0m [32m INFO[0m [2mdelonix_cri::runtime_svc::lifecycle[0m[2m:[0m CRI RemovePodSandbox [3msandbox[0m[2m=[0m7369fed73885659b

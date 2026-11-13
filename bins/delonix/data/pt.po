@@ -17493,6 +17493,16 @@ msgstr "O container nomeia um grupo de cgroup (`cgroup_parent`) cujo nome não �
 msgid "Use a group name made of [a-z0-9._-]; give memory as bytes or a suffix (1G, 512Mi), CPU as a decimal number of cores (0.5, 2) and processes as a whole number or `max`."
 msgstr "Usa um nome de grupo feito de [a-z0-9._-]; dá a memória em bytes ou com sufixo (1G, 512Mi), o CPU como número decimal de cores (0.5, 2) e os processos como número inteiro ou `max`."
 
+# DX-1117 — rshared (propagação de mount bidireccional) exige privilégio (ADR-0093)
+msgid "rshared mount propagation needs a privileged, rootful container"
+msgstr "a propagação de mount `rshared` exige um container privilegiado num motor com raiz"
+
+msgid "A mount asked for `rshared` (bidirectional, Kubernetes `mountPropagation: Bidirectional`): a mount made inside the container must also appear on the host. That opens a peer group with the host's mount tree, a real privilege, so it is refused — never silently downgraded to `rslave` — for an unprivileged container or on a rootless engine (which has no privilege over the host's mount tree)."
+msgstr "Um mount pediu `rshared` (bidireccional, `mountPropagation: Bidirectional` do Kubernetes): um mount feito dentro do container tem também de aparecer no host. Isso abre um grupo de peers com a árvore de mount do host, um privilégio a sério, por isso é recusado — nunca degradado em silêncio para `rslave` — a um container não-privilegiado ou num motor rootless (que não tem privilégio sobre a árvore de mount do host)."
+
+msgid "Use `rslave` for one-way host-to-container propagation, or run the container privileged on a rootful node."
+msgstr "Usa `rslave` para propagação unidireccional host→container, ou corre o container privilegiado num nó com raiz."
+
 msgid "the container's cgroup group could not be created or limited"
 msgstr "não foi possível criar ou limitar o grupo de cgroup do container"
 
@@ -17798,3 +17808,60 @@ msgstr "a contraparte sem efeito do mount — aqui os volumes são directórios 
 
 msgid "re-apply a network's dataplane after the holder respawned, keeping the attached workloads"
 msgstr "reaplica o dataplane de uma rede depois de o holder renascer, mantendo os workloads ligados"
+
+msgid "List the attestations attached to an image in its registry"
+msgstr "Lista as attestations anexadas a uma imagem no seu registo"
+
+msgid "List the attestations attached to an image in its registry.\n\nThe read side of `image sbom --attach`, via the OCI 1.1 Referrers API. One line per referrer: digest, artifactType, predicate type."
+msgstr "Lista as attestations anexadas a uma imagem no seu registo.\n\nO lado de leitura de `image sbom --attach`, via a Referrers API OCI 1.1. Uma linha por referrer: digest, artifactType, tipo de predicate."
+
+msgid "Print or attach the SLSA provenance a `build --provenance` cached"
+msgstr "Imprime ou anexa a proveniência SLSA que um `build --provenance` cacheou"
+
+msgid "Print or attach the SLSA provenance a `build --provenance` cached.\n\n`--attach` publishes it to the image's registry as an in-toto attestation (OCI 1.1 referrer), like `sbom --attach`."
+msgstr "Imprime ou anexa a proveniência SLSA que um `build --provenance` cacheou.\n\n`--attach` publica-a no registo da imagem como attestation in-toto (referrer OCI 1.1), como `sbom --attach`."
+
+msgid "Generate a `kind: Pod` from a container or pod, to stdout"
+msgstr "Gera um `kind: Pod` de um container ou pod, para o stdout"
+
+msgid "Generate a `kind: Pod` from a container or pod, to stdout.\n\nAccepts a pod name (every member) or a single container. Equivalent to `podman kube generate`."
+msgstr "Gera um `kind: Pod` de um container ou pod, para o stdout.\n\nAceita um nome de pod (todos os membros) ou um único container. Equivalente a `podman kube generate`."
+
+msgid "Run workloads from a standard Kubernetes YAML manifest"
+msgstr "Corre workloads de um manifesto YAML Kubernetes standard"
+
+msgid "Run workloads from a standard Kubernetes YAML manifest.\n\nRuns `apiVersion: v1, kind: Pod` (and `apps/v1, kind: Deployment` as a single pod). Equivalent to `podman kube play`. The delonix `PodSpec` already uses k8s field names, so a plain k8s Pod runs as-is."
+msgstr "Corre workloads de um manifesto YAML Kubernetes standard.\n\nCorre `apiVersion: v1, kind: Pod` (e `apps/v1, kind: Deployment` como um único pod). Equivalente a `podman kube play`. O `PodSpec` do delonix já usa nomes de campo k8s, portanto um Pod k8s simples corre tal e qual."
+
+msgid "Gate on a declarative policy file (JSON: `fail_on`, `ignore` waiver list, `ignore_unfixed`). Richer CI gate than `--fail-on`; takes precedence over it. Exits 1 on failure"
+msgstr "Aplica um ficheiro de policy declarativo (JSON: `fail_on`, lista de waivers `ignore`, `ignore_unfixed`). Gate de CI mais rico que `--fail-on`; tem precedência sobre ele. Sai 1 em falha"
+
+msgid "Report the vulnerability delta against another image (added/removed CVEs), like `docker scout compare`, instead of the dashboard"
+msgstr "Reporta o delta de vulnerabilidades contra outra imagem (CVEs adicionados/removidos), como `docker scout compare`, em vez do dashboard"
+
+msgid "Attach the SBOM to the image in its registry as an in-toto attestation (OCI 1.1 referrer, cosign/buildx-compatible), instead of only printing it. Requires a registry reference the image was pushed to"
+msgstr "Anexa o SBOM à imagem no seu registo como attestation in-toto (referrer OCI 1.1, compatível com cosign/buildx), em vez de só o imprimir. Exige uma referência de registo para onde a imagem foi enviada"
+
+msgid "Attach the provenance to the image in its registry as an in-toto attestation, instead of only printing it"
+msgstr "Anexa a proveniência à imagem no seu registo como attestation in-toto, em vez de só a imprimir"
+
+msgid "Emit SLSA v1 provenance for this build, cached next to the image (attach it to a registry later with `image provenance <ref> --attach`). `--provenance` or `--provenance=max` records build-arg values; `--provenance=min` withholds them (safe on any build). Off by default"
+msgstr "Emite proveniência SLSA v1 para este build, cacheada ao lado da imagem (anexa-a a um registo depois com `image provenance <ref> --attach`). `--provenance` ou `--provenance=max` regista valores de build-args; `--provenance=min` retém-nos (seguro em qualquer build). Desligado por omissão"
+
+msgid "run a standard Kubernetes Pod manifest on this engine"
+msgstr "corre um manifesto de Pod Kubernetes standard neste motor"
+
+msgid "run a Deployment as a single pod (replicas are a scheduler concern)"
+msgstr "corre um Deployment como um único pod (as réplicas são do escalonador)"
+
+msgid "attach the SBOM to the image in its registry as an in-toto attestation"
+msgstr "anexa o SBOM à imagem no seu registo como attestation in-toto"
+
+msgid "list what is attached to an image (SBOM, provenance) via the Referrers API"
+msgstr "lista o que está anexado a uma imagem (SBOM, proveniência) via a Referrers API"
+
+msgid "print the SLSA provenance a `build --provenance` cached"
+msgstr "imprime a proveniência SLSA que um `build --provenance` cacheou"
+
+msgid "attach it to the image in its registry as an in-toto attestation"
+msgstr "anexa-a à imagem no seu registo como attestation in-toto"
