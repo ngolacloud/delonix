@@ -1442,14 +1442,40 @@ mod tests {
                 Ok(())
             }
         }
-        register_backend(BackendRegistration {
-            id: "demstopmove",
-            aliases: &[],
-            auto_selectable: false,
-            report: crate::capabilities::undeclared("fake"),
-            new: Box::new(|| Ok(Box::new(Stopped))),
-        })
-        .expect("registar");
+        // CHILD mode. When this test re-execs itself (below) with
+        // `DELONIX_TEST_MOVE_NS_CHILD=<base>` set, it lands here: register the
+        // backend in this FRESH process, shrink `RLIMIT_FSIZE` so the record
+        // write hits EFBIG, run the move, and report the verdict via exit code.
+        // It runs through `Command` (fork+exec), NOT a raw `fork()`: a bare fork
+        // in the parallel test harness inherits whatever lock a sibling thread
+        // held at fork time (allocator arena, the backend registry, a log mutex),
+        // and `move_namespace` — file I/O, `save`, rename — then deadlocks the
+        // child while the parent hangs forever in `waitpid`. Measured: the raw
+        // fork passed alone in 0.01s but hung for 40+min under `cargo test
+        // --workspace` on a loaded host. `exec` resets the address space, so the
+        // child starts with no inherited locks.
+        if let Ok(base) = std::env::var("DELONIX_TEST_MOVE_NS_CHILD") {
+            register_backend(BackendRegistration {
+                id: "demstopmove",
+                aliases: &[],
+                auto_selectable: false,
+                report: crate::capabilities::undeclared("fake"),
+                new: Box::new(|| Ok(Box::new(Stopped))),
+            })
+            .expect("registar");
+            // SAFETY: setrlimit + ignoring SIGXFSZ turns the oversized write into
+            // EFBIG rather than a fatal signal; this is a throwaway process.
+            unsafe {
+                let lim = libc::rlimit {
+                    rlim_cur: 64, // < the record JSON (hundreds of bytes), > any trivial write
+                    rlim_max: 64,
+                };
+                libc::setrlimit(libc::RLIMIT_FSIZE, &lim);
+                libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+            }
+            let failed = super::move_namespace(std::path::Path::new(&base), "v1", "prod").is_err();
+            std::process::exit(if failed { 0 } else { 1 });
+        }
 
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -1476,34 +1502,22 @@ mod tests {
         let old_overlay = old_dir.join("v1.qcow2");
         std::fs::write(&old_overlay, b"OVERLAY").unwrap();
 
-        // The move runs in a child whose RLIMIT_FSIZE is tiny: the save's JSON write
-        // hits EFBIG, the overlay's rename (metadata only) does not. Exit 0 iff the
-        // move failed as expected; the parent reads the on-disk outcome.
-        // SAFETY: `fork`; the child only runs the block below (raw syscalls + `_exit`).
-        let child = unsafe { libc::fork() };
-        if child == 0 {
-            // SAFETY: async-signal-safe-ish child doing only setrlimit/signal/
-            // `move_namespace`/`_exit`; `--test-threads=1` keeps siblings idle at fork.
-            unsafe {
-                let lim = libc::rlimit {
-                    rlim_cur: 64, // < the record JSON (hundreds of bytes), > any trivial write
-                    rlim_max: 64,
-                };
-                libc::setrlimit(libc::RLIMIT_FSIZE, &lim);
-                libc::signal(libc::SIGXFSZ, libc::SIG_IGN); // EFBIG instead of a fatal signal
-                let failed = super::move_namespace(base, "v1", "prod").is_err();
-                libc::_exit(if failed { 0 } else { 1 });
-            }
-        }
-        let mut st = 0;
-        // SAFETY: reaping our own child; `st` is a live local.
-        unsafe { libc::waitpid(child, &mut st, 0) };
-        let code = if libc::WIFEXITED(st) {
-            libc::WEXITSTATUS(st)
-        } else {
-            -1
-        };
-        vm_registry::deregister("demstopmove");
+        // Re-exec THIS test as the child above (fork+exec, fork-safe). `--exact`
+        // + `--test-threads=1` run only this one test in the child; its exit code
+        // is the move's verdict and the parent reads the on-disk outcome.
+        let exe = std::env::current_exe().unwrap();
+        let st = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "tests::move_namespace_failed_save_leaves_the_overlay_in_the_source",
+                "--test-threads=1",
+                "--quiet",
+            ])
+            .env("DELONIX_TEST_MOVE_NS_CHILD", base)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .expect("re-exec do filho");
+        let code = st.code().unwrap_or(-1);
 
         assert_eq!(
             code, 0,
