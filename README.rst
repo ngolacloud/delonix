@@ -30,6 +30,45 @@ bootstrap Kubernetes clusters, from one binary.
 :Rust tutorial: https://angolardevops.github.io/delonix-rust-tutorial/ (Português de Angola — Rust, containers, OCI/CRI and a from-scratch rootless runtime)
 :Repo: https://github.com/ngolacloud/delonix
 
+The problem it solves
+=====================
+
+Running the whole cloud-native unit — a container, a pod, a microVM, a Kubernetes
+node, declarative infrastructure, a signed supply chain — usually means
+assembling several tools, each with its own daemon, its own root, and its own
+configuration surface. Podman already showed that containers and pods need
+neither a daemon nor root; Delonix takes that same stance all the way up to the
+node: the one rootless, daemonless binary that runs a container **is** a
+Kubernetes node (it serves its own CRI) and **runs microVMs**.
+
+- **Docker** carries the Kubernetes lineage but is bound to a root daemon, and
+  stops at the container — a shared kernel.
+- **Podman** is daemonless and rootless, but stops at the container and the pod.
+- **Delonix** keeps Podman's stance — no daemon, rootless by default — and adds a
+  conformant Kubernetes node and first-class microVMs, from the same binary.
+
+The differentiator is **architecture, measured** — not a benchmark win:
+
+- A **Kubernetes node without Docker**: ``delonix cluster`` bootstraps with
+  ``kubeadm`` on Delonix's own CRI; conformance is reproducible at **79 of 103
+  upstream ``critest`` specs** (v1.36.0). Most of the remaining specs need
+  ``CAP_MAC_ADMIN`` in the *initial* user namespace, which Docker and Podman also
+  fail rootless. See `Kubernetes CRI conformance`_.
+- **microVM isolation** — a separate kernel — for workloads that need more than a
+  namespace, declared the same way as a container.
+- Container start in its default config is **91 ms**, against Docker's 208 ms and
+  Podman's 268 ms (median of 10, one machine). The honest other side is in the
+  same table: with isolated per-container networking the figure rises to ~216 ms
+  (a tie with Docker) and ~344 ms when the network plane is built from cold — the
+  *secure* path is the slower one, and it is the first item on the optimization
+  list. See `docs/comparacao-medida.md <docs/comparacao-medida.md>`_.
+
+What it is **not**: a young line (``0.1.x``), without Docker's or Podman's
+ecosystem, registry reach, or years of production hardening. The pitch is not
+"faster than Docker" or "better at everything" — it is the **integrated,
+daemonless, rootless path from a container to a production Kubernetes node with
+VM-grade isolation, without stitching half a dozen tools together**.
+
 Why it's different
 ==================
 
