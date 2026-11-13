@@ -985,9 +985,14 @@ for l in d["links"]:
     assert code=="200", (l, code)'
   # ADR-0042 passo C: as rotas REST são GERADAS das anotações google.api.http.
   # Uma rota do contrato que o motor ainda não serve é 501 (DX-6001), nunca o
-  # 404 de um caminho que o contrato não tem; um verbo (`{name}:start`) resolve.
-  check "uma rota do contrato ainda não servida é 501 DX-6001, e um verbo noutro método é 405 com Allow: POST" ok env \
-    NS_JSON="$(curl -s -X POST --unix-socket "$NODESOCK" http://localhost/v1/namespaces/default/containers/web:start)" \
+  # 404 de um caminho que o contrato não tem. `:start` passou a ser servido
+  # (POST → 404 de um container inexistente), por isso o 501 testa-se contra uma
+  # rota que o encoding REST genuinamente não serve — um stream (`:watch`); o
+  # `:start` continua a provar que um verbo resolve e recusa o método errado com
+  # 405 Allow: POST. Alinhado com o teste grpc autoritativo
+  # `contract_routes_resolve_and_say_what_is_not_served`.
+  check "uma rota não servida (stream) é 501 DX-6001, e um verbo noutro método é 405 com Allow: POST" ok env \
+    NS_JSON="$(curl -s --unix-socket "$NODESOCK" http://localhost/v1/events:watch)" \
     NS_HDR="$(curl -s -D - -o /dev/null --unix-socket "$NODESOCK" http://localhost/v1/namespaces/default/containers/web:start)" \
     python3 -c 'import json,os; d=json.loads(os.environ["NS_JSON"]); assert (d["status"],d["dx"],d["grpc_status"])==(501,"DX-6001",12), d; h=os.environ["NS_HDR"].lower(); assert "http/1.1 405" in h and "allow: post" in h, h'
   check "um parâmetro de query que o pedido não tem é recusado (400), não ignorado" ok bash -c \

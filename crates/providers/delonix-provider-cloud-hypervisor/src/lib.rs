@@ -3150,9 +3150,15 @@ mod tests_the_stop_waits_for_the_vmm {
     #[test]
     fn the_state_is_read_after_the_comm() {
         let me = std::process::id() as i32;
+        // 'D' (uninterruptible sleep) counts as live too: under I/O pressure — the
+        // whole release suite building and running at once — a thread of this
+        // multi-threaded test process can be blocked in the kernel when /proc is
+        // read, and `/proc/self/stat` then reports 'D'. The point of the assert is
+        // "a live process reads a valid live state, a dead one reads None", not the
+        // exact letter; accepting 'D' keeps that meaning without a load-flaky fail.
         assert!(
-            matches!(proc_state(me), Some('R') | Some('S')),
-            "this very process has to read as running"
+            matches!(proc_state(me), Some('R') | Some('S') | Some('D')),
+            "this very process has to read as a live state (R/S/D)"
         );
         assert_eq!(proc_state(-1), None, "a pid with no /proc reads as None");
     }
