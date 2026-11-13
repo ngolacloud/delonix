@@ -4538,6 +4538,17 @@ binário — sem daemon residente e sem root. Não é um <em>runtime</em> OCI de
 <code>runc</code>/<code>crun</code>): é o engine COMPLETO, a camada aberta (Apache-2.0) sobre a
 qual assenta a plataforma <strong>Delonix</strong>.</p>
 
+<p class="intro"><strong>O que resolve:</strong> correr a unidade cloud-native inteira
+— container, pod, microVM, nó Kubernetes — sem colar meia dúzia de ferramentas. O
+Podman tirou o daemon e o root aos containers; o Delonix leva essa postura até ao
+<strong>nó</strong>: o mesmo binário rootless e sem daemon que corre um container
+<strong>é</strong> um nó Kubernetes (CRI próprio, <strong>79/103</strong> specs do
+<code>critest</code> v1.36.0, reproduzível) e corre <strong>microVMs</strong>. É
+arquitectura, não um recorde de velocidade: o arranque default é 91 ms (Docker 208,
+Podman 268), mas sobe a ~216 ms com rede isolada — e é linha 0.1.x, sem o ecossistema
+do Docker/Podman. O compromisso certo para quem quer o caminho integrado, sem daemon
+e sem root, do container ao nó de produção com isolamento de VM.</p>
+
 <div class="hero-cta">
 <a class="btn primary" href="#instalar">Instalar o Delonix →</a>
 <a class="btn ghost" href="labs.html">Explorar os labs</a>
@@ -4647,6 +4658,18 @@ INDEX_EN = """
 single binary — no resident daemon, no root. Not a low-level OCI <em>runtime</em> (that's
 <code>runc</code>/<code>crun</code>): it's the COMPLETE engine, the open layer (Apache-2.0) the
 <strong>Delonix</strong> platform is built on.</p>
+
+<p class="intro"><strong>What it solves:</strong> running the whole cloud-native unit
+— container, pod, microVM, Kubernetes node — without stitching half a dozen tools
+together. Podman took the daemon and root out of containers; Delonix takes that
+stance up to the <strong>node</strong>: the same rootless, daemonless binary that runs
+a container <strong>is</strong> a Kubernetes node (its own CRI, <strong>79/103</strong>
+upstream <code>critest</code> v1.36.0 specs, reproducible) and <strong>runs
+microVMs</strong>. It's architecture, not a speed record: default start is 91 ms
+(Docker 208, Podman 268), rising to ~216 ms with isolated networking — and it's a
+0.1.x line, without Docker's or Podman's ecosystem. The right trade for anyone who
+wants the integrated, daemonless, rootless path from a container to a production node
+with VM-grade isolation.</p>
 
 <div class="hero-cta">
 <a class="btn primary" href="#instalar">Install Delonix →</a>
