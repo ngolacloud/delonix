@@ -9,12 +9,12 @@
 | --- | ---: | ---: | ---: |
 | foundation | 2 | 6,462 | 1.7% |
 | context | 6 | 28,670 | 7.7% |
-| adapter | 10 | 84,877 | 22.7% |
-| provider | 10 | 54,985 | 14.7% |
+| adapter | 10 | 84,891 | 22.7% |
+| provider | 10 | 54,991 | 14.7% |
 | interface | 4 | 36,525 | 9.8% |
 | assembly | 1 | 1,132 | 0.3% |
 | bin | 6 | 160,950 | 43.1% |
-| **total** | **39** | **373,601** | 100% |
+| **total** | **39** | **373,621** | 100% |
 
 ## Lines per crate
 
@@ -43,7 +43,7 @@
 | delonix-sdn ⚠️ >20k | 29,206 |
 | delonix-linux ⚠️ >20k | 23,874 |
 | delonix-oci | 14,196 |
-| delonix-vm | 5,384 |
+| delonix-vm | 5,398 |
 | delonix-state | 3,452 |
 | delonix-volume | 3,375 |
 | delonix-scanner | 2,637 |
@@ -58,7 +58,7 @@
 | delonix-provider-proxmox ⚠️ >20k | 31,653 |
 | delonix-provider-libvirt | 6,931 |
 | delonix-provider-opnsense | 5,244 |
-| delonix-provider-cloud-hypervisor | 3,592 |
+| delonix-provider-cloud-hypervisor | 3,598 |
 | delonix-provider-ceph | 2,077 |
 | delonix-provider-lvm | 1,271 |
 | delonix-provider-truenas | 1,189 |
@@ -127,7 +127,7 @@ falls without the baseline lowered in the same commit.
 
 | Ratchet | Now | Baseline | Target |
 | --- | ---: | ---: | --- |
-| self_exec_sites | 36 | 36 | 0 (R5) |
+| self_exec_sites | 37 | 37 | 0 (R5) |
 | library_prints | 111 | 111 | down |
 | env_writes | 23 | 23 | down |
 | shared_error_imports | 3 | 3 | 0 |
