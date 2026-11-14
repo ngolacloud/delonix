@@ -1,24 +1,24 @@
 {
   "suites": {
     "cargo-test": {
-      "commit": "594c8b6184c9596352defdd7730b123b9e247414",
+      "commit": "0ddf64b3ad74120a80166ec1a7fdcb3e28d3b339",
       "passed": true,
-      "when": "2026-11-13T23:04:57Z"
+      "when": "2026-11-14T10:32:11Z"
     },
     "chaos": {
-      "commit": "594c8b6184c9596352defdd7730b123b9e247414",
+      "commit": "0ddf64b3ad74120a80166ec1a7fdcb3e28d3b339",
       "passed": true,
-      "when": "2026-11-13T23:04:57Z"
+      "when": "2026-11-14T10:32:11Z"
     },
     "critest": {
-      "commit": "594c8b6184c9596352defdd7730b123b9e247414",
+      "commit": "0ddf64b3ad74120a80166ec1a7fdcb3e28d3b339",
       "passed": true,
-      "when": "2026-11-13T23:04:57Z"
+      "when": "2026-11-14T10:32:11Z"
     },
     "e2e": {
-      "commit": "594c8b6184c9596352defdd7730b123b9e247414",
+      "commit": "0ddf64b3ad74120a80166ec1a7fdcb3e28d3b339",
       "passed": true,
-      "when": "2026-11-13T23:04:57Z"
+      "when": "2026-11-14T10:32:11Z"
     }
   },
   "tag": "v0.1.1"
