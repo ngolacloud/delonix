@@ -53,9 +53,14 @@ Concretamente, garante-se:
   — um `run` em foreground, por ser *daemonless*, já HERDA o stdio do operador,
   por isso o shell interactivo, o `test -t 0` e o código de saída já eram os do
   `docker run -it`; o que faltava era o reconhecimento, não o comportamento.
-  Limite documentado e deliberado: um `-t` cujo stdout NÃO seja já um terminal
-  (`run -t … | cat`) não recebe um pty sintetizado — o caminho honesto é `-d` e
-  depois `container exec -it`.
+  O `-t` passou também a mudar o comportamento: um `run -t` em foreground
+  sintetiza um pty (a mesma maquinaria `setup_console` do console do PID 1),
+  liga-o ao stdio do processo (`setsid` + `TIOCSCTTY` + `dup2`) e faz pump do
+  master para o stdio do operador em modo raw. Assim `isatty(1)` é verdadeiro
+  dentro do container **mesmo quando o stdout do operador é um pipe** —
+  `echo x | run -t … sh -c 'test -t 1'` passa, o limite que esta secção
+  documentava como deliberado e que deixou de existir. (Sem `-t` nada muda:
+  stdio herdado, sem pty.)
 * **Os códigos de saída** — ver a secção «Códigos de saída» abaixo.
 * **A saída JSON de `inspect`** — campos podem ser ACRESCENTADOS, nunca removidos
   nem com o tipo mudado.

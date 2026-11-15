@@ -7493,6 +7493,14 @@ impl DnsConfig {
 pub struct RunSpec<'a> {
     /// Runs in the background (does not wait for the `waitpid`).
     pub detach: bool,
+    /// **Foreground pty** (`-t`): when set with `!detach`, `spawn` allocates a
+    /// pseudo-terminal in the container (the same `setup_console` machinery the
+    /// privileged-PID1 console uses — `setsid` + `TIOCSCTTY` + `dup2` of the
+    /// slave over stdio) and pumps the master to the operator's stdio in raw
+    /// mode. So `isatty(1)` is true inside the container even when the
+    /// operator's own stdout is a pipe. Ignored when `detach` (no operator
+    /// terminal to pump to).
+    pub tty: bool,
     /// Creates its own *network namespace* (`CLONE_NEWNET`).
     pub new_netns: bool,
     /// **Pod IPC/UTS sharing**: the init PID of the pod's infra container. When
@@ -8215,12 +8223,18 @@ fn spawn(
     let mut inputs = InitInputs::gather(container, rootfs, spec, hostname, argv, env);
     let detach = inputs.detach;
 
-    // Console (pty) for PID 1: ONLY in `--privileged` detached with log (Kind
-    // nodes, which run systemd as PID 1). Gives a real `/dev/console` whose output
-    // — including the systemd boot state — is captured in the log file, so
-    // that `docker logs -f` (= what Kind uses to detect readiness) sees it.
-    // The NON-privileged path stays byte-for-byte identical (no pty, normal pipe).
-    let console = console_wanted(inputs.privileged, detach, spec.log_path.is_some());
+    // Console (pty): two callers, one mechanism.
+    //  - `--privileged` detached with log (Kind nodes, systemd as PID 1): a real
+    //    `/dev/console` whose output — the systemd boot state included — is
+    //    captured in the log, so `docker logs -f` (= what Kind uses to detect
+    //    readiness) sees it. The master becomes a LOG source.
+    //  - a FOREGROUND `-t` run (`foreground_tty`): the same pty, but its master
+    //    is pumped to the OPERATOR's stdio, not a log — so `isatty(1)` holds
+    //    inside the container even when the operator's stdout is a pipe.
+    // The non-tty, non-privileged path stays byte-for-byte identical (no pty).
+    let foreground_tty = spec.tty && !detach;
+    let console =
+        console_wanted(inputs.privileged, detach, spec.log_path.is_some()) || foreground_tty;
     let (log_pipe, log_err_pipe) =
         open_log_pipes(detach && !console && spec.log_path.is_some(), spec.log_cri);
     let console_sock = if console { open_console_sock() } else { None };
@@ -8275,9 +8289,19 @@ fn spawn(
         Some(sock) => receive_console_master(sock),
         None => log_pipe.map(|(r, _)| r),
     };
-    if let Some(src) = log_src {
-        start_log_shim(src, log_pipe, log_err_pipe, spec, container);
-    }
+    // A foreground `-t` keeps the pty master as the OPERATOR's conduit (pumped
+    // around `wait_foreground` below); every other start that has a `log_src`
+    // feeds it to the log shim. `None` on the tty path means the init could not
+    // allocate the pty — the foreground wait then runs with inherited stdio, as
+    // it did before `-t`.
+    let tty_master = if foreground_tty {
+        log_src
+    } else {
+        if let Some(src) = log_src {
+            start_log_shim(src, log_pipe, log_err_pipe, spec, container);
+        }
+        None
+    };
 
     mark_running(container, pid);
     // The cgroup stays HERE, ahead of the wait: it is what the container's
@@ -8325,7 +8349,50 @@ fn spawn(
     if detach {
         return Ok(container.status.clone());
     }
+    if let Some(master) = tty_master {
+        return wait_foreground_tty(store, container, pid, master);
+    }
     wait_foreground(store, container, pid)
+}
+
+/// Waits on a foreground `-t` container while pumping its pty master to the
+/// operator's stdio in raw mode — the parent half of `setup_console`, modelled
+/// on the interactive `exec -t` path (`exec_with`).
+///
+/// The master is sized to the operator's terminal, the operator's terminal goes
+/// raw (a no-op when stdin is not a tty — e.g. `echo x | run -t`, which still
+/// gets the pty for stdout), and two detached threads copy master→stdout and
+/// stdin→master for the life of the process. On exit the terminal is restored
+/// and the master closed. `wait_foreground` keeps doing the status recording;
+/// this only wraps it in the pump.
+fn wait_foreground_tty(
+    store: &Store,
+    container: &mut Container,
+    pid: Pid,
+    master: i32,
+) -> Result<Status> {
+    // SAFETY: `ws` is a zeroed `winsize` (all-integer C struct) that `TIOCGWINSZ`
+    // fills from the operator's stdin; `master` is the pty master just received.
+    unsafe {
+        let mut ws: libc::winsize = std::mem::zeroed();
+        if libc::ioctl(0, libc::TIOCGWINSZ, &mut ws) == 0 {
+            libc::ioctl(master, libc::TIOCSWINSZ, &ws);
+        }
+    }
+    let saved = set_raw_mode();
+    // `master` is an `i32` (Copy): each pump thread gets its own copy of the fd
+    // number, both referring to the one master the parent closes once below.
+    std::thread::spawn(move || pump_fd(master, 1)); // pty -> operator stdout
+    std::thread::spawn(move || pump_fd(0, master)); // operator stdin -> pty
+    let r = wait_foreground(store, container, pid);
+    restore_mode(saved);
+    // SAFETY: the received master, closed exactly once after the process exited.
+    // The pump threads read/write it until their syscall returns the EOF the
+    // close-after-exit produces, then end; a late write races only to a closed
+    // fd (harmless `EBADF`), never to a reused one, since nothing else opens in
+    // between on this path.
+    unsafe { libc::close(master) };
+    r
 }
 
 /// The command as `execve` takes it. Refused before anything is cloned: a NUL

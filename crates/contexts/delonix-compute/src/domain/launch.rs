@@ -18,6 +18,10 @@ pub struct Launch {
     pub rootfs: String,
     pub mounts: Vec<Mount>,
     pub detach: bool,
+    /// Allocate a pty for a foreground run (`-t`). Only acts when `!detach`;
+    /// the engine pumps the pty master to the operator's stdio. See
+    /// [`crate::RunOpts::tty`].
+    pub tty: bool,
     /// The re-exec's pass inside a custom network's or a pod's namespace.
     pub second_pass: bool,
     /// `--net none`.

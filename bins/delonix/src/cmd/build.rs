@@ -949,6 +949,7 @@ fn work_launch(rootfs: &str) -> delonix_compute::launch::Launch {
         rootfs: rootfs.to_string(),
         mounts: vec![],
         detach: true,
+        tty: false,
         second_pass: false,
         net_none: false,
         custom_net: None,

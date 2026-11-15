@@ -15,6 +15,12 @@ use crate::HealthConfig;
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct RunOpts {
     pub detach: bool,
+    /// Allocate a pseudo-terminal for a FOREGROUND run (Docker/Podman `-t`): the
+    /// process's stdio is a pty slave, so `isatty(1)` is true inside it even
+    /// when the operator's own stdout is a pipe. Only meaningful with
+    /// `detach == false`; a detached `-t` has no operator terminal to pump to.
+    #[serde(default)]
+    pub tty: bool,
     pub name: Option<String>,
     /// Internal hostname (`--hostname`). `None` = use the container name.
     #[serde(default)]

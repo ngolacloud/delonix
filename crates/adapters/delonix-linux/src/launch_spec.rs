@@ -25,6 +25,7 @@ pub fn run_spec<'h>(
     RunSpec {
         dns_config: dns_config_of(c),
         detach: l.detach,
+        tty: l.tty,
         new_netns: l.new_netns(),
         pod_infra_pid: l.pod_infra_pid(),
         pod_shared_pid: l.pod_shared_pid(),
@@ -83,6 +84,7 @@ mod tests {
             rootfs: "/r".into(),
             mounts: vec![],
             detach: true,
+            tty: false,
             second_pass: false,
             net_none: false,
             custom_net: None,
@@ -109,6 +111,21 @@ mod tests {
             spec.dns_config.map(|d| d.servers),
             Some(vec!["1.1.1.1".to_string()])
         );
+    }
+
+    #[test]
+    fn the_foreground_tty_flag_reaches_the_spec() {
+        // `-t` is a field like the six that silently diverged before this one
+        // builder existed: if `run_spec` forgets it, a foreground `run -t` would
+        // start without a pty and `isatty(1)` would be false — the exact bug #6
+        // fixed. Pin the propagation.
+        let c = container();
+        let hook = |_: i32| Ok(());
+        let mut l = launch();
+        l.tty = true;
+        assert!(run_spec(&c, &l, None, None, &hook).tty);
+        l.tty = false;
+        assert!(!run_spec(&c, &l, None, None, &hook).tty);
     }
 
     #[test]

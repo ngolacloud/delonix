@@ -311,6 +311,7 @@ NOT_ENV = {
     "DELONIX_CRI_SOCKET": "Rust constant in cmd/cluster.rs interpolated into kubeadm --cri-socket",
     "DELONIX_ROOTX": "test fixture in delonix-sdn infra.rs (prefix matching of a process environ)",
     "DELONIX_ROOT_BACKUP": "test fixture in delonix-sdn infra.rs (prefix matching of a process environ)",
+    "DELONIX_TEST_MOVE_NS_CHILD": "test fixture in delonix-vm lib.rs (re-exec signal for the fork-safe move_namespace test)",
     "DELONIX_IMAGE": "key of /etc/delonix-image-release written inside a built VM image",
     "DELONIX_DISTRO": "key of /etc/delonix-image-release written inside a built VM image",
     "DELONIX_RELEASE": "key of /etc/delonix-image-release written inside a built VM image",

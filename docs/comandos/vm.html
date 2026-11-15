@@ -916,7 +916,7 @@ Options:
           Ready-made cloud-init (NoCloud) ISO — if given, takes priority over `--hostname`/`--ssh-key`/`--user-data` (those generate the ISO; this uses it directly)
 
       --disk-size &lt;DISK_SIZE_GIB&gt;
-          Disk size for the node, in GiB (e.g. `40`) — omit to inherit the image&#x27;s own size.
+          Disk size for the node, in whole GiB — bare (`40`) or with a `G`/`Gi` suffix (`40G`). Omit to inherit the image&#x27;s own size.
           
           This is the number a tenant&#x27;s storage quota is counted against: it is PROVISIONED, not consumed (the overlay is thin and grows with use). Cannot be smaller than the base image.
 
