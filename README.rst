@@ -327,6 +327,84 @@ There is also a Docker Engine API compatibility layer, whose coverage is
 published the same way — ``delonix serve docker-api --matrix`` prints the routes
 that exist and the ones that deliberately do not, with the reason for each.
 
+Production readiness — where it fits, and where it does not yet
+===============================================================
+
+The honest verdict, from a measured GO/NO-GO review against Docker and Podman:
+
+- **GO, single-node, without failover** — development, CI, edge, and a
+  *Kubernetes node without Docker*. Here the daemonless/rootless model and the
+  integrated CRI are a real advantage today.
+- **NO-GO as a drop-in Docker/Podman replacement for high-criticality
+  production** — not because of a benchmark, but because the operational
+  guarantees below are not proven yet. Said plainly so nobody is surprised in an
+  outage.
+
+This is a ``0.1.x`` line. The gaps are tracked, each with the way out:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 44 26
+
+   * - Gap (today)
+     - How we solve it
+     - Status
+   * - **Upgrade / rollback not tested** — no proven hot-patch of a live
+       container's supervisor across an engine upgrade.
+     - A versioned supervisor hand-off + an upgrade/rollback suite in CI
+       (``G3`` of the readiness gate) that restarts the engine under running
+       workloads and asserts PIDs and exit codes survive.
+     - planned
+   * - **No HA / multi-node failover proven** — VM HA needs an external
+       component; cold VM migration is NO-GO.
+     - Either prove multi-node failover with an SLO, or scope failover **out**
+       by ADR and say so (``G4``). Single-node stays fully supported.
+     - planned
+   * - **No external security guarantee** — audits so far are internal; the
+       supply chain is young (1 maintainer, no SLA).
+     - External pentest, SHA-pinned releases, a CVE feed, and the rootful /
+       SELinux path signed off (``G1``). The release gate (``G2``) is already
+       in place as of v0.1.1.
+     - in progress
+   * - **Scale / density not measured** — behaviour under hundreds of packed
+       containers is not characterised.
+     - ``scripts/bench_density.sh`` exists; publish density numbers with SLOs
+       (``G5``) the same way the latency bench is published.
+     - harness ready
+   * - **Secure networking is the slow path** — with isolated per-container
+       networking the cold network plane costs ~344 ms (vs 91 ms on the ``host``
+       default), because rootless rebuilds veth/IPAM/slirp from scratch.
+     - Keep the plane warm (pool the holder / IPAM) so an idle node does not pay
+       bring-up on every run. First item on the optimisation list.
+     - planned
+   * - **No forced TTY** — ``-t`` is refused when the caller has no terminal
+       (CI, a pipe, cron), unlike ``docker run -t`` / ``podman run -t``.
+     - Wire the existing console-mode pty machinery into ``run``. The engine
+       already has it; it is a plumbing task.
+     - planned
+   * - **``vm create`` cannot size the disk** — no ``--disk-size``; the overlay
+       inherits the golden image's root size.
+     - Add ``--disk-size`` (``qemu-img resize`` + cloud-init ``growpart``). No
+       new privilege boundary involved.
+     - planned
+   * - **No clean automated validation environment** — GitHub runners lack
+       ``userns`` (the chaos suite skips); the self-hosted lab has 0 runners.
+     - Register a ``userns``-capable self-hosted runner provisioned by
+       ``install.sh`` so e2e/chaos validate on every release, not by hand.
+     - planned
+   * - **Ecosystem and registry reach** — a young line without Docker's or
+       Podman's catalogue, integrations, or years of hardening.
+     - Time plus the Docker Engine API compatibility layer (already partial) so
+       existing tooling points at Delonix unchanged.
+     - ongoing
+
+None of these are hidden behind the latency numbers: the measured bench
+(`docs/comparacao-medida.md <docs/comparacao-medida.md>`_) spells out the places
+Delonix is slower, and this table spells out the places it is not production-ready
+yet. The pitch is the integrated, daemonless, rootless path from a container to a
+Kubernetes node with VM-grade isolation — not "ready to replace Docker in a bank
+tomorrow".
+
 Install
 =======
 
