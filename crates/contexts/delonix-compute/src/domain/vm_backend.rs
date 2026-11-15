@@ -322,6 +322,36 @@ pub fn parse_mem_mib(s: &str) -> Option<u64> {
         .filter(|v| *v > 0)
 }
 
+/// The disk size `s` names, in whole GiB, or `None` when it does not parse.
+///
+/// Boot disks are sized in whole GiB everywhere in the engine (the overlay,
+/// `qemu-img create … <N>G`, the record, the cold resize), so this is the one
+/// parser of the `--disk-size` syntax: a bare number of GiB (`20`), or the same
+/// `G`/`Gi`/`GiB` suffixes the memory parser tolerates (`20G`, `20Gi`, `20GiB`),
+/// case-insensitive. Unlike memory there is no `M`/`K`: a boot disk under a GiB
+/// is a typo, not a request, and refusing it by `None` beats rounding it to
+/// zero. Zero GiB is `None` too — no VM boots in it. Keeping the CLI and the
+/// manifest on one parser is the same discipline as [`parse_mem_mib`]: `20G`
+/// must mean 20 GiB whoever reads it.
+pub fn parse_disk_gib(s: &str) -> Option<u32> {
+    let t = s.trim();
+    let lower = t.to_ascii_lowercase();
+    // Only the binary spellings `G`/`Gi`/`GiB` (and the bare number) are GiB.
+    // The decimal `GB`/`MB` are refused, not silently read as GiB: like the
+    // memory parser rejecting `2GB`, a sizing unit the engine does not mean must
+    // be a typed error, not a 7% surprise.
+    let number = if let Some(n) = lower.strip_suffix("gib") {
+        n
+    } else if let Some(n) = lower.strip_suffix("gi") {
+        n
+    } else if let Some(n) = lower.strip_suffix('g') {
+        n
+    } else {
+        lower.as_str()
+    };
+    number.trim().parse::<u32>().ok().filter(|v| *v > 0)
+}
+
 /// Converts memory (`"2G"`/`"1024M"`/`"512"`/`"2Gi"`) to MiB.
 /// `"2G"`/`"512M"`/`"2Gi"`/`"2048"` → MiB.
 ///
@@ -1128,6 +1158,27 @@ impl std::fmt::Debug for BackendRegistration {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn disk_gib_accepts_bare_and_suffixed_whole_gib() {
+        use super::parse_disk_gib;
+        // The done-when's spelling, and the bare form, mean the same thing.
+        assert_eq!(parse_disk_gib("20G"), Some(20));
+        assert_eq!(parse_disk_gib("20"), Some(20));
+        assert_eq!(parse_disk_gib("20Gi"), Some(20));
+        assert_eq!(parse_disk_gib("20GiB"), Some(20));
+        assert_eq!(parse_disk_gib("20g"), Some(20));
+        assert_eq!(parse_disk_gib("  40G  "), Some(40));
+        // Zero boots nothing, and a sub-GiB or mistyped size is a refusal, not
+        // a silent round — the CLI turns the `None` into an error naming the flag.
+        assert_eq!(parse_disk_gib("0"), None);
+        assert_eq!(parse_disk_gib("0G"), None);
+        assert_eq!(parse_disk_gib("512M"), None);
+        assert_eq!(parse_disk_gib("20GB"), None);
+        assert_eq!(parse_disk_gib("20.5G"), None);
+        assert_eq!(parse_disk_gib(""), None);
+        assert_eq!(parse_disk_gib("G"), None);
+    }
+
     #[test]
     fn the_libvirt_nic_is_the_default_network_unless_one_was_named() {
         use super::{libvirt_nic, LibvirtNic::*};

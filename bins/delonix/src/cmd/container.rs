@@ -2229,16 +2229,14 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         namespace,
         expose,
     } = args;
-    // `-i`/`-t` (and the `-it` scripts type) are accepted for Docker/Podman
-    // parity. A daemonless foreground `run` INHERITS the operator's stdio, so
-    // the interactive shell, the `test -t 0` TTY and the exit code are already
-    // what `docker run -it` gives (proven by the differential suite). There is
-    // no daemon conduit to allocate a pty across, so the flags record intent
-    // rather than switch a second code path — the same honesty as
-    // `cmd_exec`'s `let _ = interactive`. The one documented limit (a `-t`
-    // whose stdout is not already a terminal does not get a synthesized pty)
-    // lives in `docs/cli-stability.md`.
-    let _ = (interactive, tty);
+    // `-i` is accepted for Docker/Podman parity. A daemonless foreground `run`
+    // INHERITS the operator's stdin, so keeping it open is already what the flag
+    // asks — it records intent rather than switching a code path, the same
+    // honesty as `cmd_exec`'s `let _ = interactive`. `-t` is NOT a no-op: it is
+    // carried to the engine, which synthesizes a pty for the foreground process
+    // so `isatty(1)` holds even when the operator's stdout is a pipe (the one
+    // limit `docs/cli-stability.md` used to document; see `tty` on `RunOpts`).
+    let _ = interactive;
     // `--pull` is applied in the `Run`/`Create` dispatch (it needs the image
     // store), BEFORE this consumes `args`; here the field is just drained.
     let _ = (pull, platform);
@@ -2321,6 +2319,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         policy_hold: false,
         no_start,
         detach,
+        tty,
         cidfile,
         name,
         hostname,
@@ -4048,6 +4047,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         rootfs,
         mounts,
         detach,
+        tty: opts_copy.tty,
         second_pass: reexec,
         net_none: net == "none",
         custom_net: custom_net.clone(),
@@ -5717,6 +5717,7 @@ fn start_container(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
         rootfs,
         mounts: c.mounts.clone(),
         detach: true,
+        tty: false, // start/restart is detached under a supervisor — no tty to pump
         second_pass: reexec,
         net_none: c.net_mode.as_deref() == Some("none"),
         custom_net: c.network.clone(),

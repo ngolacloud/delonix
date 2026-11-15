@@ -16,6 +16,19 @@ use super::output;
 use super::remote::{self, SshTarget};
 use super::util::state_root;
 
+/// `--disk-size` value parser: whole GiB, bare (`20`) or suffixed (`20G`/`20Gi`/
+/// `20GiB`). Thin over [`delonix_vm::parse_disk_gib`] (the one definition,
+/// shared with `vm resize`) so clap rejects `20G` on a `u32` field with a
+/// message naming the flag instead of `invalid digit found in string`.
+fn disk_gib_arg(s: &str) -> std::result::Result<u32, String> {
+    delonix_vm::parse_disk_gib(s).ok_or_else(|| {
+        super::po::tf(
+            "'{value}' is not a valid disk size — use whole GiB, e.g. `20` or `20G`",
+            &[("value", s)],
+        )
+    })
+}
+
 /// `spec.build` of a `kind: VirtualMachine` — the declarative face of `delonix vm image build`.
 ///
 /// The fields are the flags of that command, one for one, so the two paths
@@ -954,13 +967,13 @@ pub enum VmCmd {
         /// uses it directly).
         #[arg(long)]
         seed: Option<String>,
-        /// Disk size for the node, in GiB (e.g. `40`) — omit to inherit the
-        /// image's own size.
+        /// Disk size for the node, in whole GiB — bare (`40`) or with a `G`/`Gi`
+        /// suffix (`40G`). Omit to inherit the image's own size.
         ///
         /// This is the number a tenant's storage quota is counted against: it
         /// is PROVISIONED, not consumed (the overlay is thin and grows with
         /// use). Cannot be smaller than the base image.
-        #[arg(long = "disk-size")]
+        #[arg(long = "disk-size", value_parser = disk_gib_arg)]
         disk_size_gib: Option<u32>,
         /// Hotplug ceiling for vCPUs (ADR-0068 D3) — omit for no headroom
         /// (every VM without this flag stays exactly as it is today).
@@ -1355,8 +1368,9 @@ pub enum VmCmd {
         /// New memory: a number with an optional M/G suffix (`768M`, `4G`, `4Gi`).
         #[arg(long)]
         memory: Option<String>,
-        /// New boot disk size, in whole GiB — grows only, never shrinks.
-        #[arg(long = "disk-size")]
+        /// New boot disk size, in whole GiB — bare (`40`) or with a `G`/`Gi`
+        /// suffix (`40G`). Grows only, never shrinks.
+        #[arg(long = "disk-size", value_parser = disk_gib_arg)]
         disk_size_gib: Option<u32>,
         /// New vCPU hotplug ceiling (never below the vCPUs it boots with).
         #[arg(long = "vcpus-max", conflicts_with = "no_hotplug")]

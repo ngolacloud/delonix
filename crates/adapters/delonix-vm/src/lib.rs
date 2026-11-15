@@ -39,9 +39,9 @@ pub use delonix_compute::{CpuTopology, ExtraDisk, ExtraNic, VmVolume};
 /// (the P4b plan, `docs/discovery/61`) so a provider crate can implement
 /// it without depending on this adapter. Re-exported: no caller changes.
 pub use delonix_compute::vm_backend::{
-    mem_mib, parse_mem_mib, BackendFactory, BackendRegistration, Boot, CloudInitIntent,
-    CreateStage, DestroyStage, GuestFilesystem, GuestInfo, HotplugOutcome, MoveOptions,
-    ReportFactory, VmBackend, VmConfig,
+    mem_mib, parse_disk_gib, parse_mem_mib, BackendFactory, BackendRegistration, Boot,
+    CloudInitIntent, CreateStage, DestroyStage, GuestFilesystem, GuestInfo, HotplugOutcome,
+    MoveOptions, ReportFactory, VmBackend, VmConfig,
 };
 
 pub mod capabilities;
