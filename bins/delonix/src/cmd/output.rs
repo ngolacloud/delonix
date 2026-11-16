@@ -555,6 +555,195 @@ pub fn progress_done() {
     }
 }
 
+/// Multi-line, `docker pull`-style layer progress: one line per layer (short
+/// digest, bar, bytes, state), the whole block redrawn in place with
+/// cursor-up. The familiar experience `docker pull` trained everyone on —
+/// which layers are already local, which are in flight, how big each one is —
+/// instead of [`progress_bar`]'s single aggregate line, which with layers
+/// downloading in PARALLEL could only ever show one of them at a time.
+///
+/// Same tty contract as [`progress_bar`]: outside a terminal (pipes/CI) it
+/// draws NOTHING — the engine's tracing lines are the log story there.
+///
+/// Interior `Mutex` because the pull downloads layers in parallel and every
+/// worker reports through the same `Sync` callback (see
+/// `delonix_oci::registry::PullEventCb`); the lock is per progress tick, and
+/// most ticks leave without drawing (throttled below).
+pub struct PullRenderer {
+    state: std::sync::Mutex<PullState>,
+}
+
+struct PullState {
+    rows: Vec<PullRow>,
+    /// digest → index in `rows`, so a `Downloading` tick finds its line.
+    index: std::collections::HashMap<String, usize>,
+    /// Lines currently on screen (0 before the first draw).
+    drawn: usize,
+    last_draw: Option<std::time::Instant>,
+}
+
+struct PullRow {
+    /// `sha256:` stripped, 12 hex chars — the id `docker pull` shows.
+    short: String,
+    state: RowState,
+}
+
+enum RowState {
+    Queued { size: u64 },
+    Downloading { done: u64, total: Option<u64> },
+    Exists,
+    Done,
+}
+
+/// How a redraw-worthy tick is told apart from the flood: layer-state
+/// transitions always draw; byte ticks draw at most every 80ms (12 fps is
+/// smooth to the eye, and a 64 KiB-chunk callback would otherwise redraw the
+/// whole block thousands of times per second).
+const PULL_REDRAW_EVERY: std::time::Duration = std::time::Duration::from_millis(80);
+
+impl Default for PullRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PullRenderer {
+    pub fn new() -> Self {
+        PullRenderer {
+            state: std::sync::Mutex::new(PullState {
+                rows: Vec::new(),
+                index: std::collections::HashMap::new(),
+                drawn: 0,
+                last_draw: None,
+            }),
+        }
+    }
+
+    /// Feed one engine event. Structural events (a new layer line, a layer
+    /// finishing) redraw immediately; byte ticks are throttled.
+    pub fn handle(&self, ev: delonix_oci::registry::PullEvent<'_>) {
+        use delonix_oci::registry::PullEvent;
+        let mut st = self.state.lock().unwrap();
+        match ev {
+            PullEvent::Queued { digest, size } => {
+                st.push(digest, RowState::Queued { size });
+                st.redraw();
+            }
+            PullEvent::AlreadyExists { digest } => {
+                st.push(digest, RowState::Exists);
+                st.redraw();
+            }
+            PullEvent::Done { digest } => {
+                st.set(digest, RowState::Done);
+                st.redraw();
+            }
+            PullEvent::Downloading {
+                digest,
+                done,
+                total,
+            } => {
+                st.set(digest, RowState::Downloading { done, total });
+                let due = st
+                    .last_draw
+                    .map(|t| t.elapsed() >= PULL_REDRAW_EVERY)
+                    .unwrap_or(true);
+                if due {
+                    st.redraw();
+                }
+            }
+        }
+    }
+
+    /// Final forced redraw — every line settles on its terminal state and the
+    /// block stays on screen, exactly like `docker pull`'s summary.
+    pub fn finish(&self) {
+        self.state.lock().unwrap().redraw();
+    }
+}
+
+impl PullState {
+    fn push(&mut self, digest: &str, state: RowState) {
+        let short: String = digest
+            .trim_start_matches("sha256:")
+            .chars()
+            .take(12)
+            .collect();
+        self.index.insert(digest.to_string(), self.rows.len());
+        self.rows.push(PullRow { short, state });
+    }
+
+    fn set(&mut self, digest: &str, state: RowState) {
+        if let Some(&i) = self.index.get(digest) {
+            self.rows[i].state = state;
+        }
+    }
+
+    fn redraw(&mut self) {
+        if !color_enabled() {
+            return;
+        }
+        // One write for the whole block: cursor up over what is on screen,
+        // then every line cleared and rewritten. Building the string first
+        // and printing once keeps a parallel tick from tearing the frame.
+        let mut out = String::new();
+        if self.drawn > 0 {
+            out.push_str(&format!("\x1b[{}A", self.drawn));
+        }
+        for row in &self.rows {
+            out.push_str("\r\x1b[K");
+            out.push_str(&row.render());
+            out.push('\n');
+        }
+        eprint!("{out}");
+        use std::io::Write;
+        let _ = std::io::stderr().flush();
+        self.drawn = self.rows.len();
+        self.last_draw = Some(std::time::Instant::now());
+    }
+}
+
+impl PullRow {
+    /// One layer's line. Terminal states are dimmed so the eye lands on what
+    /// is still moving; the bar matches [`progress_bar`]'s glyphs.
+    fn render(&self) -> String {
+        const WIDTH: usize = 20;
+        const SPINNERS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let short = &self.short;
+        match &self.state {
+            RowState::Queued { size } => format!(
+                "\x1b[2m{short}  {} ({})\x1b[0m",
+                super::po::t("waiting"),
+                fmt_size(*size)
+            ),
+            RowState::Exists => format!(
+                "\x1b[2m{short}  ✔ {}\x1b[0m",
+                super::po::t("already exists")
+            ),
+            RowState::Done => format!(
+                "\x1b[2m{short}  ✔ {}\x1b[0m",
+                super::po::t("download complete")
+            ),
+            RowState::Downloading { done, total } => {
+                let spinner = SPINNERS[((done / (1024 * 1024)) as usize) % SPINNERS.len()];
+                match total {
+                    Some(t) if *t > 0 => {
+                        let frac = (*done as f64 / *t as f64).clamp(0.0, 1.0);
+                        let filled = (frac * WIDTH as f64).round() as usize;
+                        let bar: String = "█".repeat(filled) + &"░".repeat(WIDTH - filled);
+                        format!(
+                            "{short}  {spinner} {bar}  {:>3}%  {} / {}",
+                            (frac * 100.0) as u32,
+                            fmt_size(*done),
+                            fmt_size(*t)
+                        )
+                    }
+                    _ => format!("{short}  {spinner} {}", fmt_size(*done)),
+                }
+            }
+        }
+    }
+}
+
 pub fn fmt_size(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
     if bytes < 1024 {

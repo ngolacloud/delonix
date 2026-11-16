@@ -17,6 +17,10 @@ pub struct HostImages<'a> {
     pub store: &'a ImageStore,
     /// Called with the reference right before a pull starts.
     pub announce_pull: &'a dyn Fn(&str),
+    /// Per-layer pull progress (`registry::PullEvent`), when the caller has a
+    /// terminal to draw it on — the CLI's `docker pull`-style block. `None`
+    /// for headless callers (node API, tests): the pull itself is identical.
+    pub pull_events: Option<crate::registry::PullEventCb<'a>>,
     /// Wraps the unpacking of a new rootfs (e.g. in a progress line).
     pub unpacking: &'a UnpackFn<'a>,
     /// Words a `--user` the image cannot satisfy as an error.
@@ -27,11 +31,18 @@ impl delonix_compute::ports::WorkloadImages for HostImages<'_> {
     type Image = Image;
 
     fn resolve(&self, reference: &str) -> Result<Image> {
-        Ok(crate::registry::resolve_or_pull(
+        // `registry::resolve_or_pull`'s local-first logic, with the per-layer
+        // events the terminal hook wants threaded through on the miss path.
+        if let Ok(img) = self.store.resolve(reference) {
+            return Ok(img);
+        }
+        (self.announce_pull)(reference);
+        Ok(crate::registry::pull_from_registry_with_events(
             self.store,
             reference,
             None,
-            self.announce_pull,
+            None,
+            self.pull_events,
         )?)
     }
 

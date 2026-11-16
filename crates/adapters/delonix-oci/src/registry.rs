@@ -2042,6 +2042,39 @@ pub fn pull_from_registry_with_creds_platform(
 /// threads has no business in a parallel pull.
 pub type PullProgressCb<'a> = &'a (dyn Fn(usize, usize, u64, Option<u64>) + Sync);
 
+/// One per-layer event of a pull — what a `docker pull`-style renderer needs
+/// and the aggregate [`PullProgressCb`] cannot carry: WHICH layer moved. The
+/// engine only reports; the bin draws (the split `blob_with_progress`'s doc
+/// comment establishes). Borrowed digest on purpose: `Downloading` fires once
+/// per read chunk, and an owned `String` there would be an allocation per
+/// chunk for a consumer that mostly throttles the event away.
+#[derive(Debug, Clone, Copy)]
+pub enum PullEvent<'a> {
+    /// A layer the manifest names that is missing locally — announced before
+    /// any download starts, in manifest order, so a renderer can lay out one
+    /// line per layer upfront. `size` is the manifest descriptor's declared
+    /// size (what `docker pull` shows before the first byte arrives).
+    Queued { digest: &'a str, size: u64 },
+    /// A layer already in the CAS (manifest order) — docker's "Already
+    /// exists": a re-pull of a shared base layer costs nothing.
+    AlreadyExists { digest: &'a str },
+    /// Bytes of ONE layer in flight: `done` is that layer's running total
+    /// (NOT an aggregate across layers). `total` is the Content-Length when
+    /// the registry sent one, else the manifest descriptor's size — so a
+    /// chunked transfer still gets a bounded bar.
+    Downloading {
+        digest: &'a str,
+        done: u64,
+        total: Option<u64>,
+    },
+    /// The layer fully downloaded, digest-verified and stored in the CAS.
+    Done { digest: &'a str },
+}
+
+/// `+ Sync` for the same reason as [`PullProgressCb`]: layers are pulled in
+/// PARALLEL and every worker reports through this callback.
+pub type PullEventCb<'a> = &'a (dyn Fn(PullEvent<'_>) + Sync);
+
 /// When `reference` names a content digest (`sha256:...`), verifies the fetched
 /// manifest bytes hash to EXACTLY that digest. A digest-pinned pull
 /// (`repo@sha256:...`) is the whole point of pinning: even a compromised or
@@ -2075,12 +2108,77 @@ fn verify_manifest_digest(reference: &str, manifest_bytes: &[u8]) -> Result<()> 
 /// very start — looked hung, unlike `docker pull`'s familiar per-layer bars.
 /// The engine crate only REPORTS bytes; the bin draws (same split
 /// `blob_with_progress`'s own doc comment establishes).
+///
+/// The AGGREGATE shape (`layer i of n, bytes so far`) is kept for the
+/// docker-API streamer (`dockerapi.rs`), which wants one running figure; it
+/// is derived here from the per-layer [`PullEvent`]s the pull itself now
+/// emits, so there is a single pull code path.
 pub fn pull_from_registry_with_creds_full(
     store: &ImageStore,
     reference: &str,
     creds_override: Option<(String, String)>,
     requested_arch: Option<&str>,
     progress: Option<PullProgressCb>,
+) -> Result<Image> {
+    let Some(cb) = progress else {
+        return pull_from_registry_with_events(
+            store,
+            reference,
+            creds_override,
+            requested_arch,
+            None,
+        );
+    };
+    // Rebuilds the old aggregate semantics from the events: `total` counts
+    // every real layer (Queued + AlreadyExists are emitted for all of them,
+    // before any Downloading tick can fire), `li` is "layers finished + 1"
+    // capped at the total, and bytes accumulate deltas per layer —
+    // `Downloading.done` is a per-layer running total, adding it raw would
+    // grow with the square of the layer size (the exact bug the old adapter
+    // comment records).
+    let total_layers = std::sync::atomic::AtomicUsize::new(0);
+    let done_layers = std::sync::atomic::AtomicUsize::new(0);
+    let done_bytes = std::sync::atomic::AtomicU64::new(0);
+    let seen = std::sync::Mutex::new(std::collections::HashMap::<String, u64>::new());
+    let adapter = |ev: PullEvent<'_>| match ev {
+        PullEvent::Queued { .. } | PullEvent::AlreadyExists { .. } => {
+            total_layers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        PullEvent::Downloading { digest, done, .. } => {
+            let delta = {
+                let mut m = seen.lock().unwrap();
+                let prev = m.entry(digest.to_string()).or_insert(0);
+                let d = done.saturating_sub(*prev);
+                *prev = done;
+                d
+            };
+            let acc = done_bytes.fetch_add(delta, std::sync::atomic::Ordering::Relaxed) + delta;
+            let total = total_layers.load(std::sync::atomic::Ordering::Relaxed);
+            let li = (done_layers.load(std::sync::atomic::Ordering::Relaxed) + 1).min(total);
+            cb(li, total, acc, None);
+        }
+        PullEvent::Done { .. } => {
+            done_layers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    };
+    pull_from_registry_with_events(
+        store,
+        reference,
+        creds_override,
+        requested_arch,
+        Some(&adapter),
+    )
+}
+
+/// The pull itself, reporting per-layer [`PullEvent`]s — what `delonix image
+/// pull` and the pull-on-miss of `container run` feed into the multi-line
+/// `docker pull`-style renderer in the bin.
+pub fn pull_from_registry_with_events(
+    store: &ImageStore,
+    reference: &str,
+    creds_override: Option<(String, String)>,
+    requested_arch: Option<&str>,
+    events: Option<PullEventCb>,
 ) -> Result<Image> {
     let (host, repo, refr) = parse_reference(reference);
     let http = transfer_client()?;
@@ -2173,7 +2271,6 @@ pub fn pull_from_registry_with_creds_full(
         .iter()
         .filter(|l| !l.media_type().to_string().contains("foreign"))
         .collect();
-    let total = real_layers.len();
     let layers: Vec<String> = real_layers.iter().map(|l| l.digest().to_string()).collect();
 
     // WHAT IS MISSING, in one pass, before downloading anything. `Cas::has` is
@@ -2185,6 +2282,33 @@ pub fn pull_from_registry_with_creds_full(
         .filter(|d| !store.cas().has(d))
         .cloned()
         .collect();
+
+    // Declared sizes, by digest — `Downloading`'s fallback total when the
+    // registry answers without a Content-Length (chunked transfers).
+    let sizes: std::collections::HashMap<String, u64> = layers
+        .iter()
+        .cloned()
+        .zip(real_layers.iter().map(|l| l.size()))
+        .collect();
+
+    if let Some(cb) = events {
+        // Every layer announced upfront, in manifest order, before the first
+        // byte moves: the renderer lays out one line per layer and the user
+        // sees at once how much of the image is already local — the `docker
+        // pull` opening screen.
+        let missing_set: std::collections::HashSet<&str> =
+            missing.iter().map(String::as_str).collect();
+        for (digest, desc) in layers.iter().zip(&real_layers) {
+            if missing_set.contains(digest.as_str()) {
+                cb(PullEvent::Queued {
+                    digest,
+                    size: desc.size(),
+                });
+            } else {
+                cb(PullEvent::AlreadyExists { digest });
+            }
+        }
+    }
 
     if !missing.is_empty() || need_config {
         // LAYERS IN PARALLEL, and this is the difference between a pull that
@@ -2200,8 +2324,6 @@ pub fn pull_from_registry_with_creds_full(
         // layer streams to a scratch file in the CAS (`blob_into_cas`), so a
         // worker holds one read chunk, not the layer.
         let workers = missing.len().min(4);
-        let done_bytes = std::sync::atomic::AtomicU64::new(0);
-        let done_layers = std::sync::atomic::AtomicUsize::new(0);
         let next = std::sync::Mutex::new(missing.clone().into_iter());
         let errors = std::sync::Mutex::new(Vec::<String>::new());
         let config_result = std::sync::Mutex::new(None::<Result<()>>);
@@ -2227,39 +2349,27 @@ pub fn pull_from_registry_with_creds_full(
                 // obtained. `reqwest::blocking::Client` shares its connection
                 // pool across clones, so this is not N pools.
                 let mut cw = c.clone();
-                let (next, errors, done_bytes, done_layers) =
-                    (&next, &errors, &done_bytes, &done_layers);
+                let (next, errors, sizes) = (&next, &errors, &sizes);
                 let store = &store;
                 scope.spawn(move || loop {
                     let Some(dg) = next.lock().unwrap().next() else {
                         return;
                     };
-                    let res = if let Some(cb) = progress {
-                        // Progress is AGGREGATE across workers: with several
-                        // layers in flight there is no single "layer i of n" to
-                        // report, and per-layer bytes would make the bar jump
-                        // backwards. `done` is every byte pulled so far.
-                        //
-                        // BUG FOUND: `blob_with_progress` reports the RUNNING
-                        // TOTAL for its blob, and this adapter was adding that
-                        // running total into the aggregate on every tick, as if
-                        // it were a delta. The reported bytes grew with the
-                        // SQUARE of the layer size — a 100 MiB layer in 64 KiB
-                        // chunks announced tens of GiB pulled. `pull_oci_artifact`
-                        // reads the same callback correctly (it compares `done`
-                        // against the total), so the two consumers of one
-                        // callback disagreed about what its argument meant.
-                        // `Cell` and not an atomic: this closure is built per
-                        // blob and only ever called by the worker that owns it.
-                        let seen = std::cell::Cell::new(0u64);
-                        let adapter = |done: u64, _blob_total: Option<u64>| {
-                            let chunk = done.saturating_sub(seen.get());
-                            seen.set(done);
-                            let acc = done_bytes
-                                .fetch_add(chunk, std::sync::atomic::Ordering::Relaxed)
-                                + chunk;
-                            let li = done_layers.load(std::sync::atomic::Ordering::Relaxed) + 1;
-                            cb(li.min(total), total, acc, None);
+                    let res = if let Some(cb) = events {
+                        // Straight passthrough: `blob_with_progress` reports
+                        // the RUNNING TOTAL for its blob, which is exactly
+                        // what `Downloading.done` means — per-layer, each
+                        // worker its own line. (The old aggregate-across-
+                        // workers adapter, and the squared-bytes bug its
+                        // delta bookkeeping once had, now live in
+                        // `pull_from_registry_with_creds_full`.)
+                        let size_hint = sizes.get(&dg).copied();
+                        let adapter = |done: u64, blob_total: Option<u64>| {
+                            cb(PullEvent::Downloading {
+                                digest: &dg,
+                                done,
+                                total: blob_total.or(size_hint),
+                            });
                         };
                         cw.blob_into_cas(store.cas(), &dg, Some(&adapter))
                     } else {
@@ -2267,7 +2377,9 @@ pub fn pull_from_registry_with_creds_full(
                     };
                     match res {
                         Ok(()) => {
-                            done_layers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if let Some(cb) = events {
+                                cb(PullEvent::Done { digest: &dg });
+                            }
                         }
                         Err(Error::DigestMismatch(_)) => errors
                             .lock()
@@ -3940,6 +4052,185 @@ mod tests {
             "o 2º pull não devia ter pedido NENHUM blob novo — já estavam no CAS local"
         );
         assert_eq!(img1.id, img2.id);
+    }
+
+    /// The per-layer event stream a `docker pull`-style renderer consumes:
+    /// every layer announced upfront (in manifest order, `AlreadyExists` for
+    /// what the CAS already holds, `Queued` with the declared size for the
+    /// rest), then `Downloading` ticks and a `Done` for each missing layer.
+    #[test]
+    fn pull_com_eventos_reporta_camadas_existentes_e_descarregadas() {
+        use super::{pull_from_registry_with_events, PullEvent};
+        let (port, _gets, _handle) = serve_anon_registry();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut c = test_client(&format!("127.0.0.1:{port}"), "events");
+        let config_bytes =
+            br#"{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]}}"#
+                .to_vec();
+        let config_digest = format!("sha256:{}", sha256_hex(&config_bytes));
+        c.push_blob(&config_digest, &config_bytes).unwrap();
+
+        let seeded_bytes = b"camada-ja-presente-no-cas".to_vec();
+        let seeded_digest = format!("sha256:{}", sha256_hex(&seeded_bytes));
+        c.push_blob(&seeded_digest, &seeded_bytes).unwrap();
+        let fresh_bytes = b"camada-que-falta-e-vai-ser-descarregada".to_vec();
+        let fresh_digest = format!("sha256:{}", sha256_hex(&fresh_bytes));
+        c.push_blob(&fresh_digest, &fresh_bytes).unwrap();
+
+        let manifest = serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "size": config_bytes.len(),
+                "digest": config_digest,
+            },
+            "layers": [
+                {
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                    "size": seeded_bytes.len(),
+                    "digest": seeded_digest,
+                },
+                {
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                    "size": fresh_bytes.len(),
+                    "digest": fresh_digest,
+                },
+            ],
+        });
+        let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+        c.push_manifest(
+            "tag",
+            &manifest_bytes,
+            "application/vnd.oci.image.manifest.v1+json",
+        )
+        .unwrap();
+
+        let store = crate::ImageStore::open(tmp.path()).unwrap();
+        // The seeded layer enters the CAS BEFORE the pull — the pull must
+        // recognise it (`AlreadyExists`) and never download it.
+        assert_eq!(store.cas().write(&seeded_bytes).unwrap(), seeded_digest);
+
+        #[derive(Debug, Clone, PartialEq)]
+        enum Ev {
+            Queued(String, u64),
+            Exists(String),
+            Downloading(String, u64, Option<u64>),
+            Done(String),
+        }
+        let got = std::sync::Mutex::new(Vec::<Ev>::new());
+        let cb = |ev: PullEvent<'_>| {
+            got.lock().unwrap().push(match ev {
+                PullEvent::Queued { digest, size } => Ev::Queued(digest.into(), size),
+                PullEvent::AlreadyExists { digest } => Ev::Exists(digest.into()),
+                PullEvent::Downloading {
+                    digest,
+                    done,
+                    total,
+                } => Ev::Downloading(digest.into(), done, total),
+                PullEvent::Done { digest } => Ev::Done(digest.into()),
+            });
+        };
+        let target = format!("127.0.0.1:{port}/events:tag");
+        pull_from_registry_with_events(&store, &target, None, None, Some(&cb))
+            .expect("pull com eventos devia ter sucesso");
+        let got = got.into_inner().unwrap();
+
+        // Layout first, in manifest order: the renderer draws every line
+        // before the first byte moves.
+        assert_eq!(
+            &got[..2],
+            &[
+                Ev::Exists(seeded_digest.clone()),
+                Ev::Queued(fresh_digest.clone(), fresh_bytes.len() as u64),
+            ],
+            "os 2 primeiros eventos têm de ser o layout, na ordem do manifesto"
+        );
+        let last_tick = got
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                Ev::Downloading(d, done, total) if d == &fresh_digest => Some((*done, *total)),
+                _ => None,
+            })
+            .expect("a camada em falta tinha de reportar Downloading");
+        assert_eq!(last_tick.0, fresh_bytes.len() as u64);
+        assert_eq!(last_tick.1, Some(fresh_bytes.len() as u64));
+        assert!(
+            got.contains(&Ev::Done(fresh_digest.clone())),
+            "a camada descarregada tinha de terminar em Done"
+        );
+        assert!(
+            !got.iter()
+                .any(|e| matches!(e, Ev::Downloading(d, ..) if d == &seeded_digest)),
+            "uma camada já no CAS nunca reporta Downloading"
+        );
+    }
+
+    /// The aggregate shape (`layer i of n, bytes so far`) is now DERIVED from
+    /// the per-layer events — this pins the old contract the docker-API
+    /// streamer still consumes: `total` = all real layers, bytes accumulate
+    /// monotonically to the sum of the MISSING layers, never the squared
+    /// figure the old per-tick adapter once produced.
+    #[test]
+    fn pull_agregado_derivado_dos_eventos_mantem_contrato() {
+        use super::pull_from_registry_with_creds_full;
+        let (port, _gets, _handle) = serve_anon_registry();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut c = test_client(&format!("127.0.0.1:{port}"), "aggr");
+        let config_bytes =
+            br#"{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]}}"#
+                .to_vec();
+        let config_digest = format!("sha256:{}", sha256_hex(&config_bytes));
+        c.push_blob(&config_digest, &config_bytes).unwrap();
+        let layer_bytes = b"bytes-da-unica-camada-do-teste-agregado".to_vec();
+        let layer_digest = format!("sha256:{}", sha256_hex(&layer_bytes));
+        c.push_blob(&layer_digest, &layer_bytes).unwrap();
+        let manifest = serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "size": config_bytes.len(),
+                "digest": config_digest,
+            },
+            "layers": [{
+                "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                "size": layer_bytes.len(),
+                "digest": layer_digest,
+            }],
+        });
+        c.push_manifest(
+            "tag",
+            &serde_json::to_vec(&manifest).unwrap(),
+            "application/vnd.oci.image.manifest.v1+json",
+        )
+        .unwrap();
+
+        let store = crate::ImageStore::open(tmp.path()).unwrap();
+        let ticks = std::sync::Mutex::new(Vec::<(usize, usize, u64)>::new());
+        let cb = |li: usize, total: usize, acc: u64, _t: Option<u64>| {
+            ticks.lock().unwrap().push((li, total, acc));
+        };
+        let target = format!("127.0.0.1:{port}/aggr:tag");
+        pull_from_registry_with_creds_full(&store, &target, None, None, Some(&cb))
+            .expect("pull agregado devia ter sucesso");
+        let ticks = ticks.into_inner().unwrap();
+        assert!(!ticks.is_empty(), "o callback agregado tinha de disparar");
+        assert!(
+            ticks.windows(2).all(|w| w[0].2 <= w[1].2),
+            "bytes agregados têm de ser monótonos"
+        );
+        let last = ticks.last().unwrap();
+        assert_eq!(last.0, 1);
+        assert_eq!(last.1, 1);
+        assert_eq!(
+            last.2,
+            layer_bytes.len() as u64,
+            "o total agregado é a soma das camadas em falta — nem mais (o bug quadrático), nem menos"
+        );
     }
 
     fn scratch() -> tempfile::TempDir {

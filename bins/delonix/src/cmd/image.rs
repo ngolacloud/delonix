@@ -793,41 +793,15 @@ pub fn apply(docs: &[ManifestDoc]) -> Result<()> {
 }
 
 fn cmd_pull(images: &ImageStore, reference: &str, verify: Option<&std::path::Path>) -> Result<()> {
-    // Per-layer progress bar (`docker pull`-style) — BUG FOUND live: a
-    // multi-hundred-MB image gave no feedback at all beyond one log line at
-    // the very start, looked hung. `last` tracks (layer, bytes) so a
-    // transition to a NEW layer closes the previous bar's line, without
-    // depending on the registry sending a Content-Length (chunked transfers
-    // may not) to know when one layer ends and the next begins.
-    // `Mutex` and not `Cell`: the pull runs the layers in PARALLEL and every
-    // worker reports through here, so the callback has to be `Sync`. The lock
-    // is not a hot path — it is taken once per progress tick (every 2 MiB), not
-    // per byte.
-    let last = std::sync::Mutex::new((0usize, 0u64));
-    let on_progress = move |layer: usize, layer_total: usize, done: u64, total: Option<u64>| {
-        let (last_layer, last_done) = *last.lock().unwrap();
-        if last_layer != 0 && last_layer != layer {
-            super::output::progress_done();
-        }
-        let advanced = last_layer != layer || done.saturating_sub(last_done) >= 2 * 1024 * 1024;
-        let finished = total.map(|t| done >= t).unwrap_or(false);
-        if advanced || finished {
-            *last.lock().unwrap() = (layer, done);
-            super::output::progress_bar(
-                &format!("[pull] layer {layer}/{layer_total}"),
-                done,
-                total,
-            );
-        }
-    };
-    let img = delonix_oci::registry::pull_from_registry_with_creds_full(
-        images,
-        reference,
-        None,
-        None,
-        Some(&on_progress),
-    )?;
-    super::output::progress_done();
+    // Per-layer progress block (`docker pull`-style): one line per layer,
+    // digest + bar + bytes, «already exists» for layers the CAS already
+    // holds. The old single aggregate bar («layer N/M») could only ever show
+    // one of the layers downloading in PARALLEL; the shared renderer
+    // (`output::PullRenderer`, also behind `container run`'s pull-on-miss)
+    // shows them all. History of the aggregate line — a pull that looked
+    // hung for hundreds of MB — in `pull_from_registry_with_creds_full`'s
+    // doc comment.
+    let img = super::util::pull_with_layer_progress(images, reference, None, None)?;
     // Verify AFTER the pull (the cosign signature lives in a tag alongside the
     // image in the registry, so we need it here). If it fails, the command fails —
     // the image stays local, but whoever asked for `--verify` knows it is untrusted.
