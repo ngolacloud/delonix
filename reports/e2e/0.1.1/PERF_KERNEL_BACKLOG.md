@@ -21,7 +21,9 @@ As 5 alavancas de maior retorno + higiene. Numeração própria `KRN-NNNN`.
 | **KRN-0004** ✅ | Landlock FS sandbox best-effort no init (`delonix-linux/src/lib.rs` `apply_landlock`), opt-in via `--read-only`; cobre rootfs RO + tmpfs/`--tmpfs`/binds rw. dep `landlock=0.4` | `run --read-only --tmpfs /scratch`: tmpfs rw escreve, rootfs RO nega; EACCES distinto de EROFS prova enforcement | 250+ testes delonix-linux verdes; regressão em `scripts/e2e.sh` | `arch_fitness` verde (baseline `library_prints` 111→113, 2 eprintln de segurança) |
 | **KRN-0001** ✅ | **F1** `link_exists`→`RTM_GETLINK` (novo `delonix-sdn/src/netlink.rs`, ponte sync→async tokio `block_on`; mata o bug de stdout-sniffing). **F2** `link_set_up`→`RTM_NEWLINK` (`LinkUnspec::new_with_index().up()`). **F3** `addr_add`→`RTM_NEWADDR` (`address().add()`). **Todos os call-sites HOST-SIDE migrados** (10 em infra.rs: link exists/up + addr add). deps `rtnetlink=0.24`+`tokio`+`futures-util` | F1 `lo`→true. F2/F3 rede e2e: bridge+veth `UP,LOWER_UP`, **gateway alcançável** (addr_add nativo), ingress porta HTTP 200, DNS, c2c | 349 testes delonix-sdn verdes | `arch_fitness` + `cargo check --workspace` verdes |
 
-Restam: KRN-0001 **fatia 4** = os **10 call-sites netns-exec** (`ip netns exec … addr/link`) que precisam de `setns(CLONE_NEWNET)` numa thread dedicada antes do socket netlink — a parte difícil; depois `route add`. KRN-0004 fatia 2 (opt-in próprio). KRN-0002/0003/0005/0006 por começar.
+**Fatia 4 (INICIADA)**: `with_netns` (setns CLONE_NEWNET numa throwaway thread, padrão de `cni::set_netns_sysctls`) permite correr netlink DENTRO do netns do container. `do_attach` v4 migrado (lo up + eth0 addr + eth0 up via setns+netlink). **Provado em rootless**: o container recebe o IP e eth0 fica `UP,LOWER_UP`, conectividade + ingress HTTP 200. Restam 7 netns-exec (route add, pod-attach, v6) — mesmo padrão `with_netns`.
+
+Restam: KRN-0001 completar fatia 4 (7 netns-exec restantes + `route add`). KRN-0004 fatia 2 (opt-in próprio). KRN-0002/0003/0005/0006 por começar.
 
 ---
 

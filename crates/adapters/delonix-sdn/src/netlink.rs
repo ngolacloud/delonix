@@ -179,6 +179,42 @@ pub(crate) fn addr_add(dev: &str, cidr: &str) -> crate::Result<()> {
     })
 }
 
+/// KRN-0001 fatia 4: run `f` with THIS thread moved into the network namespace
+/// at `netns_path` (`/run/netns/<name>`), then let the thread exit — the same
+/// throwaway-thread `setns` pattern as `cni::set_netns_sysctls`. A netlink socket
+/// opened inside `f` binds to the target netns, so `link_set_up`/`addr_add` act
+/// on the CONTAINER's interfaces (`eth0`, `lo`) instead of shelling out to
+/// `ip netns exec`. Only this thread switches netns; the rest of the process is
+/// untouched, which is why it must run on a dedicated thread.
+pub(crate) fn with_netns<F, T>(netns_path: &str, f: F) -> crate::Result<T>
+where
+    F: FnOnce() -> crate::Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    use std::os::fd::AsRawFd as _;
+    let path = netns_path.to_string();
+    std::thread::spawn(move || -> crate::Result<T> {
+        let file = std::fs::File::open(&path).map_err(|e| Error::Command {
+            context: "netns-open",
+            message: format!("{path}: {e}"),
+        })?;
+        // SAFETY: setns on a valid netns fd; CLONE_NEWNET changes only THIS
+        // thread, which exits right after `f` returns.
+        if unsafe { libc::setns(file.as_raw_fd(), libc::CLONE_NEWNET) } != 0 {
+            return Err(Error::Command {
+                context: "netns-setns",
+                message: format!("{path}: {}", std::io::Error::last_os_error()),
+            });
+        }
+        f()
+    })
+    .join()
+    .map_err(|_| Error::Command {
+        context: "netns",
+        message: "the netns thread panicked".into(),
+    })?
+}
+
 #[cfg(test)]
 mod tests {
     use super::{addr_add, link_exists, link_set_up};

@@ -4167,18 +4167,24 @@ fn do_attach(netns: &str, ip: &str, bridge: &str, gateway: &str, namespace: &str
     crate::netlink::link_set_up(&vh)?; // KRN-0001: native netlink
     run("ip", &["link", "set", "eth0", "netns", &netns])?;
     let cidr = format!("{ip}/{}", plen_of_bridge(&bridge));
-    for argv in [
-        vec!["netns", "exec", &netns, "ip", "link", "set", "lo", "up"],
-        vec![
-            "netns", "exec", &netns, "ip", "addr", "add", &cidr, "dev", "eth0",
-        ],
-        vec!["netns", "exec", &netns, "ip", "link", "set", "eth0", "up"],
-        vec![
+    // KRN-0001 fatia 4: lo/eth0 up + eth0 address via native netlink INSIDE the
+    // container netns (a `setns` on a throwaway thread), instead of `ip netns
+    // exec`. The default route stays on the CLI for now (the `route` family is a
+    // later slice).
+    let netns_path = crate::cni::named_netns_path(&netns);
+    let cidr_cl = cidr.clone();
+    crate::netlink::with_netns(&netns_path, move || {
+        crate::netlink::link_set_up("lo")?;
+        crate::netlink::addr_add("eth0", &cidr_cl)?;
+        crate::netlink::link_set_up("eth0")?;
+        Ok::<(), crate::error::Error>(())
+    })?;
+    run(
+        "ip",
+        &[
             "netns", "exec", &netns, "ip", "route", "add", "default", "via", gateway,
         ],
-    ] {
-        run("ip", &argv)?;
-    }
+    )?;
     // IPv6: GOVERNED and ON by default (ADR-0082 phase 4). The container gets the
     // DETERMINISTIC ULA (`v6_of`) statically, exactly as it gets its v4 address —
     // which is what the firewall (`@fwmap6`, the per-container v6 chain), the
