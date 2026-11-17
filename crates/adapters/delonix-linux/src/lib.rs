@@ -1139,6 +1139,29 @@ fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
     }
 }
 
+/// The foreground sibling of [`detach_stdio`]: stdout/stderr go down the log
+/// pipes (the shim echoes them back to the operator's terminal), but stdin
+/// stays the operator's — a foreground run keeps reading from where it always
+/// did. No-op without a stdout pipe. This is what gives a run WITHOUT `-d` a
+/// `container logs` history (Docker/Podman parity): before it, a foreground
+/// container wrote straight to the terminal and the log file simply never
+/// existed (seen live: `logs -f` on a foreground nginx → ENOENT).
+fn attach_log_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
+    let Some(out) = out_fd else { return };
+    // SAFETY: direct FFI; duplicates our own just-created pipe ends onto 1/2.
+    unsafe {
+        libc::dup2(out, 1);
+        // Absent stderr pipe = both streams down the stdout pipe, the same
+        // merge `detach_stdio` documents.
+        libc::dup2(err_fd.unwrap_or(out), 2);
+        for fd in [out_fd, err_fd].into_iter().flatten() {
+            if fd > 2 {
+                libc::close(fd);
+            }
+        }
+    }
+}
+
 /// Inode of a path, or `None` if it is not there.
 ///
 /// Used by the logging shim to notice that its file was rotated away from
@@ -1160,6 +1183,7 @@ const MAX_LOG_BYTES: u64 = 1024 * 1024;
 // NEXT iteration (rotation accounting across calls); rustc's flow analysis
 // does not see that cross-iteration read and marks the last write as "unused".
 #[allow(unused_assignments)]
+#[allow(clippy::too_many_arguments)]
 fn log_shim(
     read_fd: i32,
     err_fd: Option<i32>,
@@ -1168,11 +1192,12 @@ fn log_shim(
     driver: String,
     tag: String,
     cri: bool,
+    echo: bool,
 ) -> ! {
     // journald/syslog driver: forwards each line to syslog (which journald
     // captures), instead of the file. `--log-driver journald|syslog`.
     if driver == "journald" || driver == "syslog" {
-        log_shim_syslog(read_fd, tag);
+        log_shim_syslog(read_fd, tag, echo);
     }
     use std::io::Write;
     let open_log = |append: bool| {
@@ -1271,6 +1296,14 @@ fn log_shim(
                 continue;
             }
             let (_, name, line) = &mut srcs[i];
+            // Foreground echo: the operator's terminal gets the RAW bytes, on
+            // the stream they came from (stdout→1, stderr→2) — the log file's
+            // framing (CRI records, rotation) is the file's business, not the
+            // terminal's. This is what lets a foreground run keep looking
+            // exactly as it always did while the file is written alongside.
+            if echo {
+                write_all_fd(if *name == "stderr" { 2 } else { 1 }, &buf[..got as usize]);
+            }
             for &b in &buf[..got as usize] {
                 if !cri {
                     continue;
@@ -1313,7 +1346,7 @@ fn log_shim(
 
 /// Variant of the *logging shim* that writes each line to **syslog** (captured
 /// by journald on systemd systems). `tag` = `delonix/<name>`.
-fn log_shim_syslog(read_fd: i32, tag: String) -> ! {
+fn log_shim_syslog(read_fd: i32, tag: String, echo: bool) -> ! {
     use std::io::Read;
     use std::os::fd::FromRawFd;
     // the tag must live as long as syslog is open -> deliberate leak.
@@ -1335,6 +1368,12 @@ fn log_shim_syslog(read_fd: i32, tag: String) -> ! {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
+                // Foreground echo, same contract as `log_shim`'s: raw bytes to
+                // the operator's stdout (this driver has a single, untagged
+                // source), syslog keeps its line framing.
+                if echo {
+                    write_all_fd(1, &buf[..n]);
+                }
                 for &b in &buf[..n] {
                     if b == b'\n' {
                         if let Ok(c) = std::ffi::CString::new(line.clone()) {
@@ -4666,6 +4705,11 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     }
     if detach {
         detach_stdio(log_fd, log_err_fd);
+    } else {
+        // Foreground WITH a log pipe: capture stdout/stderr for `container
+        // logs` while the shim echoes them to the operator. No-op when the
+        // parent opened no pipe (console/tty runs, or no log path).
+        attach_log_stdio(log_fd, log_err_fd);
     }
     // KIND node: BEFORE mounting the rootfs (which remounts `/sys`), gives the node a dedicated,
     // empty cgroup-ns root (uncovers the real cgroup2, moves us to a leaf,
@@ -8323,8 +8367,18 @@ fn spawn(
     let foreground_tty = spec.tty && !detach;
     let console =
         console_wanted(inputs.privileged, detach, spec.log_path.is_some()) || foreground_tty;
-    let (log_pipe, log_err_pipe) =
-        open_log_pipes(detach && !console && spec.log_path.is_some(), spec.log_cri);
+    // Foreground capture (Docker/Podman parity): a run WITHOUT `-d` now logs
+    // too. The pipes are opened exactly as in detached mode and the shim runs
+    // in ECHO mode — file and terminal both. Before this, `container logs` on
+    // a foreground container was ENOENT: nothing ever wrote the file. The
+    // stderr pipe is opened here even outside CRI so the echo can keep the
+    // streams apart (stderr→2); the FILE still merges them untagged, exactly
+    // as `open_log_pipes`'s doc comment wants for the non-CRI format.
+    let foreground_capture = !detach && !console && spec.log_path.is_some();
+    let (log_pipe, log_err_pipe) = open_log_pipes(
+        (detach || foreground_capture) && !console && spec.log_path.is_some(),
+        spec.log_cri || foreground_capture,
+    );
     let console_sock = if console { open_console_sock() } else { None };
 
     let (flags, userns) = clone_flags(spec);
@@ -8382,11 +8436,35 @@ fn spawn(
     // feeds it to the log shim. `None` on the tty path means the init could not
     // allocate the pty — the foreground wait then runs with inherited stdio, as
     // it did before `-t`.
+    let mut tty_shim_echoes = false;
     let tty_master = if foreground_tty {
+        // With a log path, the pty master ALSO feeds a shim in echo mode: the
+        // shim becomes the one reader of the master (output → terminal AND
+        // log file), while this process keeps stdin→master, raw mode and
+        // resize (`wait_foreground_tty`, which then must NOT read the master
+        // itself — two readers would split the byte stream between them).
+        // The shim gets its own dup: `start_log_shim` closes the fd it is
+        // given on the parent side, and the master must survive for the
+        // stdin pump and the final close.
+        if let (Some(master), true) = (log_src, spec.log_path.is_some()) {
+            // SAFETY: duplicating our own just-received master fd.
+            let shim_src = unsafe { libc::dup(master) };
+            if shim_src >= 0 {
+                start_log_shim(shim_src, log_pipe, log_err_pipe, spec, container, true);
+                tty_shim_echoes = true;
+            }
+        }
         log_src
     } else {
         if let Some(src) = log_src {
-            start_log_shim(src, log_pipe, log_err_pipe, spec, container);
+            start_log_shim(
+                src,
+                log_pipe,
+                log_err_pipe,
+                spec,
+                container,
+                foreground_capture,
+            );
         }
         None
     };
@@ -8438,7 +8516,7 @@ fn spawn(
         return Ok(container.status.clone());
     }
     if let Some(master) = tty_master {
-        return wait_foreground_tty(store, container, pid, master);
+        return wait_foreground_tty(store, container, pid, master, tty_shim_echoes);
     }
     wait_foreground(store, container, pid)
 }
@@ -8458,6 +8536,7 @@ fn wait_foreground_tty(
     container: &mut Container,
     pid: Pid,
     master: i32,
+    output_via_shim: bool,
 ) -> Result<Status> {
     // SAFETY: `ws` is a zeroed `winsize` (all-integer C struct) that `TIOCGWINSZ`
     // fills from the operator's stdin; `master` is the pty master just received.
@@ -8470,7 +8549,12 @@ fn wait_foreground_tty(
     let saved = set_raw_mode();
     // `master` is an `i32` (Copy): each pump thread gets its own copy of the fd
     // number, both referring to the one master the parent closes once below.
-    std::thread::spawn(move || pump_fd(master, 1)); // pty -> operator stdout
+    // With a log shim in echo mode the SHIM is the master's reader (terminal
+    // and log file both); a second reader here would steal bytes from it, so
+    // only stdin→pty is pumped then.
+    if !output_via_shim {
+        std::thread::spawn(move || pump_fd(master, 1)); // pty -> operator stdout
+    }
     std::thread::spawn(move || pump_fd(0, master)); // operator stdin -> pty
     let r = wait_foreground(store, container, pid);
     restore_mode(saved);
@@ -9249,6 +9333,7 @@ fn start_log_shim(
     log_err_pipe: PipePair,
     spec: &RunSpec<'_>,
     container: &Container,
+    echo: bool,
 ) {
     let lp = spec.log_path.clone().unwrap_or_default();
     let driver = container.log_driver.clone().unwrap_or_default();
@@ -9310,8 +9395,14 @@ fn start_log_shim(
             let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
             if null >= 0 {
                 libc::dup2(null, 0);
-                libc::dup2(null, 1);
-                libc::dup2(null, 2);
+                // Echo mode (a FOREGROUND run): stdout/stderr stay the
+                // operator's terminal — echoing is the whole point, and the
+                // EOF-holding concern above is the wanted semantic there (the
+                // operator is watching until the container exits anyway).
+                if !echo {
+                    libc::dup2(null, 1);
+                    libc::dup2(null, 2);
+                }
                 if null > 2 {
                     libc::close(null);
                 }
@@ -9325,6 +9416,7 @@ fn start_log_shim(
             driver,
             tag,
             spec.log_cri,
+            echo,
         ); // does not return (the parent does not wait)
     }
     // The parent drops the ends: only the container (the source, via fd 1/2 or the pty
@@ -9960,6 +10052,27 @@ fn recv_fd(sock: i32) -> Option<i32> {
 }
 
 /// Copies bytes from one fd to another until EOF (one direction of the pty proxy).
+/// Writes all of `bytes` to a raw fd, retrying short writes. Best-effort (the
+/// consumers are the operator's terminal and log echoes — a vanished terminal
+/// must not kill the shim that is still writing the file).
+fn write_all_fd(fd: i32, bytes: &[u8]) {
+    let mut off = 0usize;
+    while off < bytes.len() {
+        // SAFETY: `off < len`, so pointer and remaining length stay inside `bytes`.
+        let w = unsafe {
+            libc::write(
+                fd,
+                bytes[off..].as_ptr() as *const libc::c_void,
+                bytes.len() - off,
+            )
+        };
+        if w <= 0 {
+            return;
+        }
+        off += w as usize;
+    }
+}
+
 fn pump_fd(from: i32, to: i32) {
     let mut buf = [0u8; 4096];
     loop {
@@ -16343,6 +16456,92 @@ mod spawn_step_tests {
         assert_eq!(
             init_last_words(dir.path().join("missing").to_str()),
             "it printed nothing"
+        );
+    }
+
+    /// Foreground capture: in echo mode the shim writes the log FILE and
+    /// repeats the raw bytes to the operator, keeping the streams apart
+    /// (stdout→1, stderr→2) even though the file merges them untagged. This
+    /// is the mechanism that gives a run without `-d` a `container logs`
+    /// history (before it, the file was never written — ENOENT, seen live).
+    #[test]
+    fn the_shim_in_echo_mode_writes_file_and_terminal() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("log");
+        let mk = || {
+            let mut f = [0i32; 2];
+            // SAFETY: pipe() fills 2 fds.
+            assert_eq!(unsafe { libc::pipe(f.as_mut_ptr()) }, 0);
+            (f[0], f[1])
+        };
+        let out = mk(); // container stdout → shim
+        let err = mk(); // container stderr → shim
+        let echo_out = mk(); // the shim's fd 1, captured
+        let echo_err = mk(); // the shim's fd 2, captured
+                             // SAFETY: the test forks a child that only rewires fds and runs the
+                             // shim (which never returns); same pattern as the exec-failure test.
+        let pid = match unsafe { fork() }.unwrap() {
+            // SAFETY: in the forked child: every fd is a live pipe end created
+            // above; `log_shim` ends in `_exit`, no destructors run.
+            ForkResult::Child => unsafe {
+                libc::dup2(echo_out.1, 1);
+                libc::dup2(echo_err.1, 2);
+                for fd in [echo_out.0, echo_out.1, echo_err.0, echo_err.1, out.1, err.1] {
+                    if fd > 2 {
+                        libc::close(fd);
+                    }
+                }
+                log_shim(
+                    out.0,
+                    Some(err.0),
+                    log.to_string_lossy().into_owned(),
+                    MAX_LOG_BYTES,
+                    String::new(),
+                    "delonix/test".into(),
+                    false,
+                    true,
+                )
+            },
+            ForkResult::Parent { child } => child,
+        };
+        // SAFETY: parent side: closes its copies so the shim sees EOF after
+        // the writes; reads the echo pipes to EOF; every fd closed once.
+        let (echoed_out, echoed_err) = unsafe {
+            libc::close(out.0);
+            libc::close(err.0);
+            libc::close(echo_out.1);
+            libc::close(echo_err.1);
+            let o = b"ola stdout\n";
+            let e = b"ai stderr\n";
+            assert_eq!(
+                libc::write(out.1, o.as_ptr().cast(), o.len()),
+                o.len() as isize
+            );
+            assert_eq!(
+                libc::write(err.1, e.as_ptr().cast(), e.len()),
+                e.len() as isize
+            );
+            libc::close(out.1);
+            libc::close(err.1);
+            use std::io::Read;
+            use std::os::fd::FromRawFd;
+            let mut s_out = String::new();
+            std::fs::File::from_raw_fd(echo_out.0)
+                .read_to_string(&mut s_out)
+                .unwrap();
+            let mut s_err = String::new();
+            std::fs::File::from_raw_fd(echo_err.0)
+                .read_to_string(&mut s_err)
+                .unwrap();
+            (s_out, s_err)
+        };
+        waitpid(pid, None).unwrap();
+        assert_eq!(echoed_out, "ola stdout\n", "echo do stdout no fd 1, cru");
+        assert_eq!(echoed_err, "ai stderr\n", "echo do stderr no fd 2, cru");
+        let file = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            file.contains("ola stdout\n") && file.contains("ai stderr\n"),
+            "o ficheiro leva os dois streams (não-CRI: merge sem tag): {file:?}"
         );
     }
 

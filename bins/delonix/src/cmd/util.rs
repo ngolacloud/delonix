@@ -352,6 +352,21 @@ pub fn silence_cgroup_warning() {
     }
 }
 
+/// The error for `container logs` when the log file does not exist. The bare
+/// ENOENT read as a broken store; the usual cause is benign and dated: a
+/// container started in FOREGROUND by a delonix from before foreground
+/// capture never wrote a log file at all.
+pub(crate) fn no_logs_hint(name: &str, path: &std::path::Path, err: &std::io::Error) -> Error {
+    Error::Invalid(super::po::tf(
+        "no logs for {name} at {path}: {err} (a container started in foreground by an older delonix wrote no log file — restart it to begin capturing)",
+        &[
+            ("name", name),
+            ("path", &path.display().to_string()),
+            ("err", &err.to_string()),
+        ],
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
