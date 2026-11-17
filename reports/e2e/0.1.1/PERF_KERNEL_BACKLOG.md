@@ -174,6 +174,47 @@ ser syscall/netlink/crate nativo. Fora de âmbito (externos por natureza):
 
 ---
 
+## Nativização de PROTOCOLO em Rust (NAT-0001..0005) — não kernel-nativo
+
+Categoria distinta dos KRN: aqui não há syscall que substitua o binário — o
+ganho é falar o PROTOCOLO num crate Rust (tipado, sem fork, sem parsing de
+texto) em vez de `fork+exec+parse` de um CLI. Só vale onde há parsing frágil ou
+dependência de binário a remover. Prefixo `NAT-` para não confundir com os KRN.
+
+### NAT-0001 — systemd/D-Bus via `zbus` (substitui `busctl`/`systemctl`) ✅ melhor candidato
+- **Current behaviour:** `busctl` (`delonix-linux/src/lib.rs:11760`) e `systemctl` (`bins/delonix/src/cmd/vm.rs:2521`, boot.rs units) — texto parseado, frágil; fork por operação.
+- **Opportunity:** crate `zbus` (D-Bus puro Rust) contra `org.freedesktop.systemd1` (StartUnit/EnableUnitFiles/etc.). O systemd continua externo (não o controlamos), mas a conversa passa a tipada.
+- **Ganho:** ALTO (o `busctl` devolve texto; D-Bus é tipado). **Acceptance:** uma operação de unit (enable/start de boot-persistence) via zbus, provada ao vivo; sem parse de `busctl`.
+- **Complexity:** M. **Tier:** B.
+
+### NAT-0002 — cliente k8s via `kube` (kube-rs) (substitui `kubectl`)
+- **Current behaviour:** `kubectl` (`bins/delonix/src/cmd/k8s_recipes.rs:104`, aplicar/gerar manifestos) — depende do binário e da sua versão; parse de output.
+- **Opportunity:** `kube` (kube-rs) — apply/get/watch tipado contra a API-server.
+- **Ganho:** ALTO se a interacção k8s for programática (tipos, erros estruturados, sem binário). **Acceptance:** um apply/get via kube-rs equivalente ao `kubectl` actual, provado contra um cluster.
+- **Complexity:** L. **Tier:** B (precisa de um cluster para e2e).
+
+### NAT-0003 — GPUs via `nvml-wrapper` (substitui `nvidia-smi`)
+- **Current behaviour:** `nvidia-smi` (`delonix-linux/src/resource_advice.rs:571`) parseado para contagem/memória/utilização de GPU.
+- **Opportunity:** crate `nvml-wrapper` (NVIDIA Management Library) — query tipada. Atrás de feature-flag (arrasta `libnvidia-ml`, proprietária, só hosts NVIDIA).
+- **Ganho:** MODERADO-ALTO (remove parse frágil). **Acceptance:** contagem/uso de GPU via NVML == o que o `nvidia-smi` reportava; build sem NVIDIA continua a compilar (feature off).
+- **Complexity:** M. **Tier:** B (precisa host NVIDIA para e2e).
+
+### NAT-0004 — git via `gix`/`git2` (substitui o binário `git` no gitops)
+- **Current behaviour:** `git` CLI no gitops (pull de sources, ADR-0021) e em build-time (`delonix-node-api/build.rs:58` — este é só `git describe`, NÃO migrar).
+- **Opportunity:** `gix` (Rust puro, sem C) ou `git2` (libgit2) para clone/fetch/checkout do gitops, sem depender do binário `git`.
+- **Ganho:** MODERADO — sobretudo para IMAGENS DISTROLESS do control-plane (sem `git`). **Acceptance:** um reconcile GitOps (clone+checkout de um ref) sem o binário `git`; o `git describe` de build fica como está.
+- **Complexity:** L. **Tier:** B.
+
+### NAT-0005 — SSH via `russh` (substitui `ssh`/`scp`) — só com controlo fino
+- **Current behaviour:** `ssh` (`delonix-provider-proxmox/src/lib.rs:9322`) e `scp` (`bins/delonix/src/cmd/remote.rs:182`) — bootstrap de cluster/remote por CLI.
+- **Opportunity:** `russh` (SSH2 puro Rust) — sessão programática (exec, SFTP), streaming de progresso, multiplexing.
+- **Ganho:** MODERADO (o `ssh` CLI é muito robusto; SSH é superfície grande — auth, known_hosts). Só compensa com necessidade de controlo fino do canal. **Acceptance:** um exec remoto + transferência via russh equivalentes; known_hosts/auth preservados.
+- **Complexity:** L, risco médio. **Tier:** B.
+
+> MANTER EXTERNO (sem retorno / risco alto): `qemu-img`/`virt-*` (qcow2/libguestfs — formato complexo, qemu é a referência), `helm` (templating Go), `sudo` (mecanismo de escalada — o caminho "nativo" seria helpers setuid próprios como `delonix-storage-helper`, re-arquitectura de privilégio, não um crate).
+
+---
+
 ## Sequência sugerida dentro do eixo
 KRN-0001 (netlink) e KRN-0003 (io_uring) primeiro — maior ganho de performance no
 caminho quente. KRN-0002 (pidfd) e KRN-0004 (landlock) a seguir — robustez e
