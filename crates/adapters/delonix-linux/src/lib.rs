@@ -835,6 +835,76 @@ fn set_no_new_privs() {
     }
 }
 
+/// KRN-0004 (fatia 1): a BEST-EFFORT Landlock filesystem sandbox for the
+/// container process, applied after `pivot_root` so every path is already the
+/// container's own. Runs on the NO_NEW_PRIVS path, before seccomp.
+///
+/// Policy: read+execute the whole rootfs (`/`), and WRITE only where a container
+/// legitimately writes — tmpfs (`/tmp`, `/run`, `/dev`, `/proc`, `/sys`) and each
+/// read-write bind mount. For a `--read-only` container this denies exactly what
+/// the rootfs remount already denied, so a well-behaved workload sees no change;
+/// the kernel now enforces it too (defence in depth).
+///
+/// NEVER fatal. On a kernel without Landlock (< 5.13) or with the LSM disabled,
+/// `CompatLevel::BestEffort` (the crate default) leaves the ruleset NotEnforced
+/// and we carry on — a sandbox that could not be installed must not become a
+/// reason to refuse an otherwise-valid container. Compare `apply_apparmor`,
+/// which IS fatal, because there confinement was explicitly requested.
+fn apply_landlock(mounts: &[Mount], tmpfs: &[String]) {
+    use landlock::{
+        Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
+    };
+    // ABI::V3 is what a recent kernel speaks; BestEffort downgrades cleanly to
+    // whatever the running kernel actually supports (or to no-op).
+    let abi = ABI::V3;
+    let read_only = AccessFs::from_read(abi);
+    let read_write = AccessFs::from_all(abi);
+
+    // Paths that are always writable inside a container: the kernel/tmpfs mounts
+    // set up before us, every `--tmpfs` the user asked for, and every read-write
+    // bind. Missing paths are skipped (best-effort), the same tolerance
+    // `apply_masked_paths` shows. The `--tmpfs` list MUST be here or the sandbox
+    // would deny a tmpfs the container legitimately mounted rw.
+    let mut writable: Vec<&str> = vec!["/tmp", "/run", "/dev", "/proc", "/sys", "/var/tmp"];
+    for t in tmpfs {
+        writable.push(t.as_str());
+    }
+    for m in mounts.iter().filter(|m| !m.readonly) {
+        writable.push(m.target.as_str());
+    }
+
+    let add_rules = |rs: landlock::RulesetCreated| -> std::result::Result<_, landlock::RulesetError> {
+        // `/` read+execute; the writable set read+write. `PathFd::new` opens with
+        // O_PATH and fails on a path that does not exist — tolerated per path.
+        let mut rs = rs;
+        if let Ok(fd) = PathFd::new("/") {
+            rs = rs.add_rule(PathBeneath::new(fd, read_only))?;
+        }
+        for p in &writable {
+            if let Ok(fd) = PathFd::new(p) {
+                rs = rs.add_rule(PathBeneath::new(fd, read_write))?;
+            }
+        }
+        Ok(rs)
+    };
+
+    let outcome = Ruleset::default()
+        .handle_access(read_write)
+        .and_then(|rs| rs.create())
+        .and_then(add_rules)
+        .and_then(|rs| rs.restrict_self());
+    match outcome {
+        Ok(status) => {
+            // `RulesetStatus::NotEnforced` is the "old kernel" case — informative,
+            // not an error.
+            if matches!(status.ruleset, landlock::RulesetStatus::NotEnforced) {
+                eprintln!("delonix: landlock not enforced (kernel without Landlock support)");
+            }
+        }
+        Err(e) => eprintln!("delonix: landlock best-effort setup failed ({e}); continuing"),
+    }
+}
+
 /// Becomes `uid`/`gid` (with `groups`) WITHOUT losing the capability sets, so
 /// the confinement that follows can still narrow them.
 ///
@@ -1069,6 +1139,29 @@ fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
     }
 }
 
+/// The foreground sibling of [`detach_stdio`]: stdout/stderr go down the log
+/// pipes (the shim echoes them back to the operator's terminal), but stdin
+/// stays the operator's — a foreground run keeps reading from where it always
+/// did. No-op without a stdout pipe. This is what gives a run WITHOUT `-d` a
+/// `container logs` history (Docker/Podman parity): before it, a foreground
+/// container wrote straight to the terminal and the log file simply never
+/// existed (seen live: `logs -f` on a foreground nginx → ENOENT).
+fn attach_log_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
+    let Some(out) = out_fd else { return };
+    // SAFETY: direct FFI; duplicates our own just-created pipe ends onto 1/2.
+    unsafe {
+        libc::dup2(out, 1);
+        // Absent stderr pipe = both streams down the stdout pipe, the same
+        // merge `detach_stdio` documents.
+        libc::dup2(err_fd.unwrap_or(out), 2);
+        for fd in [out_fd, err_fd].into_iter().flatten() {
+            if fd > 2 {
+                libc::close(fd);
+            }
+        }
+    }
+}
+
 /// Inode of a path, or `None` if it is not there.
 ///
 /// Used by the logging shim to notice that its file was rotated away from
@@ -1090,6 +1183,7 @@ const MAX_LOG_BYTES: u64 = 1024 * 1024;
 // NEXT iteration (rotation accounting across calls); rustc's flow analysis
 // does not see that cross-iteration read and marks the last write as "unused".
 #[allow(unused_assignments)]
+#[allow(clippy::too_many_arguments)]
 fn log_shim(
     read_fd: i32,
     err_fd: Option<i32>,
@@ -1098,11 +1192,12 @@ fn log_shim(
     driver: String,
     tag: String,
     cri: bool,
+    echo: bool,
 ) -> ! {
     // journald/syslog driver: forwards each line to syslog (which journald
     // captures), instead of the file. `--log-driver journald|syslog`.
     if driver == "journald" || driver == "syslog" {
-        log_shim_syslog(read_fd, tag);
+        log_shim_syslog(read_fd, tag, echo);
     }
     use std::io::Write;
     let open_log = |append: bool| {
@@ -1201,6 +1296,14 @@ fn log_shim(
                 continue;
             }
             let (_, name, line) = &mut srcs[i];
+            // Foreground echo: the operator's terminal gets the RAW bytes, on
+            // the stream they came from (stdout→1, stderr→2) — the log file's
+            // framing (CRI records, rotation) is the file's business, not the
+            // terminal's. This is what lets a foreground run keep looking
+            // exactly as it always did while the file is written alongside.
+            if echo {
+                write_all_fd(if *name == "stderr" { 2 } else { 1 }, &buf[..got as usize]);
+            }
             for &b in &buf[..got as usize] {
                 if !cri {
                     continue;
@@ -1243,7 +1346,7 @@ fn log_shim(
 
 /// Variant of the *logging shim* that writes each line to **syslog** (captured
 /// by journald on systemd systems). `tag` = `delonix/<name>`.
-fn log_shim_syslog(read_fd: i32, tag: String) -> ! {
+fn log_shim_syslog(read_fd: i32, tag: String, echo: bool) -> ! {
     use std::io::Read;
     use std::os::fd::FromRawFd;
     // the tag must live as long as syslog is open -> deliberate leak.
@@ -1265,6 +1368,12 @@ fn log_shim_syslog(read_fd: i32, tag: String) -> ! {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
+                // Foreground echo, same contract as `log_shim`'s: raw bytes to
+                // the operator's stdout (this driver has a single, untagged
+                // source), syslog keeps its line framing.
+                if echo {
+                    write_all_fd(1, &buf[..n]);
+                }
                 for &b in &buf[..n] {
                     if b == b'\n' {
                         if let Ok(c) = std::ffi::CString::new(line.clone()) {
@@ -4351,6 +4460,11 @@ struct SecuritySpec<'a> {
     privileged: bool,
     masked_paths: &'a [String],
     readonly_paths: &'a [String],
+    /// KRN-0004 (fatia 1): opt-in Landlock FS sandbox. Best-effort, applied on
+    /// the NO_NEW_PRIVS path only, BEFORE seccomp. Defence in depth — never
+    /// fatal (an old kernel just leaves it NotEnforced). Today it rides on
+    /// `--read-only` (see the construction site); a dedicated opt-in is fatia 2.
+    landlock: bool,
 }
 
 /// Which namespaces the child creates, joins or inherits.
@@ -4517,6 +4631,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 privileged,
                 masked_paths,
                 readonly_paths,
+                landlock,
             },
         namespaces:
             NamespaceSpec {
@@ -4590,6 +4705,11 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     }
     if detach {
         detach_stdio(log_fd, log_err_fd);
+    } else {
+        // Foreground WITH a log pipe: capture stdout/stderr for `container
+        // logs` while the shim echoes them to the operator. No-op when the
+        // parent opened no pipe (console/tty runs, or no log path).
+        attach_log_stdio(log_fd, log_err_fd);
     }
     // KIND node: BEFORE mounting the rootfs (which remounts `/sys`), gives the node a dedicated,
     // empty cgroup-ns root (uncovers the real cgroup2, moves us to a leaf,
@@ -4823,6 +4943,13 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     }
     if no_new_privs {
         set_no_new_privs(); // no execve gains privileges (anti-escalation)
+        // KRN-0004: Landlock FS sandbox — BEFORE seccomp, so `landlock_*` need
+        // not be in the seccomp allowlist, and on the NNP path only (unprivileged
+        // Landlock requires NO_NEW_PRIVS, just set above). Best-effort: never
+        // aborts the container — an old kernel leaves it NotEnforced.
+        if landlock {
+            apply_landlock(mounts, tmpfs);
+        }
         drop_capabilities(cap_keep); // drop caps (after the mounts, before the exec)
         apply_seccomp(
             seccomp_unconfined,
@@ -4882,10 +5009,15 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                               // non-root `USER`, and a container that stays root still needs its groups —
                               // that is exactly the `SupplementalGroups` case, and reading `id -G` was how
                               // it showed up as missing.
-    if !user_switched && !group_add.is_empty() {
+    // UNCONDITIONAL when no uid switch: even with an empty `group_add` we must
+    // reset, or the init keeps the groups inherited from the host `delonix`
+    // process — unmapped in the userns, they surface as a row of 65534 and leak
+    // the host's identity. An empty list clears them.
+    if !user_switched {
         let mut groups: Vec<u32> = group_add.to_vec();
         groups.dedup();
         // SAFETY: we are root in the user ns → setgroups succeeds for mapped gids.
+        // A zero-length list with a dangling-but-valid ptr clears groups.
         if unsafe { libc::setgroups(groups.len(), groups.as_ptr()) } != 0 {
             eprintln!(
                 "delonix: setgroups({groups:?}) failed — are the gids inside the mapped range?"
@@ -8235,8 +8367,18 @@ fn spawn(
     let foreground_tty = spec.tty && !detach;
     let console =
         console_wanted(inputs.privileged, detach, spec.log_path.is_some()) || foreground_tty;
-    let (log_pipe, log_err_pipe) =
-        open_log_pipes(detach && !console && spec.log_path.is_some(), spec.log_cri);
+    // Foreground capture (Docker/Podman parity): a run WITHOUT `-d` now logs
+    // too. The pipes are opened exactly as in detached mode and the shim runs
+    // in ECHO mode — file and terminal both. Before this, `container logs` on
+    // a foreground container was ENOENT: nothing ever wrote the file. The
+    // stderr pipe is opened here even outside CRI so the echo can keep the
+    // streams apart (stderr→2); the FILE still merges them untagged, exactly
+    // as `open_log_pipes`'s doc comment wants for the non-CRI format.
+    let foreground_capture = !detach && !console && spec.log_path.is_some();
+    let (log_pipe, log_err_pipe) = open_log_pipes(
+        (detach || foreground_capture) && !console && spec.log_path.is_some(),
+        spec.log_cri || foreground_capture,
+    );
     let console_sock = if console { open_console_sock() } else { None };
 
     let (flags, userns) = clone_flags(spec);
@@ -8294,11 +8436,35 @@ fn spawn(
     // feeds it to the log shim. `None` on the tty path means the init could not
     // allocate the pty — the foreground wait then runs with inherited stdio, as
     // it did before `-t`.
+    let mut tty_shim_echoes = false;
     let tty_master = if foreground_tty {
+        // With a log path, the pty master ALSO feeds a shim in echo mode: the
+        // shim becomes the one reader of the master (output → terminal AND
+        // log file), while this process keeps stdin→master, raw mode and
+        // resize (`wait_foreground_tty`, which then must NOT read the master
+        // itself — two readers would split the byte stream between them).
+        // The shim gets its own dup: `start_log_shim` closes the fd it is
+        // given on the parent side, and the master must survive for the
+        // stdin pump and the final close.
+        if let (Some(master), true) = (log_src, spec.log_path.is_some()) {
+            // SAFETY: duplicating our own just-received master fd.
+            let shim_src = unsafe { libc::dup(master) };
+            if shim_src >= 0 {
+                start_log_shim(shim_src, log_pipe, log_err_pipe, spec, container, true);
+                tty_shim_echoes = true;
+            }
+        }
         log_src
     } else {
         if let Some(src) = log_src {
-            start_log_shim(src, log_pipe, log_err_pipe, spec, container);
+            start_log_shim(
+                src,
+                log_pipe,
+                log_err_pipe,
+                spec,
+                container,
+                foreground_capture,
+            );
         }
         None
     };
@@ -8350,7 +8516,7 @@ fn spawn(
         return Ok(container.status.clone());
     }
     if let Some(master) = tty_master {
-        return wait_foreground_tty(store, container, pid, master);
+        return wait_foreground_tty(store, container, pid, master, tty_shim_echoes);
     }
     wait_foreground(store, container, pid)
 }
@@ -8370,6 +8536,7 @@ fn wait_foreground_tty(
     container: &mut Container,
     pid: Pid,
     master: i32,
+    output_via_shim: bool,
 ) -> Result<Status> {
     // SAFETY: `ws` is a zeroed `winsize` (all-integer C struct) that `TIOCGWINSZ`
     // fills from the operator's stdin; `master` is the pty master just received.
@@ -8382,7 +8549,12 @@ fn wait_foreground_tty(
     let saved = set_raw_mode();
     // `master` is an `i32` (Copy): each pump thread gets its own copy of the fd
     // number, both referring to the one master the parent closes once below.
-    std::thread::spawn(move || pump_fd(master, 1)); // pty -> operator stdout
+    // With a log shim in echo mode the SHIM is the master's reader (terminal
+    // and log file both); a second reader here would steal bytes from it, so
+    // only stdin→pty is pumped then.
+    if !output_via_shim {
+        std::thread::spawn(move || pump_fd(master, 1)); // pty -> operator stdout
+    }
     std::thread::spawn(move || pump_fd(0, master)); // operator stdin -> pty
     let r = wait_foreground(store, container, pid);
     restore_mode(saved);
@@ -8692,6 +8864,11 @@ impl InitInputs {
                 privileged: self.privileged,
                 masked_paths: &self.masked_paths,
                 readonly_paths: &self.readonly_paths,
+                // KRN-0004 fatia 1: Landlock rides on `--read-only` — a container
+                // that already froze its rootfs gets FS confinement reinforced in
+                // the kernel. Never on a privileged container (it opted out of the
+                // confinement block below). Fatia 2: a dedicated opt-in.
+                landlock: self.read_only && !self.privileged,
             },
             namespaces: NamespaceSpec {
                 pod_infra_pid: self.pod_infra_pid,
@@ -9156,6 +9333,7 @@ fn start_log_shim(
     log_err_pipe: PipePair,
     spec: &RunSpec<'_>,
     container: &Container,
+    echo: bool,
 ) {
     let lp = spec.log_path.clone().unwrap_or_default();
     let driver = container.log_driver.clone().unwrap_or_default();
@@ -9217,8 +9395,14 @@ fn start_log_shim(
             let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
             if null >= 0 {
                 libc::dup2(null, 0);
-                libc::dup2(null, 1);
-                libc::dup2(null, 2);
+                // Echo mode (a FOREGROUND run): stdout/stderr stay the
+                // operator's terminal — echoing is the whole point, and the
+                // EOF-holding concern above is the wanted semantic there (the
+                // operator is watching until the container exits anyway).
+                if !echo {
+                    libc::dup2(null, 1);
+                    libc::dup2(null, 2);
+                }
                 if null > 2 {
                     libc::close(null);
                 }
@@ -9232,6 +9416,7 @@ fn start_log_shim(
             driver,
             tag,
             spec.log_cri,
+            echo,
         ); // does not return (the parent does not wait)
     }
     // The parent drops the ends: only the container (the source, via fd 1/2 or the pty
@@ -9867,6 +10052,27 @@ fn recv_fd(sock: i32) -> Option<i32> {
 }
 
 /// Copies bytes from one fd to another until EOF (one direction of the pty proxy).
+/// Writes all of `bytes` to a raw fd, retrying short writes. Best-effort (the
+/// consumers are the operator's terminal and log echoes — a vanished terminal
+/// must not kill the shim that is still writing the file).
+fn write_all_fd(fd: i32, bytes: &[u8]) {
+    let mut off = 0usize;
+    while off < bytes.len() {
+        // SAFETY: `off < len`, so pointer and remaining length stay inside `bytes`.
+        let w = unsafe {
+            libc::write(
+                fd,
+                bytes[off..].as_ptr() as *const libc::c_void,
+                bytes.len() - off,
+            )
+        };
+        if w <= 0 {
+            return;
+        }
+        off += w as usize;
+    }
+}
+
 fn pump_fd(from: i32, to: i32) {
     let mut buf = [0u8; 4096];
     loop {
@@ -10322,10 +10528,18 @@ pub fn exec_with(
                     // other way in. Without this the exec kept the CALLER's groups,
                     // which show up as a row of 65534 (unmapped in the userns): not
                     // just the wrong answer, a small leak of the host's identity.
-                    if !container.group_add.is_empty() {
+                    // Reset supplementary groups UNCONDITIONALLY — even with an
+                    // empty `group_add`, so the exec never inherits the CALLER's
+                    // host groups. An empty list clears them; skipping the call
+                    // left a row of 65534 (unmapped in the userns) — the wrong
+                    // answer and a small leak of the host's identity. The uid!=0
+                    // branch below re-sets groups (with the primary gid), so this
+                    // only has to cover the root / no-user-switch path.
+                    if exec_user.filter(|(u, _)| *u != 0).is_none() {
                         let mut groups = container.group_add.clone();
                         groups.dedup();
                         // SAFETY: gids mapped in the container's userns; we are root there.
+                        // A zero-length list with a dangling-but-valid ptr clears groups.
                         if unsafe { libc::setgroups(groups.len(), groups.as_ptr()) } != 0 {
                             eprintln!("delonix: exec setgroups({groups:?}) failed");
                         }
@@ -11319,18 +11533,66 @@ pub fn send_signal(container: &Container, signal: i32) -> Result<()> {
     let pid = container
         .pid
         .ok_or_else(|| Error::NotRunning(container.short_id().to_string()))?;
+    // KRN-0002: open a pidfd FIRST — it pins the PROCESS, not the number, so the
+    // signal below can never reach a PID recycled between the identity check and
+    // the send. The `(pid, starttime)` check still runs (and still rejects a
+    // reused pid cheaply), but the hard guarantee is now the pidfd itself.
+    let pidfd = pidfd_open(pid);
     if !safe_to_signal(pid, container.pid_starttime) {
         return Err(Error::NotRunning(container.short_id().to_string()));
     }
-    // SAFETY: `pid` confirmed alive and ours by `safe_to_signal`; `signal` is a
-    // plain signal number.
-    if unsafe { libc::kill(pid, signal) } != 0 {
+    let rc = match &pidfd {
+        Some(fd) => {
+            use std::os::fd::AsRawFd as _;
+            // SAFETY: `fd` is a live pidfd; a null siginfo lets the kernel
+            // synthesize it; `signal` is a plain signal number.
+            let r = unsafe {
+                libc::syscall(
+                    libc::SYS_pidfd_send_signal,
+                    fd.as_raw_fd(),
+                    signal,
+                    std::ptr::null::<libc::siginfo_t>(),
+                    0,
+                )
+            };
+            r as i32
+        }
+        // Kernel < 5.3 (no pidfd_open): fall back to the historical path. `pid`
+        // was just confirmed alive and ours — the same guarantee as before.
+        // SAFETY: plain `kill` with a validated pid and signal number.
+        None => unsafe { libc::kill(pid, signal) },
+    };
+    if rc != 0 {
         return Err(Error::Syscall {
-            context: "kill",
+            context: if pidfd.is_some() {
+                "pidfd_send_signal"
+            } else {
+                "kill"
+            },
             message: std::io::Error::last_os_error().to_string(),
         });
     }
     Ok(())
+}
+
+/// `pidfd_open(2)` — a file descriptor that pins the PROCESS rather than its
+/// number, so a signal sent through it reaches that exact process or fails with
+/// `ESRCH`, never a recycled PID. `None` on a kernel < 5.3 (the syscall returns
+/// `-1`/`ENOSYS`) or if the process is already gone — the caller then falls back
+/// to `kill(pid)`. Same molde as `delonix-cri`'s `child_handle`, here for the
+/// container init's signal path (KRN-0002). The three `pidfd_*` syscalls are
+/// already in the seccomp allowlist.
+fn pidfd_open(pid: i32) -> Option<std::os::fd::OwnedFd> {
+    // SAFETY: pidfd_open reads no memory from us — it takes the pid and flags and
+    // returns a fresh owned fd (or -1).
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+    if raw < 0 {
+        None
+    } else {
+        use std::os::fd::FromRawFd as _;
+        // SAFETY: `raw` is a fresh, owned fd returned by `pidfd_open`.
+        Some(unsafe { std::os::fd::OwnedFd::from_raw_fd(raw as i32) })
+    }
 }
 
 /// Removes a container's cgroup, waiting for it to empty. After `SIGKILL` the
@@ -16197,6 +16459,92 @@ mod spawn_step_tests {
         );
     }
 
+    /// Foreground capture: in echo mode the shim writes the log FILE and
+    /// repeats the raw bytes to the operator, keeping the streams apart
+    /// (stdout→1, stderr→2) even though the file merges them untagged. This
+    /// is the mechanism that gives a run without `-d` a `container logs`
+    /// history (before it, the file was never written — ENOENT, seen live).
+    #[test]
+    fn the_shim_in_echo_mode_writes_file_and_terminal() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("log");
+        let mk = || {
+            let mut f = [0i32; 2];
+            // SAFETY: pipe() fills 2 fds.
+            assert_eq!(unsafe { libc::pipe(f.as_mut_ptr()) }, 0);
+            (f[0], f[1])
+        };
+        let out = mk(); // container stdout → shim
+        let err = mk(); // container stderr → shim
+        let echo_out = mk(); // the shim's fd 1, captured
+        let echo_err = mk(); // the shim's fd 2, captured
+                             // SAFETY: the test forks a child that only rewires fds and runs the
+                             // shim (which never returns); same pattern as the exec-failure test.
+        let pid = match unsafe { fork() }.unwrap() {
+            // SAFETY: in the forked child: every fd is a live pipe end created
+            // above; `log_shim` ends in `_exit`, no destructors run.
+            ForkResult::Child => unsafe {
+                libc::dup2(echo_out.1, 1);
+                libc::dup2(echo_err.1, 2);
+                for fd in [echo_out.0, echo_out.1, echo_err.0, echo_err.1, out.1, err.1] {
+                    if fd > 2 {
+                        libc::close(fd);
+                    }
+                }
+                log_shim(
+                    out.0,
+                    Some(err.0),
+                    log.to_string_lossy().into_owned(),
+                    MAX_LOG_BYTES,
+                    String::new(),
+                    "delonix/test".into(),
+                    false,
+                    true,
+                )
+            },
+            ForkResult::Parent { child } => child,
+        };
+        // SAFETY: parent side: closes its copies so the shim sees EOF after
+        // the writes; reads the echo pipes to EOF; every fd closed once.
+        let (echoed_out, echoed_err) = unsafe {
+            libc::close(out.0);
+            libc::close(err.0);
+            libc::close(echo_out.1);
+            libc::close(echo_err.1);
+            let o = b"ola stdout\n";
+            let e = b"ai stderr\n";
+            assert_eq!(
+                libc::write(out.1, o.as_ptr().cast(), o.len()),
+                o.len() as isize
+            );
+            assert_eq!(
+                libc::write(err.1, e.as_ptr().cast(), e.len()),
+                e.len() as isize
+            );
+            libc::close(out.1);
+            libc::close(err.1);
+            use std::io::Read;
+            use std::os::fd::FromRawFd;
+            let mut s_out = String::new();
+            std::fs::File::from_raw_fd(echo_out.0)
+                .read_to_string(&mut s_out)
+                .unwrap();
+            let mut s_err = String::new();
+            std::fs::File::from_raw_fd(echo_err.0)
+                .read_to_string(&mut s_err)
+                .unwrap();
+            (s_out, s_err)
+        };
+        waitpid(pid, None).unwrap();
+        assert_eq!(echoed_out, "ola stdout\n", "echo do stdout no fd 1, cru");
+        assert_eq!(echoed_err, "ai stderr\n", "echo do stderr no fd 2, cru");
+        let file = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            file.contains("ola stdout\n") && file.contains("ai stderr\n"),
+            "o ficheiro leva os dois streams (não-CRI: merge sem tag): {file:?}"
+        );
+    }
+
     #[test]
     fn a_detached_start_whose_exec_failed_is_refused_with_its_code() {
         // A real child that exits 127, standing in for the init whose `execvp`
@@ -16749,5 +17097,53 @@ mod mount_propagation_tests {
         );
         // Nothing at all (no root line) → None.
         assert_eq!(enclosing_mount_point_from("", "/run/dlx/x"), None);
+    }
+}
+
+#[cfg(test)]
+mod pidfd_tests {
+    use super::pidfd_open;
+
+    /// KRN-0002: a pidfd pins the PROCESS, not the number. After the child is
+    /// reaped (its pid is free to be recycled), a signal through the pidfd must
+    /// fail with ESRCH — never reach whatever took the number. This is the
+    /// anti-reuse guarantee that `send_signal` now relies on.
+    #[test]
+    fn a_pidfd_to_a_reaped_process_refuses_the_signal() {
+        use std::os::fd::AsRawFd as _;
+        let mut child = std::process::Command::new("sleep")
+            .arg("100")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id() as i32;
+        let fd = pidfd_open(pid).expect("pidfd_open on a live child");
+        // While alive, signal 0 through the pidfd succeeds (process is reachable).
+        let alive = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                fd.as_raw_fd(),
+                0,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        assert_eq!(alive, 0, "a live process must be reachable via its pidfd");
+        child.kill().expect("kill");
+        child.wait().expect("reap"); // pid number is now free to recycle
+        let r = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                fd.as_raw_fd(),
+                0,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        assert_ne!(r, 0, "a reaped process must NOT be reachable via its pidfd");
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH),
+            "the refusal must be ESRCH (gone), not a signal to a recycled pid"
+        );
     }
 }

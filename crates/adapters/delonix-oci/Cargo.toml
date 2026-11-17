@@ -19,6 +19,8 @@ sha2 = { workspace = true }
 tar = { workspace = true }
 flate2 = { workspace = true }
 nix = { workspace = true }
+# KRN-0003: io_uring for host-side bulk file copies, with a std fallback.
+io-uring = { workspace = true }
 # Tipos OCI canónicos do schema image (manifesto/config/index/descritor).
 oci-spec = { workspace = true, features = ["image"] }
 reqwest = { workspace = true, features = ["blocking", "rustls-tls-webpki-roots", "json"] }

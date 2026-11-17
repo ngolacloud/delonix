@@ -6752,7 +6752,10 @@ fn copy_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Resu
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::copy(src, dst)?;
+        // KRN-0003: host-side bulk copy over io_uring (falls back to std::fs::copy
+        // on a kernel that refuses it). Same semantics — byte-identical, mode
+        // preserved. `src`/`dst` are the already symlink-resolved host paths.
+        delonix_oci::uring::copy_file_uring(src, dst)?;
     }
     Ok(())
 }
@@ -7946,8 +7949,7 @@ pub(crate) fn cmd_logs(
         .as_deref()
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| images.root().join("containers").join(&c.id).join("log"));
-    let mut f = std::fs::File::open(&p)
-        .map_err(|e| Error::Invalid(format!("no logs for {} at {}: {e}", c.name, p.display())))?;
+    let mut f = std::fs::File::open(&p).map_err(|e| super::util::no_logs_hint(&c.name, &p, &e))?;
     let mut out = std::io::stdout();
     let needs_cri = tail.is_some() || since.is_some() || timestamps;
 

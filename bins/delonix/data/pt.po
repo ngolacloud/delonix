@@ -17871,3 +17871,8 @@ msgstr "imprime a proveniência SLSA que um `build --provenance` cacheou"
 
 msgid "attach it to the image in its registry as an in-toto attestation"
 msgstr "anexa-a à imagem no seu registo como attestation in-toto"
+
+# container logs: o ENOENT cru parecia store corrompida; a causa habitual é um
+# container foreground de um delonix anterior à captura
+msgid "no logs for {name} at {path}: {err} (a container started in foreground by an older delonix wrote no log file — restart it to begin capturing)"
+msgstr "sem logs para {name} em {path}: {err} (um container arrancado em foreground por um delonix mais antigo não escrevia ficheiro de log — reinicia-o para começar a capturar)"
