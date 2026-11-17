@@ -16316,7 +16316,7 @@ mod spawn_step_tests {
     /// is the mechanism that gives a run without `-d` a `container logs`
     /// history (before it, the file was never written — ENOENT, seen live).
     #[test]
-    fn log_shim_em_echo_escreve_ficheiro_e_terminal() {
+    fn the_shim_in_echo_mode_writes_file_and_terminal() {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("log");
         let mk = || {

@@ -7946,21 +7946,7 @@ pub(crate) fn cmd_logs(
         .as_deref()
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| images.root().join("containers").join(&c.id).join("log"));
-    let mut f = std::fs::File::open(&p)
-        .map_err(|e| {
-            // The bare ENOENT («no logs for X at /path: No such file…») read
-            // as a broken store. The usual cause is benign and dated: a
-            // container started in FOREGROUND by a delonix from before
-            // foreground capture never wrote a log file at all.
-            Error::Invalid(super::po::tf(
-                "no logs for {name} at {path}: {err} (a container started in foreground by an older delonix wrote no log file — restart it to begin capturing)",
-                &[
-                    ("name", c.name.as_str()),
-                    ("path", &p.display().to_string()),
-                    ("err", &e.to_string()),
-                ],
-            ))
-        })?;
+    let mut f = std::fs::File::open(&p).map_err(|e| super::util::no_logs_hint(&c.name, &p, &e))?;
     let mut out = std::io::stdout();
     let needs_cri = tail.is_some() || since.is_some() || timestamps;
 
