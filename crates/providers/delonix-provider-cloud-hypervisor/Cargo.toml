@@ -11,6 +11,8 @@ delonix-model = { workspace = true }
 delonix-node = { workspace = true }
 tracing = { workspace = true }
 libc = { workspace = true }
+# KRN-0005: native KVM probe (rust-vmm), replacing a `/dev/kvm` existence test.
+kvm-ioctls = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

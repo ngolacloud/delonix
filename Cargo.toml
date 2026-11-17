@@ -139,6 +139,9 @@ rtnetlink = "0.24"
 io-uring = "0.7"
 # KRN-0006: Linux capabilities via o ecossistema (substitui tabelas manuais).
 caps = "0.5"
+# KRN-0005: native KVM probe (rust-vmm) — a real open+api-version check instead
+# of testing that /dev/kvm merely exists.
+kvm-ioctls = "0.25"
 futures-util = { version = "0.3", default-features = false }
 hyper = "1"
 hyper-util = "0.1"
