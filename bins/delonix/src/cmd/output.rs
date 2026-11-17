@@ -53,6 +53,11 @@ pub mod color {
     pub const RED: &str = "\x1b[31m"; // error
     pub const GRAY: &str = "\x1b[90m"; // secondary (timestamps, details)
     pub const GREEN: &str = "\x1b[32m"; // a step that finished
+    pub const BLUE: &str = "\x1b[34m"; // work in flight, healthy
+                                       // 256-color orange — the 8-color table has no orange and YELLOW is taken
+                                       // by warnings; terminals without 256-color support are rare enough (and
+                                       // degrade by ignoring the sequence) that a real "slow but alive" tint wins.
+    pub const ORANGE: &str = "\x1b[38;5;208m"; // work in flight, stalled
     pub const BOLD: &str = "\x1b[1m";
 }
 
@@ -552,6 +557,304 @@ pub fn progress_bar(label: &str, done: u64, total: Option<u64>) {
 pub fn progress_done() {
     if color_enabled() {
         eprintln!("\r\x1b[K");
+    }
+}
+
+/// Multi-line, `docker pull`-style layer progress: one line per layer (short
+/// digest, bar, bytes, state), the whole block redrawn in place with
+/// cursor-up. The familiar experience `docker pull` trained everyone on —
+/// which layers are already local, which are in flight, how big each one is —
+/// instead of [`progress_bar`]'s single aggregate line, which with layers
+/// downloading in PARALLEL could only ever show one of them at a time.
+///
+/// Same tty contract as [`progress_bar`]: outside a terminal (pipes/CI) it
+/// draws NOTHING — the engine's tracing lines are the log story there.
+///
+/// Interior `Mutex` because the pull downloads layers in parallel and every
+/// worker reports through the same `Sync` callback (see
+/// `delonix_oci::registry::PullEventCb`); the lock is per progress tick, and
+/// most ticks leave without drawing (throttled below).
+pub struct PullRenderer {
+    state: std::sync::Arc<std::sync::Mutex<PullState>>,
+    /// Tells the stall ticker to exit; see [`PullRenderer::new`].
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ticker: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+struct PullState {
+    rows: Vec<PullRow>,
+    /// digest → index in `rows`, so a `Downloading` tick finds its line.
+    index: std::collections::HashMap<String, usize>,
+    /// Lines currently on screen (0 before the first draw).
+    drawn: usize,
+    last_draw: Option<std::time::Instant>,
+}
+
+struct PullRow {
+    /// `sha256:` stripped, 12 hex chars — the id `docker pull` shows.
+    short: String,
+    state: RowState,
+    /// Byte count at the last tick that actually ADVANCED, and when it did.
+    /// A `Downloading` row whose bytes have not moved for
+    /// [`PULL_STALL_AFTER`] renders orange instead of blue — the eye is told
+    /// "slow but alive" without a single word of text.
+    last_done: u64,
+    last_advance: std::time::Instant,
+}
+
+enum RowState {
+    Queued {
+        size: u64,
+    },
+    Downloading {
+        done: u64,
+        total: Option<u64>,
+    },
+    Exists,
+    Done,
+    /// The pull aborted while this layer was still queued or in flight.
+    Failed,
+}
+
+/// How long a layer's bytes may sit still before its line turns orange.
+/// Long enough that a registry hiccup or a TCP slow-start doesn't flicker,
+/// short enough that a genuinely wedged download is flagged before the user
+/// starts doubting the terminal.
+const PULL_STALL_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The stall ticker's period. Byte events already redraw the block; this only
+/// bounds how late a COLOR change (healthy→stalled) can appear when the
+/// network goes completely quiet — the one moment no event will ever arrive.
+const PULL_TICK: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// How a redraw-worthy tick is told apart from the flood: layer-state
+/// transitions always draw; byte ticks draw at most every 80ms (12 fps is
+/// smooth to the eye, and a 64 KiB-chunk callback would otherwise redraw the
+/// whole block thousands of times per second).
+const PULL_REDRAW_EVERY: std::time::Duration = std::time::Duration::from_millis(80);
+
+impl Default for PullRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PullRenderer {
+    pub fn new() -> Self {
+        let state = std::sync::Arc::new(std::sync::Mutex::new(PullState {
+            rows: Vec::new(),
+            index: std::collections::HashMap::new(),
+            drawn: 0,
+            last_draw: None,
+        }));
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // The stall ticker. Every redraw so far was EVENT-driven — but the
+        // moment that matters most for the orange state is a network gone
+        // completely quiet, when no event will ever arrive to trigger the
+        // repaint. A tiny thread redraws while anything is still in flight;
+        // `finish`/`abort` stop and join it BEFORE the final frame, so no
+        // stray repaint can ever land after other output took the cursor.
+        let ticker = if color_enabled() {
+            let state = std::sync::Arc::clone(&state);
+            let stop = std::sync::Arc::clone(&stop);
+            Some(std::thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::thread::sleep(PULL_TICK);
+                    let mut st = state.lock().unwrap();
+                    if st
+                        .rows
+                        .iter()
+                        .any(|r| matches!(r.state, RowState::Downloading { .. }))
+                    {
+                        st.redraw();
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+        PullRenderer {
+            state,
+            stop,
+            ticker: std::sync::Mutex::new(ticker),
+        }
+    }
+
+    /// Stops and joins the stall ticker (≤ one [`PULL_TICK`] of wait).
+    /// Idempotent — `finish` and `abort` both funnel through here.
+    fn stop_ticker(&self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(h) = self.ticker.lock().unwrap().take() {
+            let _ = h.join();
+        }
+    }
+
+    /// Feed one engine event. Structural events (a new layer line, a layer
+    /// finishing) redraw immediately; byte ticks are throttled.
+    pub fn handle(&self, ev: delonix_oci::registry::PullEvent<'_>) {
+        use delonix_oci::registry::PullEvent;
+        let mut st = self.state.lock().unwrap();
+        match ev {
+            PullEvent::Queued { digest, size } => {
+                st.push(digest, RowState::Queued { size });
+                st.redraw();
+            }
+            PullEvent::AlreadyExists { digest } => {
+                st.push(digest, RowState::Exists);
+                st.redraw();
+            }
+            PullEvent::Done { digest } => {
+                st.set(digest, RowState::Done);
+                st.redraw();
+            }
+            PullEvent::Downloading {
+                digest,
+                done,
+                total,
+            } => {
+                st.set(digest, RowState::Downloading { done, total });
+                let due = st
+                    .last_draw
+                    .map(|t| t.elapsed() >= PULL_REDRAW_EVERY)
+                    .unwrap_or(true);
+                if due {
+                    st.redraw();
+                }
+            }
+        }
+    }
+
+    /// Final forced redraw — every line settles on its terminal state and the
+    /// block stays on screen, exactly like `docker pull`'s summary.
+    pub fn finish(&self) {
+        self.stop_ticker();
+        self.state.lock().unwrap().redraw();
+    }
+
+    /// The pull failed mid-flight: every layer not yet in a terminal state
+    /// settles on a red ✗ before the error propagates. Without this, the
+    /// block froze on whatever frame the failure interrupted — blue bars at
+    /// 60% over an error message, each one LYING that work was still moving.
+    pub fn abort(&self) {
+        self.stop_ticker();
+        let mut st = self.state.lock().unwrap();
+        for row in &mut st.rows {
+            if matches!(
+                row.state,
+                RowState::Queued { .. } | RowState::Downloading { .. }
+            ) {
+                row.state = RowState::Failed;
+            }
+        }
+        st.redraw();
+    }
+}
+
+impl PullState {
+    fn push(&mut self, digest: &str, state: RowState) {
+        let short: String = digest
+            .trim_start_matches("sha256:")
+            .chars()
+            .take(12)
+            .collect();
+        self.index.insert(digest.to_string(), self.rows.len());
+        self.rows.push(PullRow {
+            short,
+            state,
+            last_done: 0,
+            last_advance: std::time::Instant::now(),
+        });
+    }
+
+    fn set(&mut self, digest: &str, state: RowState) {
+        if let Some(&i) = self.index.get(digest) {
+            let row = &mut self.rows[i];
+            if let RowState::Downloading { done, .. } = state {
+                if done > row.last_done {
+                    row.last_done = done;
+                    row.last_advance = std::time::Instant::now();
+                }
+            }
+            row.state = state;
+        }
+    }
+
+    fn redraw(&mut self) {
+        if !color_enabled() {
+            return;
+        }
+        // One write for the whole block: cursor up over what is on screen,
+        // then every line cleared and rewritten. Building the string first
+        // and printing once keeps a parallel tick from tearing the frame.
+        let mut out = String::new();
+        if self.drawn > 0 {
+            out.push_str(&format!("\x1b[{}A", self.drawn));
+        }
+        for row in &self.rows {
+            out.push_str("\r\x1b[K");
+            out.push_str(&row.render());
+            out.push('\n');
+        }
+        eprint!("{out}");
+        use std::io::Write;
+        let _ = std::io::stderr().flush();
+        self.drawn = self.rows.len();
+        self.last_draw = Some(std::time::Instant::now());
+    }
+}
+
+impl PullRow {
+    /// One layer's line. Terminal states are dimmed so the eye lands on what
+    /// is still moving — with the ✔ in green (done) and the ✗ in red (failed)
+    /// so the OUTCOME survives the dimming; the bar matches
+    /// [`progress_bar`]'s glyphs and is blue while bytes flow, orange once
+    /// they have sat still for [`PULL_STALL_AFTER`].
+    fn render(&self) -> String {
+        const WIDTH: usize = 20;
+        const SPINNERS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let short = &self.short;
+        match &self.state {
+            RowState::Queued { size } => format!(
+                "\x1b[2m{short}  {} ({})\x1b[0m",
+                super::po::t("waiting"),
+                fmt_size(*size)
+            ),
+            RowState::Exists => format!(
+                "\x1b[2m{short}\x1b[0m  {}✔\x1b[0m \x1b[2m{}\x1b[0m",
+                color::GREEN,
+                super::po::t("already exists")
+            ),
+            RowState::Done => format!(
+                "\x1b[2m{short}\x1b[0m  {}✔\x1b[0m \x1b[2m{}\x1b[0m",
+                color::GREEN,
+                super::po::t("download complete")
+            ),
+            RowState::Failed => {
+                format!("{short}  {}✗ {}\x1b[0m", color::RED, super::po::t("failed"))
+            }
+            RowState::Downloading { done, total } => {
+                let spinner = SPINNERS[((done / (1024 * 1024)) as usize) % SPINNERS.len()];
+                let tint = if self.last_advance.elapsed() >= PULL_STALL_AFTER {
+                    color::ORANGE
+                } else {
+                    color::BLUE
+                };
+                match total {
+                    Some(t) if *t > 0 => {
+                        let frac = (*done as f64 / *t as f64).clamp(0.0, 1.0);
+                        let filled = (frac * WIDTH as f64).round() as usize;
+                        let bar: String = "█".repeat(filled) + &"░".repeat(WIDTH - filled);
+                        format!(
+                            "{short}  {tint}{spinner} {bar}\x1b[0m  {:>3}%  {} / {}",
+                            (frac * 100.0) as u32,
+                            fmt_size(*done),
+                            fmt_size(*t)
+                        )
+                    }
+                    _ => format!("{short}  {tint}{spinner}\x1b[0m {}", fmt_size(*done)),
+                }
+            }
+        }
     }
 }
 
@@ -1373,5 +1676,80 @@ mod tests {
             display_ref("reg:5000/img:v2@sha256:7416a61b"),
             "reg:5000/img:v2"
         );
+    }
+
+    /// The pull block speaks in color: green ✔ for a finished layer, red ✗
+    /// for one the abort settled, a blue bar while bytes flow and orange once
+    /// they sat still past the stall threshold. Asserted on glyphs and ANSI
+    /// codes only — the words next to them come from the po catalogue.
+    #[test]
+    fn pull_rows_carry_their_state_in_color() {
+        let now = std::time::Instant::now();
+        let row = |state| PullRow {
+            short: "0123456789ab".into(),
+            state,
+            last_done: 0,
+            last_advance: now,
+        };
+
+        let out = row(RowState::Done).render();
+        assert!(out.contains(color::GREEN) && out.contains('✔'), "{out}");
+        let out = row(RowState::Exists).render();
+        assert!(out.contains(color::GREEN) && out.contains('✔'), "{out}");
+        let out = row(RowState::Failed).render();
+        assert!(out.contains(color::RED) && out.contains('✗'), "{out}");
+
+        let downloading = RowState::Downloading {
+            done: 5,
+            total: Some(10),
+        };
+        let out = row(downloading).render();
+        assert!(out.contains(color::BLUE), "healthy must be blue: {out}");
+
+        // A row whose bytes last moved two thresholds ago renders orange.
+        // (`checked_sub` only fails within seconds of boot — skip then.)
+        if let Some(past) = now.checked_sub(PULL_STALL_AFTER + PULL_STALL_AFTER) {
+            let stalled = PullRow {
+                short: "0123456789ab".into(),
+                state: RowState::Downloading {
+                    done: 5,
+                    total: Some(10),
+                },
+                last_done: 5,
+                last_advance: past,
+            };
+            let out = stalled.render();
+            assert!(out.contains(color::ORANGE), "stalled must be orange: {out}");
+            assert!(!out.contains(color::BLUE), "{out}");
+        }
+    }
+
+    /// `abort` settles every layer still queued or in flight on ✗ and leaves
+    /// the finished ones alone — a failing pull must not freeze mid-bar,
+    /// lying that work is still moving under the error message.
+    #[test]
+    fn abort_fails_unfinished_layers_only() {
+        use delonix_oci::registry::PullEvent;
+        let r = PullRenderer::new();
+        r.handle(PullEvent::Queued {
+            digest: "sha256:aaa",
+            size: 10,
+        });
+        r.handle(PullEvent::Queued {
+            digest: "sha256:bbb",
+            size: 10,
+        });
+        r.handle(PullEvent::Downloading {
+            digest: "sha256:bbb",
+            done: 5,
+            total: Some(10),
+        });
+        r.handle(PullEvent::Done {
+            digest: "sha256:aaa",
+        });
+        r.abort();
+        let st = r.state.lock().unwrap();
+        assert!(matches!(st.rows[0].state, RowState::Done));
+        assert!(matches!(st.rows[1].state, RowState::Failed));
     }
 }

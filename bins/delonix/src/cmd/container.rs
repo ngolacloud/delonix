@@ -3776,6 +3776,12 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         id: &id,
         armed: true,
     };
+    // The `docker pull`-style per-layer block for a `run`/`create` whose
+    // image is not local yet — the same renderer `image pull` draws with.
+    // BUG FOUND live: this path printed «pulling nginx…» and then went mute
+    // for the whole download.
+    let pull_renderer = super::output::PullRenderer::new();
+    let on_pull_event = |ev: delonix_oci::registry::PullEvent<'_>| pull_renderer.handle(ev);
     let resolved = delonix_compute::run::resolve_run(
         &opts_copy,
         id.clone(),
@@ -3785,6 +3791,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         &delonix_oci::run_images::HostImages {
             store: images,
             announce_pull: &super::util::announce_pull,
+            pull_events: Some(&on_pull_event),
             unpacking: &unpacking,
             user_error: &user_lookup_error,
         },
@@ -3797,6 +3804,11 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
             apparmor_disabled: &apparmor_disabled,
         },
     )?;
+    // No `pull_renderer.finish()` here, deliberately: every layer's final
+    // `Done` event already forces a redraw, and `resolve_run` printed the
+    // unpacking line BELOW the block by the time this returns — a cursor-up
+    // redraw now would overwrite it (seen live: the block stamped over the
+    // «unpacking the image» line).
     print_notices(&resolved.notices);
     let rootfs = resolved.rootfs;
     let mut mounts = resolved.mounts;
