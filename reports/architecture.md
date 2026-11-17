@@ -8,13 +8,13 @@
 | Layer | Crates | Lines | Share |
 | --- | ---: | ---: | ---: |
 | foundation | 2 | 6,462 | 1.7% |
-| context | 6 | 28,741 | 7.7% |
-| adapter | 10 | 85,174 | 22.8% |
-| provider | 10 | 54,991 | 14.7% |
-| interface | 4 | 36,525 | 9.8% |
+| context | 6 | 28,848 | 7.7% |
+| adapter | 10 | 85,849 | 22.9% |
+| provider | 10 | 55,029 | 14.7% |
+| interface | 4 | 36,525 | 9.7% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 160,980 | 43.0% |
-| **total** | **39** | **374,005** | 100% |
+| bin | 6 | 160,980 | 42.9% |
+| **total** | **39** | **374,825** | 100% |
 
 ## Lines per crate
 
@@ -29,7 +29,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-compute | 12,953 |
+| delonix-compute | 13,060 |
 | delonix-networking | 5,559 |
 | delonix-stack | 3,744 |
 | delonix-security | 3,313 |
@@ -40,9 +40,9 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-sdn ⚠️ >20k | 29,206 |
-| delonix-linux ⚠️ >20k | 24,157 |
-| delonix-oci | 14,196 |
+| delonix-sdn ⚠️ >20k | 29,501 |
+| delonix-linux ⚠️ >20k | 24,339 |
+| delonix-oci | 14,394 |
 | delonix-vm | 5,398 |
 | delonix-state | 3,452 |
 | delonix-volume | 3,375 |
@@ -58,7 +58,7 @@
 | delonix-provider-proxmox ⚠️ >20k | 31,653 |
 | delonix-provider-libvirt | 6,931 |
 | delonix-provider-opnsense | 5,244 |
-| delonix-provider-cloud-hypervisor | 3,598 |
+| delonix-provider-cloud-hypervisor | 3,636 |
 | delonix-provider-ceph | 2,077 |
 | delonix-provider-lvm | 1,271 |
 | delonix-provider-truenas | 1,189 |
@@ -99,9 +99,9 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 
 | Destination | Lines | Modules | Context? |
 | --- | ---: | ---: | :---: |
-| delonix-compute | 25,783 | 9 | ✓ |
+| delonix-compute | 25,786 | 9 | ✓ |
 | delonix-stack | 23,205 | 10 | ✓ |
-| delonix-networking | 19,997 | 26 | ✓ |
+| delonix-networking | 19,994 | 26 | ✓ |
 | delonix-artifact | 16,907 | 6 | ✓ |
 | delonix-cluster | 13,758 | 10 | ✓ |
 | delonix-storage | 10,101 | 9 | ✓ |
@@ -128,7 +128,7 @@ falls without the baseline lowered in the same commit.
 | Ratchet | Now | Baseline | Target |
 | --- | ---: | ---: | --- |
 | self_exec_sites | 37 | 37 | 0 (R5) |
-| library_prints | 111 | 111 | down |
+| library_prints | 113 | 113 | down |
 | env_writes | 23 | 23 | down |
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |

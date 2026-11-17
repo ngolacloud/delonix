@@ -42,6 +42,7 @@ impl delonix_compute::ports::WorkloadImages for HostImages<'_> {
             env: img.config.env.clone(),
             working_dir: img.config.working_dir.clone(),
             user: img.config.user.clone(),
+            exposed_ports: img.config.exposed_ports.clone(),
         }
     }
 
