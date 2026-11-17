@@ -11635,6 +11635,19 @@ msgstr "a puxar {reference}…"
 msgid "pulling {reference} (linux/{arch})…"
 msgstr "a puxar {reference} (linux/{arch})…"
 
+# output: estados do bloco de progresso por camada (estilo docker pull)
+msgid "waiting"
+msgstr "em espera"
+
+msgid "already exists"
+msgstr "já existe"
+
+msgid "download complete"
+msgstr "descarga concluída"
+
+msgid "failed"
+msgstr "falhou"
+
 # stack apply: uma adopção muda de dono, e diz-se
 msgid "{kind}/{name}: adopted — it belonged to no stack, and a `destroy` or `apply --prune` of '{stack}' now removes it"
 msgstr "{kind}/{name}: adoptado — não pertencia a stack nenhuma, e um `destroy` ou `apply --prune` de '{stack}' passa a removê-lo"
