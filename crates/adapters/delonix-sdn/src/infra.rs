@@ -4167,24 +4167,19 @@ fn do_attach(netns: &str, ip: &str, bridge: &str, gateway: &str, namespace: &str
     crate::netlink::link_set_up(&vh)?; // KRN-0001: native netlink
     run("ip", &["link", "set", "eth0", "netns", &netns])?;
     let cidr = format!("{ip}/{}", plen_of_bridge(&bridge));
-    // KRN-0001 fatia 4: lo/eth0 up + eth0 address via native netlink INSIDE the
-    // container netns (a `setns` on a throwaway thread), instead of `ip netns
-    // exec`. The default route stays on the CLI for now (the `route` family is a
-    // later slice).
+    // KRN-0001 fatia 4: lo/eth0 up + eth0 address + default route via native
+    // netlink INSIDE the container netns (a `setns` on a throwaway thread),
+    // instead of `ip netns exec`.
     let netns_path = crate::cni::named_netns_path(&netns);
     let cidr_cl = cidr.clone();
+    let gw_cl = gateway.to_string();
     crate::netlink::with_netns(&netns_path, move || {
         crate::netlink::link_set_up("lo")?;
         crate::netlink::addr_add("eth0", &cidr_cl)?;
         crate::netlink::link_set_up("eth0")?;
+        crate::netlink::route_add_default(&gw_cl)?;
         Ok::<(), crate::error::Error>(())
     })?;
-    run(
-        "ip",
-        &[
-            "netns", "exec", &netns, "ip", "route", "add", "default", "via", gateway,
-        ],
-    )?;
     // IPv6: GOVERNED and ON by default (ADR-0082 phase 4). The container gets the
     // DETERMINISTIC ULA (`v6_of`) statically, exactly as it gets its v4 address —
     // which is what the firewall (`@fwmap6`, the per-container v6 chain), the
@@ -4214,20 +4209,15 @@ fn do_attach(netns: &str, ip: &str, bridge: &str, gateway: &str, namespace: &str
                     ],
                 );
             }
+            // KRN-0001 fatia 4: v6 ULA (nodad) + default route via netlink in the
+            // container netns. Best-effort, as the CLI form was.
             let cidr6 = format!("{v6}/64");
-            run_ok(
-                "ip",
-                &[
-                    "netns", "exec", &netns, "ip", "-6", "addr", "add", &cidr6, "dev", "eth0",
-                    "nodad",
-                ],
-            );
-            run_ok(
-                "ip",
-                &[
-                    "netns", "exec", &netns, "ip", "-6", "route", "add", "default", "via", &gw6,
-                ],
-            );
+            let gw6_cl = gw6.clone();
+            let _ = crate::netlink::with_netns(&netns_path, move || {
+                crate::netlink::addr_add_flags("eth0", &cidr6, true)?;
+                crate::netlink::route_add_default(&gw6_cl)?;
+                Ok::<(), crate::error::Error>(())
+            });
         }
     } else {
         for argv in disable_ipv6_argv(&netns) {
@@ -4295,14 +4285,16 @@ fn do_attach_extra(
     crate::netlink::link_set_up(&vh)?; // KRN-0001: native netlink
     run("ip", &["link", "set", &ifname, "netns", &netns])?;
     let cidr = format!("{ip}/{}", plen_of_bridge(&bridge));
-    for argv in [
-        vec![
-            "netns", "exec", &netns, "ip", "addr", "add", &cidr, "dev", &ifname,
-        ],
-        vec!["netns", "exec", &netns, "ip", "link", "set", &ifname, "up"],
-    ] {
-        run("ip", &argv)?;
-    }
+    // KRN-0001 fatia 4: secondary interface address + up via native netlink in
+    // the container netns (no default route — this is an extra network).
+    let netns_path = crate::cni::named_netns_path(&netns);
+    let cidr_cl = cidr.clone();
+    let ifname_cl = ifname.clone();
+    crate::netlink::with_netns(&netns_path, move || {
+        crate::netlink::addr_add(&ifname_cl, &cidr_cl)?;
+        crate::netlink::link_set_up(&ifname_cl)?;
+        Ok::<(), crate::error::Error>(())
+    })?;
     // IPv6: GOVERNED, same as the primary interface (ADR-0082 phase 4). The second
     // network's address is the deterministic ULA again, assigned statically, with
     // SLAAC off on this interface so the container cannot pick an autoconfigured
@@ -4325,14 +4317,14 @@ fn do_attach_extra(
                     ],
                 );
             }
+            // KRN-0001 fatia 4: v6 ULA (nodad) via netlink in the container netns.
+            // Best-effort, as the CLI form was.
             let cidr6 = format!("{v6}/64");
-            run_ok(
-                "ip",
-                &[
-                    "netns", "exec", &netns, "ip", "-6", "addr", "add", &cidr6, "dev", &ifname,
-                    "nodad",
-                ],
-            );
+            let netns_path6 = crate::cni::named_netns_path(&netns);
+            let ifname6 = ifname.clone();
+            let _ = crate::netlink::with_netns(&netns_path6, move || {
+                crate::netlink::addr_add_flags(&ifname6, &cidr6, true)
+            });
         }
     } else {
         run_ok(

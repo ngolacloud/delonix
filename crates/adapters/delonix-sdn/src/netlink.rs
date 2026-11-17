@@ -134,6 +134,13 @@ pub(crate) fn link_set_up(name: &str) -> crate::Result<()> {
 /// `ip/plen` form the call-sites already build. The netns-exec variants (adding
 /// an address INSIDE the container) stay on the CLI — they need `setns` first.
 pub(crate) fn addr_add(dev: &str, cidr: &str) -> crate::Result<()> {
+    addr_add_flags(dev, cidr, false)
+}
+
+/// As [`addr_add`], but `nodad` sets `IFA_F_NODAD` — the `ip -6 addr add … nodad`
+/// of the v6 paths. The container's v6 ULA is deterministic and anti-spoof is
+/// keyed on it, so Duplicate Address Detection only adds latency.
+pub(crate) fn addr_add_flags(dev: &str, cidr: &str, nodad: bool) -> crate::Result<()> {
     let (ip_str, plen_str) = cidr.split_once('/').ok_or_else(|| Error::Command {
         context: "netlink",
         message: format!("addr_add({dev}, {cidr}): not an ip/plen"),
@@ -167,14 +174,52 @@ pub(crate) fn addr_add(dev: &str, cidr: &str) -> crate::Result<()> {
                 message: format!("addr_add({dev}): no such link"),
             })?;
         let index = msg.header.index;
+        let mut req = handle.address().add(index, ip, plen);
+        if nodad {
+            req.message_mut().header.flags |=
+                rtnetlink::packet_route::address::AddressHeaderFlags::Nodad;
+        }
+        req.execute().await.map_err(|e| Error::Command {
+            context: "netlink",
+            message: format!("addr_add({dev}, {cidr}): {e}"),
+        })
+    })
+}
+
+/// KRN-0001 fatia 4: add a DEFAULT route via `gateway` over netlink
+/// (`RTM_NEWROUTE`), replacing `ip route add default via <gw>`. v4/v6 is chosen
+/// from the gateway form. Meant to run inside [`with_netns`] for the container's
+/// own table.
+pub(crate) fn route_add_default(gateway: &str) -> crate::Result<()> {
+    use std::net::IpAddr;
+    let gw: IpAddr = gateway.parse().map_err(|e| Error::Command {
+        context: "netlink",
+        message: format!("route_add_default({gateway}): bad gateway: {e}"),
+    })?;
+    let rt = netlink_runtime("route_add_default")?;
+    let gateway = gateway.to_string();
+    rt.block_on(async move {
+        let (connection, handle, _) = new_connection().map_err(|e| Error::Command {
+            context: "netlink",
+            message: format!("route_add_default({gateway}): open: {e}"),
+        })?;
+        tokio::spawn(connection);
+        let route = match gw {
+            IpAddr::V4(v4) => rtnetlink::RouteMessageBuilder::<std::net::Ipv4Addr>::new()
+                .gateway(v4)
+                .build(),
+            IpAddr::V6(v6) => rtnetlink::RouteMessageBuilder::<std::net::Ipv6Addr>::new()
+                .gateway(v6)
+                .build(),
+        };
         handle
-            .address()
-            .add(index, ip, plen)
+            .route()
+            .add(route)
             .execute()
             .await
             .map_err(|e| Error::Command {
                 context: "netlink",
-                message: format!("addr_add({dev}, {cidr}): {e}"),
+                message: format!("route_add_default({gateway}): {e}"),
             })
     })
 }
