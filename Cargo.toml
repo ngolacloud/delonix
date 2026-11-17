@@ -134,6 +134,9 @@ tokio = "1"
 tokio-stream = "0.1"
 # KRN-0001: native netlink (replaces `ip`/`tc` CLI on the hot path, incrementally).
 rtnetlink = "0.24"
+# KRN-0003: io_uring for host-side bulk file I/O (with a std fallback). Never
+# inside the container seccomp profile, where io_uring_* stay denied.
+io-uring = "0.7"
 futures-util = { version = "0.3", default-features = false }
 hyper = "1"
 hyper-util = "0.1"
