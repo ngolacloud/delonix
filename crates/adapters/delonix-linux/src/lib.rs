@@ -835,6 +835,76 @@ fn set_no_new_privs() {
     }
 }
 
+/// KRN-0004 (fatia 1): a BEST-EFFORT Landlock filesystem sandbox for the
+/// container process, applied after `pivot_root` so every path is already the
+/// container's own. Runs on the NO_NEW_PRIVS path, before seccomp.
+///
+/// Policy: read+execute the whole rootfs (`/`), and WRITE only where a container
+/// legitimately writes — tmpfs (`/tmp`, `/run`, `/dev`, `/proc`, `/sys`) and each
+/// read-write bind mount. For a `--read-only` container this denies exactly what
+/// the rootfs remount already denied, so a well-behaved workload sees no change;
+/// the kernel now enforces it too (defence in depth).
+///
+/// NEVER fatal. On a kernel without Landlock (< 5.13) or with the LSM disabled,
+/// `CompatLevel::BestEffort` (the crate default) leaves the ruleset NotEnforced
+/// and we carry on — a sandbox that could not be installed must not become a
+/// reason to refuse an otherwise-valid container. Compare `apply_apparmor`,
+/// which IS fatal, because there confinement was explicitly requested.
+fn apply_landlock(mounts: &[Mount], tmpfs: &[String]) {
+    use landlock::{
+        Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
+    };
+    // ABI::V3 is what a recent kernel speaks; BestEffort downgrades cleanly to
+    // whatever the running kernel actually supports (or to no-op).
+    let abi = ABI::V3;
+    let read_only = AccessFs::from_read(abi);
+    let read_write = AccessFs::from_all(abi);
+
+    // Paths that are always writable inside a container: the kernel/tmpfs mounts
+    // set up before us, every `--tmpfs` the user asked for, and every read-write
+    // bind. Missing paths are skipped (best-effort), the same tolerance
+    // `apply_masked_paths` shows. The `--tmpfs` list MUST be here or the sandbox
+    // would deny a tmpfs the container legitimately mounted rw.
+    let mut writable: Vec<&str> = vec!["/tmp", "/run", "/dev", "/proc", "/sys", "/var/tmp"];
+    for t in tmpfs {
+        writable.push(t.as_str());
+    }
+    for m in mounts.iter().filter(|m| !m.readonly) {
+        writable.push(m.target.as_str());
+    }
+
+    let add_rules = |rs: landlock::RulesetCreated| -> std::result::Result<_, landlock::RulesetError> {
+        // `/` read+execute; the writable set read+write. `PathFd::new` opens with
+        // O_PATH and fails on a path that does not exist — tolerated per path.
+        let mut rs = rs;
+        if let Ok(fd) = PathFd::new("/") {
+            rs = rs.add_rule(PathBeneath::new(fd, read_only))?;
+        }
+        for p in &writable {
+            if let Ok(fd) = PathFd::new(p) {
+                rs = rs.add_rule(PathBeneath::new(fd, read_write))?;
+            }
+        }
+        Ok(rs)
+    };
+
+    let outcome = Ruleset::default()
+        .handle_access(read_write)
+        .and_then(|rs| rs.create())
+        .and_then(add_rules)
+        .and_then(|rs| rs.restrict_self());
+    match outcome {
+        Ok(status) => {
+            // `RulesetStatus::NotEnforced` is the "old kernel" case — informative,
+            // not an error.
+            if matches!(status.ruleset, landlock::RulesetStatus::NotEnforced) {
+                eprintln!("delonix: landlock not enforced (kernel without Landlock support)");
+            }
+        }
+        Err(e) => eprintln!("delonix: landlock best-effort setup failed ({e}); continuing"),
+    }
+}
+
 /// Becomes `uid`/`gid` (with `groups`) WITHOUT losing the capability sets, so
 /// the confinement that follows can still narrow them.
 ///
@@ -4351,6 +4421,11 @@ struct SecuritySpec<'a> {
     privileged: bool,
     masked_paths: &'a [String],
     readonly_paths: &'a [String],
+    /// KRN-0004 (fatia 1): opt-in Landlock FS sandbox. Best-effort, applied on
+    /// the NO_NEW_PRIVS path only, BEFORE seccomp. Defence in depth — never
+    /// fatal (an old kernel just leaves it NotEnforced). Today it rides on
+    /// `--read-only` (see the construction site); a dedicated opt-in is fatia 2.
+    landlock: bool,
 }
 
 /// Which namespaces the child creates, joins or inherits.
@@ -4517,6 +4592,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 privileged,
                 masked_paths,
                 readonly_paths,
+                landlock,
             },
         namespaces:
             NamespaceSpec {
@@ -4823,6 +4899,13 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     }
     if no_new_privs {
         set_no_new_privs(); // no execve gains privileges (anti-escalation)
+        // KRN-0004: Landlock FS sandbox — BEFORE seccomp, so `landlock_*` need
+        // not be in the seccomp allowlist, and on the NNP path only (unprivileged
+        // Landlock requires NO_NEW_PRIVS, just set above). Best-effort: never
+        // aborts the container — an old kernel leaves it NotEnforced.
+        if landlock {
+            apply_landlock(mounts, tmpfs);
+        }
         drop_capabilities(cap_keep); // drop caps (after the mounts, before the exec)
         apply_seccomp(
             seccomp_unconfined,
@@ -4882,10 +4965,15 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                               // non-root `USER`, and a container that stays root still needs its groups —
                               // that is exactly the `SupplementalGroups` case, and reading `id -G` was how
                               // it showed up as missing.
-    if !user_switched && !group_add.is_empty() {
+    // UNCONDITIONAL when no uid switch: even with an empty `group_add` we must
+    // reset, or the init keeps the groups inherited from the host `delonix`
+    // process — unmapped in the userns, they surface as a row of 65534 and leak
+    // the host's identity. An empty list clears them.
+    if !user_switched {
         let mut groups: Vec<u32> = group_add.to_vec();
         groups.dedup();
         // SAFETY: we are root in the user ns → setgroups succeeds for mapped gids.
+        // A zero-length list with a dangling-but-valid ptr clears groups.
         if unsafe { libc::setgroups(groups.len(), groups.as_ptr()) } != 0 {
             eprintln!(
                 "delonix: setgroups({groups:?}) failed — are the gids inside the mapped range?"
@@ -8692,6 +8780,11 @@ impl InitInputs {
                 privileged: self.privileged,
                 masked_paths: &self.masked_paths,
                 readonly_paths: &self.readonly_paths,
+                // KRN-0004 fatia 1: Landlock rides on `--read-only` — a container
+                // that already froze its rootfs gets FS confinement reinforced in
+                // the kernel. Never on a privileged container (it opted out of the
+                // confinement block below). Fatia 2: a dedicated opt-in.
+                landlock: self.read_only && !self.privileged,
             },
             namespaces: NamespaceSpec {
                 pod_infra_pid: self.pod_infra_pid,
@@ -10322,10 +10415,18 @@ pub fn exec_with(
                     // other way in. Without this the exec kept the CALLER's groups,
                     // which show up as a row of 65534 (unmapped in the userns): not
                     // just the wrong answer, a small leak of the host's identity.
-                    if !container.group_add.is_empty() {
+                    // Reset supplementary groups UNCONDITIONALLY — even with an
+                    // empty `group_add`, so the exec never inherits the CALLER's
+                    // host groups. An empty list clears them; skipping the call
+                    // left a row of 65534 (unmapped in the userns) — the wrong
+                    // answer and a small leak of the host's identity. The uid!=0
+                    // branch below re-sets groups (with the primary gid), so this
+                    // only has to cover the root / no-user-switch path.
+                    if exec_user.filter(|(u, _)| *u != 0).is_none() {
                         let mut groups = container.group_add.clone();
                         groups.dedup();
                         // SAFETY: gids mapped in the container's userns; we are root there.
+                        // A zero-length list with a dangling-but-valid ptr clears groups.
                         if unsafe { libc::setgroups(groups.len(), groups.as_ptr()) } != 0 {
                             eprintln!("delonix: exec setgroups({groups:?}) failed");
                         }
@@ -11319,18 +11420,66 @@ pub fn send_signal(container: &Container, signal: i32) -> Result<()> {
     let pid = container
         .pid
         .ok_or_else(|| Error::NotRunning(container.short_id().to_string()))?;
+    // KRN-0002: open a pidfd FIRST — it pins the PROCESS, not the number, so the
+    // signal below can never reach a PID recycled between the identity check and
+    // the send. The `(pid, starttime)` check still runs (and still rejects a
+    // reused pid cheaply), but the hard guarantee is now the pidfd itself.
+    let pidfd = pidfd_open(pid);
     if !safe_to_signal(pid, container.pid_starttime) {
         return Err(Error::NotRunning(container.short_id().to_string()));
     }
-    // SAFETY: `pid` confirmed alive and ours by `safe_to_signal`; `signal` is a
-    // plain signal number.
-    if unsafe { libc::kill(pid, signal) } != 0 {
+    let rc = match &pidfd {
+        Some(fd) => {
+            use std::os::fd::AsRawFd as _;
+            // SAFETY: `fd` is a live pidfd; a null siginfo lets the kernel
+            // synthesize it; `signal` is a plain signal number.
+            let r = unsafe {
+                libc::syscall(
+                    libc::SYS_pidfd_send_signal,
+                    fd.as_raw_fd(),
+                    signal,
+                    std::ptr::null::<libc::siginfo_t>(),
+                    0,
+                )
+            };
+            r as i32
+        }
+        // Kernel < 5.3 (no pidfd_open): fall back to the historical path. `pid`
+        // was just confirmed alive and ours — the same guarantee as before.
+        // SAFETY: plain `kill` with a validated pid and signal number.
+        None => unsafe { libc::kill(pid, signal) },
+    };
+    if rc != 0 {
         return Err(Error::Syscall {
-            context: "kill",
+            context: if pidfd.is_some() {
+                "pidfd_send_signal"
+            } else {
+                "kill"
+            },
             message: std::io::Error::last_os_error().to_string(),
         });
     }
     Ok(())
+}
+
+/// `pidfd_open(2)` — a file descriptor that pins the PROCESS rather than its
+/// number, so a signal sent through it reaches that exact process or fails with
+/// `ESRCH`, never a recycled PID. `None` on a kernel < 5.3 (the syscall returns
+/// `-1`/`ENOSYS`) or if the process is already gone — the caller then falls back
+/// to `kill(pid)`. Same molde as `delonix-cri`'s `child_handle`, here for the
+/// container init's signal path (KRN-0002). The three `pidfd_*` syscalls are
+/// already in the seccomp allowlist.
+fn pidfd_open(pid: i32) -> Option<std::os::fd::OwnedFd> {
+    // SAFETY: pidfd_open reads no memory from us — it takes the pid and flags and
+    // returns a fresh owned fd (or -1).
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+    if raw < 0 {
+        None
+    } else {
+        use std::os::fd::FromRawFd as _;
+        // SAFETY: `raw` is a fresh, owned fd returned by `pidfd_open`.
+        Some(unsafe { std::os::fd::OwnedFd::from_raw_fd(raw as i32) })
+    }
 }
 
 /// Removes a container's cgroup, waiting for it to empty. After `SIGKILL` the
@@ -16749,5 +16898,53 @@ mod mount_propagation_tests {
         );
         // Nothing at all (no root line) → None.
         assert_eq!(enclosing_mount_point_from("", "/run/dlx/x"), None);
+    }
+}
+
+#[cfg(test)]
+mod pidfd_tests {
+    use super::pidfd_open;
+
+    /// KRN-0002: a pidfd pins the PROCESS, not the number. After the child is
+    /// reaped (its pid is free to be recycled), a signal through the pidfd must
+    /// fail with ESRCH — never reach whatever took the number. This is the
+    /// anti-reuse guarantee that `send_signal` now relies on.
+    #[test]
+    fn a_pidfd_to_a_reaped_process_refuses_the_signal() {
+        use std::os::fd::AsRawFd as _;
+        let mut child = std::process::Command::new("sleep")
+            .arg("100")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id() as i32;
+        let fd = pidfd_open(pid).expect("pidfd_open on a live child");
+        // While alive, signal 0 through the pidfd succeeds (process is reachable).
+        let alive = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                fd.as_raw_fd(),
+                0,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        assert_eq!(alive, 0, "a live process must be reachable via its pidfd");
+        child.kill().expect("kill");
+        child.wait().expect("reap"); // pid number is now free to recycle
+        let r = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                fd.as_raw_fd(),
+                0,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        assert_ne!(r, 0, "a reaped process must NOT be reachable via its pidfd");
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH),
+            "the refusal must be ESRCH (gone), not a signal to a recycled pid"
+        );
     }
 }

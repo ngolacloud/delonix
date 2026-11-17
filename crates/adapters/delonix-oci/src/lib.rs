@@ -8,6 +8,7 @@ pub mod auth;
 pub mod build;
 pub mod buildpack;
 pub mod cas;
+pub mod uring;
 pub mod detect;
 pub mod dockerignore;
 mod error;

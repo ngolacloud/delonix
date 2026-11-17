@@ -29,53 +29,21 @@ pub const KEPT_CAPS: &[u8] = &[
 ];
 
 /// Capability number from the name (`CAP_NET_ADMIN` or `NET_ADMIN`).
+///
+/// KRN-0006: delegates to the `caps` crate — the ecosystem's source of truth for
+/// the capability name↔number ABI of the kernel — instead of a hand-maintained
+/// match that drifts when the kernel adds a capability. The inverse [`cap_name`]
+/// stays a static table (the crate exposes no `&'static str` name); the
+/// round-trip test keeps it in agreement with the crate.
 pub fn cap_num(name: &str) -> Option<u8> {
     let n = name.trim().to_ascii_uppercase();
-    let n = n.strip_prefix("CAP_").unwrap_or(&n);
-    Some(match n {
-        "CHOWN" => 0,
-        "DAC_OVERRIDE" => 1,
-        "DAC_READ_SEARCH" => 2,
-        "FOWNER" => 3,
-        "FSETID" => 4,
-        "KILL" => 5,
-        "SETGID" => 6,
-        "SETUID" => 7,
-        "SETPCAP" => 8,
-        "LINUX_IMMUTABLE" => 9,
-        "NET_BIND_SERVICE" => 10,
-        "NET_BROADCAST" => 11,
-        "NET_ADMIN" => 12,
-        "NET_RAW" => 13,
-        "IPC_LOCK" => 14,
-        "IPC_OWNER" => 15,
-        "SYS_MODULE" => 16,
-        "SYS_RAWIO" => 17,
-        "SYS_CHROOT" => 18,
-        "SYS_PTRACE" => 19,
-        "SYS_PACCT" => 20,
-        "SYS_ADMIN" => 21,
-        "SYS_BOOT" => 22,
-        "SYS_NICE" => 23,
-        "SYS_RESOURCE" => 24,
-        "SYS_TIME" => 25,
-        "SYS_TTY_CONFIG" => 26,
-        "MKNOD" => 27,
-        "LEASE" => 28,
-        "AUDIT_WRITE" => 29,
-        "AUDIT_CONTROL" => 30,
-        "SETFCAP" => 31,
-        "MAC_OVERRIDE" => 32,
-        "MAC_ADMIN" => 33,
-        "SYSLOG" => 34,
-        "WAKE_ALARM" => 35,
-        "BLOCK_SUSPEND" => 36,
-        "AUDIT_READ" => 37,
-        "PERFMON" => 38,
-        "BPF" => 39,
-        "CHECKPOINT_RESTORE" => 40,
-        _ => return None,
-    })
+    // The crate's `FromStr` wants the `CAP_` prefix; we accept either form.
+    let qualified = if n.starts_with("CAP_") {
+        n
+    } else {
+        format!("CAP_{n}")
+    };
+    qualified.parse::<caps::Capability>().ok().map(|c| c.index())
 }
 
 /// Mask with ALL capabilities supported by the kernel (`--privileged`).
@@ -244,5 +212,22 @@ mod tests {
             .map(str::to_string)
             .collect();
         assert_eq!(resolve_cap_keep(&["ALL".to_string()], &add), want);
+    }
+
+    /// KRN-0006: `cap_num` now delegates to the `caps` crate; the remaining
+    /// hand-written `cap_name` table must match the crate name-for-name, so the
+    /// two sources of truth cannot drift. (Also pins that the crate still maps the
+    /// 0..=40 range this engine relies on.)
+    #[test]
+    fn cap_name_concorda_com_o_crate_caps() {
+        for n in 0u8..=40 {
+            let ours = format!("CAP_{}", cap_name(n).expect("nome na tabela"));
+            let theirs = caps::all()
+                .into_iter()
+                .find(|c| c.index() == n)
+                .map(|c| c.to_string())
+                .expect("o crate caps conhece esta capability");
+            assert_eq!(ours, theirs, "cap {n} diverge do crate caps");
+        }
     }
 }

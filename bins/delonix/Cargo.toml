@@ -88,6 +88,8 @@ serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "rustls-tls-webpki-roots"] }
 libc = { workspace = true }
+# KRN-0014: getpwnam nativo (User::from_name) em vez de forkar `getent passwd`.
+nix = { workspace = true }
 # `delonix dash` — TUI interactivo (tiles/tabela/gráfico estilo htop). Só o BIN a
 # usa (os crates de motor ficam dep-limpos); o modo `--once` (snapshot de texto)
 # não precisa de tty. ratatui traz o crossterm.
