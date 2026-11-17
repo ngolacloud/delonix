@@ -11420,18 +11420,66 @@ pub fn send_signal(container: &Container, signal: i32) -> Result<()> {
     let pid = container
         .pid
         .ok_or_else(|| Error::NotRunning(container.short_id().to_string()))?;
+    // KRN-0002: open a pidfd FIRST — it pins the PROCESS, not the number, so the
+    // signal below can never reach a PID recycled between the identity check and
+    // the send. The `(pid, starttime)` check still runs (and still rejects a
+    // reused pid cheaply), but the hard guarantee is now the pidfd itself.
+    let pidfd = pidfd_open(pid);
     if !safe_to_signal(pid, container.pid_starttime) {
         return Err(Error::NotRunning(container.short_id().to_string()));
     }
-    // SAFETY: `pid` confirmed alive and ours by `safe_to_signal`; `signal` is a
-    // plain signal number.
-    if unsafe { libc::kill(pid, signal) } != 0 {
+    let rc = match &pidfd {
+        Some(fd) => {
+            use std::os::fd::AsRawFd as _;
+            // SAFETY: `fd` is a live pidfd; a null siginfo lets the kernel
+            // synthesize it; `signal` is a plain signal number.
+            let r = unsafe {
+                libc::syscall(
+                    libc::SYS_pidfd_send_signal,
+                    fd.as_raw_fd(),
+                    signal,
+                    std::ptr::null::<libc::siginfo_t>(),
+                    0,
+                )
+            };
+            r as i32
+        }
+        // Kernel < 5.3 (no pidfd_open): fall back to the historical path. `pid`
+        // was just confirmed alive and ours — the same guarantee as before.
+        // SAFETY: plain `kill` with a validated pid and signal number.
+        None => unsafe { libc::kill(pid, signal) },
+    };
+    if rc != 0 {
         return Err(Error::Syscall {
-            context: "kill",
+            context: if pidfd.is_some() {
+                "pidfd_send_signal"
+            } else {
+                "kill"
+            },
             message: std::io::Error::last_os_error().to_string(),
         });
     }
     Ok(())
+}
+
+/// `pidfd_open(2)` — a file descriptor that pins the PROCESS rather than its
+/// number, so a signal sent through it reaches that exact process or fails with
+/// `ESRCH`, never a recycled PID. `None` on a kernel < 5.3 (the syscall returns
+/// `-1`/`ENOSYS`) or if the process is already gone — the caller then falls back
+/// to `kill(pid)`. Same molde as `delonix-cri`'s `child_handle`, here for the
+/// container init's signal path (KRN-0002). The three `pidfd_*` syscalls are
+/// already in the seccomp allowlist.
+fn pidfd_open(pid: i32) -> Option<std::os::fd::OwnedFd> {
+    // SAFETY: pidfd_open reads no memory from us — it takes the pid and flags and
+    // returns a fresh owned fd (or -1).
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+    if raw < 0 {
+        None
+    } else {
+        use std::os::fd::FromRawFd as _;
+        // SAFETY: `raw` is a fresh, owned fd returned by `pidfd_open`.
+        Some(unsafe { std::os::fd::OwnedFd::from_raw_fd(raw as i32) })
+    }
 }
 
 /// Removes a container's cgroup, waiting for it to empty. After `SIGKILL` the
@@ -16850,5 +16898,53 @@ mod mount_propagation_tests {
         );
         // Nothing at all (no root line) → None.
         assert_eq!(enclosing_mount_point_from("", "/run/dlx/x"), None);
+    }
+}
+
+#[cfg(test)]
+mod pidfd_tests {
+    use super::pidfd_open;
+
+    /// KRN-0002: a pidfd pins the PROCESS, not the number. After the child is
+    /// reaped (its pid is free to be recycled), a signal through the pidfd must
+    /// fail with ESRCH — never reach whatever took the number. This is the
+    /// anti-reuse guarantee that `send_signal` now relies on.
+    #[test]
+    fn a_pidfd_to_a_reaped_process_refuses_the_signal() {
+        use std::os::fd::AsRawFd as _;
+        let mut child = std::process::Command::new("sleep")
+            .arg("100")
+            .spawn()
+            .expect("spawn sleep");
+        let pid = child.id() as i32;
+        let fd = pidfd_open(pid).expect("pidfd_open on a live child");
+        // While alive, signal 0 through the pidfd succeeds (process is reachable).
+        let alive = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                fd.as_raw_fd(),
+                0,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        assert_eq!(alive, 0, "a live process must be reachable via its pidfd");
+        child.kill().expect("kill");
+        child.wait().expect("reap"); // pid number is now free to recycle
+        let r = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                fd.as_raw_fd(),
+                0,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
+        };
+        assert_ne!(r, 0, "a reaped process must NOT be reachable via its pidfd");
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH),
+            "the refusal must be ESRCH (gone), not a signal to a recycled pid"
+        );
     }
 }
