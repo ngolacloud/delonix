@@ -137,6 +137,8 @@ rtnetlink = "0.24"
 # KRN-0003: io_uring for host-side bulk file I/O (with a std fallback). Never
 # inside the container seccomp profile, where io_uring_* stay denied.
 io-uring = "0.7"
+# KRN-0006: Linux capabilities via o ecossistema (substitui tabelas manuais).
+caps = "0.5"
 futures-util = { version = "0.3", default-features = false }
 hyper = "1"
 hyper-util = "0.1"
