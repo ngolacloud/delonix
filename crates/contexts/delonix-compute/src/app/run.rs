@@ -197,10 +197,16 @@ where
     for name in &o.config {
         host.check_config(name)?;
     }
-    let log_path = o
-        .log_file
-        .clone()
-        .or_else(|| o.detach.then(|| host.default_log_path(&id)));
+    // The default log path for EVERY start, not just `-d` (Docker/Podman
+    // parity): a foreground run used to get `None` here, the spawn then opened
+    // no pipe and no file was ever written — while `container logs` happily
+    // computed the default path and reported ENOENT on it. The reader assumed
+    // a default the writer only honoured when detached.
+    let log_path = Some(
+        o.log_file
+            .clone()
+            .unwrap_or_else(|| host.default_log_path(&id)),
+    );
 
     let image_command = compose_command(&config.entrypoint, &config.cmd, &o.command);
     Ok(Resolved {
@@ -1053,6 +1059,10 @@ mod tests {
         o.detect = true;
         let c = build_record(&o, run(&o, &Fake::new(), false).unwrap().record).unwrap();
         assert_eq!(c.seccomp.as_deref(), Some("detect"));
-        assert_eq!(c.log_path, None);
+        // A FOREGROUND run (detach=false, the `opts()` default) records the
+        // default log path too — Docker/Podman parity: `container logs` used
+        // to compute this very path and ENOENT on it, because only `-d`
+        // filled it in here.
+        assert_eq!(c.log_path.as_deref(), Some("/logs/id1"));
     }
 }

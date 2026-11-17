@@ -7961,8 +7961,7 @@ pub(crate) fn cmd_logs(
         .as_deref()
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| images.root().join("containers").join(&c.id).join("log"));
-    let mut f = std::fs::File::open(&p)
-        .map_err(|e| Error::Invalid(format!("no logs for {} at {}: {e}", c.name, p.display())))?;
+    let mut f = std::fs::File::open(&p).map_err(|e| super::util::no_logs_hint(&c.name, &p, &e))?;
     let mut out = std::io::stdout();
     let needs_cri = tail.is_some() || since.is_some() || timestamps;
 
