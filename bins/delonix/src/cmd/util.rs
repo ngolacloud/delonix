@@ -79,9 +79,19 @@ pub(crate) fn pull_with_layer_progress(
         creds,
         platform,
         Some(&on_event),
-    )?;
-    renderer.finish();
-    Ok(img)
+    );
+    match img {
+        Ok(img) => {
+            renderer.finish();
+            Ok(img)
+        }
+        // Settle the block BEFORE the error prints: unfinished layers get a
+        // red ✗ instead of freezing mid-bar under the error message.
+        Err(e) => {
+            renderer.abort();
+            Err(e.into())
+        }
+    }
 }
 
 /// The line a pull prints before it starts. English in the source, Portuguese
