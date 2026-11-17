@@ -164,6 +164,34 @@ where
         }
         (None, None) => None,
     };
+    // Rootless with the DEFAULT `--net host` runs the workload in the host's
+    // network namespace, where binding a port below 1024 needs privilege the
+    // mapped user does not have — the only symptom used to be the workload's own
+    // cryptic bind error (httpd's AH00072), after the start (issue #1011). Warn
+    // up front, with the remedies, when the image says it will bind one. A `-p`
+    // or a named `--net` gives the container its own namespace (where the
+    // userns makes low binds legal), and a `--pod` member joins the pod's — so
+    // only the bare default run is at risk. First pass only, like the USER
+    // notice above: the custom-net re-exec resolves again.
+    if !second_pass
+        && host.rootless()
+        && (o.net.is_empty() || o.net == "host")
+        && o.ports.is_empty()
+        && o.pod.is_none()
+    {
+        if let Some(port) = lowest_privileged_exposed_port(&config.exposed_ports) {
+            notices.push(Notice::new(
+                "delonix: warning — image '{image}' exposes port {port}, which rootless with the default `--net host` cannot bind: the container shares the host's network namespace, where ports below 1024 need privilege — publish it (`-p {alt}:{port}`) or give it its own network (`--net <network>`)",
+                &[
+                    ("image", &o.image),
+                    ("port", &port.to_string()),
+                    // 80 → 8080, 443 → 8443; the same offset the host-side
+                    // preflight suggests, always inside u16.
+                    ("alt", &(port as u32 + 8000).to_string()),
+                ],
+            ));
+        }
+    }
     let security = parse_security_opts(&o.security_opt)?;
     let mut seccomp = security
         .seccomp_unconfined
@@ -307,6 +335,18 @@ pub fn parse_security_opts(opts: &[String]) -> Result<SecurityOpts> {
 pub fn image_user_is_non_root(user: &str) -> bool {
     let name = user.split(':').next().unwrap_or("").trim();
     !(name.is_empty() || name == "0" || name == "root")
+}
+
+/// The lowest port below 1024 among an image's `EXPOSE` entries (`80/tcp`,
+/// `53/udp`, `8080`), `None` when every entry is unprivileged or unparsable.
+/// The lowest because it is the one the remedy (`-p {port+8000}:{port}`) should
+/// name first. PURE.
+fn lowest_privileged_exposed_port(exposed: &[String]) -> Option<u16> {
+    exposed
+        .iter()
+        .filter_map(|e| e.split('/').next()?.trim().parse::<u16>().ok())
+        .filter(|p| *p < 1024)
+        .min()
 }
 
 /// The image's ENTRYPOINT followed by the user's command, or by the image's CMD
@@ -732,6 +772,10 @@ mod tests {
         image_user: String,
         /// A rootless host with no subordinate id range.
         single_uid: bool,
+        /// The image's `EXPOSE` entries.
+        exposed: Vec<String>,
+        /// A root host (`rootless()` answers false).
+        rooted: bool,
     }
 
     impl Fake {
@@ -740,11 +784,19 @@ mod tests {
                 calls: RefCell::new(Vec::new()),
                 image_user: String::new(),
                 single_uid: false,
+                exposed: Vec::new(),
+                rooted: false,
             }
         }
         fn with_image_user(user: &str) -> Self {
             Fake {
                 image_user: user.into(),
+                ..Fake::new()
+            }
+        }
+        fn with_exposed(ports: &[&str]) -> Self {
+            Fake {
+                exposed: ports.iter().map(|p| p.to_string()).collect(),
                 ..Fake::new()
             }
         }
@@ -766,6 +818,7 @@ mod tests {
                 env: vec!["PATH=/bin".into()],
                 working_dir: "/app".into(),
                 user: self.image_user.clone(),
+                exposed_ports: self.exposed.clone(),
             }
         }
         fn prepare_rootfs(
@@ -823,7 +876,7 @@ mod tests {
             Vec::new()
         }
         fn rootless(&self) -> bool {
-            true
+            !self.rooted
         }
         fn can_map_id_range(&self) -> bool {
             !self.single_uid
@@ -958,6 +1011,56 @@ mod tests {
 
         assert!(image_user_is_non_root("101:101"));
         assert!(image_user_is_non_root("haproxy"));
+    }
+
+    /// Issue #1011: a rootless run on the default `--net host` whose image
+    /// EXPOSEs a port below 1024 warns BEFORE the start, naming the port and
+    /// both remedies — and ONLY that run: a `-p`, a named `--net` or a `--pod`
+    /// member gets a namespace where the bind is legal, root can bind anyway,
+    /// and the re-exec pass must not repeat it.
+    #[test]
+    fn rootless_host_net_warns_before_start_when_the_image_exposes_a_low_port() {
+        let said = |r: &Resolved| {
+            r.notices
+                .iter()
+                .find(|n| n.template.contains("cannot bind"))
+                .map(|n| n.render())
+        };
+        let o = opts();
+
+        let warned = said(&run(&o, &Fake::with_exposed(&["443/tcp", "80/tcp"]), false).unwrap())
+            .expect("the bare default run must warn");
+        assert!(warned.contains("exposes port 80"), "{warned}");
+        assert!(
+            warned.contains("-p 8080:80"),
+            "the remedy names the lowest exposed port: {warned}"
+        );
+        assert!(warned.contains("--net <network>"), "{warned}");
+
+        // The namespaces where the bind IS legal, root, and the re-exec pass.
+        let mut with_p = opts();
+        with_p.ports = vec!["8080:80".into()];
+        assert!(said(&run(&with_p, &Fake::with_exposed(&["80/tcp"]), false).unwrap()).is_none());
+        let mut with_net = opts();
+        with_net.net = "mynet".into();
+        assert!(said(&run(&with_net, &Fake::with_exposed(&["80/tcp"]), false).unwrap()).is_none());
+        let mut in_pod = opts();
+        in_pod.pod = Some("p1".into());
+        assert!(said(&run(&in_pod, &Fake::with_exposed(&["80/tcp"]), false).unwrap()).is_none());
+        let rooted = Fake {
+            rooted: true,
+            ..Fake::with_exposed(&["80/tcp"])
+        };
+        assert!(said(&run(&o, &rooted, false).unwrap()).is_none());
+        assert!(said(&run(&o, &Fake::with_exposed(&["80/tcp"]), true).unwrap()).is_none());
+
+        // Unprivileged or unparsable EXPOSE entries do not warn.
+        assert!(
+            said(&run(&o, &Fake::with_exposed(&["8080/tcp", "junk"]), false).unwrap()).is_none()
+        );
+
+        assert_eq!(lowest_privileged_exposed_port(&["53/udp".into()]), Some(53));
+        assert_eq!(lowest_privileged_exposed_port(&["1024".into()]), None);
     }
 
     #[test]
