@@ -701,6 +701,9 @@ msgstr "o container '{name}' saiu imediatamente — vê `delonix container logs 
 msgid "rootless with the default `--net host` cannot bind ports below 1024 — if the image binds one (nginx, httpd, ...), publish it (`-p 8080:80`) or use `--net <network>`"
 msgstr "rootless com o default `--net host` não consegue bind de portas abaixo de 1024 — se a imagem usa uma (nginx, httpd, ...), publica-a (`-p 8080:80`) ou usa `--net <rede>`"
 
+msgid "delonix: warning — image '{image}' exposes port {port}, which rootless with the default `--net host` cannot bind: the container shares the host's network namespace, where ports below 1024 need privilege — publish it (`-p {alt}:{port}`) or give it its own network (`--net <network>`)"
+msgstr "delonix: aviso — a imagem '{image}' expõe a porta {port}, que o rootless com o default `--net host` não consegue bind: o container partilha o namespace de rede do host, onde portas abaixo de 1024 exigem privilégio — publica-a (`-p {alt}:{port}`) ou dá-lhe uma rede própria (`--net <rede>`)"
+
 # ---- --version rico ---------------------------------------------------------
 
 msgid "daemonless, rootless-first container & microVM engine (kernel-native, Rust)"
