@@ -4059,7 +4059,7 @@ mod tests {
     /// what the CAS already holds, `Queued` with the declared size for the
     /// rest), then `Downloading` ticks and a `Done` for each missing layer.
     #[test]
-    fn pull_com_eventos_reporta_camadas_existentes_e_descarregadas() {
+    fn pull_with_events_reports_existing_and_downloaded_layers() {
         use super::{pull_from_registry_with_events, PullEvent};
         let (port, _gets, _handle) = serve_anon_registry();
         let tmp = tempfile::tempdir().unwrap();
@@ -4134,7 +4134,7 @@ mod tests {
         };
         let target = format!("127.0.0.1:{port}/events:tag");
         pull_from_registry_with_events(&store, &target, None, None, Some(&cb))
-            .expect("pull com eventos devia ter sucesso");
+            .expect("the pull with events had to succeed");
         let got = got.into_inner().unwrap();
 
         // Layout first, in manifest order: the renderer draws every line
@@ -4154,7 +4154,7 @@ mod tests {
                 Ev::Downloading(d, done, total) if d == &fresh_digest => Some((*done, *total)),
                 _ => None,
             })
-            .expect("a camada em falta tinha de reportar Downloading");
+            .expect("the missing layer had to report Downloading");
         assert_eq!(last_tick.0, fresh_bytes.len() as u64);
         assert_eq!(last_tick.1, Some(fresh_bytes.len() as u64));
         assert!(
@@ -4174,7 +4174,7 @@ mod tests {
     /// monotonically to the sum of the MISSING layers, never the squared
     /// figure the old per-tick adapter once produced.
     #[test]
-    fn pull_agregado_derivado_dos_eventos_mantem_contrato() {
+    fn aggregate_pull_derived_from_events_keeps_the_contract() {
         use super::pull_from_registry_with_creds_full;
         let (port, _gets, _handle) = serve_anon_registry();
         let tmp = tempfile::tempdir().unwrap();
@@ -4216,7 +4216,7 @@ mod tests {
         };
         let target = format!("127.0.0.1:{port}/aggr:tag");
         pull_from_registry_with_creds_full(&store, &target, None, None, Some(&cb))
-            .expect("pull agregado devia ter sucesso");
+            .expect("the aggregate pull had to succeed");
         let ticks = ticks.into_inner().unwrap();
         assert!(!ticks.is_empty(), "o callback agregado tinha de disparar");
         assert!(
