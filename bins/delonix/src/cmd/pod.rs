@@ -1068,7 +1068,13 @@ pub(crate) fn desired(doc: &ManifestDoc) -> Result<super::reconcile::Desired> {
         .collect();
     f.insert("containers".into(), member_key(&mut members));
     f.insert("network".into(), spec.network.clone());
-    f.insert("restartPolicy".into(), spec.restart_policy.clone());
+    // Stamp the CANONICAL policy, not the manifest literal: the observed value
+    // is the engine's own (`always`), so stamping `Always` would diff forever
+    // (BUG-0009). Same mapping the Pod lowering uses — one source of truth.
+    f.insert(
+        "restartPolicy".into(),
+        delonix_compute::pod::canonical_restart_policy(&spec.restart_policy).to_string(),
+    );
     Ok(super::reconcile::Desired {
         kind: k::POD.into(),
         name: doc.metadata.name.clone(),

@@ -2770,11 +2770,20 @@ fn containers_json(state: &AppState, all: bool, filters: &serde_json::Value) -> 
         .filter(|c| container_matches_filters(c, filters))
         .map(|c| {
             let ports = docker_port_entries(&c.ports);
+            // Docker's `ImageID` is the image DIGEST (`sha256:…`), never the
+            // `repo:tag` name — clients (docker CLI, Testcontainers) correlate
+            // containers↔images by it. Resolve the name to the stored digest;
+            // fall back to the name only if the image is already gone.
+            let image_id = state
+                .images
+                .resolve(&c.image)
+                .map(|img| img.id)
+                .unwrap_or_else(|_| c.image.clone());
             json!({
                 "Id": c.id,
                 "Names": [format!("/{}", c.name)],
                 "Image": c.image,
-                "ImageID": c.image,
+                "ImageID": image_id,
                 "Command": c.command.join(" "),
                 "Created": c.created_unix,
                 "State": docker_state(&c.status),
