@@ -116,6 +116,64 @@ Fora de escopo: substituir o boot do cloud-hypervisor; virtio/vhost; libvirt.
 
 ---
 
+## Oportunidades de nativização adicionais (levantamento 2026-11-17, KRN-0007..0014)
+
+Varrimento de `Command::new`/`run`/`capture` por ferramenta externa em todo o
+motor. Lista o que AINDA depende de binário externo + parsing de texto e podia
+ser syscall/netlink/crate nativo. Fora de âmbito (externos por natureza):
+`git`, `systemctl`/`busctl` (systemd/dbus), `ssh`/`scp`, `kubectl`/`helm`,
+`qemu-img`/`virt-*` (libguestfs/qcow2), `sudo`, `nvidia-smi`.
+
+### KRN-0007 — Firewall/NAT por netlink NFTABLES (substitui `nft` CLI)
+- **Current behaviour:** ~64 invocações de `nft` (das quais 57 em `crates/adapters/delonix-sdn/src/infra.rs`, + `policy_nft.rs:4`) constroem regras por texto e lêem estado por parsing. É o maior bloco de CLI+texto que resta e está no caminho quente da rede.
+- **Opportunity:** netlink NFTABLES nativo (crate `rustables`/`nftables`) — regras tipadas, erros estruturados, sem fork+parse, sem dependência do binário `nft`.
+- **Acceptance criteria:** uma família de regras (ex. a cadeia de publish/DNAT de um container) construída por netlink; publicação de porta + isolamento provados ao vivo; fallback/migração incremental. **ADR** dado o tamanho.
+- **Dependencies:** nenhuma. **Complexity:** XL. **Tier:** B.
+
+### KRN-0008 — Resto do `ip` por rtnetlink (netns mgmt, rule, route show)
+- **Current behaviour:** ~31 `ip` restantes após a migração de link/addr/route (`delonix-sdn/src/infra.rs:19`, `lan.rs:4`, `cni.rs:4`, `service_lb.rs:2`): criar/apagar netns, `ip rule`, `ip route show` (o `sync_workload_routes` com parsing — infra.rs:~5652), `bridge fdb`.
+- **Opportunity:** completar o `rtnetlink` já integrado (KRN-0001) para route show/add/del tipado + rule + netns, retirando o último parsing de texto de rede.
+- **Acceptance criteria:** `sync_workload_routes` e a gestão de netns sem `ip netns exec`/`ip route show`; testes de rede e2e intactos.
+- **Dependencies:** sobre KRN-0001. **Complexity:** L. **Tier:** B.
+
+### KRN-0009 — `setns`/`unshare` por syscall (substitui `nsenter`/`unshare` CLI)
+- **Current behaviour:** `nsenter` ×9 + `unshare` ×10 como BINÁRIOS (18 em `delonix-sdn/src/infra.rs`), para entrar/criar namespaces.
+- **Opportunity:** `setns(2)`/`unshare(2)` directos — o padrão da throwaway-thread `with_netns` (`delonix-sdn/src/netlink.rs`, provado nesta ronda) generaliza para estes call-sites.
+- **Acceptance criteria:** os call-sites host-side de `nsenter`/`unshare` passam a syscall; arranque de container/VM e rede e2e intactos.
+- **Dependencies:** nenhuma (padrão provado). **Complexity:** M. **Tier:** B.
+
+### KRN-0010 — eBPF datapath por `aya` (substitui `tc` + objecto C/clang)
+- **Current behaviour:** `delonix-sdn/src/bpf.rs` + `build.rs:51` compilam um objecto eBPF em **C com clang**, carregado via `tc`.
+- **Opportunity:** reescrever o datapath em `aya` (eBPF em Rust puro, sem toolchain C), carregado por netlink/bpf syscall nativo.
+- **Acceptance criteria:** o programa eBPF de observabilidade/datapath passa a `aya`; métricas por-container iguais; sem clang no build.
+- **Dependencies:** nenhuma. **Complexity:** L. **Tier:** B (parcial D).
+
+### KRN-0011 — device-cgroup sem `bpf_attr` manual (via `aya`/`libbpf-rs`)
+- **Current behaviour:** `delonix-linux/src/lib.rs:5460` escreve um `bpf_attr` (PROG_LOAD) a 128 bytes com offsets calculados à mão (`bpf_insn` em `:5427`) — frágil a mudanças de ABI.
+- **Opportunity:** `aya`/`libbpf-rs` eliminam o cálculo manual de offsets do device-cgroup eBPF.
+- **Acceptance criteria:** device-cgroup carregado via crate do ecossistema; política de devices igual; testes verdes.
+- **Dependencies:** acopla a KRN-0010 (mesma escolha de crate). **Complexity:** M. **Tier:** D (device-cgroup precisa validação rootful).
+
+### KRN-0012 — Escrita de capabilities via crate `caps` (capset cru)
+- **Current behaviour:** `capset` v3 escrito por syscall cru em `delonix-linux/src/lib.rs:930` (`switch_user_keeping_caps`) e `:1024` (`drop_capabilities`). KRN-0006 migrou só a LEITURA (`cap_num`).
+- **Opportunity:** `caps::set`/`drop` em vez do `SYS_capset` + struct manual.
+- **Acceptance criteria:** o confinamento mantém-se EXACTO (KEEPCAPS, bounding drop, ordem setgid/setuid), provado por conformância CRI de capabilities. **CUIDADO: caminho de segurança crítico.**
+- **Dependencies:** nenhuma. **Complexity:** M, risco alto. **Tier:** D (precisa rootful-VM para provar confinamento).
+
+### KRN-0013 — WireGuard por netlink (substitui `wg` CLI)
+- **Current behaviour:** `wg` ×2 (`delonix-sdn/src/wg.rs`) configura interfaces WireGuard por CLI.
+- **Opportunity:** genetlink nativo (crate `wireguard-control`/`defguard_wireguard_rs`).
+- **Acceptance criteria:** criação/config de um peer WireGuard por netlink; túnel provado.
+- **Dependencies:** nenhuma. **Complexity:** M. **Tier:** B.
+
+### KRN-0014 — Menores nativizáveis (agrupados)
+- `bridge` fdb/vlan → rtnetlink; `ss` → `sock_diag` netlink; `losetup` → ioctl `LOOP_CONFIGURE`; `getent` → `getpwnam`/`getgrnam` (libc). Cada um S, baixo valor isolado, mas remove dependências de binários externos.
+- **Complexity:** S cada. **Tier:** B.
+
+> Nota: o boot nativo de microVM (KVM) é a **fatia 2 de KRN-0005** (já com prompt acima), não um item novo.
+
+---
+
 ## Sequência sugerida dentro do eixo
 KRN-0001 (netlink) e KRN-0003 (io_uring) primeiro — maior ganho de performance no
 caminho quente. KRN-0002 (pidfd) e KRN-0004 (landlock) a seguir — robustez e
