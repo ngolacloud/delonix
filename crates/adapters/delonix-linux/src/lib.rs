@@ -835,6 +835,76 @@ fn set_no_new_privs() {
     }
 }
 
+/// KRN-0004 (fatia 1): a BEST-EFFORT Landlock filesystem sandbox for the
+/// container process, applied after `pivot_root` so every path is already the
+/// container's own. Runs on the NO_NEW_PRIVS path, before seccomp.
+///
+/// Policy: read+execute the whole rootfs (`/`), and WRITE only where a container
+/// legitimately writes — tmpfs (`/tmp`, `/run`, `/dev`, `/proc`, `/sys`) and each
+/// read-write bind mount. For a `--read-only` container this denies exactly what
+/// the rootfs remount already denied, so a well-behaved workload sees no change;
+/// the kernel now enforces it too (defence in depth).
+///
+/// NEVER fatal. On a kernel without Landlock (< 5.13) or with the LSM disabled,
+/// `CompatLevel::BestEffort` (the crate default) leaves the ruleset NotEnforced
+/// and we carry on — a sandbox that could not be installed must not become a
+/// reason to refuse an otherwise-valid container. Compare `apply_apparmor`,
+/// which IS fatal, because there confinement was explicitly requested.
+fn apply_landlock(mounts: &[Mount], tmpfs: &[String]) {
+    use landlock::{
+        Access, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI,
+    };
+    // ABI::V3 is what a recent kernel speaks; BestEffort downgrades cleanly to
+    // whatever the running kernel actually supports (or to no-op).
+    let abi = ABI::V3;
+    let read_only = AccessFs::from_read(abi);
+    let read_write = AccessFs::from_all(abi);
+
+    // Paths that are always writable inside a container: the kernel/tmpfs mounts
+    // set up before us, every `--tmpfs` the user asked for, and every read-write
+    // bind. Missing paths are skipped (best-effort), the same tolerance
+    // `apply_masked_paths` shows. The `--tmpfs` list MUST be here or the sandbox
+    // would deny a tmpfs the container legitimately mounted rw.
+    let mut writable: Vec<&str> = vec!["/tmp", "/run", "/dev", "/proc", "/sys", "/var/tmp"];
+    for t in tmpfs {
+        writable.push(t.as_str());
+    }
+    for m in mounts.iter().filter(|m| !m.readonly) {
+        writable.push(m.target.as_str());
+    }
+
+    let add_rules = |rs: landlock::RulesetCreated| -> std::result::Result<_, landlock::RulesetError> {
+        // `/` read+execute; the writable set read+write. `PathFd::new` opens with
+        // O_PATH and fails on a path that does not exist — tolerated per path.
+        let mut rs = rs;
+        if let Ok(fd) = PathFd::new("/") {
+            rs = rs.add_rule(PathBeneath::new(fd, read_only))?;
+        }
+        for p in &writable {
+            if let Ok(fd) = PathFd::new(p) {
+                rs = rs.add_rule(PathBeneath::new(fd, read_write))?;
+            }
+        }
+        Ok(rs)
+    };
+
+    let outcome = Ruleset::default()
+        .handle_access(read_write)
+        .and_then(|rs| rs.create())
+        .and_then(add_rules)
+        .and_then(|rs| rs.restrict_self());
+    match outcome {
+        Ok(status) => {
+            // `RulesetStatus::NotEnforced` is the "old kernel" case — informative,
+            // not an error.
+            if matches!(status.ruleset, landlock::RulesetStatus::NotEnforced) {
+                eprintln!("delonix: landlock not enforced (kernel without Landlock support)");
+            }
+        }
+        Err(e) => eprintln!("delonix: landlock best-effort setup failed ({e}); continuing"),
+    }
+}
+
 /// Becomes `uid`/`gid` (with `groups`) WITHOUT losing the capability sets, so
 /// the confinement that follows can still narrow them.
 ///
@@ -4351,6 +4421,11 @@ struct SecuritySpec<'a> {
     privileged: bool,
     masked_paths: &'a [String],
     readonly_paths: &'a [String],
+    /// KRN-0004 (fatia 1): opt-in Landlock FS sandbox. Best-effort, applied on
+    /// the NO_NEW_PRIVS path only, BEFORE seccomp. Defence in depth — never
+    /// fatal (an old kernel just leaves it NotEnforced). Today it rides on
+    /// `--read-only` (see the construction site); a dedicated opt-in is fatia 2.
+    landlock: bool,
 }
 
 /// Which namespaces the child creates, joins or inherits.
@@ -4517,6 +4592,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                 privileged,
                 masked_paths,
                 readonly_paths,
+                landlock,
             },
         namespaces:
             NamespaceSpec {
@@ -4823,6 +4899,13 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     }
     if no_new_privs {
         set_no_new_privs(); // no execve gains privileges (anti-escalation)
+        // KRN-0004: Landlock FS sandbox — BEFORE seccomp, so `landlock_*` need
+        // not be in the seccomp allowlist, and on the NNP path only (unprivileged
+        // Landlock requires NO_NEW_PRIVS, just set above). Best-effort: never
+        // aborts the container — an old kernel leaves it NotEnforced.
+        if landlock {
+            apply_landlock(mounts, tmpfs);
+        }
         drop_capabilities(cap_keep); // drop caps (after the mounts, before the exec)
         apply_seccomp(
             seccomp_unconfined,
@@ -4882,10 +4965,15 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                               // non-root `USER`, and a container that stays root still needs its groups —
                               // that is exactly the `SupplementalGroups` case, and reading `id -G` was how
                               // it showed up as missing.
-    if !user_switched && !group_add.is_empty() {
+    // UNCONDITIONAL when no uid switch: even with an empty `group_add` we must
+    // reset, or the init keeps the groups inherited from the host `delonix`
+    // process — unmapped in the userns, they surface as a row of 65534 and leak
+    // the host's identity. An empty list clears them.
+    if !user_switched {
         let mut groups: Vec<u32> = group_add.to_vec();
         groups.dedup();
         // SAFETY: we are root in the user ns → setgroups succeeds for mapped gids.
+        // A zero-length list with a dangling-but-valid ptr clears groups.
         if unsafe { libc::setgroups(groups.len(), groups.as_ptr()) } != 0 {
             eprintln!(
                 "delonix: setgroups({groups:?}) failed — are the gids inside the mapped range?"
@@ -8692,6 +8780,11 @@ impl InitInputs {
                 privileged: self.privileged,
                 masked_paths: &self.masked_paths,
                 readonly_paths: &self.readonly_paths,
+                // KRN-0004 fatia 1: Landlock rides on `--read-only` — a container
+                // that already froze its rootfs gets FS confinement reinforced in
+                // the kernel. Never on a privileged container (it opted out of the
+                // confinement block below). Fatia 2: a dedicated opt-in.
+                landlock: self.read_only && !self.privileged,
             },
             namespaces: NamespaceSpec {
                 pod_infra_pid: self.pod_infra_pid,
@@ -10322,10 +10415,18 @@ pub fn exec_with(
                     // other way in. Without this the exec kept the CALLER's groups,
                     // which show up as a row of 65534 (unmapped in the userns): not
                     // just the wrong answer, a small leak of the host's identity.
-                    if !container.group_add.is_empty() {
+                    // Reset supplementary groups UNCONDITIONALLY — even with an
+                    // empty `group_add`, so the exec never inherits the CALLER's
+                    // host groups. An empty list clears them; skipping the call
+                    // left a row of 65534 (unmapped in the userns) — the wrong
+                    // answer and a small leak of the host's identity. The uid!=0
+                    // branch below re-sets groups (with the primary gid), so this
+                    // only has to cover the root / no-user-switch path.
+                    if exec_user.filter(|(u, _)| *u != 0).is_none() {
                         let mut groups = container.group_add.clone();
                         groups.dedup();
                         // SAFETY: gids mapped in the container's userns; we are root there.
+                        // A zero-length list with a dangling-but-valid ptr clears groups.
                         if unsafe { libc::setgroups(groups.len(), groups.as_ptr()) } != 0 {
                             eprintln!("delonix: exec setgroups({groups:?}) failed");
                         }

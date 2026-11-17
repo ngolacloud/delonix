@@ -3378,11 +3378,8 @@ fn ensure_net_bridge(bridge: &str, fallback_addr: &str) -> Result<()> {
     if !exists {
         run("ip", &["link", "add", bridge, "type", "bridge"])?;
         let plen = cidr.map(|c| c.len).unwrap_or(16);
-        run(
-            "ip",
-            &["addr", "add", &format!("{gateway}/{plen}"), "dev", bridge],
-        )?;
-        run("ip", &["link", "set", bridge, "up"])?;
+        crate::netlink::addr_add(bridge, &format!("{gateway}/{plen}"))?; // KRN-0001
+        crate::netlink::link_set_up(bridge)?; // KRN-0001: native netlink
         // IPv6 (ULA): gateway on the bridge + v6 forwarding (best-effort).
         let p = prefix_of(gateway);
         run_ok(
@@ -4167,7 +4164,7 @@ fn do_attach(netns: &str, ip: &str, bridge: &str, gateway: &str, namespace: &str
         &["link", "add", &vh, "type", "veth", "peer", "name", "eth0"],
     )?;
     run("ip", &["link", "set", &vh, "master", &bridge])?;
-    run("ip", &["link", "set", &vh, "up"])?;
+    crate::netlink::link_set_up(&vh)?; // KRN-0001: native netlink
     run("ip", &["link", "set", "eth0", "netns", &netns])?;
     let cidr = format!("{ip}/{}", plen_of_bridge(&bridge));
     for argv in [
@@ -4289,7 +4286,7 @@ fn do_attach_extra(
         &["link", "add", &vh, "type", "veth", "peer", "name", &ifname],
     )?;
     run("ip", &["link", "set", &vh, "master", &bridge])?;
-    run("ip", &["link", "set", &vh, "up"])?;
+    crate::netlink::link_set_up(&vh)?; // KRN-0001: native netlink
     run("ip", &["link", "set", &ifname, "netns", &netns])?;
     let cidr = format!("{ip}/{}", plen_of_bridge(&bridge));
     for argv in [
@@ -4741,7 +4738,7 @@ fn do_vmtap(
     run_ok("ip", &["link", "del", &tap]); // clears leftovers
     run("ip", &["tuntap", "add", "dev", &tap, "mode", "tap"])?;
     run("ip", &["link", "set", &tap, "master", &bridge])?;
-    run("ip", &["link", "set", &tap, "up"])?;
+    crate::netlink::link_set_up(&tap)?; // KRN-0001: native netlink
     if let (Some(ip), Some(ns)) = (ip, namespace) {
         // ANTI-SPOOFING on the VM's tap, for the same reason `do_attach`/
         // `do_attach_extra` have it on a container's veth — and it matters MORE
@@ -4819,7 +4816,7 @@ fn do_vxlan(dev: &str, vni: &str, bridge: &str, gateway: &str, dsts_csv: &str) -
             ],
         )?;
         run_ok("ip", &["link", "set", &dev, "master", &bridge]);
-        run_ok("ip", &["link", "set", &dev, "up"]);
+        let _ = crate::netlink::link_set_up(&dev); // KRN-0001: native netlink (best-effort)
     }
     if dsts_csv != "-" {
         let have = crate::capture("bridge", &["fdb", "show", "dev", &dev]).unwrap_or_default();
@@ -9385,16 +9382,13 @@ fn infra_netns_already_built() -> bool {
 /// reattach never triggered, and the control died on
 /// `ip link add delonix0: File exists`. Measured, not reasoned about.
 fn link_exists(name: &str) -> bool {
-    // On the OUTPUT, never on the `Result`: `capture` returns `Ok(stdout)` even
-    // when the command exits non-zero — it does not look at the status at all.
-    // The first version of this used `.is_ok()` and was therefore ALWAYS true, so
-    // the control plane took the reattach path on a virgin netns, built nothing,
-    // and reported `ingress UP` over a netns with no bridge in it. `ip link show`
-    // prints the link when it exists and nothing when it does not, which is the
-    // signal worth reading.
-    crate::capture("ip", &["link", "show", name])
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false)
+    // KRN-0001: native netlink (`RTM_GETLINK` by name) instead of `ip link show`.
+    // This also retires a documented footgun: `capture` returns `Ok(stdout)` even
+    // on a non-zero exit, so the first CLI version trusted `.is_ok()` and was
+    // ALWAYS true — the control plane took the reattach path over a virgin netns
+    // and reported `ingress UP` on a bridge that did not exist. A netlink
+    // `NotFound` is unambiguous, so the whole stdout-sniffing workaround is gone.
+    crate::netlink::link_exists(name)
 }
 
 /// Builds the infra netns, or REATTACHES to one that is already built.
@@ -9458,10 +9452,10 @@ fn reattach_or_setup_infra_netns() -> Result<()> {
 fn setup_infra_netns() -> Result<()> {
     // the holder's mounts become private (don't leak to the host).
     run_ok("mount", &["--make-rprivate", "/"]);
-    run("ip", &["link", "set", "lo", "up"])?;
+    crate::netlink::link_set_up("lo")?; // KRN-0001: native netlink
     run("ip", &["link", "add", INFRA_BRIDGE, "type", "bridge"])?;
-    run("ip", &["addr", "add", INFRA_CIDR, "dev", INFRA_BRIDGE])?;
-    run("ip", &["link", "set", INFRA_BRIDGE, "up"])?;
+    crate::netlink::addr_add(INFRA_BRIDGE, INFRA_CIDR)?; // KRN-0001
+    crate::netlink::link_set_up(INFRA_BRIDGE)?; // KRN-0001: native netlink
     std::fs::write("/proc/sys/net/ipv4/ip_forward", "1").map_err(|e| Error::Command {
         context: "ip_forward",
         message: e.to_string(),

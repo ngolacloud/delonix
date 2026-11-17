@@ -12,6 +12,7 @@ delonix-compute = { workspace = true }
 nix = { workspace = true }
 libc = { workspace = true }
 seccompiler = { workspace = true }
+landlock = { workspace = true }
 # Already in the tree at 1.1.4 (pulled transitively by `tempfile`, used
 # elsewhere in the workspace) — enabling `mount`/`fs` unlocks code already
 # vendored from an already-trusted crate, not a new supply-chain dependency.
