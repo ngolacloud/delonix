@@ -79,6 +79,15 @@ check("HostConfig.NetworkMode is set", bool(d.get("HostConfig", {}).get("Network
 
 listed = [x for x in c.api.containers() if x["Id"] == cid]
 check("shows up in ps", len(listed) == 1)
+# BUG-0007: Docker's ImageID is the image DIGEST (`sha256:…`), never the
+# `repo:tag` name. Clients (docker CLI, Testcontainers) correlate
+# containers↔images by it; returning the name truncated the IMAGE column.
+check(
+    "ps ImageID is a sha256 digest",
+    listed and listed[0].get("ImageID", "").startswith("sha256:"),
+    listed[0].get("ImageID") if listed else "no container",
+)
+check("ps Image keeps the repo:tag name", listed and listed[0].get("Image") == IMAGE, listed[0].get("Image") if listed else "")
 
 c.api.rename(cid, NAME + "-2")
 check("rename", c.api.inspect_container(cid)["Name"].lstrip("/") == NAME + "-2")
