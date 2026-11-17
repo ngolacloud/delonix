@@ -66,6 +66,47 @@ Restam: KRN-0001 `sync_workload_routes` (família route: show/add/del tipados). 
 - **Acceptance criteria:** caminho mínimo de boot de microVM via `kvm-ioctls` (PoC medido vs cloud-hypervisor externo). Decisão por ADR dado o tamanho.
 - **Dependencies:** nenhuma. **Complexity:** XL. **Tier:** D (precisa `/dev/kvm`/VM).
 
+#### Prompt de execução (sessão futura, Tier D — num host com `/dev/kvm`)
+
+```
+/escopo
+
+KRN-0005 fatia 1 — adoptar o ecossistema rust-vmm (kvm-ioctls) no delonix,
+começando pela peça MAIS ISOLADA e de menor risco, sem tocar no caminho de boot
+do cloud-hypervisor. É Tier D: precisa de `/dev/kvm` (host bare-metal com KVM ou
+uma VM com nested virt). Dep nova `kvm-ioctls=0.25` (ADR-0040: versão no
+workspace; membro `{ workspace = true }`).
+
+Contexto: hoje o VMM é 100% externo (cloud-hypervisor por api-socket, atrás do
+port VmBackend de delonix-compute) e o KVM só é SONDADO por existência de ficheiro
+(`delonix-provider-cloud-hypervisor/src/lib.rs:256` -> `Path::new("/dev/kvm").exists()`).
+
+FATIA 1 recomendada (a mais segura): substituir a sonda de existência por uma
+sonda NATIVA via kvm-ioctls — `Kvm::new()` + `get_api_version()` (== 12) +
+`check_extension` de umas poucas capabilities-chave (USER_MEMORY, etc.). Isto:
+(a) adopta o rust-vmm de forma mínima e provável; (b) melhora o diagnóstico
+(hoje `/dev/kvm` pode existir mas o processo não ter permissão / nested-virt estar
+off — a sonda de existência mente); (c) NÃO toca no caminho de boot (zero risco de
+regressão de VMs reais). Fallback: se `Kvm::new()` falhar (sem permissão, sem
+device), reportar NoKvm com a razão do errno, como hoje mas mais preciso.
+
+FATIA 2+ (fora deste escopo, ADR obrigatório): PoC de boot de microVM mínima
+(Kvm + VmFd + VcpuFd + vm-memory + linux-loader a correr um kernel trivial),
+medido vs cloud-hypervisor; depois virtio-blk/net via vhost. É XL — só avançar
+com ADR que nomeie o consumidor concreto.
+
+Done when:
+- A sonda de capacidade do provider cloud-hypervisor usa kvm-ioctls (Kvm::new +
+  api_version + check_extension), com fallback de erro preciso; compila e
+  `cargo test -p delonix-provider-cloud-hypervisor` passa.
+- Prova ao vivo num host com /dev/kvm: `delonix provider ls`/`describe
+  cloud-hypervisor` reporta KVM OK via o caminho nativo (e NoKvm+razão quando
+  /dev/kvm é removido/sem permissão). Teste de regressão da sonda.
+- arch_fitness + cargo check --workspace verdes.
+
+Fora de escopo: substituir o boot do cloud-hypervisor; virtio/vhost; libvirt.
+```
+
 ### KRN-0006 — Higiene de crates: `caps` e `aya`/`libbpf-rs` (menos `unsafe`/ABI frágil)
 - **Current behaviour:** `capset` v3 escrito à mão (`delonix-linux/src/lib.rs:862-899`); device-cgroup eBPF escreve `bpf_attr` a 128 bytes com offsets manuais (`lib.rs:5372-5408`); datapath tc/clsact por objecto C+clang (`delonix-sdn/src/bpf.rs`, `build.rs:51`). Sem `aya`/`libbpf-rs`.
 - **Opportunity:** adoptar `caps` (substituir o capset cru) e `aya`/`libbpf-rs` (eliminar o cálculo manual de offsets de `bpf_attr`). Não dá perf nova, mas remove `unsafe`/ABI frágil — alinhado com "tirar melhor proveito do Rust".
