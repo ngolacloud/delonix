@@ -51,6 +51,8 @@ pub mod ipam;
 /// Rootful realization of the `macvlan`/`ipvlan` LAN drivers (see the module).
 pub mod lan;
 pub mod netops;
+/// KRN-0001: native netlink (currently the `link_exists` query), replacing `ip`.
+mod netlink;
 mod pin_userns;
 pub mod policy_nft;
 pub mod provider_report;
@@ -426,11 +428,8 @@ fn capture(prog: &str, args: &[&str]) -> Result<String> {
 }
 
 fn link_exists(name: &str) -> bool {
-    Command::new("ip")
-        .args(["link", "show", name])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    // KRN-0001: native netlink (`RTM_GETLINK`) instead of `ip link show`.
+    netlink::link_exists(name)
 }
 
 // ---- deterministic names and IPs -----------------------------------------

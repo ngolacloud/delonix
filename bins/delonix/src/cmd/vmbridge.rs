@@ -330,12 +330,6 @@ fn teardown_subnets(
     subs
 }
 
-/// Extracts the home directory (field 6) from a `getent passwd` line. Pure.
-fn home_from_passwd_line(line: &str) -> Option<String> {
-    let home = line.trim().split(':').nth(5)?.trim();
-    (!home.is_empty()).then(|| home.to_string())
-}
-
 /// Under `sudo`, point Delonix state resolution at the INVOKING user's data dir,
 /// not root's. The network defs (`resolve_net`) and the holder PID live in
 /// `~<user>/.local/share/delonix`; run as root, `state_root()`/`base_root()`
@@ -349,13 +343,13 @@ pub(crate) fn adopt_invoking_user_root() {
     let Some(user) = std::env::var_os("SUDO_USER") else {
         return; // not under sudo — state_root() is already the user's
     };
-    if let Ok(out) = Command::new("getent").arg("passwd").arg(&user).output() {
-        if out.status.success() {
-            if let Some(home) = home_from_passwd_line(&String::from_utf8_lossy(&out.stdout)) {
-                let root = Path::new(&home).join(".local/share/delonix");
-                std::env::set_var("DELONIX_ROOT", root);
-            }
-        }
+    // KRN-0014: resolve the invoking user's home directly via getpwnam
+    // (`nix::unistd::User`, NSS) instead of forking `getent passwd` and parsing
+    // the passwd line by hand. `User.dir` IS the home field.
+    let Some(user) = user.to_str() else { return };
+    if let Ok(Some(u)) = nix::unistd::User::from_name(user) {
+        let root = u.dir.join(".local/share/delonix");
+        std::env::set_var("DELONIX_ROOT", root);
     }
 }
 
@@ -552,15 +546,18 @@ pub fn unbridge(network: &str, vm_subnets: Vec<String>, apply: bool) -> Result<(
 mod tests {
     use super::*;
 
+    /// KRN-0014: `adopt_invoking_user_root` resolves the invoking user's home
+    /// via getpwnam (`nix::unistd::User`). For the running user it must find a
+    /// home dir equal to what the OS reports — the native resolution the fork of
+    /// `getent passwd` + passwd-line parse used to do.
     #[test]
-    fn home_from_passwd_line_pega_o_campo_6() {
-        assert_eq!(
-            home_from_passwd_line("walter:x:1000:1000:Walter:/home/walter:/bin/bash").as_deref(),
-            Some("/home/walter")
-        );
-        // Sem home (campo vazio) → None; linha malformada → None.
-        assert_eq!(home_from_passwd_line("x:x:0:0::::").as_deref(), None);
-        assert_eq!(home_from_passwd_line("lixo").as_deref(), None);
+    fn user_from_name_resolves_the_running_user_home() {
+        let me = nix::unistd::User::from_uid(nix::unistd::Uid::current())
+            .unwrap()
+            .unwrap();
+        let again = nix::unistd::User::from_name(&me.name).unwrap().unwrap();
+        assert_eq!(again.dir, me.dir, "getpwnam deve devolver o mesmo home");
+        assert!(!again.dir.as_os_str().is_empty());
     }
 
     #[test]

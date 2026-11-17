@@ -94,6 +94,7 @@ thiserror = "2"
 nix = { version = "0.27", features = ["sched", "mount", "process", "hostname", "fs", "user", "signal"] }
 libc = "0.2"
 seccompiler = "0.4"
+landlock = "0.4"
 clap = { version = "4", features = ["derive"] }
 sha2 = "0.10"
 tar = "0.4"
@@ -131,6 +132,16 @@ tracing-opentelemetry = { version = "0.33", default-features = false }
 # Async runtime and HTTP (CRI, management API, L7 proxy, MCP)
 tokio = "1"
 tokio-stream = "0.1"
+# KRN-0001: native netlink (replaces `ip`/`tc` CLI on the hot path, incrementally).
+rtnetlink = "0.24"
+# KRN-0003: io_uring for host-side bulk file I/O (with a std fallback). Never
+# inside the container seccomp profile, where io_uring_* stay denied.
+io-uring = "0.7"
+# KRN-0006: Linux capabilities via o ecossistema (substitui tabelas manuais).
+caps = "0.5"
+# KRN-0005: native KVM probe (rust-vmm) — a real open+api-version check instead
+# of testing that /dev/kvm merely exists.
+kvm-ioctls = "0.25"
 futures-util = { version = "0.3", default-features = false }
 hyper = "1"
 hyper-util = "0.1"

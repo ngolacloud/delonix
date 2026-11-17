@@ -17,6 +17,12 @@ libc = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# KRN-0001 fatia 1: native netlink for read-only link queries (replaces
+# `ip link show`). rtnetlink is async-first, so a current-thread tokio runtime
+# bridges it back to this crate's synchronous API (see src/netlink.rs).
+rtnetlink = { workspace = true }
+tokio = { workspace = true, features = ["rt", "net"] }
+futures-util = { workspace = true }
 
 [dev-dependencies]
 # Property-based testing dos invariantes de alocação de IP (S5).
