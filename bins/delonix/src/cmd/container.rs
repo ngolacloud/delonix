@@ -6764,7 +6764,10 @@ fn copy_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Resu
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::copy(src, dst)?;
+        // KRN-0003: host-side bulk copy over io_uring (falls back to std::fs::copy
+        // on a kernel that refuses it). Same semantics — byte-identical, mode
+        // preserved. `src`/`dst` are the already symlink-resolved host paths.
+        delonix_oci::uring::copy_file_uring(src, dst)?;
     }
     Ok(())
 }
