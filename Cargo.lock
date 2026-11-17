@@ -815,6 +815,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "libc",
+ "nix 0.27.1",
  "oci-spec",
  "ratatui",
  "rcgen",
