@@ -111,8 +111,7 @@ pub fn load_docker_archive(store: &ImageStore, tar_path: &Path) -> Result<Image>
             continue;
         }
 
-        let is_oci_blob =
-            name.starts_with("blobs/sha256/") && name.len() > "blobs/sha256/".len();
+        let is_oci_blob = name.starts_with("blobs/sha256/") && name.len() > "blobs/sha256/".len();
         if is_oci_blob || is_classic_blob(&name) {
             let digest = cas_write_entry(store, &mut entry)?;
             if is_oci_blob {

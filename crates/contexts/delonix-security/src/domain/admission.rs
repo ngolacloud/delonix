@@ -1012,7 +1012,10 @@ mod tests {
     #[test]
     fn baseline_refuses_host_network_on_its_own() {
         let p = baseline_only();
-        assert!(!p.deny_host_network, "the separate toggle must be off for this test");
+        assert!(
+            !p.deny_host_network,
+            "the separate toggle must be off for this test"
+        );
         let r = Request::container("alpine:3.20", false, /*host_network*/ true);
         let d = evaluate(&p, &r);
         assert!(d.is_denied());

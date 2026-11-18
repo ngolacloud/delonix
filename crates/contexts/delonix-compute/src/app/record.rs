@@ -5,9 +5,9 @@
 use delonix_model::records::{default_namespace, ContainerFw, Status};
 #[cfg(test)]
 use delonix_model::records::{fw_port_ok, fw_proto_ok, fw_src_ok, FwRule};
-use delonix_node::{host_boot_time, safe_to_signal};
 #[cfg(test)]
 use delonix_node::{generate_id, is_alive, proc_starttime};
+use delonix_node::{host_boot_time, safe_to_signal};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 

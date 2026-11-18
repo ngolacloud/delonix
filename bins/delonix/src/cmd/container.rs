@@ -4493,7 +4493,10 @@ fn spawn_rm_watcher(images: &ImageStore, store: &Store, id: &str) -> RmWatcher {
         // `fork() == -1`: the PARENT keeps running. Returning silently here is the
         // bug — the `--rm` container then has NO watcher and is never cleaned up.
         // Hand the errno back so the caller can make the missing cleanup visible.
-        return rm_watcher_outcome(fork_ret, std::io::Error::last_os_error().raw_os_error().unwrap_or(0));
+        return rm_watcher_outcome(
+            fork_ret,
+            std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+        );
     }
     if fork_ret == 0 {
         // SAFETY: in the forked watcher child: `setsid` has no preconditions, `/dev/null` is a

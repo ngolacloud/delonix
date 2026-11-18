@@ -1289,7 +1289,10 @@ mod tests {
         let newer: JsonStore<Rec> = JsonStore::open_with_format(&root, 2).unwrap();
         newer.save("r", &rec).unwrap();
         let raw = fs::read_to_string(root.join("r.json")).unwrap();
-        assert!(raw.contains("\"record_format\""), "save must stamp the format");
+        assert!(
+            raw.contains("\"record_format\""),
+            "save must stamp the format"
+        );
 
         // An older build (format 1) REFUSES it instead of truncating it.
         let older: JsonStore<Rec> = JsonStore::open_with_format(&root, 1).unwrap();

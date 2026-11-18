@@ -873,20 +873,21 @@ fn apply_landlock(mounts: &[Mount], tmpfs: &[String]) {
         writable.push(m.target.as_str());
     }
 
-    let add_rules = |rs: landlock::RulesetCreated| -> std::result::Result<_, landlock::RulesetError> {
-        // `/` read+execute; the writable set read+write. `PathFd::new` opens with
-        // O_PATH and fails on a path that does not exist — tolerated per path.
-        let mut rs = rs;
-        if let Ok(fd) = PathFd::new("/") {
-            rs = rs.add_rule(PathBeneath::new(fd, read_only))?;
-        }
-        for p in &writable {
-            if let Ok(fd) = PathFd::new(p) {
-                rs = rs.add_rule(PathBeneath::new(fd, read_write))?;
+    let add_rules =
+        |rs: landlock::RulesetCreated| -> std::result::Result<_, landlock::RulesetError> {
+            // `/` read+execute; the writable set read+write. `PathFd::new` opens with
+            // O_PATH and fails on a path that does not exist — tolerated per path.
+            let mut rs = rs;
+            if let Ok(fd) = PathFd::new("/") {
+                rs = rs.add_rule(PathBeneath::new(fd, read_only))?;
             }
-        }
-        Ok(rs)
-    };
+            for p in &writable {
+                if let Ok(fd) = PathFd::new(p) {
+                    rs = rs.add_rule(PathBeneath::new(fd, read_write))?;
+                }
+            }
+            Ok(rs)
+        };
 
     let outcome = Ruleset::default()
         .handle_access(read_write)
@@ -3173,11 +3174,11 @@ fn write_userns_maps(pid: i32, want_range: bool) -> Result<()> {
         // even though the target uid was well mapped and we had CAP_SETUID/SETGID.
         // docker/podman rootless also leave `allow` on this path.
         let range = USERNS_RANGE - 1; // 1..USERNS_RANGE delegated to the subuids
-        // The host base is this user's REAL subid start, read from
-        // `/etc/subuid`/`/etc/subgid` — not a fixed 100000. shadow-utils hands out
-        // ranges sequentially (user1=100000, user2=165536, …), so a hard-coded
-        // base made `newuidmap` refuse every tenant but the first, and no
-        // container with USER≠0 could start for them. UID and GID bases may differ.
+                                      // The host base is this user's REAL subid start, read from
+                                      // `/etc/subuid`/`/etc/subgid` — not a fixed 100000. shadow-utils hands out
+                                      // ranges sequentially (user1=100000, user2=165536, …), so a hard-coded
+                                      // base made `newuidmap` refuse every tenant but the first, and no
+                                      // container with USER≠0 could start for them. UID and GID bases may differ.
         let (ubase, gbase) = rootless_subid_bases();
         let map_uid = format!("0 {euid} 1 1 {ubase} {range}");
         let map_gid = format!("0 {egid} 1 1 {gbase} {range}");
@@ -3299,10 +3300,7 @@ pub fn rootless_subid_bases() -> (u32, u32) {
                 .map(|(start, _)| start)
                 .unwrap_or(USERNS_UID_BASE)
         };
-        (
-            base_of("/etc/subuid", uid),
-            base_of("/etc/subgid", gid),
-        )
+        (base_of("/etc/subuid", uid), base_of("/etc/subgid", gid))
     })
 }
 
@@ -5014,10 +5012,10 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     }
     if no_new_privs {
         set_no_new_privs(); // no execve gains privileges (anti-escalation)
-        // KRN-0004: Landlock FS sandbox — BEFORE seccomp, so `landlock_*` need
-        // not be in the seccomp allowlist, and on the NNP path only (unprivileged
-        // Landlock requires NO_NEW_PRIVS, just set above). Best-effort: never
-        // aborts the container — an old kernel leaves it NotEnforced.
+                            // KRN-0004: Landlock FS sandbox — BEFORE seccomp, so `landlock_*` need
+                            // not be in the seccomp allowlist, and on the NNP path only (unprivileged
+                            // Landlock requires NO_NEW_PRIVS, just set above). Best-effort: never
+                            // aborts the container — an old kernel leaves it NotEnforced.
         if landlock {
             apply_landlock(mounts, tmpfs);
         }
@@ -5089,10 +5087,10 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
                               // non-root `USER`, and a container that stays root still needs its groups —
                               // that is exactly the `SupplementalGroups` case, and reading `id -G` was how
                               // it showed up as missing.
-    // UNCONDITIONAL when no uid switch: even with an empty `group_add` we must
-    // reset, or the init keeps the groups inherited from the host `delonix`
-    // process — unmapped in the userns, they surface as a row of 65534 and leak
-    // the host's identity. An empty list clears them.
+                              // UNCONDITIONAL when no uid switch: even with an empty `group_add` we must
+                              // reset, or the init keeps the groups inherited from the host `delonix`
+                              // process — unmapped in the userns, they surface as a row of 65534 and leak
+                              // the host's identity. An empty list clears them.
     if !user_switched {
         let mut groups: Vec<u32> = group_add.to_vec();
         groups.dedup();
@@ -14047,9 +14045,15 @@ mod tests {
         assert_eq!(container_id_of_with_base(b, 1000, b), 1);
         assert_eq!(container_id_of_with_base(100_999, 1000, b), 1000);
         assert_eq!(container_id_of_with_base(100_098, 1000, b), 99);
-        assert_eq!(container_id_of_with_base(b + USERNS_RANGE - 2, 1000, b), 65_535);
+        assert_eq!(
+            container_id_of_with_base(b + USERNS_RANGE - 2, 1000, b),
+            65_535
+        );
         // Past the range, and an unrelated host user: not ours to rename.
-        assert_eq!(container_id_of_with_base(b + USERNS_RANGE - 1, 1000, b), 165_535);
+        assert_eq!(
+            container_id_of_with_base(b + USERNS_RANGE - 1, 1000, b),
+            165_535
+        );
         assert_eq!(container_id_of_with_base(33, 1000, b), 33);
     }
 
@@ -14064,7 +14068,10 @@ mod tests {
         assert_eq!(container_id_of_with_base(b, 1000, b), 1);
         assert_eq!(container_id_of_with_base(b + 98, 1000, b), 99);
         // The OLD fixed-base window (100000..) is now "not ours", left alone.
-        assert_eq!(container_id_of_with_base(USERNS_UID_BASE, 1000, b), USERNS_UID_BASE);
+        assert_eq!(
+            container_id_of_with_base(USERNS_UID_BASE, 1000, b),
+            USERNS_UID_BASE
+        );
     }
 
     /// `subid_range_for` returns the real `(start, count)` the file delegates —
@@ -14072,8 +14079,14 @@ mod tests {
     #[test]
     fn subid_range_reads_start_and_count() {
         let body = "alice:100000:65536\nbob:165536:65536\n";
-        assert_eq!(subid_range_for(body, 0, Some("bob")), Some((165_536, 65_536)));
-        assert_eq!(subid_range_for(body, 0, Some("alice")), Some((100_000, 65_536)));
+        assert_eq!(
+            subid_range_for(body, 0, Some("bob")),
+            Some((165_536, 65_536))
+        );
+        assert_eq!(
+            subid_range_for(body, 0, Some("alice")),
+            Some((100_000, 65_536))
+        );
         assert_eq!(subid_range_for(body, 0, Some("carol")), None);
         // A grant is wide enough regardless of where it starts.
         assert!(subid_file_grants(body, 0, Some("bob")));
@@ -17231,6 +17244,8 @@ mod pidfd_tests {
         let pid = child.id() as i32;
         let fd = pidfd_open(pid).expect("pidfd_open on a live child");
         // While alive, signal 0 through the pidfd succeeds (process is reachable).
+        // SAFETY: `fd` is a live pidfd from `pidfd_open` above; signal 0 sends
+        // nothing and a null `siginfo` is valid for `pidfd_send_signal`.
         let alive = unsafe {
             libc::syscall(
                 libc::SYS_pidfd_send_signal,
@@ -17243,6 +17258,8 @@ mod pidfd_tests {
         assert_eq!(alive, 0, "a live process must be reachable via its pidfd");
         child.kill().expect("kill");
         child.wait().expect("reap"); // pid number is now free to recycle
+        // SAFETY: same call as above; `fd` is still an owned pidfd (the now-reaped
+        // process's), signal 0 sends nothing and a null `siginfo` is valid.
         let r = unsafe {
             libc::syscall(
                 libc::SYS_pidfd_send_signal,

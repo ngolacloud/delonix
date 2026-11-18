@@ -1966,7 +1966,8 @@ mod tests {
         assert!(
             umaps
                 .iter()
-                .any(|m| m.container_id() == 1 && m.host_id() == delonix_linux::rootless_subid_bases().0),
+                .any(|m| m.container_id() == 1
+                    && m.host_id() == delonix_linux::rootless_subid_bases().0),
             "container uid 1.. mapeia para os subuids delegados (base real do utilizador)"
         );
         assert!(

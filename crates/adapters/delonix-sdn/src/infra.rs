@@ -3489,7 +3489,7 @@ fn ensure_net_bridge(bridge: &str, fallback_addr: &str) -> Result<()> {
         let plen = cidr.map(|c| c.len).unwrap_or(16);
         crate::netlink::addr_add(bridge, &format!("{gateway}/{plen}"))?; // KRN-0001
         crate::netlink::link_set_up(bridge)?; // KRN-0001: native netlink
-        // IPv6 (ULA): gateway on the bridge + v6 forwarding (best-effort).
+                                              // IPv6 (ULA): gateway on the bridge + v6 forwarding (best-effort).
         let p = prefix_of(gateway);
         run_ok(
             "ip",
@@ -13230,7 +13230,11 @@ Inter-|   Receive                                                |  Transmit
         let fresh = base.path().join("fresh");
         env.set(RUNTIME_DIR_ENV, &fresh);
         ensure_runtime_dir().expect("fresh dir created");
-        let mode = std::fs::symlink_metadata(&fresh).unwrap().permissions().mode() & 0o777;
+        let mode = std::fs::symlink_metadata(&fresh)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(mode, 0o700, "fresh runtime dir must be 0700, got {mode:o}");
 
         // 2) Ours but loose (world-writable): tightened to 0700, and the result of
@@ -13240,8 +13244,15 @@ Inter-|   Receive                                                |  Transmit
         std::fs::set_permissions(&loose, std::fs::Permissions::from_mode(0o777)).unwrap();
         env.set(RUNTIME_DIR_ENV, &loose);
         ensure_runtime_dir().expect("loose-but-ours dir accepted");
-        let mode = std::fs::symlink_metadata(&loose).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o700, "a loose dir we own must be tightened, got {mode:o}");
+        let mode = std::fs::symlink_metadata(&loose)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o700,
+            "a loose dir we own must be tightened, got {mode:o}"
+        );
 
         // 3) A symlink planted at the predictable path is REFUSED, never followed —
         //    fail-closed, so the sockets never land wherever the link points.

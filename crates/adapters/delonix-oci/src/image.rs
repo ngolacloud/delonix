@@ -533,7 +533,9 @@ mod tests {
 
         // "ab" prefixes both ids: ambiguous, and NOT a not-found — a caller that
         // swallows misses must still see this.
-        let err = s.resolve("ab").expect_err("a prefix matching two images is ambiguous");
+        let err = s
+            .resolve("ab")
+            .expect_err("a prefix matching two images is ambiguous");
         assert!(!err.is_not_found(), "ambiguity is not «not found»: {err}");
         let msg = err.to_string();
         assert!(msg.contains("ambiguous"), "{msg}");

@@ -186,7 +186,11 @@ pub fn abs_starttime(boot_time: u64, starttime_jiffies: u64, hz: u64) -> Option<
 /// carries today (see its doc for why the switch is a cross-crate contract
 /// change, not a local one).
 pub fn proc_abs_starttime(pid: i32) -> Option<u64> {
-    abs_starttime(host_boot_time()?, proc_starttime(pid)?, clock_ticks_per_sec())
+    abs_starttime(
+        host_boot_time()?,
+        proc_starttime(pid)?,
+        clock_ticks_per_sec(),
+    )
 }
 
 /// `true` if it is safe to send a signal to `pid` on behalf of this

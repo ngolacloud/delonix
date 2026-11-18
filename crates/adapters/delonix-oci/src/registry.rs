@@ -386,7 +386,11 @@ fn select_platform_manifest<'a>(
         Some(want) => manifests
             .iter()
             .find(|m| is_arch(m) && entry_variant(m).as_deref() == Some(want))
-            .or_else(|| manifests.iter().find(|m| is_arch(m) && entry_variant(m).is_none())),
+            .or_else(|| {
+                manifests
+                    .iter()
+                    .find(|m| is_arch(m) && entry_variant(m).is_none())
+            }),
         None => manifests.iter().find(|m| is_arch(m)),
     }
 }
@@ -2555,8 +2559,7 @@ pub fn pull_from_registry_with_events(
     // into `repo_tags` / `repo_digests`; `normalise_tag` leaves the `@` form
     // untouched. The tag comes first so it stays the image's primary name.
     let digest_ref = format!("{}@{}", repo_base(reference), top_manifest_digest);
-    let repo_tags =
-        store.merged_tags_all(&config_digest, &[reference.to_string(), digest_ref]);
+    let repo_tags = store.merged_tags_all(&config_digest, &[reference.to_string(), digest_ref]);
     let image = crate::image::Image {
         id: config_digest,
         repo_tags,
@@ -2598,7 +2601,10 @@ pub fn pull_from_registry_with_events(
 /// layer descriptors, with the mediaType detected by the magic number of each
 /// blob). Returns `(bytes, digest)`. Used by the internal registry's OCI server
 /// to serve `docker pull` without re-packing anything.
-pub fn build_manifest(store: &ImageStore, image: &Image) -> Result<(Vec<u8>, String, &'static str)> {
+pub fn build_manifest(
+    store: &ImageStore,
+    image: &Image,
+) -> Result<(Vec<u8>, String, &'static str)> {
     // Docker schema-2 defines exactly ONE layer type (`...diff.tar.gzip`). A
     // manifest that SAYS it is Docker v2 but carries an OCI zstd/plain-tar layer
     // type is the non-conformant hybrid podman/skopeo reject (GAP-OCI-IMG-1) —
@@ -3957,7 +3963,10 @@ mod tests {
         assert_eq!(repo_base("library/nginx:latest"), "library/nginx");
         assert_eq!(repo_base("localhost:5000/img:tag"), "localhost:5000/img");
         assert_eq!(repo_base("gcr.io/x/y@sha256:abc"), "gcr.io/x/y");
-        assert_eq!(repo_base("localhost:5000/img@sha256:abc"), "localhost:5000/img");
+        assert_eq!(
+            repo_base("localhost:5000/img@sha256:abc"),
+            "localhost:5000/img"
+        );
         // A combined `repo:tag@digest` keeps repo only (tag cut before '@').
         assert_eq!(repo_base("repo:v1@sha256:abc"), "repo");
     }
@@ -3997,8 +4006,14 @@ mod tests {
         let v6 = entry("arm", Some("v6"), '6');
         let v7 = entry("arm", Some("v7"), '7');
         let index = vec![v6.clone(), v7.clone()];
-        assert_eq!(dg(select_platform_manifest(&index, "arm", Some("v7"))), v7.digest().to_string());
-        assert_eq!(dg(select_platform_manifest(&index, "arm", Some("v6"))), v6.digest().to_string());
+        assert_eq!(
+            dg(select_platform_manifest(&index, "arm", Some("v7"))),
+            v7.digest().to_string()
+        );
+        assert_eq!(
+            dg(select_platform_manifest(&index, "arm", Some("v6"))),
+            v6.digest().to_string()
+        );
 
         // A variant with neither an exact match nor a variant-less arm entry:
         // no guess — the caller turns this `None` into the O1/O3 error.
@@ -4015,7 +4030,10 @@ mod tests {
 
         // No variant known (an amd64/arm64 host): the arch alone selects and the
         // first match wins, exactly as before — variants are not consulted.
-        assert_eq!(dg(select_platform_manifest(&index, "arm", None)), v6.digest().to_string());
+        assert_eq!(
+            dg(select_platform_manifest(&index, "arm", None)),
+            v6.digest().to_string()
+        );
 
         // A different architecture is never selected on a variant request.
         assert!(select_platform_manifest(&index, "amd64", Some("v7")).is_none());
@@ -4538,7 +4556,10 @@ mod tests {
         let m: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         // The envelope and every member speak one vocabulary — the O4 invariant.
         assert_eq!(m["mediaType"], media_type);
-        assert_eq!(m["config"]["mediaType"], "application/vnd.oci.image.config.v1+json");
+        assert_eq!(
+            m["config"]["mediaType"],
+            "application/vnd.oci.image.config.v1+json"
+        );
         assert_eq!(m["config"]["size"], config.len());
         let want = [
             "application/vnd.oci.image.layer.v1.tar+gzip",
@@ -4576,7 +4597,10 @@ mod tests {
         let id = store.cas().write(config).unwrap();
 
         let image_with = |layers: &[&[u8]]| {
-            let digests: Vec<String> = layers.iter().map(|b| store.cas().write(b).unwrap()).collect();
+            let digests: Vec<String> = layers
+                .iter()
+                .map(|b| store.cas().write(b).unwrap())
+                .collect();
             crate::image::Image {
                 id: id.clone(),
                 repo_tags: vec!["local/coh:t".into()],
@@ -4596,19 +4620,20 @@ mod tests {
         assert_eq!(mt, "application/vnd.docker.distribution.manifest.v2+json");
         let m: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(m["mediaType"], mt);
-        assert_eq!(m["config"]["mediaType"], "application/vnd.docker.container.image.v1+json");
+        assert_eq!(
+            m["config"]["mediaType"],
+            "application/vnd.docker.container.image.v1+json"
+        );
         for l in m["layers"].as_array().unwrap() {
-            assert_eq!(l["mediaType"], "application/vnd.docker.image.rootfs.diff.tar.gzip");
+            assert_eq!(
+                l["mediaType"],
+                "application/vnd.docker.image.rootfs.diff.tar.gzip"
+            );
         }
 
         // A zstd or uncompressed layer has no Docker v2s2 type → the whole
         // manifest is OCI, and every member is OCI too (never a mixed hybrid).
-        for layers in [
-            vec![zstd],
-            vec![plain],
-            vec![gzip, zstd],
-            vec![gzip, plain],
-        ] {
+        for layers in [vec![zstd], vec![plain], vec![gzip, zstd], vec![gzip, plain]] {
             let (bytes, _, mt) = super::build_manifest(&store, &image_with(&layers)).unwrap();
             assert_eq!(
                 mt, "application/vnd.oci.image.manifest.v1+json",
@@ -4616,7 +4641,10 @@ mod tests {
             );
             let m: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(m["mediaType"], mt);
-            assert_eq!(m["config"]["mediaType"], "application/vnd.oci.image.config.v1+json");
+            assert_eq!(
+                m["config"]["mediaType"],
+                "application/vnd.oci.image.config.v1+json"
+            );
             for l in m["layers"].as_array().unwrap() {
                 let t = l["mediaType"].as_str().unwrap();
                 assert!(

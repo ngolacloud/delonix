@@ -46,7 +46,10 @@ pub fn cap_num(name: &str) -> Option<u8> {
     } else {
         format!("CAP_{n}")
     };
-    qualified.parse::<caps::Capability>().ok().map(|c| c.index())
+    qualified
+        .parse::<caps::Capability>()
+        .ok()
+        .map(|c| c.index())
 }
 
 /// Mask with ALL capabilities supported by the kernel (`--privileged`).

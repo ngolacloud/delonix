@@ -1100,16 +1100,37 @@ mod tests {
             })
         };
 
-        let svc = image_svc(dir.path().to_path_buf(), FakeImages { remove: RemoveOutcome::NotFound, used: 0 });
+        let svc = image_svc(
+            dir.path().to_path_buf(),
+            FakeImages {
+                remove: RemoveOutcome::NotFound,
+                used: 0,
+            },
+        );
         assert!(
             svc.remove_image(req()).await.is_ok(),
             "removing an image that is not there is success"
         );
 
-        let svc = image_svc(dir.path().to_path_buf(), FakeImages { remove: RemoveOutcome::Ok, used: 0 });
-        assert!(svc.remove_image(req()).await.is_ok(), "a real removal succeeds");
+        let svc = image_svc(
+            dir.path().to_path_buf(),
+            FakeImages {
+                remove: RemoveOutcome::Ok,
+                used: 0,
+            },
+        );
+        assert!(
+            svc.remove_image(req()).await.is_ok(),
+            "a real removal succeeds"
+        );
 
-        let svc = image_svc(dir.path().to_path_buf(), FakeImages { remove: RemoveOutcome::RealError, used: 0 });
+        let svc = image_svc(
+            dir.path().to_path_buf(),
+            FakeImages {
+                remove: RemoveOutcome::RealError,
+                used: 0,
+            },
+        );
         assert!(
             svc.remove_image(req()).await.is_err(),
             "a real failure must reach the kubelet, not be reported as done"
@@ -1128,7 +1149,11 @@ mod tests {
         std::fs::write(blobs.join("aa"), b"layer-a").unwrap();
         std::fs::write(blobs.join("bb"), b"layer-b").unwrap();
         std::fs::write(blobs.join("cc"), b"layer-c").unwrap();
-        assert_eq!(image_fs_inodes_used(dir.path()), 3, "three blobs, three inodes");
+        assert_eq!(
+            image_fs_inodes_used(dir.path()),
+            3,
+            "three blobs, three inodes"
+        );
     }
 
     /// `ImageFsInfo` reports a NON-zero inode count when images exist and does NOT
@@ -1143,7 +1168,13 @@ mod tests {
         std::fs::write(blobs.join("aa"), b"layer-a").unwrap();
         std::fs::write(blobs.join("bb"), b"layer-b").unwrap();
 
-        let svc = image_svc(dir.path().to_path_buf(), FakeImages { remove: RemoveOutcome::Ok, used: 4096 });
+        let svc = image_svc(
+            dir.path().to_path_buf(),
+            FakeImages {
+                remove: RemoveOutcome::Ok,
+                used: 4096,
+            },
+        );
         let resp = svc
             .image_fs_info(Request::new(ImageFsInfoRequest {}))
             .await

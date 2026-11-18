@@ -375,7 +375,10 @@ mod tests {
         let cas = Cas::open(dir.path()).unwrap();
         let data: Vec<u8> = (0..(3 << 20) as u32).map(|i| (i % 251) as u8).collect();
         let dg = cas.write(&data).unwrap();
-        assert!(cas.verify(&dg).unwrap(), "an intact blob matches its digest");
+        assert!(
+            cas.verify(&dg).unwrap(),
+            "an intact blob matches its digest"
+        );
 
         // Overwrite the blob file in place (keeping its digest name) with
         // different bytes: the stored name no longer matches the content.

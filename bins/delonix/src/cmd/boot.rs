@@ -332,7 +332,14 @@ fn container_unit(
 /// VMM is up (the guest boots on its own time) and there is no host process for
 /// systemd to follow — the backend owns it. Claiming otherwise would have
 /// systemd hunting for a main PID that is not there.
-fn vm_unit(namespace: &str, name: &str, rp: &str, root: &str, exe: &str, wanted_by: &str) -> String {
+fn vm_unit(
+    namespace: &str,
+    name: &str,
+    rp: &str,
+    root: &str,
+    exe: &str,
+    wanted_by: &str,
+) -> String {
     // `Type=oneshot` + `RemainAfterExit=yes`: a `Restart=` other than `no` is
     // meaningless for a oneshot that stays "active" — but map it to a valid
     // specifier anyway so systemd never logs a parse error and drops it.
@@ -426,7 +433,15 @@ fn enable(
             .and_then(|p| anchors.get(p))
             .filter(|first| **first != c.name)
             .map(|first| format!("{UNIT_PREFIX}{}.service", boot_stem(&c.namespace, first)));
-        let unit = container_unit(&c.namespace, &c.name, &rp, root, exe, wanted_by, anchor.as_deref());
+        let unit = container_unit(
+            &c.namespace,
+            &c.name,
+            &rp,
+            root,
+            exe,
+            wanted_by,
+            anchor.as_deref(),
+        );
         let unit_name = format!("{UNIT_PREFIX}{}.service", boot_stem(&c.namespace, &c.name));
         std::fs::write(unit_dir.join(&unit_name), unit)?;
         installed.push(unit_name);
@@ -444,7 +459,10 @@ fn enable(
             Some(explicit) => explicit.to_string(),
             None => vm.restart_policy.as_deref().unwrap_or("always").to_string(),
         };
-        let unit_name = format!("{UNIT_PREFIX}vm-{}.service", boot_stem(&vm.namespace, &vm.name));
+        let unit_name = format!(
+            "{UNIT_PREFIX}vm-{}.service",
+            boot_stem(&vm.namespace, &vm.name)
+        );
         std::fs::write(
             unit_dir.join(&unit_name),
             vm_unit(&vm.namespace, &vm.name, &rp, root, exe, wanted_by),
@@ -525,7 +543,15 @@ mod tests {
         assert_eq!(systemd_restart("no"), "no");
         assert_eq!(systemd_restart("garbage"), "no"); // safe default
                                                       // The generated unit must never carry the Delonix-only strings.
-        let u = container_unit("default", "c", "unless-stopped", "/r", "/b", "multi-user.target", None);
+        let u = container_unit(
+            "default",
+            "c",
+            "unless-stopped",
+            "/r",
+            "/b",
+            "multi-user.target",
+            None,
+        );
         assert!(u.contains("Restart=always"), "{u}");
         assert!(!u.contains("Restart=unless-stopped"), "{u}");
     }
@@ -590,8 +616,14 @@ mod tests {
 
         let a = container_unit("teamA", "db", "always", "/r", "/b", "default.target", None);
         let b = container_unit("teamB", "db", "always", "/r", "/b", "default.target", None);
-        assert!(a.contains("ExecStart=/b container start -n teamA db\n"), "{a}");
-        assert!(b.contains("ExecStart=/b container start -n teamB db\n"), "{b}");
+        assert!(
+            a.contains("ExecStart=/b container start -n teamA db\n"),
+            "{a}"
+        );
+        assert!(
+            b.contains("ExecStart=/b container start -n teamB db\n"),
+            "{b}"
+        );
         let v = vm_unit("teamA", "db", "always", "/r", "/b", "default.target");
         assert!(v.contains("ExecStart=/b vm start -n teamA db\n"), "{v}");
     }
@@ -767,7 +799,15 @@ mod tests {
         // ...e nunca se declara `Requires`, que derrubaria o pod todo.
         assert!(!u.contains("Requires="), "{u}");
         // A própria âncora não depende de si mesma.
-        let anchor_unit = container_unit("default", "pa-c0", "always", "/r", "/b", "default.target", None);
+        let anchor_unit = container_unit(
+            "default",
+            "pa-c0",
+            "always",
+            "/r",
+            "/b",
+            "default.target",
+            None,
+        );
         assert!(
             !anchor_unit.contains("After=delonix-boot-"),
             "{anchor_unit}"
