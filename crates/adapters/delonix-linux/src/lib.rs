@@ -10619,7 +10619,16 @@ pub fn exec_with(
                         // SAFETY: gids mapped in the container's userns; we are root there.
                         // A zero-length list with a dangling-but-valid ptr clears groups.
                         if unsafe { libc::setgroups(groups.len(), groups.as_ptr()) } != 0 {
-                            eprintln!("delonix: exec setgroups({groups:?}) failed");
+                            // EPERM here means the exec target dropped CAP_SETGID
+                            // (e.g. `drop ALL capabilities`): there are no host
+                            // groups left to clear and nothing we can do — and the
+                            // message must NOT leak onto the container's stderr,
+                            // which critest captures (CRI-F2, «dropping ALL
+                            // capabilities»). Only a genuinely unexpected error warns.
+                            let err = std::io::Error::last_os_error();
+                            if err.raw_os_error() != Some(libc::EPERM) {
+                                eprintln!("delonix: exec setgroups({groups:?}) failed: {err}");
+                            }
                         }
                     }
                     if let Some((uid, gid)) = exec_user.filter(|(u, _)| *u != 0) {
