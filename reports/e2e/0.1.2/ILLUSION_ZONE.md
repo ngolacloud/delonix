@@ -61,7 +61,29 @@ provado é **fornecer essas capacidades** (um registo de teste, chaves de
 assinatura, CRIU, um lab rootful) — que é precisamente a **Parte 2** (labs
 privilegiados em VM), a sessão seguinte.
 
+## Parte (b) — capacidades fornecidas e medidas (`probe-capabilities.sh`)
+
+Das **21 BLOCKED**, fornecendo as capacidades em falta em rootless, **14 passam a
+provadas com efeito** (`probe-capabilities-results.tsv`): PASS=14 · FAIL=0 · SKIP=7.
+
+| Capacidade fornecida | Folhas provadas |
+|---|---|
+| **Registo OCI local** (registry:2) | `push`, `image push`, `pull`, `login`, `logout`, `search`, `image sign`, `image attestations`, `image provenance`, `vm image ls-remote`, `vm image pull`, `vm image push` (12) |
+| **(nenhuma)** — já funcionavam | `bucket ls` (lista vazia), `cluster kube play` (≡ podman kube play, pod local) (2) |
+
+**Restam 7 SKIP, com pré-requisito nomeado:** `bucket inspect`/`bucket rm` (um
+`Bucket` external sobre um S3 vivo — MinIO não puxou esta sessão); `cluster
+kubeadm` + `container checkpoint`/`restore`/`clone` (CRIU/nó rootful → **Parte c**);
+`vm image build` (recipe de imagem de VM).
+
+### Número da superfície actualizado (366 folhas)
+- **Provado-com-efeito:** 272 (bateria) + 71 (zona de ilusão) + 14 (capacidades) =
+  **~357/366 (~97,5 %)**.
+- **Resta:** 7 capability-SKIP (S3/VM/CRIU/recipe) + 3 SKIP de semântica (mount) —
+  todos com pré-requisito nomeado, nenhum "partido" ou "desconhecido".
+
 ## Artefactos
-- `probe-missing.sh` — o probe reproduzível.
+- `probe-missing.sh` — o probe da zona de ilusão.
+- `probe-capabilities.sh` (+`-results.tsv`) — o probe das capacidades (Parte b).
 - `probe-missing-results.tsv` — resultado por folha (PASS/SKIP/BLOCKED).
 - `probe-missing-run.log` — stdout completo da corrida.
