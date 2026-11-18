@@ -57,5 +57,27 @@ O11 resolve por prefixo ambíguo (`image.rs:296`) · D5 `--rm` watcher órfão
   migração por cada mudança de default.
 
 ## Ondas
-F0 (esta) → W1 bloqueadores → W2 médios → W3 baixos + integra BUG-0007/8/9 → W4
-nativização kernel (KRN/NAT).
+F0 (esta) → W1 bloqueadores → W2 médios → W3 baixos → W4 nativização kernel
+(KRN/NAT) + auditoria de áreas não-cobertas (VM/storage).
+
+## Auditoria W4 — microVM + storage (5 achados novos, V1–V5)
+
+Áreas que as 4 lentes iniciais não cobriram a fundo. Numeração `V`.
+
+| # | Achado | Evidência | Estado |
+|---|---|---|---|
+| V1 | Volume quota-hard (loopback): remount pós-reboot falhado serve `_data` VAZIO em silêncio (`Ok`) → BD reinicializa datadir (perda/fork do dataset do tenant) | `delonix-volume/src/lib.rs:619` (`let _ = run("mount"...)`) | ✅ **CORRIGIDO** — remount falhado é erro duro; rootless não afectado (`img.exists()` falso) |
+| V2 | `policy.json` só aplicada no CLI; node-API gRPC e CRI/kubelet não a consultam → bypass de `deny_latest`/`allowed_registries`/`deny_device_passthrough` | `delonix-node-api/src/vms.rs:166`, `delonix-cri/.../lifecycle.rs:1658` (comentário admite a lacuna) | ☐ ALTO — arquitectural (mover `policy::enforce` do `-bin` para o motor); próxima fatia |
+| V3 | VFIO passthrough sem allowlist por-dispositivo; controlo é tudo-ou-nada global | `cloud-hypervisor/src/lib.rs:2128`, `libvirt/src/lib.rs:2125`, `admission.rs:474` | ☐ MÉDIO (atenuado: node-api não mapeia `devices`) |
+| V4 | libvirt descarta `spec.devices` mal-formado (não-BDF) em silêncio (sem ramo `else`) | `libvirt/src/lib.rs:2125-2142` | ☐ MÉDIO |
+| V5 | `libvirt_xml_overlay`: XML cru injectado verbatim, sem gate de admissão | `libvirt/src/lib.rs:2160` | ☐ BAIXO (escape-hatch documentado) |
+
+Áreas sólidas confirmadas: allowlist/ownership de pools de storage, validação de
+nomes de volume, `dir_usage` (quota rootless), CH `stop`/cgroup-leaf/`move_namespace`,
+clone/flatten crash-consistent, isolamento de namespace libvirt.
+
+## Nativização ao kernel (W4) — fatias feitas
+`ss` → `/proc/net/*` (vm.rs) · `losetup` → sysfs find + `LOOP_SET_CAPACITY` ioctl
+(delonix-volume, fallback kernel antigo) · KRN-0001 F5 `sync_workload_routes` →
+netlink tipado (SHOW/DEL/REPLACE). Backlog restante: KRN-0007 (nft netlink, XL/ADR),
+KRN-0005 fatia 2 (boot microVM KVM, Tier-D), NAT-0001..0005.

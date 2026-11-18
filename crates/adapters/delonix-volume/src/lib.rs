@@ -618,13 +618,31 @@ impl VolumeStore {
     /// - `webdav`/`dav` → `mount -t davfs https://…`  (Nextcloud/ownCloud WebDAV)
     pub fn ensure_mounted(&self, vol: &Volume) -> Result<()> {
         // Volume with a HARD quota (ext4 loopback): remounts the image if unmounted
-        // (e.g.: after a host reboot). Best-effort — without privilege, no-op.
+        // (e.g.: after a host reboot). The REAL data lives INSIDE `data.img`; if the
+        // remount fails we must NOT fall through and let the caller bind-mount the
+        // empty backing directory. Serving an empty `_data` is worse than failing —
+        // a database (Postgres/MySQL/Odoo) would reinitialise over it and fork or
+        // destroy the tenant's dataset (V1). So a failed remount is a hard error,
+        // not a silent `Ok`. In rootless there is no privileged loopback image
+        // (`img.exists()` is false), so this path does not run and does not break
+        // the unprivileged case.
         let img = self.loop_img(&vol.name);
         if vol.quota_bytes.is_some() && img.exists() && !is_mounted(&vol.mountpoint) {
-            let _ = Self::run(
+            Self::run(
                 "mount",
                 &["-o", "loop", &img.to_string_lossy(), &vol.mountpoint],
-            );
+            )?;
+            if !is_mounted(&vol.mountpoint) {
+                return Err(Error::Command {
+                    context: "mount",
+                    message: format!(
+                        "loopback image {} did not mount on {} — refusing to serve an empty \
+                         volume (the data is inside the image)",
+                        img.display(),
+                        vol.mountpoint
+                    ),
+                });
+            }
         }
         if !is_network_driver(&vol.driver) || is_mounted(&vol.mountpoint) {
             return Ok(());
