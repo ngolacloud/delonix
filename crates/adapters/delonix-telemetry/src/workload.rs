@@ -130,27 +130,14 @@ pub struct WorkloadSeries {
 type Labels = Vec<(&'static str, String)>;
 type Rows<M> = Vec<(Labels, M)>;
 
-/// `prometheus-client` writes a label value as given, so a name holding `"`,
-/// `\` or a newline would break the line (and the scrape with it). The
-/// OpenMetrics text format escapes exactly these three.
-fn escape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for c in value.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            c => out.push(c),
-        }
-    }
-    out
-}
-
+/// `prometheus-client` escapes label values on encode (`"`, `\` and newline —
+/// the three the OpenMetrics text format requires), so the values are passed
+/// as-is: escaping here too would double-escape and corrupt the scrape.
 fn base_labels(s: &WorkloadSeries) -> Labels {
     vec![
         ("kind", s.kind.as_str().to_string()),
-        ("id", escape(&s.id)),
-        ("name", escape(&s.name)),
+        ("id", s.id.clone()),
+        ("name", s.name.clone()),
     ]
 }
 

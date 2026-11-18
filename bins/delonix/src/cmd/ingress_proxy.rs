@@ -557,7 +557,10 @@ fn build_server_config(tls: &TlsMaterial) -> Result<Arc<tokio_rustls::rustls::Se
         PemError::NoItemsFound => {
             Error::Invalid(super::po::t("missing TLS key (no PRIVATE KEY in the PEM)").into())
         }
-        other => Error::Invalid(format!("{}: {other}", super::po::t("invalid TLS key (PEM)"))),
+        other => Error::Invalid(format!(
+            "{}: {other}",
+            super::po::t("invalid TLS key (PEM)")
+        )),
     })?;
     let cfg = ServerConfig::builder()
         .with_no_client_auth()
