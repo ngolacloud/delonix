@@ -235,6 +235,48 @@ Never assume the command list.
 
 Generate it dynamically from the current source/binary.
 
+## 4.1 Campaign reproduction & preflight (per-version CLI regression)
+
+A full CLI-surface regression against a delivered artefact reproduces through the
+repo's own harness — do not hand-roll a parallel runner. The pipeline, in order:
+
+1. **Fix the candidate.** Build the release artefact of the tag/commit under test
+   (`cargo build --release --locked -p delonix-bin` + the four sibling bins
+   `delonix-cri-bin delonix-mgmt-bin delonix-mcp-bin delonix-node-api-bin`, **all
+   in one target** — `e2e.sh` execs the siblings; a lone `delonix` serves stale
+   installed bins and fails engine stretches). Record SHA, digest, version,
+   toolchain.
+2. **Discover & drift.** `DELONIX_BIN=<art> scripts/cli-tree.sh --gate` (leaves vs
+   `cli_baseline.tsv`; a new/renamed leaf fails it) and `--count`/`--classify`.
+   Surface drift vs the last release is a stop-and-decide, not a silent pass.
+3. **Execute.** `scripts/e2e.sh <target>/release/delonix` → `results.jsonl`
+   (PASS/FAIL/SKIP/XFAIL/XPASS). Then `cli_exec_ratchet.py --from-results` for the
+   executed-under-assertion fraction (it UNDER-counts leaves reached via shell
+   helpers — a 0 % is a floor, not "untested").
+4. **Record evidence (H07).** One record per suite-run in `reports/e2e/<ver>/
+   evidence.jsonl`, conforming to `docs/dev/evidence-schema.md`; validate with
+   `scripts/evidence_gate.py`. Map by capability, not wording: merge gates
+   (cli-tree, ratchet, regressions) = `pr-rootless`; the `e2e` battery, VM, KaaS,
+   critest = `lab-ephemeral`; tag-bound suites = `release`. A mandatory profile
+   approves only on an applicable, executed-PASS record.
+
+**PREFLIGHT — isolate with a SHORT `DELONIX_ROOT`.** `e2e.sh` self-isolates, but a
+LONG isolation root silently breaks every cloud-hypervisor VM check: the VMM socket
+`<DELONIX_ROOT>/vms/<name>.sock` must fit the **107-byte AF_UNIX limit**, and a deep
+scratch path (e.g. an agent workspace) overflows it (`error[DX-1506] … socket path …
+is N bytes, limited to 107`). This is a harness artefact, not a regression — the
+binary diagnoses it correctly. Keep `OUT`/`DELONIX_ROOT` short (`/tmp/dlxcamp/…`),
+NOT under a long session scratch dir. Measured 2026-11-18 (0.1.2): 6 spurious CH
+FAILs under a long root, all PASS under a short one.
+
+**Triage every FAIL before calling it a regression.** A rootless host FAILs (not
+SKIPs) the leaves it has partial capability for (KVM present but no root/CNI →
+privileged mounts, netns-nft, CRI caps) and surfaces battery assertions that
+aged past the binary's current (correct) behaviour. Separate: capability-gated
+(→ `lab-ephemeral` BLOCKED, name the missing root/CNI/VM) · battery-staleness
+(→ reconcile the assertion, the binary is right) · genuine defect (→ BUG/GAP).
+See `reports/e2e/0.1.2/` for a worked example (22 FAILs → 0 binary regressions).
+
 ---
 
 # 5. KIND DISCOVERY

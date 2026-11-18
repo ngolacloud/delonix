@@ -1,0 +1,34 @@
+### cluster create (rootless, kind-mode) 2026-11-18T21:12:54+01:00
+info Creating cluster "camp012"
+ • Ensuring node image (kindest/node:v1.37.0) 🖼
+pulling kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5…
+2026-11-18T20:12:54.895638Z  INFO delonix_oci::registry: pulling kindest/node:sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5 from registry-1.docker.io repo=kindest/node reference=sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5 host=registry-1.docker.io
+2026-11-18T20:12:56.102091Z  INFO delonix_oci::registry: platform selected: linux/amd64 arch=amd64 variant=None
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼 55.4s
+ • Preparing nodes (1) 📦
+ • unpacking the image 📦
+ ✓ unpacking the image 📦 1.5s
+341811b02c4e2cb8
+ ✓ Preparing nodes (1) 📦 35.4s
+ • Writing configuration 📜
+ ✓ Writing configuration 📜 0.0s
+ • Starting control-plane 🕹️
+ ✓ Starting control-plane 🕹️ 1m31s
+ • Installing CNI (kindnet) 🔌
+ ✓ Installing CNI (kindnet) 🔌 0.2s
+ • Waiting for control-plane to be Ready ⏳
+ ✓ Waiting for control-plane to be Ready ⏳ 48.7s
+kubeconfig: /tmp/dlxcluster/root/clusters/camp012-kubeconfig.yaml
+ • Setting kubectl context to "delonix-camp012" 📇
+ ✓ Setting kubectl context to "delonix-camp012" 📇 0.0s
+
+You can now use your cluster:
+
+  kubectl cluster-info --context delonix-camp012
+
+### create rc=0
+### nodes:
+NAME                    STATUS   ROLES           AGE   VERSION   INTERNAL-IP     EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION             CONTAINER-RUNTIME
+camp012-control-plane   Ready    control-plane   53s   v1.37.0   10.218.17.176   <none>        Debian GNU/Linux 13 (trixie)   7.0.0-43-generic (amd64)   containerd://2.3.4
+### teardown:
+error[DX-1000] invalid argument: 'delete' is a kubectl command, not a cluster name — the cluster name comes FIRST: `delonix cluster camp012 delete ...` (available: camp012)
