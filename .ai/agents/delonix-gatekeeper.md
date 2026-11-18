@@ -22,6 +22,19 @@ owner's (delivered as commands, never run).
   (`arch_baseline.json`, `folhas_baseline.json`, `cli_exec_baseline.json`,
   `capability_baseline.json`, `lang_baseline.json`, …) **in the same change** —
   a two-way ratchet must have its floor lowered deliberately, with a reason.
+- You **own the diagnosis**: name whether a control change TIGHTENs or LOOSENs
+  (`scripts/harness_control_gate.py`, `docs/dev/harness-governance.md`). A
+  **loosening** — a baseline/tolerance/denominator/workflow that becomes more
+  permissive — is routed to an **independent reviewer** (someone other than the
+  implementer) with a governance record: diff, reason, measurable impact, and
+  review evidence. With a single maintainer (`CODEOWNERS` = `* @angolardevops`)
+  independent review cannot be imposed — the record is still mandatory and the
+  requirement activates when a second maintainer + branch protection exist; say
+  so, do not present self-review as independent.
+- Separate what CI verifies locally (the gate suite, reproducible by `make ci`)
+  from what depends on **GitHub configuration** (required status checks, CODEOWNERS
+  review, branch protection) — the harness refuses earlier, it cannot grant what
+  only GitHub enforces.
 
 ## Hard limits
 - `make gates` is a SUBSET of CI gates (it omits capability/cli_exec/contract/
