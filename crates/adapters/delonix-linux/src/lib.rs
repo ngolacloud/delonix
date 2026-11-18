@@ -3861,12 +3861,20 @@ fn selinux_active() -> bool {
 
 /// Requests the transition to a SELinux context on the next `execve` (`setexeccon`),
 /// writing to `/proc/.../attr/exec`. Only acts if SELinux is the active LSM —
-/// on AppArmor hosts that path belongs to AppArmor, hence the *gate*.
-/// (The major LSMs are exclusive: either AppArmor or SELinux.)
-fn apply_selinux(context: &str) {
-    if selinux_active() && std::fs::write("/proc/thread-self/attr/exec", context).is_err() {
-        let _ = std::fs::write("/proc/self/attr/exec", context);
+/// on AppArmor hosts that path belongs to AppArmor, so a requested context is a
+/// no-op there (NOT an error): the major LSMs are exclusive.
+///
+/// On a SELinux host a FAILURE is returned (and fatal at the call site, like
+/// AppArmor): starting with the engine's inherited/default context when a
+/// specific one was asked for is a silent loss of MAC confinement (the MCS
+/// category separation between containers), which runc also refuses.
+fn apply_selinux(context: &str) -> std::result::Result<(), String> {
+    if !selinux_active() {
+        return Ok(());
     }
+    std::fs::write("/proc/thread-self/attr/exec", context)
+        .or_else(|_| std::fs::write("/proc/self/attr/exec", context))
+        .map_err(|e| format!("setexeccon({context}): {e}"))
 }
 
 /// The body that runs inside the new namespaces (the container's PID 1).
@@ -5056,7 +5064,16 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         }
     }
     if let Some(c) = selinux {
-        apply_selinux(c); // MAC confinement (SELinux) — only on SELinux hosts
+        // MAC confinement (SELinux) — fatal on SELinux hosts, exactly like
+        // AppArmor above: running with the wrong/inherited context when one was
+        // requested is a silent loss of isolation. A no-op on non-SELinux hosts.
+        if let Err(e) = apply_selinux(c) {
+            eprintln!(
+                "delonix: --security-opt label={c}: {e}. The container would run with the wrong \
+                 SELinux context, so it is not being started."
+            );
+            return 126;
+        }
     }
     // image CWD (OCI `WorkingDir`) — AFTER the pivot, BEFORE the exec. Without this,
     // entrypoints that operate on the CWD (redis/postgres `chown -R .`) run from `/`
@@ -14060,6 +14077,17 @@ mod tests {
         assert_eq!(subid_range_for(body, 0, Some("carol")), None);
         // A grant is wide enough regardless of where it starts.
         assert!(subid_file_grants(body, 0, Some("bob")));
+    }
+
+    /// S3: a requested SELinux context must be a silent no-op on a host where
+    /// SELinux is NOT the active LSM (AppArmor/none — Debian/Ubuntu, this host),
+    /// never an error that would block a container. The FATAL path (write failure
+    /// on a SELinux host) is validated on a SELinux VM (tier-D), not here.
+    #[test]
+    fn selinux_context_is_a_noop_off_a_selinux_host() {
+        if !selinux_active() {
+            assert!(apply_selinux("system_u:system_r:container_t:s0").is_ok());
+        }
     }
 
     /// A subordinate range counts only when it is this account's and wide

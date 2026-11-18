@@ -5,7 +5,7 @@
 use delonix_model::records::{default_namespace, ContainerFw, Status};
 #[cfg(test)]
 use delonix_model::records::{fw_port_ok, fw_proto_ok, fw_src_ok, FwRule};
-use delonix_node::safe_to_signal;
+use delonix_node::{host_boot_time, safe_to_signal};
 #[cfg(test)]
 use delonix_node::{generate_id, is_alive, proc_starttime};
 use serde::{Deserialize, Serialize};
@@ -886,6 +886,27 @@ fn default_cpus() -> String {
     "1.0".to_string()
 }
 
+/// `true` if a recorded `(pid, starttime, created_unix)` still names OUR process.
+///
+/// Beyond `safe_to_signal` (same-boot identity by starttime), this adds the D4
+/// reboot guard for records with NO recorded starttime: a `None`-starttime record
+/// created BEFORE the last boot names a pid the kernel has reused across the
+/// reboot, so it is not ours. A `None` created in THIS boot (a legacy upgrade
+/// without reboot, or a transient `/proc` read miss at registration) still is —
+/// so an in-place upgrade does not break a container/pod that was already running.
+/// With a recorded starttime the question is answered exactly and the boot time is
+/// irrelevant.
+fn recorded_pid_is_ours(pid: i32, starttime: Option<u64>, created_unix: u64) -> bool {
+    if starttime.is_none() {
+        if let Some(boot) = host_boot_time() {
+            if created_unix < boot {
+                return false;
+            }
+        }
+    }
+    safe_to_signal(pid, starttime)
+}
+
 impl Container {
     /// `true` if the recorded init is still alive **and is still the process we
     /// recorded**.
@@ -904,7 +925,7 @@ impl Container {
     /// making the right question the easy one to ask.
     pub fn is_live(&self) -> bool {
         self.pid
-            .is_some_and(|p| safe_to_signal(p, self.pid_starttime))
+            .is_some_and(|p| recorded_pid_is_ours(p, self.pid_starttime, self.created_unix))
     }
 
     /// Builds a container in the [`Status::Created`] state.
@@ -1351,7 +1372,7 @@ impl Vm {
     /// [`Container::is_live`] of the VM side, and for the same reason.
     pub fn is_live(&self) -> bool {
         self.pid
-            .is_some_and(|p| safe_to_signal(p, self.pid_starttime))
+            .is_some_and(|p| recorded_pid_is_ours(p, self.pid_starttime, self.created_unix))
     }
 
     /// Builds a VM in the [`Status::Created`] state.
@@ -1740,12 +1761,29 @@ mod tests_record_is_live {
         assert!(rec(Some(mine), Some(real)).is_live());
     }
 
-    /// A record written before `pid_starttime` existed carries `None`, and
-    /// `safe_to_signal` documents that as legacy behaviour: allow. Asserted so
-    /// the compatibility choice stays visible instead of implied.
+    /// A `None`-starttime record CREATED IN THIS BOOT stays live: it is either a
+    /// legacy record carried across an in-place upgrade (no reboot) or a transient
+    /// `/proc` read miss at registration, and the pid is still ours. An in-place
+    /// upgrade must not break a container that was already running.
     #[test]
     fn a_legacy_record_without_starttime_is_live() {
         let mine = std::process::id() as i32;
+        assert!(rec(Some(mine), None).is_live());
+    }
+
+    /// D4: a `None`-starttime record created BEFORE the last boot names a pid the
+    /// kernel has reused across the reboot — NOT ours, even though the pid is
+    /// alive. The reboot guard lives in `is_live` (it knows `created_unix`), not
+    /// in `safe_to_signal`, so same-boot `None` records stay signalable.
+    #[test]
+    fn a_none_starttime_record_from_before_the_boot_is_not_live() {
+        let mine = std::process::id() as i32;
+        let mut c = rec(Some(mine), None);
+        c.created_unix = 1; // one second past the epoch: predates any host boot
+        if host_boot_time().is_some() {
+            assert!(!c.is_live(), "a pre-boot None record must not read as ours");
+        }
+        // A None record from THIS boot still reads as live (same-boot case).
         assert!(rec(Some(mine), None).is_live());
     }
 
