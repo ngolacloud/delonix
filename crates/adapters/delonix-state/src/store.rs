@@ -315,8 +315,12 @@ impl Store {
         if let Some(root) = std::env::var_os("DELONIX_ROOT") {
             return PathBuf::from(root).join("containers");
         }
-        // SAFETY: geteuid() is always safe and does not fail.
-        if unsafe { libc::geteuid() } != 0 {
+        // `geteuid() == 0` is NOT the same as "real host root": inside a nested
+        // user namespace (delonix run under `unshare --user`, or inside another
+        // rootless runner) euid is 0 but `/var/lib/delonix` is not writable.
+        // `is_rootless()` answers the real question, as it already does in
+        // `delonix-linux` (`write_userns_maps`) and `delonix-sdn` (`runtime_dir`).
+        if delonix_node::is_rootless() {
             let base = std::env::var_os("XDG_DATA_HOME")
                 .map(PathBuf::from)
                 .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
@@ -663,22 +667,50 @@ impl delonix_model::ports::StateRepository<Container> for Store {
     }
 }
 
+/// The current schema version for versioned [`JsonStore`] records (VMs,
+/// tunnels, gateways, object-storage, system-containers, network-zones). Bump it
+/// in the same commit that changes the on-disk shape of any of those records, so
+/// a binary rolled back over the newer state refuses it (via [`JsonStore::load`])
+/// instead of silently dropping the new fields.
+pub const JSON_RECORD_FORMAT: u32 = 1;
+
 /// Generic typed store — one JSON file per item, indexed by a key
 /// (name). Reuses the same atomic pattern (temp + `rename`) as [`Store`],
 /// for types that are not `Container`: VMs ([`crate::Vm`]) and the applied
 /// manifests (desired state of the `reconcile` daemon).
 pub struct JsonStore<T> {
     root: PathBuf,
+    /// The record format THIS build writes for `T`. `0` means "unversioned" —
+    /// the historical behaviour, kept for `JsonStore<u64>`/`<String>` and any
+    /// store that has not opted in: no field is injected and no downgrade gate
+    /// runs. A value `> 0` turns on the fail-closed DOWNGRADE guard (see
+    /// [`JsonStore::load`]), the same protection `Store<Container>` has in
+    /// [`Store::decode`] — without it a rolled-back binary silently dropped the
+    /// fields a newer one wrote to a VM/tunnel/gateway record and rewrote the
+    /// file without them on the next `save`.
+    format: u32,
     _t: PhantomData<T>,
 }
 
 impl<T: Serialize + DeserializeOwned> JsonStore<T> {
-    /// Opens (creating) the store in the `root` directory.
+    /// Opens (creating) the store in the `root` directory, UNVERSIONED (no
+    /// downgrade guard). Prefer [`JsonStore::open_with_format`] for persisted
+    /// product records (VMs, tunnels, gateways, …).
     pub fn open(root: impl Into<PathBuf>) -> Result<Self> {
+        Self::open_with_format(root, 0)
+    }
+
+    /// Like [`JsonStore::open`] but records `format` as the schema version this
+    /// build writes, turning on the fail-closed downgrade guard: a record whose
+    /// stored `record_format` is NEWER than `format` is refused on `load`
+    /// (operate it with the version that wrote it) instead of being silently
+    /// truncated on the next save.
+    pub fn open_with_format(root: impl Into<PathBuf>, format: u32) -> Result<Self> {
         let root = root.into();
         fs::create_dir_all(&root)?;
         Ok(Self {
             root,
+            format,
             _t: PhantomData,
         })
     }
@@ -721,18 +753,54 @@ impl<T: Serialize + DeserializeOwned> JsonStore<T> {
         Ok(v)
     }
 
-    /// Persists an item under `key` (atomic write).
+    /// Persists an item under `key` (atomic write). When the store is versioned
+    /// (`format > 0`) a `record_format` field is stamped into the JSON object so
+    /// a later `load` by an older build can refuse it — the write side of the
+    /// downgrade guard. `T` need not carry the field: it is injected at the JSON
+    /// layer and ignored by `T`'s deserializer on the way back.
     pub fn save(&self, key: &str, value: &T) -> Result<()> {
-        write_atomic(&self.path(key), &serde_json::to_vec_pretty(value)?)
+        let bytes = if self.format > 0 {
+            let mut v = serde_json::to_value(value)?;
+            if let serde_json::Value::Object(map) = &mut v {
+                map.insert(
+                    "record_format".to_string(),
+                    serde_json::Value::from(self.format),
+                );
+            }
+            serde_json::to_vec_pretty(&v)?
+        } else {
+            serde_json::to_vec_pretty(value)?
+        };
+        write_atomic(&self.path(key), &bytes)
     }
 
-    /// Loads an item by exact key.
+    /// Loads an item by exact key. On a versioned store (`format > 0`) this is
+    /// the fail-closed DOWNGRADE guard: a record stamped with a `record_format`
+    /// NEWER than this build understands is refused (as a conflict) instead of
+    /// being silently misread and later rewritten without the fields it could not
+    /// represent — the same rule [`Store::decode`] applies to containers.
     pub fn load(&self, key: &str) -> Result<T> {
         let p = self.path(key);
         if !p.exists() {
             return Err(Error::NoSuchRecord(key.to_string()));
         }
-        Ok(serde_json::from_slice(&fs::read(p)?)?)
+        let bytes = fs::read(p)?;
+        if self.format > 0 {
+            let v: serde_json::Value = serde_json::from_slice(&bytes)?;
+            let stored = v
+                .get("record_format")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0) as u32;
+            if stored > self.format {
+                return Err(Error::Engine(delonix_model::Error::Conflict(format!(
+                    "record '{key}' was written in format {stored}, but this delonix handles up \
+                     to {} — operate it with the version that wrote it, or recreate it",
+                    self.format
+                ))));
+            }
+            return Ok(serde_json::from_value(v)?);
+        }
+        Ok(serde_json::from_slice(&bytes)?)
     }
 
     /// `true` if an item with this key exists.
@@ -1195,6 +1263,50 @@ mod tests {
         );
         store.remove(&evil_id).unwrap();
         assert_eq!(fs::read_dir(&root).unwrap().flatten().count(), 0);
+    }
+
+    /// REGRESSION (downgrade guard): a versioned [`JsonStore`] stamps
+    /// `record_format` on save and REFUSES on load a record written in a newer
+    /// format — the protection `Store<Container>` had but VMs/tunnels/gateways
+    /// lacked, so a rolled-back binary silently dropped their new fields. An
+    /// UNVERSIONED store (`format == 0`) keeps the historical behaviour: no stamp,
+    /// no gate.
+    #[test]
+    fn jsonstore_versioned_refuses_a_newer_record_and_stamps_the_format() {
+        use serde::{Deserialize, Serialize};
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        struct Rec {
+            name: String,
+            n: u32,
+        }
+        let (_tmp, root) = tmp_dir();
+        let rec = Rec {
+            name: "x".into(),
+            n: 1,
+        };
+
+        // A newer build (format 2) writes the record; the file carries the stamp.
+        let newer: JsonStore<Rec> = JsonStore::open_with_format(&root, 2).unwrap();
+        newer.save("r", &rec).unwrap();
+        let raw = fs::read_to_string(root.join("r.json")).unwrap();
+        assert!(
+            raw.contains("\"record_format\""),
+            "save must stamp the format"
+        );
+
+        // An older build (format 1) REFUSES it instead of truncating it.
+        let older: JsonStore<Rec> = JsonStore::open_with_format(&root, 1).unwrap();
+        assert!(
+            matches!(older.load("r"), Err(Error::Engine(_))),
+            "a newer record must be refused as a conflict on an older build"
+        );
+
+        // The same (or newer) build loads it and ignores the injected field.
+        assert_eq!(newer.load("r").unwrap(), rec);
+
+        // An UNVERSIONED store neither stamps nor gates — legacy behaviour intact.
+        let plain: JsonStore<Rec> = JsonStore::open(&root).unwrap();
+        assert_eq!(plain.load("r").unwrap(), rec);
     }
 
     /// REGRESSION (concurrency): [`JsonStore::update`] (added to close the same

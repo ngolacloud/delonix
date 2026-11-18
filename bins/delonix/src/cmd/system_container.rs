@@ -280,7 +280,11 @@ pub(crate) fn release_hold(
 }
 
 fn store() -> Result<JsonStore<SystemContainerRecord>> {
-    JsonStore::open(state_root().join("system-containers")).map_err(Into::into)
+    JsonStore::open_with_format(
+        state_root().join("system-containers"),
+        delonix_state::JSON_RECORD_FORMAT,
+    )
+    .map_err(Into::into)
 }
 
 /// The container's own state directory, where the provider keeps its task

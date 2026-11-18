@@ -261,6 +261,30 @@ fn config_from_spec(
     })
 }
 
+/// Runs the node's runtime policy against a `CreateVirtualMachine`, the same
+/// gate (and the same `policy.json`) the CLI `vm create` runs. A refusal is a
+/// `PERMISSION_DENIED` naming the rules that fired; an unreadable policy is
+/// `INTERNAL` and fails the create closed — never a VM admitted past a policy
+/// nobody could read (ADR-0026, "fail-closed").
+fn admit_vm(root: &Path, name: &str, image: &str) -> Result<(), Status> {
+    let req =
+        delonix_security::Request::virtual_machine((!image.is_empty()).then_some(image), &[], None);
+    let decision = delonix_security::gate::admit(root, name, &req)
+        .map_err(|e| Status::internal(format!("reading runtime policy: {e}")))?;
+    if decision.is_denied() {
+        return Err(Status::permission_denied(format!(
+            "refused by this node's runtime policy: {}",
+            decision
+                .violations()
+                .iter()
+                .map(|v| v.summary())
+                .collect::<Vec<_>>()
+                .join("; ")
+        )));
+    }
+    Ok(())
+}
+
 /// [`operations::fingerprint_of`] of a `CreateVirtualMachine` request's
 /// content — built from `cfg` (the already-normalized `VmConfig`, so
 /// `memory_bytes: 2147483648` and a request that resolved to the same
@@ -415,6 +439,15 @@ pub fn create_in(
     let namespace = namespace_of(&req.namespace);
     let spec = req.spec.clone().unwrap_or_default();
     let cfg = config_from_spec(root, vms, net, &req.name, namespace, &spec)?;
+    // The node's runtime policy, the SAME gate the CLI `vm create` runs and on
+    // the SAME `policy.json`. Until this, `CreateVirtualMachine` reached the
+    // engine with no admission at all: a node that set `denyLatestVmImage` or an
+    // `allowedImageUrlHosts` allowlist refused the CLI and admitted the very same
+    // VM the moment it arrived over gRPC. The spec carries only `image` (device
+    // passthrough and `--url-img` are not on the gRPC surface), so only the
+    // image-facing VM rules can fire here; an unreadable policy fails the create
+    // closed (ADR-0026). `config_from_spec` already refused an empty image.
+    admit_vm(root, &req.name, &spec.image)?;
     let target = format!("VirtualMachine/{}", req.name);
     let fp = create_fingerprint(&cfg, &req.labels, &req.annotations);
     if let Some(found) = operations::replay(root, "create", &target, &req.request_id, &fp)? {
@@ -970,6 +1003,69 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(req.spec.as_ref().unwrap().provider, remote);
+        let op = create_in(
+            dir.path(),
+            &crate::store::LocalStore(dir.path().to_path_buf()),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
+            &NET,
+            &req,
+        )
+        .unwrap();
+        assert_eq!(op.state, OperationState::Succeeded as i32);
+    }
+
+    /// The node-API half of the admission gap this session closed: a node that
+    /// set `denyLatestVmImage` refused the CLI `vm create` of a `:latest` image
+    /// and ADMITTED the identical VM over gRPC. `create_in` now runs the same
+    /// `policy.json`, so the request is `PERMISSION_DENIED` and nothing is
+    /// acknowledged — the refusal lands before `operations::begin`.
+    #[test]
+    fn a_latest_vm_image_is_refused_by_the_node_policy_over_grpc() {
+        seeded();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("policy.json"),
+            r#"{"denyLatestVmImage": true}"#,
+        )
+        .unwrap();
+        let mut req = create_req("web-latest", "");
+        req.spec.as_mut().unwrap().image = "golden:latest".into();
+        let err = create_in(
+            dir.path(),
+            &crate::store::LocalStore(dir.path().to_path_buf()),
+            &crate::vms::LocalVmReads(dir.path().to_path_buf()),
+            &NET,
+            &req,
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), tonic::Code::PermissionDenied, "{err:?}");
+        assert!(
+            err.message().contains("ADM-LATEST-VM-IMAGE")
+                && err.message().contains("golden:latest"),
+            "{}",
+            err.message()
+        );
+        // Fail-closed AND fail-early: no operation was begun for a refused VM.
+        assert_eq!(operations_on_disk(dir.path()), 0);
+    }
+
+    /// The control: a pinned image on the very same policy is admitted, so the
+    /// gate refuses `:latest` specifically and does not block every create.
+    #[test]
+    fn a_pinned_vm_image_passes_the_same_policy() {
+        let provider = seeded();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("policy.json"),
+            r#"{"denyLatestVmImage": true}"#,
+        )
+        .unwrap();
+        let mut req = create_req("web-pinned", "");
+        {
+            let spec = req.spec.as_mut().unwrap();
+            spec.image = "golden:1.0".into();
+            spec.provider = provider.to_string();
+        }
         let op = create_in(
             dir.path(),
             &crate::store::LocalStore(dir.path().to_path_buf()),

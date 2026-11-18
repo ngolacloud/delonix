@@ -118,7 +118,11 @@ fn state_err(e: delonix_state::Error) -> Error {
 }
 
 fn store(base: &Path, namespace: &str) -> Result<JsonStore<Vm>> {
-    JsonStore::open(delonix_compute::vm::vms_root(base, namespace)).map_err(state_err)
+    JsonStore::open_with_format(
+        delonix_compute::vm::vms_root(base, namespace),
+        delonix_state::JSON_RECORD_FORMAT,
+    )
+    .map_err(state_err)
 }
 
 // `is_alive` era uma TERCEIRA cópia da mesma pergunta (a do motor usa o

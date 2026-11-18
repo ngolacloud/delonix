@@ -8,7 +8,6 @@ pub mod auth;
 pub mod build;
 pub mod buildpack;
 pub mod cas;
-pub mod uring;
 pub mod detect;
 pub mod dockerignore;
 mod error;
@@ -23,6 +22,7 @@ pub mod run_images;
 pub mod save;
 pub mod sign;
 mod token_cache;
+pub mod uring;
 
 pub use buildpack::CnbPlan;
 pub use cas::{sha256_hex, Cas};
