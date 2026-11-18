@@ -3235,7 +3235,11 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
         // the same gate, placement and request shape as the CLI `vm create`.
         // This path had none: a node that set `denyDevicePassthrough` refused
         // `vm create --device` and admitted the same device from a manifest.
+        // The raw-XML escape hatch (`libvirtXml`/`libvirtXmlOverlay`) is a
+        // manifest-only feature, so this is the one request shape that can carry
+        // it — mark it so `denyLibvirtXmlOverlay` (V5) can refuse it.
         let passthrough = manifest_passthrough(&spec);
+        let uses_raw_xml = spec.libvirt_xml.is_some() || !spec.libvirt_xml_overlay.is_empty();
         super::policy::enforce(
             &base,
             name,
@@ -3243,7 +3247,8 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
                 (!spec.disk.is_empty()).then_some(spec.disk.as_str()),
                 &passthrough,
                 None,
-            ),
+            )
+            .with_libvirt_xml_overlay(uses_raw_xml),
         )?;
         let (disk, image_meta) = resolve_vm_disk(&images, name, &spec, base_dir)?;
         // The image's own `VCPUS`/`MEMORY`/`HYPERVISOR`, applied only where the

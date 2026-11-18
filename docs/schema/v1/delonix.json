@@ -2890,6 +2890,15 @@
           "type": "array",
           "x-delonix-update": "live"
         },
+        "allowedPassthroughDevices": {
+          "default": [],
+          "description": "The PCI devices (BDFs) passthrough is allowed for WHILE\n`denyDevicePassthrough` is on — a GRANT, empty = no exception.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-delonix-update": "live"
+        },
         "allowedRegistries": {
           "default": [],
           "description": "Only these registries may be pulled from. Empty = no opinion.",
@@ -2929,6 +2938,12 @@
         "denyLatestVmImage": {
           "default": false,
           "description": "Refuse a VM disk image reference with no tag or with `:latest`.",
+          "type": "boolean",
+          "x-delonix-update": "live"
+        },
+        "denyLibvirtXmlOverlay": {
+          "default": false,
+          "description": "Refuse a VM created with raw libvirt domain XML (`--libvirt-xml`/\n`--libvirt-xml-overlay`, or a manifest's `libvirtXml`/`libvirtXmlOverlay`).",
           "type": "boolean",
           "x-delonix-update": "live"
         },

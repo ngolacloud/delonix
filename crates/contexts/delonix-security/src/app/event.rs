@@ -252,7 +252,9 @@ impl SecurityEvent {
 /// a 512-byte prefix of a private key is still key material.
 fn detail_of(v: &Violation) -> Option<String> {
     let raw = match v {
-        Violation::Privileged | Violation::HostNetwork => return None,
+        Violation::Privileged | Violation::HostNetwork | Violation::LibvirtXmlOverlay => {
+            return None
+        }
         Violation::LatestTag { image } | Violation::LatestVmImage { image } => image.clone(),
         Violation::Registry { host, .. } => host.clone(),
         Violation::DevicePassthrough { devices } => devices.join(","),
@@ -314,6 +316,7 @@ pub const EMITTED_RULES: &[Rule] = &[
     Rule::DevicePassthrough,
     Rule::LatestVmImage,
     Rule::ImageUrlHost,
+    Rule::LibvirtXmlOverlay,
     Rule::BaselineCapabilities,
     Rule::BaselineHostNamespace,
     Rule::BaselineUnconfined,
