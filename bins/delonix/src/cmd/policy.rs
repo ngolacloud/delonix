@@ -150,6 +150,12 @@ fn render(v: &Violation) -> String {
                 ("allowed", &allowed.join(", ")),
             ],
         ),
+        Violation::LibvirtXmlOverlay => super::po::t(
+            "raw libvirt domain XML (`--libvirt-xml`/`--libvirt-xml-overlay`) is refused by \
+             this node's runtime policy — it is an unvalidated escape hatch around the typed \
+             controls (denyLibvirtXmlOverlay)",
+        )
+        .to_string(),
         Violation::BaselineCapabilities { caps } => super::po::tf(
             "--cap-add {caps}: beyond the capabilities this node's runtime policy allows \
              (workloadSecurity: baseline)",
@@ -420,12 +426,20 @@ pub struct RuntimePolicySpec {
     /// Refuse `vm create --device` (VFIO PCI passthrough).
     #[serde(default)]
     pub deny_device_passthrough: bool,
+    /// The PCI devices (BDFs) passthrough is allowed for WHILE
+    /// `denyDevicePassthrough` is on — a GRANT, empty = no exception.
+    #[serde(default)]
+    pub allowed_passthrough_devices: Vec<String>,
     /// Refuse a VM disk image reference with no tag or with `:latest`.
     #[serde(default)]
     pub deny_latest_vm_image: bool,
     /// Hosts a `vm create --url-img` qcow2 may be fetched from. Empty = no opinion.
     #[serde(default)]
     pub allowed_image_url_hosts: Vec<String>,
+    /// Refuse a VM created with raw libvirt domain XML (`--libvirt-xml`/
+    /// `--libvirt-xml-overlay`, or a manifest's `libvirtXml`/`libvirtXmlOverlay`).
+    #[serde(default)]
+    pub deny_libvirt_xml_overlay: bool,
     /// Source prefixes a container may be authorised to use (`--allow-source`).
     /// A GRANT: empty = none.
     #[serde(default)]
@@ -468,8 +482,10 @@ pub const RUNTIME_POLICY_SPEC_FIELDS: &[&str] = &[
     "allowedRegistries",
     "workloadSecurity",
     "denyDevicePassthrough",
+    "allowedPassthroughDevices",
     "denyLatestVmImage",
     "allowedImageUrlHosts",
+    "denyLibvirtXmlOverlay",
     "allowedSourcePrefixes",
     "allowSourceCheckOptOut",
     "denyPrivateEgress",
@@ -501,8 +517,10 @@ pub(crate) fn to_security_policy(spec: &RuntimePolicySpec) -> Result<SecurityPol
         deny_latest_tag: spec.deny_latest_tag,
         allowed_registries: spec.allowed_registries.clone(),
         deny_device_passthrough: spec.deny_device_passthrough,
+        allowed_passthrough_devices: spec.allowed_passthrough_devices.clone(),
         deny_latest_vm_image: spec.deny_latest_vm_image,
         allowed_image_url_hosts: spec.allowed_image_url_hosts.clone(),
+        deny_libvirt_xml_overlay: spec.deny_libvirt_xml_overlay,
         allowed_source_prefixes: spec.allowed_source_prefixes.clone(),
         allow_source_check_opt_out: spec.allow_source_check_opt_out,
         deny_private_egress: spec.deny_private_egress,
@@ -572,12 +590,20 @@ fn fields_of(p: &SecurityPolicy) -> BTreeMap<String, String> {
         p.deny_device_passthrough.to_string(),
     );
     f.insert(
+        "allowedPassthroughDevices".into(),
+        sorted_joined(&p.allowed_passthrough_devices),
+    );
+    f.insert(
         "denyLatestVmImage".into(),
         p.deny_latest_vm_image.to_string(),
     );
     f.insert(
         "allowedImageUrlHosts".into(),
         sorted_joined(&p.allowed_image_url_hosts),
+    );
+    f.insert(
+        "denyLibvirtXmlOverlay".into(),
+        p.deny_libvirt_xml_overlay.to_string(),
     );
     f.insert(
         "allowedSourcePrefixes".into(),
@@ -720,10 +746,14 @@ struct LsRow {
     workload_security: Option<&'static str>,
     #[serde(rename = "denyDevicePassthrough")]
     deny_device_passthrough: bool,
+    #[serde(rename = "allowedPassthroughDevices")]
+    allowed_passthrough_devices: Vec<String>,
     #[serde(rename = "denyLatestVmImage")]
     deny_latest_vm_image: bool,
     #[serde(rename = "allowedImageUrlHosts")]
     allowed_image_url_hosts: Vec<String>,
+    #[serde(rename = "denyLibvirtXmlOverlay")]
+    deny_libvirt_xml_overlay: bool,
     #[serde(rename = "allowedSourcePrefixes")]
     allowed_source_prefixes: Vec<String>,
     #[serde(rename = "allowSourceCheckOptOut")]
@@ -746,8 +776,10 @@ fn ls_row(root: &Path, p: &SecurityPolicy) -> LsRow {
             .workload_security
             .map(|w| workload_security_label(Some(w))),
         deny_device_passthrough: p.deny_device_passthrough,
+        allowed_passthrough_devices: p.allowed_passthrough_devices.clone(),
         deny_latest_vm_image: p.deny_latest_vm_image,
         allowed_image_url_hosts: p.allowed_image_url_hosts.clone(),
+        deny_libvirt_xml_overlay: p.deny_libvirt_xml_overlay,
         allowed_source_prefixes: p.allowed_source_prefixes.clone(),
         allow_source_check_opt_out: p.allow_source_check_opt_out,
         deny_private_egress: p.deny_private_egress,
@@ -773,8 +805,10 @@ pub(crate) fn cmd_ls(format: OutputFormat) -> Result<()> {
         "REGISTRIES",
         "WORKLOAD-SEC",
         "PASSTHROUGH",
+        "PASSTHROUGH-OK",
         "LATEST-VM",
         "URL-HOSTS",
+        "LIBVIRT-XML",
         "SRC-PREFIXES",
         "SRC-CHECK-OFF",
         "PRIVATE-EGRESS",
@@ -789,8 +823,10 @@ pub(crate) fn cmd_ls(format: OutputFormat) -> Result<()> {
             list_or_dash(&p.allowed_registries),
             workload_security_label(p.workload_security).to_string(),
             deny_flag(p.deny_device_passthrough).to_string(),
+            list_or_dash(&p.allowed_passthrough_devices),
             deny_flag(p.deny_latest_vm_image).to_string(),
             list_or_dash(&p.allowed_image_url_hosts),
+            deny_flag(p.deny_libvirt_xml_overlay).to_string(),
             list_or_dash(&p.allowed_source_prefixes),
             grant_flag(p.allow_source_check_opt_out).to_string(),
             deny_flag(p.deny_private_egress).to_string(),
@@ -844,8 +880,10 @@ pub(crate) fn cmd_describe(names: &[String]) -> Result<()> {
                 d.list("Registries", &p.allowed_registries);
                 d.field("Workload sec", workload_security_label(p.workload_security));
                 d.field("Passthrough", deny_flag(p.deny_device_passthrough));
+                d.list("Passthrough OK", &p.allowed_passthrough_devices);
                 d.field("Latest VM tag", deny_flag(p.deny_latest_vm_image));
                 d.list("URL hosts", &p.allowed_image_url_hosts);
+                d.field("Libvirt XML", deny_flag(p.deny_libvirt_xml_overlay));
                 d.list("Src prefixes", &p.allowed_source_prefixes);
                 d.field("Src check off", grant_flag(p.allow_source_check_opt_out));
                 d.field("Private egress", deny_flag(p.deny_private_egress));
@@ -893,8 +931,9 @@ fn summarize(p: &SecurityPolicy) -> String {
     super::po::tf(
         "mode={mode} denyPrivileged={priv} denyHostNetwork={net} denyLatestTag={tag} \
          allowedRegistries=[{regs}] workloadSecurity={wsec} denyDevicePassthrough={pass} \
-         denyLatestVmImage={vmtag} \
-         allowedImageUrlHosts=[{hosts}] allowedSourcePrefixes=[{srcp}] \
+         allowedPassthroughDevices=[{passok}] denyLatestVmImage={vmtag} \
+         allowedImageUrlHosts=[{hosts}] denyLibvirtXmlOverlay={lvxml} \
+         allowedSourcePrefixes=[{srcp}] \
          allowSourceCheckOptOut={srcoff} denyPrivateEgress={privegress} \
          allowedEgressPrefixes=[{egressp}]",
         &[
@@ -905,8 +944,10 @@ fn summarize(p: &SecurityPolicy) -> String {
             ("regs", &p.allowed_registries.join(", ")),
             ("wsec", workload_security_label(p.workload_security)),
             ("pass", &p.deny_device_passthrough.to_string()),
+            ("passok", &p.allowed_passthrough_devices.join(", ")),
             ("vmtag", &p.deny_latest_vm_image.to_string()),
             ("hosts", &p.allowed_image_url_hosts.join(", ")),
+            ("lvxml", &p.deny_libvirt_xml_overlay.to_string()),
             ("srcp", &p.allowed_source_prefixes.join(", ")),
             ("srcoff", &p.allow_source_check_opt_out.to_string()),
             ("privegress", &p.deny_private_egress.to_string()),
@@ -1070,6 +1111,39 @@ mod tests {
         assert!(format!("{e}").contains("0000:01:00.0"), "{e}");
     }
 
+    /// V3 end to end through the file: with a per-device allowlist, the listed
+    /// BDF is admitted and any other is refused by name.
+    #[test]
+    fn the_passthrough_allowlist_is_honoured_through_the_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path();
+        std::fs::write(
+            path(d),
+            r#"{"denyDevicePassthrough": true, "allowedPassthroughDevices": ["0000:65:00.1"]}"#,
+        )
+        .unwrap();
+        let ok = vec!["0000:65:00.1".to_string()];
+        assert!(enforce(d, "db-01", &Request::virtual_machine(None, &ok, None)).is_ok());
+        let bad = vec!["0000:02:00.0".to_string()];
+        let e = enforce(d, "db-01", &Request::virtual_machine(None, &bad, None)).unwrap_err();
+        assert!(format!("{e}").contains("0000:02:00.0"), "{e}");
+    }
+
+    /// V5 end to end through the file: a request carrying raw libvirt XML is
+    /// refused when the node denies the escape hatch, and admitted otherwise.
+    #[test]
+    fn deny_libvirt_xml_overlay_is_honoured_through_the_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path();
+        std::fs::write(path(d), r#"{"denyLibvirtXmlOverlay": true}"#).unwrap();
+        let plain = Request::virtual_machine(Some("golden:1.0"), &[], None);
+        assert!(enforce(d, "db-01", &plain).is_ok());
+        let raw =
+            Request::virtual_machine(Some("golden:1.0"), &[], None).with_libvirt_xml_overlay(true);
+        let e = enforce(d, "db-01", &raw).unwrap_err();
+        assert!(format!("{e}").contains("libvirt"), "{e}");
+    }
+
     /// A refusal at admission is a PERMISSION refusal: DX-7802, exit 77 — the
     /// same class as the source-override grants (DX-7801), never the exit 1 of a
     /// malformed request.
@@ -1105,6 +1179,7 @@ mod tests {
                 host: "x".into(),
                 allowed: vec!["z".into()],
             },
+            Violation::LibvirtXmlOverlay,
         ];
         for v in &all {
             assert!(!render(v).trim().is_empty(), "{v:?} rendered empty");
@@ -1231,8 +1306,10 @@ mod tests {
             allowed_registries: vec!["ghcr.io".into()],
             workload_security: Some(WorkloadSecuritySpec::Baseline),
             deny_device_passthrough: true,
+            allowed_passthrough_devices: vec!["0000:65:00.1".into()],
             deny_latest_vm_image: true,
             allowed_image_url_hosts: vec!["x".into()],
+            deny_libvirt_xml_overlay: true,
             allowed_source_prefixes: vec!["10.99.0.0/16".into()],
             allow_source_check_opt_out: true,
             deny_private_egress: true,

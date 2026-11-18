@@ -115,6 +115,23 @@ pub struct SecurityPolicy {
     /// capability a privileged container gets. It had no node policy at all.
     #[serde(default)]
     pub deny_device_passthrough: bool,
+    /// The specific PCI devices passthrough is allowed for WHILE
+    /// [`Self::deny_device_passthrough`] is on — an exception list, the same
+    /// shape as [`Self::allowed_egress_prefixes`]. Canonical BDFs
+    /// (`DDDD:BB:SS.F`); a request's device is matched after normalising both
+    /// (a `/sys/.../0000:65:00.1` path and a bare `0000:65:00.1` are the same
+    /// device, case-insensitively). A GRANT: empty = no exception, so
+    /// `denyDevicePassthrough` alone refuses every device. Only the node policy
+    /// grants one, so a tenant cannot widen it.
+    ///
+    /// Why an allowlist and not just the all-or-nothing switch: a node may host
+    /// exactly one SR-IOV VF or accelerator meant for guests and nothing else;
+    /// `denyDevicePassthrough: true` + one BDF here lets that through while every
+    /// other device — the host's own NIC, GPU or disk controller — stays
+    /// refused, instead of forcing the operator to choose between all passthrough
+    /// and none.
+    #[serde(default)]
+    pub allowed_passthrough_devices: Vec<String>,
     /// Refuse a VM disk image reference with no tag or with `:latest`.
     ///
     /// Separate from [`Self::deny_latest_tag`] on purpose — see the module doc.
@@ -131,6 +148,19 @@ pub struct SecurityPolicy {
     /// host deserved to be named.
     #[serde(default)]
     pub allowed_image_url_hosts: Vec<String>,
+    /// Refuse a VM created with raw libvirt domain-XML injected verbatim
+    /// (`vm create --libvirt-xml`/`--libvirt-xml-overlay`, or a manifest's
+    /// `libvirtXml`/`libvirtXmlOverlay`).
+    ///
+    /// That XML is an UNVALIDATED escape hatch: a fragment can name arbitrary
+    /// host paths and devices, a `<hostdev>` the typed `denyDevicePassthrough`
+    /// never sees, or `<qemu:commandline>` the engine does not model at all. It
+    /// is a local-CLI/trusted-manifest feature by design (never reachable from
+    /// the node contract — ADR-0050), but a node that has locked down the typed
+    /// surface should be able to refuse the one path that goes around it. Absent
+    /// = no opinion, exactly as before this field.
+    #[serde(default)]
+    pub deny_libvirt_xml_overlay: bool,
 
     // ---- Anti-spoofing GRANTS. These two invert the rule above: they do not
     // ---- restrict anything, they let something through, so «absent» means
@@ -216,8 +246,12 @@ impl SecurityPolicy {
             && self.allowed_registries.is_empty()
             && self.workload_security.is_none()
             && !self.deny_device_passthrough
+            // A passthrough allowlist says something on purpose, like the egress
+            // grant below — whether it has any effect is what `lint` is for.
+            && self.allowed_passthrough_devices.is_empty()
             && !self.deny_latest_vm_image
             && self.allowed_image_url_hosts.is_empty()
+            && !self.deny_libvirt_xml_overlay
             // A policy that only GRANTS anti-spoofing exceptions says something
             // on purpose; calling it «probably a mistake» would be wrong.
             && self.allowed_source_prefixes.is_empty()
@@ -257,6 +291,10 @@ impl SecurityPolicy {
                 self.deny_device_passthrough
                     || self.deny_latest_vm_image
                     || !self.allowed_image_url_hosts.is_empty()
+                    || self.deny_libvirt_xml_overlay
+                // `allowed_passthrough_devices` is a GRANT (exception to
+                // `deny_device_passthrough`), not a field that refuses on its
+                // own — excluded for the same reason as the egress grants.
             }
         }
     }
@@ -350,6 +388,21 @@ impl SecurityPolicy {
                           nothing is refused and the grant changes nothing",
                 severity: Severity::Low,
                 workload: None,
+            });
+        }
+
+        // The same shape for the passthrough allowlist: an exception to a rule
+        // that is not on refuses nothing and lets EVERY device through — exactly
+        // the opposite of what an operator who wrote an allowlist intends.
+        if !self.allowed_passthrough_devices.is_empty() && !self.deny_device_passthrough {
+            out.push(Lint {
+                id: "POLICY-PASSTHROUGH-GRANT-UNUSED",
+                field: "allowedPassthroughDevices",
+                message: "`allowedPassthroughDevices` is set but `denyDevicePassthrough` is not, \
+                          so nothing is refused and every device is allowed, not just the listed \
+                          ones — set `denyDevicePassthrough: true`",
+                severity: Severity::High,
+                workload: Some(Workload::VirtualMachine),
             });
         }
 

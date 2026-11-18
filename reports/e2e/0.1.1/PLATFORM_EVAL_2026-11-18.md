@@ -68,9 +68,9 @@ F0 (esta) → W1 bloqueadores → W2 médios → W3 baixos → W4 nativização 
 |---|---|---|---|
 | V1 | Volume quota-hard (loopback): remount pós-reboot falhado serve `_data` VAZIO em silêncio (`Ok`) → BD reinicializa datadir (perda/fork do dataset do tenant) | `delonix-volume/src/lib.rs:619` (`let _ = run("mount"...)`) | ✅ **CORRIGIDO** — remount falhado é erro duro; rootless não afectado (`img.exists()` falso) |
 | V2 | `policy.json` só aplicada no CLI; node-API gRPC e CRI/kubelet não a consultam → bypass de `deny_latest`/`allowed_registries`/`deny_device_passthrough` | `delonix-node-api/src/vms.rs:166`, `delonix-cri/.../lifecycle.rs:1658` (comentário admite a lacuna) | ☐ ALTO — arquitectural (mover `policy::enforce` do `-bin` para o motor); próxima fatia |
-| V3 | VFIO passthrough sem allowlist por-dispositivo; controlo é tudo-ou-nada global | `cloud-hypervisor/src/lib.rs:2128`, `libvirt/src/lib.rs:2125`, `admission.rs:474` | ☐ MÉDIO (atenuado: node-api não mapeia `devices`) |
-| V4 | libvirt descarta `spec.devices` mal-formado (não-BDF) em silêncio (sem ramo `else`) | `libvirt/src/lib.rs:2125-2142` | ☐ MÉDIO |
-| V5 | `libvirt_xml_overlay`: XML cru injectado verbatim, sem gate de admissão | `libvirt/src/lib.rs:2160` | ☐ BAIXO (escape-hatch documentado) |
+| V3 | VFIO passthrough sem allowlist por-dispositivo; controlo é tudo-ou-nada global | `cloud-hypervisor/src/lib.rs:2128`, `libvirt/src/lib.rs:2125`, `admission.rs:474` | ✅ **CORRIGIDO** — `allowedPassthroughDevices` (excepção ao `denyDevicePassthrough`); `evaluate` recusa só os BDF fora da lista, match via `normalize_pci_bdf` (BDF nu ou caminho sysfs, case-insensitive); fail-closed p/ não-BDF |
+| V4 | libvirt descarta `spec.devices` mal-formado (não-BDF) em silêncio (sem ramo `else`) | `libvirt/src/lib.rs:2125-2142` | ✅ **CORRIGIDO** — `validate_passthrough_devices` no topo do `boot` recusa qualquer não-BDF antes de qualquer efeito; mesmo parser do `<hostdev>`. (CH passa verbatim → falha alto no VMM, sem o defeito silencioso) |
+| V5 | `libvirt_xml_overlay`: XML cru injectado verbatim, sem gate de admissão | `libvirt/src/lib.rs:2160` | ✅ **CORRIGIDO** — `denyLibvirtXmlOverlay` + `Violation::LibvirtXmlOverlay`; flag `Request::with_libvirt_xml_overlay` ligada no apply de manifesto (única superfície com XML cru). Prova viva do EFEITO fora de âmbito (precisa root+PCI sobrante) |
 
 Áreas sólidas confirmadas: allowlist/ownership de pools de storage, validação de
 nomes de volume, `dir_usage` (quota rootless), CH `stop`/cgroup-leaf/`move_namespace`,
