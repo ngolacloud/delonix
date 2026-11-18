@@ -86,6 +86,172 @@ fn syserr(context: &'static str) -> impl Fn(nix::Error) -> Error {
     }
 }
 
+/// Phase profiler for the cold container-start path (`spawn`).
+///
+/// **Pure measurement — it changes no behavior.** Every entry point is a no-op
+/// unless `DELONIX_PROFILE_SPAWN` is set in the environment, and the decision is
+/// cached once (an atomic) so a disabled build pays nothing but a relaxed load
+/// per `mark`. Nothing here touches the `clone`/`cg_sync` hot path: the marks
+/// are placed in the PARENT's sequential orchestration only, between the
+/// syscalls that already happen, and read only `Instant::now()`.
+///
+/// Why this exists: `docs/comparacao-medida.md` measures ~91 ms of cold start
+/// (rootless, `--net host`) end-to-end but cannot say WHERE those ms go. ADR-0095
+/// says the warm/pooled plane must be designed on a measured profile, not a
+/// guess. This emits one line per start, broken into the phases a reader cares
+/// about: pre-clone setup (process/overlay prep in the parent), the `clone`
+/// itself (namespaces), cgroup placement, the network hook, and the wait for the
+/// child to finish shaping its mount namespace (overlay mount lives there).
+///
+/// `DELONIX_PROFILE_SPAWN=1` (or any value) prints the profile to stderr.
+/// `DELONIX_PROFILE_SPAWN=<path>` ALSO appends one JSONL record per start to that
+/// file (the path is detected by not being `1`/`true`/`yes`/`on`).
+mod spawn_profile {
+    use std::cell::RefCell;
+    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::time::Instant;
+
+    // 0 = not yet decided, 1 = disabled, 2 = enabled. Cached once from the env.
+    static STATE: AtomicU8 = AtomicU8::new(0);
+
+    thread_local! {
+        static MARKS: RefCell<Vec<(&'static str, Instant)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Whether profiling is on, deciding once from `DELONIX_PROFILE_SPAWN`.
+    pub fn enabled() -> bool {
+        match STATE.load(Ordering::Relaxed) {
+            1 => false,
+            2 => true,
+            _ => {
+                let on = std::env::var_os("DELONIX_PROFILE_SPAWN").is_some();
+                STATE.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+                on
+            }
+        }
+    }
+
+    /// Start a fresh profile for one `spawn` call.
+    pub fn begin() {
+        if !enabled() {
+            return;
+        }
+        MARKS.with(|m| {
+            let mut v = m.borrow_mut();
+            v.clear();
+            v.push(("enter", Instant::now()));
+        });
+    }
+
+    /// Stamp a phase boundary with a `'static` label.
+    pub fn mark(label: &'static str) {
+        if !enabled() {
+            return;
+        }
+        MARKS.with(|m| m.borrow_mut().push((label, Instant::now())));
+    }
+
+    /// Emit the profile (stderr, and JSONL if the env var names a path) and reset.
+    /// `container` names the run; `net_mode` records host vs isolated so the two
+    /// can be compared as `docs/comparacao-medida.md` asks.
+    pub fn flush(container: &str, net_mode: &str) {
+        if !enabled() {
+            return;
+        }
+        MARKS.with(|m| {
+            let marks = m.borrow();
+            if marks.len() < 2 {
+                return;
+            }
+            let t0 = marks[0].1;
+            let total_us = marks[marks.len() - 1].1.duration_since(t0).as_micros();
+            // Per-phase deltas between consecutive marks.
+            let mut phases: Vec<(&'static str, u128)> = Vec::with_capacity(marks.len());
+            for w in marks.windows(2) {
+                phases.push((w[1].0, w[1].1.duration_since(w[0].1).as_micros()));
+            }
+            let human = phases
+                .iter()
+                .map(|(l, us)| format!("{l}={:.2}ms", *us as f64 / 1000.0))
+                .collect::<Vec<_>>()
+                .join(" ");
+            eprintln!(
+                "delonix spawn-profile [{container} net={net_mode}] total={:.2}ms | {human}",
+                total_us as f64 / 1000.0
+            );
+            append_jsonl(&format!(
+                "{{\"role\":\"parent\",\"container\":\"{container}\",\"net\":\"{net_mode}\",\"total_us\":{total_us},\"phases_us\":{{{}}}}}",
+                phases_json(&phases)
+            ));
+        });
+        MARKS.with(|m| m.borrow_mut().clear());
+    }
+
+    /// Emit the CHILD-side sub-profile of the `mounts` phase. Runs in the forked
+    /// container init (a separate process), so it cannot flush through the parent;
+    /// it prints to stderr and, when the env var names a path, appends its own
+    /// JSONL record. `cid` ties it back to the parent line. This is what lets the
+    /// ~87 ms `mounts` phase be split into `setup_rootfs` (overlay + pivot_root +
+    /// /proc,/sys,/dev) and the confinement tail.
+    pub fn child_flush(cid: &str) {
+        if !enabled() {
+            return;
+        }
+        MARKS.with(|m| {
+            let marks = m.borrow();
+            if marks.len() < 2 {
+                return;
+            }
+            let t0 = marks[0].1;
+            let total_us = marks[marks.len() - 1].1.duration_since(t0).as_micros();
+            let mut phases: Vec<(&'static str, u128)> = Vec::with_capacity(marks.len());
+            for w in marks.windows(2) {
+                phases.push((w[1].0, w[1].1.duration_since(w[0].1).as_micros()));
+            }
+            let human = phases
+                .iter()
+                .map(|(l, us)| format!("{l}={:.2}ms", *us as f64 / 1000.0))
+                .collect::<Vec<_>>()
+                .join(" ");
+            eprintln!(
+                "delonix spawn-profile [{cid} CHILD mounts] total={:.2}ms | {human}",
+                total_us as f64 / 1000.0
+            );
+            append_jsonl(&format!(
+                "{{\"role\":\"child\",\"cid\":\"{cid}\",\"total_us\":{total_us},\"phases_us\":{{{}}}}}",
+                phases_json(&phases)
+            ));
+        });
+        MARKS.with(|m| m.borrow_mut().clear());
+    }
+
+    fn phases_json(phases: &[(&'static str, u128)]) -> String {
+        phases
+            .iter()
+            .map(|(l, us)| format!("\"{l}\":{us}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    fn append_jsonl(record: &str) {
+        if let Some(val) = std::env::var_os("DELONIX_PROFILE_SPAWN") {
+            let s = val.to_string_lossy();
+            if matches!(s.as_ref(), "1" | "true" | "yes" | "on" | "") {
+                return; // a flag, not a path — stderr only
+            }
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(s.as_ref())
+            {
+                let _ = f.write_all(record.as_bytes());
+                let _ = f.write_all(b"\n");
+            }
+        }
+    }
+}
+
 // `is_alive`, `proc_starttime` and `safe_to_signal` now live in
 // `delonix-node`, alongside the host queries, with the `pid_starttime` they exist to
 // hold — and so `delonix-vm` can use them without a SECOND copy of the
@@ -4739,6 +4905,10 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             libc::close(r);
         }
     }
+    // Child-side sub-profile of the parent's `mounts` phase — a no-op unless
+    // DELONIX_PROFILE_SPAWN is set. `begin` clears the marks the clone copied from
+    // the parent and stamps the GO; this is pure measurement (see `spawn_profile`).
+    spawn_profile::begin();
     // Pod IPC/UTS sharing: join the infra container's IPC + UTS namespaces so the
     // pod's containers share System V/POSIX IPC and the UTS/hostname. The netns is
     // already joined (the `--pod` re-exec's `ip netns exec`). We run in the
@@ -4814,6 +4984,9 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         eprintln!("delonix: failed to prepare the rootfs: {e}");
         return 126;
     }
+    // The overlay mount, `pivot_root` and the /proc,/sys,/dev set are all inside
+    // `setup_rootfs`: this is the suspected dominant slice of the `mounts` phase.
+    spawn_profile::mark("setup_rootfs");
     if userns {
         // uid 0 INSIDE the user ns (= USERNS_UID_BASE on the host, mappable).
         // nonzero->0 copies permitted->effective (keeps caps).
@@ -4935,6 +5108,9 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     // CLOEXEC (set by the `pipe2` in `spawn`): if this init dies before getting
     // here, or `execvp` runs without this write, the fd closes and the parent
     // reads EOF instead of blocking forever.
+    // The confinement tail (setuid, /dev, tmpfs, secret/config files, read-only
+    // remount, ulimits, masked/readonly paths) between `setup_rootfs` and here.
+    spawn_profile::mark("confine_tail");
     if let Some(w) = ready_w {
         // SAFETY: our end of the pipe created in `spawn`; write 1 byte and close.
         unsafe {
@@ -4943,6 +5119,9 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             libc::close(w);
         }
     }
+    // After the READY byte so the flush never sits in the parent's `mounts`
+    // window; `cid` ties this child line to its parent line in the JSONL.
+    spawn_profile::child_flush(cid);
     // The container gets what the IMAGE gives, and nothing else (ADR-0062).
     //
     // This used to be `chown -R uid:gid /`: measured, it made a non-root user
@@ -8367,6 +8546,10 @@ fn spawn(
     spec: &RunSpec<'_>,
     replaces_record: bool,
 ) -> Result<Status> {
+    // Cold-start phase profiler — a no-op unless DELONIX_PROFILE_SPAWN is set
+    // (see `spawn_profile`). `begin` stamps the entry so every later `mark` is a
+    // delta from here; it is pure measurement and changes nothing.
+    spawn_profile::begin();
     // A cgroup group that `setup_cgroup` would refuse is refused HERE, before the
     // rootfs is written to or a process cloned: the refusal must not cost a child
     // that then has to be discarded. `setup_cgroup` keeps its own check — it is the
@@ -8482,10 +8665,17 @@ fn spawn(
     // guard restores our own PID namespace the instant the clone returns (success
     // or not), so the slirp hook, the log shim and the late-mount watcher we fork
     // afterwards stay in the host's PID namespace.
+    // End of the pre-clone phase: everything above (etc files, `InitInputs::gather`
+    // with its CStrings/mounts, pipes, console socket, secret/config resolution) is
+    // the per-process setup Docker/Podman pay once in a resident daemon and the
+    // daemonless delonix re-pays per `run`.
+    spawn_profile::mark("pre_clone");
     let pidns_guard = enter_pod_pidns(spec)?;
     let cloned = clone_init(inputs, io, flags, &pipes);
     drop(pidns_guard);
     let pid = cloned?;
+    // The `clone` returned: the child's namespaces (user/mount/pid/net/…) exist.
+    spawn_profile::mark("clone");
 
     // CRITICAL ORDER: the user namespace handshake (releasing the child with the byte
     // "GO") MUST come BEFORE the console recv. In console mode the init only allocates the
@@ -8573,6 +8763,11 @@ fn spawn(
     // hands it to the late-mount watcher instead.
     let ready_r = unsafe { OwnedFd::from_raw_fd(pipes.ready.0) };
     let mounted = wait_for_mounts(ready_r.as_raw_fd(), &container.name);
+    // The child has finished shaping its mount namespace — this window is where
+    // the OVERLAY mount lives (rootless mounts it inside the child's mount ns,
+    // `mount_overlay_if_marked`), plus `pivot_root` and the `/proc`,`/sys`,`/dev`
+    // bind/tmpfs set. It is the parent's only view of that child-side cost.
+    spawn_profile::mark("mounts");
     // Past the ceiling the process runs, but nobody has seen its root filesystem
     // in place: the record says so, and whatever enters it refuses until the
     // proof arrives (`require_mounted`). It used to be published as plain
@@ -8584,6 +8779,18 @@ fn spawn(
     refuse_failed_detached_start(container, pid, spec, pipes.exec, detach, &mounted)?;
 
     publish_or_discard(store, container, pid, replaces_record)?;
+    // Startup is done: the process runs, is in its cgroup, its network is up and
+    // its record is published. Emit the phase profile here — the `wait_foreground`
+    // below is the WORKLOAD, not the start. `net` tags host vs isolated so the two
+    // runs can be compared (the hook's presence is what drives the `net` phase).
+    spawn_profile::flush(
+        &container.name,
+        if spec.on_started.is_some() || spec.new_netns {
+            "isolated"
+        } else {
+            "host"
+        },
+    );
     if container.mount_pending {
         watch_late_mount(store, container, ready_r);
     } else {
@@ -9354,7 +9561,12 @@ fn userns_handshake(
         discard_child(container, pid);
         return Err(e);
     }
+    spawn_profile::mark("cgroup");
     let net_err = spec.on_started.and_then(|hook| hook(pid.as_raw()).err());
+    // Network hook (CNI/slirp). `None` for `--net host` — the phase is then ~0,
+    // which is exactly the host-vs-isolated split `docs/comparacao-medida.md` asks
+    // to measure separately.
+    spawn_profile::mark("net");
     // SAFETY: writes 1 byte (the "you may proceed") and closes the write.
     unsafe {
         let go = [1u8; 1];
@@ -9578,6 +9790,7 @@ fn place_without_userns(
         abort(cg_sync);
         return Err(e);
     }
+    spawn_profile::mark("cgroup");
     // Configures the network (or other startup) BEFORE releasing the child — with
     // the barrier in place, the hook now runs with the entrypoint STILL stopped, so
     // the network is ready before it starts, the same guarantee the userns path had.
@@ -9588,6 +9801,7 @@ fn place_without_userns(
             return Err(e);
         }
     }
+    spawn_profile::mark("net");
     // In the leaf, network up: release the entrypoint to `execvp` inside the cgroup.
     release(cg_sync);
     Ok(())
