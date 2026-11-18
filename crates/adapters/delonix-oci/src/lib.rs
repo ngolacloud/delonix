@@ -22,6 +22,7 @@ pub mod run_images;
 pub mod save;
 pub mod sign;
 mod token_cache;
+pub mod uring;
 
 pub use buildpack::CnbPlan;
 pub use cas::{sha256_hex, Cas};

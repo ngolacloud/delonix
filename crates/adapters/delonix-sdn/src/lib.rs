@@ -50,6 +50,8 @@ pub mod infra;
 pub mod ipam;
 /// Rootful realization of the `macvlan`/`ipvlan` LAN drivers (see the module).
 pub mod lan;
+/// KRN-0001: native netlink (currently the `link_exists` query), replacing `ip`.
+mod netlink;
 pub mod netops;
 mod pin_userns;
 pub mod policy_nft;
@@ -426,11 +428,8 @@ fn capture(prog: &str, args: &[&str]) -> Result<String> {
 }
 
 fn link_exists(name: &str) -> bool {
-    Command::new("ip")
-        .args(["link", "show", name])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    // KRN-0001: native netlink (`RTM_GETLINK`) instead of `ip link show`.
+    netlink::link_exists(name)
 }
 
 // ---- deterministic names and IPs -----------------------------------------
@@ -2097,6 +2096,17 @@ pub fn slirp_attach(pid: i32, publish: &[String]) -> Result<()> {
     if let Some(sock) = &api_sock {
         let _ = std::fs::remove_file(sock);
         args.push(format!("--api-socket={}", sock.display()));
+    }
+    // Defence-in-depth (podman rootless default), the SAME hardening as the holder
+    // slirp in `infra::start_slirp` (R5): own mount namespace with caps dropped
+    // (`--enable-sandbox`) and a seccomp filter (`--enable-seccomp`), gated on the
+    // binary advertising each flag so an older slirp4netns still brings the network
+    // up. This is the per-container `-p` path, which must be hardened too.
+    if crate::infra::slirp_supports("--enable-sandbox") {
+        args.push("--enable-sandbox".to_string());
+    }
+    if crate::infra::slirp_supports("--enable-seccomp") {
+        args.push("--enable-seccomp".to_string());
     }
     args.push(pid.to_string());
     args.push("tap0".to_string());

@@ -618,13 +618,31 @@ impl VolumeStore {
     /// - `webdav`/`dav` → `mount -t davfs https://…`  (Nextcloud/ownCloud WebDAV)
     pub fn ensure_mounted(&self, vol: &Volume) -> Result<()> {
         // Volume with a HARD quota (ext4 loopback): remounts the image if unmounted
-        // (e.g.: after a host reboot). Best-effort — without privilege, no-op.
+        // (e.g.: after a host reboot). The REAL data lives INSIDE `data.img`; if the
+        // remount fails we must NOT fall through and let the caller bind-mount the
+        // empty backing directory. Serving an empty `_data` is worse than failing —
+        // a database (Postgres/MySQL/Odoo) would reinitialise over it and fork or
+        // destroy the tenant's dataset (V1). So a failed remount is a hard error,
+        // not a silent `Ok`. In rootless there is no privileged loopback image
+        // (`img.exists()` is false), so this path does not run and does not break
+        // the unprivileged case.
         let img = self.loop_img(&vol.name);
         if vol.quota_bytes.is_some() && img.exists() && !is_mounted(&vol.mountpoint) {
-            let _ = Self::run(
+            Self::run(
                 "mount",
                 &["-o", "loop", &img.to_string_lossy(), &vol.mountpoint],
-            );
+            )?;
+            if !is_mounted(&vol.mountpoint) {
+                return Err(Error::Command {
+                    context: "mount",
+                    message: format!(
+                        "loopback image {} did not mount on {} — refusing to serve an empty \
+                         volume (the data is inside the image)",
+                        img.display(),
+                        vol.mountpoint
+                    ),
+                });
+            }
         }
         if !is_network_driver(&vol.driver) || is_mounted(&vol.mountpoint) {
             return Ok(());
@@ -950,17 +968,10 @@ impl VolumeStore {
         Ok(())
     }
 
-    /// Finds the loop device serving the image (`losetup -j`), if any.
+    /// Finds the loop device serving the image, if any — native `losetup -j`
+    /// over sysfs (see [`loopdev::find`]).
     fn loop_dev(img: &std::path::Path) -> Option<String> {
-        let out = std::process::Command::new("losetup")
-            .args(["-j", &img.to_string_lossy(), "-O", "NAME", "--noheadings"])
-            .output()
-            .ok()?;
-        let s = String::from_utf8_lossy(&out.stdout);
-        s.lines()
-            .next()
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty())
+        loopdev::find(img)
     }
 
     /// Ensures the ext4 image (privileged) with `quota` bytes is mounted on `_data`.
@@ -1001,7 +1012,7 @@ impl VolumeStore {
                 context: "quota",
                 message: "loop device not found".into(),
             })?;
-            Self::run("losetup", &["-c", &dev])?; // recognizes the backing's new size
+            loopdev::set_capacity(&dev)?; // native LOOP_SET_CAPACITY (losetup -c fallback)
             Self::run("resize2fs", &[&dev])?; // online grow
         } else if quota < cur {
             // SHRINK: ext4 does not shrink online — do it offline (unmount/resize/mount).
@@ -1489,6 +1500,126 @@ fn is_mounted(path: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Native loop-device control (KRN-0014). The two loopback-quota paths used to
+/// shell out to the `losetup` binary; here they talk to the kernel directly, so
+/// the runtime no longer depends on util-linux being installed on the host. Each
+/// native call keeps the `losetup` binary as a fallback for kernels that predate
+/// the ioctl, so we never regress where the native path is unavailable.
+///
+/// Note on scope: the actual *attach* of an image to a loop device is done
+/// elsewhere by `mount -o loop` (the kernel auto-allocates the device), so
+/// `LOOP_CTL_GET_FREE`/`LOOP_CONFIGURE` have no call site here — this module
+/// only covers the two things that did run `losetup`: finding the device that
+/// backs an image (`losetup -j`) and re-reading a grown backing (`losetup -c`).
+mod loopdev {
+    use super::{Error, Result, VolumeStore};
+    use std::os::unix::io::AsRawFd;
+    use std::path::{Path, PathBuf};
+
+    /// `LOOP_SET_CAPACITY` (`_IO(0x4C, 0x07)` in `<linux/loop.h>`): asks the
+    /// kernel to re-read the backing file's size into the device — the native
+    /// form of `losetup -c`. The ioctl takes no data argument.
+    pub(crate) const LOOP_SET_CAPACITY: u64 = 0x4C07;
+
+    /// Re-reads a freshly-grown backing file into its loop device
+    /// (`losetup -c <dev>`), so the kernel sees the new size without detaching.
+    ///
+    /// Tries the native `LOOP_SET_CAPACITY` ioctl first; on a kernel that does
+    /// not implement it (`ENOTTY`/`EINVAL`) it falls back to the `losetup`
+    /// binary. Any other errno (e.g. `EPERM`, `ENODEV`) is a real failure and
+    /// surfaces as such rather than being papered over by the fallback.
+    pub(crate) fn set_capacity(dev: &str) -> Result<()> {
+        match set_capacity_ioctl(dev) {
+            Ok(()) => Ok(()),
+            Err(e) if is_unsupported(&e) => VolumeStore::run("losetup", &["-c", dev]),
+            Err(e) => Err(Error::Command {
+                context: "quota",
+                message: format!("losetup -c {dev}: {e}"),
+            }),
+        }
+    }
+
+    fn set_capacity_ioctl(dev: &str) -> std::io::Result<()> {
+        // Read access is enough: the ioctl only re-reads the backing size, it
+        // does not write to the device.
+        let f = std::fs::OpenOptions::new().read(true).open(dev)?;
+        // SAFETY: `LOOP_SET_CAPACITY` takes no data argument (the trailing `0`
+        // is ignored by the kernel); `f` is an open loop-device fd that lives for
+        // the whole call, and the negative return code is converted to an error.
+        let rc = unsafe { libc::ioctl(f.as_raw_fd(), LOOP_SET_CAPACITY as _, 0) };
+        if rc < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    /// An ioctl the running kernel does not implement — the only errors for which
+    /// falling back to the `losetup` binary is correct (an installed tool may
+    /// know a path this kernel header predates). Every other errno is a genuine
+    /// failure that must not be hidden.
+    pub(crate) fn is_unsupported(e: &std::io::Error) -> bool {
+        matches!(e.raw_os_error(), Some(libc::ENOTTY) | Some(libc::EINVAL))
+    }
+
+    /// Finds the loop device backing `img`, if any — the native form of
+    /// `losetup -j <img>`. Reads `/sys/block/loop*/loop/backing_file` (the very
+    /// source `losetup -j` consults) instead of spawning the binary. Only when
+    /// sysfs cannot be read at all (e.g. `/sys` not mounted) does it fall back to
+    /// `losetup -j`; a readable sysfs with no match is an honest "no device".
+    pub(crate) fn find(img: &Path) -> Option<String> {
+        match find_in_sysfs(Path::new("/sys/block"), img) {
+            Ok(found) => found,
+            Err(_) => find_via_losetup(img),
+        }
+    }
+
+    /// The sysfs scan behind [`find`], parameterised on the `sys/block` root so
+    /// it can be tested without a live kernel.
+    pub(crate) fn find_in_sysfs(sys_block: &Path, img: &Path) -> std::io::Result<Option<String>> {
+        // Compare RESOLVED paths: the backing_file was absolute at attach time,
+        // but symlinks or `..` on either side must not turn a real hit into a
+        // miss (which would leave the grown image un-resized).
+        let want = std::fs::canonicalize(img).unwrap_or_else(|_| img.to_path_buf());
+        for entry in std::fs::read_dir(sys_block)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if !name.starts_with("loop") {
+                continue;
+            }
+            // Non-loop block devices, and loop devices with nothing attached,
+            // have no such file — skip them instead of failing the whole scan.
+            let bf = match std::fs::read_to_string(entry.path().join("loop/backing_file")) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let bf = bf.trim();
+            // The kernel appends " (deleted)" when the backing file was unlinked
+            // while still attached — strip it before comparing the path.
+            let bf = bf.strip_suffix(" (deleted)").unwrap_or(bf);
+            let got = std::fs::canonicalize(bf).unwrap_or_else(|_| PathBuf::from(bf));
+            if got == want {
+                return Ok(Some(format!("/dev/{name}")));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Fallback to the `losetup -j` binary — the prior behaviour, kept for the
+    /// rare host where `/sys/block` is not available.
+    fn find_via_losetup(img: &Path) -> Option<String> {
+        let out = std::process::Command::new("losetup")
+            .args(["-j", &img.to_string_lossy(), "-O", "NAME", "--noheadings"])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .next()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -1546,6 +1677,83 @@ mod tests {
         );
     }
     use super::*;
+
+    /// `LOOP_SET_CAPACITY` must be the exact `<linux/loop.h>` request number: the
+    /// kernel matches it literally, so a wrong value is a silent no-op or EINVAL.
+    #[test]
+    fn loop_set_capacity_is_the_abi_number() {
+        assert_eq!(loopdev::LOOP_SET_CAPACITY, 0x4C07);
+    }
+
+    /// Only "the kernel does not know this ioctl" (ENOTTY/EINVAL) may fall back to
+    /// the `losetup` binary; a real error (EPERM, ENODEV…) must surface instead of
+    /// being masked by a second attempt.
+    #[test]
+    fn only_unsupported_errnos_fall_back_to_the_binary() {
+        use std::io::Error as IoError;
+        assert!(loopdev::is_unsupported(&IoError::from_raw_os_error(
+            libc::ENOTTY
+        )));
+        assert!(loopdev::is_unsupported(&IoError::from_raw_os_error(
+            libc::EINVAL
+        )));
+        assert!(!loopdev::is_unsupported(&IoError::from_raw_os_error(
+            libc::EPERM
+        )));
+        assert!(!loopdev::is_unsupported(&IoError::from_raw_os_error(
+            libc::ENODEV
+        )));
+    }
+
+    /// The sysfs scan picks the loop device whose `backing_file` resolves to the
+    /// image, ignores non-loop block devices and loop devices with no backing,
+    /// strips the kernel's trailing newline and its " (deleted)" marker, and
+    /// returns `None` (not an error) when nothing backs the image.
+    #[test]
+    fn find_in_sysfs_matches_the_backing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sys = tmp.path().join("sys/block");
+
+        // The image we are looking for, and a decoy image.
+        let img = tmp.path().join("vol.img");
+        std::fs::write(&img, b"data").unwrap();
+        let other = tmp.path().join("other.img");
+        std::fs::write(&other, b"data").unwrap();
+
+        let write_backing = |dev: &str, contents: &str| {
+            let d = sys.join(dev).join("loop");
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("backing_file"), contents).unwrap();
+        };
+        // loop0 backs the decoy; loop3 backs our image — written the way sysfs
+        // presents it: a trailing newline, plus the " (deleted)" marker the scan
+        // must strip before comparing.
+        write_backing("loop0", &format!("{}\n", other.display()));
+        write_backing("loop3", &format!("{} (deleted)\n", img.display()));
+        // A real disk with no `loop/` subdir, and a backing-less loop device —
+        // both must be skipped, not error the scan.
+        std::fs::create_dir_all(sys.join("sda")).unwrap();
+        std::fs::create_dir_all(sys.join("loop7")).unwrap();
+
+        assert_eq!(
+            loopdev::find_in_sysfs(&sys, &img).unwrap(),
+            Some("/dev/loop3".to_string())
+        );
+
+        // An image nothing backs → no device, and NOT an error.
+        let unbacked = tmp.path().join("nope.img");
+        std::fs::write(&unbacked, b"x").unwrap();
+        assert_eq!(loopdev::find_in_sysfs(&sys, &unbacked).unwrap(), None);
+    }
+
+    /// A missing `/sys/block` is an `Err` (so `find` can fall back to the binary),
+    /// never a silent "no device".
+    #[test]
+    fn find_in_sysfs_errors_when_sysfs_is_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does/not/exist");
+        assert!(loopdev::find_in_sysfs(&missing, std::path::Path::new("/x.img")).is_err());
+    }
 
     /// A `meta.json` written before this field existed has to keep
     /// deserializing — otherwise every volume on an upgraded host vanishes from

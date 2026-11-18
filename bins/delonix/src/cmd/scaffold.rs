@@ -962,6 +962,10 @@ fn render_planned(
     // starting point, not a chore. Adoption is left alone — that project has
     // its own history.
     if !adopt {
+        // Produce the dependency lock against the version just written, BEFORE
+        // the first commit, so it lands in it (the generated project's own code
+        // is scaffolded, not adopted, so this is ours to add).
+        generate_lockfile(tname, &o.dir);
         if let Some(why) = git_init(&o.dir) {
             super::output::warn(&why);
         }
@@ -1795,6 +1799,77 @@ fn run_quiet(exe: &Path, dir: &Path, args: &[&str]) -> Result<()> {
                 ("stderr", String::from_utf8_lossy(&out.stderr).trim()),
             ],
         )))
+    }
+}
+
+/// True when `bin` is found on `$PATH` as a regular file.
+fn tool_on_path(bin: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|p| p.join(bin).is_file()))
+        .unwrap_or(false)
+}
+
+/// Generate the dependency lockfile right after the project is written, so the
+/// FIRST commit is reproducible and the template's CI — which requires the
+/// lockfile committed — is green from the start.
+///
+/// A template parameterised by framework version (`-v`) cannot SHIP a static
+/// lockfile: the resolution depends on the version just chosen, so one static
+/// lock would be wrong for every other version and `--locked`/`--frozen` would
+/// refuse it. The lock is therefore produced HERE, against the version that was
+/// written, with the host toolchain.
+///
+/// Best-effort on purpose: no toolchain on PATH, or a resolver that cannot
+/// reach the network, is a WARNING and never a failure — `delonix init` still
+/// finishes, and the Dockerfile and CI already tell the user how to produce the
+/// lock by hand. Skipped when the lockfile already exists (idempotent re-run).
+fn generate_lockfile(tname: &str, dir: &Path) {
+    let Some(lock) = meta_kv(tname, "lock") else {
+        return;
+    };
+    if lock.is_empty() || dir.join(lock).exists() {
+        return;
+    }
+    let (bin, args): (&str, &[&str]) = match lock {
+        "uv.lock" => ("uv", &["lock"]),
+        "pnpm-lock.yaml" => ("pnpm", &["install", "--lockfile-only", "--ignore-scripts"]),
+        "Cargo.lock" => ("cargo", &["generate-lockfile"]),
+        "composer.lock" => (
+            "composer",
+            &["update", "--no-install", "--no-interaction", "--no-progress"],
+        ),
+        // A lock name the generator does not know how to produce: leave it to
+        // the Dockerfile/CI guidance rather than guess a command.
+        _ => return,
+    };
+    let cmd = format!("{bin} {}", args.join(" "));
+    if !tool_on_path(bin) {
+        super::output::warn(&super::po::tf(
+            "{bin} is not on PATH — skipping {lock}; run `{cmd}` in the project and commit {lock} for reproducible builds",
+            &[("bin", bin), ("lock", lock), ("cmd", &cmd)],
+        ));
+        return;
+    }
+    match std::process::Command::new(bin)
+        .args(args)
+        .current_dir(dir)
+        .output()
+    {
+        Ok(o) if o.status.success() && dir.join(lock).exists() => {
+            eprintln!("  {}", super::po::tf("generated {lock}", &[("lock", lock)]));
+        }
+        Ok(o) => super::output::warn(&super::po::tf(
+            "could not generate {lock} (`{cmd}` failed) — run it in the project and commit {lock} for reproducible builds:\n{stderr}",
+            &[
+                ("lock", lock),
+                ("cmd", &cmd),
+                ("stderr", String::from_utf8_lossy(&o.stderr).trim()),
+            ],
+        )),
+        Err(e) => super::output::warn(&super::po::tf(
+            "could not run `{cmd}` to generate {lock} ({err}) — run it by hand and commit {lock}",
+            &[("cmd", &cmd), ("lock", lock), ("err", &e.to_string())],
+        )),
     }
 }
 

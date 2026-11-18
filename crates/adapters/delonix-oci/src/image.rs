@@ -163,7 +163,10 @@ impl ImageStore {
         }
         // Rootless (A13): without privileges, root's store (`/var/lib/delonix`)
         // is not writable → use the user's one (`$XDG_DATA_HOME/delonix`).
-        if !nix::unistd::geteuid().is_root() {
+        // `is_rootless()` (not `geteuid()==0`) so a NESTED user namespace — euid 0
+        // but no write to `/var/lib/delonix` — also lands in the user's store,
+        // consistent with `ContainerStore::default_root`.
+        if delonix_node::is_rootless() {
             let base = std::env::var_os("XDG_DATA_HOME")
                 .map(PathBuf::from)
                 .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
@@ -292,14 +295,41 @@ impl ImageStore {
     }
 
     /// Resolves `name:tag`, `name` (→`:latest`) or an id prefix.
+    ///
+    /// A tag is an exact, unique key (`enforce_tag_uniqueness`), so a tag match
+    /// wins outright. Failing that, the name is read as an id PREFIX — and here
+    /// Docker's rule holds: a prefix that matches MORE than one image is
+    /// AMBIGUOUS and is refused, never resolved to whichever happened to be
+    /// first in the list (the old `starts_with` returned an arbitrary image, so
+    /// `image rm ab` could delete the wrong one). The refusal is an
+    /// invalid-argument (fix the argument: give a longer prefix), deliberately
+    /// NOT a "not found" — a caller that swallows misses (the idempotent CRI
+    /// `RemoveImage`) must still see the ambiguity.
     pub fn resolve(&self, name: &str) -> Result<Image> {
         let want = normalise_tag(name);
-        for img in self.list()? {
-            if img.repo_tags.contains(&want) || strip(&img.id).starts_with(strip(name)) {
-                return Ok(img);
-            }
+        let all = self.list()?;
+        if let Some(img) = all.iter().find(|img| img.repo_tags.contains(&want)) {
+            return Ok(img.clone());
         }
-        Err(Error::NoSuchImage(name.to_string()))
+        let key = strip(name);
+        let mut hits = all
+            .iter()
+            .filter(|img| !key.is_empty() && strip(&img.id).starts_with(key));
+        match (hits.next(), hits.next()) {
+            (Some(img), None) => Ok(img.clone()),
+            (Some(a), Some(b)) => {
+                // A short list is enough to disambiguate by hand; the full set
+                // could be long and the first two already prove the point.
+                let more = if hits.next().is_some() { ", …" } else { "" };
+                Err(delonix_model::Error::Invalid(format!(
+                    "image prefix {name:?} is ambiguous: matches {}, {}{more} — use a longer prefix",
+                    a.short_id(),
+                    b.short_id(),
+                ))
+                .into())
+            }
+            _ => Err(Error::NoSuchImage(name.to_string())),
+        }
     }
 
     /// Ensures each tag of `img` points ONLY to `img`: removes it from
@@ -490,6 +520,32 @@ mod tests {
             !s.record_path("sha256:01").exists(),
             "the image left with no tag must be gone"
         );
+    }
+
+    /// Id-prefix resolution refuses an AMBIGUOUS prefix (Docker's rule) instead
+    /// of returning an arbitrary first match, and still resolves a prefix unique
+    /// to one image. A tag match keeps priority over any prefix.
+    #[test]
+    fn an_ambiguous_id_prefix_is_refused_and_a_unique_one_resolves() {
+        let (s, _dir) = store();
+        s.save(&image("sha256:ab11cd", &["one:1"], 100)).unwrap();
+        s.save(&image("sha256:ab22ef", &["two:1"], 200)).unwrap();
+
+        // "ab" prefixes both ids: ambiguous, and NOT a not-found — a caller that
+        // swallows misses must still see this.
+        let err = s
+            .resolve("ab")
+            .expect_err("a prefix matching two images is ambiguous");
+        assert!(!err.is_not_found(), "ambiguity is not «not found»: {err}");
+        let msg = err.to_string();
+        assert!(msg.contains("ambiguous"), "{msg}");
+
+        // A prefix unique to one image resolves to exactly that image.
+        assert_eq!(s.resolve("ab11").unwrap().id, "sha256:ab11cd");
+        assert_eq!(s.resolve("ab22").unwrap().id, "sha256:ab22ef");
+
+        // A tag still wins outright, even though both ids share the "ab" prefix.
+        assert_eq!(s.resolve("one:1").unwrap().id, "sha256:ab11cd");
     }
 
     /// `save` leaves no scratch file behind.

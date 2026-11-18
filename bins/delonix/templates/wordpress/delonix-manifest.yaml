@@ -55,6 +55,20 @@ spec:
     WORDPRESS_DB_USER: wordpress
     WORDPRESS_DB_PASSWORD: wordpress
     WORDPRESS_DB_NAME: wordpress
+    # WordPress security keys & salts. Unset, the official image writes the
+    # globally-known default phrase into wp-config.php and every session cookie
+    # becomes forgeable — so they live here, fed to the web container with the
+    # rest of this secret. These placeholders MUST be replaced before a real
+    # deployment (same as the DB password above): paste eight unique random
+    # strings, or supply them through `fromEnvFile`/`delonix secret create`.
+    WORDPRESS_AUTH_KEY: replace-with-a-unique-random-string-01
+    WORDPRESS_SECURE_AUTH_KEY: replace-with-a-unique-random-string-02
+    WORDPRESS_LOGGED_IN_KEY: replace-with-a-unique-random-string-03
+    WORDPRESS_NONCE_KEY: replace-with-a-unique-random-string-04
+    WORDPRESS_AUTH_SALT: replace-with-a-unique-random-string-05
+    WORDPRESS_SECURE_AUTH_SALT: replace-with-a-unique-random-string-06
+    WORDPRESS_LOGGED_IN_SALT: replace-with-a-unique-random-string-07
+    WORDPRESS_NONCE_SALT: replace-with-a-unique-random-string-08
 ---
 apiVersion: delonix.io/v1
 kind: Container

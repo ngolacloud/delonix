@@ -1,10 +1,11 @@
 //! Loading images from a `docker save` archive (OCI/legacy format).
 
-use crate::cas::sha256_hex;
+use crate::cas::{sha256_hex, StreamingBlob};
 use crate::image::{healthcheck_test, now_unix, Image, ImageConfig, ImageStore};
 use crate::{Error, Result};
 use oci_spec::image::ImageConfiguration;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 
@@ -29,11 +30,72 @@ fn path_to_digest(blob_path: &str) -> String {
     format!("sha256:{hex}")
 }
 
-/// Imports a `docker save` archive into the store, returning the image.
+/// `true` for the blob files a CLASSIC `docker save` (the pre-OCI daemon
+/// format) lays at the top level: `<layer-id>/layer.tar` and the config
+/// `<hex>.json`. The OCI layout keeps everything under `blobs/sha256/`; the
+/// classic format references these by PATH from `manifest.json` and expects
+/// the reader to hash their content. `oci-layout`, `index.json`,
+/// `repositories`, `<id>/json` and `<id>/VERSION` are not image blobs and must
+/// not be hashed into the CAS.
+fn is_classic_blob(name: &str) -> bool {
+    name.ends_with("/layer.tar")
+        || (!name.contains('/')
+            && name.ends_with(".json")
+            && name != "manifest.json"
+            && name != "index.json")
+}
+
+/// Streams one archive entry into the CAS, block by block, and returns its
+/// `sha256:<hex>` digest. A layer is multi-GB, so it is never held whole in
+/// memory ([`StreamingBlob`] hands fixed blocks to a writer thread); the old
+/// path `read_to_end`-ed every layer into a `Vec` first (O7).
+fn cas_write_entry<R: Read>(store: &ImageStore, entry: &mut R) -> Result<String> {
+    let cas = store.cas();
+    let tmp = cas.tmp_path();
+    let mut blob = StreamingBlob::create(&tmp)?;
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = entry.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        blob.append(&buf[..n])?;
+    }
+    let hex = blob.finish()?;
+    cas.adopt(&tmp, &hex)?;
+    Ok(format!("sha256:{hex}"))
+}
+
+/// Resolves a `manifest.json` blob reference to its CAS digest. The OCI layout
+/// addresses blobs by a `blobs/sha256/<hex>` path that already IS the digest;
+/// the classic format references them by an arbitrary archive path whose
+/// content we hashed into `extracted` as we read it.
+fn resolve_blob(reference: &str, extracted: &HashMap<String, String>) -> Result<String> {
+    if let Some(digest) = extracted.get(reference) {
+        Ok(digest.clone())
+    } else if reference.starts_with("blobs/sha256/") {
+        // An OCI-layout reference the archive never actually carried — the
+        // digest is still known from the path, and O6's presence check below
+        // turns the missing blob into a clear refusal.
+        Ok(path_to_digest(reference))
+    } else {
+        Err(Error::Archive(format!(
+            "manifest.json references {reference}, which the archive does not contain"
+        )))
+    }
+}
+
+/// Imports a `docker save` archive into the store, returning the image. Reads
+/// BOTH formats: the OCI image layout (`blobs/sha256/...`) and the classic
+/// daemon `docker save` (`<id>/layer.tar` + `<cfg>.json` at the top level).
 pub fn load_docker_archive(store: &ImageStore, tar_path: &Path) -> Result<Image> {
     let file = std::fs::File::open(tar_path)?;
     let mut archive = tar::Archive::new(file);
     let mut manifest_bytes: Option<Vec<u8>> = None;
+    // Archive path (as `manifest.json` names it) → the content digest we hashed
+    // it to. Populated for every blob of EITHER format, so the classic
+    // references (by path) and the OCI ones (by digest-in-path) resolve alike.
+    let mut extracted: HashMap<String, String> = HashMap::new();
 
     for entry in archive.entries()? {
         let mut entry = entry?;
@@ -41,19 +103,27 @@ pub fn load_docker_archive(store: &ImageStore, tar_path: &Path) -> Result<Image>
             continue;
         }
         let name = entry.path()?.to_string_lossy().into_owned();
-        let mut buf = Vec::new();
-        entry.read_to_end(&mut buf)?;
 
         if name == "manifest.json" {
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf)?;
             manifest_bytes = Some(buf);
-        } else if name.starts_with("blobs/sha256/") && name.len() > "blobs/sha256/".len() {
-            let digest = store.cas().write(&buf)?;
-            let expected = path_to_digest(&name);
-            if digest != expected {
-                return Err(Error::Archive(format!(
-                    "corrupted blob: {name} has sha256 {digest}"
-                )));
+            continue;
+        }
+
+        let is_oci_blob = name.starts_with("blobs/sha256/") && name.len() > "blobs/sha256/".len();
+        if is_oci_blob || is_classic_blob(&name) {
+            let digest = cas_write_entry(store, &mut entry)?;
+            if is_oci_blob {
+                // The OCI layout path IS the digest: the content must hash to it.
+                let expected = path_to_digest(&name);
+                if digest != expected {
+                    return Err(Error::Archive(format!(
+                        "corrupted blob: {name} has sha256 {digest}"
+                    )));
+                }
             }
+            extracted.insert(name, digest);
         }
     }
 
@@ -65,7 +135,26 @@ pub fn load_docker_archive(store: &ImageStore, tar_path: &Path) -> Result<Image>
         .next()
         .ok_or_else(|| Error::Archive("empty manifest.json".into()))?;
 
-    let config_digest = path_to_digest(&manifest.config);
+    let config_digest = resolve_blob(&manifest.config, &extracted)?;
+    let layers: Vec<String> = manifest
+        .layers
+        .iter()
+        .map(|l| resolve_blob(l, &extracted))
+        .collect::<Result<_>>()?;
+
+    // O6: every blob the manifest names must have actually reached the CAS. A
+    // truncated archive (a layer entry missing, or a `blobs/` reference the
+    // archive never carried) otherwise produced an Image whose layer digest
+    // pointed at nothing — accepted in silence, and the failure surfaced far
+    // later at unpack time with no hint of the real cause.
+    for digest in std::iter::once(&config_digest).chain(layers.iter()) {
+        if !store.cas().has(digest) {
+            return Err(Error::Archive(format!(
+                "manifest.json references blob {digest}, missing from the archive"
+            )));
+        }
+    }
+
     let config_bytes = store.cas().read(&config_digest)?;
     if sha256_hex(&config_bytes) != crate::cas::strip(&config_digest) {
         return Err(Error::Archive("config digest mismatch".into()));
@@ -96,7 +185,7 @@ pub fn load_docker_archive(store: &ImageStore, tar_path: &Path) -> Result<Image>
     let image = Image {
         id: config_digest,
         repo_tags,
-        layers: manifest.layers.iter().map(|l| path_to_digest(l)).collect(),
+        layers,
         config: ImageConfig {
             cmd: inner.cmd().clone().unwrap_or_default(),
             entrypoint: inner.entrypoint().clone().unwrap_or_default(),
@@ -121,4 +210,113 @@ pub fn load_docker_archive(store: &ImageStore, tar_path: &Path) -> Result<Image>
     store.enforce_tag_uniqueness(&image)?;
     store.save(&image)?;
     Ok(image)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Appends one regular file to the tar, with the same minimal header the
+    /// loader expects (a regular file it can read whole).
+    fn append(tar: &mut tar::Builder<std::fs::File>, name: &str, data: &[u8]) {
+        let mut h = tar::Header::new_gnu();
+        h.set_size(data.len() as u64);
+        h.set_mode(0o644);
+        h.set_mtime(0);
+        h.set_cksum();
+        tar.append_data(&mut h, name, data).unwrap();
+    }
+
+    /// O5: a CLASSIC `docker save` archive (the pre-OCI daemon format) loads.
+    /// Its layers live at `<id>/layer.tar` and its config at `<hex>.json` at the
+    /// top level — NOT under `blobs/sha256/` — and `manifest.json` references
+    /// them by path, so the digests are the sha256 of the content, which the
+    /// loader must compute. The legacy `<id>/json`, `VERSION` and `repositories`
+    /// files are ignored.
+    #[test]
+    fn loads_a_classic_docker_save_archive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(tmp.path().join("store")).unwrap();
+
+        let config = br#"{"architecture":"amd64","os":"linux","config":{"Cmd":["/bin/sh"]},"rootfs":{"type":"layers","diff_ids":[]}}"#;
+        let cfg_hex = sha256_hex(config);
+        let cfg_name = format!("{cfg_hex}.json");
+        let layer = b"classic-layer-bytes-not-content-addressed-in-the-path";
+        let layer_hex = sha256_hex(layer);
+        let layer_name = "abc123def456/layer.tar";
+
+        let manifest = serde_json::json!([{
+            "Config": cfg_name,
+            "RepoTags": ["classic:1"],
+            "Layers": [layer_name],
+        }]);
+
+        let tar_path = tmp.path().join("classic.tar");
+        {
+            let f = std::fs::File::create(&tar_path).unwrap();
+            let mut tar = tar::Builder::new(f);
+            append(&mut tar, &cfg_name, config);
+            append(&mut tar, layer_name, layer);
+            // Legacy per-layer and repository metadata the loader must skip.
+            append(&mut tar, "abc123def456/VERSION", b"1.0");
+            append(&mut tar, "abc123def456/json", b"{}");
+            append(&mut tar, "repositories", b"{}");
+            append(
+                &mut tar,
+                "manifest.json",
+                &serde_json::to_vec(&manifest).unwrap(),
+            );
+            tar.finish().unwrap();
+        }
+
+        let image = load_docker_archive(&store, &tar_path).unwrap();
+        assert_eq!(image.id, format!("sha256:{cfg_hex}"));
+        assert_eq!(image.layers, vec![format!("sha256:{layer_hex}")]);
+        assert_eq!(image.config.cmd, vec!["/bin/sh".to_string()]);
+        assert_eq!(image.config.architecture, "amd64");
+        // The content really landed in the CAS under its COMPUTED digest.
+        let layer_digest = format!("sha256:{layer_hex}");
+        assert!(store.cas().has(&layer_digest));
+        assert_eq!(store.cas().read(&layer_digest).unwrap(), layer);
+    }
+
+    /// O6: an archive that references a layer it does not actually contain is
+    /// REFUSED, not accepted with a dangling digest that blows up at unpack
+    /// time. Here an OCI-layout archive carries the config but omits the layer
+    /// blob `manifest.json` names.
+    #[test]
+    fn rejects_an_archive_missing_a_referenced_layer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ImageStore::open(tmp.path().join("store")).unwrap();
+
+        let config =
+            br#"{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]}}"#;
+        let cfg_hex = sha256_hex(config);
+        let missing_layer_hex = sha256_hex(b"the-layer-that-was-left-out-of-the-archive");
+        let manifest = serde_json::json!([{
+            "Config": format!("blobs/sha256/{cfg_hex}"),
+            "RepoTags": ["broken:1"],
+            "Layers": [format!("blobs/sha256/{missing_layer_hex}")],
+        }]);
+
+        let tar_path = tmp.path().join("broken.tar");
+        {
+            let f = std::fs::File::create(&tar_path).unwrap();
+            let mut tar = tar::Builder::new(f);
+            append(&mut tar, &format!("blobs/sha256/{cfg_hex}"), config);
+            // The layer blob is deliberately NOT written to the archive.
+            append(
+                &mut tar,
+                "manifest.json",
+                &serde_json::to_vec(&manifest).unwrap(),
+            );
+            tar.finish().unwrap();
+        }
+
+        let err = load_docker_archive(&store, &tar_path).unwrap_err();
+        assert!(
+            err.to_string().contains(&missing_layer_hex),
+            "the refusal must name the missing blob: {err}"
+        );
+    }
 }

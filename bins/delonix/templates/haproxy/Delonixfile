@@ -9,7 +9,7 @@ RUN sed '/ ssl crt /d' /usr/local/etc/haproxy/haproxy.cfg > /tmp/check.cfg && \
     haproxy -c -f /tmp/check.cfg && rm /tmp/check.cfg
 EXPOSE __PORT__ __TLS_PORT__
 # Delonix extension: the runtime probes this to mark the container healthy.
-HEALTHCHECK CMD wget -qO- http://127.0.0.1:__PORT__/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD wget -qO- http://127.0.0.1:__PORT__/healthz || exit 1
 # The image's entrypoint runs this in master-worker mode, so `SIGUSR2` reloads
 # the configuration and the certificate without dropping connections.
 CMD ["haproxy", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]

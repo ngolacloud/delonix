@@ -211,6 +211,12 @@ pub struct Request<'a> {
     pub devices: &'a [String],
     /// VM only — `vm create --url-img`, a qcow2 fetched over the network.
     pub image_url: Option<&'a str>,
+    /// VM only — the request carries raw libvirt domain XML
+    /// (`--libvirt-xml`/`--libvirt-xml-overlay`, or a manifest's
+    /// `libvirtXml`/`libvirtXmlOverlay`): an UNVALIDATED escape hatch judged by
+    /// `deny_libvirt_xml_overlay`. Defaults to «no raw XML», so a caller that
+    /// does not set it cannot be refused for it.
+    pub libvirt_xml_overlay: bool,
     /// Container only — what `workloadSecurity` judges.
     pub hardening: ContainerHardening<'a>,
 }
@@ -225,6 +231,7 @@ impl<'a> Request<'a> {
             host_network,
             devices: NO_DEVICES,
             image_url: None,
+            libvirt_xml_overlay: false,
             hardening: ContainerHardening::default(),
         }
     }
@@ -232,6 +239,12 @@ impl<'a> Request<'a> {
     /// The same request, carrying what `workloadSecurity` judges.
     pub fn with_hardening(mut self, h: ContainerHardening<'a>) -> Self {
         self.hardening = h;
+        self
+    }
+
+    /// The same request, marked as carrying raw libvirt domain XML (VM only).
+    pub fn with_libvirt_xml_overlay(mut self, present: bool) -> Self {
+        self.libvirt_xml_overlay = present;
         self
     }
 
@@ -250,6 +263,7 @@ impl<'a> Request<'a> {
             host_network: false,
             devices,
             image_url,
+            libvirt_xml_overlay: false,
             hardening: ContainerHardening::default(),
         }
     }
@@ -266,6 +280,7 @@ pub enum Rule {
     DevicePassthrough,
     LatestVmImage,
     ImageUrlHost,
+    LibvirtXmlOverlay,
     BaselineCapabilities,
     BaselineHostNamespace,
     BaselineUnconfined,
@@ -284,6 +299,7 @@ impl Rule {
             Rule::DevicePassthrough => "ADM-DEVICE-PASSTHROUGH",
             Rule::LatestVmImage => "ADM-LATEST-VM-IMAGE",
             Rule::ImageUrlHost => "ADM-IMAGE-URL-HOST",
+            Rule::LibvirtXmlOverlay => "ADM-LIBVIRT-XML-OVERLAY",
             Rule::BaselineCapabilities => "ADM-BASELINE-CAPABILITIES",
             Rule::BaselineHostNamespace => "ADM-BASELINE-HOST-NAMESPACE",
             Rule::BaselineUnconfined => "ADM-BASELINE-UNCONFINED",
@@ -322,6 +338,8 @@ pub enum Violation {
         host: String,
         allowed: Vec<String>,
     },
+    /// Raw libvirt domain XML injected on a node that refuses the escape hatch.
+    LibvirtXmlOverlay,
     /// Capabilities beyond the baseline's addable set.
     BaselineCapabilities {
         caps: Vec<String>,
@@ -358,12 +376,56 @@ impl Violation {
             Violation::DevicePassthrough { .. } => Rule::DevicePassthrough,
             Violation::LatestVmImage { .. } => Rule::LatestVmImage,
             Violation::ImageUrlHost { .. } => Rule::ImageUrlHost,
+            Violation::LibvirtXmlOverlay => Rule::LibvirtXmlOverlay,
             Violation::BaselineCapabilities { .. } => Rule::BaselineCapabilities,
             Violation::BaselineHostNamespace { .. } => Rule::BaselineHostNamespace,
             Violation::BaselineUnconfined { .. } => Rule::BaselineUnconfined,
             Violation::BaselineHostPath { .. } => Rule::BaselineHostPath,
             Violation::BaselineDevice { .. } => Rule::BaselineDevice,
             Violation::BaselineUnmasked { .. } => Rule::BaselineUnmasked,
+        }
+    }
+
+    /// A terse, stable, English one-liner for an engine surface to put on a
+    /// gRPC `Status` or a CRI error — `<RULE-ID>: <salient data>`.
+    ///
+    /// Deliberately NOT the CLI's prose: `cmd/policy.rs::render` writes the
+    /// operator-facing sentence and translates it, and a second copy of that
+    /// wording here would be two strings to keep in step. This keys off
+    /// [`Rule::id`] (the identifier that is frozen on purpose) plus the data the
+    /// violation already carries, so the message a kubelet or an API client sees
+    /// is greppable and never drifts from the rule it names.
+    pub fn summary(&self) -> String {
+        let id = self.rule().id();
+        match self {
+            Violation::Privileged => format!("{id}: --privileged"),
+            Violation::HostNetwork => format!("{id}: host network"),
+            Violation::LatestTag { image } => format!("{id}: {image}"),
+            Violation::Registry {
+                image,
+                host,
+                allowed,
+            } => format!(
+                "{id}: {image} (registry '{host}' not in [{}])",
+                allowed.join(", ")
+            ),
+            Violation::DevicePassthrough { devices } => format!("{id}: {}", devices.join(", ")),
+            Violation::LatestVmImage { image } => format!("{id}: {image}"),
+            Violation::ImageUrlHost { url, host, allowed } => {
+                format!(
+                    "{id}: {url} (host '{host}' not in [{}])",
+                    allowed.join(", ")
+                )
+            }
+            Violation::LibvirtXmlOverlay => format!("{id}: raw libvirt domain XML"),
+            Violation::BaselineCapabilities { caps } => format!("{id}: {}", caps.join(", ")),
+            Violation::BaselineHostNamespace { namespaces } => {
+                format!("{id}: {}", namespaces.join(", "))
+            }
+            Violation::BaselineUnconfined { profiles } => format!("{id}: {}", profiles.join(", ")),
+            Violation::BaselineHostPath { paths } => format!("{id}: {}", paths.join(", ")),
+            Violation::BaselineDevice { devices } => format!("{id}: {}", devices.join(", ")),
+            Violation::BaselineUnmasked { paths } => format!("{id}: {}", paths.join(", ")),
         }
     }
 
@@ -386,6 +448,10 @@ impl Violation {
             | Violation::BaselineUnmasked { .. } => Severity::High,
             // Reaching an unvetted host to fetch something you will then BOOT.
             Violation::ImageUrlHost { .. } => Severity::High,
+            // A hole AROUND the typed controls: raw XML can name a `<hostdev>`
+            // the passthrough rules never see. High, not Critical: it is a
+            // deliberate local escape hatch, not a remote surface.
+            Violation::LibvirtXmlOverlay => Severity::High,
             Violation::HostNetwork | Violation::Registry { .. } => Severity::High,
             // Reproducibility, not containment.
             Violation::LatestTag { .. } | Violation::LatestVmImage { .. } => Severity::Medium,
@@ -403,7 +469,8 @@ impl Violation {
             | Violation::BaselineUnconfined { .. }
             | Violation::BaselineHostPath { .. }
             | Violation::BaselineDevice { .. }
-            | Violation::BaselineUnmasked { .. } => ActionRisk::Privileged,
+            | Violation::BaselineUnmasked { .. }
+            | Violation::LibvirtXmlOverlay => ActionRisk::Privileged,
             _ => ActionRisk::SafeWrite,
         }
     }
@@ -472,9 +539,26 @@ pub fn evaluate(policy: &SecurityPolicy, r: &Request<'_>) -> Decision {
     // ---- VM path. New; every rule here is off unless the operator turned it on.
     if r.workload == Workload::VirtualMachine {
         if policy.deny_device_passthrough && !r.devices.is_empty() {
-            v.push(Violation::DevicePassthrough {
-                devices: r.devices.to_vec(),
-            });
+            // The allowlist is an EXCEPTION to the deny: only the devices NOT on
+            // it are refused. An empty allowlist refuses every device (the
+            // original all-or-nothing behaviour); a device whose BDF matches one
+            // on the list passes, matched after normalising both sides so a
+            // `/sys/.../0000:65:00.1` path and a bare `0000:65:00.1` are the same
+            // device. A device string that is not a BDF at all cannot be on any
+            // allowlist, so it is refused — fail-closed, never waved through for
+            // being unreadable.
+            let refused: Vec<String> = r
+                .devices
+                .iter()
+                .filter(|d| !device_is_allowed(d, &policy.allowed_passthrough_devices))
+                .cloned()
+                .collect();
+            if !refused.is_empty() {
+                v.push(Violation::DevicePassthrough { devices: refused });
+            }
+        }
+        if policy.deny_libvirt_xml_overlay && r.libvirt_xml_overlay {
+            v.push(Violation::LibvirtXmlOverlay);
         }
         if let Some(image) = r.image {
             if policy.deny_latest_vm_image && is_latest(image) {
@@ -532,6 +616,15 @@ fn baseline(r: &Request<'_>, privileged_already: bool, v: &mut Vec<Violation>) {
     if h.host_ipc {
         namespaces.push("ipc".to_string());
     }
+    // PSS *Baseline* requires `hostNetwork=false` just as it requires
+    // `hostPID`/`hostIPC=false`. The host netns is the most dangerous of the
+    // three (host ports, services on 127.0.0.1, the whole SDN bypass), so the
+    // one-switch `workloadSecurity: baseline` must refuse it too — not leave it
+    // to the separate `deny_host_network` toggle, which is independent of the PSS
+    // level. `host_network` lives on the request itself, not in `hardening`.
+    if r.host_network {
+        namespaces.push("network".to_string());
+    }
     if !namespaces.is_empty() {
         v.push(Violation::BaselineHostNamespace { namespaces });
     }
@@ -573,6 +666,52 @@ pub fn registry_of(image: &str) -> String {
         first.to_string()
     } else {
         "docker.io".to_string()
+    }
+}
+
+/// The canonical PCI BDF of a `--device` string, or `None` when it is not one.
+///
+/// Accepts the two forms a device reaches the engine as — a bare
+/// `DDDD:BB:SS.F` and a sysfs path ending in one (`/sys/.../0000:65:00.1`) — and
+/// returns a single lowercase `dddd:bb:ss.f`, so `allowedPassthroughDevices`
+/// matches a request regardless of which form either was written in. The widths
+/// are fixed (domain 4, bus 2, slot 2, function 1 hex digit), the same rule the
+/// libvirt provider's `parse_pci_addr` enforces before it emits a `<hostdev>` —
+/// anything else is `None`, which the caller treats as «not on any allowlist».
+pub fn normalize_pci_bdf(dev: &str) -> Option<String> {
+    fn is_hex_of_len(s: &str, len: usize) -> bool {
+        s.len() == len && s.chars().all(|c| c.is_ascii_hexdigit())
+    }
+    let bdf = dev.rsplit('/').next().unwrap_or(dev);
+    let (rest, func) = bdf.rsplit_once('.')?;
+    let mut it = rest.split(':');
+    let dom = it.next()?;
+    let bus = it.next()?;
+    let slot = it.next()?;
+    if it.next().is_some() {
+        return None;
+    }
+    if !(is_hex_of_len(dom, 4)
+        && is_hex_of_len(bus, 2)
+        && is_hex_of_len(slot, 2)
+        && is_hex_of_len(func, 1))
+    {
+        return None;
+    }
+    Some(format!("{dom}:{bus}:{slot}.{func}").to_ascii_lowercase())
+}
+
+/// Whether `dev` is permitted by a passthrough allowlist. A device that does not
+/// normalise to a BDF is never allowed (it cannot equal any canonical entry), so
+/// an unreadable device string fails closed; an entry in `allowed` that is
+/// itself not a BDF simply matches nothing.
+fn device_is_allowed(dev: &str, allowed: &[String]) -> bool {
+    match normalize_pci_bdf(dev) {
+        None => false,
+        Some(bdf) => allowed
+            .iter()
+            .filter_map(|a| normalize_pci_bdf(a))
+            .any(|a| a == bdf),
     }
 }
 
@@ -769,6 +908,122 @@ mod tests {
         assert_eq!(d.violations()[0].severity(), Severity::Critical);
     }
 
+    // ---- V3: per-device passthrough allowlist ------------------------------
+
+    fn normalize_many(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The BDF of a request is matched against the allowlist after normalising
+    /// BOTH, so a bare address, a sysfs path and a different case are the same
+    /// device. Only the devices OFF the list are refused.
+    #[test]
+    fn allowed_passthrough_devices_lets_the_listed_bdf_through_and_refuses_the_rest() {
+        let p = SecurityPolicy {
+            deny_device_passthrough: true,
+            allowed_passthrough_devices: normalize_many(&["0000:65:00.1"]),
+            ..Default::default()
+        };
+        // The allowed VF, written three different ways, all pass.
+        for dev in [
+            "0000:65:00.1",
+            "/sys/bus/pci/devices/0000:65:00.1",
+            "0000:65:00.1".to_uppercase().as_str(),
+        ] {
+            let devs = normalize_many(&[dev]);
+            assert_eq!(
+                evaluate(&p, &Request::virtual_machine(None, &devs, None)),
+                Decision::Allow,
+                "{dev} should be allowed"
+            );
+        }
+        // Any OTHER device is refused, and the violation names only the refused
+        // one — not the allowed sibling passed alongside it.
+        let devs = normalize_many(&["0000:65:00.1", "0000:02:00.0"]);
+        let d = evaluate(&p, &Request::virtual_machine(None, &devs, None));
+        assert!(d.is_denied());
+        assert_eq!(
+            d.violations()[0],
+            Violation::DevicePassthrough {
+                devices: vec!["0000:02:00.0".to_string()]
+            }
+        );
+    }
+
+    /// An empty allowlist keeps the original all-or-nothing behaviour: every
+    /// device is refused while `denyDevicePassthrough` is on.
+    #[test]
+    fn an_empty_allowlist_refuses_every_device() {
+        let p = SecurityPolicy {
+            deny_device_passthrough: true,
+            ..Default::default()
+        };
+        let devs = normalize_many(&["0000:65:00.1"]);
+        assert!(evaluate(&p, &Request::virtual_machine(None, &devs, None)).is_denied());
+    }
+
+    /// A device string that is not a BDF cannot be on any allowlist, so it is
+    /// refused — fail-closed, never waved through for being unreadable.
+    #[test]
+    fn a_non_bdf_device_is_never_allowed_by_the_list() {
+        let p = SecurityPolicy {
+            deny_device_passthrough: true,
+            allowed_passthrough_devices: normalize_many(&["0000:65:00.1"]),
+            ..Default::default()
+        };
+        let devs = normalize_many(&["lixo"]);
+        assert!(evaluate(&p, &Request::virtual_machine(None, &devs, None)).is_denied());
+    }
+
+    #[test]
+    fn normalize_pci_bdf_reads_both_forms_and_canonicalises() {
+        assert_eq!(
+            normalize_pci_bdf("0000:65:00.1").as_deref(),
+            Some("0000:65:00.1")
+        );
+        assert_eq!(
+            normalize_pci_bdf("/sys/bus/pci/devices/0000:65:00.1").as_deref(),
+            Some("0000:65:00.1")
+        );
+        assert_eq!(
+            normalize_pci_bdf("0000:AB:0C.1").as_deref(),
+            Some("0000:ab:0c.1")
+        );
+        assert_eq!(normalize_pci_bdf("lixo"), None);
+        assert_eq!(normalize_pci_bdf("0000:6:00.1"), None); // bus too short
+        assert_eq!(normalize_pci_bdf("000g:65:00.1"), None); // non-hex
+    }
+
+    // ---- V5: deny raw libvirt domain XML -----------------------------------
+
+    /// A VM that carries raw libvirt XML is refused on a node that denies the
+    /// escape hatch, and admitted when the flag is not set.
+    #[test]
+    fn deny_libvirt_xml_overlay_refuses_a_request_that_carries_raw_xml() {
+        let p = SecurityPolicy {
+            deny_libvirt_xml_overlay: true,
+            ..Default::default()
+        };
+        let plain = Request::virtual_machine(Some("golden:1.0"), NO_DEVICES, None);
+        assert_eq!(evaluate(&p, &plain), Decision::Allow);
+
+        let with_xml = Request::virtual_machine(Some("golden:1.0"), NO_DEVICES, None)
+            .with_libvirt_xml_overlay(true);
+        let d = evaluate(&p, &with_xml);
+        assert!(d.is_denied());
+        assert_eq!(d.violations(), [Violation::LibvirtXmlOverlay]);
+        assert_eq!(d.violations()[0].severity(), Severity::High);
+    }
+
+    /// With no policy opinion, raw XML passes exactly as before the field.
+    #[test]
+    fn raw_xml_passes_when_the_node_has_no_opinion() {
+        let p = SecurityPolicy::default();
+        let with_xml = Request::virtual_machine(Some("golden:1.0"), NO_DEVICES, None)
+            .with_libvirt_xml_overlay(true);
+        assert_eq!(evaluate(&p, &with_xml), Decision::Allow);
+    }
+
     #[test]
     fn a_container_rule_never_fires_on_a_vm_request() {
         // The mirror image of the bug: silently widening `denyPrivileged` to
@@ -915,6 +1170,7 @@ mod tests {
             Rule::DevicePassthrough,
             Rule::LatestVmImage,
             Rule::ImageUrlHost,
+            Rule::LibvirtXmlOverlay,
             Rule::BaselineCapabilities,
             Rule::BaselineHostNamespace,
             Rule::BaselineUnconfined,
@@ -993,6 +1249,28 @@ mod tests {
         };
         let r = Request::container("alpine:3.20", false, false).with_hardening(h);
         assert_eq!(evaluate(&baseline_only(), &r), Decision::Allow);
+    }
+
+    /// PSS *Baseline* requires `hostNetwork=false` exactly as it requires
+    /// `hostPID`/`hostIPC=false`. The one-switch `workloadSecurity: baseline`
+    /// must refuse the host netns on its own — `deny_host_network` stays off
+    /// here, so only the PSS level can catch it. Regression for the gap where
+    /// baseline checked host_pid/host_ipc but silently admitted host_network.
+    #[test]
+    fn baseline_refuses_host_network_on_its_own() {
+        let p = baseline_only();
+        assert!(
+            !p.deny_host_network,
+            "the separate toggle must be off for this test"
+        );
+        let r = Request::container("alpine:3.20", false, /*host_network*/ true);
+        let d = evaluate(&p, &r);
+        assert!(d.is_denied());
+        let named = d.violations().iter().any(|v| {
+            matches!(v, Violation::BaselineHostNamespace { namespaces }
+                if namespaces.iter().any(|n| n == "network"))
+        });
+        assert!(named, "the host-namespace violation must name 'network'");
     }
 
     #[test]

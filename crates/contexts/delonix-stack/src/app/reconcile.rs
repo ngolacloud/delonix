@@ -549,8 +549,10 @@ fn hot_fields(kind: &str) -> &'static [&'static str] {
             "denyLatestTag",
             "allowedRegistries",
             "denyDevicePassthrough",
+            "allowedPassthroughDevices",
             "denyLatestVmImage",
             "allowedImageUrlHosts",
+            "denyLibvirtXmlOverlay",
             // The four below were compared and NOT listed here, so turning
             // the private-egress guard on in an applied manifest planned a
             // `Replace` of a singleton that has no teardown — refused, and

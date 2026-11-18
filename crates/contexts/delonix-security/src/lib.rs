@@ -60,7 +60,7 @@ pub mod domain;
 // the crate root, so `delonix_security::admission::evaluate`, `::SecurityEvent`
 // and the internal `crate::admission::…` references all resolve unchanged. The
 // pure decisions are in `domain`; the one impurity (appending the finding) in `app`.
-pub use app::event;
+pub use app::{event, gate};
 pub use domain::{admission, policy, redact, score, severity};
 
 pub use admission::{evaluate, Decision, Request, Rule, Violation, Workload};

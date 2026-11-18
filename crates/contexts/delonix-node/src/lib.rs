@@ -16,6 +16,6 @@ pub use app::{alloc_tuning, events, host, virt};
 pub use domain::{HostCapacity, VirtInfo};
 
 pub use host::{
-    fmt_local_ts, generate_id, in_initial_userns, initial_uid_map, is_alive, is_rootless,
-    mem_available_mib, now_unix, proc_starttime, safe_to_signal, self_bin,
+    fmt_local_ts, generate_id, host_boot_time, in_initial_userns, initial_uid_map, is_alive,
+    is_rootless, mem_available_mib, now_unix, proc_starttime, safe_to_signal, self_bin,
 };

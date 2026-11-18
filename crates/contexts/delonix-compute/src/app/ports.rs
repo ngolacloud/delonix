@@ -25,6 +25,10 @@ pub struct ImageConfig {
     /// The image's `USER`, verbatim (`odoo`, `101`, `101:101`); `""` when the
     /// image sets none. Read so the run can SAY it is not applied (ADR-0062).
     pub user: String,
+    /// The image's `EXPOSE` entries, verbatim (`80/tcp`, `53/udp`, `8080`).
+    /// Read so a rootless `--net host` run can warn BEFORE the workload hits
+    /// the privileged bind it cannot do (issue #1011).
+    pub exposed_ports: Vec<String>,
 }
 
 /// Images: resolve a reference (pulling it when absent), read its config, and

@@ -29,7 +29,7 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 EXPOSE __PORT__
 # The runtime probes liveness; readiness is for the load balancer.
-HEALTHCHECK CMD wget -qO- http://127.0.0.1:__PORT__/api/v1/health/live || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://127.0.0.1:__PORT__/api/v1/health/live || exit 1
 STOPSIGNAL SIGTERM
 USER app
 # The entrypoint is the one place for pre-flight; it execs the server, which

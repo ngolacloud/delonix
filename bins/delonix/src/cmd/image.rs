@@ -793,41 +793,15 @@ pub fn apply(docs: &[ManifestDoc]) -> Result<()> {
 }
 
 fn cmd_pull(images: &ImageStore, reference: &str, verify: Option<&std::path::Path>) -> Result<()> {
-    // Per-layer progress bar (`docker pull`-style) — BUG FOUND live: a
-    // multi-hundred-MB image gave no feedback at all beyond one log line at
-    // the very start, looked hung. `last` tracks (layer, bytes) so a
-    // transition to a NEW layer closes the previous bar's line, without
-    // depending on the registry sending a Content-Length (chunked transfers
-    // may not) to know when one layer ends and the next begins.
-    // `Mutex` and not `Cell`: the pull runs the layers in PARALLEL and every
-    // worker reports through here, so the callback has to be `Sync`. The lock
-    // is not a hot path — it is taken once per progress tick (every 2 MiB), not
-    // per byte.
-    let last = std::sync::Mutex::new((0usize, 0u64));
-    let on_progress = move |layer: usize, layer_total: usize, done: u64, total: Option<u64>| {
-        let (last_layer, last_done) = *last.lock().unwrap();
-        if last_layer != 0 && last_layer != layer {
-            super::output::progress_done();
-        }
-        let advanced = last_layer != layer || done.saturating_sub(last_done) >= 2 * 1024 * 1024;
-        let finished = total.map(|t| done >= t).unwrap_or(false);
-        if advanced || finished {
-            *last.lock().unwrap() = (layer, done);
-            super::output::progress_bar(
-                &format!("[pull] layer {layer}/{layer_total}"),
-                done,
-                total,
-            );
-        }
-    };
-    let img = delonix_oci::registry::pull_from_registry_with_creds_full(
-        images,
-        reference,
-        None,
-        None,
-        Some(&on_progress),
-    )?;
-    super::output::progress_done();
+    // Per-layer progress block (`docker pull`-style): one line per layer,
+    // digest + bar + bytes, «already exists» for layers the CAS already
+    // holds. The old single aggregate bar («layer N/M») could only ever show
+    // one of the layers downloading in PARALLEL; the shared renderer
+    // (`output::PullRenderer`, also behind `container run`'s pull-on-miss)
+    // shows them all. History of the aggregate line — a pull that looked
+    // hung for hundreds of MB — in `pull_from_registry_with_creds_full`'s
+    // doc comment.
+    let img = super::util::pull_with_layer_progress(images, reference, None, None)?;
     // Verify AFTER the pull (the cosign signature lives in a tag alongside the
     // image in the registry, so we need it here). If it fails, the command fails —
     // the image stays local, but whoever asked for `--verify` knows it is untrusted.
@@ -1880,9 +1854,13 @@ fn build_runtime_spec(
         );
         // SAFETY: geteuid/getegid have no preconditions and cannot fail.
         let (euid, egid) = unsafe { (libc::geteuid(), libc::getegid()) };
-        let base = delonix_linux::USERNS_UID_BASE;
+        // The REAL subid bases for this user (from /etc/subuid|subgid), mirroring
+        // `write_userns_maps` — not a fixed 100000, which only matched the first
+        // account and left every other tenant's bundle unmappable. UID/GID may
+        // differ.
+        let (ubase, gbase) = delonix_linux::rootless_subid_bases();
         let sub_range = delonix_linux::USERNS_RANGE - 1; // container 1..RANGE
-        let id_maps = |root_host: u32| -> Result<Vec<_>> {
+        let id_maps = |root_host: u32, base: u32| -> Result<Vec<_>> {
             Ok(vec![
                 LinuxIdMappingBuilder::default()
                     .container_id(0u32)
@@ -1899,8 +1877,8 @@ fn build_runtime_spec(
             ])
         };
         linux_builder = linux_builder
-            .uid_mappings(id_maps(euid)?)
-            .gid_mappings(id_maps(egid)?);
+            .uid_mappings(id_maps(euid, ubase)?)
+            .gid_mappings(id_maps(egid, gbase)?);
     }
     let linux = linux_builder
         .namespaces(namespaces)
@@ -1988,8 +1966,9 @@ mod tests {
         assert!(
             umaps
                 .iter()
-                .any(|m| m.container_id() == 1 && m.host_id() == delonix_linux::USERNS_UID_BASE),
-            "container uid 1.. mapeia para os subuids delegados"
+                .any(|m| m.container_id() == 1
+                    && m.host_id() == delonix_linux::rootless_subid_bases().0),
+            "container uid 1.. mapeia para os subuids delegados (base real do utilizador)"
         );
         assert!(
             rlinux.gid_mappings().is_some(),

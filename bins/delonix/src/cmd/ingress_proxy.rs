@@ -540,8 +540,12 @@ async fn accept_loop(
 /// needed — follow-up. Today the self-signed covers all the HTTPRoute's hosts in one
 /// cert (multi-SAN), and the BYO mode assumes a cert that serves all the hosts.
 fn build_server_config(tls: &TlsMaterial) -> Result<Arc<tokio_rustls::rustls::ServerConfig>> {
+    // PEM parsing via `rustls-pki-types` (re-exportado pelo próprio rustls) em vez
+    // do `rustls-pemfile` não-mantido (RUSTSEC-2025-0134) — sem nova dependência.
+    use tokio_rustls::rustls::pki_types::pem::{Error as PemError, PemObject};
+    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
     use tokio_rustls::rustls::ServerConfig;
-    let certs: Vec<_> = rustls_pemfile::certs(&mut tls.cert_pem.as_bytes())
+    let certs: Vec<_> = CertificateDer::pem_slice_iter(tls.cert_pem.as_bytes())
         .collect::<std::result::Result<_, _>>()
         .map_err(|e| Error::Invalid(format!("{}: {e}", super::po::t("invalid TLS cert (PEM)"))))?;
     if certs.is_empty() {
@@ -549,11 +553,12 @@ fn build_server_config(tls: &TlsMaterial) -> Result<Arc<tokio_rustls::rustls::Se
             super::po::t("empty TLS cert (no CERTIFICATE in the PEM)").into(),
         ));
     }
-    let key = rustls_pemfile::private_key(&mut tls.key_pem.as_bytes())
-        .map_err(|e| Error::Invalid(format!("{}: {e}", super::po::t("invalid TLS key (PEM)"))))?
-        .ok_or_else(|| {
+    let key = PrivateKeyDer::from_pem_slice(tls.key_pem.as_bytes()).map_err(|e| match e {
+        PemError::NoItemsFound => {
             Error::Invalid(super::po::t("missing TLS key (no PRIVATE KEY in the PEM)").into())
-        })?;
+        }
+        other => Error::Invalid(format!("{}: {other}", super::po::t("invalid TLS key (PEM)"))),
+    })?;
     let cfg = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)

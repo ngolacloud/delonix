@@ -2229,16 +2229,14 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         namespace,
         expose,
     } = args;
-    // `-i`/`-t` (and the `-it` scripts type) are accepted for Docker/Podman
-    // parity. A daemonless foreground `run` INHERITS the operator's stdio, so
-    // the interactive shell, the `test -t 0` TTY and the exit code are already
-    // what `docker run -it` gives (proven by the differential suite). There is
-    // no daemon conduit to allocate a pty across, so the flags record intent
-    // rather than switch a second code path — the same honesty as
-    // `cmd_exec`'s `let _ = interactive`. The one documented limit (a `-t`
-    // whose stdout is not already a terminal does not get a synthesized pty)
-    // lives in `docs/cli-stability.md`.
-    let _ = (interactive, tty);
+    // `-i` is accepted for Docker/Podman parity. A daemonless foreground `run`
+    // INHERITS the operator's stdin, so keeping it open is already what the flag
+    // asks — it records intent rather than switching a code path, the same
+    // honesty as `cmd_exec`'s `let _ = interactive`. `-t` is NOT a no-op: it is
+    // carried to the engine, which synthesizes a pty for the foreground process
+    // so `isatty(1)` holds even when the operator's stdout is a pipe (the one
+    // limit `docs/cli-stability.md` used to document; see `tty` on `RunOpts`).
+    let _ = interactive;
     // `--pull` is applied in the `Run`/`Create` dispatch (it needs the image
     // store), BEFORE this consumes `args`; here the field is just drained.
     let _ = (pull, platform);
@@ -2321,6 +2319,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         policy_hold: false,
         no_start,
         detach,
+        tty,
         cidfile,
         name,
         hostname,
@@ -3777,6 +3776,12 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         id: &id,
         armed: true,
     };
+    // The `docker pull`-style per-layer block for a `run`/`create` whose
+    // image is not local yet — the same renderer `image pull` draws with.
+    // BUG FOUND live: this path printed «pulling nginx…» and then went mute
+    // for the whole download.
+    let pull_renderer = super::output::PullRenderer::new();
+    let on_pull_event = |ev: delonix_oci::registry::PullEvent<'_>| pull_renderer.handle(ev);
     let resolved = delonix_compute::run::resolve_run(
         &opts_copy,
         id.clone(),
@@ -3786,6 +3791,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         &delonix_oci::run_images::HostImages {
             store: images,
             announce_pull: &super::util::announce_pull,
+            pull_events: Some(&on_pull_event),
             unpacking: &unpacking,
             user_error: &user_lookup_error,
         },
@@ -3798,6 +3804,11 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
             apparmor_disabled: &apparmor_disabled,
         },
     )?;
+    // No `pull_renderer.finish()` here, deliberately: every layer's final
+    // `Done` event already forces a redraw, and `resolve_run` printed the
+    // unpacking line BELOW the block by the time this returns — a cursor-up
+    // redraw now would overwrite it (seen live: the block stamped over the
+    // «unpacking the image» line).
     print_notices(&resolved.notices);
     let rootfs = resolved.rootfs;
     let mut mounts = resolved.mounts;
@@ -4048,6 +4059,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         rootfs,
         mounts,
         detach,
+        tty: opts_copy.tty,
         second_pass: reexec,
         net_none: net == "none",
         custom_net: custom_net.clone(),
@@ -4088,7 +4100,27 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     };
     if rm {
         if detach {
-            spawn_rm_watcher(images, store, &c.id);
+            if let RmWatcher::ForkFailed(errno) = spawn_rm_watcher(images, store, &c.id) {
+                // The watcher did not arm: say so loudly and leave a persistent
+                // trail, so a `--rm` container that will NOT be auto-removed is a
+                // visible event, not a silent orphan. (The real D5(b) fix — marking
+                // the record for a later reconciliation pass to reap — needs a
+                // persisted `auto_remove` flag on the Container record, which lives
+                // outside this file; this keeps the gap observable meanwhile.)
+                let err = std::io::Error::from_raw_os_error(errno);
+                super::output::warn(&super::po::tf(
+                    "could not arm --rm cleanup for '{name}' ({err}); remove it manually with `delonix container rm -f {name}`",
+                    &[("name", &c.name), ("err", &err.to_string())],
+                ));
+                delonix_node::events::emit(
+                    &super::util::state_root(),
+                    "container",
+                    "rm-watcher-failed",
+                    &c.id,
+                    &c.name,
+                    Some(&err.to_string()),
+                );
+            }
         } else {
             // foreground: `create_with` only returns after waitpid — remove right away.
             let c = find(store, &id)?;
@@ -4332,7 +4364,11 @@ pub(crate) fn workload_describe(name: &str) -> Result<()> {
 /// wasted work, not wrong — the guard below only fires once per crash regardless of
 /// which caller happens to be first.
 fn reconcile_with_diagnostics(store: &Store, c: &mut Container) -> bool {
-    let pid = c.pid;
+    let live_pid = c.pid;
+    // The ONE reconciliation of this call: a single `/proc` read and a single
+    // `now_unix()` for `crashed_at`. The lock-free probe also keeps the `ps`/`dash`
+    // fast path cheap — a still-running container reconciles to "no change" and we
+    // never touch the store lock.
     if !runtime::reconcile_status(c) {
         return false;
     }
@@ -4340,15 +4376,48 @@ fn reconcile_with_diagnostics(store: &Store, c: &mut Container) -> bool {
     // thing that names the slirp that served it. A container with no supervisor
     // has nobody else to release it: the slirp does not exit with its target,
     // and it went on holding the host port, so the next `start` was refused.
-    if let (Some(pid), None) = (pid, c.pid) {
+    if let (Some(pid), None) = (live_pid, c.pid) {
         delonix_sdn::run_network::reap_own_slirp(c, pid);
     }
-    *c = store
-        .update(&c.id, runtime::reconcile_status)
-        .unwrap_or_else(|_| c.clone());
+    // Persist the transition we just observed — WITHOUT reconciling a second time.
+    // The previous version handed `reconcile_status` to `store.update`, which
+    // re-read the still-`Running` on-disk record under the lock and reconciled
+    // AGAIN: a second `/proc` read and a second `now_unix()`, with the first (true)
+    // observed instant thrown away. We now carry the already-decided fields down
+    // with `apply_reconciled`, which also refuses to clobber a record a concurrent
+    // writer (a restart with a fresh pid) has moved on — the lost-update guard the
+    // store lock exists for.
+    let observed = c.clone();
+    *c = match store.update(&c.id, |disk| apply_reconciled(disk, live_pid, &observed)) {
+        Ok(persisted) => persisted,
+        // Store unavailable: keep the single reconciliation we already computed in
+        // memory, so the caller still sees a coherent status (best-effort, as before).
+        Err(_) => observed,
+    };
     if matches!(c.status, Status::Crashed) {
         record_crash_forensics(c);
     }
+    true
+}
+
+/// Carries the fields a reconciliation ALREADY decided (`status`, `crash_reason`,
+/// `crashed_at`, `pid`) onto the on-disk `disk` record, instead of reconciling it a
+/// second time — so the persisted `crashed_at` is the instant observed FIRST and
+/// `/proc` is read once, not twice (see [`reconcile_with_diagnostics`]).
+///
+/// `live_pid` is the init pid seen BEFORE the reconcile — the incarnation we
+/// observed. The write is refused (`false`, aborting `store.update`) when the
+/// on-disk record is no longer that incarnation: a concurrent `start`/restart gave
+/// it a different pid, or another reconcile already moved it off a live state. That
+/// way a stale `Crashed` snapshot can never overwrite a freshly running container.
+fn apply_reconciled(disk: &mut Container, live_pid: Option<i32>, observed: &Container) -> bool {
+    if disk.pid != live_pid || !matches!(disk.status, Status::Running | Status::Paused) {
+        return false;
+    }
+    disk.status = observed.status.clone();
+    disk.crash_reason = observed.crash_reason.clone();
+    disk.crashed_at = observed.crashed_at;
+    disk.pid = observed.pid;
     true
 }
 
@@ -4384,13 +4453,52 @@ fn record_crash_forensics(c: &Container) {
     delonix_node::events::emit(&root, "container", "crashed", &c.id, &c.name, Some(reason));
 }
 
+/// Outcome of arming the `--rm` watcher — a value the caller MUST inspect, so a
+/// failed `fork` is surfaced instead of silently dropped.
+#[derive(Debug, PartialEq, Eq)]
+enum RmWatcher {
+    /// A watcher child was forked; it will clean up when the container stops.
+    Armed,
+    /// `fork` failed (carries `errno`). No watcher exists: the `--rm` container will
+    /// NOT be auto-removed, and its record + rootfs would be left behind. The caller
+    /// turns this into a visible warning + event rather than an orphan nobody noticed.
+    ForkFailed(i32),
+}
+
+/// What [`spawn_rm_watcher`] must do with a raw `fork()` return in the PARENT —
+/// isolated so the decision (crucially the "-1 is NOT silent" rule) is unit-testable
+/// without actually forking. A non-negative return means the child exists (`Armed`);
+/// `-1` means `fork` failed and the caller MUST act on it.
+fn rm_watcher_outcome(fork_ret: libc::pid_t, errno: i32) -> RmWatcher {
+    if fork_ret < 0 {
+        RmWatcher::ForkFailed(errno)
+    } else {
+        RmWatcher::Armed
+    }
+}
+
 /// `--rm` in detached mode: with no daemon, removal is done by a dedicated
 /// **watcher** — a detached process (setsid, stdio to /dev/null) that polls the
 /// container's state ~1x/s via `reconcile_status` and, once it stops running, does
 /// the same cleanup as `rm -f`. It dies afterwards; one watcher per `--rm` container.
-fn spawn_rm_watcher(images: &ImageStore, store: &Store, id: &str) {
+///
+/// Returns [`RmWatcher`]: `Armed` once the child is forked, or `ForkFailed(errno)`
+/// if `fork()` returned -1 — which the caller MUST surface. Swallowing that -1 (the
+/// old behaviour) left the parent believing cleanup was scheduled when it was not.
+#[must_use]
+fn spawn_rm_watcher(images: &ImageStore, store: &Store, id: &str) -> RmWatcher {
     // SAFETY: fork of a single-threaded process (CLI); the child only polls and exits.
-    if unsafe { libc::fork() } == 0 {
+    let fork_ret = unsafe { libc::fork() };
+    if fork_ret < 0 {
+        // `fork() == -1`: the PARENT keeps running. Returning silently here is the
+        // bug — the `--rm` container then has NO watcher and is never cleaned up.
+        // Hand the errno back so the caller can make the missing cleanup visible.
+        return rm_watcher_outcome(
+            fork_ret,
+            std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+        );
+    }
+    if fork_ret == 0 {
         // SAFETY: in the forked watcher child: `setsid` has no preconditions, `/dev/null` is a
         // static C string, and the fd is checked before `dup2` onto 0/1/2 and closed once.
         unsafe {
@@ -4427,6 +4535,10 @@ fn spawn_rm_watcher(images: &ImageStore, store: &Store, id: &str) {
             }
         }
     }
+    // Parent, `fork_ret > 0`: the watcher child is live (the child branch above
+    // never returns — it loops until it `exit`s). `rm_watcher_outcome` keeps the
+    // Armed/ForkFailed decision in one testable place.
+    rm_watcher_outcome(fork_ret, 0)
 }
 
 /// Short ID, like `docker ps`'s (12 chars).
@@ -5717,6 +5829,7 @@ fn start_container(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
         rootfs,
         mounts: c.mounts.clone(),
         detach: true,
+        tty: false, // start/restart is detached under a supervisor — no tty to pump
         second_pass: reexec,
         net_none: c.net_mode.as_deref() == Some("none"),
         custom_net: c.network.clone(),
@@ -6751,7 +6864,10 @@ fn copy_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Resu
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::copy(src, dst)?;
+        // KRN-0003: host-side bulk copy over io_uring (falls back to std::fs::copy
+        // on a kernel that refuses it). Same semantics — byte-identical, mode
+        // preserved. `src`/`dst` are the already symlink-resolved host paths.
+        delonix_oci::uring::copy_file_uring(src, dst)?;
     }
     Ok(())
 }
@@ -7945,8 +8061,7 @@ pub(crate) fn cmd_logs(
         .as_deref()
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| images.root().join("containers").join(&c.id).join("log"));
-    let mut f = std::fs::File::open(&p)
-        .map_err(|e| Error::Invalid(format!("no logs for {} at {}: {e}", c.name, p.display())))?;
+    let mut f = std::fs::File::open(&p).map_err(|e| super::util::no_logs_hint(&c.name, &p, &e))?;
     let mut out = std::io::stdout();
     let needs_cri = tail.is_some() || since.is_some() || timestamps;
 
@@ -8502,6 +8617,84 @@ mod discard_tests {
         let dir = leftover(&images, "a1b2c3d4e5f60718");
         discard_unstarted(&images, &store, "a1b2c3d4e5f60718");
         assert!(dir.exists(), "purged on a read error");
+    }
+
+    fn running(pid: i32) -> Container {
+        let mut c = Container::new(
+            "a1b2c3d4e5f60718".into(),
+            "c".into(),
+            "img".into(),
+            vec!["x".into()],
+            "64M".into(),
+        );
+        c.pid = Some(pid);
+        c.status = Status::Running;
+        c
+    }
+
+    /// D5: a failed `fork()` (-1) must become a VISIBLE `ForkFailed(errno)`, never
+    /// a silent `Armed`. This is the exact decision the `--rm` watcher makes and the
+    /// bug was swallowing the -1, leaving the parent believing cleanup was scheduled.
+    #[test]
+    fn rm_watcher_fork_failure_is_not_silent() {
+        assert_eq!(
+            super::rm_watcher_outcome(-1, libc::EAGAIN),
+            super::RmWatcher::ForkFailed(libc::EAGAIN)
+        );
+        // A real child pid on the parent side arms the watcher.
+        assert_eq!(super::rm_watcher_outcome(4242, 0), super::RmWatcher::Armed);
+    }
+
+    /// D6: the crash fields a reconcile decided ONCE are copied onto the on-disk
+    /// record verbatim — the `crashed_at`/`crash_reason` observed FIRST are what
+    /// persist, with no second `/proc` read or `now_unix()`.
+    #[test]
+    fn apply_reconciled_persists_the_observed_crash_without_recomputing() {
+        let live = 4242;
+        let mut disk = running(live);
+        // The single, already-computed reconciliation result.
+        let mut observed = disk.clone();
+        observed.status = Status::Crashed;
+        observed.crash_reason = Some("process_gone".into());
+        observed.crashed_at = Some(1234);
+        observed.pid = None;
+
+        assert!(super::apply_reconciled(&mut disk, Some(live), &observed));
+        assert_eq!(disk.status, Status::Crashed);
+        assert_eq!(disk.crash_reason.as_deref(), Some("process_gone"));
+        // The instant observed first, carried through — not a fresh `now_unix()`.
+        assert_eq!(disk.crashed_at, Some(1234));
+        assert_eq!(disk.pid, None);
+    }
+
+    /// D6 race guard: between the lock-free observe and the locked write a restart
+    /// gave the record a NEW live pid; a stale `Crashed` snapshot must not clobber it.
+    #[test]
+    fn apply_reconciled_refuses_to_clobber_a_concurrent_restart() {
+        let mut disk = running(9999); // the restarted incarnation
+        let mut observed = running(4242);
+        observed.status = Status::Crashed;
+        observed.pid = None;
+
+        // We observed pid 4242; the on-disk record is now 9999 → abort, untouched.
+        assert!(!super::apply_reconciled(&mut disk, Some(4242), &observed));
+        assert_eq!(disk.status, Status::Running);
+        assert_eq!(disk.pid, Some(9999));
+    }
+
+    /// D6 race guard: another reconcile already moved it off a live state; we don't
+    /// double-stamp a record that is no longer Running/Paused.
+    #[test]
+    fn apply_reconciled_refuses_once_already_reconciled() {
+        let mut disk = running(4242);
+        disk.status = Status::Crashed;
+        disk.pid = None;
+        let mut observed = running(4242);
+        observed.status = Status::Crashed;
+        observed.crashed_at = Some(777);
+
+        assert!(!super::apply_reconciled(&mut disk, Some(4242), &observed));
+        assert_eq!(disk.crashed_at, None); // our snapshot did not leak in
     }
 }
 

@@ -1,0 +1,20 @@
+{
+  "description": "Evidence records against docs/dev/evidence-schema.md. A PASS/FAIL must be executed (exit_code); a SKIP/BLOCKED must carry a reason; every field required.",
+  "cases": [
+    {"name": "valid_pass", "expect": "OK", "record": {"sha": "e923d617080de011580b7ee6b7a4fe6df134590e", "suite": "e2e", "version": "develop", "environment": "ci/ubuntu-latest", "profile": "pr-rootless", "command": "scripts/e2e.sh", "exit_code": 0, "denominator": 103, "exclusions": ["needs-root"], "state": "PASS", "artifact_ref": "reports/x/results.jsonl"}},
+
+    {"name": "valid_skip_with_reason", "expect": "OK", "record": {"sha": "e923d617080de011580b7ee6b7a4fe6df134590e", "suite": "chaos", "version": "develop", "environment": "ci/ubuntu-latest", "profile": "pr-rootless", "command": "scripts/chaos.sh", "denominator": 0, "exclusions": [], "state": "SKIP", "reason": "hosted runner blocks unprivileged userns", "artifact_ref": "reports/x/chaos.log"}},
+
+    {"name": "valid_blocked_with_reason", "expect": "OK", "record": {"sha": "e923d617080de011580b7ee6b7a4fe6df134590e", "suite": "critest", "version": "develop", "environment": "ci/ubuntu-latest", "profile": "lab-ephemeral", "command": "critest", "denominator": 103, "exclusions": [], "state": "BLOCKED", "reason": "needs a rootful VM the executor cannot provide", "artifact_ref": "reports/x/critest.log"}},
+
+    {"name": "pass_without_exit_code_fails", "expect": "FAIL", "record": {"sha": "e923d617080de011580b7ee6b7a4fe6df134590e", "suite": "e2e", "version": "develop", "environment": "ci", "profile": "release", "command": "scripts/e2e.sh", "denominator": 103, "exclusions": [], "state": "PASS", "artifact_ref": "reports/x/r.jsonl"}},
+
+    {"name": "skip_without_reason_fails", "expect": "FAIL", "record": {"sha": "e923d617080de011580b7ee6b7a4fe6df134590e", "suite": "e2e", "version": "develop", "environment": "ci", "profile": "pr-rootless", "command": "scripts/e2e.sh", "denominator": 0, "exclusions": [], "state": "SKIP", "artifact_ref": "reports/x/r.jsonl"}},
+
+    {"name": "invalid_state_fails", "expect": "FAIL", "record": {"sha": "e923d617080de011580b7ee6b7a4fe6df134590e", "suite": "e2e", "version": "develop", "environment": "ci", "profile": "release", "command": "x", "exit_code": 0, "denominator": 1, "exclusions": [], "state": "GREENISH", "artifact_ref": "reports/x/r.jsonl"}},
+
+    {"name": "bad_sha_fails", "expect": "FAIL", "record": {"sha": "abc123", "suite": "e2e", "version": "develop", "environment": "ci", "profile": "release", "command": "x", "exit_code": 0, "denominator": 1, "exclusions": [], "state": "PASS", "artifact_ref": "reports/x/r.jsonl"}},
+
+    {"name": "missing_field_fails", "expect": "FAIL", "record": {"sha": "e923d617080de011580b7ee6b7a4fe6df134590e", "suite": "e2e", "version": "develop", "environment": "ci", "profile": "release", "command": "x", "exit_code": 0, "state": "PASS", "artifact_ref": "reports/x/r.jsonl"}}
+  ]
+}
