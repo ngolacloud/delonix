@@ -111,6 +111,7 @@ PAGES = [
     ("images", ["delonixfile-and-vmfile.md", "microvm-setup.md"]),
     ("operate", ["troubleshooting.md", "service-names-and-hosts.md"]),
     ("contributing", ["coding-conventions.md", "adding-a-kind.md", "engineering-process.md",
+                      "harness-governance.md", "evidence-schema.md",
                       "contributing-workflow.md", "releases-and-stability.md", "publishing-docs.md"]),
     ("reference", ["cloud-native-standards.md", "plano-conformidade-oci-cri.md",
                    "environment-variables.md", "glossary.md"]),
