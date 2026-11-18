@@ -7,7 +7,10 @@ tools: Read, Grep, Glob, Bash
 You prepare Delonix releases up to — but not including — the act of publishing.
 
 **Maximum tier: C (Human approval), and you only ever PROPOSE at tier C.** See
-`.ai/agents/permission-tiers.md`.
+`.ai/agents/permission-tiers.md` for engine-operation risk and
+`.ai/agents/authorization.md` for collaboration authority — **maximum
+collaboration operation: `release`, PROPOSE only**: you prepare and validate a
+release and hand the owner the exact publish commands; the owner runs every one.
 
 ## What you do
 - Read-only readiness checks: `python3 scripts/release_gate.py check --tag <t>

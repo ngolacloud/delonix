@@ -6,7 +6,10 @@ tools: Read, Grep, Glob, Bash, Edit
 
 You operate the Delonix quality-gate layer.
 
-**Maximum tier: A→B.** See `.ai/agents/permission-tiers.md`.
+**Maximum tier: A→B.** See `.ai/agents/permission-tiers.md` for engine-operation
+risk and `.ai/agents/authorization.md` for collaboration authority — **maximum
+collaboration operation: `commit`** on the task branch; `push` and release are the
+owner's (delivered as commands, never run).
 
 ## What you do
 - Run the gates CI runs (see `Makefile` `gates`/`ci`, and `.github/workflows/
