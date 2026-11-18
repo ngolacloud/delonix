@@ -260,9 +260,169 @@ where
     })?
 }
 
+/// KRN-0001 fatia 5 (the ROUTE family): dump the routes that carry routing
+/// protocol `proto` in the netns at `netns_path`, as their destination prefixes.
+/// This is the typed `RTM_GETROUTE` equivalent of
+/// `ip netns exec <ns> ip route show proto <proto>` + `route_plan::parse_route_dests`
+/// — the READ half of the query→diff→mutate that keeps a workload's table in
+/// agreement with the declared network routes.
+///
+/// Only v4 is dumped: `Cidr` is v4 by design (ADR-0013 tier A) and the routes
+/// this engine installs are v4, exactly as the text version was (`-4`/`/32`).
+/// Routes without a destination attribute (the default route) are skipped — they
+/// never carry our private protocol and have no prefix to compare.
+pub(crate) fn route_list_proto(netns_path: &str, proto: u8) -> crate::Result<Vec<crate::Cidr>> {
+    use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteProtocol};
+    use std::net::Ipv4Addr;
+    with_netns(netns_path, move || {
+        let rt = netlink_runtime("route_list_proto")?;
+        rt.block_on(async move {
+            let (connection, handle, _) = new_connection().map_err(|e| Error::Command {
+                context: "netlink",
+                message: format!("route_list_proto: open: {e}"),
+            })?;
+            tokio::spawn(connection);
+            // An empty-destination request becomes an `NLM_F_DUMP` of every v4
+            // route; we filter by protocol in-process, the same way the old CLI
+            // asked the kernel to filter with `proto <proto>`.
+            let dump = rtnetlink::RouteMessageBuilder::<Ipv4Addr>::new().build();
+            let mut routes = handle.route().get(dump).execute();
+            let mut out = Vec::new();
+            while let Some(msg) = routes.try_next().await.map_err(|e| Error::Command {
+                context: "netlink",
+                message: format!("route_list_proto: dump: {e}"),
+            })? {
+                if msg.header.protocol != RouteProtocol::Other(proto) {
+                    continue;
+                }
+                let Some(v4) = msg.attributes.iter().find_map(|a| match a {
+                    RouteAttribute::Destination(RouteAddress::Inet(v4)) => Some(*v4),
+                    _ => None,
+                }) else {
+                    continue;
+                };
+                let len = msg.header.destination_prefix_length;
+                // Host bits cleared, as `Cidr::parse` would — so equality with a
+                // planned `WorkloadRoute.dest` (also a masked `Cidr`) holds.
+                let mask = if len == 0 { 0 } else { u32::MAX << (32 - u32::from(len)) };
+                out.push(crate::Cidr {
+                    base: u32::from(v4) & mask,
+                    len,
+                });
+            }
+            Ok(out)
+        })
+    })
+}
+
+/// KRN-0001 fatia 5: remove the route to `dest` that carries protocol `proto`
+/// from the netns at `netns_path` — the typed `RTM_DELROUTE` replacing
+/// `ip netns exec <ns> ip route del <dest> proto <proto>`. The protocol is set in
+/// the message so the kernel removes ONLY a route this engine installed, never a
+/// connected or default route that happens to share the prefix.
+pub(crate) fn route_del_proto(netns_path: &str, dest: crate::Cidr, proto: u8) -> crate::Result<()> {
+    use rtnetlink::packet_route::route::RouteProtocol;
+    use std::net::Ipv4Addr;
+    with_netns(netns_path, move || {
+        let rt = netlink_runtime("route_del_proto")?;
+        rt.block_on(async move {
+            let (connection, handle, _) = new_connection().map_err(|e| Error::Command {
+                context: "netlink",
+                message: format!("route_del_proto: open: {e}"),
+            })?;
+            tokio::spawn(connection);
+            let route = rtnetlink::RouteMessageBuilder::<Ipv4Addr>::new()
+                .destination_prefix(Ipv4Addr::from(dest.base), dest.len)
+                .protocol(RouteProtocol::Other(proto))
+                .build();
+            handle
+                .route()
+                .del(route)
+                .execute()
+                .await
+                .map_err(|e| Error::Command {
+                    context: "netlink",
+                    message: format!("route_del_proto({}/{}): {e}", dest.base, dest.len),
+                })
+        })
+    })
+}
+
+/// KRN-0001 fatia 5: create-or-replace the route «`dest` via `gateway` dev `dev`»
+/// carrying protocol `proto` in the netns at `netns_path` — the typed
+/// `RTM_NEWROUTE` with `NLM_F_CREATE | NLM_F_REPLACE` replacing
+/// `ip netns exec <ns> ip route replace <dest> via <gw> dev <dev> proto <proto>`.
+/// `replace()` keeps the idempotency the CLI `replace` gave: a second pass over
+/// an unchanged plan converges without error.
+///
+/// The output interface is addressed by index, so the device name is resolved
+/// INSIDE the netns first (`eth1` in the container, not on the host).
+pub(crate) fn route_replace(
+    netns_path: &str,
+    dest: crate::Cidr,
+    gateway: &str,
+    dev: &str,
+    proto: u8,
+) -> crate::Result<()> {
+    use rtnetlink::packet_route::route::RouteProtocol;
+    use std::net::Ipv4Addr;
+    let gw: Ipv4Addr = gateway.parse().map_err(|e| Error::Command {
+        context: "netlink",
+        message: format!("route_replace: bad gateway {gateway}: {e}"),
+    })?;
+    // Owned copies: the closure crosses a thread boundary (`with_netns`) and so
+    // must be `'static` — it cannot borrow the caller's `&str`s.
+    let gateway = gateway.to_string();
+    let dev = dev.to_string();
+    with_netns(netns_path, move || {
+        let rt = netlink_runtime("route_replace")?;
+        rt.block_on(async move {
+            let (connection, handle, _) = new_connection().map_err(|e| Error::Command {
+                context: "netlink",
+                message: format!("route_replace: open: {e}"),
+            })?;
+            tokio::spawn(connection);
+            // Resolve the device name to its index in THIS (container) netns.
+            let mut links = handle.link().get().match_name(dev.clone()).execute();
+            let msg = links
+                .try_next()
+                .await
+                .map_err(|e| Error::Command {
+                    context: "netlink",
+                    message: format!("route_replace({dev}): lookup: {e}"),
+                })?
+                .ok_or_else(|| Error::Command {
+                    context: "netlink",
+                    message: format!("route_replace({dev}): no such link"),
+                })?;
+            let index = msg.header.index;
+            let route = rtnetlink::RouteMessageBuilder::<Ipv4Addr>::new()
+                .destination_prefix(Ipv4Addr::from(dest.base), dest.len)
+                .gateway(gw)
+                .output_interface(index)
+                .protocol(RouteProtocol::Other(proto))
+                .build();
+            handle
+                .route()
+                .add(route)
+                .replace()
+                .execute()
+                .await
+                .map_err(|e| Error::Command {
+                    context: "netlink",
+                    message: format!(
+                        "route_replace({}/{} via {gateway} dev {dev}): {e}",
+                        dest.base, dest.len
+                    ),
+                })
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{addr_add, link_exists, link_set_up};
+    use super::{addr_add, link_exists, link_set_up, route_del_proto, route_list_proto, route_replace};
+    use crate::Cidr;
 
     /// KRN-0001 fatia 1: the native `RTM_GETLINK` query answers like `ip link
     /// show` did — loopback always exists in any netns, an invented name never
@@ -299,6 +459,42 @@ mod tests {
         assert!(
             addr_add("dlx-noexist-zzz0", "10.0.0.1/24").is_err(),
             "a missing link must error"
+        );
+    }
+
+    /// KRN-0001 fatia 5: a netns path that does not exist errors before any
+    /// netlink traffic — `with_netns` cannot `setns` into a file that is not
+    /// there. This guards the read half: a transport/setns failure must surface
+    /// as an error (so the caller can default to "nothing read" and log), never
+    /// as a silent empty table that would make the diff delete real routes. The
+    /// success path needs a live netns and CAP_NET_ADMIN and is proven by the
+    /// network e2e.
+    #[test]
+    fn route_list_proto_on_a_missing_netns_errors() {
+        assert!(
+            route_list_proto("/run/netns/dlx-noexist-zzz0", 118).is_err(),
+            "a missing netns must error, not report an empty route table"
+        );
+    }
+
+    /// KRN-0001 fatia 5: the mutate half rejects bad inputs before any privileged
+    /// syscall. A non-existent netns fails the `setns`; a non-parsable gateway
+    /// fails even earlier, before the netns thread. Both run without
+    /// CAP_NET_ADMIN; the convergence path is proven by the network e2e.
+    #[test]
+    fn route_del_and_replace_reject_bad_inputs() {
+        let dest = Cidr::parse("10.82.0.0/16").unwrap();
+        assert!(
+            route_del_proto("/run/netns/dlx-noexist-zzz0", dest, 118).is_err(),
+            "del in a missing netns must error"
+        );
+        assert!(
+            route_replace("/run/netns/whatever", dest, "not-an-ip", "eth1", 118).is_err(),
+            "a non-parsable gateway must error before touching any netns"
+        );
+        assert!(
+            route_replace("/run/netns/dlx-noexist-zzz0", dest, "10.81.0.1", "eth1", 118).is_err(),
+            "replace in a missing netns must error"
         );
     }
 }

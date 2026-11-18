@@ -5828,19 +5828,30 @@ fn workload_route_inputs() -> (Vec<(String, String)>, Vec<crate::route_plan::Net
 /// there and this one container cannot use it» is otherwise invisible.
 fn sync_workload_routes(netns: &str, pairs: &[(String, String)], nets: &[crate::route_plan::Net]) {
     use crate::route_plan::{self, WORKLOAD_ROUTE_PROTO};
+    // The ADDRESS family read (which interfaces the workload has) and the DEFAULT
+    // route read stay on the `ip` CLI. KRN-0001 fatia 5 migrates the part that
+    // was text-parsing + per-route shelling-out: the ROUTE family's
+    // query→diff→mutate of OUR proto-<id> routes, now typed netlink
+    // (RTM_GETROUTE/NEWROUTE/DELROUTE) run INSIDE the workload's netns.
     let in_ns = |args: &[&str]| {
         let mut argv = vec!["netns", "exec", netns];
         argv.extend_from_slice(args);
         crate::capture("ip", &argv).unwrap_or_default()
     };
     let ifaces = route_plan::parse_ifaces(&in_ns(&["ip", "-o", "-4", "addr", "show"]));
-    let current = route_plan::parse_route_dests(&in_ns(&[
-        "ip",
-        "route",
-        "show",
-        "proto",
-        WORKLOAD_ROUTE_PROTO,
-    ]));
+    let netns_path = crate::cni::named_netns_path(netns);
+    // Our routes are marked with a private routing protocol; `WORKLOAD_ROUTE_PROTO`
+    // is always a valid u8 ("118") — the 0 fallback would be RTPROT_UNSPEC and is
+    // unreachable, kept only so the parse has no `unwrap`.
+    let proto: u8 = WORKLOAD_ROUTE_PROTO.parse().unwrap_or(0);
+    // The current proto-<id> routes, read over netlink instead of
+    // `ip route show proto <id>`. A read error is logged and treated as "nothing
+    // of ours in the table" — the same best-effort default the CLI
+    // `unwrap_or_default` gave, so one unreadable workload never fails the route.
+    let current = crate::netlink::route_list_proto(&netns_path, proto).unwrap_or_else(|e| {
+        tracing::warn!(netns, error = %e, "could not read workload routes over netlink");
+        Vec::new()
+    });
     // One interface and nothing of ours in the table: the common case, and
     // nothing to compute.
     if ifaces.len() < 2 && current.is_empty() {
@@ -5848,52 +5859,72 @@ fn sync_workload_routes(netns: &str, pairs: &[(String, String)], nets: &[crate::
     }
     let default_dev = route_plan::parse_default_dev(&in_ns(&["ip", "route", "show", "default"]));
     let wanted = route_plan::plan(&ifaces, default_dev.as_deref(), pairs, nets);
-    for gone in current
-        .iter()
-        .filter(|c| !wanted.iter().any(|w| w.dest == **c))
-    {
-        let dest = gone.to_string_cidr();
-        if run(
-            "ip",
-            &[
-                "netns",
-                "exec",
-                netns,
-                "ip",
-                "route",
-                "del",
-                &dest,
-                "proto",
-                WORKLOAD_ROUTE_PROTO,
-            ],
-        )
-        .is_err()
-        {
+    for gone in routes_to_remove(&current, &wanted) {
+        if crate::netlink::route_del_proto(&netns_path, gone, proto).is_err() {
+            let dest = gone.to_string_cidr();
             tracing::warn!(netns, dest, "could not remove a workload route");
         }
     }
     for r in &wanted {
-        let dest = r.dest.to_string_cidr();
-        if let Err(e) = run(
-            "ip",
-            &[
-                "netns",
-                "exec",
-                netns,
-                "ip",
-                "route",
-                "replace",
-                &dest,
-                "via",
-                &r.via,
-                "dev",
-                &r.dev,
-                "proto",
-                WORKLOAD_ROUTE_PROTO,
-            ],
-        ) {
+        if let Err(e) = crate::netlink::route_replace(&netns_path, r.dest, &r.via, &r.dev, proto) {
+            let dest = r.dest.to_string_cidr();
             tracing::warn!(netns, dest, dev = r.dev, error = %e, "could not install a workload route: this workload cannot use the network route");
         }
+    }
+}
+
+/// The routes to REMOVE from a workload's table: the ones this engine currently
+/// has installed (`current`, the proto-<id> destinations read from the table)
+/// that the desired plan (`wanted`) no longer calls for. Pure on purpose — the
+/// idempotent diff is asserted in a unit test instead of only observed live.
+fn routes_to_remove(
+    current: &[crate::Cidr],
+    wanted: &[crate::route_plan::WorkloadRoute],
+) -> Vec<crate::Cidr> {
+    current
+        .iter()
+        .filter(|c| !wanted.iter().any(|w| w.dest == **c))
+        .copied()
+        .collect()
+}
+
+#[cfg(test)]
+mod tests_workload_route_diff {
+    use super::routes_to_remove;
+    use crate::route_plan::WorkloadRoute;
+    use crate::Cidr;
+
+    fn cidr(s: &str) -> Cidr {
+        Cidr::parse(s).unwrap()
+    }
+
+    fn want(dest: &str) -> WorkloadRoute {
+        WorkloadRoute {
+            dest: cidr(dest),
+            via: "10.81.0.1".into(),
+            dev: "eth1".into(),
+        }
+    }
+
+    /// KRN-0001 fatia 5: the diff that drives the typed RTM_DELROUTE. A route
+    /// still wanted is kept; a route no longer in the plan is removed; and a plan
+    /// unchanged against the table removes nothing — the idempotency `ip route
+    /// replace` gave, now asserted without the kernel.
+    #[test]
+    fn removes_only_what_the_plan_dropped() {
+        let current = [cidr("10.82.0.0/16"), cidr("10.83.0.0/16")];
+        // 10.82 still wanted, 10.83 dropped → only 10.83 is removed.
+        let wanted = [want("10.82.0.0/16")];
+        assert_eq!(routes_to_remove(&current, &wanted), vec![cidr("10.83.0.0/16")]);
+
+        // Table already matches the plan → nothing to remove (idempotent pass).
+        assert!(routes_to_remove(&current, &[want("10.82.0.0/16"), want("10.83.0.0/16")]).is_empty());
+
+        // Empty table → nothing to remove regardless of the plan.
+        assert!(routes_to_remove(&[], &wanted).is_empty());
+
+        // Plan emptied (every route closed) → the whole table is removed.
+        assert_eq!(routes_to_remove(&current, &[]), current.to_vec());
     }
 }
 

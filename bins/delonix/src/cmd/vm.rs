@@ -4479,7 +4479,9 @@ fn parse_ip_gateways(out: &str) -> Vec<String> {
     gws
 }
 
-/// Map `<proto>/<host_port> -> bind address` for every listening socket (via `ss`).
+/// Map `<proto>/<host_port> -> bind address` for every listening socket, read
+/// natively from `/proc/net/{tcp,tcp6,udp,udp6}` (KRN-0014: no fork of `ss`,
+/// no text parse of an external tool — the same data `ss` itself reads).
 ///
 /// The LIVE truth of where a published port is bound. A publish now records its
 /// resolved address, but reading the wire stays the right answer here: it is the
@@ -4487,48 +4489,116 @@ fn parse_ip_gateways(out: &str) -> Vec<String> {
 /// spec), a port a VM could reach that this engine never published, and a
 /// container whose publish was torn down underneath it.
 ///
-/// UDP is listed too (`-tuln`, not the `-tln` this used to run): a UDP publish was
-/// invisible to `vm reach` altogether, which is exactly the case someone checks
-/// when a SIP or DNS service does not answer from inside a VM. Keyed per transport
-/// because `tcp/5070` and `udp/5070` are independent bindings. Prefers a
-/// non-loopback bind when one key has more than one listener.
+/// UDP is listed too (the `udp`/`udp6` tables, which `vm reach` used to miss
+/// entirely): a UDP publish was invisible here, which is exactly the case someone
+/// checks when a SIP or DNS service does not answer from inside a VM. Keyed per
+/// transport because `tcp/5070` and `udp/5070` are independent bindings. Prefers a
+/// non-loopback bind when one key has more than one listener. Best-effort: a
+/// missing `/proc` table (e.g. IPv6 disabled → no `tcp6`) simply contributes
+/// nothing for that transport, exactly as `ss` would have shown it.
 fn listening_binds() -> std::collections::HashMap<String, String> {
-    match Command::new("ss").args(["-tulnH"]).output() {
-        Ok(o) if o.status.success() => parse_ss_binds(&String::from_utf8_lossy(&o.stdout)),
-        _ => std::collections::HashMap::new(),
+    let mut m = std::collections::HashMap::new();
+    for (path, proto, is_tcp) in [
+        ("/proc/net/tcp", "tcp", true),
+        ("/proc/net/tcp6", "tcp", true),
+        ("/proc/net/udp", "udp", false),
+        ("/proc/net/udp6", "udp", false),
+    ] {
+        if let Ok(table) = std::fs::read_to_string(path) {
+            parse_proc_net_binds(&table, proto, is_tcp, &mut m);
+        }
+    }
+    m
+}
+
+/// Parses one `/proc/net/{tcp,tcp6,udp,udp6}` table into `proto/port -> addr`,
+/// keeping only listening sockets: TCP in state `LISTEN` (`0A`), UDP unconnected
+/// (no remote peer) — the set `ss -uln` reports. Addresses are decoded from the
+/// kernel's hex into the SAME string form the `ss` parser produced (`0.0.0.0`,
+/// `127.0.0.1`, `[::]`), so the downstream `vm reach` reader is untouched. Prefers
+/// a non-loopback bind when a port has more than one listener. Pure — tested with
+/// captured `/proc/net/*` samples.
+fn parse_proc_net_binds(
+    table: &str,
+    proto: &str,
+    is_tcp: bool,
+    m: &mut std::collections::HashMap<String, String>,
+) {
+    // Linux socket state codes (same enum as TCP_* for every family in /proc).
+    const TCP_LISTEN: u32 = 0x0A;
+    // Skip the header row. Columns: `sl local_address rem_address st ...`.
+    for line in table.lines().skip(1) {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        let (Some(local), Some(rem), Some(st)) = (cols.get(1), cols.get(2), cols.get(3)) else {
+            continue;
+        };
+        let Ok(state) = u32::from_str_radix(st, 16) else {
+            continue;
+        };
+        if is_tcp {
+            // Only a socket in LISTEN is a published TCP port; an ESTABLISHED
+            // connection to it is not something a VM "reaches".
+            if state != TCP_LISTEN {
+                continue;
+            }
+        } else {
+            // UDP is connectionless: a "listening" publish is an unconnected
+            // socket (no remote peer → the remote port is 0). A UDP socket with
+            // a peer is an outbound flow, not a bound service, so it is skipped —
+            // mirroring `ss -ul`, which lists only unconnected UDP sockets.
+            let Some((_, rport)) = rem.rsplit_once(':') else {
+                continue;
+            };
+            if !rport.bytes().all(|b| b == b'0') {
+                continue;
+            }
+        }
+        let Some((addr, port)) = decode_proc_local(local) else {
+            continue;
+        };
+        insert_bind(m, format!("{proto}/{port}"), addr);
     }
 }
 
-/// Parses `ss -tlnH` output → `host_port -> bind address`. Prefers a
-/// non-loopback bind when a port has more than one listener. Pure — tested
-/// without `ss`.
-fn parse_ss_binds(out: &str) -> std::collections::HashMap<String, String> {
-    let mut m = std::collections::HashMap::new();
-    for line in out.lines() {
-        let cols: Vec<&str> = line.split_whitespace().collect();
-        // `ss -tuln` prefixes a Netid column (`tcp`/`udp`), `ss -tln` does not:
-        // columns are `[Netid] State Recv-Q Send-Q Local-Address:Port Peer ...`.
-        // Detected rather than assumed — reading the fixed index 3 of a `-tuln`
-        // line picks the Send-Q, and a parser that silently keys ports off a
-        // queue depth is worse than one that skips the line.
-        let (proto, local) = match cols.first().copied() {
-            Some(n @ ("tcp" | "udp")) => (n, cols.get(4)),
-            _ => ("tcp", cols.get(3)),
-        };
-        let Some(local) = local else { continue };
-        let Some(idx) = local.rfind(':') else {
-            continue;
-        };
-        let (addr, port) = (local[..idx].to_string(), local[idx + 1..].to_string());
-        m.entry(format!("{proto}/{port}"))
-            .and_modify(|cur: &mut String| {
-                if cur == "127.0.0.1" && addr != "127.0.0.1" {
-                    *cur = addr.clone();
-                }
-            })
-            .or_insert(addr);
-    }
-    m
+/// Decodes a `/proc/net/*` `local_address` cell (`HEXADDR:HEXPORT`) into a
+/// `(bind address string, host port)` pair. The address is 8 hex chars for IPv4,
+/// 32 for IPv6, stored little-endian within each 32-bit word — which is why each
+/// 4-byte group is reassembled with `to_le_bytes`. The port is big-endian. IPv6
+/// is rendered bracketed (`[::]`, `[::1]`) to match exactly what `ss` printed, so
+/// the caller's loopback/wildcard string comparisons keep working unchanged.
+fn decode_proc_local(cell: &str) -> Option<(String, u16)> {
+    let (hex_addr, hex_port) = cell.rsplit_once(':')?;
+    let port = u16::from_str_radix(hex_port, 16).ok()?;
+    let addr = match hex_addr.len() {
+        8 => {
+            let raw = u32::from_str_radix(hex_addr, 16).ok()?;
+            std::net::Ipv4Addr::from(raw.to_le_bytes()).to_string()
+        }
+        32 => {
+            let mut bytes = [0u8; 16];
+            for (i, chunk) in hex_addr.as_bytes().chunks(8).enumerate() {
+                let word = u32::from_str_radix(std::str::from_utf8(chunk).ok()?, 16).ok()?;
+                bytes[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+            }
+            format!("[{}]", std::net::Ipv6Addr::from(bytes))
+        }
+        _ => return None,
+    };
+    Some((addr, port))
+}
+
+/// Records a listener, preferring a non-loopback bind when a port already has a
+/// loopback one: `vm reach` reads this to tell a host-only publish from a
+/// VM-reachable one, so a port bound on both `127.0.0.1` and a gateway must count
+/// as reachable.
+fn insert_bind(m: &mut std::collections::HashMap<String, String>, key: String, addr: String) {
+    m.entry(key)
+        .and_modify(|cur: &mut String| {
+            if cur == "127.0.0.1" && addr != "127.0.0.1" {
+                *cur = addr.clone();
+            }
+        })
+        .or_insert(addr);
 }
 
 /// `delonix vm reach` — how VMs reach container services. A published port is
@@ -6782,7 +6852,7 @@ mod tests {
     use super::{
         antispoof_describe, created_spec_of, fmt_vm_gpu, fmt_vm_status, fmt_vm_uptime,
         looks_like_address, manifest, manifest_passthrough, normalize_vm_spec, parse_ip_gateways,
-        parse_ss_binds, resolve_vm_defaults, unconverged_fields_condition, vm_cluster_member,
+        parse_proc_net_binds, resolve_vm_defaults, unconverged_fields_condition, vm_cluster_member,
         vm_role, vm_spec_of, ManifestDoc, VmSpec, RECONCILED_VM_FIELDS, VM_SPEC_FIELDS,
     };
     use delonix_model::records::Status;
@@ -6933,51 +7003,68 @@ delonix0         UNKNOWN        10.200.0.1/16";
     }
 
     #[test]
-    fn parse_ss_binds_classifica_loopback_vs_gateway() {
-        let out = "\
-LISTEN 0      1          127.0.0.1:8069  0.0.0.0:*
-LISTEN 0      1      192.168.122.1:18077 0.0.0.0:*
-LISTEN 0      128          0.0.0.0:22    0.0.0.0:*
-LISTEN 0      128             [::]:443   [::]:*";
-        let m = parse_ss_binds(out);
+    fn parse_proc_net_classifica_loopback_vs_gateway() {
+        // Capturado de /proc/net/tcp e /proc/net/tcp6: endereço e porta em hex,
+        // little-endian por palavra de 32 bits; estado 0A = LISTEN, 01 = ESTAB.
+        // 0100007F=127.0.0.1, 017AA8C0=192.168.122.1, 00000000=0.0.0.0 (e [::]);
+        // portas 1F85=8069, 469D=18077, 0016=22, 01BB=443, 1F86=8070.
+        let tcp = "\
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:1F85 00000000:0000 0A 00000000:00000000 00:00000000  1000  0 1 1
+   1: 017AA8C0:469D 00000000:0000 0A 00000000:00000000 00:00000000  1000  0 1 1
+   2: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000     0  0 1 1
+   3: 0100007F:1F86 0100007F:1234 01 00000000:00000000 00:00000000  1000  0 1 1";
+        let tcp6 = "\
+  sl  local_address                         remote_address                        st rest...
+   0: 00000000000000000000000000000000:01BB 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 0 0 1 1";
+        let mut m = std::collections::HashMap::new();
+        parse_proc_net_binds(tcp, "tcp", true, &mut m);
+        parse_proc_net_binds(tcp6, "tcp", true, &mut m);
         assert_eq!(m.get("tcp/8069").map(String::as_str), Some("127.0.0.1")); // loopback → host-only
         assert_eq!(
             m.get("tcp/18077").map(String::as_str),
             Some("192.168.122.1")
         ); // gateway → VM-reachable
         assert_eq!(m.get("tcp/22").map(String::as_str), Some("0.0.0.0")); // all ifaces
-        assert_eq!(m.get("tcp/443").map(String::as_str), Some("[::]")); // IPv6, parse não estoura
+        assert_eq!(m.get("tcp/443").map(String::as_str), Some("[::]")); // IPv6, igual ao que o ss imprimia
+        // Estado 01 (ESTABLISHED), não LISTEN → não é porta publicada, fica de fora.
+        assert!(!m.contains_key("tcp/8070"));
     }
 
-    /// `ss -tuln` (the form `listening_binds` runs, so UDP is listed at all) puts a
-    /// Netid column in FRONT, shifting the local address from index 3 to 4. Reading
-    /// the fixed index would pick the Send-Q and key ports off a queue depth.
-    /// Captured from the real output, with a UDP line whose number also exists on
-    /// TCP — the two must not collapse into one key.
+    /// UDP é sem ligação: um publish em escuta é um socket sem par (porta remota
+    /// 0000). Um socket UDP com par é um fluxo de saída, não um serviço ligado, e
+    /// tem de ser ignorado — como o `ss -ul` faz. E `udp/5070` não pode colidir com
+    /// `tcp/5070`: a chave leva o transporte à frente.
     #[test]
-    fn parse_ss_binds_reads_the_netid_column_and_keys_per_transport() {
-        let out = "\
-udp   UNCONN 0      0            0.0.0.0:5070  0.0.0.0:*
-tcp   LISTEN 0      1          127.0.0.1:5070  0.0.0.0:*
-tcp   LISTEN 0      128           0.0.0.0:22    0.0.0.0:*";
-        let m = parse_ss_binds(out);
+    fn parse_proc_net_udp_so_desconectados_e_chave_por_transporte() {
+        // 13CE=5070, 1F40=8000; 3039 é uma porta remota != 0 (socket ligado).
+        let udp = "\
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000:13CE 00000000:0000 07 00000000:00000000 00:00000000  1000  0 1 1
+   1: 0100007F:1F40 0100007F:3039 07 00000000:00000000 00:00000000  1000  0 1 1";
+        let tcp = "\
+  sl  local_address rem_address   st rest...
+   0: 0100007F:13CE 00000000:0000 0A 00000000:00000000 00:00000000  1000  0 1 1";
+        let mut m = std::collections::HashMap::new();
+        parse_proc_net_binds(udp, "udp", false, &mut m);
+        parse_proc_net_binds(tcp, "tcp", true, &mut m);
         assert_eq!(m.get("udp/5070").map(String::as_str), Some("0.0.0.0"));
         assert_eq!(m.get("tcp/5070").map(String::as_str), Some("127.0.0.1"));
-        assert_eq!(m.get("tcp/22").map(String::as_str), Some("0.0.0.0"));
-        // A UDP publish used to be invisible here: `vm reach` ran `ss -tln`.
-        assert!(m.contains_key("udp/5070"));
+        // UDP ligado (porta remota != 0) não conta como "listening".
+        assert!(!m.contains_key("udp/8000"));
     }
 
     #[test]
-    fn parse_ss_binds_prefere_nao_loopback_quando_a_porta_tem_dois() {
-        // Uma porta com listener em loopback E no gateway conta como alcançável.
-        let out = "\
-LISTEN 0 1 127.0.0.1:9000 0.0.0.0:*
-LISTEN 0 1 192.168.122.1:9000 0.0.0.0:*";
-        assert_eq!(
-            parse_ss_binds(out).get("tcp/9000").map(String::as_str),
-            Some("192.168.122.1")
-        );
+    fn parse_proc_net_prefere_nao_loopback_quando_a_porta_tem_dois() {
+        // 2328=9000. Uma porta com listener em loopback E no gateway conta como
+        // alcançável (o gateway vence, mesmo entrando o loopback primeiro).
+        let tcp = "\
+  sl  local_address rem_address   st rest...
+   0: 0100007F:2328 00000000:0000 0A 00000000:00000000 00:00000000  1000  0 1 1
+   1: 017AA8C0:2328 00000000:0000 0A 00000000:00000000 00:00000000  1000  0 1 1";
+        let mut m = std::collections::HashMap::new();
+        parse_proc_net_binds(tcp, "tcp", true, &mut m);
+        assert_eq!(m.get("tcp/9000").map(String::as_str), Some("192.168.122.1"));
     }
 
     #[test]
