@@ -1,0 +1,2140 @@
+binário: /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix
+versão:  delonix 0.1.2
+daemonless, rootless-first container & microVM engine (kernel-native, Rust)
+commit: b72edeedf (+12 commits since v0.1.2) · built: 2026-11-18 · Apache-2.0
+
+get started:
+  delonix container run -d -p 8080:80 nginx   # a web service in seconds
+  delonix vm create dev                       # declarative microVMs
+  delonix cluster create                      # local Kubernetes (kind mode, no Docker)
+  delonix stack init && delonix stack apply   # a complete declarative project
+  delonix dashboard                           # htop-style dashboard
+
+docs: https://ngolacloud.github.io/delonix/ · delonix <group> --help
+
+=== guarda: as portas que a bateria publica ===
+  PASS  e2e_port: a porta fica fora do intervalo efémero do host e está livre
+  PASS  e2e_port: uma porta presa por uma ligação de saída é saltada
+  PASS  e2e_port: a mesma corrida nunca recebe a mesma porta duas vezes
+
+=== guard: the image teardown judges its effect ===
+  PASS  e2e_image_rm: a removed name that image ls no longer lists passes
+  PASS  e2e_image_rm: an image that is already gone (4) passes
+  PASS  e2e_image_rm: a removal the CLI refuses (rc 2) fails
+  PASS  e2e_image_rm: a name image ls still lists, even behind a registry, fails
+  PASS  e2e_image_rm: a long name image ls still lists fails
+  PASS  e2e_image_rm: a warning on stderr does not hide a name still listed
+  PASS  e2e_image_rm: a listing that does not parse fails
+
+=== guarda: o irmão SERVIDO é da release do $BIN ===
+  versão de referência: 0.1.2
+  PASS  o delonix-cri servido é da release do $BIN (/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix-cri diz 0.1.2)
+  PASS  o delonix-mgmt servido é da release do $BIN (/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix-mgmt diz 0.1.2)
+  PASS  o delonix-mcp servido é da release do $BIN (/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix-mcp diz 0.1.2)
+  PASS  o delonix-node-api servido é da release do $BIN (/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix-node-api diz 0.1.2)
+
+=== help / superfície da CLI ===
+  PASS  help raiz
+  PASS  version
+  (o --help de 366 folhas, inventário do cli-tree.sh)
+  PASS  help de 'attach'
+  PASS  help de 'container checkpoint'
+  PASS  help de 'container clone'
+  PASS  help de 'container create'
+  PASS  help de 'container kill'
+  PASS  help de 'container pause'
+  PASS  help de 'container restart'
+  PASS  help de 'container restore'
+  PASS  help de 'container rm'
+  PASS  help de 'container run'
+  PASS  help de 'container start'
+  PASS  help de 'container stop'
+  PASS  help de 'container unpause'
+  PASS  help de 'container wait'
+  PASS  help de 'container describe'
+  PASS  help de 'container diff'
+  PASS  help de 'container exists'
+  PASS  help de 'container healthcheck'
+  PASS  help de 'container inspect'
+  PASS  help de 'container logs'
+  PASS  help de 'container port'
+  PASS  help de 'container ps'
+  PASS  help de 'container stats'
+  PASS  help de 'container top'
+  PASS  help de 'container attach'
+  PASS  help de 'container commit'
+  PASS  help de 'container cp'
+  PASS  help de 'container exec'
+  PASS  help de 'container mount'
+  PASS  help de 'container unmount'
+  PASS  help de 'container rename'
+  PASS  help de 'container update'
+  PASS  help de 'container apply'
+  PASS  help de 'container init'
+  PASS  help de 'container prune'
+  PASS  help de 'container export'
+  PASS  help de 'cp'
+  PASS  help de 'create'
+  PASS  help de 'exec'
+  PASS  help de 'kill'
+  PASS  help de 'logs'
+  PASS  help de 'oci-runtime create'
+  PASS  help de 'oci-runtime delete'
+  PASS  help de 'oci-runtime kill'
+  PASS  help de 'oci-runtime start'
+  PASS  help de 'oci-runtime state'
+  PASS  help de 'pause'
+  PASS  help de 'pod create'
+  PASS  help de 'pod kill'
+  PASS  help de 'pod pause'
+  PASS  help de 'pod prune'
+  PASS  help de 'pod restart'
+  PASS  help de 'pod rm'
+  PASS  help de 'pod start'
+  PASS  help de 'pod stop'
+  PASS  help de 'pod unpause'
+  PASS  help de 'pod exists'
+  PASS  help de 'pod inspect'
+  PASS  help de 'pod logs'
+  PASS  help de 'pod ps'
+  PASS  help de 'pod stats'
+  PASS  help de 'pod top'
+  PASS  help de 'pod attach'
+  PASS  help de 'pod cp'
+  PASS  help de 'pod exec'
+  PASS  help de 'pod port-forward'
+  PASS  help de 'port'
+  PASS  help de 'ps'
+  PASS  help de 'rename'
+  PASS  help de 'restart'
+  PASS  help de 'rm'
+  PASS  help de 'run'
+  PASS  help de 'start'
+  PASS  help de 'stats'
+  PASS  help de 'stop'
+  PASS  help de 'systemcontainer clone'
+  PASS  help de 'systemcontainer move'
+  PASS  help de 'systemcontainer snapshot create'
+  PASS  help de 'systemcontainer snapshot restore'
+  PASS  help de 'systemcontainer snapshot rm'
+  PASS  help de 'systemcontainer snapshot ls'
+  PASS  help de 'top'
+  PASS  help de 'unpause'
+  PASS  help de 'vm clone'
+  PASS  help de 'vm cloud-init'
+  PASS  help de 'vm create'
+  PASS  help de 'vm destroy'
+  PASS  help de 'vm migrate'
+  PASS  help de 'vm move'
+  PASS  help de 'vm pause'
+  PASS  help de 'vm resize'
+  PASS  help de 'vm restart'
+  PASS  help de 'vm start'
+  PASS  help de 'vm stop'
+  PASS  help de 'vm template'
+  PASS  help de 'vm unpause'
+  PASS  help de 'vm update'
+  PASS  help de 'vm ls'
+  PASS  help de 'vm console'
+  PASS  help de 'vm ssh'
+  PASS  help de 'vm vnc'
+  PASS  help de 'vm default-backend'
+  PASS  help de 'vm bridge'
+  PASS  help de 'vm reach'
+  PASS  help de 'vm unbridge'
+  PASS  help de 'vm image pull'
+  PASS  help de 'vm image push'
+  PASS  help de 'vm image rm'
+  PASS  help de 'vm image build'
+  PASS  help de 'vm image import'
+  PASS  help de 'vm image init'
+  PASS  help de 'vm image describe'
+  PASS  help de 'vm image ls'
+  PASS  help de 'vm image ls-remote'
+  PASS  help de 'vm image convert'
+  PASS  help de 'vm apply'
+  PASS  help de 'vm init'
+  PASS  help de 'vm prune'
+  PASS  help de 'vm snapshot create'
+  PASS  help de 'vm snapshot restore'
+  PASS  help de 'vm snapshot rm'
+  PASS  help de 'vm snapshot ls'
+  PASS  help de 'workload rm'
+  PASS  help de 'workload stop'
+  PASS  help de 'workload describe'
+  PASS  help de 'workload ls'
+  PASS  help de 'build'
+  PASS  help de 'commit'
+  PASS  help de 'export'
+  PASS  help de 'history'
+  PASS  help de 'image pull'
+  PASS  help de 'image push'
+  PASS  help de 'image remove'
+  PASS  help de 'image attestations'
+  PASS  help de 'image describe'
+  PASS  help de 'image diff'
+  PASS  help de 'image exists'
+  PASS  help de 'image history'
+  PASS  help de 'image inspect'
+  PASS  help de 'image ls'
+  PASS  help de 'image provenance'
+  PASS  help de 'image sbom'
+  PASS  help de 'image scan'
+  PASS  help de 'image tree'
+  PASS  help de 'image verify'
+  PASS  help de 'image login'
+  PASS  help de 'image logout'
+  PASS  help de 'image sign'
+  PASS  help de 'image tag'
+  PASS  help de 'image untag'
+  PASS  help de 'image export'
+  PASS  help de 'image import'
+  PASS  help de 'image load'
+  PASS  help de 'image save'
+  PASS  help de 'image search'
+  PASS  help de 'image apply'
+  PASS  help de 'image prune'
+  PASS  help de 'image build'
+  PASS  help de 'images'
+  PASS  help de 'import'
+  PASS  help de 'load'
+  PASS  help de 'login'
+  PASS  help de 'logout'
+  PASS  help de 'pull'
+  PASS  help de 'push'
+  PASS  help de 'rmi'
+  PASS  help de 'save'
+  PASS  help de 'search'
+  PASS  help de 'secret create'
+  PASS  help de 'secret rm'
+  PASS  help de 'secret inspect'
+  PASS  help de 'secret ls'
+  PASS  help de 'secret set'
+  PASS  help de 'secret unset'
+  PASS  help de 'secret apply'
+  PASS  help de 'secret rotate'
+  PASS  help de 'secret rotate-key'
+  PASS  help de 'tag'
+  PASS  help de 'untag'
+  PASS  help de 'bucket rm'
+  PASS  help de 'bucket inspect'
+  PASS  help de 'bucket ls'
+  PASS  help de 'volume create'
+  PASS  help de 'volume rm'
+  PASS  help de 'volume describe'
+  PASS  help de 'volume exists'
+  PASS  help de 'volume inspect'
+  PASS  help de 'volume ls'
+  PASS  help de 'volume export'
+  PASS  help de 'volume import'
+  PASS  help de 'volume mount'
+  PASS  help de 'volume unmount'
+  PASS  help de 'volume apply'
+  PASS  help de 'volume prune'
+  PASS  help de 'volume snapshot create'
+  PASS  help de 'volume snapshot rm'
+  PASS  help de 'volume snapshot ls'
+  PASS  help de 'volume snapshot restore'
+  PASS  help de 'hosts sync'
+  PASS  help de 'net capture'
+  PASS  help de 'net flow'
+  PASS  help de 'net egress ls'
+  PASS  help de 'net egress show'
+  PASS  help de 'net egress allow'
+  PASS  help de 'net egress deny'
+  PASS  help de 'net egress host'
+  PASS  help de 'net egress net'
+  PASS  help de 'net egress policy'
+  PASS  help de 'net egress clear'
+  PASS  help de 'net egress rm'
+  PASS  help de 'net ingress ls'
+  PASS  help de 'net ingress allow'
+  PASS  help de 'net ingress deny'
+  PASS  help de 'net ingress policy'
+  PASS  help de 'net ingress publish'
+  PASS  help de 'net ingress unpublish'
+  PASS  help de 'net ingress clear'
+  PASS  help de 'net ingress rm'
+  PASS  help de 'net l4guard status'
+  PASS  help de 'net l4guard clear'
+  PASS  help de 'net l4guard set'
+  PASS  help de 'net httproute apply'
+  PASS  help de 'net httproute rm'
+  PASS  help de 'net tunnel expose'
+  PASS  help de 'net tunnel apply'
+  PASS  help de 'net netns down'
+  PASS  help de 'net netns gc'
+  PASS  help de 'net netns up'
+  PASS  help de 'net netns status'
+  PASS  help de 'net netns exec'
+  PASS  help de 'net netns attach'
+  PASS  help de 'net netns detach'
+  PASS  help de 'net netns firewall'
+  PASS  help de 'net netns publish'
+  PASS  help de 'net netns unpublish'
+  PASS  help de 'network connect'
+  PASS  help de 'network create'
+  PASS  help de 'network disconnect'
+  PASS  help de 'network prune'
+  PASS  help de 'network reload'
+  PASS  help de 'network rm'
+  PASS  help de 'network route'
+  PASS  help de 'network vlan'
+  PASS  help de 'network describe'
+  PASS  help de 'network diagnose'
+  PASS  help de 'network exists'
+  PASS  help de 'network inspect'
+  PASS  help de 'network ls'
+  PASS  help de 'network apply'
+  PASS  help de 'network ipam ls'
+  PASS  help de 'network ipam prune'
+  PASS  help de 'network node key'
+  PASS  help de 'network node init'
+  PASS  help de 'network vip-pool clear'
+  PASS  help de 'network vip-pool set'
+  PASS  help de 'network vip-pool show'
+  PASS  help de 'cluster backup'
+  PASS  help de 'cluster create'
+  PASS  help de 'cluster destroy'
+  PASS  help de 'cluster kubeadm'
+  PASS  help de 'cluster restore'
+  PASS  help de 'cluster start'
+  PASS  help de 'cluster stop'
+  PASS  help de 'cluster upgrade'
+  PASS  help de 'cluster init'
+  PASS  help de 'cluster drain'
+  PASS  help de 'cluster health'
+  PASS  help de 'cluster kubeconfig'
+  PASS  help de 'cluster load'
+  PASS  help de 'cluster ls'
+  PASS  help de 'cluster uncordon'
+  PASS  help de 'cluster apply'
+  PASS  help de 'cluster kube generate'
+  PASS  help de 'cluster kube play'
+  PASS  help de 'cluster prune'
+  PASS  help de 'cluster network fetch'
+  PASS  help de 'cluster network profiles'
+  PASS  help de 'cluster network status'
+  PASS  help de 'api-resources'
+  PASS  help de 'apply'
+  PASS  help de 'compose down'
+  PASS  help de 'compose up'
+  PASS  help de 'compose config'
+  PASS  help de 'compose logs'
+  PASS  help de 'compose ps'
+  PASS  help de 'diff'
+  PASS  help de 'drift'
+  PASS  help de 'explain'
+  PASS  help de 'gitops reconcile'
+  PASS  help de 'gitops status'
+  PASS  help de 'gitops resume'
+  PASS  help de 'gitops suspend'
+  PASS  help de 'manifest convert'
+  PASS  help de 'manifest render'
+  PASS  help de 'manifest schema'
+  PASS  help de 'manifest validate'
+  PASS  help de 'migrate assess'
+  PASS  help de 'plan'
+  PASS  help de 'stack apply'
+  PASS  help de 'stack destroy'
+  PASS  help de 'stack wait'
+  PASS  help de 'stack init'
+  PASS  help de 'stack describe'
+  PASS  help de 'stack history'
+  PASS  help de 'stack ls'
+  PASS  help de 'stack plan'
+  PASS  help de 'stack validate'
+  PASS  help de 'stack rollback'
+  PASS  help de 'stack prune'
+  PASS  help de 'wait'
+  PASS  help de 'delete'
+  PASS  help de 'describe'
+  PASS  help de 'get'
+  PASS  help de 'compatibility compose'
+  PASS  help de 'compatibility docker'
+  PASS  help de 'mcp capabilities'
+  PASS  help de 'mcp doctor'
+  PASS  help de 'mcp serve'
+  PASS  help de 'serve api'
+  PASS  help de 'serve cri'
+  PASS  help de 'serve docker-api'
+  PASS  help de 'serve node-api'
+  PASS  help de 'backup inspect'
+  PASS  help de 'backup ls'
+  PASS  help de 'backup create'
+  PASS  help de 'backup remove'
+  PASS  help de 'backup restore'
+  PASS  help de 'backup schedule'
+  PASS  help de 'completion editor'
+  PASS  help de 'completion shell'
+  PASS  help de 'config get'
+  PASS  help de 'config set'
+  PASS  help de 'config unset'
+  PASS  help de 'dashboard'
+  PASS  help de 'init'
+  PASS  help de 'man'
+  PASS  help de 'policy unset'
+  PASS  help de 'provider config schema'
+  PASS  help de 'provider config show'
+  PASS  help de 'provider config validate'
+  PASS  help de 'provider describe'
+  PASS  help de 'provider ls'
+  PASS  help de 'provider matrix'
+  PASS  help de 'system df'
+  PASS  help de 'system doctor'
+  PASS  help de 'system events'
+  PASS  help de 'system features'
+  PASS  help de 'system info'
+  PASS  help de 'system metrics'
+  PASS  help de 'system namespace describe'
+  PASS  help de 'system namespace ls'
+  PASS  help de 'system resources'
+  PASS  help de 'system regulate'
+  PASS  help de 'system setup'
+  PASS  help de 'system snapshot create'
+  PASS  help de 'system snapshot restore'
+  PASS  help de 'system virt'
+  PASS  help de 'system prune'
+  PASS  help de 'system thermal'
+  PASS  help de 'system monitor'
+  PASS  help de 'system boot status'
+  PASS  help de 'system boot disable'
+  PASS  help de 'system boot enable'
+  PASS  help de 'version'
+  PASS  help de 'events'
+  PASS  help de 'info'
+
+=== comandos de leitura (não destrutivos) ===
+  PASS  container ls
+  PASS  container ls -a
+  PASS  container ls -q
+  PASS  image ls
+  PASS  vm image ls
+  PASS  volume ls
+  PASS  network ls
+  PASS  container ps -a -n inexistente devolve zero
+  PASS  container ps -a -n default não esconde nada
+  PASS  workload ls -n inexistente devolve zero
+  PASS  workload ls -n default não esconde nada
+  PASS  get pods -n inexistente devolve zero
+  PASS  get pods -n default não esconde nada
+  PASS  numa tabela VAZIA nada se esconde (o cabeçalho é tudo o que há)
+  PASS  com -n default a coluna aparece
+  PASS  vm ls
+  PASS  get clusters
+  PASS  cluster kubeconfig sem nenhum em cache recusa
+  PASS  cluster kubeconfig sem nome resolve ao único em cache
+  PASS  cluster kubeconfig <nome> imprime esse
+  PASS  cluster kubeconfig <inexistente> recusa
+  PASS  cluster kubeconfig sem nome com vários recusa e nomeia-os
+  PASS  system info
+  PASS  system df
+  PASS  system df conta os discos de VM
+  PASS  system df conta a cache de build
+  PASS  system df fecha a tabela com other e TOTAL
+  PASS  system df: paralelo e sequencial dão o mesmo
+  PASS  net netns gc --help
+  PASS  net netns gc sem --force nunca termina nada
+  PASS  system events
+  PASS  completion shell bash
+  PASS  man completa nomes de comando
+  PASS  system snapshot restore completa caminhos
+  SKIP  vm image rm completa  — não há imagens VM neste host
+
+=== compatibility compose / migrate assess (M02) ===
+  PASS  compatibility compose imprime a matriz
+  PASS  compatibility compose -o json parseia e traz as duas listas
+scripts/e2e.sh: line 810: x: command not found
+  PASS  a tabela do compose descreve o que o compose faz, chave a chave
+  PASS  migrate assess lê o ficheiro e classifica cada chave
+  PASS  migrate assess --detailed-exitcode devolve 2 com uma chave não servida
+  PASS  migrate assess devolve 0 quando tudo é servido
+  PASS  migrate assess -o json
+  PASS  migrate assess de um ficheiro inexistente diz 4
+  PASS  migrate assess: the compose-webapp sample is fully served
+  PASS  compose config: the sample's project is its name: and web keeps both networks
+
+=== provider ls / describe / matrix (ADR-0050): a matriz medida, não afirmada ===
+  PASS  provider ls
+  PASS  provider ls -o json lista os mesmos providers que a matriz
+  PASS  provider ls -o json: cada capacidade leva name/supported/state/detail
+  PASS  provider ls --kind network só traz a rede
+  PASS  provider ls --kind gateway traz o opnsense e responde às linhas de rede
+  PASS  provider describe opnsense
+  PASS  provider describe libvirt
+  PASS  provider describe linux --kind storage
+  PASS  provider describe de um provider inexistente diz 4
+  PASS  provider ls --kind inválido recusa
+  PASS  provider matrix é a matriz publicada, byte a byte
+  PASS  provider ls --l18n=pt traduz o cabeçalho
+  PASS  provider describe libvirt --probe recusa (1)
+  PASS  provider describe proxmox --probe sem alvo diz 69
+  PASS  serve node-api: o socket existe e é 0600
+  PASS  GET /v1/providers responde com os mesmos providers que provider ls
+  PASS  GET /v1/providers: cada capacidade leva name/supported/state/detail e o catalog_version
+  PASS  GET /v1/providers?kind=network só traz a rede
+  PASS  GET /v1/providers?kind=gateway traz o opnsense (ADR-0059 F1)
+  PASS  GET /v1/providers?kind=ceph é 400 com um problem+json DX-1000 (gRPC 3)
+  PASS  um caminho sem handler é 404 com um problem+json DX-4001, nunca um 200 vazio
+  PASS  um método que o caminho não serve é 405 com Allow: GET e um problem+json
+  PASS  GET /v1/node: a versão e o commit são os do delonix version
+  PASS  GET /v1/node/health: quatro condições, e a do cgroup concorda com o system info
+  PASS  GET /v1/node/capacity: cada número é medido ou está em unmeasured, nunca um zero calado
+  PASS  GET /openapi.json serve o documento gerado, com as rotas do NodeService
+  PASS  GET /v1: cada link oferecido responde 200, e o cabeçalho Link espelha o corpo
+  PASS  uma rota não servida (stream) é 501 DX-6001, e um verbo noutro método é 405 com Allow: POST
+  PASS  um parâmetro de query que o pedido não tem é recusado (400), não ignorado
+  PASS  GET …/networks lista as redes do nó, com a condição Realized lida do registo do dataplane
+  PASS  o selector de labels filtra, e a paginação dá Link rel=next com um token que continua a lista
+  PASS  GET de uma rede traz ETag; If-None-Match com esse valor é 304; depois de mudar a rede volta a ser 200
+  PASS  uma rede que não existe é 404 com um problem+json; noutro namespace a lista é vazia
+  PASS  POST …/networks cria a rede: Operation SUCCEEDED com Location, e a CLI e o registo do dataplane têm-na
+  PASS  o mesmo pedido com a mesma Idempotency-Key é respondido com a primeira Operation; sem chave é 409
+  PASS  a Operation lê-se por id e na lista; a de um processo que já não existe lê-se FAILED/Interrupted
+  PASS  overlay (501), outro namespace, subnet inválida e um nome com '..' são recusados sem criar nada
+  PASS  DELETE com If-Match antigo é 412 e a rede fica; com o ETag actual remove-a do motor e do dataplane
+  PASS  GET …/volumes/{nome} mede o uso, traz a quota e o ETag; a lista diz que não mediu
+  PASS  um volume que não existe é 404 DX-4000; DELETE pelo socket remove o volume do motor (Operation SUCCEEDED, a CLI deixa de o ver)
+  PASS  POST …/volumes cria um volume local com quota e labels: Operation SUCCEEDED, e a CLI vê-o com a quota
+  PASS  GET /docs e GET /redoc servem HTML com um Content-Security-Policy que só deixa scripts do próprio socket
+  PASS  as páginas de docs não carregam nada de fora e cada asset que referem é servido
+  PASS  o Swagger UI embebido é o do upstream (sha256 do SHA256SUMS) e o validador online está desligado
+
+=== erros: a CLI tem de RECUSAR o que é inválido ===
+  PASS  container describe de inexistente recusa
+  PASS  container inspect de inexistente recusa
+  PASS  volume inspect de inexistente recusa
+  PASS  network inspect de inexistente recusa
+  PASS  container update sem mudanças recusa
+  PASS  container stop de inexistente recusa
+  PASS  container rm de inexistente recusa
+  PASS  delete vm de inexistente recusa
+  PASS  stack apply de ficheiro inexistente recusa
+
+=== códigos de saída: a CLASSE da falha, não só que falhou ===
+  PASS  inexistente: container inspect diz 4
+  PASS  inexistente: volume inspect diz 4
+  PASS  inexistente: network inspect diz 4
+  PASS  inexistente: secret rm diz 4
+  PASS  inexistente: delete vm diz 4
+  PASS  inexistente: lote de ids mantém a classe
+  PASS  inexistente em PT continua a dizer 4
+  PASS  a linha de erro traz o número do dicionário
+  PASS  o lote de ids traz o número por id
+  PASS  explain de um código responde
+  PASS  explain de um código que não existe diz 4
+  PASS  explain codes --json é JSON
+  PASS  prazo esgotado no stack wait diz 124
+  SKIP  ferramenta em falta diz 69  — este host TEM virt-customize — o caminho não é exercitável aqui
+  PASS  uso inválido continua a ser o 2 do clap
+  PASS  sucesso continua a ser 0
+
+=== volumes: ciclo de vida ===
+  PASS  volume create
+  PASS  volume create idempotente
+  PASS  volume ls mostra-o
+  PASS  volume inspect
+  PASS  volume describe
+  PASS  snapshot create
+  PASS  snapshot já existente diz 5 (conflito)
+  PASS  snapshot rm
+
+=== storage: kind StoragePool e volumes num pool (ADR-0067 P0) ===
+  PASS  StoragePool sem allowlist no nó recusa com 69 (DX-6203), nada criado
+  PASS  um campo do administrador no manifesto (driver, path) é recusado pelo nome: DX-1217, não «unknown field»
+  PASS  um pool que a allowlist não tem é recusado com 77 (DX-7201)
+  PASS  uma allowlist que outros podem escrever é recusada (DX-1218)
+  PASS  stack apply do StoragePool: fica em uso e o plano seguinte não vê deriva
+  PASS  volume create --pool --size: os dados ficam DENTRO do pool, com a marca do motor
+  PASS  um volume maior do que o maxVolumeBytes do administrador é recusado com 77
+  PASS  um volume que passa o tecto de sobre-alocação do pool é recusado com 5 (DX-5202)
+  PASS  um directório com dados e sem a marca do motor nunca é adoptado pelo nome (5), e fica intacto
+  PASS  delete storagepools com volumes lá dentro recusa (5) e nomeia-os
+  PASS  volume rm liberta o volume do pool; delete deixa de usar o pool e o directório do pool fica
+  PASS  por manifesto: pool e volume aplicam, o plano não vê deriva, e o destroy leva o volume, deixa de usar o pool e deixa o directório do pool
+
+=== storage pool: lvm-thin num thin pool real em loopback (ADR-0067 P4) ===
+  SKIP  storage pool lvm-thin (pool real em loopback)  — precisa de root para losetup/pvcreate/vgcreate/lvcreate sobre o ficheiro de loopback; esta sessão corre sem privilégio
+
+=== storage pool: btrfs e zfs em filesystems reais em loopback (ADR-0067 P2/P3) ===
+  SKIP  storage pool btrfs (pool real em loopback)  — precisa de root para losetup/mkfs.btrfs/mount; esta sessão corre sem privilégio
+  SKIP  storage pool zfs (pool real em loopback)  — precisa de root para modprobe zfs/zpool create; esta sessão corre sem privilégio
+
+=== volume create: --driver/--opt (Sprint 6 — fusão do --type/--server/--share) ===
+  PASS  --type já não existe (corte limpo, sem alias)
+  PASS  volume create --driver desconhecido recusa
+  PASS  volume create --driver nfs sem --opt share recusa
+  PASS  --opt com --driver local (que não leva opções) recusa
+  PASS  --opt com chave desconhecida recusa
+  PASS  --driver e --parent são exclusivos
+  SKIP  volume create --driver nfs com NAS real  — montar NFS/CIFS exige CAP_SYS_ADMIN — não exercitável em rootless
+  PASS  um create falhado não deixa registo em volume ls
+
+=== share volumes (kind: Volume com bloco share:) ===
+  PASS  volume pai para os shares
+  PASS  apply das duas escritas do pai (storageRef + share.from)
+  PASS  kind: ShareVolume é recusado
+  PASS  a recusa nomeia a forma nova
+  PASS  volume ls -A mostra os dois
+  PASS  volume rm do pai é RECUSADO por um share namespaced
+  PASS  a recusa nomeia os shares com a namespace
+  PASS  o pai continua de pé depois das duas recusas
+  PASS  o plano distingue os dois shares homónimos
+  PASS  stack apply adopta e carimba a posse
+  PASS  manifesto inalterado propõe ZERO alterações
+  PASS  o describe do share resolveu um mountpoint
+  PASS  stack destroy alcança os dois shares
+  PASS  o destroy tirou-os do registo
+  PASS  os DADOS do inquilino sobreviveram ao destroy
+  PASS  share + nfs no mesmo volume é recusado
+
+=== volume create --parent (fusão B5 — antigo sharevolume) imperativo ===
+  PASS  volume pai
+  PASS  volume create --parent
+  PASS  ACH-001: a share sem --namespace aparece no ls SEM flag, com PARENT
+  PASS  ACH-001: o describe SEM flag encontra-a
+  PASS  ACH-001: o rm do PAI recusa por causa dela (o guarda ve-a)
+  PASS  --purge-data é recusado num volume sem --parent
+  PASS  ACH-001: o rm SEM flag encontra-a (e sem --purge-data preserva os dados)
+  PASS  …e os dados sobreviveram
+  PASS  volume create --parent outra vez
+  PASS  rm --purge-data apaga os dados
+  PASS  …e o subdirectório já não existe
+
+=== network: ciclo de vida ===
+  PASS  network create
+  PASS  network ls mostra-a
+  PASS  network inspect
+  PASS  network describe
+  PASS  network diagnose responde
+  PASS  network diagnose cobre as três perguntas
+  PASS  network diagnose -o json é JSON válido
+  PASS  cada linha tem um status conhecido
+  PASS  diagnose não mexe no registo de endereços
+  PASS  network route sem argumentos lista
+  PASS  network route -o json é JSON a sério
+  PASS  network route com um argumento só recusa
+  PASS  a recusa NOMEIA a forma que funciona
+  PASS  rota: a 2.ª rede cria-se
+  PASS  rota: network route abre
+  PASS  a rota aberta aparece na listagem
+  PASS  e aparece no json
+  PASS  o estado nunca diz 'closed'
+  PASS  fechada, sai da listagem
+  PASS  gateway fora do prefixo: recusa mesmo SEM --subnet
+  PASS  gateway recusado não deixa registo órfão
+  PASS  gateway = endereço de rede: recusa
+  PASS  network create --gateway dentro do prefixo
+  PASS  inspect relata o gateway EM VIGOR, não o derivado
+  PASS  describe relata o gateway EM VIGOR
+  SKIP  wg ausente: caminho de falha  — este host TEM wg — o caminho não é exercitável aqui
+
+=== image ===
+  (root isolado: /tmp/dlxcamp/out/root · runtime: /tmp/dlxcn2)
+  PASS  image pull (alpine:3.19)
+  PASS  image describe
+  PASS  container run --ulimit applies a limit inside the userns
+  PASS  container run --ulimit with an unknown name refuses to start
+  PASS  container run --ulimit above the user's hard limit refuses instead of running without it
+  PASS  credentials: stack apply de um Secret e de um container que o referencia
+  PASS  credentials: container ls --credentials shows the user and where the password lives
+  PASS  credentials: --reveal prints the value, and the record does not hold it
+  PASS  DELETE de uma rede em uso é 409 DX-5307 e não escreve Operation; sem o container remove-a
+  PASS  image load: um arquivo não deita fora os outros nomes da mesma imagem
+  PASS  teardown: the load test's tag leaves the store
+
+=== build: o ENV que a imagem empacota ===
+  PASS  build: ENV PATH=…:$PATH empacota o PATH expandido, e as ferramentas da base continuam a resolver
+  PASS  teardown: the ENV PATH build leaves the store
+  PASS  build: um -t dá um nome que o image ls mostra, e o CMD declarado é o que corre
+  PASS  teardown: the -t build leaves the store
+  PASS  build FROM scratch: COPY a shell then RUN it (no pull, no mask ENOENT), e empacota
+
+=== container: ciclo de vida + hot reconfig ===
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; P1=53855 veio do kernel)
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; P2=35923 veio do kernel)
+  PASS  progresso: todo o • tem o seu ✓
+  PASS  USER da imagem: o build da imagem de teste
+  PASS  USER da imagem: sem -u o processo corre como esse utilizador
+  PASS  USER da imagem: aplicado, não há aviso
+  PASS  USER da imagem: -u 0 fica root no container
+  PASS  imagem sem USER corre como uid 0, sem aviso
+  PASS  o /tmp de um container é sticky (1777), não 777
+  PASS  build: uma imagem com adduser e USER app
+  PASS  build: um RUN depois de USER corre como esse utilizador, e os donos ficam na imagem
+  PASS  build: um rebuild com cache dá os mesmos donos
+  PASS  build: um COPY substitui um ficheiro que a base dá a um não-root, e o novo é de root
+  PASS  teardown: the USER builds leave the store
+  PASS  -u 1000 com um bind e um volume corre como 1000
+  PASS  -u: o utilizador NÃO escreve em /etc/passwd
+  PASS  -u: /etc/passwd continua a ser de root
+  PASS  -u: a pasta que a imagem lhe dá é dele e é gravável
+  PASS  -u: um volume nomeado vazio é gravável pelo utilizador
+  PASS  -u: o bind mount do HOST mantém o dono (não é re-apropriado)
+  PASS  -u: o dono do bind continua a escrever no seu ficheiro
+  PASS  commit: o container de teste arranca (-u 1000)
+  PASS  container commit
+  PASS  commit: a layer guarda os donos que o CONTAINER vê
+  PASS  commit: o USER da imagem base sobrevive
+  PASS  teardown: the committed image leaves the store
+  PASS  teardown: the USER test image leaves the store
+  PASS  container run -d -p
+  PASS  container ls mostra-o
+  PASS  container describe
+  PASS  container inspect (JSON válido)
+  PASS  container exec
+  PASS  exec de um comando inexistente sai 127
+  PASS  exec de um comando inexistente diz qual e porquê
+  PASS  container logs
+  PASS  container stats
+  PASS  update: publish-add a quente
+  PASS  update: porta nova no registo
+  PASS  update: publish-add duplicado recusa
+  PASS  update: publish-rm a quente
+  PASS  update: porta saiu do registo
+  PASS  update: publish-rm de porta não publicada recusa
+  PASS  update: volume-add a quente
+  PASS  update: mount visível DENTRO do container
+  PASS  update: mount no registo
+  PASS  update: volume-add no mesmo destino recusa
+  PASS  update: volume-rm a quente
+  PASS  update: mount desapareceu de dentro
+  PASS  update: PID intacto após o hot reconfig
+  PASS  run -d devolve com os mounts de pé (sem janela para o host)
+  PASS  o registo só diz Running com o container montado
+  PASS  container stop
+  PASS  update num container parado recusa
+  PASS  exec num container parado diz 3
+  PASS  top num container parado diz 3
+  PASS  container start
+  PASS  container rm -f
+
+=== container: combinações de flags recusadas antes de criar ===
+  PASS  run --net-bps sem rede custom recusa
+  PASS  run --net-bps recusado não deixa container
+  PASS  run -d --net-bps sem rede custom recusa
+  PASS  run -d --net-bps recusado não deixa container
+  PASS  run --ip sem rede custom recusa
+  PASS  run -d --restart on-failure:2 arranca
+  PASS  os reinícios da política contam no RESTARTS
+  PASS  um stop durante a espera entre reinícios é respeitado
+  PASS  stop+start durante a espera não duplica a encarnação
+  PASS  e o rm -f não deixa nenhuma encarnação para trás
+  PASS  container rename: o container de prova arranca
+  PASS  container rename
+  PASS  container rename: o nome novo responde e o antigo já não existe
+  PASS  container rename
+  PASS  um rename na espera entre reinícios sobrevive ao reinício
+  PASS  um supervisor atrasado não apaga o pid da encarnação nova
+  PASS  e o rm -f não deixa o processo para trás
+  PASS  stop/start: o container de teste arranca
+  PASS  stop/start: o processo do container está no host
+  PASS  um stop que retoma não apaga o pid de um start feito entretanto
+  PASS  e o rm -f não deixa esse processo para trás
+  PASS  seccomp allow-all sem regras efectivas arranca
+  PASS  seccomp: a regra ERRNO continua a negar
+  PASS  run -u com utilizador inexistente recusa
+  PASS  run -d -u com grupo inexistente recusa
+  PASS  run recusado não deixa directório em containers/
+  PASS  run -d de um binário inexistente recusa com a razão
+  PASS  run -d de um binário inexistente não deixa registo
+  PASS  nem directório em containers/
+
+=== network route: uma carga ligada por rede ADICIONAL usa a rota (ADR-0013 tier B) ===
+  PASS  multi-homed: a rede base cria-se
+  PASS  multi-homed: a rede A cria-se
+  PASS  multi-homed: a rede B cria-se
+  PASS  multi-homed: a carga A arranca na rede base
+  PASS  multi-homed: a carga B arranca na rede base
+  PASS  multi-homed: network connect A a quente
+  PASS  multi-homed: network connect B a quente
+  PASS  multi-homed: as duas cargas têm endereço na rede adicional
+  PASS  multi-homed: sem rota, A não alcança B
+  PASS  multi-homed: com a rota A→B, a carga em A alcança a carga em B
+  PASS  multi-homed: a rota é dirigida — B não abre conversa para A
+  PASS  multi-homed: a carga em A tem a rota para a rede B pela eth1
+  PASS  multi-homed: a carga C arranca depois da rota
+  PASS  multi-homed: network connect C a quente
+  PASS  multi-homed: uma carga ligada DEPOIS de a rota existir também a usa
+  PASS  multi-homed: rota fechada, a carga deixa de alcançar B
+  PASS  multi-homed: rota fechada, a rota sai da tabela da carga
+
+=== container em rede custom: dois starts concorrentes (#798) ===
+  PASS  start concorrente: o container arranca na rede custom
+  PASS  start concorrente: o container que ganhou mantém a rede
+
+=== container em rede custom: hot reconfig pelo ingress ===
+  PASS  hot reconfig: a rede extra cria-se
+  PASS  hot reconfig: o container arranca na rede custom
+  PASS  network connect a quente
+  PASS  network connect: rede extra no describe
+  PASS  network connect repetido recusa
+  PASS  update: net-rate a quente
+  PASS  update: taxa inválida recusa
+  PASS  update: net-rate-clear
+  PASS  network disconnect a quente
+  PASS  network disconnect de rede não ligada recusa
+  PASS  container update --net-connect deixou de existir (corte limpo)
+  PASS  run -d --net-bps aplica o shaping no veth
+
+=== publish: o endereço de bind é REGISTADO e sobrevive a um start ===
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; P_LOOP=54539 veio do kernel)
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; P_SPEC=39721 veio do kernel)
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; P_ENVV=50481 veio do kernel)
+  PASS  endereço de bind: o container arranca na rede custom
+  PASS  publish sem endereço liga em 127.0.0.1
+  PASS  publish sem endereço NÃO liga em 0.0.0.0
+  PASS  o registo guarda o endereço resolvido
+  PASS  publish com endereço no spec liga em 0.0.0.0 (udp)
+  PASS  publish via DELONIX_PUBLISH_ADDR liga em 0.0.0.0
+  PASS  o endereço do env var fica no registo, não só no dataplane
+  PASS  start: a porta exposta pelo spec CONTINUA em 0.0.0.0
+  PASS  start: a porta exposta pelo env var CONTINUA em 0.0.0.0
+  PASS  start: a porta de loopback CONTINUA em 127.0.0.1
+  PASS  start com o env var NÃO expõe uma porta publicada em loopback
+
+=== network: IPAM sem leases órfãos (S2, doc 62 §6 P1) ===
+  PASS  ipam: network ipam ls -o json conta os órfãos
+  PASS  ipam: a rede CIDR cria-se
+  PASS  ipam: a rede legada cria-se
+  PASS  ipam: o container arranca na rede legada
+  PASS  ipam: network connect à rede CIDR
+  PASS  ipam: um container multi-homed tem um lease por rede
+  PASS  ipam: o stop guarda os leases (as duas redes)
+  PASS  ipam: o start volta aos MESMOS endereços
+  PASS  ipam: rm -f não deixa lease nenhum do container
+  PASS  ipam: rm -f não deixa leases órfãos (antes 0)
+  PASS  ipam: network rm não deixa leases órfãos (antes 0)
+  PASS  ipam: stack apply de uma rede CIDR com um container
+  PASS  ipam: o container do apply tem lease
+  PASS  ipam: stack destroy não deixa leases órfãos (antes 0)
+  PASS  ipam: nenhum lease fica na rede destruída
+
+=== network: isolamento por namespace sem br_netfilter é RECUSADO (D5) ===
+  PASS  D5: a rede cria-se
+  PASS  D5: o container que segura o holder arranca
+  PASS  D5: o sysctl bridge-nf-call-iptables vai a 0 no holder ISOLADO
+  PASS  D5: --namespace sem filtragem de bridge sai com 69
+  PASS  D5: e diz DX-6305
+  PASS  D5: o recusado não fica no store
+  PASS  D5: nem deixa lease órfão
+  PASS  D5: um pod numa namespace também é recusado
+  PASS  D5: a válvula avisa e deixa correr
+  PASS  D5: a namespace default nunca é recusada
+
+=== network: anti-spoofing na bridge — origem e MAC forjados são bloqueados ===
+  PASS  antispoof: a rede cria-se
+  PASS  antispoof: A1 (NET_ADMIN) arranca
+  PASS  antispoof: A2 arranca
+  PASS  antispoof: A3 arranca na namespace asteam
+  PASS  antispoof: A4 arranca na namespace asteam
+  PASS  antispoof: o tráfego legítimo chega ao vizinho
+  PASS  antispoof: origem forjada não chega ao vizinho
+  PASS  antispoof: forjar um membro de outra namespace não fura o isolamento
+  PASS  antispoof: a mesma namespace continua aberta
+  PASS  antispoof: depois de um start o vizinho continua alcançável
+  PASS  antispoof: MAC forjado não chega ao vizinho
+  PASS  antispoof: --allow-source sem política é recusado (77)
+  PASS  antispoof: --no-source-check sem política é recusado (77)
+  PASS  antispoof: a recusa diz DX-7801
+  PASS  antispoof: um prefixo fora da concessão é recusado
+  PASS  antispoof: concessões — a rede cria-se
+  PASS  antispoof: concessões — o alvo arranca
+  PASS  antispoof: concessões — o router com --allow-source concedido arranca
+  PASS  antispoof: concessões — o --no-source-check concedido arranca
+  PASS  antispoof: o router chega com uma origem dentro do prefixo concedido
+  PASS  antispoof: o router é cortado fora do prefixo concedido
+  PASS  antispoof: o opt-out concedido deixa passar qualquer origem
+  PASS  antispoof: cada uso fica no registo de eventos
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; HPORT=43095 veio do kernel)
+  PASS  private egress: the network is created
+  PASS  private egress: its container starts
+  PASS  private egress: the guard is recorded for the holder
+  PASS  private egress: the host's private address is refused once the policy denies it
+  PASS  private egress: a destination the node policy grants is reachable again
+  PASS  private egress: policy unset lifts the guard from the running holder
+  PASS  baseline: denyPrivileged alone names the hole it leaves (lint)
+  PASS  baseline: --cap-add ALL is refused
+  PASS  baseline: --cap-add SYS_ADMIN is refused
+  PASS  baseline: --host-pid is refused
+  PASS  baseline: seccomp=unconfined is refused
+  PASS  baseline: a host-path bind mount is refused
+  PASS  baseline: a host device is refused
+  PASS  baseline: --gpus dri is refused
+  PASS  baseline: a --masked-path list that drops the defaults is refused
+  PASS  baseline: an ordinary container with an allowed capability and a named volume runs
+  FAIL  baseline: the CRI's re-stated default capability set runs, with the plain run's CapEff  (rc=1, esperado=ok)
+        $ bash -c 
+    plain=$('/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' container run --rm --net none 'alpine:3.19' grep CapEff /proc/self/status 2>/dev/null)
+    stated=$('/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' container run --rm --net none --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add FSETID --cap-add KILL --cap-add SETGID --cap-add SETUID --cap-add SETPCAP --cap-add NET_BIND_SERVICE --cap-add NET_BROADCAST --cap-add NET_RAW --cap-add SYS_CHROOT --cap-add AUDIT_WRITE --cap-add SETFCAP 'alpine:3.19' grep CapEff /proc/self/status 2>/dev/null)
+    [[ -n $plain && $plain == "$stated" ]]
+        | 
+  PASS  baseline: …and SYS_ADMIN next to the default set is still refused
+  PASS  baseline: update --volume-add of a host path is refused
+  PASS  baseline: …and the host path did not reach the container
+  PASS  baseline: update --volume-add of a named volume still works
+  PASS  exec: a command after -- is never an option of exec (no uid 0)
+  PASS  exec: no --group-add leaves no inherited host groups (65534)
+  FAIL  landlock: --read-only with --tmpfs keeps the tmpfs writable (not partido)  (rc=1, esperado=ok)
+        $ bash -c '/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' container run --rm --read-only --tmpfs /scratch 'alpine:3.19' sh -c 'echo x > /scratch/f && cat /scratch/f' 2>&1 | grep -q '^x$'
+        | 
+  PASS  landlock: --read-only still freezes the rootfs
+  PASS  vm admission: a kind: VirtualMachine with devices is refused like vm create --device
+  PASS  vm admission: vm update --disk-add of a symlink to a device is refused
+  PASS  RuntimePolicy: denyPrivateEgress false→true plans an in-place update, not a replace
+  PASS  RuntimePolicy: after the apply the plan has nothing to do
+
+=== stack / manifesto ===
+  PASS  stack apply diz o aviso do emptyDir uma só vez
+  PASS  stack apply
+  PASS  stack apply idempotente
+  PASS  stack describe
+  PASS  volume describe do manifesto
+  PASS  stack plan (manifesto inalterado, --detailed-exitcode = 0)
+  PASS  stack plan --fields
+  PASS  stack validate
+  PASS  stack apply --dry-run
+  PASS  stack apply --replace mal formado recusa
+  PASS  drift: stack apply do container de teste
+  PASS  drift: logo a seguir ao apply não há deriva
+  PASS  drift: um update a quente aparece, com campo e valores
+  PASS  drift: --detailed-exitcode devolve 2 quando há deriva
+  PASS  drift: sem manifesto continua a ver, e diz o que não verificou
+  PASS  drift: --stack de outra stack não vê esta deriva
+  PASS  stack destroy --dry-run
+  PASS  stack destroy
+  PASS  volume describe depois do destroy recusa
+  PASS  system features lista
+  PASS  system features -o json
+  PASS  …toda a capacidade traz evidência
+  PASS  …e nada se diz certified
+  PASS  --min inválido recusa
+  PASS  sem política, um run normal passa
+  PASS  com política, o run é recusado (exit 77)
+  PASS  …e nomeia várias razões de uma vez
+  PASS  uma política ilegível é erro, não ausência
+  PASS  política parcial: o que ela não proíbe passa
+  PASS  sbom.py gera
+  PASS  …e é SPDX 2.3 com pacotes
+  PASS  …todo o pacote tem nome e versão
+  PASS  …e o mesmo lock dá o mesmo ficheiro
+  PASS  bench.sh sem binário devolve 2, e diz qual
+  PASS  bench.sh recusa uma bancada acima do limiar (3)
+  PASS  chaos.sh recusa uma bancada acima do limiar (3)
+  PASS  …e recusa ANTES de tocar no sandbox
+  PASS  stack apply: uma adopção DIZ-SE (e não «nothing to do» sozinho)
+  PASS  e o carimbo de posse ficou mesmo lá
+  PASS  stack apply --replace nomeado: o apply do container de teste
+  PASS  stack plan: um env mudado não é comparado, e o plano DIZ-O
+  PASS  stack apply --replace Container/<nome> recria mesmo sem diff no plano
+  PASS  ... e o container recriado tem o env NOVO (container inspect)
+  PASS  ... e a seguir o plano não tem nada a propor
+  PASS  ... e o plano já não diz «não aplicado» do que a recriação aplicou
+  PASS  uma nova mudança de env nomeia só o env, e o --replace com o nome
+  PASS  --replace com o Kind em minúsculas também é aceite (não é um typo)
+  PASS  stack rollback --replace repõe o env da revisão 1, e o aviso nomeia só o env
+  PASS  manifesto: um grupo mal escrito NÃO se chama «ficheiro vazio»
+  PASS  manifesto: gralha em spec.nfs.readOnlyy — o validate nomeia-a e não diz OK; --strict sai 1
+  PASS  manifesto: gralha em spec.nfs.readOnlyy — plan e apply recusam com 1, nada aplicado, nada criado
+  PASS  manifesto: gralha em spec.share.fromm — o validate nomeia-a e não diz OK; --strict sai 1
+  PASS  manifesto: gralha em spec.share.fromm — plan e apply recusam com 1, nada aplicado, nada criado
+  PASS  manifesto: gralha em spec.provision.truenas.datasett — o validate nomeia-a e não diz OK; --strict sai 1
+  PASS  manifesto: gralha em spec.provision.truenas.datasett — plan e apply recusam com 1, nada aplicado, nada criado
+  PASS  manifesto: um Stack aceita rotas, serviços, regras e gateways (e o antigo tunnels:)
+  PASS  manifesto: uma rota para uma rede que o Stack não declara é recusada
+  PASS  workload com bloco errado é INVÁLIDO (1), não «não existe» (4)
+  PASS  e a mensagem não se lê como «no such <frase>»
+
+=== limites: o que se declara chega ao cgroup, ou é recusado ===
+  PASS  -m 64M: o container arranca
+  PASS  -m 64M chega ao kernel como 67108864
+  PASS  -m 64Mi: o container arranca
+  PASS  -m 64Mi chega ao kernel como 67108864
+  PASS  -m 1Gi: o container arranca
+  PASS  -m 1Gi chega ao kernel como 1073741824
+  PASS  -m 64M numa rede própria: a rede cria-se
+  PASS  -m 64M numa rede própria arranca (não é recusado)
+  PASS  -m 64M numa rede própria chega ao kernel como 67108864
+  PASS  -m abc é recusado, não ignorado
+  PASS  -m 64MB é recusado, não ignorado
+  PASS  -m 99999999999T é recusado, não ignorado
+  PASS  --cpus abc é recusado, não ignorado
+  PASS  --cpus 500m é recusado, não ignorado
+  PASS  --restart talvez é recusado, não ignorado
+  PASS  --restart alwyas é recusado, não ignorado
+  PASS  --restart on-failure:0 é recusado, não ignorado
+  PASS  --restart always:2 é recusado, não ignorado
+  PASS  --cpu-weight 0 é recusado, não ignorado
+  PASS  --cpu-weight 10001 é recusado, não ignorado
+  PASS  --cpu-weight abc é recusado, não ignorado
+  PASS  --restart on-failure:3: o container arranca
+  PASS  --restart on-failure:3 fica no registo
+
+=== limites: o que se declara é IMPOSTO, não só escrito ===
+  PASS  -m 64M: 16 MiB cabem (o tecto não estrangula quem respeita)
+  PASS  -m 64M: 256 MiB são MORTOS pelo kernel (o tecto é imposto)
+  PASS  …e os mesmos 256 MiB passam sem -m (era mesmo o tecto)
+  PASS  -m 64M: um FILHO forkado também é morto (não só o PID 1)
+  PASS  sem flags: o container arranca
+  PASS  sem flags: a leaf TEM tecto de memória (não 'max')
+  PASS  sem flags: memory.swap.max=0 (não se escapa ao tecto pelo swap)
+  PASS  sem flags: pids.max=512 (anti fork-bomb por omissão)
+  PASS  fork-bomb: pára nos 512 e o host não perde processos
+  PASS  --cpus 0.5: o container arranca
+  PASS  --cpus 0.5: 4 ciclos ocupados ficam por ~0.5 core (não 4)
+  PASS  tecto agregado: o container arranca
+  PASS  o cgroup PAI tem tecto agregado de memória (a soma não mata o host)
+  PASS  …e tecto agregado de pids
+  PASS  20 ciclos de run/rm não deixam cgroups nem directórios para trás
+  PASS  um arranque recusado depois do clone não deixa o cgroup do container para trás
+  PASS  system doctor corre
+  PASS  …e nomeia o pré-requisito que falha em silêncio
+  PASS  system doctor sem --strict não falha
+  PASS  system doctor --strict detecta um host sem as ferramentas
+  PASS  …mede a tabela conntrack, não só se existe
+  PASS  …mede a tabela de vizinhos ARP
+  PASS  …mede a largura da gama de portas efémeras
+  PASS  stack apply: metadata.labels de um Network e de um Volume chegam ao registo
+  PASS  um manifesto inalterado não mostra deriva nos labels (plan --detailed-exitcode = 0)
+  PASS  mudar e tirar um label é uma alteração do plano (2), converge a quente e sai do registo
+  PASS  network apply / volume apply fora de uma stack também escrevem os labels do documento
+  PASS  stack apply de uma VirtualMachine libvirt (labels)
+  PASS  stack apply: metadata.labels de uma VirtualMachine chegam ao registo, sem deriva no plano
+  PASS  mudar os labels de uma VM converge a quente: o registo segue e o domínio é o mesmo
+  PASS  serve docker-api --matrix corre
+  PASS  …e traz o número e a versão no cabeçalho
+  PASS  …e mostra o terceiro estado (o que as ferramentas usam)
+  PASS  …e o pull aparece classificado, não em silêncio
+  PASS  stack apply num directório próprio
+  PASS  o apply gravou mesmo uma revisão
+  PASS  stack history lista
+  PASS  stack history --show devolve o manifesto aplicado
+  PASS  stack history --show inexistente devolve 4
+  PASS  três applies sem alterações não gastam revisões
+  PASS  e o plano confirma que não havia nada a mudar
+  PASS  um --replace sem alterações grava a revisão da recriação
+  PASS  stack apply --name carimba a posse com esse nome
+  PASS  …e o history desse nome vê a revisão
+  PASS  …e o destroy desse nome leva o que ele criou
+  PASS  …e já não está
+  PASS  conflito de posse: a stk-a aplica um volume e uma rede
+  PASS  conflito de posse: o mesmo manifesto sob outra stack sai 5 com DX-5601
+  PASS  conflito de posse: stack plan --detailed-exitcode sai 5 com DX-5601, como o apply
+  PASS  …com -o json: sai 5, o stdout é o plano em JSON e o DX-5601 vai para o stderr
+  PASS  …o plan de topo responde o mesmo 5
+  PASS  …e sem --detailed-exitcode o plano do conflito continua a sair 0
+  PASS  conflito de posse: o apply --dry-run da outra stack sai 5 com DX-5601, o manifesto no stdout
+  PASS  conflito de posse: o manifest render do mesmo manifesto sai 0, com o manifesto
+  PASS  …e nada mudou: os dois registos iguais, a stk-b sem revisão, a stk-a sem deriva
+  PASS  conflito de posse: a stk-b aplica um volume seu
+  PASS  conflito + alteração: o stack plan --detailed-exitcode sai 5, não 2
+  PASS  …e a mesma alteração sem conflito continua 2
+  PASS  conflito + Replace por autorizar continua 5 com DX-5601
+  PASS  um Replace por autorizar sozinho continua 1 com DX-1000
+  PASS  …e nada mudou: os três registos iguais, a stk-b sem revisão nova
+  PASS  conflito de posse: as duas stacks levaram o que criaram
+  PASS  um segundo apply, com um recurso novo e um campo mudado
+  PASS  rollback --dry-run não muda nada
+  PASS  …e o recurso da 2.ª revisão continua lá depois do dry-run
+  PASS  rollback para uma revisão inexistente devolve 4
+  PASS  um apply falhado é gravado na história
+  PASS  …e aparece marcado como falhado
+  PASS  rollback para uma revisão FALHADA é recusado à cabeça
+  PASS  rollback --to 1 corre
+  PASS  o campo mudado voltou ao valor da revisão 1
+  PASS  o recurso criado depois SOBREVIVE a um rollback sem --prune
+  PASS  stack plan sem --prune: o que saiu do manifesto fica MANTIDO e o --detailed-exitcode é 0
+  PASS  …no -o json: delete, changed false, e o mesmo planDigest que com --prune
+  PASS  stack plan --prune: a remoção conta, o --detailed-exitcode é 2
+  PASS  três applies sem --prune com um recurso que saiu do manifesto não gastam revisões
+  PASS  …e a revisão do rollback sem --prune diz kept, não delete
+  PASS  …e o rollback avisa que é preciso --prune para o levar
+  PASS  rollback --prune leva-o
+  PASS  …e agora já não está
+  PASS  a história marca o rollback e diz que revisão replicou
+  PASS  sem stacks/: o plan continua a funcionar
+  PASS  sem stacks/: o destroy continua a funcionar
+  PASS  sem stacks/: o history diz que não há, sem falhar
+  PASS  stack wait com Kinds declarativos não espera pelo timeout
+  PASS  stack wait continua a esperar por um recurso ausente
+  PASS  stack ls não diz 'unsupported kind' de um Kind que o apply aplica
+
+=== container: quem grava o estado terminal, e a sonda de saúde ===
+  PASS  stop: uma paragem PEDIDA nunca fica 'crashed', mesmo tendo precisado de SIGKILL
+  PASS  start: o exit code REAL continua a ser capturado depois de um start
+  PASS  healthcheck: corre a sonda DO CONTAINER (unhealthy = rc 1, nunca 'no HEALTHCHECK')
+  PASS  healthcheck: a mesma sonda a passar dá rc 0 e diz healthy
+  PASS  healthcheck: a sonda não deixa processos por reapar dentro do container
+  PASS  stop: PÁRA mesmo um container --restart always (o supervisor não o ressuscita)
+  PASS  slirp: não herda os pipes do arranque, nem o comando do container
+  PASS  slirp: um container que sai sozinho leva o slirp, a porta e o shim de logs
+  PASS  slirp: container start não pendura com o slirp antigo na porta (supervisor morto)
+  PASS  slirp: rm de um container já saído e listado ceifa o slirp dele
+  PASS  slirp: o stats que regista a saída de um container solta o slirp dele
+  PASS  slirp: o cluster ls que regista a saída de um nó solta o slirp dele
+  FAIL  slirp: container start devolve, com a causa, quando o slirp que lançou não responde  (rc=1, esperado=ok)
+        $ bash -c printf "%s\n" "$1"; exit "$2" _ container start pendurou (90s) com o slirp que lançou mudo (falsos vivos: 3324069 ) 1
+        | container start pendurou (90s) com o slirp que lançou mudo (falsos vivos: 3324069 )
+  PASS  slirp: um --restart always que cai sempre não junta zombies no supervisor
+  PASS  slirp: um stop que desiste (DX-8101) solta a porta e o slirp logo
+  PASS  slirp: a run -d whose command does not exist releases its published port
+  PASS  rede: o pin e o plano de controlo não ficam com descritores de quem os arrancou
+  PASS  rm -f que desiste (DX-8101) não deixa o supervisor ressuscitar o container
+  PASS  teardown: DX-8101 is repeated, class 4 is silent, any other failure is said
+  PASS  teardown: a held exit that answers DX-8101 is waited out and removed
+  PASS  teardown: a DX-8101 past the deadline is given up and said, the record kept
+  PASS  mount ceiling: a container not seen mounted is never entered, and comes up once it is
+  FAIL  privileged: a -v under /sys is mounted ONCE, on top of /sys  (rc=1, esperado=ok)
+        $ bash -c [ "${1% *}" = "1 on-top" ] || { printf "mountinfo said: %s\n" "$1"; exit 1; } _ 0 buried 
+        | mountinfo said: 0 buried 
+  FAIL  privileged: that mount keeps the rshared it asked for  (rc=1, esperado=ok)
+        $ bash -c [ "${1##* }" = rshared ] || { printf "mountinfo said: %s\n" "$1"; exit 1; } _ 0 buried 
+        | mountinfo said: 0 buried 
+  PASS  hot-plug: --volume-add onto the engine's own /sys/fs/bpf stays ONE mount
+  SKIP  upgrade: um root escrito pela release anterior abre igual (plan sem diferenças, dados, segredo, pid)  — DELONIX_UPGRADE_FROM não está definido (diretório com os binários publicados da release anterior)
+
+=== schema gerado + explain + init ===
+  PASS  manifest schema
+  PASS  manifest schema --kind Container
+  PASS  manifest schema --kind inexistente recusa
+  PASS  explain Kind
+  PASS  explain campo
+  PASS  explain campo aninhado
+  PASS  explain Kind inexistente recusa
+  PASS  explain campo inexistente recusa
+  PASS  schema publicado == gerado
+  PASS  init detecta e gera
+  PASS  init gerou um manifesto
+  PASS  o gerado valida
+  PASS  init repetido não sobrescreve
+  PASS  vm init: gera o projecto
+  PASS  vm init: o manifesto gerado não está vazio
+  PASS  vm init: o projecto que gera valida-se
+  PASS  vm init: gera os três Kinds
+
+=== workload / pod / secret (leitura) ===
+  PASS  workload ls
+  PASS  workload ls -o json
+  PASS  workload describe inexistente recusa
+  PASS  get pods
+  PASS  pod create de dois membros
+  PASS  pod create: o aviso de cgroup não se repete por membro
+  PASS  get pods mostra-o
+  PASS  pod exec --container web escreve em web
+  PASS  pod exec --container web relê o que escreveu
+  PASS  'api' não vê a escrita de 'web' (mountns própria)
+  PASS  pod create carimba a posição de cada membro
+  PASS  pod exec sem --container vai ao 1.º membro DECLARADO
+  PASS  pod exec --container api escreve só em api
+  PASS  pod exec --container api confirma
+  PASS  pod exec --container inexistente recusa
+  PASS  pod cp: host -> 1.º membro
+  PASS  pod cp: chegou ao 1.º membro
+  PASS  pod cp --container escolhe o membro
+  PASS  pod cp: membro -> host
+  PASS  pod attach bloqueia (segue o output de um membro vivo)
+  PASS  pod attach -i recusa (sem stdin ao vivo)
+  PASS  net ingress allow <pod>: a mutação aceita o nome do pod
+  PASS  ... e o ls LÊ pelo mesmo nome, com a regra
+  PASS  ... e o describe genérico também
+  PASS  ... e o get conta o pod UMA vez por direcção, com o nome do pod
+  PASS  describe pod
+  PASS  delete pod -f
+  PASS  pod com hostPort: pod create
+  PASS  pod com hostPort: a porta responde 200
+  PASS  o stop de um membro de pod liberta a porta
+  PASS  o start de um membro de pod volta a publicar a porta
+  PASS  o rm -f de um membro de pod liberta a porta
+  PASS  e um pod novo na mesma porta é aceite
+  PASS  container update --publish-add num membro de pod
+  PASS  e a porta publicada a quente responde
+  PASS  container update --publish-rm num membro de pod
+  PASS  e a porta deixa de escutar
+  PASS  secret ls
+  PASS  secret inspect inexistente recusa
+  PASS  secret create: um nome novo diz 'created'
+  PASS  secret create: por cima de um existente RECUSA sem --force
+  PASS  secret create: a recusa não mexeu em nada
+  PASS  secret create --force: por cima de um existente diz 'replaced' e NOMEIA o que largou
+  PASS  secret create --force: e as chaves largadas foram MESMO largadas
+  PASS  secret set continua não-destrutivo por cima de um existente
+  PASS  secret: a versão conta as mudanças de valor (4 gravações distintas)
+  PASS  secret rotate-key: roda a chave-mestra
+  PASS  secret rotate-key: a versão NÃO recua (os valores não mudaram)
+  PASS  secret rotate-key: recifra tudo e os valores em claro continuam os MESMOS
+  PASS  secret rotate-key: e uma mudança DEPOIS da rotação segue de 4 para 5
+
+=== vm (só o que não precisa de hipervisor) ===
+  PASS  vm ls
+  PASS  vm create com disco inexistente recusa
+  PASS  vm create --require com nome desconhecido recusa (1)
+  PASS  vm create --require de capacidade que o CH não tem recusa (69)
+  FAIL  vm create --require de capacidade que o libvirt não tem recusa (69)  (rc=4, esperado=69)
+        $ /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix vm create vm-e2e3261864-req --disk /nao/existe.qcow2 --backend libvirt --require vm.namespace-isolation
+        | Creating VM 'vm-e2e3261864-req'…
+        | error[DX-4000] no such VM image /nao/existe.qcow2
+  FAIL  vm create --require: a recusa nomeia a capacidade e o estado  (rc=1, esperado=ok)
+        $ bash -c "/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix" vm create vm-e2e3261864-req --disk /nao/existe.qcow2 --backend libvirt --require vm.namespace-isolation 2>&1 | grep -q 'vm.namespace-isolation: unsupported-by-provider'
+        | 
+  PASS  vm create --require: nenhum registo de VM ficou para trás (4)
+  PASS  vm create --require sem --backend: um requisito que só o CH cumpre não é recusado pelo libvirt
+  FAIL  vm create --require sem --backend: nenhum candidato serve, a recusa nomeia os dois (69)  (rc=4, esperado=69)
+        $ /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix vm create vm-e2e3261864-req --disk /nao/existe.qcow2 --require vm.namespace-isolation --require vm.snapshot.memory
+        | Creating VM 'vm-e2e3261864-req'…
+        | error[DX-4000] no such VM image /nao/existe.qcow2
+  PASS  scope: vm num backend sem firewall própria recusa, em vez de criar a VM aberta
+  PASS  ... e nenhuma VM ficou para trás (4)
+  PASS  vm resize sem --vcpus nem --memory recusa (1)
+  PASS  vm resize de uma VM inexistente diz 4
+  PASS  vm move com destino vazio recusa (1)
+  PASS  vm move de uma VM inexistente diz 4
+  PASS  vm move --target-storage sem --with-local-disks recusa (1)
+  PASS  vm move --target-storage vazio recusa (1)
+  PASS  vm cloud-init sem nada para mudar recusa (1)
+  PASS  vm cloud-init com hostname inválido recusa (1)
+  PASS  vm cloud-init de uma VM inexistente diz 4
+  PASS  o default antigo (por root) está escrito
+  PASS  vm create com o alvo no ambiente vai ao nó Proxmox
+  PASS  vm default-backend sem o alvo diz proxmox, não 'none'
+  PASS  vm create sem o alvo recusa (69) em vez de cair no local
+  PASS  vm create sem o alvo: a recusa nomeia o proxmox e não é o disco local
+  PASS  providers.yaml: o default e o alvo do ficheiro levam o create ao nó
+  PASS  providers.yaml: vm default-backend diz proxmox
+  PASS  providers.yaml: default sem entrada proxmox recusa (69), nunca local
+  PASS  providers.yaml: um segredo inline é recusado e o create não corre
+  PASS  providers.yaml: a recusa do segredo inline nomeia a forma certa
+  PASS  providers.yaml: DELONIX_PROVIDERS_CONFIG para um ficheiro inexistente recusa
+  PASS  providers.yaml: um ficheiro inválido não impede comandos sem VM
+  PASS  vm create com ficheiro recusado não deixou registo
+  PASS  provider config validate: o ficheiro completo é válido
+  PASS  provider config validate: default sem entrada recusa (1)
+  PASS  provider config validate: segredo inline recusa (1)
+  PASS  provider config validate: token legível por outros recusa
+  PASS  provider config show: nomeia o ficheiro, o default e o proxmox
+  PASS  provider config show: o valor do token nunca aparece (tabela e json)
+  PASS  vm default-backend --set escreve o defaultProvider no ficheiro
+  PASS  --set manteve o comentário do operador e escreveu a linha
+  PASS  --set moveu o default antigo (o ficheiro por root foi retirado)
+  PASS  vm default-backend --clear tira a linha
+  PASS  provider config schema emite o schema
+  PASS  provider config schema: estrito, versão fixa, sem segredo inline
+
+=== vm: o snapshot sobrevive a um stop/start (precisa de hipervisor) ===
+  PASS  vm create libvirt (snapshot)
+  PASS  vm snapshot create
+  PASS  vm snapshot ls nomeia-o com a VM a correr
+  PASS  vm stop
+  PASS  o snapshot sobrevive ao stop
+  PASS  vm start
+  PASS  o libvirt volta a conhecer o snapshot
+  PASS  vm snapshot restore depois do start
+  PASS  backup create vm de uma VM libvirt a correr
+  PASS  ... o arquivo ficou no destino
+  PASS  ... a VM continua a correr
+  PASS  ... e escreve no seu próprio overlay, não no temporário nem na base
+  PASS  vm pause
+  PASS  o libvirt confirma paused
+  PASS  o vm ls diz Paused (não Stopped)
+  PASS  e continua Paused num segundo ls
+  PASS  o vm ls sem -A mostra a VM pausada
+  PASS  vm unpause
+  PASS  o vm ls volta a dizer Running
+  PASS  vm pause (antes do stop)
+  PASS  vm stop de uma VM pausada
+  PASS  o domínio pausado foi desfeito
+  PASS  e o vm ls diz Stopped
+  PASS  vm start depois do stop de uma VM pausada
+  PASS  vm stop (2.ª vez)
+  PASS  snapshot create com a VM parada
+  PASS  e a VM CONTINUA parada
+  PASS  o novo aparece no ls
+  PASS  restore de um snapshot offline não arranca a VM
+  PASS  restore de um snapshot vivo traz a VM de volta a correr
+  PASS  vm snapshot rm
+  PASS  e sai mesmo do disco, não só da lista
+  PASS  restore de um snapshot inexistente diz 4
+  PASS  rm de um snapshot inexistente diz 4
+  PASS  create com nome já usado diz 5 (conflito)
+  PASS  a forma antiga 'vm snapshots' já não existe
+  PASS  a forma antiga 'vm restore' já não existe
+  PASS  vm resize com a VM a correr recusa (5)
+  PASS  vm resize com memória ilegível recusa (1)
+  PASS  vm stop (resize)
+  PASS  vm resize de uma VM parada
+  PASS  o registo diz 2 vCPU e 384M
+  PASS  vm start depois do resize
+  PASS  o domínio arranca com 2 vCPU
+  PASS  o domínio arranca com 384 MiB
+  PASS  vm move no libvirt recusa e nomeia o vm migrate
+
+=== vm: o restore de snapshot RECUPERA dados de disco (libvirt, guestfish) ===
+  PASS  vm create libvirt (data-recovery)
+  PASS  vm stop (data-recovery)
+  PASS  o snapshot de disco captura o dado para recuperacao
+  PASS  o disco tem o dado ORIGINAL antes de mexer
+  PASS  corromper o dado no disco do guest
+  PASS  o disco ja tem o dado CORROMPIDO
+  PASS  vm snapshot restore (data-recovery)
+  PASS  o restore RECUPERA o dado de disco (nao so um codigo de saida)
+
+=== vm: o cloud-init do guest CONSOME o seed NoCloud (libvirt, guestfish) ===
+  SKIP  vm: o cloud-init do guest consome o seed NoCloud  — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+
+=== vm: um disco a QUENTE e detectado e fica R/W DENTRO do guest (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: um disco a quente e detectado e fica R/W dentro do guest  — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+
+=== vm: uma NIC a QUENTE e detectada e passa TRAFEGO REAL DENTRO do guest (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: uma NIC a quente e detectada e passa trafego real dentro do guest  — sem libvirt utilizável, sem guestfish/cloud-localds, sem imagem cloud (E2E_CLOUDINIT_IMAGE), ou sem a rede libvirt ingress
+
+=== vm: a booted guest is backed by host hugepages (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: a VM esta mesmo respaldada por hugepages do host  — sem libvirt utilizável, sem guestfish/cloud-localds, sem imagem cloud (E2E_CLOUDINIT_IMAGE), ou sem pool de hugepages livre que chegue
+
+=== vm: um disco a QUENTE REMOVIDO com seguranca DENTRO do guest (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: um disco a quente removido com seguranca dentro do guest  — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+
+=== vm: uma NIC a QUENTE REMOVIDA DENTRO do guest sem derrubar a primaria (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: uma NIC a quente removida dentro do guest sem derrubar a primaria  — sem libvirt utilizável, sem guestfish/cloud-localds, sem imagem cloud (E2E_CLOUDINIT_IMAGE), ou sem a rede libvirt ingress
+
+=== vm: um vCPU a QUENTE e ONLINE DENTRO do guest (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: um vCPU a quente e online dentro do guest  — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+
+=== vm: memoria a QUENTE e ONLINE DENTRO do guest (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: memoria a quente e online dentro do guest  — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+
+=== vm: an extra disk declared at create is seen and R/W inside the guest (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: an extra disk declared at create is seen and R/W inside the guest  — no usable libvirt, no guestfish, or no cloud image (E2E_CLOUDINIT_IMAGE)
+
+=== vm: an extra NIC declared at create is seen and passes real traffic inside the guest (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: an extra NIC declared at create is seen and passes real traffic inside the guest  — no usable libvirt, no guestfish, no cloud image (E2E_CLOUDINIT_IMAGE), or no libvirt ingress network
+
+=== vm: the requested CPU topology is seen inside the guest (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: the requested CPU topology is seen inside the guest  — no usable libvirt, no guestfish, or no cloud image (E2E_CLOUDINIT_IMAGE)
+
+=== vm: stop-then-start is a real reboot — the guest boot id changes (libvirt, cloud-init, guestfish) ===
+  SKIP  vm: stop-then-start is a real reboot — the guest boot id changes  — no usable libvirt, no guestfish, or no cloud image (E2E_CLOUDINIT_IMAGE)
+
+=== vm: a stopped VM cold-migrates — flatten, import, boot on the target with state intact (libvirt, guestfish) ===
+  SKIP  vm: a stopped VM cold-migrates — flatten, import, boot on the target with state intact  — no usable libvirt, no guestfish, or no cloud image (E2E_CLOUDINIT_IMAGE)
+
+=== vm: a stopped CH VM cold-migrates — flatten, import, boot on the target with state intact (cloud-hypervisor, guestfish) ===
+  SKIP  vm: a stopped CH VM cold-migrates — flatten, import, boot on the target with state intact  — no usable cloud-hypervisor, no guestfish, or no cloud-init golden (vm image ls)
+
+=== vm: the Cloud Hypervisor control transport is a per-VM unix socket owned by the engine, not a network port (cloud-hypervisor) ===
+  PASS  transport (CH): create a VM whose VMM opens its api-socket
+  PASS  transport (CH): the control channel is a UNIX socket (not a TCP port)
+  PASS  transport (CH): the socket is owned by the engine's own uid
+  PASS  transport (CH): no other user may open it (mode 700)
+
+=== access: a --secret is injected from the vault at spawn but never persisted in the container record (credential in vault) ===
+  PASS  credential-in-vault: create a secret in the encrypted vault
+  PASS  credential-in-vault: run a container that consumes it via --secret
+  PASS  credential-in-vault: the value is resolved AT SPAWN (present in the running container)
+  PASS  credential-in-vault: the plaintext is NOT in the on-disk container record
+  PASS  credential-in-vault: the plaintext is NOT in container inspect
+  PASS  credential-in-vault: secret inspect redacts the value
+
+=== vm: a libvirt VM boots at its reserved static IP, the engine observes it, and destroy tears it all down (libvirt, cloud-init) ===
+  SKIP  vm: a libvirt VM boots at its reserved static IP, the engine observes it, and destroy tears it all down  — no usable qemu:///system or no cloud-init golden (vm image ls)
+
+=== vm: a libvirt VM's vCPUs are pinned to the requested host cores, live (libvirt) ===
+  SKIP  vm: a libvirt VM's vCPUs are pinned to the requested host cores, live  — no usable qemu:///system or no cloud-init golden (vm image ls)
+
+=== vm: the serial console connects and VNC answers RFB, live (libvirt, cloud-init) ===
+  SKIP  vm: serial console connects and VNC answers RFB  — no usable libvirt, no cloud image (E2E_CLOUDINIT_IMAGE), or no script/cloud-localds
+
+=== vm: backup create archives a live guest and restore RECOVERS disk data (libvirt, guestfish) ===
+  SKIP  vm: backup archives a live guest and restore recovers disk data  — no usable libvirt, no guestfish/cloud-localds, or no cloud image (E2E_CLOUDINIT_IMAGE)
+
+=== vm: os mesmos snapshots no backend cloud-hypervisor ===
+  PASS  vm create cloud-hypervisor (snapshot)
+  PASS  CH: create com a VM a correr RECUSA
+  PASS  CH: e a recusa diz o que fazer
+  PASS  CH: vm stop
+  PASS  CH: create com a VM parada
+  PASS  CH: ls nomeia-o
+  PASS  CH: restore
+  PASS  CH: create repetido diz 5
+  PASS  CH: restore de inexistente diz 4
+  PASS  CH: vm start
+  PASS  CH: o ls responde com a VM a correr
+  PASS  CH: rm com a VM a correr RECUSA
+  PASS  CH: rm com a VM parada
+  PASS  CH: e saiu do disco
+  PASS  CH: vm create --wait que esgota o tempo sai com 124
+  PASS  CH: e a VM fica a correr
+
+=== vm: ciclo de vida no cloud-hypervisor (pause/resume/restart/resize.cold/destroy) ===
+  PASS  vm create cloud-hypervisor (ciclo de vida)
+  PASS  CH: vm pause
+  PASS  CH: o VMM continua vivo depois do pause
+  PASS  CH: vm resume
+  PASS  CH: o VMM continua vivo depois do resume
+  PASS  CH: vm restart
+  PASS  CH: o VMM está de pé depois do restart
+  PASS  CH: vm stop (resize.cold)
+  PASS  CH: vm resize --vcpus 2 com a VM parada
+  PASS  CH: vm start depois do resize
+  PASS  CH: o VMM arranca com boot=2 vCPUs
+  PASS  CH: vm destroy
+  PASS  CH: destroy não deixa o VMM órfão
+  PASS  CH: destroy não deixa o record
+  PASS  CH: destroy não deixa ficheiros no vms/
+
+=== vm: --disk-size cresce o disco de arranque, só a crescer (vm.disk.resize) ===
+  PASS  vm create libvirt (disk resize)
+  PASS  vm resize --disk-size com a VM a correr recusa (5)
+  PASS  vm stop (disk resize)
+  FAIL  vm resize --disk-size 0 recusa (1)  (rc=2, esperado=1)
+        $ /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix vm resize resize-e2e3261864 --disk-size 0
+        | error: invalid value '0' for '--disk-size <DISK_SIZE_GIB>': '0' is not a valid disk size — use whole GiB, e.g. `20` or `20G`
+        | 
+        | For more information, try '--help'.
+  PASS  vm resize --disk-size de uma VM parada
+  PASS  o overlay cresceu para exactamente 1 GiB
+  PASS  um --disk-size que não cresce recusa (1)
+  PASS  vm start depois do resize do disco
+  PASS  o domínio continua a correr com o disco maior
+  PASS  network create --subnet de uma rede para uma VM libvirt da API de nó
+  PASS  node API: CreateVirtualMachine libvirt numa rede declarada sem rede libvirt prévia termina SUCCEEDED
+  PASS  node API: a rede libvirt nasce com a sub-rede declarada (virsh net-dumpxml)
+  PASS  node API: o DELETE da última VM leva a rede libvirt que o motor definiu
+  PASS  vm create cloud-hypervisor (disk resize)
+  PASS  CH: --disk-size com a VM a correr recusa (5)
+  PASS  CH: vm stop (disk resize)
+  FAIL  CH: --disk-size 0 recusa (1)  (rc=2, esperado=1)
+        $ /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix vm resize chresize-e2e3261864 --disk-size 0
+        | error: invalid value '0' for '--disk-size <DISK_SIZE_GIB>': '0' is not a valid disk size — use whole GiB, e.g. `20` or `20G`
+        | 
+        | For more information, try '--help'.
+  PASS  CH: --disk-size de uma VM parada
+  PASS  CH: o overlay cresceu para exactamente 1 GiB
+  PASS  CH: um --disk-size que não cresce recusa (1)
+  PASS  CH: boot falhado não deixa ficheiros em vms/
+
+=== vm: a rede libvirt de uma rede declarada tem a sub-rede declarada, e sai com a última VM ===
+  PASS  vm create libvirt numa rede declarada (posse)
+  PASS  a rede libvirt que o motor define leva a marca de posse e a sub-rede declarada
+  PASS  uma segunda VM na mesma rede declarada
+  PASS  uma terceira VM na mesma rede, por --bridge
+  PASS  vm stop (posse)
+  PASS  vm stop (posse, --bridge)
+  PASS  vm rm com outra VM (parada) na mesma rede deixa a rede libvirt
+  PASS  vm rm com uma VM (parada) na rede por --bridge deixa a rede libvirt
+  PASS  vm start da VM por --bridge depois do rm da outra
+  PASS  vm start define outra vez a rede que desapareceu, com a marca e a sub-rede declarada
+  PASS  vm rm do último utilizador tira a rede libvirt que o motor definiu
+  PASS  rede nossa noutra sub-rede com um domínio nela: o vm create recusa (5) e nomeia-o
+  PASS  a recusa não definiu o domínio da VM nem mexeu na rede
+  PASS  rede nossa noutra sub-rede sem domínios: o vm create redefine-a na declarada
+  PASS  vm rm leva a rede redefinida com a VM
+  PASS  rede libvirt do operador noutra sub-rede: o vm create recusa (5) e diz que não é nossa
+  PASS  a rede do operador continua lá, parada e sem a marca
+
+=== vm: o mesmo nome noutra namespace é um conflito, não «ensured» ===
+  PASS  vm namespace: a rede da VM cria-se
+  PASS  vm namespace: stack apply da VM CH em teamA
+  FAIL  o mesmo nome noutra namespace é um conflito (5)  (rc=0, esperado=5)
+        $ /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix stack apply -f /tmp/dlxcamp/out/stack-e2e3261864/vm-namespace/teamB.yaml
+        | WARNING: VirtualMachine 'nsvm-e2e3261864': apiVersion 'compute.delonix.io/v1alpha1' is deprecated — loading it as 'compute.delonix.io/v1beta1' (run `delonix manifest convert` to update the file)
+        |  • VirtualMachine (1) 🖥
+        | vm/nsvm-e2e3261864: ensured
+        |  ✓ VirtualMachine (1) 🖥 0.1s
+        | 1 layer(s) in 0.1s
+        | VirtualMachine/nsvm-e2e3261864: adopted — it belonged to no stack, and a `destroy` or `apply --prune` of 'vm-namespace' now removes it
+        | WARNING: VirtualMachine/nsvm-e2e3261864: could not record stack ownership (no such nsvm-e2e3261864) — it will be adopted again on the next apply and `--prune` will not see it
+        | 
+        | Conditions (attention — missing prerequisites):
+        |   VirtualMachine 'nsvm-e2e3261864': Converged=False (FieldsNotCompared) — declared and not verifiable on an existing VM: provider — it carries no record of the spec it was created with (created by hand, or by an older version), and the reconciler compares only disk, vcpus, memory, vcpusMax, memoryMax, network, backend, labels, credentials. Recreate it (`--replace VirtualMachine/nsvm-e2e3261864`, which discards the disk) to be sure, or change it with `vm create`/`vm stop`+`start`
+  FAIL  ... e a recusa nomeia as duas namespaces  (rc=1, esperado=ok)
+        $ bash -c 
+      '/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' stack apply -f '/tmp/dlxcamp/out/stack-e2e3261864/vm-namespace/teamB.yaml' 2>&1 | grep -q "already exists in namespace 'teamA'"
+        | 
+  PASS  ... e a VM continua na namespace da primeira
+  (limpeza: network rm nsnet-e2e3261864 → rc=5: error[DX-5307] conflict: network 'nsnet-e2e3261864' is in use by vm nsvm-e2e3261864, vm nsvm-e2e3261864 — remove or disconnect them first)
+
+=== backup / restore por recurso ===
+  PASS  o container do backup arrancou (pré-condição da secção)
+  PASS  a escrita no volume PERSISTIU (pré-condição do backup)
+  PASS  backup create --dry-run não escreve nada
+  PASS  backup create --dry-run mesmo não escreveu
+  PASS  backup create container
+  PASS  o arquivo existe
+  PASS  o arquivo leva os dados do volume
+  PASS  …e o tarball do volume tem mesmo o ficheiro dentro
+  PASS  e NÃO leva o rootfs (é derivável da imagem)
+  PASS  backup restore recusa-se com o container a correr
+  PASS  backup restore --force pára, repõe e arranca
+  PASS  os dados voltaram
+  PASS  backup create de inexistente devolve 4
+  PASS  backup restore de arquivo inexistente devolve 4
+  PASS  backup restore --kind trocado recusa
+  PASS  schedule --max-for-day que não divide o dia recusa
+  PASS  schedule --cron @daily recusa (não se aproxima)
+  PASS  schedule --cron com 4 campos recusa
+  PASS  backup ls mostra o arquivo
+  PASS  backup ls --kind filtra
+  PASS  backup ls --kind vm não traz um container
+  PASS  backup inspect diz o kind e o nome
+  PASS  backup inspect nomeia os volumes que leva
+  PASS  backup inspect de inexistente devolve 4
+  PASS  backup remove recusa um .tar.gz que não escrevemos
+  PASS  e o ficheiro alheio CONTINUA lá
+  PASS  backup ls conta o alheio como saltado
+  PASS  backup remove apaga o nosso
+  PASS  e o arquivo desapareceu
+  PASS  o `restore` de raiz deixou de existir
+  PASS  o `backup <kind>` sem verbo deixou de existir
+  PASS  system backup deixou de existir (corte limpo)
+  PASS  system restore deixou de existir (corte limpo)
+  PASS  system snapshot create continua a existir, separado
+  PASS  system snapshot restore continua a existir, separado
+
+=== serve — arrancar, sondar, matar, e não deixar restos ===
+  PASS  serve cri recusa uma capability desconhecida
+  PASS  e NÃO chegou a criar o socket
+  PASS  e a recusa NOMEIA a capability
+  PASS  serve cri recusa um modo de tecto desconhecido
+  PASS  e a recusa NOMEIA o modo
+  PASS  e também aqui não criou socket
+  PASS  serve api cria o socket
+  PASS  serve api continua vivo depois de ligar
+  PASS  serve api responde 200 em /v1/dash
+  PASS  serve api morre com SIGTERM
+  PASS  serve docker-api cria o socket
+  PASS  serve docker-api continua vivo depois de ligar
+  PASS  serve docker-api responde 200 em /_ping
+  PASS  serve docker-api morre com SIGTERM
+  PASS  docker-api: POST /wait devolve o código real (7)
+  PASS  docker-api: RestartPolicy on-failure é aceite
+  PASS  docker-api: MaximumRetryCount 2 dá RESTARTS 2
+  PASS  docker-api: uma política desconhecida é recusada
+  PASS  docker-api: um nome já em uso responde 409
+  PASS  docker-api: um argumento inválido responde 400
+  PASS  image pull de um repositório inexistente sai com a classe 4
+  PASS  docker-api: create com uma imagem inexistente responde 404
+  PASS  container run com um nome em uso sai com a classe de conflito
+  PASS  serve cri cria o socket
+  PASS  serve cri continua vivo (gRPC: não se sonda por HTTP aqui)
+  PASS  serve cri morre com SIGTERM
+  PASS  CRI hostPort SCTP: serve cri sobe (pid e socket)
+  PASS  CRI: um hostPort SCTP é recusado pelo crictl
+  PASS  CRI: a recusa do SCTP nomeia a porta e o transporte
+  PASS  CRI: um sandbox recusado não fica para trás
+  PASS  CRI: um hostPort TCP continua a ser aceite (controlo)
+  PASS  CRI honour-or-refuse: serve cri sobe (pid e socket)
+  PASS  CRI: create com um recurso que o leaf não delega tem sucesso
+  PASS  CRI: start recusa um controlador inexistente
+  PASS  CRI: a recusa nomeia o campo e o controlador
+  PASS  CRI: um page_size com .. é recusado por nome, nunca escrito
+  PASS  CRI: a recusa do page_size é por traçado de caminho, não por controlador
+  PASS  CRI com DELONIX_ALLOW_UNENFORCED_LIMITS: serve cri sobe (pid e socket)
+  PASS  CRI: a válvula deixa arrancar o MESMO pedido que foi recusado sem ela
+  SKIP  CRI root/CNI: o hostPort é publicado  — exige root e uma conflist CNI com `portmap` (corre numa VM da golden delonix-vm-k8s)
+  PASS  serve cri corre o executável delonix-cri
+  PASS  serve cri sem o delonix-cri instalado sai com 69
+  PASS  e diz como instalar
+  PASS  mcp capabilities responde pelo delonix-mcp
+  PASS  mcp doctor resolve a CLI delonix e não o delonix-mcp
+  PASS  mcp sem o delonix-mcp instalado sai com 69
+  PASS  serve api corre o executável delonix-mgmt
+  PASS  serve api sem o delonix-mgmt instalado sai com 69
+  PASS  serve node-api corre o executável delonix-node-api
+  PASS  serve node-api sem o delonix-node-api instalado sai com 69
+  PASS  nenhum servidor desta corrida ficou para trás
+
+=== compose — o que é recusado, e se a recusa dispara ===
+  PASS  compose config aceita um ficheiro válido
+  PASS  compose config resolve o serviço
+  PASS  compose -f inexistente falha
+  PASS  compose deploy.replicas: 3 resolve para 3 containers
+  PASS  …e os 3 têm nomes distintos
+  PASS  compose recusa extends:
+  PASS  e a recusa NOMEIA o extends
+  PASS  compose profiles: sem --profile o serviço fica FORA
+  PASS  …e com --profile dev entra
+  PASS  compose aceita porta com IP de host
+  PASS  e o registo guarda o IP pedido, não 0.0.0.0
+  PASS  e o bind REAL do host é loopback (não todas as interfaces)
+  PASS  e nada ficou ligado em 0.0.0.0:19099
+  PASS  compose up -d
+  PASS  compose ps lista o serviço
+  PASS  o working_dir do compose foi aplicado
+  PASS  compose logs responde
+  PASS  compose down limpa
+  PASS  e o serviço deixou de aparecer
+
+=== net — a plumbing que nunca era executada ===
+  PASS  net netns status responde parado
+  PASS  net netns up
+  PASS  net netns status diz UP
+  PASS  net netns up é idempotente
+  PASS  um comando que CAPTURA a saída não fica preso no pin
+  PASS  net ingress ls
+  PASS  net ingress ls -o json é JSON a sério
+  PASS  net egress ls -o json é JSON a sério
+  PASS  ingress ls json separa governado de aberto
+  PASS  net egress ls
+  PASS  net ingress de um container inexistente diz 4
+  PASS  net egress de um container inexistente diz 4
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; NGP=11711 veio do kernel)
+  PASS  net ingress/egress: a rede cria-se
+  PASS  net ingress/egress: o container com -p arranca
+  PASS  net ingress deny
+  PASS  net ingress deny: a regra aparece na firewall do container
+  PASS  net ingress rm
+  PASS  net ingress rm: a regra saiu
+  PASS  net ingress unpublish
+  PASS  net ingress unpublish: a porta saiu da listagem
+  PASS  net egress deny
+  PASS  net egress deny: a regra aparece na firewall do container
+  PASS  net egress rm
+  PASS  net egress rm: a regra saiu
+  PASS  get httproutes
+  PASS  get gateways
+  PASS  get httproutes -o json é JSON a sério
+  PASS  get gateways -o json é JSON a sério
+  PASS  get kubernetesclusters -o json continua recusado, com razão
+  PASS  …e a recusa diz que a listagem é table-only
+  PASS  net flow --help
+  PASS  system boot status
+  PASS  system boot ls NÃO existe (é status)
+  PASS  system boot enable: the unit for a restart=always container is written
+  PASS  system boot disable: the written unit goes, the foreign one stays
+  PASS  system boot enable/disable left the host's own units alone
+  PASS  pod: stack apply de um pod de dois membros
+  PASS  pod: stop -t 0 de um membro só devolve com o processo fora
+  PASS  pod: 5× stop -t 0 + start de um membro — vivo e a responder
+  PASS  net netns down
+  PASS  net netns status diz parado outra vez
+  PASS  o socket de controlo não ficou para trás
+  PASS  net netns down é idempotente
+
+=== net — ciclo de vida: o que fica no holder depois de um rm ===
+  PASS  net: ciclo de vida sem fugas (rm, DHCP, egress, publish, rede de VM)
+
+=== providers remotos: NetworkGateway e NetworkZone — posse pela marca, não pelo nome ===
+  PASS  NetworkGateway num provider que ninguém registou recusa com 69 (o native saiu no F2b)
+  PASS  ... e a linha de erro traz o código do reason unsupported_capability (DX-6381)
+  PASS  ... com o reason, o provider nomeado e o papel por baixo da linha de erro
+  PASS  explain de um código retirado (DX-5340) responde e nomeia o sucessor DX-5389
+  PASS  explain DX-6381 diz o reason unsupported_capability
+  FAIL  delete de um NetworkGateway recusado termina  (rc=4, esperado=ok)
+        $ /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix delete networkgateways gw-e2e3261864-native
+        | error[DX-4000] no such resource kind 'networkgateways' (see `delonix stack plan --fields` for the catalogue)
+  PASS  ... e o registo desaparece
+  FAIL  um registo antigo que nomeia o native apaga-se sem provider  (rc=4, esperado=ok)
+        $ /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix delete networkgateways gw-e2e3261864-legacy
+        | error[DX-4000] no such resource kind 'networkgateways' (see `delonix stack plan --fields` for the catalogue)
+  FAIL  ... e sai do disco  (rc=1, esperado=ok)
+        $ test ! -e /tmp/dlxcamp/out/root/network-gateways/gw-e2e3261864-legacy.json
+        | 
+  PASS  NetworkZone sem provider configurado recusa
+  PASS  NetworkZone: um default que nomeia um provider não registado sai com 69
+  PASS  NetworkGateway sem provider nomeado: o default não registado também sai com 69
+  PASS  um providers.yaml sem networkDefaults.segment desliga a regra da contagem
+  PASS  ... e nenhuma destas recusas deixou registo
+  SKIP  NetworkGateway aplica no OPNsense com a marca de posse  — sem DELONIX_OPNSENSE_URL/_KEY/_SECRET: não há appliance OPNsense, a posse não foi medida aqui
+  SKIP  regra à mão com a mesma descrição é recusada, não adoptada  — sem DELONIX_OPNSENSE_URL/_KEY/_SECRET: não há appliance OPNsense, a posse não foi medida aqui
+  SKIP  delete tira só o que tem a marca  — sem DELONIX_OPNSENSE_URL/_KEY/_SECRET: não há appliance OPNsense, a posse não foi medida aqui
+  SKIP  NetworkZone aplica zona e vnet com a marca de posse  — sem DELONIX_PROXMOX_URL/_TOKEN_ID e _TOKEN_FILE (ou _TOKEN): não há cluster Proxmox, a posse na SDN não foi medida aqui
+  SKIP  zona à mão com o mesmo nome é recusada, não adoptada  — sem DELONIX_PROXMOX_URL/_TOKEN_ID e _TOKEN_FILE (ou _TOKEN): não há cluster Proxmox, a posse na SDN não foi medida aqui
+  SKIP  alteração SDN pendente alheia recusa o apply  — sem DELONIX_PROXMOX_URL/_TOKEN_ID e _TOKEN_FILE (ou _TOKEN): não há cluster Proxmox, a posse na SDN não foi medida aqui
+  SKIP  delete tira só a zona e as vnets do motor  — sem DELONIX_PROXMOX_URL/_TOKEN_ID e _TOKEN_FILE (ou _TOKEN): não há cluster Proxmox, a posse na SDN não foi medida aqui
+
+=== kind: SystemContainer — as recusas que não precisam de nó (ADR-0058, plano 63) ===
+  PASS  stack apply com unprivileged: false recusa com DX-1540, antes de procurar o nó
+  PASS  ... com a classe inválido (1)
+  PASS  stack plan também recusa o campo de privilégio (DX-1540)
+  PASS  sem provider configurado, o apply recusa com 69
+  PASS  ... e a mensagem diz o que configurar
+  PASS  ... e não fica registo para trás
+  PASS  o exec de um system container é declarado unsupported-by-provider
+  PASS  systemcontainer snapshot ls de um nome não registado diz 4
+  PASS  systemcontainer snapshot create de um nome não registado diz 4
+  PASS  o snapshot de um system container é declarado supported no proxmox
+  PASS  o resize de um system container é declarado supported no proxmox
+  PASS  backup restore de um arquivo de container de sistema sem dono registado diz 4
+  PASS  backup create systemcontainer de um nome não registado diz 4
+  PASS  backup create systemcontainer --quiesce é recusado (é só para VMs)
+  PASS  systemcontainer clone de um nome não registado diz 4
+  PASS  o clone de um system container é declarado supported no proxmox
+  PASS  stack validate recusa scope: systemcontainer sobre um alvo que não é SystemContainer
+  PASS  ... e a mensagem nomeia o alvo
+  PASS  um scope mal escrito é recusado e a mensagem lista os válidos
+  PASS  a firewall de um system container é declarada partial no proxmox
+  PASS  systemcontainer move de um nome não registado diz 4
+  PASS  systemcontainer move sem --node é recusado pelo parser
+  PASS  a migração de um system container é declarada supported no proxmox
+
+=== api-resources: o registo que os outros verbos leem ===
+  PASS  api-resources responde
+  PASS  api-resources -o json é um array não vazio
+  PASS  cada linha traz as colunas que a automação lê
+  PASS  api-resources -o json é idêntico em EN e PT
+  PASS  todo o plural listado resolve no explain
+
+=== cancelamento: um terminal em modo raw não é nosso para deixar partido ===
+  PASS  um sinal repõe o terminal, e a morte continua a ser por sinal
+
+=== contrato de output: o que a automação lê não pode mudar sozinho ===
+  PASS  lista vazia de 'container ps' é um array JSON
+  PASS  lista vazia de 'image ls' é um array JSON
+  PASS  lista vazia de 'volume ls' é um array JSON
+  PASS  lista vazia de 'network ls' é um array JSON
+  PASS  lista vazia de 'vm ls' é um array JSON
+  PASS  lista vazia de 'secret ls' é um array JSON
+  PASS  o -o json de uma listagem é idêntico em EN e PT
+  PASS  o -o json de um plano é idêntico em EN e PT
+  PASS  num pipe não saem sequências ANSI
+  PASS  o -o json não leva nada no stderr
+  PASS  secret ls não traz valores
+  PASS  secret inspect redige por omissão
+  PASS  secret inspect --reveal mostra, e só então
+
+=== verbos genéricos — encaminham, não reimplementam ===
+  PASS  get images == image ls
+  PASS  get networks == network ls
+  PASS  get volumes == volume ls
+  PASS  get secrets == secret ls
+  PASS  get virtualmachines == vm ls
+  PASS  get pods
+  PASS  get virtualmachines
+  PASS  get networks
+  PASS  get volumes
+  PASS  get secrets
+  PASS  get images
+  PASS  get kubernetesclusters
+  PASS  get gateways
+  PASS  get httproutes
+  PASS  get containers explica-se
+  PASS  get -o json onde não há
+  PASS  get aceita o plural
+  PASS  get aceita o singular
+  PASS  get aceita a abreviatura
+  PASS  get stacks explica-se
+  PASS  get workloads explica-se
+  PASS  get de Kind inexistente
+  PASS  delete sem nome recusa
+
+=== delete networkpolicies — um DELETE que reporta sucesso tem de apagar ===
+  PASS  delete networkpolicies: a rede cria-se
+  PASS  delete networkpolicies: o servidor arranca
+  PASS  delete networkpolicies: o cliente arranca
+  PASS  delete policy: a linha de base alcança
+  PASS  net ingress policy deny
+  PASS  delete policy: com deny não alcança
+  PASS  delete networkpolicies <c>/ingress
+  PASS  ... e o get passa a ler allow-all
+  PASS  ... e o describe também
+  FAIL  ... e o deny DEIXOU de ser imposto no fio  (rc=1, esperado=ok)
+        $ test 0 -eq 3
+        | 
+  PASS  net ingress clear
+  PASS  net ingress clear: a omissão da direcção FICA (deny)
+
+=== stack init --template --up (Sprint 7: --up passa a honrar o manifesto) ===
+  PASS  stack init --template httpd
+  PASS  o manifesto gerado declara memory/cpus
+  PASS  o init gera o certificado e a chave privada fica 0600
+  PASS  a chave não entra na imagem nem no git (.dockerignore e .gitignore)
+  PASS  nenhum token por substituir no projecto gerado
+  PASS  init --port/--tls-port/--hostname entram no projecto e no certificado
+  PASS  --tls-port num template sem TLS é recusado e não escreve nada
+  PASS  init: uma porta que este host não publica é dita ao gerar
+  PASS  build: o check de config do nginx não binda a porta privilegiada
+  PASS  build: e o check ainda corre mesmo (não foi removido)
+  PASS  teardown: the privileged-port build leaves the store
+  PASS  --up: a recusa é a porta, não uma falha do build
+  PASS  --up: o build nem chegou a começar
+  PASS  um projecto nginx para a pergunta seguinte
+  PASS  init -t <outro> sobre um projecto existente é recusado (classe 5)
+  PASS  a recusa nomeia o que está lá E o que foi pedido
+  PASS  o mesmo template com as mesmas flags continua a passar (2.º --up idempotente)
+  PASS  uma config editada à mão NÃO é glue e não trava nada
+  PASS  --up: stack init --template httpd constrói e aplica (180 s)
+  PASS  --up: o container tem memory_max do manifesto (não só o run cru)
+  PASS  --up: o HTTPS responde, com HTTP/2, e o HTTP redirecciona para lá
+  PASS  --up: o resumo final dá o endereço HTTPS a abrir
+  PASS  --up: o smoke do próprio template passa
+  PASS  --up: o container está mesmo a correr
+  PASS  --up outra vez, sem alterações: passa e o container é o mesmo
+  PASS  --up depois de alterar o projecto: serve a versão nova
+
+=== leituras e ciclos locais que nunca eram executados (F0.2: a metade da cobertura) ===
+  PASS  version: byte a byte igual ao --version
+  PASS  compatibility docker: conta o servido e o recusado, e nomeia o mapeamento
+  PASS  config: set/get/unset fecham o ciclo, e o get volta ao default
+  PASS  config set: uma chave desconhecida é recusada PELO NOME, classe 1
+  PASS  config set: um valor inválido é recusado, e diz os aceites
+  PASS  provider config show: nomeia o ficheiro em vigor E o que a precedência ignora
+  PASS  system resources: nomeia os controladores e o que seria IGNORADO
+  PASS  system virt: responde sobre a virtualização do host
+  PASS  system setup: diz o MODO em que o motor corre
+  PASS  system metrics: as contagens do nó
+  PASS  system namespace ls: lista a namespace default
+  PASS  system namespace describe: nomeia o SET de isolamento, não só o nome
+  PASS  policy unset: sem política declarada diz que não há nada a remover
+  PASS  manifest validate: um exemplo publicado resolve todas as referências
+  PASS  manifest validate: um apiVersion desconhecido é recusado pelo nome
+  PASS  manifest render: materializa os defaults que o documento não escreve
+  PASS  completion editor vim: os ficheiros que a saída nomeia existem mesmo
+  PASS  secret apply: cria da versão 1, e AVISA do cleartext no manifesto
+  PASS  secret rotate: troca o VALOR da chave, e sobe a versão
+  PASS  secret rotate-key: recifra tudo e os valores em claro continuam os MESMOS
+  PASS  secret rotate-key: a versão fica igual (os valores não mudaram)
+  PASS  secret unset: a chave sai, o segredo fica
+  PASS  secret unset: uma chave de um segredo inexistente é 4, não 1
+  PASS  volume snapshot ls: lista o snapshot que o create acabou de tirar
+  PASS  volume snapshot restore: repõe os dados do snapshot
+  PASS  volume snapshot restore: um snapshot inexistente é 4, não 1
+  PASS  workload stop: um nome inexistente é 4
+  PASS  workload rm: um nome inexistente é 4
+  PASS  pod logs: um pod inexistente é 4, e aponta para o get
+
+=== mais leituras e ciclos locais (F0.2, lote 2: container/image/vm/cluster) ===
+  PASS  container run para kill
+  PASS  container kill
+  PASS  kill: o estado real acaba Crashed, nunca Stopped
+  PASS  container run para pause
+  PASS  container pause
+  PASS  pause: cgroup.freeze diz 1
+  PASS  container unpause
+  PASS  unpause: cgroup.freeze volta a 0
+  PASS  container run para restart
+  PASS  container restart
+  PASS  restart: pid novo, status Running
+  PASS  container run para diff
+  PASS  um exec que cria e apaga um ficheiro
+  PASS  container diff: mostra o A e o D
+  PASS  container cp: host -> container
+  PASS  container cp: container -> host, byte a byte
+  PASS  container apply: cria do manifesto
+  PASS  container apply: o container do manifesto está Running
+  PASS  container init: escreve Delonixfile + manifesto numa pasta vazia
+  PASS  image apply: puxa a imagem do manifesto
+  PASS  image apply: a imagem fica listada
+  PASS  image history: pelo menos uma camada com digest e tamanho
+  PASS  dashboard --once --json: JSON com scope e tiles
+  PASS  vm default-backend: sem --set devolve o estado actual
+  PASS  vm default-backend --set libvirt
+  PASS  vm default-backend: o get devolve o que o set escreveu
+  PASS  vm default-backend --set <desconhecido>: recusa pelo nome, nomeia os aceites
+  PASS  cluster ls: sem clusters, ainda assim rc 0
+
+=== batch 3 (S15/N11): leaves that only ever had their --help checked ===
+  PASS  plan: before the apply there is something to create (2)
+  PASS  plan: names the Create and creates nothing
+  PASS  stack apply of the plan/wait/diff manifest
+  PASS  wait: returns once the manifest's container is Running
+  PASS  plan: after the apply there is nothing to do (0)
+  PASS  diff: the three columns, memory 64M on all of them
+  PASS  diff --detailed-exitcode: unchanged is 0
+  PASS  diff --detailed-exitcode: a change made by hand is 2
+  PASS  diff: OBSERVED shows the hand-made value, DESIRED the manifest's
+  PASS  diff: a name the manifest does not declare is refused (1), naming the file
+  PASS  wait: a resource that never appears times out with 124
+  PASS  cluster kube generate: a kind: Pod with the container's image and command
+  FAIL  cluster kube generate: a name that is neither container nor pod is 4  (rc=1, esperado=4)
+        $ /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix cluster kube generate nao-existe-e2e3261864
+        | error[DX-1000] invalid argument: nothing to generate for 'nao-existe-e2e3261864' (no such pod or container)
+  FAIL  cluster network profiles: a row per profile the CLI accepts  (rc=1, esperado=ok)
+        $ bash -c 
+  out=$('/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' cluster network profiles 2>&1) || exit 1
+  for p in cilium calico flannel; do
+    grep -qw "$p" <<<"$out" || { echo "profile $p is missing from the table"; exit 1; }
+  done
+  grep -qiE 'experimental' <<<"$out" || { echo 'no support level is reported'; exit 1; }
+        | no support level is reported
+  PASS  cluster network status: a cluster that does not exist refuses
+  PASS  cluster network fetch: an unknown profile refuses before downloading
+  PASS  image export: an OCI runtime bundle — config.json with the process, and the rootfs
+  PASS  image sbom: an SPDX 2.3 document that lists the image's packages
+  PASS  image scan --sbom: the package table names busybox, from the CAS, without running anything
+  PASS  image remove: of one of two names untags, the image keeps the other
+  PASS  image remove: of the last name deletes the image
+  PASS  image remove: an image that is not in the store is 4
+  PASS  image login without --password-stdin is refused (1) and names the flag
+  PASS  image login: stored in auth.json at 0600, and the secret is never echoed
+  PASS  image logout: the registry's entry leaves auth.json
+  PASS  image verify: a key that is not a PEM public key is refused (1) before the registry
+  PASS  net tunnel expose: a token starting with '-' is refused (1), and the payload never ran
+  PASS  net tunnel apply: the same token in a manifest is refused, and the payload never ran
+  PASS  network vlan: the dry-run prints the two ip(8) steps and says it changed nothing
+  PASS  network vlan: an id outside 1-4094 is refused (1) by name
+  PASS  network vlan --apply without root is refused (1) before touching the host
+  PASS  system thermal: --high at or below --low is refused (1) before any write
+  PASS  system regulate (no --apply): a report — applied false, cpu.weight untouched
+  PASS  system snapshot create: a 0600 archive with the registries and without the live plumbing
+  PASS  system snapshot restore: refused (1) while a workload runs, naming it
+  PASS  system snapshot restore --dry-run: names what it would remove, and removes nothing
+  PASS  network node init: prints the public key and keeps the private one at 0600
+  PASS  network node key: the same public key, and init again does not rotate it
+  PASS  vm destroy: a VM that does not exist is 4
+  PASS  vm restart: a VM that does not exist is 4
+  PASS  vm update: a VM that does not exist is 4
+  PASS  vm vnc: a VM that does not exist is 4
+  PASS  vm console: a VM that does not exist is 4
+  PASS  vm ssh: a name that is not a VM is 4
+  PASS  vm migrate: a VM that does not exist is 4, before any SSH
+  PASS  vm create: a network nobody declared is 4 (DX-4505), and nothing is left behind
+  PASS  mcp serve: answers initialize and tools/list over stdio, and exits at EOF
+  PASS  cluster apply: a shell payload in controlPlaneEndpoint is refused (1) and names the field
+  PASS  cluster upgrade: a shell payload in --to is refused (1) before the manifest is read
+  PASS  cluster init: one manifest per mode (kind, vm, ssh), each one valid
+  PASS  cluster drain: no cached cluster is refused (1) before kubectl, naming how to get one
+  PASS  cluster uncordon: a cluster name with no kubeconfig is refused (1), naming where it looked
+  PASS  cluster backup: a cluster with no kubeadm control-plane is refused (1) before any SSH
+  PASS  cluster restore: the same refusal, before the snapshot file is even read
+  PASS  cluster stop: every node of the cluster stops
+  PASS  cluster load: a cluster with no running node is refused (1), naming it
+  PASS  cluster start: every node of the cluster runs again
+  PASS  cluster health: a control-plane that does not answer /readyz is not healthy
+  PASS  cluster health: a cluster that does not exist is 4
+  PASS  cluster destroy: the nodes go, and cluster ls no longer lists it
+  PASS  cluster destroy: a cluster that does not exist is 4
+  PASS  systemcontainer snapshot restore of a name not registered is 4
+  PASS  systemcontainer snapshot rm of a name not registered is 4
+  PASS  net egress: the network is created
+  PASS  net egress: its container starts
+  PASS  net egress show: a fresh network has no restriction and no FQDN allowlist
+  PASS  net egress host: the hostname enters the network's FQDN allowlist
+  PASS  net egress net deny: the network's policy reads deny
+  PASS  net egress net allowlist without --to is refused (1)
+  PASS  net egress net allow: the policy is back to allow
+  PASS  net egress show: a network that does not exist is 4
+  PASS  net egress policy deny: the container's outbound default reads deny
+  PASS  net egress clear: the rules go and the default stays deny
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; L3HP=63235 veio do kernel)
+  PASS  net httproute: the backend container starts
+  PASS  net httproute apply: the proxy serves the backend by the Host header
+  PASS  net httproute apply: a request for another Host is not routed to the backend
+  PASS  hosts sync --print: the route's name, pointed at 127.0.0.1
+  PASS  hosts sync: rewrites a block that was edited away, keeping the other lines
+  PASS  net httproute rm: the proxy stops, the entrypoint closes, the name leaves the file
+  PASS  net netns attach: each netns gets its own address on delonix0
+  PASS  net netns exec: the address attach printed is the one inside the netns
+  PASS  net netns exec: B reaches A's listener (the baseline)
+  PASS  net netns firewall: an inbound deny on A cuts B off
+  FAIL  net netns firewall --clear: B reaches A again  (rc=1, esperado=ok)
+        $ bash -c 
+    '/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' net netns firewall 'l3ae2e3261864' --clear >/dev/null || exit 1
+    for _ in $(seq 1 10); do [ "$('/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' net netns exec 'l3be2e3261864' nc -w 2 '10.200.0.3' 7171 </dev/null 2>/dev/null)" = pong-e2e3261864 ] && exit 0; sleep 0.3; done; exit 1
+        | 
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; L3PP=37733 veio do kernel)
+  FAIL  net netns publish: the host port forwards to A's listener  (rc=1, esperado=ok)
+        $ bash -c 
+    '/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' net netns publish 'l3ae2e3261864' '37733:7171' >/dev/null || exit 1
+    for _ in $(seq 1 20); do [ "$(nc -w 2 127.0.0.1 37733 </dev/null 2>/dev/null)" = pong-e2e3261864 ] && exit 0; sleep 0.3; done; exit 1
+        | 
+  PASS  net netns unpublish: the host port stops answering
+  PASS  net netns detach: the netns is gone, exec into it fails
+  PASS  net l4guard status: the boot guard is live, both meter rules with counters
+  PASS  net l4guard set: the two meter rules appear with the values given
+  PASS  net l4guard set: a non-numeric rate is a usage error, not an engine call
+  PASS  net l4guard clear: both meter rules leave the ruleset
+  PASS  net l4guard set: the boot guard is restored to 50/200
+  PASS  net flow: the veth fallback lists the container with its SDN address
+  PASS  net capture -c 2: stops after exactly two frames, to stdout
+  PASS  net capture: the pcap carries the container's own ICMP echo requests
+  PASS  net capture: a container with no netns of its own is refused (1)
+  PASS  container attach -i is refused (1) and points at exec -it
+  PASS  container attach: shows the output of a running container
+  PASS  container attach: a container that does not exist is 4
+  FAIL  system monitor --no-stream: one sample, counting the running containers on a network  (rc=1, esperado=ok)
+        $ bash -c 
+  ids=$('/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' container ls -q); [ -n "$ids" ] || { echo 'no running container to count'; exit 1; }
+  want=$('/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' container inspect $ids | python3 -c 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c.get("ip") and c.get("status")=="Running"))')
+  out=$(timeout -s KILL 30 '/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix' system monitor --no-stream 2>&1) || exit 1
+  grep -qE "^delonix monitor — $want containers, [0-9]+ active connections" <<<"$out" || { echo "expected $want containers in: $(head -1 <<<"$out")"; exit 1; }
+        | expected 1 containers in: delonix monitor — 1 containers, — active connections (conntrack)
+  PASS  pod port-forward: a pod that does not exist is 4
+  PASS  pod port-forward: the pod applies
+  PASS  pod port-forward: a port spec that is not a port is refused (1)
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; L3FP=39341 veio do kernel)
+  PASS  pod port-forward: 127.0.0.1:<hostPort> reaches the pod's port
+  PASS  vm image import: registers the disk with the defaults it was given
+  PASS  vm image describe: an appliance, with the vCPU/memory defaults
+  PASS  vm image convert --to vhd: qemu-img reads a vpc file (vhd is vpc to qemu-img)
+  PASS  vm image convert --compress to raw is refused (1): only qcow2 and vmdk compress
+  PASS  vm image rm: the image leaves the store, and describe answers 4
+  PASS  vm image init: a VMfile and a cloud-init file, filled in with the name
+  PASS  vm image init: an existing VMfile is not overwritten without --force (1)
+  PASS  vm apply: a disk that is neither a VM image nor a file is 4, and no VM is left
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; L3RP=38919 veio do kernel)
+  PASS  vm reach: the publishing container starts
+  PASS  vm reach: a port published on the default 127.0.0.1 is reported host-only
+  PASS  vm bridge: a DRY-RUN plan that changes nothing on the host
+  PASS  vm bridge: a subnet that is not a CIDR is refused (1)
+  PASS  vm unbridge: a DRY-RUN teardown plan
+  PASS  vm bridge --apply without root is refused (1) before any command runs
+
+=== container ps sem -a: só os que estão a correr, na CLI e na API Docker ===
+  (portas: nenhuma livre em ?–? fora do intervalo efémero 10000–65535; PSPORT=28941 veio do kernel)
+  PASS  container ps: os três containers de prova arrancam
+  PASS  container ps lista o que está a correr
+  PASS  container ps NÃO lista um container parado por stop
+  PASS  container ps NÃO lista um container que saiu com 3
+  PASS  container ps -a lista os três
+  PASS  container ps -q e -o json seguem a mesma regra
+  PASS  docker-api: GET /containers/json sem all só devolve os que estão a correr
+  PASS  docker-api: all=1 devolve também os parados
+  PASS  docker-api: a porta publicada vem nos Ports, com o IP
+
+=== limpeza ===
+  PASS  volume rm
+  PASS  network rm
+
+=== as varreduras: o que cada prune leva, e o que NÃO leva ===
+  PASS  image prune: a imagem COM tag fica, e os blobs pendentes saem
+  PASS  container prune: sem containers parados, leva zero e di-lo
+  PASS  volume prune: um volume ainda REFERENCIADO não é removido
+  PASS  network ipam prune: um lease é CANDIDATO na 1ª passagem, nunca reclamado
+  PASS  vm prune: sem VMs, leva zero órfãos e di-lo
+  PASS  cluster prune: sem clusters, leva zero restos
+  PASS  stack prune: sem o manifesto, RECUSA — não varre a stack às cegas
+  PASS  system prune: varre o nó e a imagem com tag CONTINUA lá
+
+=== kind: Service type VirtualIP — o VIP L4 com prontidão (ADR-0066) ===
+  PASS  VirtualIP: sem conjunto de VIP é recusado com a classe 69
+  PASS  VirtualIP: um conjunto público é recusado (DX-1360)
+  PASS  VirtualIP: a rede dos backends cria-se
+  PASS  VirtualIP: um conjunto sobreposto a uma rede declarada é recusado e nomeia-a
+  PASS  VirtualIP: vip-pool set 10.97.0.0/24
+  PASS  VirtualIP: vip-pool show nomeia o conjunto e o ficheiro do nó de onde vem
+  PASS  VirtualIP: vip-pool show diz quando a variável do processo se sobrepõe ao ficheiro
+  PASS  VirtualIP: o backend v1 arranca
+  PASS  VirtualIP: o backend v2 arranca
+  PASS  VirtualIP: o cliente da mesma namespace arranca
+  PASS  VirtualIP: o cliente de outra namespace arranca
+  PASS  VirtualIP: o contentor que forja origens arranca
+  PASS  VirtualIP: sem bridge-nf-call-iptables no holder é recusado com a classe 69 (DX-6361)
+  PASS  VirtualIP: o apply atribui um VIP do conjunto
+  PASS  VirtualIP: o nome do serviço resolve para o VIP
+  PASS  VirtualIP: o VIP espalha as ligações por todos os backends prontos (cada um >= 20%)
+  PASS  VirtualIP: a porta publicada leva ao mesmo conjunto (D6)
+  PASS  VirtualIP: o cliente na rede dos backends chega com o seu IP (hairpin, conntrack)
+  PASS  VirtualIP: um cliente de outra namespace não passa do VIP
+  PASS  VirtualIP: uma origem forjada não chega ao DNAT (anti-spoof)
+  PASS  VirtualIP: um backend cuja porta deixa de aceitar sai da rotação
+  PASS  VirtualIP: e não recebe ligações novas (0 de 30)
+  PASS  VirtualIP: um backend cujo health check não passa não recebe tráfego
+  PASS  VirtualIP: com o health check a passar entra em rotação
+  PASS  VirtualIP: e sai quando volta a falhar
+  PASS  VirtualIP: um backend que volta a aceitar regressa à rotação
+  PASS  VirtualIP: um backend removido não recebe ligações novas
+  PASS  VirtualIP: um porto do VIP que não é servido é recusado
+  PASS  VirtualIP: sem backend pronto o VIP recusa de imediato
+  PASS  VirtualIP: sem backend pronto a porta publicada também recusa
+  PASS  VirtualIP: um VIP pedido e já tomado é um conflito (5)
+  PASS  VirtualIP: um VIP pedido fora do conjunto é recusado (DX-1361)
+  PASS  VirtualIP: o delete liberta o lease do VIP
+  PASS  VirtualIP: o delete tira a porta publicada do host
+  PASS  VirtualIP: vip-pool clear tira o conjunto do nó, e o show diz que não há nenhum
+
+=== gitops: kind GitOpsSource — uma passagem converge, um commit recusado não toca em nada (ADR-0021) ===
+  PASS  gitops: stack apply regista a fonte e escreve o temporizador (systemctl falso)
+  PASS  gitops: um manifesto inalterado planeia ZERO diferenças
+  PASS  gitops: um plan à mão da stack das passagens é recusado (DX-1601), a nomear --name e spec.stack
+  PASS  gitops: um nome de fonte que não é um rótulo DNS é recusado (DX-1601)
+  PASS  gitops: manifest validate recusa a fonte que o apply recusa (url ext::, DX-1601)
+  PASS  gitops: a primeira passagem converge a stack do commit
+  PASS  gitops: um campo quente (memory) converge na passagem seguinte com o MESMO PID
+  PASS  gitops: uma passagem sem mudanças não escreve revisão nova
+  PASS  gitops: o plan do bootstrap fica em 0 depois das passagens
+  PASS  gitops: um --prune do bootstrap não toca no que a passagem aplicou
+  PASS  gitops: um --prune da stack das passagens com o manifesto do bootstrap é recusado e não apaga nada
+  PASS  gitops: uma fonte que se declara no repositório é tomada à stack do bootstrap
+  PASS  gitops: um commit que pede o host é recusado (DX-1602) e a stack fica intacta
+  PASS  gitops: um commit cujo grafo falha é recusado e a stack fica intacta
+  PASS  gitops: um commit que planeia um Replace é bloqueado (DX-1604) e a stack fica intacta
+  PASS  gitops: suspensa, uma passagem não obtém nada; retomada, a seguinte está em sincronia
+  PASS  gitops: uma fonte inexistente diz 4 (DX-4601)
+  PASS  gitops: delete gitopssources desactiva o temporizador e apaga a fonte
+
+=== métricas: /metrics expõe gauges por container (cpu/mem) ===
+  PASS  métricas: o container de prova arranca (container run -d)
+  PASS  métricas: o socket da API de gestão existe e é 0600
+  FAIL  métricas: GET /metrics devolve OpenMetrics com o registo partilhado  (rc=1, esperado=ok)
+        $ bash -c curl -s --unix-socket '/tmp/dlxe2e-mgmt-3261864.sock' http://localhost/metrics | grep -q '^# TYPE delonix_build_info '
+        | 
+  PASS  métricas: há uma gauge de CPU e uma de memória com o id/nome do container e um valor plausível
+
+=== métricas: /metrics expõe rx/tx de rede por container ===
+  PASS  métricas rede: o container de prova arranca com rede (container run -d --net)
+  PASS  métricas rede: /metrics tem rx e tx por container com o id/nome e valor plausível
+
+=== metrics: /metrics exports per-VM cpu and memory series for a Cloud Hypervisor VM (cloud-hypervisor) ===
+  PASS  metrics VM: a native CH VM boots (VMM + cgroup leaf)
+  PASS  metrics VM: /metrics has per-VM cpu and memory series under kind="vm"
+
+=== cluster kind, ao vivo (E2E_CLUSTER=1) ===
+  SKIP  repro de #736: control-plane Ready e 1ª ligação cross-namespace (podIP + Service/DNS) no instante da prontidão de um pod novo  — E2E_CLUSTER!=1 (bring-up ~2m45s + disco; opcional por desenho)
+
+=== guarda: o results.jsonl tem uma linha por veredicto ===
+  PASS  o results.jsonl tem uma linha por veredicto contado
+
+======================================
+ PASS=1735  FAIL=22  SKIP=35  XFAIL=0  XPASS=0
+ detalhe: /tmp/dlxcamp/out/results.jsonl
+
+ 35 SKIP — o que NÃO foi exercitado (não chumba, mas também não prova nada):
+   ~ vm image rm completa — não há imagens VM neste host
+   ~ ferramenta em falta diz 69 — este host TEM virt-customize — o caminho não é exercitável aqui
+   ~ storage pool lvm-thin (pool real em loopback) — precisa de root para losetup/pvcreate/vgcreate/lvcreate sobre o ficheiro de loopback; esta sessão corre sem privilégio
+   ~ storage pool btrfs (pool real em loopback) — precisa de root para losetup/mkfs.btrfs/mount; esta sessão corre sem privilégio
+   ~ storage pool zfs (pool real em loopback) — precisa de root para modprobe zfs/zpool create; esta sessão corre sem privilégio
+   ~ volume create --driver nfs com NAS real — montar NFS/CIFS exige CAP_SYS_ADMIN — não exercitável em rootless
+   ~ wg ausente: caminho de falha — este host TEM wg — o caminho não é exercitável aqui
+   ~ upgrade: um root escrito pela release anterior abre igual (plan sem diferenças, dados, segredo, pid) — DELONIX_UPGRADE_FROM não está definido (diretório com os binários publicados da release anterior)
+   ~ vm: o cloud-init do guest consome o seed NoCloud — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+   ~ vm: um disco a quente e detectado e fica R/W dentro do guest — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+   ~ vm: uma NIC a quente e detectada e passa trafego real dentro do guest — sem libvirt utilizável, sem guestfish/cloud-localds, sem imagem cloud (E2E_CLOUDINIT_IMAGE), ou sem a rede libvirt ingress
+   ~ vm: a VM esta mesmo respaldada por hugepages do host — sem libvirt utilizável, sem guestfish/cloud-localds, sem imagem cloud (E2E_CLOUDINIT_IMAGE), ou sem pool de hugepages livre que chegue
+   ~ vm: um disco a quente removido com seguranca dentro do guest — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+   ~ vm: uma NIC a quente removida dentro do guest sem derrubar a primaria — sem libvirt utilizável, sem guestfish/cloud-localds, sem imagem cloud (E2E_CLOUDINIT_IMAGE), ou sem a rede libvirt ingress
+   ~ vm: um vCPU a quente e online dentro do guest — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+   ~ vm: memoria a quente e online dentro do guest — sem libvirt utilizável, sem guestfish/cloud-localds, ou sem imagem cloud (E2E_CLOUDINIT_IMAGE)
+   ~ vm: an extra disk declared at create is seen and R/W inside the guest — no usable libvirt, no guestfish, or no cloud image (E2E_CLOUDINIT_IMAGE)
+   ~ vm: an extra NIC declared at create is seen and passes real traffic inside the guest — no usable libvirt, no guestfish, no cloud image (E2E_CLOUDINIT_IMAGE), or no libvirt ingress network
+   ~ vm: the requested CPU topology is seen inside the guest — no usable libvirt, no guestfish, or no cloud image (E2E_CLOUDINIT_IMAGE)
+   ~ vm: stop-then-start is a real reboot — the guest boot id changes — no usable libvirt, no guestfish, or no cloud image (E2E_CLOUDINIT_IMAGE)
+   ~ vm: a stopped VM cold-migrates — flatten, import, boot on the target with state intact — no usable libvirt, no guestfish, or no cloud image (E2E_CLOUDINIT_IMAGE)
+   ~ vm: a stopped CH VM cold-migrates — flatten, import, boot on the target with state intact — no usable cloud-hypervisor, no guestfish, or no cloud-init golden (vm image ls)
+   ~ vm: a libvirt VM boots at its reserved static IP, the engine observes it, and destroy tears it all down — no usable qemu:///system or no cloud-init golden (vm image ls)
+   ~ vm: a libvirt VM's vCPUs are pinned to the requested host cores, live — no usable qemu:///system or no cloud-init golden (vm image ls)
+   ~ vm: serial console connects and VNC answers RFB — no usable libvirt, no cloud image (E2E_CLOUDINIT_IMAGE), or no script/cloud-localds
+   ~ vm: backup archives a live guest and restore recovers disk data — no usable libvirt, no guestfish/cloud-localds, or no cloud image (E2E_CLOUDINIT_IMAGE)
+   ~ CRI root/CNI: o hostPort é publicado — exige root e uma conflist CNI com `portmap` (corre numa VM da golden delonix-vm-k8s)
+   ~ NetworkGateway aplica no OPNsense com a marca de posse — sem DELONIX_OPNSENSE_URL/_KEY/_SECRET: não há appliance OPNsense, a posse não foi medida aqui
+   ~ regra à mão com a mesma descrição é recusada, não adoptada — sem DELONIX_OPNSENSE_URL/_KEY/_SECRET: não há appliance OPNsense, a posse não foi medida aqui
+   ~ delete tira só o que tem a marca — sem DELONIX_OPNSENSE_URL/_KEY/_SECRET: não há appliance OPNsense, a posse não foi medida aqui
+   ~ NetworkZone aplica zona e vnet com a marca de posse — sem DELONIX_PROXMOX_URL/_TOKEN_ID e _TOKEN_FILE (ou _TOKEN): não há cluster Proxmox, a posse na SDN não foi medida aqui
+   ~ zona à mão com o mesmo nome é recusada, não adoptada — sem DELONIX_PROXMOX_URL/_TOKEN_ID e _TOKEN_FILE (ou _TOKEN): não há cluster Proxmox, a posse na SDN não foi medida aqui
+   ~ alteração SDN pendente alheia recusa o apply — sem DELONIX_PROXMOX_URL/_TOKEN_ID e _TOKEN_FILE (ou _TOKEN): não há cluster Proxmox, a posse na SDN não foi medida aqui
+   ~ delete tira só a zona e as vnets do motor — sem DELONIX_PROXMOX_URL/_TOKEN_ID e _TOKEN_FILE (ou _TOKEN): não há cluster Proxmox, a posse na SDN não foi medida aqui
+   ~ repro de #736: control-plane Ready e 1ª ligação cross-namespace (podIP + Service/DNS) no instante da prontidão de um pod novo — E2E_CLUSTER!=1 (bring-up ~2m45s + disco; opcional por desenho)
+
+ 22 falhas:
+   - baseline: the CRI's re-stated default capability set runs, with the plain run's CapEff
+   - landlock: --read-only with --tmpfs keeps the tmpfs writable (not partido)
+   - slirp: container start devolve, com a causa, quando o slirp que lançou não responde
+   - privileged: a -v under /sys is mounted ONCE, on top of /sys
+   - privileged: that mount keeps the rshared it asked for
+   - vm create --require de capacidade que o libvirt não tem recusa (69)
+   - vm create --require: a recusa nomeia a capacidade e o estado
+   - vm create --require sem --backend: nenhum candidato serve, a recusa nomeia os dois (69)
+   - vm resize --disk-size 0 recusa (1)
+   - CH: --disk-size 0 recusa (1)
+   - o mesmo nome noutra namespace é um conflito (5)
+   - ... e a recusa nomeia as duas namespaces
+   - delete de um NetworkGateway recusado termina
+   - um registo antigo que nomeia o native apaga-se sem provider
+   - ... e sai do disco
+   - ... e o deny DEIXOU de ser imposto no fio
+   - cluster kube generate: a name that is neither container nor pod is 4
+   - cluster network profiles: a row per profile the CLI accepts
+   - net netns firewall --clear: B reaches A again
+   - net netns publish: the host port forwards to A's listener
+   - system monitor --no-stream: one sample, counting the running containers on a network
+   - métricas: GET /metrics devolve OpenMetrics com o registo partilhado
+======================================
