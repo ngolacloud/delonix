@@ -1,0 +1,16 @@
+{
+  "description": "Active prompts against .ai/prompt-template.md. A dangling reference or historical evidence without reconfirmation fails the static lint; references point at real repo files.",
+  "cases": [
+    {"name": "valid_fresh_prompt", "expect": "OK", "prompt": "- **ID:** DX-HARNESS-001\n- **Base/SHA:** develop @ e923d617\n- **Objective:** add a benign tier-A fixture.\n- **Issue/ADR:** ADR-0040\n- **Authorized artefacts:** scripts/execution_tier_fixtures/, scripts/prompt_lint_gate.py\n- **Dependencies:** none\n- **Lab profile:** rootless (Tier B)\n- **Tests:** scripts/test_execution_tier_gate.py\n- **Evidence validity:** fresh\n- **Expected output:** diff + rc=0\n"},
+
+    {"name": "dangling_adr_fails", "expect": "FAIL", "prompt": "- **ID:** DX-X-002\n- **Base/SHA:** develop @ e923d617\n- **Objective:** x.\n- **Issue/ADR:** ADR-9999\n- **Authorized artefacts:** scripts/prompt_lint_gate.py\n- **Dependencies:** none\n- **Lab profile:** rootless (Tier B)\n- **Tests:** scripts/test_prompt_lint_gate.py\n- **Evidence validity:** fresh\n- **Expected output:** diff\n"},
+
+    {"name": "missing_artefact_file_fails", "expect": "FAIL", "prompt": "- **ID:** DX-X-003\n- **Base/SHA:** develop\n- **Objective:** x.\n- **Issue/ADR:** none\n- **Authorized artefacts:** scripts/this_does_not_exist.py\n- **Dependencies:** none\n- **Lab profile:** rootless (Tier B)\n- **Tests:** scripts/test_prompt_lint_gate.py\n- **Evidence validity:** fresh\n- **Expected output:** diff\n"},
+
+    {"name": "missing_required_field_fails", "expect": "FAIL", "prompt": "- **ID:** DX-X-004\n- **Base/SHA:** develop\n- **Objective:** x.\n- **Authorized artefacts:** scripts/prompt_lint_gate.py\n- **Dependencies:** none\n- **Lab profile:** rootless (Tier B)\n- **Evidence validity:** fresh\n- **Expected output:** diff\n"},
+
+    {"name": "historical_without_reconfirm_fails", "expect": "FAIL", "prompt": "- **ID:** DX-X-005\n- **Base/SHA:** develop @ e923d617\n- **Objective:** act on an old finding.\n- **Issue/ADR:** none\n- **Authorized artefacts:** scripts/prompt_lint_gate.py\n- **Dependencies:** none\n- **Lab profile:** rootless (Tier B)\n- **Tests:** scripts/test_prompt_lint_gate.py\n- **Evidence validity:** historical (2026-10-24)\n- **Expected output:** diff\n"},
+
+    {"name": "historical_with_reconfirm_ok", "expect": "OK", "prompt": "- **ID:** DX-X-006\n- **Base/SHA:** develop @ e923d617\n- **Objective:** act on an old finding, re-checked.\n- **Issue/ADR:** none\n- **Authorized artefacts:** scripts/prompt_lint_gate.py\n- **Dependencies:** none\n- **Lab profile:** rootless (Tier B)\n- **Tests:** scripts/test_prompt_lint_gate.py\n- **Evidence validity:** historical (2026-10-24); reconfirm against code and a fresh run before any change\n- **Expected output:** diff\n"}
+  ]
+}
