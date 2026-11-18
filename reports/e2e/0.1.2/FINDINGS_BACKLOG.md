@@ -7,9 +7,20 @@ consistência, 1 achado de robustez do arnês, e dívida de staleness da bateria
 
 ---
 
-## GAP-0028 — regra de conflito de nome cross-namespace não se aplica a VMs
+## GAP-0028 — VM com o mesmo nome noutra namespace: coexiste (não conflito)
 
-- **Comportamento actual:** `stack apply` de uma `VirtualMachine` com o mesmo
+> **RESOLVIDO 2026-11-18 (`119221e7`) — reclassificado como staleness da bateria.**
+> Investigação a fundo: o motor indexa o registo de VM por namespace
+> (`vms_root` → `vms/<ns>/<nome>.json`, port do catálogo ADR-0086) e expõe `vm
+> move-namespace` (#982/#999) — **VMs são objectos namespaced por desenho actual**.
+> Provado ao vivo: `apply` em teamA e teamB ambos `ensured`, registos distintos
+> `vms/teamA/nsvm.json` + `vms/teamB/nsvm.json`, cada ns vê a sua. O conflito(5)
+> era a regra ANTIGA (ADR-0069, registo node-único `vms/<nome>.json`), superseded
+> quando as VMs passaram a namespaced; o teste e2e é que ficou para trás. Fix: a
+> secção passa a asserir a coexistência namespaced (não conflito). **Pendente ao
+> dono:** reconciliar a cláusula de VM do ADR-0069 (drift de doc).
+
+- **Comportamento (OBSOLETO — registo histórico do achado):** `stack apply` de uma `VirtualMachine` com o mesmo
   nome noutra namespace **é aceite** (`rc=0`, `vm/<nome>: ensured`), em vez de
   recusado como conflito.
 - **Esperado:** paridade com o fix #824 (`3de5db5c`, "nome de container repetido
@@ -30,6 +41,12 @@ consistência, 1 achado de robustez do arnês, e dívida de staleness da bateria
 ---
 
 ## H-1 (achado de arnês) — `e2e.sh`/VM sensível ao comprimento de `DELONIX_ROOT`
+
+> **RESOLVIDO 2026-11-18 (`119221e7`).** `ch_usable()` passa a exigir `ch_sockfits`
+> (orçamento `len(DELONIX_ROOT)+50 <= 107`); quando o root é fundo demais, as 11
+> secções CH viram **SKIP** com razão em `ch_missing` em vez de 6+ FAIL espúrios.
+> Provado: root curto (21B) corre, root longo (121B) SKIP. O binário já guardava
+> (`SUN_PATH_MAX=107`); isto fecha só a armadilha de medição no arnês.
 
 - **Observado:** com `DELONIX_ROOT` longo (caminho-scratch da sessão), **toda** a
   secção de cloud-hypervisor da bateria falha com `error[DX-1506] … socket path …
