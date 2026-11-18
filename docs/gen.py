@@ -4647,6 +4647,32 @@ container.</p>
 <tr><td>VMs</td><td>—</td><td>machine (para si próprio)</td><td>microVMs declarativas de 1.ª classe (Cloud Hypervisor/libvirt)</td></tr>
 <tr><td>Kubernetes</td><td>—</td><td>—</td><td>CRI próprio + bootstrap kubeadm do zero (<code>delonix cluster</code>)</td></tr>
 </table>
+<p class="intro">A tabela completa, cada linha <strong>executada</strong> nos três motores na
+mesma máquina (incluindo onde o Delonix é <em>pior</em>), está em
+<a href="comparacao.html">Delonix vs Docker vs Podman</a>.</p>
+
+<h2>Prontidão para produção — onde serve, e onde ainda não</h2>
+<p>Veredicto honesto de uma revisão GO/NO-GO medida: <strong>GO single-node, sem failover</strong>
+(dev, CI, edge, nó Kubernetes sem Docker — onde o modelo daemonless/rootless e o CRI integrado
+já são vantagem hoje); <strong>NO-GO como substituto directo do Docker/Podman em produção de
+alta criticidade</strong> — não por um benchmark, mas porque as garantias operacionais abaixo
+ainda não estão provadas. É linha <code>0.1.x</code>; cada lacuna tem caminho de saída:</p>
+<table>
+<tr><th>Lacuna (hoje)</th><th>Como resolvemos</th><th>Estado</th></tr>
+<tr><td><b>Upgrade/rollback não testado</b> — sem hot-patch provado do supervisor de um container vivo.</td><td>Hand-off versionado + suite de upgrade/rollback na CI (<code>G3</code>) que reinicia o engine sob workloads e verifica PIDs/exit codes.</td><td>planeado</td></tr>
+<tr><td><b>Sem HA/failover multi-nó provado</b> — VM HA precisa de componente externo; migração a frio é NO-GO.</td><td>Provar failover multi-nó com SLO, ou excluir failover por ADR (<code>G4</code>). Single-node fica totalmente suportado.</td><td>planeado</td></tr>
+<tr><td><b>Sem garantia de segurança externa</b> — auditorias só internas; cadeia jovem (1 mantenedor, sem SLA).</td><td>Pentest externo, releases SHA-pinned, feed de CVE e caminho rootful/SELinux assinado (<code>G1</code>). O portão de release (<code>G2</code>) já está em vigor desde a v0.1.1.</td><td>em curso</td></tr>
+<tr><td><b>Escala/densidade não medida</b> — comportamento com centenas de containers não caracterizado.</td><td><code>scripts/bench_density.sh</code> existe; publicar números de densidade com SLOs (<code>G5</code>), como a bancada de latência.</td><td>arnês pronto</td></tr>
+<tr><td><b>Rede segura é o caminho lento</b> — com rede isolada por container o plano a frio custa ~344 ms (vs 91 ms no default <code>host</code>).</td><td>Manter o plano quente (pool do holder/IPAM) para um nó ocioso não pagar bring-up a cada run. 1.º item da lista de optimização.</td><td>planeado</td></tr>
+<tr><td><b>Sem TTY forçado</b> — <code>-t</code> é recusado quando o chamador não tem terminal (CI, pipe, cron).</td><td>Ligar a maquinaria de pty do modo consola ao <code>run</code> — o engine já a tem; é canalização.</td><td>planeado</td></tr>
+<tr><td><b><code>vm create</code> não dimensiona o disco</b> — sem <code>--disk-size</code>; o overlay herda o tamanho da golden.</td><td>Adicionar <code>--disk-size</code> (<code>qemu-img resize</code> + <code>growpart</code> do cloud-init). Sem nova fronteira de privilégio.</td><td>planeado</td></tr>
+<tr><td><b>Sem ambiente de validação automática limpo</b> — runners GitHub sem <code>userns</code> (chaos salta); lab self-hosted com 0 runners.</td><td>Registar um runner self-hosted com <code>userns</code> provisionado pelo <code>install.sh</code> para e2e/chaos validarem a cada release.</td><td>planeado</td></tr>
+<tr><td><b>Ecossistema e alcance de registos</b> — linha jovem, sem o catálogo/integrações do Docker/Podman.</td><td>Tempo + a camada de compatibilidade Docker Engine API (já parcial) para o tooling existente apontar ao Delonix sem mudar.</td><td>contínuo</td></tr>
+</table>
+<p class="intro">Nada disto está escondido atrás dos números de latência: a bancada medida mostra
+onde o Delonix é mais lento, e esta tabela mostra onde ainda não está pronto para produção. O
+pitch é o caminho integrado, daemonless e rootless, do container ao nó Kubernetes com isolamento
+de VM — não «pronto a substituir o Docker num banco amanhã».</p>
 """
 
 INDEX_EN = """
@@ -4766,6 +4792,33 @@ lets you <em>swap ports and volumes on the fly</em>, with no container restart.<
 <tr><td>VMs</td><td>—</td><td>machine (for itself)</td><td>first-class declarative microVMs (Cloud Hypervisor/libvirt)</td></tr>
 <tr><td>Kubernetes</td><td>—</td><td>—</td><td>own CRI + kubeadm bootstrap from scratch (<code>delonix cluster</code>)</td></tr>
 </table>
+<p class="intro">The full table, every row <strong>executed</strong> on the three engines on the
+same machine (including where Delonix is <em>worse</em>), is in
+<a href="comparacao.html">Delonix vs Docker vs Podman</a>.</p>
+
+<h2>Production readiness — where it fits, and where it does not yet</h2>
+<p>The honest verdict from a measured GO/NO-GO review: <strong>GO single-node, without
+failover</strong> (development, CI, edge, a Kubernetes node without Docker — where the
+daemonless/rootless model and the integrated CRI are a real advantage today);
+<strong>NO-GO as a drop-in Docker/Podman replacement for high-criticality production</strong>
+— not because of a benchmark, but because the operational guarantees below are not proven
+yet. This is a <code>0.1.x</code> line; every gap has a way out:</p>
+<table>
+<tr><th>Gap (today)</th><th>How we solve it</th><th>Status</th></tr>
+<tr><td><b>Upgrade/rollback not tested</b> — no proven hot-patch of a live container's supervisor.</td><td>Versioned supervisor hand-off + an upgrade/rollback suite in CI (<code>G3</code>) that restarts the engine under running workloads and asserts PIDs/exit codes survive.</td><td>planned</td></tr>
+<tr><td><b>No HA/multi-node failover proven</b> — VM HA needs an external component; cold migration is NO-GO.</td><td>Prove multi-node failover with an SLO, or scope failover out by ADR (<code>G4</code>). Single-node stays fully supported.</td><td>planned</td></tr>
+<tr><td><b>No external security guarantee</b> — audits so far internal; a young chain (1 maintainer, no SLA).</td><td>External pentest, SHA-pinned releases, a CVE feed, the rootful/SELinux path signed off (<code>G1</code>). The release gate (<code>G2</code>) is in place as of v0.1.1.</td><td>in progress</td></tr>
+<tr><td><b>Scale/density not measured</b> — behaviour under hundreds of packed containers not characterised.</td><td><code>scripts/bench_density.sh</code> exists; publish density numbers with SLOs (<code>G5</code>) the way the latency bench is published.</td><td>harness ready</td></tr>
+<tr><td><b>Secure networking is the slow path</b> — with isolated per-container networking the cold plane costs ~344 ms (vs 91 ms on the <code>host</code> default).</td><td>Keep the plane warm (pool the holder/IPAM) so an idle node does not pay bring-up on every run. First item on the optimisation list.</td><td>planned</td></tr>
+<tr><td><b>No forced TTY</b> — <code>-t</code> is refused when the caller has no terminal (CI, a pipe, cron).</td><td>Wire the existing console-mode pty machinery into <code>run</code> — the engine already has it; it is plumbing.</td><td>planned</td></tr>
+<tr><td><b><code>vm create</code> cannot size the disk</b> — no <code>--disk-size</code>; the overlay inherits the golden's size.</td><td>Add <code>--disk-size</code> (<code>qemu-img resize</code> + cloud-init <code>growpart</code>). No new privilege boundary.</td><td>planned</td></tr>
+<tr><td><b>No clean automated validation environment</b> — GitHub runners lack <code>userns</code> (chaos skips); self-hosted lab has 0 runners.</td><td>Register a <code>userns</code>-capable self-hosted runner provisioned by <code>install.sh</code> so e2e/chaos validate on every release.</td><td>planned</td></tr>
+<tr><td><b>Ecosystem and registry reach</b> — a young line without Docker's or Podman's catalogue/integrations.</td><td>Time plus the Docker Engine API compatibility layer (already partial) so existing tooling points at Delonix unchanged.</td><td>ongoing</td></tr>
+</table>
+<p class="intro">None of this is hidden behind the latency numbers: the measured bench shows where
+Delonix is slower, and this table shows where it is not production-ready yet. The pitch is the
+integrated, daemonless, rootless path from a container to a Kubernetes node with VM-grade
+isolation — not "ready to replace Docker in a bank tomorrow".</p>
 """
 
 ARCH = """
