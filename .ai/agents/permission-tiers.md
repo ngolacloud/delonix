@@ -61,3 +61,46 @@ classify them by the evidence below, defaulting to the higher tier when unsure.
 Each spec in `.ai/agents/` names its **maximum tier** in the body. An agent may
 operate at its tier and below. Crossing above its tier is a stop-and-ask, not a
 judgement call.
+
+## Tier by real capability, not by prefix
+
+A command's tier is its **effect**, not the word it starts with. `git log` is
+Read but `git push` is a remote effect; `cargo tree` is Read but `cargo build`
+is SafeWrite; a `bash -c "…"`, an `xargs …`, a `find … -exec` or an `env VAR=x …`
+is judged by the command it actually runs, not by the wrapper. Operations that
+touch **KVM/Cloud-Hypervisor, a device, a mount/namespace, netfilter, or a
+provider credential** are Privileged by their effect even when the verb looks
+benign, and an **unknown** verb is Privileged — never Read (fail closed, mirroring
+`risk_of`). Anything above SafeWrite is a stop-and-ask, never an automatic run
+(mirroring `requires_confirm`).
+
+This is made checkable: `scripts/execution_tier_gate.py` classifies a command
+string against a tier and returns ALLOW/REFUSE, decomposing the wrappers above
+and failing closed. It is pure logic — it never executes the command — with
+benign fixtures in `scripts/execution_tier_fixtures/` and
+`scripts/test_execution_tier_gate.py`.
+
+## Read profiles use dedicated tools, not a generic shell
+
+A Tier-A read profile (auditor, security-reviewer) does its file search and
+reading through the **dedicated tools** the client provides (Read / Grep / Glob),
+not a generic shell. `Bash` stays only for what has no dedicated tool —
+`git log/show/diff/status`, `cargo tree`, reading `--help` from an already-built
+binary — and it never runs a mutating or privileged verb. A read profile that
+reaches for `bash -c`/`xargs`/`find -exec` to do what Grep/Glob/Read already do
+is working below its own contract.
+
+## What the executor imposes, and what is only declared (BLOCKED)
+
+This harness **classifies and advises**; it is not, by itself, the hard boundary.
+The load-bearing limits — an **unprivileged user**, a **per-task workspace and
+network**, **no access to provider credentials**, **no elevation**, and **no
+indirect effect via a subprocess** — are imposed by the *executor* that runs the
+agent: the client's permission mode, its hooks, and the sandbox / cgroup /
+namespace confinement around it. **This repository does not control that
+executor.** Where the executor cannot impose a limit, the control downgrades to
+stop-and-ask, and `execution_tier_gate.py` is the verifiable check that makes the
+intended decision explicit and testable. Treat a REFUSE from the gate as «the
+tier says no»; it is the executor that guarantees it. Record this gap as
+**BLOCKED** wherever a profile's safety depends on a limit the executor does not
+enforce — do not report it as imposed.

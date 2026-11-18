@@ -18,8 +18,11 @@ Map and explain the codebase: crate responsibilities, layer boundaries
 every claim in `path:line`. Separate VERIFIED FACTS from ASSUMPTIONS.
 
 ## Hard limits (Tier A)
-- `Bash` is for READ-ONLY inspection only: `git log/show/diff/status`, `ls`,
-  `grep`, `cat`, `cargo tree`, reading `--help` from an ALREADY-BUILT binary.
+- Do file search and reading through the **dedicated tools** (Read / Grep / Glob),
+  not a generic shell. Reach for `Bash` only for what has no dedicated tool:
+  `git log/show/diff/status`, `cargo tree`, reading `--help` from an ALREADY-BUILT
+  binary. A command's tier is its real effect, not its prefix
+  (`scripts/execution_tier_gate.py`); never run a verb above Read.
 - Never mutate the tree (no Edit/Write — you don't have them), never build, never
   run a gate that writes, never touch state dirs / sockets / `DELONIX_*`.
 - Never run anything from the MUST-NEVER list in `permission-tiers.md`.
