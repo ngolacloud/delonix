@@ -400,7 +400,16 @@ impl ImageStore {
             self.save(&img)?;
             Ok(format!("untagged: {want}"))
         } else {
-            fs::remove_file(self.record_path(&img.id))?;
+            // A concurrent RemoveImage may have deleted this record between our
+            // `resolve` above and here: ENOENT then means the image is already
+            // gone, which is exactly the idempotent outcome the CRI contract
+            // wants — not a raw I/O failure to surface as `Internal` (CRI-F1,
+            // critest «simultaneous RemoveImage calls»).
+            match fs::remove_file(self.record_path(&img.id)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
             Ok(format!("deleted: {id}"))
         }
     }
@@ -485,6 +494,35 @@ mod tests {
         );
         assert_eq!(s.remove("alpine:3.19").unwrap(), "deleted: 01");
         assert!(s.resolve("alpine:3.19").is_err(), "and the record is gone");
+    }
+
+    /// CRI-F1 (critest «should not fail on simultaneous RemoveImage calls»): two
+    /// `remove` racing on the same single-named image. Both may pass `resolve`
+    /// and reach `remove_file`; the loser hits ENOENT on the record. That is the
+    /// idempotent outcome the CRI contract wants — NEVER a raw I/O error. Before
+    /// the fix the loser surfaced `No such file or directory`, which the CRI
+    /// layer turned into `Internal`.
+    #[test]
+    fn concurrent_remove_never_surfaces_a_raw_io_enoent() {
+        for _ in 0..64 {
+            let dir = tempfile::tempdir().unwrap();
+            let s = ImageStore::open(dir.path()).unwrap();
+            s.save(&image("sha256:dup", &["dup:latest"], 1)).unwrap();
+            let p = dir.path().to_path_buf();
+            let other = std::thread::spawn(move || ImageStore::open(&p).unwrap().remove("dup:latest"));
+            let a = s.remove("dup:latest");
+            let b = other.join().unwrap();
+            for r in [a, b] {
+                if let Err(e) = r {
+                    let m = e.to_string();
+                    assert!(
+                        !m.contains("No such file or directory"),
+                        "RemoveImage leaked a raw I/O ENOENT instead of idempotent success: {m}"
+                    );
+                }
+            }
+            assert!(s.resolve("dup:latest").is_err(), "the image is gone after the race");
+        }
     }
 
     /// A warm pull records the same image again with a new `created_unix`.
