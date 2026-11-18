@@ -1764,6 +1764,15 @@ fn try_clone_cached(images: &ImageStore, hash: &str) -> Result<Option<(String, S
     if !cached.exists() {
         return Ok(None);
     }
+    // Reject an entry whose completion marker is gone: a `rm -rf` interrupted on
+    // subuid files can leave `rootfs/` present but INCOMPLETE, and cloning it
+    // produces a wrong image (#815). The marker is written last, before the
+    // atomic rename, so its absence means the entry is not trustworthy — discard
+    // it and rebuild the step.
+    if !entry.join("committed").exists() {
+        runtime::remove_tree_mapped(&entry);
+        return Ok(None);
+    }
     // Stamp the hit. Without it the cache has no notion of USE at all — only of
     // creation — and anything that later expires entries would be choosing by
     // age rather than by whether anyone still wants them, throwing out the hot
@@ -1814,6 +1823,12 @@ fn save_to_cache(hash: &str, rootfs: &str) {
         return;
     }
     if copy_tree(Path::new(rootfs), &tmp_rootfs) {
+        // Completion marker, sibling of `rootfs/` (NOT inside it — `clone_rootfs`
+        // would copy it into somebody's image). Written before the atomic rename
+        // so an entry is only ever trusted when its rootfs was copied in full;
+        // `try_clone_cached` rejects an entry that lost this marker to a partial
+        // external delete (#815).
+        let _ = std::fs::write(tmp_dir.join("committed"), b"1");
         let _ = std::fs::rename(&tmp_dir, &final_dir);
     } else if std::fs::remove_dir_all(&tmp_dir).is_err() {
         // A half-written copy can hold files of mapped users.
