@@ -30,7 +30,7 @@ ARG VERSION=dev
 ENV SERVICE_VERSION=${VERSION}
 EXPOSE __PORT__
 # The runtime probes liveness; readiness is for the load balancer.
-HEALTHCHECK CMD node -e "fetch('http://127.0.0.1:__PORT__/api/v1/health/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD node -e "fetch('http://127.0.0.1:__PORT__/api/v1/health/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 STOPSIGNAL SIGTERM
 # node:24-slim ships this unprivileged user (uid 1000); it owns nothing in the
 # image and writes only to the manifest's tmpfs.

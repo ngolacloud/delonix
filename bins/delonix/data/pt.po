@@ -3239,6 +3239,18 @@ msgstr "  criado: {path}"
 msgid "`delonix {args}` failed:\n{stderr}"
 msgstr "`delonix {args}` falhou:\n{stderr}"
 
+msgid "generated {lock}"
+msgstr "gerado {lock}"
+
+msgid "{bin} is not on PATH — skipping {lock}; run `{cmd}` in the project and commit {lock} for reproducible builds"
+msgstr "{bin} não está no PATH — a saltar {lock}; corre `{cmd}` no projecto e faz commit de {lock} para builds reprodutíveis"
+
+msgid "could not generate {lock} (`{cmd}` failed) — run it in the project and commit {lock} for reproducible builds:\n{stderr}"
+msgstr "não foi possível gerar {lock} (`{cmd}` falhou) — corre-o no projecto e faz commit de {lock} para builds reprodutíveis:\n{stderr}"
+
+msgid "could not run `{cmd}` to generate {lock} ({err}) — run it by hand and commit {lock}"
+msgstr "não foi possível correr `{cmd}` para gerar {lock} ({err}) — corre-o à mão e faz commit de {lock}"
+
 msgid "the container started but did not become healthy in {secs}s — see `delonix container logs`"
 msgstr "o container arrancou mas não ficou saudável em {secs}s — vê `delonix container logs`"
 

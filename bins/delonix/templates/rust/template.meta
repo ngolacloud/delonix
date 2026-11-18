@@ -2,4 +2,5 @@ port=8000
 health=/api/v1/health/live
 version=1.90
 versions=1.89,1.90
+lock=Cargo.lock
 vm_support=yes

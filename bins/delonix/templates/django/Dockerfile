@@ -27,7 +27,7 @@ RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app 
     && mkdir /data && chown app:app /data && chmod +x /app/docker/entrypoint.sh
 EXPOSE __PORT__
 # The runtime probes liveness; readiness is for the load balancer.
-HEALTHCHECK CMD /app/.venv/bin/python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:__PORT__/api/v1/health/live', timeout=2)" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 CMD /app/.venv/bin/python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:__PORT__/api/v1/health/live', timeout=2)" || exit 1
 STOPSIGNAL SIGTERM
 USER app
 # The entrypoint applies the migrations first when MIGRATE_ON_START=true,
