@@ -4,6 +4,12 @@ Motor de **containers e microVMs daemonless, rootless-first, kernel-native, em R
 Repositório **público** (`ngolacloud/delonix`, Apache-2.0) — ver
 [README.md](README.md) para a arquitectura dos 39 crates.
 
+> **Primeiro contacto:** uma sessão lê [`.ai/INVARIANTS.md`](.ai/INVARIANTS.md) —
+> as invariantes mínimas antes de editar, com ponteiros. **Este ficheiro é o
+> arquivo** (~124 secções, o porquê histórico): consulta-se por secção pelo índice
+> abaixo, não se lê de uma ponta à outra. O orçamento é um portão
+> (`scripts/agents_budget_gate.py`).
+
 <!-- agents-toc:begin -->
 
 ## Índice (124 secções)
