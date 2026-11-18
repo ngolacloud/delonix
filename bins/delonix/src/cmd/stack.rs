@@ -4370,6 +4370,26 @@ fn validate_graph_full(
                         }
                     }
                 }
+                // `credentials.password.secret` must resolve to a Secret too
+                // (#823). `CredentialsSpec::validate` only checks the name's
+                // FORMAT — existence is "a question for the moment it is read" —
+                // so a dangling name passed `validate` and `apply` with rc 0 and
+                // only surfaced at `container ls --credentials --reveal`. Gate it
+                // in the graph, exactly like `secret: []` above.
+                if let Some(sref) = doc
+                    .spec
+                    .get("credentials")
+                    .and_then(|v| v.get("password"))
+                    .and_then(|v| v.get("secret"))
+                    .and_then(|v| v.as_str())
+                {
+                    if !secrets.contains(sref) {
+                        issues.push(super::po::tf(
+                            "{kind} '{name}' → credentials.password.secret '{sref}' is not a declared or existing Secret",
+                            &[("kind", &doc.kind), ("name", name), ("sref", sref)],
+                        ));
+                    }
+                }
             }
             k::POD => {
                 // A Pod names the network its shared netns attaches to, and
