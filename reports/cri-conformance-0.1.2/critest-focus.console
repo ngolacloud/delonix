@@ -1,0 +1,124 @@
+==> cgroup2 subtree_control: cpuset cpu io memory hugetlb pids
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> arrancar delonix-cri (socket=/run/delonix-cri.sock, CAP_CEILING=all, CNI=1, SECCOMP_NIL=unconfined)
+==> smoke: crictl version
+time="2026-11-18T21:17:13Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.2
+RuntimeApiVersion:  v1
+==> critest (timeout ginkgo=10m) FOCUS='simultaneous RemoveImage|dropping ALL capabilities|execSync' SKIP=''
++ tee /tmp/critest-focus.out
++ critest -runtime-endpoint unix:///run/delonix-cri.sock -image-endpoint unix:///run/delonix-cri.sock -ginkgo.timeout=10m -ginkgo.no-color '-ginkgo.focus=simultaneous RemoveImage|dropping ALL capabilities|execSync'
+time="2026-11-18T21:17:13Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1795036633
+
+Will run 4 of 122 specs
+SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS••SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSE1118 21:17:16.536316   10739 remote_image.go:284] "RemoveImage from image service failed" err="rpc error: code = Internal desc = I/O error: No such file or directory (os error 2)" image="sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49"
+E1118 21:17:16.536423   10739 remote_image.go:284] "RemoveImage from image service failed" err="rpc error: code = Internal desc = I/O error: No such file or directory (os error 2)" image="sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49"
+
+------------------------------
+• [FAILED] [1.856 seconds]
+[k8s.io] Image Consistency [It] should not fail on simultaneous RemoveImage calls [Conformance] [Serial]
+/home/runner/work/cri-tools/cri-tools/pkg/validate/image_consistency.go:128
+
+  Timeline >>
+  STEP: Remove image : gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/18/26 21:17:14.682
+  STEP: Pulling an image to be removed @ 11/18/26 21:17:14.682
+  STEP: Pull image : gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/18/26 21:17:14.682
+  STEP: Get image status for image: gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/18/26 21:17:16.535
+  STEP: Concurrently removing the same image @ 11/18/26 21:17:16.535
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:17:16.536
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:17:16.536
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:17:16.536
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:17:16.536
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:17:16.536
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/image_consistency.go:171 @ 11/18/26 21:17:16.537
+  << Timeline
+
+  [FAILED] Concurrent RemoveImage calls should not return an error
+  Unexpected error:
+      <*status.Error | 0x3d0b8b602020>: 
+      rpc error: code = Internal desc = I/O error: No such file or directory (os error 2)
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 13,
+                  Message: "I/O error: No such file or directory (os error 2)",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/image_consistency.go:171 @ 11/18/26 21:17:16.537
+------------------------------
+SSSSSSSSSSSSSSSSSSS
+------------------------------
+• [FAILED] [0.328 seconds]
+[k8s.io] Security Context bucket [It] runtime should support dropping ALL capabilities
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:574
+
+  Timeline >>
+  STEP: create pod @ 11/18/26 21:17:16.538
+  STEP: create container with security context Capability and test @ 11/18/26 21:17:16.582
+  STEP: create Capability container @ 11/18/26 21:17:16.582
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/18/26 21:17:16.582
+  STEP: Create container. @ 11/18/26 21:17:16.582
+  Nov 18 21:17:16.583: INFO: Created container "077b0102b422b552"
+
+  STEP: Start container for containerID: 077b0102b422b552 @ 11/18/26 21:17:16.583
+  Nov 18 21:17:16.621: INFO: Started container "077b0102b422b552"
+
+  STEP: Get container status for containerID: 077b0102b422b552 @ 11/18/26 21:17:16.621
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:593 @ 11/18/26 21:17:16.637
+  STEP: stop PodSandbox @ 11/18/26 21:17:16.637
+  STEP: delete PodSandbox @ 11/18/26 21:17:16.752
+  << Timeline
+
+  [FAILED] Expected
+      <string>: delonix: exec setgroups([]) failed
+      
+  to be empty
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:593 @ 11/18/26 21:17:16.637
+------------------------------
+SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+
+Summarizing 2 Failures:
+  [FAIL] [k8s.io] Image Consistency [It] should not fail on simultaneous RemoveImage calls [Conformance] [Serial]
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/image_consistency.go:171
+  [FAIL] [k8s.io] Security Context bucket [It] runtime should support dropping ALL capabilities
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:593
+
+Ran 4 of 122 Specs in 3.851 seconds
+FAIL! -- 2 Passed | 2 Failed | 0 Pending | 118 Skipped
+--- FAIL: TestCRISuite (3.86s)
+FAIL
++ rc=1
++ set +x
+==> critest rc=1 (log=/tmp/critest-focus.out; server=/tmp/critest-focus.out.server)
+=== server log tail ===
+2026-11-18T21:17:12.696904Z  INFO delonix_cri: delonix-cri starting addr=unix:///run/delonix-cri.sock root=/var/lib/delonix
+delonix-cri (CRI v1) listening on unix:///run/delonix-cri.sock
+delonix-cri: streaming (exec/attach) at http://127.0.0.1:34161
+delonix-cri: WARNING: no capability ceiling (DELONIX_CRI_CAP_CEILING=all) — a privileged pod gets all capabilities; unset it, or set 'default' or a list of names, to bound it
+2026-11-18T21:17:12.697205Z  WARN delonix_cri: delonix-cri: WARNING: no capability ceiling (DELONIX_CRI_CAP_CEILING=all) — a privileged pod gets all capabilities; unset it, or set 'default' or a list of names, to bound it
+2026-11-18T21:17:13.141742Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=572de60d40f7aa8d
+2026-11-18T21:17:13.256555Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=572de60d40f7aa8d
+2026-11-18T21:17:14.476281Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=9cb5ffed4e475a49
+2026-11-18T21:17:14.587189Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=9cb5ffed4e475a49
+2026-11-18T21:17:14.682660Z  INFO delonix_oci::registry: pulling k8s-staging-cri-tools/test-image-tag:test from gcr.io repo=k8s-staging-cri-tools/test-image-tag reference=test host=gcr.io
+2026-11-18T21:17:16.030163Z  INFO delonix_oci::registry: platform selected: linux/amd64 arch=amd64 variant=None
+2026-11-18T21:17:16.638058Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=2166817c67fb24ae
+2026-11-18T21:17:16.752510Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=2166817c67fb24ae
