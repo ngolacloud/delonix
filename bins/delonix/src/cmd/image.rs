@@ -1854,9 +1854,13 @@ fn build_runtime_spec(
         );
         // SAFETY: geteuid/getegid have no preconditions and cannot fail.
         let (euid, egid) = unsafe { (libc::geteuid(), libc::getegid()) };
-        let base = delonix_linux::USERNS_UID_BASE;
+        // The REAL subid bases for this user (from /etc/subuid|subgid), mirroring
+        // `write_userns_maps` — not a fixed 100000, which only matched the first
+        // account and left every other tenant's bundle unmappable. UID/GID may
+        // differ.
+        let (ubase, gbase) = delonix_linux::rootless_subid_bases();
         let sub_range = delonix_linux::USERNS_RANGE - 1; // container 1..RANGE
-        let id_maps = |root_host: u32| -> Result<Vec<_>> {
+        let id_maps = |root_host: u32, base: u32| -> Result<Vec<_>> {
             Ok(vec![
                 LinuxIdMappingBuilder::default()
                     .container_id(0u32)
@@ -1873,8 +1877,8 @@ fn build_runtime_spec(
             ])
         };
         linux_builder = linux_builder
-            .uid_mappings(id_maps(euid)?)
-            .gid_mappings(id_maps(egid)?);
+            .uid_mappings(id_maps(euid, ubase)?)
+            .gid_mappings(id_maps(egid, gbase)?);
     }
     let linux = linux_builder
         .namespaces(namespaces)
@@ -1962,8 +1966,8 @@ mod tests {
         assert!(
             umaps
                 .iter()
-                .any(|m| m.container_id() == 1 && m.host_id() == delonix_linux::USERNS_UID_BASE),
-            "container uid 1.. mapeia para os subuids delegados"
+                .any(|m| m.container_id() == 1 && m.host_id() == delonix_linux::rootless_subid_bases().0),
+            "container uid 1.. mapeia para os subuids delegados (base real do utilizador)"
         );
         assert!(
             rlinux.gid_mappings().is_some(),

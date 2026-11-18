@@ -3098,19 +3098,29 @@ pub const USERNS_UID_BASE: u32 = 100_000;
 pub const USERNS_RANGE: u32 = 65_536;
 
 /// The id a container sees for an id the HOST sees, under the rootless map this
-/// engine writes (`0 <own> 1`, then `1 USERNS_UID_BASE USERNS_RANGE-1`): the
-/// invoking id is 0, a subid is its offset into the range, plus one. PURE.
+/// engine writes (`0 <own> 1`, then `1 <base> USERNS_RANGE-1`): the invoking id
+/// is 0, a subid is its offset into the range (from `base`), plus one. PURE.
 ///
 /// An id outside both stays as it is: the container cannot see it as anything
 /// (it reads as `nobody`), and inventing a number would be a guess.
-pub fn container_id_of(host: u32, own: u32) -> u32 {
+///
+/// `base` is this user's delegated subid START — the real one from
+/// `/etc/subuid`/`/etc/subgid` (see [`rootless_subid_bases`]), NOT a fixed
+/// constant: it is `USERNS_UID_BASE` only for whoever owns the first allocated
+/// range.
+pub fn container_id_of_with_base(host: u32, own: u32, base: u32) -> u32 {
     if host == own {
         0
-    } else if (USERNS_UID_BASE..USERNS_UID_BASE + USERNS_RANGE - 1).contains(&host) {
-        host - USERNS_UID_BASE + 1
+    } else if (base..base + USERNS_RANGE - 1).contains(&host) {
+        host - base + 1
     } else {
         host
     }
+}
+
+/// [`container_id_of_with_base`] using this user's real delegated UID base.
+pub fn container_id_of(host: u32, own: u32) -> u32 {
+    container_id_of_with_base(host, own, rootless_subid_bases().0)
 }
 
 /// [`container_id_of`] for a `(uid, gid)` pair as THIS process sees the host —
@@ -3122,7 +3132,13 @@ pub fn container_ids(uid: u32, gid: u32) -> (u32, u32) {
     }
     // SAFETY: geteuid/getegid have no preconditions.
     let (own_uid, own_gid) = unsafe { (libc::geteuid(), libc::getegid()) };
-    (container_id_of(uid, own_uid), container_id_of(gid, own_gid))
+    // UID and GID can have DIFFERENT subid starts (`/etc/subuid` vs
+    // `/etc/subgid`), so translate each with its own base.
+    let (ubase, gbase) = rootless_subid_bases();
+    (
+        container_id_of_with_base(uid, own_uid, ubase),
+        container_id_of_with_base(gid, own_gid, gbase),
+    )
 }
 
 /// Writes the uid/gid maps of a container with a user namespace (runs in the PARENT).
@@ -3157,8 +3173,14 @@ fn write_userns_maps(pid: i32, want_range: bool) -> Result<()> {
         // even though the target uid was well mapped and we had CAP_SETUID/SETGID.
         // docker/podman rootless also leave `allow` on this path.
         let range = USERNS_RANGE - 1; // 1..USERNS_RANGE delegated to the subuids
-        let map_uid = format!("0 {euid} 1 1 {USERNS_UID_BASE} {range}");
-        let map_gid = format!("0 {egid} 1 1 {USERNS_UID_BASE} {range}");
+        // The host base is this user's REAL subid start, read from
+        // `/etc/subuid`/`/etc/subgid` — not a fixed 100000. shadow-utils hands out
+        // ranges sequentially (user1=100000, user2=165536, …), so a hard-coded
+        // base made `newuidmap` refuse every tenant but the first, and no
+        // container with USER≠0 could start for them. UID and GID bases may differ.
+        let (ubase, gbase) = rootless_subid_bases();
+        let map_uid = format!("0 {euid} 1 1 {ubase} {range}");
+        let map_gid = format!("0 {egid} 1 1 {gbase} {range}");
         run_idmap("newuidmap", pid, &map_uid)?;
         run_idmap("newgidmap", pid, &map_gid)?;
         return Ok(());
@@ -3212,34 +3234,75 @@ pub fn can_map_id_range() -> bool {
     if !is_rootless() {
         return true;
     }
-    // SAFETY: geteuid has no preconditions.
-    let uid = unsafe { libc::geteuid() };
-    let name = std::env::var("USER").ok().or_else(|| {
+    // SAFETY: geteuid/getegid have no preconditions.
+    let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+    let name = user_name_of(uid);
+    let granted = |file: &str, id: u32| {
+        std::fs::read_to_string(file)
+            .map(|body| subid_file_grants(&body, id, name.as_deref()))
+            .unwrap_or(false)
+    };
+    have_subid_helpers() && granted("/etc/subuid", uid) && granted("/etc/subgid", gid)
+}
+
+/// The login name of `uid`, from `$USER` or `/etc/passwd` — for matching
+/// `/etc/subuid`/`/etc/subgid` entries keyed by name rather than number.
+fn user_name_of(uid: u32) -> Option<String> {
+    std::env::var("USER").ok().or_else(|| {
         let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
         passwd.lines().find_map(|l| {
             let mut f = l.split(':');
             let (name, _, id) = (f.next()?, f.next()?, f.next()?);
             (id.parse::<u32>().ok()? == uid).then(|| name.to_string())
         })
-    });
-    let granted = |file: &str| {
-        std::fs::read_to_string(file)
-            .map(|body| subid_file_grants(&body, uid, name.as_deref()))
-            .unwrap_or(false)
-    };
-    have_subid_helpers() && granted("/etc/subuid") && granted("/etc/subgid")
+    })
 }
 
-/// Does a `/etc/subuid`-format body grant `uid` (by number or by `name`) a range
-/// wide enough for the engine's map? PURE.
-fn subid_file_grants(body: &str, uid: u32, name: Option<&str>) -> bool {
-    body.lines().any(|line| {
+/// The `(start, count)` a `/etc/subuid`-format body delegates to `id` (matched by
+/// number or by `name`), if any. PURE.
+fn subid_range_for(body: &str, id: u32, name: Option<&str>) -> Option<(u32, u32)> {
+    body.lines().find_map(|line| {
         let mut f = line.trim().split(':');
-        let (Some(who), Some(_start), Some(count)) = (f.next(), f.next(), f.next()) else {
-            return false;
+        let (who, start, count) = (f.next()?, f.next()?, f.next()?);
+        let mine = who == id.to_string() || name.is_some_and(|n| n == who);
+        if !mine {
+            return None;
+        }
+        Some((start.parse().ok()?, count.parse().ok()?))
+    })
+}
+
+/// Does a `/etc/subuid`-format body grant `id` a range wide enough for the
+/// engine's map? PURE.
+fn subid_file_grants(body: &str, id: u32, name: Option<&str>) -> bool {
+    subid_range_for(body, id, name).is_some_and(|(_, count)| count >= USERNS_RANGE - 1)
+}
+
+/// The host base UID/GID the rootless map delegates container ids `1..` onto —
+/// the START of this user's range in `/etc/subuid` / `/etc/subgid`. shadow-utils
+/// allocates these SEQUENTIALLY (user1=100000, user2=165536, …), so a fixed
+/// [`USERNS_UID_BASE`] only ever matched the owner of the first range; every other
+/// tenant's `newuidmap` was refused and no container with USER≠0 started. UID and
+/// GID bases can differ. Falls back to [`USERNS_UID_BASE`] when a file has no
+/// entry or cannot be read (e.g. real root, which uses no subids). Cached: the
+/// files do not change under us during a run.
+pub fn rootless_subid_bases() -> (u32, u32) {
+    static BASES: std::sync::OnceLock<(u32, u32)> = std::sync::OnceLock::new();
+    *BASES.get_or_init(|| {
+        // SAFETY: geteuid/getegid have no preconditions.
+        let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+        let name = user_name_of(uid);
+        let base_of = |file: &str, id: u32| {
+            std::fs::read_to_string(file)
+                .ok()
+                .and_then(|body| subid_range_for(&body, id, name.as_deref()))
+                .map(|(start, _)| start)
+                .unwrap_or(USERNS_UID_BASE)
         };
-        let mine = who == uid.to_string() || name.is_some_and(|n| n == who);
-        mine && count.parse::<u32>().is_ok_and(|c| c >= USERNS_RANGE - 1)
+        (
+            base_of("/etc/subuid", uid),
+            base_of("/etc/subgid", gid),
+        )
     })
 }
 
@@ -13958,23 +14021,45 @@ mod tests {
     }
 
     /// Host ids as the container sees them: the invoking id is root, a subid is
-    /// its offset plus one, and anything else is left alone.
+    /// its offset plus one, and anything else is left alone. Pinned on the pure
+    /// `_with_base` so it does not depend on the test host's `/etc/subuid`.
     #[test]
     fn host_ids_map_back_to_the_containers() {
-        assert_eq!(container_id_of(1000, 1000), 0);
-        assert_eq!(container_id_of(USERNS_UID_BASE, 1000), 1);
-        assert_eq!(container_id_of(100_999, 1000), 1000);
-        assert_eq!(container_id_of(100_098, 1000), 99);
-        assert_eq!(
-            container_id_of(USERNS_UID_BASE + USERNS_RANGE - 2, 1000),
-            65_535
-        );
+        let b = USERNS_UID_BASE;
+        assert_eq!(container_id_of_with_base(1000, 1000, b), 0);
+        assert_eq!(container_id_of_with_base(b, 1000, b), 1);
+        assert_eq!(container_id_of_with_base(100_999, 1000, b), 1000);
+        assert_eq!(container_id_of_with_base(100_098, 1000, b), 99);
+        assert_eq!(container_id_of_with_base(b + USERNS_RANGE - 2, 1000, b), 65_535);
         // Past the range, and an unrelated host user: not ours to rename.
-        assert_eq!(
-            container_id_of(USERNS_UID_BASE + USERNS_RANGE - 1, 1000),
-            165_535
-        );
-        assert_eq!(container_id_of(33, 1000), 33);
+        assert_eq!(container_id_of_with_base(b + USERNS_RANGE - 1, 1000, b), 165_535);
+        assert_eq!(container_id_of_with_base(33, 1000, b), 33);
+    }
+
+    /// R1 regression: the mapping tracks the user's REAL subid base, not a fixed
+    /// 100000. A second tenant (base 165536) must map its first subid to container
+    /// uid 1 — the fixed base made `newuidmap` refuse this and no USER≠0 container
+    /// could start.
+    #[test]
+    fn host_ids_follow_a_non_default_subid_base() {
+        let b = 165_536; // the base shadow-utils gives the second account
+        assert_eq!(container_id_of_with_base(1000, 1000, b), 0);
+        assert_eq!(container_id_of_with_base(b, 1000, b), 1);
+        assert_eq!(container_id_of_with_base(b + 98, 1000, b), 99);
+        // The OLD fixed-base window (100000..) is now "not ours", left alone.
+        assert_eq!(container_id_of_with_base(USERNS_UID_BASE, 1000, b), USERNS_UID_BASE);
+    }
+
+    /// `subid_range_for` returns the real `(start, count)` the file delegates —
+    /// the START the fixed-base code used to drop on the floor.
+    #[test]
+    fn subid_range_reads_start_and_count() {
+        let body = "alice:100000:65536\nbob:165536:65536\n";
+        assert_eq!(subid_range_for(body, 0, Some("bob")), Some((165_536, 65_536)));
+        assert_eq!(subid_range_for(body, 0, Some("alice")), Some((100_000, 65_536)));
+        assert_eq!(subid_range_for(body, 0, Some("carol")), None);
+        // A grant is wide enough regardless of where it starts.
+        assert!(subid_file_grants(body, 0, Some("bob")));
     }
 
     /// A subordinate range counts only when it is this account's and wide
