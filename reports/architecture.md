@@ -9,12 +9,12 @@
 | --- | ---: | ---: | ---: |
 | foundation | 2 | 6,462 | 1.7% |
 | context | 6 | 29,664 | 7.8% |
-| adapter | 10 | 87,894 | 23.2% |
+| adapter | 10 | 87,981 | 23.2% |
 | provider | 10 | 55,075 | 14.5% |
 | interface | 4 | 36,951 | 9.7% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 161,916 | 42.7% |
-| **total** | **39** | **379,094** | 100% |
+| bin | 6 | 162,144 | 42.7% |
+| **total** | **39** | **379,409** | 100% |
 
 ## Lines per crate
 
@@ -40,15 +40,15 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-sdn ⚠️ >20k | 30,107 |
-| delonix-linux ⚠️ >20k | 24,480 |
+| delonix-sdn ⚠️ >20k | 30,192 |
+| delonix-linux ⚠️ >20k | 24,495 |
 | delonix-oci | 15,365 |
 | delonix-vm | 5,402 |
 | delonix-volume | 3,583 |
 | delonix-state | 3,567 |
 | delonix-scanner | 2,637 |
 | delonix-pool-helper | 1,267 |
-| delonix-telemetry | 1,144 |
+| delonix-telemetry | 1,131 |
 | delonix-host | 342 |
 
 ### provider
@@ -85,7 +85,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-bin ⚠️ >20k | 159,133 |
+| delonix-bin ⚠️ >20k | 159,361 |
 | delonix-node-api-bin | 1,231 |
 | delonix-storage-helper | 645 |
 | delonix-cri-bin | 454 |
@@ -99,13 +99,13 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 
 | Destination | Lines | Modules | Context? |
 | --- | ---: | ---: | :---: |
-| delonix-compute | 26,078 | 9 | ✓ |
-| delonix-stack | 23,205 | 10 | ✓ |
+| delonix-compute | 26,119 | 9 | ✓ |
+| delonix-stack | 23,230 | 10 | ✓ |
 | delonix-networking | 20,002 | 26 | ✓ |
-| delonix-artifact | 16,886 | 6 | ✓ |
+| delonix-artifact | 16,940 | 6 | ✓ |
 | delonix-cluster | 13,758 | 10 | ✓ |
 | delonix-storage | 10,105 | 9 | ✓ |
-| delonix-node | 7,340 | 4 | ✓ |
+| delonix-node | 7,448 | 4 | ✓ |
 | delonix-gateway | 5,352 | 2 | ✓ |
 | delonix-security | 3,216 | 4 | ✓ |
 | delonix-cli | 17,344 | 17 |  |
@@ -118,7 +118,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | delonix-ssh | 274 | 1 |  |
 | tests | 256 | 1 |  |
 | delonix-mcp | 36 | 1 |  |
-| **context total** | **125,942** | | |
+| **context total** | **126,170** | | |
 
 ## Ratchets
 
@@ -133,7 +133,7 @@ falls without the baseline lowered in the same commit.
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 125,942 | 125,942 | 0 (R4) |
+| cli_context_lines | 126,170 | 126,170 | 0 (R4) |
 | interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 6 | 6 | 1 (R1) |
