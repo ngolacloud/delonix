@@ -16,6 +16,45 @@ As notas em prosa de cada release histórica vivem em `docs/releases/v<tag>.md`
 
 ---
 
+## [0.1.2] - 2026-11-18 — supply-chain a zero-vuln, endurecimento VFIO/plataforma e paridade de CLI
+
+Patch sobre a `0.1.1`: **aditivo** na superfície de CLI/API/JSON/schema. As
+excepções são **endurecimentos de segurança deliberados** (passthrough VFIO e
+base de plataforma) que passam a **recusar** o que antes era permissivo — mais
+restritivo, nunca menos seguro.
+
+### Added
+
+- **Paridade de CLI Docker/Podman:** progresso de `pull` por camada ao estilo
+  docker (#1009); captura de logs em runs *foreground* (#1008); TTY forçado no
+  `run` e `--disk-size` no `vm create` (#1007); aviso *preflight* para `EXPOSE`
+  < 1024 em rootless `--net host` (#1011, #1014).
+- **Eixo kernel-nativo (KRN-0001..0006):** base e backlog de nativização (#1013).
+- **`init` reproduzível:** lockfile no `init`, e2e por classe de stack e geração
+  de segredos para o template WordPress (#1019).
+
+### Security / Hardened
+
+- **Passthrough VFIO (V3-V5):** allowlist de dispositivos, falhas **não
+  silenciosas** e *gate* de XML cru no passthrough (#1016).
+- **Base da plataforma NgolaCloud (W1-W4):** endurecimento + auditoria de
+  VM/storage (#1015).
+
+### Dependencies
+
+- **Revisão de dependências (fases 1-3):** `cargo audit` **8 vulnerabilidades →
+  0**. `serde_yaml` → `serde_norway`; `ratatui` 0.29 → 0.30 (elimina `lru`
+  *unsound* e `paste`); remoção de crates não-mantidos da árvore; manutenção
+  dentro do *caret*. Zero mudança de comportamento observável.
+
+### Docs
+
+- Secção **"Prontidão para produção"** no README e na *landing* do site (#1018).
+- Re-medição ao vivo pós-revisão de deps: sem regressão de arranque, densidade
+  nem recuperação (`reports/production-readiness-2026-11-18/`).
+
+---
+
 ## [0.1.1] - 2026-11-12 — paridade, catálogo vivo, CRI rootful e supply-chain
 
 Patch sobre a `0.1.0`: tudo **aditivo**, **sem quebrar contratos** de CLI/API/

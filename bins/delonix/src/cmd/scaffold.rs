@@ -1836,7 +1836,12 @@ fn generate_lockfile(tname: &str, dir: &Path) {
         "Cargo.lock" => ("cargo", &["generate-lockfile"]),
         "composer.lock" => (
             "composer",
-            &["update", "--no-install", "--no-interaction", "--no-progress"],
+            &[
+                "update",
+                "--no-install",
+                "--no-interaction",
+                "--no-progress",
+            ],
         ),
         // A lock name the generator does not know how to produce: leave it to
         // the Dockerfile/CI guidance rather than guess a command.
