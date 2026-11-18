@@ -12477,9 +12477,24 @@ fn remove_container_cgroup(container: &Container) {
     }
     remove_cgroup_tree(&container.cgroup());
     if let Some(cur) = current_cgroup_v2() {
-        remove_cgroup_tree(&format!("{cur}/dlx-{}", container.id));
-        if let Some(base) = user_service_base(&cur) {
-            remove_cgroup_tree(&format!("{base}/dlx-{}", container.id));
+        // A `--cgroup-parent` leaf lives at `<root>/<group>/dlx-<id>` (see
+        // `try_delegated_base`), so the plain `<root>/dlx-<id>` guess missed it
+        // and `rm` left the leaf — and its now-empty `<group>` dir — behind
+        // (#812). Rebuild the guess with the SAME safe segment and reap the
+        // group dir too (`remove_dir` is a no-op while a sibling still holds it).
+        let group = container
+            .cgroup_parent
+            .as_ref()
+            .and_then(|g| delonix_compute::safe_cgroup_segment(&g.name).map(|n| n.to_string()));
+        for root in [Some(cur.clone()), user_service_base(&cur)]
+            .into_iter()
+            .flatten()
+        {
+            remove_cgroup_tree(&format!("{root}/dlx-{}", container.id));
+            if let Some(g) = &group {
+                remove_cgroup_tree(&format!("{root}/{g}/dlx-{}", container.id));
+                let _ = std::fs::remove_dir(format!("{root}/{g}"));
+            }
         }
     }
     let marker = node_cgroup_leaf_marker(&container.id);

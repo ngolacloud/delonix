@@ -27,8 +27,24 @@ fn main() {
     };
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("delonix_flow.bpf.o");
 
+    // The BPF object must be compiled for the host architecture: a fixed
+    // `__TARGET_ARCH_x86` (and an x86-only multiarch include dir) makes clang
+    // fail on arm64 and silently ship without the datapath (#438).
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let (bpf_arch, multiarch_dir) = match target_arch.as_str() {
+        "x86_64" => ("x86", "x86_64-linux-gnu"),
+        "aarch64" => ("arm64", "aarch64-linux-gnu"),
+        other => {
+            println!(
+                "cargo::warning=delonix-sdn: BPF datapath unsupported on target arch '{other}'; shipping without it"
+            );
+            return;
+        }
+    };
+
     let mut cmd = Command::new(clang);
-    cmd.args(["-O2", "-g", "-target", "bpf", "-D__TARGET_ARCH_x86"]);
+    cmd.args(["-O2", "-g", "-target", "bpf"]);
+    cmd.arg(format!("-D__TARGET_ARCH_{bpf_arch}"));
     // `-g` makes clang record the working directory and the source path in the
     // object, and the object is embedded in the binary: two builds of the same
     // commit from different checkouts then differ. Build scripts run with the
@@ -42,7 +58,7 @@ fn main() {
     }
     cmd.arg("-I").arg(&helpers);
     // asm/types.h lives in the arch include dir; harmless if absent.
-    cmd.arg("-I/usr/include/x86_64-linux-gnu");
+    cmd.arg(format!("-I/usr/include/{multiarch_dir}"));
     cmd.arg("-c").arg(src).arg("-o").arg(&out);
 
     match cmd.status() {

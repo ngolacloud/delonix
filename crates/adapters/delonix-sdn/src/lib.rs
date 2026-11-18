@@ -2655,15 +2655,35 @@ pub struct Connection {
 /// that involve containers (`ip2name`: container IP → name). It's the basis of the
 /// **engine**'s security monitor — only the host (global netns, root) sees this; each
 /// container, in its own netns and without `CAP_NET_ADMIN`, sees only its
-/// own connections, never another's. Best-effort: without `conntrack`, empty.
-pub fn list_connections(ip2name: &std::collections::HashMap<String, String>) -> Vec<Connection> {
+/// own connections, never another's. Returns `None` when the count is
+/// UNMEASURED — `conntrack` absent, or `conntrack -L` refused (EPERM in
+/// rootless, where it runs in the host netns the user cannot read) — so a
+/// caller never shows an unreadable count as a real `0`.
+pub fn list_connections(
+    ip2name: &std::collections::HashMap<String, String>,
+) -> Option<Vec<Connection>> {
     if ip2name.is_empty() {
-        return vec![];
+        return Some(vec![]); // genuinely zero: no containers to match against
     }
-    let text = match Command::new("conntrack").arg("-L").output() {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).into_owned(),
-        Err(_) => return vec![],
-    };
+    // `Ok` alone is NOT success: in rootless `conntrack -L` exits non-zero with
+    // an empty stdout, which used to read as "0 connections". Distinguish an
+    // unmeasured count from a true zero — the module's "unreadable is not zero"
+    // rule (`Usage { bytes, unreadable }`): `None` = unmeasured.
+    let output = Command::new("conntrack").arg("-L").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    Some(classify_conntrack(&text, ip2name))
+}
+
+/// Classifies `conntrack -L` text into container connections. Split out of
+/// `list_connections` (which does the I/O) so the parsing is testable without a
+/// kernel. PURE.
+fn classify_conntrack(
+    text: &str,
+    ip2name: &std::collections::HashMap<String, String>,
+) -> Vec<Connection> {
     let is_cont = |ip: &str| ip2name.contains_key(ip);
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -2727,6 +2747,42 @@ pub fn list_connections(ip2name: &std::collections::HashMap<String, String>) -> 
 
 #[cfg(test)]
 mod tests {
+
+    /// #809: a genuine zero (no containers) is `Some([])`, never `None` — and
+    /// `None` is reserved for an UNMEASURED count (conntrack absent / EPERM in
+    /// rootless), so the monitor never shows an unreadable count as `0`. Also
+    /// pins the conntrack classification (external_in / egress / internal).
+    #[test]
+    fn connections_tell_zero_from_unmeasured_and_classify() {
+        use std::collections::HashMap;
+        // No containers → a genuine zero, `Some([])`, not `None`/unmeasured.
+        assert!(matches!(
+            super::list_connections(&HashMap::new()),
+            Some(v) if v.is_empty()
+        ));
+        let mut m = HashMap::new();
+        m.insert("10.0.0.5".to_string(), "web".to_string());
+        m.insert("10.0.0.6".to_string(), "db".to_string());
+        // original tuple then reply tuple, as `conntrack -L` prints them.
+        let text = "\
+tcp 6 100 ESTABLISHED src=1.2.3.4 dst=10.0.0.5 sport=5000 dport=80 src=10.0.0.5 dst=1.2.3.4 sport=80 dport=5000
+tcp 6 100 ESTABLISHED src=10.0.0.5 dst=9.9.9.9 sport=4000 dport=443 src=9.9.9.9 dst=10.0.0.5 sport=443 dport=4000
+tcp 6 100 ESTABLISHED src=10.0.0.5 dst=10.0.0.6 sport=3000 dport=5432 src=10.0.0.6 dst=10.0.0.5 sport=5432 dport=3000";
+        let out = super::classify_conntrack(text, &m);
+        assert!(
+            out.iter().any(|c| c.kind == "external_in"
+                && c.container == "web"
+                && c.peer == "1.2.3.4"
+                && c.port == "80"),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|c| c.kind == "egress" && c.container == "web" && c.peer == "9.9.9.9"),
+            "{out:?}"
+        );
+        assert!(out.iter().any(|c| c.kind == "internal"), "{out:?}");
+    }
 
     /// **The installed base must not move.** Every network that exists today has
     /// leases derived from the /16 formula, and the generalisation has nothing to
