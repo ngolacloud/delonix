@@ -1033,7 +1033,14 @@ pub(crate) fn build_cache_is_stale(age_secs: Option<u64>, ttl_days: u64) -> bool
 
 /// `(entries, bytes)` of the build-cache entries no build has used in
 /// [`BUILD_CACHE_TTL_DAYS`]. Reports only — see [`sweep_build_cache`].
-pub(crate) fn plan_build_cache(root: &std::path::Path) -> (Vec<std::path::PathBuf>, Reclaimed) {
+/// `force` reclaims EVERY entry, not only the ones past the TTL: `system prune
+/// --build-cache` (and `--all`) exist precisely because the biggest reclaimable
+/// block can be a day old — younger than the TTL — and the operator asking for
+/// it back should not have to wait a week or `rm` the directory by hand.
+pub(crate) fn plan_build_cache(
+    root: &std::path::Path,
+    force: bool,
+) -> (Vec<std::path::PathBuf>, Reclaimed) {
     let dir = root.join("build-cache");
     let now = std::time::SystemTime::now();
     let mut doomed = Vec::new();
@@ -1053,7 +1060,7 @@ pub(crate) fn plan_build_cache(root: &std::path::Path) -> (Vec<std::path::PathBu
             .and_then(|m| m.modified().ok())
             .and_then(|t| now.duration_since(t).ok())
             .map(|d| d.as_secs());
-        if interrupted || build_cache_is_stale(age, BUILD_CACHE_TTL_DAYS) {
+        if interrupted || force || build_cache_is_stale(age, BUILD_CACHE_TTL_DAYS) {
             freed.add(measure(&p));
             doomed.push(p);
         }
@@ -1062,12 +1069,29 @@ pub(crate) fn plan_build_cache(root: &std::path::Path) -> (Vec<std::path::PathBu
 }
 
 /// Removes what [`plan_build_cache`] named. Returns `(entries, bytes)`.
-pub(crate) fn sweep_build_cache(root: &std::path::Path) -> (usize, Reclaimed) {
-    let (doomed, freed) = plan_build_cache(root);
+///
+/// `freed` counts only the entries that actually left the disk: a build-cache
+/// entry holds a build `rootfs/` that, under a rootless engine, contains
+/// SUBUID-owned directories the host user cannot unlink directly — the same wall
+/// [`sweep_layers`] and `remove_container_dir` hit. A plain `remove_dir_all`
+/// fails with EACCES there, which is how the single biggest reclaimable block
+/// stayed on disk while `prune` reported success; `remove_tree_mapped` re-execs
+/// in a user namespace (podman-`unshare`-`rm` style) to finish the job.
+pub(crate) fn sweep_build_cache(root: &std::path::Path, force: bool) -> (usize, Reclaimed) {
+    let (doomed, _) = plan_build_cache(root, force);
     let mut n = 0;
+    let mut freed = Reclaimed::default();
     for p in doomed {
-        if std::fs::remove_dir_all(&p).is_ok() {
+        let size = measure(&p);
+        if std::fs::remove_dir_all(&p).is_err() {
+            delonix_linux::remove_tree_mapped(&p);
+        }
+        // Counted only once it is actually gone — the summary line is the
+        // operator's evidence that the disk came back, so it must never claim
+        // an entry `remove_tree_mapped` could not reclaim either.
+        if !p.exists() {
             n += 1;
+            freed.add(size);
         }
     }
     (n, freed)
@@ -1089,7 +1113,12 @@ pub(crate) fn sweep_build_cache(root: &std::path::Path) -> (usize, Reclaimed) {
 /// is now: a blob only becomes unreferenced once the images naming it are gone,
 /// so counting against today's images would report zero on a host whose whole
 /// reclaim is waiting behind one dangling image.
-pub(crate) fn plan(images: &ImageStore, store: &Store, all: bool) -> Result<PrunePlan> {
+pub(crate) fn plan(
+    images: &ImageStore,
+    store: &Store,
+    all: bool,
+    build_cache: bool,
+) -> Result<PrunePlan> {
     // A — the same predicate `sweep_containers` step 1 uses, via the same
     // function the confirmation preview uses.
     let mut out = PrunePlan {
@@ -1168,8 +1197,9 @@ pub(crate) fn plan(images: &ImageStore, store: &Store, all: bool) -> Result<Prun
     // B — empty auto-created `dlx-*` networks.
     out.networks = doomed_networks(store)?.len();
 
-    // B — build-cache entries no build has asked for in a week.
-    let (bc, bc_bytes) = plan_build_cache(images.root());
+    // B — build-cache entries no build has asked for in a week — or EVERY entry
+    // when `--build-cache`/`--all` forces the reclaim past the TTL.
+    let (bc, bc_bytes) = plan_build_cache(images.root(), build_cache);
     out.build_cache = bc.len();
     out.build_cache_bytes = bc_bytes;
 
@@ -1195,6 +1225,28 @@ pub(crate) fn image_is_doomed(
     let dangling = repo_tags.is_empty() || repo_tags.iter().all(|t| t.contains("<none>"));
     let used = in_use.contains(id) || repo_tags.iter().any(|t| in_use.contains(t));
     (dangling || all) && !used
+}
+
+/// How many TAGGED images are unused — the ones a default `prune` leaves behind
+/// and only `--all` removes.
+///
+/// It is exactly `image_is_doomed(all=true) && !image_is_doomed(all=false)`, so
+/// the hint a `prune` without `--all` prints and what `--all` would actually
+/// sweep are the same decision read twice — a count that promised images and a
+/// `--all` that then took none would be the worst kind of hint. These are the
+/// `ORPHAN=yes` rows of `image ls` that confuse an operator into thinking a
+/// plain `prune` should have reclaimed them.
+pub(crate) fn unused_tagged_image_count(images: &ImageStore, store: &Store) -> Result<usize> {
+    let in_use: HashSet<String> = store.list()?.iter().map(|c| c.image.clone()).collect();
+    let n = images
+        .list()?
+        .iter()
+        .filter(|img| {
+            image_is_doomed(&img.id, &img.repo_tags, &in_use, true)
+                && !image_is_doomed(&img.id, &img.repo_tags, &in_use, false)
+        })
+        .count();
+    Ok(n)
 }
 
 /// Empty auto-created `dlx-*` networks (a cluster that has been deleted). A
