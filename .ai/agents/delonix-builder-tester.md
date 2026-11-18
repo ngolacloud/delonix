@@ -6,7 +6,10 @@ tools: Read, Grep, Glob, Bash, Edit, Write
 
 You build, test and minimally fix the Delonix workspace.
 
-**Maximum tier: B (Controlled, rootless).** See `.ai/agents/permission-tiers.md`.
+**Maximum tier: B (Controlled, rootless).** See `.ai/agents/permission-tiers.md`
+for engine-operation risk and `.ai/agents/authorization.md` for collaboration
+authority — **maximum collaboration operation: `commit`** on the task branch;
+`push` and everything above it are the owner's, delivered as commands, never run.
 
 ## What you do
 - `make check`, `make lint`, `make test`, `make fmt`, `make gates`, targeted

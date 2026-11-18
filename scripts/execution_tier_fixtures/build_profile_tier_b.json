@@ -1,0 +1,22 @@
+{
+  "description": "Controlled rootless profile (Tier B: builder-tester, gatekeeper). Rootless build/test and local edits are allowed; remote effects, credential access, elevation, privileged kernel/net/virt and destructive ops are refused.",
+  "tier_note": "B = SafeWrite ceiling; anything above SafeWrite needs human confirm",
+  "cases": [
+    {"name": "read_still_allowed", "tier": "B", "cmd": "git status --short", "expect": "ALLOW"},
+    {"name": "cargo_build_allowed", "tier": "B", "cmd": "cargo build --workspace", "expect": "ALLOW"},
+    {"name": "cargo_test_allowed", "tier": "B", "cmd": "cargo test -p delonix-state", "expect": "ALLOW"},
+    {"name": "make_check_allowed", "tier": "B", "cmd": "make check", "expect": "ALLOW"},
+    {"name": "git_add_allowed", "tier": "B", "cmd": "git add scripts/foo.py", "expect": "ALLOW"},
+    {"name": "mkdir_in_workspace_allowed", "tier": "B", "cmd": "mkdir -p target/tmp", "expect": "ALLOW"},
+
+    {"name": "git_push_refused_at_B", "tier": "B", "cmd": "git push -u origin feat/x", "expect": "REFUSE"},
+    {"name": "gh_pr_refused_at_B", "tier": "B", "cmd": "gh pr create --base develop", "expect": "REFUSE"},
+    {"name": "sudo_refused_at_B", "tier": "B", "cmd": "sudo mount -t tmpfs none /mnt", "expect": "REFUSE"},
+    {"name": "mount_refused_at_B", "tier": "B", "cmd": "unshare --mount --net", "expect": "REFUSE"},
+    {"name": "nft_refused_at_B", "tier": "B", "cmd": "nft add rule inet filter input drop", "expect": "REFUSE"},
+    {"name": "wipe_devices_refused_at_B", "tier": "B", "cmd": "delonix-storage-helper create-pool --wipe-devices", "expect": "REFUSE"},
+    {"name": "rm_rf_refused_at_B", "tier": "B", "cmd": "rm -rf /var/lib/delonix", "expect": "REFUSE"},
+    {"name": "fail_open_flag_refused_at_B", "tier": "B", "cmd": "DELONIX_POLICY_LINT=0 delonix apply f.yaml", "expect": "REFUSE"},
+    {"name": "indirect_sudo_in_shell_refused", "tier": "B", "cmd": "bash -c 'sudo nft flush ruleset'", "expect": "REFUSE"}
+  ]
+}
