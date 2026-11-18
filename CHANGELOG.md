@@ -1,334 +1,337 @@
 # Changelog
 
-Todas as mudanças notáveis do **Delonix** (antes `delonix-runtime`). O formato
-segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projecto a
-política de versões descrita em [VERSIONING.md](VERSIONING.md).
+All notable changes to **Delonix** (formerly `delonix-runtime`). The format
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
+the versioning policy described in [VERSIONING.md](VERSIONING.md).
 
-As notas em prosa de cada release histórica vivem em `docs/releases/v<tag>.md`
-(consolidadas em `docs/RELEASES.md`); este ficheiro é o resumo categorizado.
+The prose notes for each historical release live in `docs/releases/v<tag>.md`
+(consolidated in `docs/RELEASES.md`); this file is the categorized summary.
 
-> **Linhas de versão.** O produto renomeou-se de `delonix-runtime` para
-> **Delonix** e **re-baseou o número de versão de propósito**: a linha
-> `delonix-runtime` (v1.0.0 … v5.1.1) está congelada e passa a **histórico**; a
-> linha **Delonix** abre em `0.1.0`. `0.1.0` ser inferior a `5.1.1` não é uma
-> regressão — é uma linha nova. As capacidades herdadas da linha anterior **não**
-> são trabalho novo da `0.1.0`; ver a secção histórica abaixo.
+> **Version lines.** The product was renamed from `delonix-runtime` to
+> **Delonix** and **re-based the version number on purpose**: the
+> `delonix-runtime` line (v1.0.0 … v5.1.1) is frozen and becomes **history**; the
+> **Delonix** line opens at `0.1.0`. `0.1.0` being lower than `5.1.1` is not a
+> regression — it is a new line. The capabilities inherited from the previous line
+> are **not** new work in `0.1.0`; see the history section below.
 
 ---
 
-## [0.1.2] - 2026-11-18 — supply-chain a zero-vuln, endurecimento VFIO/plataforma e paridade de CLI
+## [0.1.2] - 2026-11-18 — zero-vuln supply-chain, VFIO/platform hardening and CLI parity
 
-Patch sobre a `0.1.1`: **aditivo** na superfície de CLI/API/JSON/schema. As
-excepções são **endurecimentos de segurança deliberados** (passthrough VFIO e
-base de plataforma) que passam a **recusar** o que antes era permissivo — mais
-restritivo, nunca menos seguro.
+Patch on top of `0.1.1`: **additive** on the CLI/API/JSON/schema surface. The
+exceptions are **deliberate security hardenings** (VFIO passthrough and the
+platform base) that now **reject** what used to be permissive — more
+restrictive, never less secure.
 
 ### Added
 
-- **Paridade de CLI Docker/Podman:** progresso de `pull` por camada ao estilo
-  docker (#1009); captura de logs em runs *foreground* (#1008); TTY forçado no
-  `run` e `--disk-size` no `vm create` (#1007); aviso *preflight* para `EXPOSE`
-  < 1024 em rootless `--net host` (#1011, #1014).
-- **Eixo kernel-nativo (KRN-0001..0006):** base e backlog de nativização (#1013).
-- **`init` reproduzível:** lockfile no `init`, e2e por classe de stack e geração
-  de segredos para o template WordPress (#1019).
+- **Docker/Podman CLI parity:** docker-style per-layer `pull` progress (#1009);
+  log capture on *foreground* runs (#1008); forced TTY on `run` and `--disk-size`
+  on `vm create` (#1007); *preflight* warning for `EXPOSE` < 1024 in rootless
+  `--net host` (#1011, #1014).
+- **Kernel-native axis (KRN-0001..0006):** nativization base and backlog (#1013).
+- **Reproducible `init`:** lockfile on `init`, per-stack-class e2e and secret
+  generation for the WordPress template (#1019).
 
 ### Security / Hardened
 
-- **Passthrough VFIO (V3-V5):** allowlist de dispositivos, falhas **não
-  silenciosas** e *gate* de XML cru no passthrough (#1016).
-- **Base da plataforma NgolaCloud (W1-W4):** endurecimento + auditoria de
-  VM/storage (#1015).
+- **VFIO passthrough (V3-V5):** device allowlist, **non-silent** failures and a
+  raw-XML *gate* on passthrough (#1016).
+- **NgolaCloud platform base (W1-W4):** hardening + VM/storage audit (#1015).
 
 ### Dependencies
 
-- **Revisão de dependências (fases 1-3):** `cargo audit` **8 vulnerabilidades →
-  0**. `serde_yaml` → `serde_norway`; `ratatui` 0.29 → 0.30 (elimina `lru`
-  *unsound* e `paste`); remoção de crates não-mantidos da árvore; manutenção
-  dentro do *caret*. Zero mudança de comportamento observável.
+- **Dependency review (phases 1-3):** `cargo audit` **8 vulnerabilities →
+  0**. `serde_yaml` → `serde_norway`; `ratatui` 0.29 → 0.30 (removes the
+  *unsound* `lru` and `paste`); removal of unmaintained crates from the tree;
+  maintenance within the *caret*. Zero observable behavior change.
 
 ### Docs
 
-- Secção **"Prontidão para produção"** no README e na *landing* do site (#1018).
-- Re-medição ao vivo pós-revisão de deps: sem regressão de arranque, densidade
-  nem recuperação (`reports/production-readiness-2026-11-18/`).
+- **"Production readiness"** section in the README and on the site's *landing*
+  page (#1018).
+- Live re-measurement after the dependency review: no regression in startup,
+  density or recovery (`reports/production-readiness-2026-11-18/`).
 
 ---
 
-## [0.1.1] - 2026-11-12 — paridade, catálogo vivo, CRI rootful e supply-chain
+## [0.1.1] - 2026-11-12 — parity, live catalog, rootful CRI and supply-chain
 
-Patch sobre a `0.1.0`: tudo **aditivo**, **sem quebrar contratos** de CLI/API/
-JSON/schema. Notas em prosa em [docs/releases/v0.1.1.md](docs/releases/v0.1.1.md).
+Patch on top of `0.1.0`: everything **additive**, **without breaking any
+contract** of CLI/API/JSON/schema. Prose notes in [docs/releases/v0.1.1.md](docs/releases/v0.1.1.md).
 
 ### Added
 
-- **Paridade de CLI Docker/Podman:** `volume export/import/mount/unmount` +
+- **Docker/Podman CLI parity:** `volume export/import/mount/unmount` +
   `exists/prune`; `network reload/prune/exists`; `container export/mount/unmount/
   clone/checkpoint/restore`; `image build/diff/tree/search/import/history/untag`;
-  `pod ps/exists/prune/kill/pause/unpause/stats/top/inspect`; atalhos de raiz
-  `search/import/export/history/untag` e shims `buildx/builder/bake/checkpoint`.
-- **Catálogo de Kinds vivo (ADR-0086):** `kind: Config` (irmão em claro do
-  `Secret`), `kind: IPAddress` (reserva de um `IPPool`), `kind: Snapshot`
-  (snapshot convergente de `VM`/`Volume`); catálogo v1 e v2 sobre o motor
-  reestruturado.
-- **Supply-chain:** atestações in-toto (proveniência **SLSA v1** + **SBOM** SPDX)
-  publicadas pela **OCI 1.1 Referrers API** com fallback de tag `sha256-<hex>`;
-  `scan --policy`/`--compare-to` e gating de CI; confiança por política na
-  admissão por assinatura.
-- **Interoperabilidade Kubernetes:** `cluster kube play` e `kube generate`.
-- **Compose:** interpolação `${VAR}` (com `.env` e chavetas).
+  `pod ps/exists/prune/kill/pause/unpause/stats/top/inspect`; root shortcuts
+  `search/import/export/history/untag` and `buildx/builder/bake/checkpoint` shims.
+- **Live Kinds catalog (ADR-0086):** `kind: Config` (the plaintext sibling of
+  `Secret`), `kind: IPAddress` (reservation from an `IPPool`), `kind: Snapshot`
+  (convergent snapshot of `VM`/`Volume`); catalog v1 and v2 on top of the
+  restructured engine.
+- **Supply-chain:** in-toto attestations (**SLSA v1** provenance + SPDX **SBOM**)
+  published through the **OCI 1.1 Referrers API** with a `sha256-<hex>` tag
+  fallback; `scan --policy`/`--compare-to` and CI gating; policy-based trust on
+  signature admission.
+- **Kubernetes interoperability:** `cluster kube play` and `kube generate`.
+- **Compose:** `${VAR}` interpolation (with `.env` and braces).
 
 ### Changed
 
-- **Conformância CRI rootful:** propagação `rshared` (ADR-0093), namespace de PID
-  por pod com âncora `pause` (ADR-0092) e shared-PID no root-CNI, normalização de
-  AppArmor `localhost/…` e seccomp com opt-in explícito.
-- `perf(linux)`: `ldconfig` salta em rootfs **musl/scratch** (sem `ld.so.cache`).
+- **Rootful CRI conformance:** `rshared` propagation (ADR-0093), per-pod PID
+  namespace anchored by `pause` (ADR-0092) and shared-PID on the root-CNI,
+  `localhost/…` AppArmor normalization and seccomp with explicit opt-in.
+- `perf(linux)`: `ldconfig` is skipped on **musl/scratch** rootfs (no
+  `ld.so.cache`).
 
 ### Fixed
 
-- **`boot.rs`: `Restart=` systemd válido** — a política do Delonix
-  (`unless-stopped`/`always` → `always`, `on-failure[:N]` → `on-failure`) deixa de
-  ser escrita como especificador inválido que o systemd ignorava.
-- **`cluster create`: wait de nó consciente de carga** — nó vivo ganha extensão
-  sob contenção; nó morto falha já (deixa de abortar o cluster por um nó lento).
-- **OCI:** whiteout confinado ao directório da camada por `scoped_resolve`
-  partilhado (fuga de symlink), scratch próprio por unpack concorrente.
-- **linux/CRI:** cgroup aplicado antes do workload (não-userns); VM
-  `move_namespace` grava o registo antes de mover o overlay; o *Streamer* CRI
-  tolera *poisoning* do Mutex; endurecimento OOM/cgroup, `clone3` e `cmsghdr`.
+- **`boot.rs`: valid systemd `Restart=`** — the Delonix policy
+  (`unless-stopped`/`always` → `always`, `on-failure[:N]` → `on-failure`) is no
+  longer written as an invalid specifier that systemd ignored.
+- **`cluster create`: load-aware node wait** — a live node gets an extension
+  under contention; a dead node fails immediately (no longer aborts the cluster
+  over one slow node).
+- **OCI:** whiteout confined to the layer directory via shared `scoped_resolve`
+  (symlink escape), own scratch per concurrent unpack.
+- **linux/CRI:** cgroup applied before the workload (non-userns); VM
+  `move_namespace` writes the record before moving the overlay; the CRI *Streamer*
+  tolerates Mutex *poisoning*; OOM/cgroup, `clone3` and `cmsghdr` hardening.
 
 ---
 
-## [0.1.0] - 2026-10-28 — linha Delonix 0.x (transição de identidade)
+## [0.1.0] - 2026-10-28 — Delonix 0.x line (identity transition)
 
-Primeira release oficial da linha **Delonix**. Abriu a linha `0.x` re-baseando
-de `5.1.1` (uma linha nova, não uma regressão). O motor é o mesmo da linha
-`delonix-runtime` — ver a secção histórica abaixo.
+First official release of the **Delonix** line. It opened the `0.x` line
+re-basing from `5.1.1` (a new line, not a regression). The engine is the same as
+the `delonix-runtime` line — see the history section below.
 
 ### Changed
-- Identidade do produto passa a **Delonix**; o repositório migra para
-  `github.com/ngolacloud/delonix`. O binário da CLI já se chamava `delonix`.
-- **Reestruturação ADR-0040 R1 (renomes internos, `publish = false`).** Os quatro
-  providers sem prefixo uniformizam-se — `delonix-{proxmox,truenas,opnsense,powerdns}`
-  → `delonix-provider-*` — e o contexto `delonix-security-runtime` → `delonix-security`.
-  O pacote da CLI `delonix-runtime-bin` passa a `delonix-bin` e muda-se para
-  `bins/delonix`; **o binário continua a chamar-se `delonix`** (único pacote em
-  `bins/` que diverge do nome do directório, A6a). São nomes de **crate** internos:
-  binários, sockets, serviços, `DELONIX_*`, schemas e contratos CLI/API ficam iguais.
-  Movidos com `git mv` (histórico preservado); o gate `scripts/arch_fitness.py` passa
-  a exigir o prefixo `delonix-provider-`.
-- `scripts/version_gate.py` passa a ser **consciente de linha de versão**: a
-  linha legada `delonix-runtime` (majors 1..5) e a linha Delonix (0.x) são
-  comparadas em separado, com guarda de que nenhum commit perde o histórico
-  enviado (tem de conter a tag `v5.*` mais recente). Coberto por
-  `scripts/test_version_gate.py` (novo).
+- The product identity becomes **Delonix**; the repository migrates to
+  `github.com/ngolacloud/delonix`. The CLI binary was already named `delonix`.
+- **ADR-0040 R1 restructuring (internal renames, `publish = false`).** The four
+  unprefixed providers are standardized — `delonix-{proxmox,truenas,opnsense,powerdns}`
+  → `delonix-provider-*` — and the `delonix-security-runtime` context →
+  `delonix-security`. The CLI package `delonix-runtime-bin` becomes `delonix-bin`
+  and moves to `bins/delonix`; **the binary is still named `delonix`** (the only
+  package in `bins/` that diverges from the directory name, A6a). These are
+  internal **crate** names: binaries, sockets, services, `DELONIX_*`, schemas and
+  CLI/API contracts stay the same. Moved with `git mv` (history preserved); the
+  `scripts/arch_fitness.py` gate now requires the `delonix-provider-` prefix.
+- `scripts/version_gate.py` becomes **version-line aware**: the legacy
+  `delonix-runtime` line (majors 1..5) and the Delonix line (0.x) are compared
+  separately, with a guard that no commit loses the shipped history (it must
+  contain the most recent `v5.*` tag). Covered by
+  `scripts/test_version_gate.py` (new).
 
 ### Added
-- `CHANGELOG.md` e [VERSIONING.md](VERSIONING.md) (política de compatibilidade
-  pré-1.0 e mecânica da transição de linha).
-- Adendo ao ADR-0061 a trazer o template `rust` (axum/tokio) para o contrato do
-  `delonix init`, com verificação medida (gerar → compilar → correr → health 200).
+- `CHANGELOG.md` and [VERSIONING.md](VERSIONING.md) (pre-1.0 compatibility policy
+  and the line-transition mechanics).
+- Addendum to ADR-0061 bringing the `rust` template (axum/tokio) into the
+  `delonix init` contract, with measured verification (generate → compile → run →
+  health 200).
 
-### Preservado (NÃO renomear na transição)
-- Directórios de estado (`/var/lib/delonix`, `/etc/delonix`,
-  `~/.local/share/delonix`), sockets (`/run/delonix-*.sock`), serviços systemd,
-  variáveis `DELONIX_*` e grupos de schema `*.delonix.io` — contratos
-  operacionais inalterados entre a linha 5.x e a 0.x.
+### Preserved (DO NOT rename in the transition)
+- State directories (`/var/lib/delonix`, `/etc/delonix`,
+  `~/.local/share/delonix`), sockets (`/run/delonix-*.sock`), systemd services,
+  `DELONIX_*` variables and `*.delonix.io` schema groups — operational contracts
+  unchanged between the 5.x and 0.x lines.
 
 ---
 
-# Histórico — linha `delonix-runtime` (v1.0.0 – v5.1.1)
+# History — `delonix-runtime` line (v1.0.0 – v5.1.1)
 
-Capacidades herdadas pela linha Delonix. Datas = data real da tag.
+Capabilities inherited by the Delonix line. Dates = actual tag date.
 
 ## [5.1.1] - 2026-10-15
 ### Changed
-- A flag `--l18n` perde `global`, deixando de ser aceite depois de um subcomando (passa a `rc=2` no fim de um comando normal); funciona antes do subcomando ou via `DELONIX_L18N`.
-- O `install.sh` imprime no fim uma linha `downloads and documentation:` com o endereço da release.
-- `Cargo.toml` sobe para `5.1.1` e as páginas de `docs/comandos/` são regeneradas.
+- The `--l18n` flag loses `global`, no longer being accepted after a subcommand (it becomes `rc=2` at the end of a normal command); it works before the subcommand or via `DELONIX_L18N`.
+- `install.sh` prints a final `downloads and documentation:` line with the release address.
+- `Cargo.toml` bumps to `5.1.1` and the `docs/comandos/` pages are regenerated.
 ### Added
-- `build.rs` lê a chave `tls=` do `template.meta`; `scaffold.rs` ganha `template_supports_tls` e `template_has_version` (ainda sem chamador na tag).
+- `build.rs` reads the `tls=` key from `template.meta`; `scaffold.rs` gains `template_supports_tls` and `template_has_version` (still with no caller at this tag).
 
 ## [5.1.0] - 2026-10-15
 ### Changed
-- O CRI passa a ter tecto de capabilities por omissão (`KEPT_CAPS` em modo `reject`), recusando `privileged: true` ou `capabilities.add` acima dele no `CreateContainer`.
-- `UpdateContainerResources` implementado e sensível ao lugar (scope do kubelet vs leaf), com fusão campo a campo.
-- Hotplug a quente de CPU e memória para Cloud Hypervisor, libvirt e Proxmox, reiniciando em vez de substituir a VM.
-- Os onze templates do `delonix init` nascem com testes, dois CIs, Conventional Commits, SonarQube e secção de arquitectura, com portão a exigi-lo.
-- A cobertura de folhas da CLI executadas e julgadas pela bateria sobe de 126/272 para 258/270 (95,6%).
+- The CRI now has a default capabilities ceiling (`KEPT_CAPS` in `reject` mode), refusing `privileged: true` or `capabilities.add` above it in `CreateContainer`.
+- `UpdateContainerResources` implemented and location-aware (kubelet scope vs leaf), with field-by-field merging.
+- Hot CPU and memory hotplug for Cloud Hypervisor, libvirt and Proxmox, restarting instead of replacing the VM.
+- The eleven `delonix init` templates are born with tests, two CIs, Conventional Commits, SonarQube and an architecture section, with a gate requiring it.
+- The coverage of CLI leaves executed and judged by the battery rises from 126/272 to 258/270 (95.6%).
 ### Added
-- Pools de armazenamento (ADR-0067) com helper root por socket e drivers `btrfs`, `zfs` e `lvm-thin`.
-- `VirtualMachineService` servido na API de nó (ADR-0040 P5), com activação por socket e saída por inactividade.
+- Storage pools (ADR-0067) with a root helper per socket and `btrfs`, `zfs` and `lvm-thin` drivers.
+- `VirtualMachineService` served on the node API (ADR-0040 P5), with socket activation and idle shutdown.
 ### Fixed
-- `secret rotate-key` já não faz a versão recuar para 1 (ACH-034).
-- Uma rota de rede passa a ser utilizável a partir de uma rede adicional (#733); um arranque falhado já não desfaz a rede de um container a correr.
+- `secret rotate-key` no longer rolls the version back to 1 (ACH-034).
+- A network route becomes usable from an additional network (#733); a failed startup no longer tears down the network of a running container.
 ### Security
-- O portão de admissão falha fechado perante uma falha de scan, não só perante achados (#778).
-- Guarda opcional `denyPrivateEgress` mantém cargas fora de espaço privado e CGNAT; extracção de layer ganha tecto de entradas e bytes contra bombas de descompressão.
+- The admission gate fails closed on a scan failure, not only on findings (#778).
+- The optional `denyPrivateEgress` guard keeps workloads out of private space and CGNAT; layer extraction gains a ceiling on entries and bytes against decompression bombs.
 ### Removed
-- `image vm …`, `image --vm …` e as formas planas `vm build|convert|pull|push|ls-remote` saem sem alias; `delonix vm image <verbo>` é o único caminho (#772).
+- `image vm …`, `image --vm …` and the flat forms `vm build|convert|pull|push|ls-remote` leave without an alias; `delonix vm image <verb>` is the only path (#772).
 
 ## [5.0.2] - 2026-10-11
 ### Fixed
-- Uma `NetworkRoute` aberta passa a servir containers ligados a mais de uma rede via `network connect`, instalando rota e rota espelhada por protocolo próprio (#733).
+- An open `NetworkRoute` now serves containers connected to more than one network via `network connect`, installing a route and a mirrored route per dedicated protocol (#733).
 
 ## [5.0.1] - 2026-10-10
 ### Security
-- `--secret-files` aborta o init do container (exit 126) quando o tmpfs não monta, em vez de escrever o segredo na camada persistente (`3626ae70`).
-- A admissão por scan (`DELONIX_SCAN_ON_PULL`) recusa o pull e remove a imagem em qualquer falha do scan; só `DX-1401` (imagem sem gestor de pacotes) deixa passar (#778).
+- `--secret-files` aborts the container init (exit 126) when the tmpfs does not mount, instead of writing the secret to the persistent layer (`3626ae70`).
+- Scan admission (`DELONIX_SCAN_ON_PULL`) refuses the pull and removes the image on any scan failure; only `DX-1401` (image without a package manager) is let through (#778).
 
 ## [5.0.0] - 2026-10-08
 ### Changed
-- BREAKING: um container corre como o `USER` da imagem em vez de uid 0 (ADR-0062); sem `--user` o processo deixa de ser root, recuperável com `--user 0`.
-- BREAKING: `--user` deixa de reapropriar o filesystem inteiro, aplicando apenas o índice de donos da imagem (odoo passou de 16 min para 1,7 s).
-- BREAKING: as assinaturas `can_bind_host_port` e `host_port_busy` do `delonix-sdn` passam a receber um `Proto` (#718).
-- O endereço de bind de uma porta publicada passa a ser registado em `addr:hostPort:contPort/proto` e mostrado no `container ls` (#718).
-- O bloco `provider` passa a `type` + `spec` tipado inline (ADR-0070/0071); `kind: NetworkZone` passa a `kind: Network` com `spec.provider.proxmox`; grafias antigas carregam como superadas.
+- BREAKING: a container runs as the image's `USER` instead of uid 0 (ADR-0062); without `--user` the process is no longer root, recoverable with `--user 0`.
+- BREAKING: `--user` no longer re-owns the entire filesystem, applying only the image's ownership index (odoo went from 16 min to 1.7 s).
+- BREAKING: the `can_bind_host_port` and `host_port_busy` signatures of `delonix-sdn` now take a `Proto` (#718).
+- The bind address of a published port is now recorded as `addr:hostPort:contPort/proto` and shown in `container ls` (#718).
+- The `provider` block becomes typed inline `type` + `spec` (ADR-0070/0071); `kind: NetworkZone` becomes `kind: Network` with `spec.provider.proxmox`; the old spellings load as superseded.
 ### Added
-- `kind: SystemContainer` para LXC do Proxmox (ADR-0058) com dia 2 completo; `kind: StoragePool` com driver `dir` (ADR-0067 P0).
-- `delonix serve node-api` serve o contrato de nó em gRPC e HTTP/JSON num socket unix, com erros RFC 9457 e OpenAPI gerado (ADR-0042).
-- Segredos versionados com `secret apply` a reportar `created`/`unchanged`/`rotated to version N`; providers de rede por papel (`GatewayProvider`, `SegmentProvider`).
-- `hostPort` publicado em modo root/CNI para tcp, udp e sctp (ADR-0074); appliance FreePBX 17 + Asterisk 22.
+- `kind: SystemContainer` for Proxmox LXC (ADR-0058) with complete day 2; `kind: StoragePool` with the `dir` driver (ADR-0067 P0).
+- `delonix serve node-api` serves the node contract over gRPC and HTTP/JSON on a unix socket, with RFC 9457 errors and generated OpenAPI (ADR-0042).
+- Versioned secrets with `secret apply` reporting `created`/`unchanged`/`rotated to version N`; network providers per role (`GatewayProvider`, `SegmentProvider`).
+- `hostPort` published in root/CNI mode for tcp, udp and sctp (ADR-0074); FreePBX 17 + Asterisk 22 appliance.
 ### Security
-- Uma namespace nomeada num host sem `br_netfilter` é recusada (`DX-6305`, exit 69), com válvula `DELONIX_ALLOW_UNENFORCED_ISOLATION=1`.
-- O anti-spoofing muda para tabela `bridge` onde realmente corta (MAC, origem IPv4 e emissor ARP por porta); um workload governado por política nasce fechado.
-- Credenciais de laboratório (`opnsense-lab.env`) passam a estar ignoradas pelo git (#716).
+- A named namespace on a host without `br_netfilter` is refused (`DX-6305`, exit 69), with a `DELONIX_ALLOW_UNENFORCED_ISOLATION=1` relief valve.
+- Anti-spoofing moves to the `bridge` table where it actually cuts (MAC, IPv4 source and ARP sender per port); a policy-governed workload is born closed.
+- Lab credentials (`opnsense-lab.env`) are now ignored by git (#716).
 ### Fixed
-- Um campo desconhecido recusa o manifesto inteiro antes de qualquer efeito (ADR-0069), incluindo dentro de `spec.containers[]`; um store ilegível é erro e não máquina vazia.
-- Um `rm -f` que desistiu não é ressuscitado pelo supervisor; o `slirp4netns` de um container termina com ele (#646, #648, #651).
+- An unknown field refuses the entire manifest before any effect (ADR-0069), including inside `spec.containers[]`; an unreadable store is an error and not an empty machine.
+- An `rm -f` that gave up is not resurrected by the supervisor; a container's `slirp4netns` terminates with it (#646, #648, #651).
 
 ## [4.5.0] - 2026-09-28
 ### Changed
-- A firewall por container falha fechada: uma spec com regra, `dir`, `action` ou política inválida é recusada inteira em vez de aplicada parcialmente.
-- Uma falha de isolamento de namespace passa a ser erro (não aviso) em `container run`, `start` e `pod create`, desfazendo o attach.
-- `--cpuset`, `--io-weight` e `--device-read/write-bps/iops` são recusados (exit 69) quando o cgroup não tem o controlador, com válvula `DELONIX_ALLOW_UNENFORCED_LIMITS`.
-- `container rm -f` só volta quando o processo morreu; passado 30 s mantém o registo e devolve `DX-8101` (exit 124).
-- Proxmox: cobertura da API medida sobe de 16 (2,4%) para 161 rotas (23,9%); erros tipados por status HTTP e livro de tarefas por VM.
-- Pull e push de imagens em streaming sem a imagem inteira em memória (pico de RSS do pull de `node:22`: 214 MB → 27 MB).
+- The per-container firewall fails closed: a spec with an invalid rule, `dir`, `action` or policy is refused entirely instead of applied partially.
+- A namespace isolation failure becomes an error (not a warning) in `container run`, `start` and `pod create`, undoing the attach.
+- `--cpuset`, `--io-weight` and `--device-read/write-bps/iops` are refused (exit 69) when the cgroup lacks the controller, with a `DELONIX_ALLOW_UNENFORCED_LIMITS` relief valve.
+- `container rm -f` only returns once the process has died; after 30 s it keeps the record and returns `DX-8101` (exit 124).
+- Proxmox: measured API coverage rises from 16 (2.4%) to 161 routes (23.9%); errors typed by HTTP status and a task log per VM.
+- Streaming image pull and push without the whole image in memory (RSS peak of the `node:22` pull: 214 MB → 27 MB).
 ### Added
-- Verbos `vm resize`, `vm cloud-init`, `vm move`, `provider ls|describe|matrix|config`, `net netns gc`, `serve node-api`; Kinds `NetworkGateway` e `NetworkZone`.
-- Ficheiro `providers.yaml` por nó (ADR-0054); catálogo de capacidades versionado (ADR-0050); ferramenta MCP `workload.usage`.
-- `vm create --require <capacidade>`, `--allow-mac-spoofing` e arranque de imagem do store do motor no Proxmox (ADR-0057).
+- Verbs `vm resize`, `vm cloud-init`, `vm move`, `provider ls|describe|matrix|config`, `net netns gc`, `serve node-api`; Kinds `NetworkGateway` and `NetworkZone`.
+- A `providers.yaml` file per node (ADR-0054); a versioned capability catalog (ADR-0050); the MCP tool `workload.usage`.
+- `vm create --require <capability>`, `--allow-mac-spoofing` and booting an image from the engine store on Proxmox (ADR-0057).
 ### Fixed
-- `network rm` recusa uma rede com algo ligado (`DX-5307`, exit 5) e nomeia os consumidores; IPAM transaccional recusa reserva de IP de outro dono (`DX-5308`).
-- O pool de DHCP das VMs passa a viver dentro da rede, servindo o CIDR correcto; o binário já não morre por SIGPIPE numa escrita de socket de rede (#573).
-- `system df` conta o store inteiro (190 GiB antes reportavam 105); os testes deixam de sujar o `/tmp`.
+- `network rm` refuses a network with something attached (`DX-5307`, exit 5) and names the consumers; transactional IPAM refuses to reserve an IP owned by someone else (`DX-5308`).
+- The VMs' DHCP pool now lives inside the network, serving the correct CIDR; the binary no longer dies from SIGPIPE on a network socket write (#573).
+- `system df` counts the entire store (190 GiB were previously reported as 105); the tests stop polluting `/tmp`.
 
 ## [4.4.0] - 2026-09-23
 ### Added
-- `delonix drift` compara o carimbo do último apply contra o observado, com manifesto opcional (M05).
-- `compatibility compose` (28 servidas, 12 recusadas, 49 em falta de 89 chaves) e `migrate assess -f docker-compose.yml` (M02).
-- `kind: RuntimePolicy`, o tecto de admissão em forma declarativa que `stack apply` só sobe ou aperta (M04); Kinds no manifesto 19 → 20.
-- `RUN --mount=type=cache` e SBOM SPDX 2.3 automático por imagem construída (M03); `POST /images/create` na Docker API.
-- `scripts/bench_gate.py` com três saídas, incluindo `3` quando se recusa a julgar por ruído da bancada.
+- `delonix drift` compares the last apply's stamp against the observed one, with an optional manifest (M05).
+- `compatibility compose` (28 served, 12 refused, 49 missing of 89 keys) and `migrate assess -f docker-compose.yml` (M02).
+- `kind: RuntimePolicy`, the admission ceiling in declarative form that `stack apply` can only raise or tighten (M04); Kinds in the manifest 19 → 20.
+- `RUN --mount=type=cache` and automatic SPDX 2.3 SBOM per built image (M03); `POST /images/create` on the Docker API.
+- `scripts/bench_gate.py` with three outputs, including `3` when it refuses to judge due to bench noise.
 ### Changed
-- BREAKING para quem publica: empurrar uma tag já não publica; a tag e a release passam a ser duas decisões via `gh workflow run` (#472).
+- BREAKING for publishers: pushing a tag no longer publishes; the tag and the release become two decisions via `gh workflow run` (#472).
 ### Security
-- Job de fuzz em CI encontrou e corrigiu um OOM por bomba de expansão em `parse_dockerfile`, com tecto de 1 MiB em `substitute_vars` (#461, #463).
+- A fuzz job in CI found and fixed an OOM from an expansion bomb in `parse_dockerfile`, with a 1 MiB ceiling in `substitute_vars` (#461, #463).
 
 ## [4.3.0] - 2026-09-21
 ### Added
-- Grupo `delonix hosts` (não estável) com `hosts sync` para publicar nomes de serviço no `/etc/hosts` (ADR-0048 fase 2).
+- The `delonix hosts` group (not stable) with `hosts sync` to publish service names in `/etc/hosts` (ADR-0048 phase 2).
 ### Changed
-- O `install.sh` passa a aceitar `aarch64`/`arm64`, compondo o nome do asset de `uname -m`; é o primeiro release cujo instalador o aceita.
-- Fora de x86_64 não se descarregam Cloud Hypervisor, EDK2 nem `hypervisor-fw`, e o backend de VM é o libvirt.
+- `install.sh` now accepts `aarch64`/`arm64`, composing the asset name from `uname -m`; it is the first release whose installer accepts it.
+- Off x86_64, Cloud Hypervisor, EDK2 and `hypervisor-fw` are not downloaded, and the VM backend is libvirt.
 ### Fixed
-- Notas da v4.2.0 corrigidas: a VM libvirt e `kind: IPPool` já estavam construídos (fases 2 e 3 do ADR-0046).
+- The v4.2.0 notes are corrected: the libvirt VM and `kind: IPPool` were already built (phases 2 and 3 of ADR-0046).
 
 ## [4.2.0] - 2026-09-21
 ### Added
-- `delonix vm build` e o ficheiro `vm.yaml` (o "compose" do `VMfile`), com rotas por distro e por `appliance:` (#451).
-- `VirtualMachine.spec.expose` publica serviço HTTP/S de VM por nome; `kind: IPPool` para reservas de endereços do host (ADR-0046).
-- Nome padrão de serviço `<nome>.<ns>.svc.delonix.internal` e coluna `SVC` em `container/vm/stack ls` (ADR-0048 fase 1).
-- Appliances de monitorização, Carbonio CE, GLPI 11 e Wazuh; `install.sh --performance`.
-- Binários aarch64 (`delonix`, `-cri`, `-mcp`, `-mgmt`) publicados pela primeira vez.
+- `delonix vm build` and the `vm.yaml` file (the "compose" of the `VMfile`), with routes per distro and per `appliance:` (#451).
+- `VirtualMachine.spec.expose` publishes a VM's HTTP/S service by name; `kind: IPPool` for host address reservations (ADR-0046).
+- Default service name `<name>.<ns>.svc.delonix.internal` and a `SVC` column in `container/vm/stack ls` (ADR-0048 phase 1).
+- Monitoring, Carbonio CE, GLPI 11 and Wazuh appliances; `install.sh --performance`.
+- aarch64 binaries (`delonix`, `-cri`, `-mcp`, `-mgmt`) published for the first time.
 ### Changed
-- `delonix-cri`, `delonix-mcp` e `delonix-mgmt` respondem a `--version`/`-V` e saem em vez de arrancar o servidor.
+- `delonix-cri`, `delonix-mcp` and `delonix-mgmt` respond to `--version`/`-V` and exit instead of starting the server.
 
 ## [4.1.1] - 2026-09-20
 ### Security
-- `vm migrate`: injecção de shell e colisão de isolamento por namespace corrigidas (CRÍTICOS); `kubeadm join` valida o output remoto antes de o passar a um shell.
-- `metadata.name` de cluster validado antes de compor caminhos (um nome com `..` escrevia a CA do etcd fora da raiz); `ExecSync` do CRI ganha tecto de tamanho.
+- `vm migrate`: shell injection and namespace isolation collision fixed (CRITICAL); `kubeadm join` validates the remote output before passing it to a shell.
+- A cluster's `metadata.name` is validated before composing paths (a name with `..` wrote the etcd CA outside the root); the CRI's `ExecSync` gains a size ceiling.
 ### Added
-- `vm destroy` (teardown entre providers); `vm create --rm` / `--rm-after` para VMs descartáveis; `--cri-bin` em `cluster apply` e `cluster kubeadm`.
+- `vm destroy` (cross-provider teardown); `vm create --rm` / `--rm-after` for disposable VMs; `--cri-bin` in `cluster apply` and `cluster kubeadm`.
 ### Fixed
-- `prepare_host` compara o `sha256` do CRI em vez de só "o serviço está vivo", garantindo que uma correcção chega a um nó existente (#242).
-- `resolve_cri_bin` deixa de compilar o código-fonte perto do cwd; só com `DELONIX_CRI_FROM_SOURCE=1` (#243).
+- `prepare_host` compares the CRI's `sha256` instead of just "the service is alive", ensuring that a fix reaches an existing node (#242).
+- `resolve_cri_bin` no longer compiles the source code near the cwd; only with `DELONIX_CRI_FROM_SOURCE=1` (#243).
 
 ## [4.1.0] - 2026-09-19
 ### Fixed
-- Um nó root fresco volta a aceitar `-m`/`--cpus`/`--cpu-weight`: `cgroup_limits_apply()` confirma que os controladores estão em `cgroup.subtree_control` e nomeia o controlador em falta em vez de reportar "Permission denied" (#415).
+- A fresh root node again accepts `-m`/`--cpus`/`--cpu-weight`: `cgroup_limits_apply()` confirms that the controllers are in `cgroup.subtree_control` and names the missing controller instead of reporting "Permission denied" (#415).
 ### Changed
-- ADR-0043 fecha nos últimos cinco crates (`delonix-vm`, `-truenas`, `-proxmox`, `-linux`, `-sdn`); o dicionário `DX-CDNN` passa de 61 para 198 códigos e o ADR passa a Accepted.
+- ADR-0043 closes on the last five crates (`delonix-vm`, `-truenas`, `-proxmox`, `-linux`, `-sdn`); the `DX-CDNN` dictionary goes from 61 to 198 codes and the ADR becomes Accepted.
 
 ## [4.0.0] - 2026-09-17
 ### Changed
-- BREAKING: `delonix-scan`→`delonix-scanner`, `delonix-image`→`delonix-oci`, `delonix-net`→`delonix-sdn`, `delonix-runtime`→`delonix-linux` (ADR-0040 fase P3).
-- Reestruturação do motor em camadas (ADR-0040): contextos, ports e adaptadores; `serve cri`/`serve api`/`mcp` passam a executar binários próprios em vez de os embutir.
+- BREAKING: `delonix-scan`→`delonix-scanner`, `delonix-image`→`delonix-oci`, `delonix-net`→`delonix-sdn`, `delonix-runtime`→`delonix-linux` (ADR-0040 phase P3).
+- Engine restructuring in layers (ADR-0040): contexts, ports and adapters; `serve cri`/`serve api`/`mcp` now run their own binaries instead of embedding them.
 ### Removed
-- `delonix-runtime-core` eliminado; tipos partilhados foram para `delonix-model` e o estado persistido para o novo `delonix-state`.
+- `delonix-runtime-core` removed; shared types moved to `delonix-model` and the persisted state to the new `delonix-state`.
 ### Added
-- Dicionário de códigos `DX-CDNN` (ADR-0043) com `delonix explain <código>`; `delonix compatibility docker`.
-- `delonix init` adopta um directório existente em vez de despejar exemplos; `network ipam ls`/`prune`.
+- The `DX-CDNN` code dictionary (ADR-0043) with `delonix explain <code>`; `delonix compatibility docker`.
+- `delonix init` adopts an existing directory instead of dumping examples; `network ipam ls`/`prune`.
 ### Fixed
-- Um nó root novo voltou a arrancar pods (#310); o control-plane de nó único deixou de entrar em crash-loop ao declarar `cgroupDriver: cgroupfs` (#315).
-- O `boot` do cloud-hypervisor só devolve quando o VMM confirma a VM a correr (#350); `POST /wait` devolve o código de saída real.
+- A new root node booted pods again (#310); the single-node control-plane stopped crash-looping when declaring `cgroupDriver: cgroupfs` (#315).
+- The cloud-hypervisor `boot` only returns once the VMM confirms the VM is running (#350); `POST /wait` returns the real exit code.
 
 ## [3.1.0] - 2026-09-11
 ### Fixed
-- A sonda de `--health-cmd` deixava dois zombies por execução, esgotando o `pids.max`; o watchdog passa a reapar o próprio filho.
-- Um `stop` pedido podia ficar `Crashed`; `start`/`restart` perdiam o supervisor e o exit code; `container healthcheck` ignorava a sonda do próprio container.
-- `image load` apagava os outros nomes da mesma imagem; `secret create` sobre um segredo existente apagava chaves não repetidas.
-- `stack apply` adoptava um recurso alheio dizendo "nothing to do"; o tecto de recursos cobria só o PID 1.
+- The `--health-cmd` probe left two zombies per execution, exhausting `pids.max`; the watchdog now reaps its own child.
+- A requested `stop` could end up `Crashed`; `start`/`restart` lost the supervisor and the exit code; `container healthcheck` ignored the container's own probe.
+- `image load` deleted the other names of the same image; `secret create` over an existing secret deleted non-repeated keys.
+- `stack apply` adopted someone else's resource saying "nothing to do"; the resource ceiling covered only PID 1.
 ### Changed
-- README e `delonix --help` alinhados com a reestruturação da CLI (33 grupos, COMMAND MAP categorizado), com dois gates novos (ACH-032, ACH-033).
+- README and `delonix --help` aligned with the CLI restructuring (33 groups, categorized COMMAND MAP), with two new gates (ACH-032, ACH-033).
 
 ## [3.0.0] - 2026-09-09
 ### Removed
-- `image build|convert|import|init|ls-remote` (formas `--vm`), `sharevolume apply|describe|ls|rm|migrate`, `storage create|ls`, `pod ls` e `vm status` saem sem alias (249 → 244 folhas).
+- `image build|convert|import|init|ls-remote` (the `--vm` forms), `sharevolume apply|describe|ls|rm|migrate`, `storage create|ls`, `pod ls` and `vm status` leave without an alias (249 → 244 leaves).
 ### Added
-- `kind: Service` (ADR-0032) e `kind: App` com Cloud Native Buildpacks (ADR-0035); `image sign` (ECDSA-P256 cosign), `cluster drain`/`uncordon`/`upgrade`, `vm migrate`, `vm pause`/`unpause`, `net capture`, `pod port-forward`.
-- `docker compose` completo: `profiles:`, `extends:`, `build.target`, `deploy.replicas`, `ipv4_address`, `configs:`/`secrets:`, volumes anónimos e multi-ficheiro.
+- `kind: Service` (ADR-0032) and `kind: App` with Cloud Native Buildpacks (ADR-0035); `image sign` (ECDSA-P256 cosign), `cluster drain`/`uncordon`/`upgrade`, `vm migrate`, `vm pause`/`unpause`, `net capture`, `pod port-forward`.
+- Full `docker compose`: `profiles:`, `extends:`, `build.target`, `deploy.replicas`, `ipv4_address`, `configs:`/`secrets:`, anonymous volumes and multi-file.
 ### Fixed
-- `PodSandboxStatus` devolvia `linux: null` e nenhum `kubeadm` subia (#233); um container privilegiado levava os `masked`/`readonly paths` e derrubava o `kube-proxy` (#239).
-- O `mount(2)` truncava o `lowerdir=` acima de ~4 KB; o overlay passa para a API `fsopen`/`fsconfig`/`fsmount` (ADR-0037).
+- `PodSandboxStatus` returned `linux: null` and no `kubeadm` came up (#233); a privileged container took the `masked`/`readonly paths` and brought down `kube-proxy` (#239).
+- `mount(2)` truncated the `lowerdir=` above ~4 KB; the overlay moves to the `fsopen`/`fsconfig`/`fsmount` API (ADR-0037).
 
 ## [2.0.0] - 2026-09-02
 ### Changed
-- `image list`/`backup list` revertem para `image ls`/`backup ls` sem alias (a grafia `list` falha com `unrecognized subcommand`, rc=2); `image remove` fica.
+- `image list`/`backup list` revert to `image ls`/`backup ls` without an alias (the `list` spelling fails with `unrecognized subcommand`, rc=2); `image remove` stays.
 ### Added
-- `delonix system resources` reporta os controladores de cgroup realmente aplicáveis, a pressão PSI e achados `DLX-RES-nnn`; `system regulate` corta e repõe `cpu.weight` e `memory.high` por causa.
-- `delonix diff <kind> <name>`, `cluster health`, `cluster describe`, `system metrics`, `config get|set|unset`, `secret rotate`; `get`/`describe`/`delete` alcançam `NetworkRoute` e `NetworkPolicy`.
-- Novas colunas em `volume`/`network`/`pod`/`secret`/`image`/`container`/`cluster ls` (SIZE, USED BY, AGE, RESTARTS, ORPHAN, K8S VERSION).
+- `delonix system resources` reports the cgroup controllers that are actually applicable, the PSI pressure and `DLX-RES-nnn` findings; `system regulate` cuts and restores `cpu.weight` and `memory.high` per cause.
+- `delonix diff <kind> <name>`, `cluster health`, `cluster describe`, `system metrics`, `config get|set|unset`, `secret rotate`; `get`/`describe`/`delete` reach `NetworkRoute` and `NetworkPolicy`.
+- New columns in `volume`/`network`/`pod`/`secret`/`image`/`container`/`cluster ls` (SIZE, USED BY, AGE, RESTARTS, ORPHAN, K8S VERSION).
 ### Fixed
-- O tecto agregado passa a existir em rootless no `dlx-containers` delegado; `image remove alpine:latest` deixa de desmarcar uma imagem de que um container vivo depende.
+- The aggregate ceiling now exists in rootless on the delegated `dlx-containers`; `image remove alpine:latest` no longer unmarks an image that a live container depends on.
 
 ## [1.1.0] - 2026-08-30
 ### Added
-- `delonix-security-runtime`: o caminho de VM passa pela admissão antes de resolver/descarregar, com guardas `denyDevicePassthrough`, `denyLatestVmImage` e `allowedImageUrlHosts` (ADR-0026).
-- `delonix mcp serve|doctor|capabilities`: servidor MCP local stdio para agentes, com `confirm` explícito acima de `SAFE_WRITE`.
+- `delonix-security-runtime`: the VM path goes through admission before resolving/downloading, with the `denyDevicePassthrough`, `denyLatestVmImage` and `allowedImageUrlHosts` guards (ADR-0026).
+- `delonix mcp serve|doctor|capabilities`: a local stdio MCP server for agents, with explicit `confirm` above `SAFE_WRITE`.
 ### Security
-- As guardas de VM nascem desligadas para não partir frotas; o nó aponta a metade aberta com um lint silenciável por `DELONIX_POLICY_LINT=0`.
+- The VM guards are born disabled so as not to break fleets; the node points out the open half with a lint silenceable via `DELONIX_POLICY_LINT=0`.
 ### Fixed
-- Um `exec` logo após `run -d` podia correr no filesystem do host; corrigido esperando por `setup_rootfs`.
-- O `exec` do CRI matava por número de pid (podia ceifar outro processo); passou a `pidfd`.
-- Nove erros diziam "não existe" a coisas que existem (padrão `ENOENT` enganador); `kind: Ingress` deixa de descartar `tls[].hosts` e outros campos em silêncio.
+- An `exec` right after `run -d` could run on the host filesystem; fixed by waiting for `setup_rootfs`.
+- The CRI's `exec` killed by pid number (it could reap another process); it moved to `pidfd`.
+- Nine errors said "does not exist" about things that do exist (the misleading `ENOENT` pattern); `kind: Ingress` no longer silently discards `tls[].hosts` and other fields.
 ### Removed
-- `storage dash|inspect|rm` colapsam em `volume` (grupo não estável); `storage create|ls` ficam.
+- `storage dash|inspect|rm` collapse into `volume` (a non-stable group); `storage create|ls` stay.
 
 ## [1.0.0] - 2026-08-29
 ### Added
-- Primeira release estável: `docs/cli-stability.md` passa a ser contrato de semver.
-- Motor de containers e microVMs rootless-first e daemonless em Rust: ciclo de vida completo, pods multi-container, GPU por CDI, build com Dockerfile/Delonixfile, SDN rootless, VMs (Cloud Hypervisor/libvirt/Proxmox), `delonix-cri`, `cluster kubeadm` e infraestrutura declarativa por Kinds.
+- First stable release: `docs/cli-stability.md` becomes the semver contract.
+- Rootless-first and daemonless container and microVM engine in Rust: complete lifecycle, multi-container pods, GPU via CDI, build with Dockerfile/Delonixfile, rootless SDN, VMs (Cloud Hypervisor/libvirt/Proxmox), `delonix-cri`, `cluster kubeadm` and declarative infrastructure via Kinds.
 ### Changed
-- As superfícies públicas passam a dizer "Delonix Engine"; o nome do repositório e os doc-comments internos mantêm "Delonix Runtime".
+- The public surfaces now say "Delonix Engine"; the repository name and the internal doc-comments keep "Delonix Runtime".
 ### Removed
-- Os seis atalhos de topo `ps`, `run`, `exec`, `logs`, `rm` e `images` saem sem alias; usar `container <verbo>` e `image list`.
+- The six top-level shortcuts `ps`, `run`, `exec`, `logs`, `rm` and `images` leave without an alias; use `container <verb>` and `image list`.
 ### Fixed
-- `image rm`, prometido estável mas morto desde o B2 (passou a `image remove` sem alias), corrigido na mesma janela.
+- `image rm`, promised stable but dead since B2 (it became `image remove` without an alias), fixed in the same window.
 
 ---
 
-Versões anteriores à `v1.0.0` (linha `v0.x` de desenvolvimento) em
+Versions prior to `v1.0.0` (the `v0.x` development line) in
 `docs/releases/archive/`.
