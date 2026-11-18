@@ -6810,7 +6810,13 @@ fn egress_specs(bridge: &str, state: &EgressState) -> Vec<Vec<String>> {
         let mut v = vec![
             "insert".into(),
             "rule".into(),
-            "ip".into(),
+            // Family MUST be INGRESS_FAMILY (`inet`): the ingress table migrated
+            // from `ip` to `inet` in the IPv6 phase-4 dual-stack work, but this
+            // pure egress-rule builder was left on `ip`, so every `net egress
+            // net deny/allow/host` emitted `rule ip dlxing …` and nftables
+            // refused it ("did you mean table dlxing in family inet?") — the
+            // egress policy silently never applied.
+            INGRESS_FAMILY.into(),
             INGRESS_TABLE.into(),
             "fwdeny".into(),
             "iifname".into(),
@@ -11514,6 +11520,13 @@ Inter-|   Receive                                                |  Transmit
         let d = super::egress_specs("dlx1", &st(Some("deny"), &[]));
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].last().unwrap(), "drop");
+        // Regression guard: the rule's family MUST be INGRESS_FAMILY (`inet`),
+        // not `ip` — a literal `ip` here made nftables refuse every egress rule
+        // after the table moved to `inet` (IPv6 phase 4), and the shape-only
+        // asserts above never noticed. `insert rule <family> <table> <chain> …`.
+        assert_eq!(d[0][0], "insert");
+        assert_eq!(d[0][2], super::INGRESS_FAMILY, "egress rule family");
+        assert_eq!(d[0][3], super::INGRESS_TABLE);
         // allowlist + host COMPOSE: 2xDNS + 1 valid CIDR + @set + drop (bad CIDR skipped).
         let a = super::egress_specs(
             "dlx1",
