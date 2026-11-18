@@ -82,8 +82,39 @@ kubeadm` + `container checkpoint`/`restore`/`clone` (CRIU/nó rootful → **Part
 - **Resta:** 7 capability-SKIP (S3/VM/CRIU/recipe) + 3 SKIP de semântica (mount) —
   todos com pré-requisito nomeado, nenhum "partido" ou "desconhecido".
 
+## Partes (b)+(c) — núcleo privilegiado fechado: 19 das 21 provadas
+
+Fornecendo cada capacidade em falta (registo, S3, cluster kind+kubeadm, VM rootful,
+virt-customize), **19 das 21 folhas BLOCKED passam a provadas com efeito**:
+
+| Via | Folhas |
+|---|---|
+| Registo OCI (`registry:2`) | push, image push, login, logout, search, image search, image sign, image attestations, image provenance, vm image ls-remote/pull/push (12) |
+| S3 (`Bucket external`, registo) | `bucket ls`, `bucket inspect`, `bucket rm` (3) |
+| Cluster | `cluster kube play` (pod local), **`cluster kubeadm`** (1 CP + 2 workers VM, Cilium, 3/3 Ready) (2) |
+| Container | `container clone` (cópia, não-CRIU) (1) |
+| VM image | **`vm image build`** (virt-customize sobre golden → nova imagem) (1) |
+
+**As 2 que restam NÃO são defeitos — são roadmap declarado:** `container
+checkpoint` e `container restore` devolvem
+`error[DX-6000] unavailable: … needs CRIU, which this engine does not yet
+integrate`. O motor expõe as folhas na CLI mas di-las explicitamente
+indisponíveis (CRIU por integrar). Honesto e claro, não é um erro escondido.
+
+### Número final da superfície (366 folhas)
+- **Provado-com-efeito:** 272 (bateria) + 71 (ilusão) + 19 (capacidades b+c) =
+  **~362/366 (~98,9 %)**.
+- **Declaradas-indisponíveis (roadmap):** `container checkpoint`/`restore` (CRIU
+  por integrar, DX-6000).
+- **SKIP de semântica:** mount imperativo (`volume/container (un)mount`).
+
+**Resposta final a «funcionam todos ou é ilusão»:** ~99 % da superfície pública
+está **medida com efeito**; o resto são **2 features de roadmap que o motor
+declara abertamente** + semântica de mount. Nada «partido», nada «a fingir».
+
 ## Artefactos
 - `probe-missing.sh` — o probe da zona de ilusão.
 - `probe-capabilities.sh` (+`-results.tsv`) — o probe das capacidades (Parte b).
+- Reports de lab: `cri-conformance-0.1.2/`, `ha-multinode-0.1.2/` (Partes 2/c).
 - `probe-missing-results.tsv` — resultado por folha (PASS/SKIP/BLOCKED).
 - `probe-missing-run.log` — stdout completo da corrida.
