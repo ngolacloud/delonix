@@ -309,10 +309,10 @@ mkdir -p &quot;$DELONIX_ROOT&quot; &quot;$DELONIX_NET_RUNTIME_DIR&quot;
 <tbody>
 <tr>
 <td><code>DELONIX_EDITOR_TIMEOUT</code></td>
-<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/install.sh" target="_blank" rel="noopener"><code>scripts/install.sh</code></a>（editor-extension 那一节，<code>editor_cli</code>）</td>
-<td>安装器对一个 VS Code 系列编辑器发起的每一次调用（<code>--version</code> 探测、<code>--list-extensions</code>、<code>--install-extension</code>）的秒数上限。</td>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/install-vscode.sh" target="_blank" rel="noopener"><code>scripts/<wbr>install-vscode.<wbr>sh</code></a>（<code>editor_cli</code>）</td>
+<td>扩展安装器对一个 VS Code 系列编辑器发起的每一次调用（<code>--version</code> 探测、<code>--list-extensions</code>、<code>--install-extension</code>）的秒数上限。</td>
 <td>正整数秒；传给 <code>timeout -k 5</code>。未设置：120。</td>
-<td>这一步是尽力而为的，绝不能让引擎安装卡住：一个打开窗口而不在命令行上作答的编辑器，会在上限用尽时（退出码 124/137）带着一条警告被跳过。在一台编辑器 profile 是冷的慢速宿主机上调高它（这里测得：首次安装进一个全新 profile 要 20 秒）；<code>--no-editor-plugin</code> 会整个跳过这一步。</td>
+<td>这一步是尽力而为的，绝不能卡住：一个打开窗口而不在命令行上作答的编辑器，会在上限用尽时（退出码 124/137）带着一条警告被跳过。在一台编辑器 profile 是冷的慢速宿主机上调高它（这里测得：首次安装进一个全新 profile 要 20 秒）。扩展现在有自己的安装器——<code>install.sh</code>（仅运行时）会忽略此变量。</td>
 </tr>
 <tr>
 <td><code>DELONIX_PERF_CONF</code></td>

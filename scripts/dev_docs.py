@@ -331,11 +331,15 @@ def env_vars_in_code() -> dict[str, list[str]]:
     """Every `DELONIX_*` name the engine reads or sets, with the files it appears in.
 
     Read from string literals in Rust (`"DELONIX_X"`, `env!("DELONIX_X")`), from
-    `build.rs`, and from `scripts/install.sh`. A name only mentioned in a comment is not
+    `build.rs`, and from the installer scripts (`scripts/install.sh`,
+    `scripts/install-vscode.sh`). A name only mentioned in a comment is not
     counted — the table documents what a process actually sees, not what prose talks about.
     """
     found: dict[str, set[str]] = {}
-    sources = [p for d in ("crates", "bins") for p in (ROOT / d).rglob("*.rs")] + [ROOT / "scripts" / "install.sh"]
+    sources = [p for d in ("crates", "bins") for p in (ROOT / d).rglob("*.rs")] + [
+        ROOT / "scripts" / "install.sh",
+        ROOT / "scripts" / "install-vscode.sh",
+    ]
     for path in sources:
         rel = path.relative_to(ROOT).as_posix()
         for line in path.read_text(errors="replace").splitlines():

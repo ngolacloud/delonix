@@ -62,10 +62,16 @@ SBOM_NAME = "delonix-sbom.spdx.json"
 DEFAULT_REPO = "ngolacloud/delonix"
 
 # Assets that ride in SHA256SUMS but are NOT build-provenance subjects: the
-# signed manifest cannot attest itself, its own signature, the installer script,
+# signed manifest cannot attest itself, its own signature, the installer scripts,
 # or the editor extension (built in a separate repo). Everything else named
 # `delonix-*` is a subject the release workflow fed to attest-build-provenance.
-NOT_PROVENANCE_SUBJECTS = {SUMS_NAME, SIG_NAME, "install.sh", "delonix-vscode"}
+NOT_PROVENANCE_SUBJECTS = {
+    SUMS_NAME,
+    SIG_NAME,
+    "install.sh",
+    "install-vscode.sh",
+    "delonix-vscode",
+}
 
 
 class Result:
