@@ -56,7 +56,7 @@ mkdir -p "$DELONIX_ROOT" "$DELONIX_NET_RUNTIME_DIR"
 
 | 变量 | 读取方 | 用途 | 取值／默认 | 备注 |
 |---|---|---|---|---|
-| `DELONIX_EDITOR_TIMEOUT` | `scripts/install.sh`（editor-extension 那一节，`editor_cli`） | 安装器对一个 VS Code 系列编辑器发起的每一次调用（`--version` 探测、`--list-extensions`、`--install-extension`）的秒数上限。 | 正整数秒；传给 `timeout -k 5`。未设置：120。 | 这一步是尽力而为的，绝不能让引擎安装卡住：一个打开窗口而不在命令行上作答的编辑器，会在上限用尽时（退出码 124/137）带着一条警告被跳过。在一台编辑器 profile 是冷的慢速宿主机上调高它（这里测得：首次安装进一个全新 profile 要 20 秒）；`--no-editor-plugin` 会整个跳过这一步。 |
+| `DELONIX_EDITOR_TIMEOUT` | `scripts/install-vscode.sh`（`editor_cli`） | 扩展安装器对一个 VS Code 系列编辑器发起的每一次调用（`--version` 探测、`--list-extensions`、`--install-extension`）的秒数上限。 | 正整数秒；传给 `timeout -k 5`。未设置：120。 | 这一步是尽力而为的，绝不能卡住：一个打开窗口而不在命令行上作答的编辑器，会在上限用尽时（退出码 124/137）带着一条警告被跳过。在一台编辑器 profile 是冷的慢速宿主机上调高它（这里测得：首次安装进一个全新 profile 要 20 秒）。扩展现在有自己的安装器——`install.sh`（仅运行时）会忽略此变量。 |
 | `DELONIX_PERF_CONF` | `scripts/install.sh`（生成的 `/usr/local/sbin/delonix-performance`） | helper 读取的配置文件路径（`CPU=`/`THP=` flag）。 | 一个文件路径。未设置：`/etc/delonix/performance.conf`。 | 只用于拿一个假的 sysfs 测试这个 helper；`install.sh` 会写真正的那份。 |
 | `DELONIX_PERF_CPU` | `scripts/install.sh`（生成的 `/usr/local/sbin/delonix-performance`） | helper 读写的 CPU sysfs 树的根（governor、EPP）。 | 一个目录路径。未设置：`/sys/devices/system/cpu`。 | 指向一棵假的树，就能在不碰宿主机的情况下测试 `apply`/`revert`。 |
 | `DELONIX_PERF_STATE` | `scripts/install.sh`（生成的 `/usr/local/sbin/delonix-performance`） | helper 保存开机时数值的目录，`revert` 时会用它来恢复。 | 一个目录路径。未设置：`/var/lib/delonix-performance`。 | 跟其他几个一样，只是测试用的替代值。 |

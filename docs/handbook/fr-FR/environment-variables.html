@@ -332,10 +332,10 @@ et la façon de démonter l’infra isolée, se trouvent dans
 <tbody>
 <tr>
 <td><code>DELONIX_EDITOR_TIMEOUT</code></td>
-<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/install.sh" target="_blank" rel="noopener"><code>scripts/install.sh</code></a> (section extension-éditeur, <code>editor_cli</code>)</td>
-<td>Plafond, en secondes, de chaque appel que l’installateur fait à un éditeur de la famille VS Code (sonde <code>--version</code>, <code>--list-extensions</code>, <code>--install-extension</code>).</td>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/install-vscode.sh" target="_blank" rel="noopener"><code>scripts/<wbr>install-vscode.<wbr>sh</code></a> (<code>editor_cli</code>)</td>
+<td>Plafond, en secondes, de chaque appel que l’installateur de l’extension fait à un éditeur de la famille VS Code (sonde <code>--version</code>, <code>--list-extensions</code>, <code>--install-extension</code>).</td>
 <td>Entier positif de secondes ; passé à <code>timeout -k 5</code>. Non définie : 120.</td>
-<td>L’étape est au mieux-effort et ne doit jamais bloquer l’installation du moteur : un éditeur qui ouvre une fenêtre au lieu de répondre en CLI est sauté avec un avertissement à l’expiration du plafond (sortie 124/137). Augmentez-le sur un hôte lent avec un profil d’éditeur froid (mesuré ici : 20 s pour la première installation dans un profil neuf) ; <code>--no-editor-plugin</code> saute l’étape entièrement.</td>
+<td>L’étape est au mieux-effort et ne doit jamais bloquer : un éditeur qui ouvre une fenêtre au lieu de répondre en CLI est sauté avec un avertissement à l’expiration du plafond (sortie 124/137). Augmentez-le sur un hôte lent avec un profil d’éditeur froid (mesuré ici : 20 s pour la première installation dans un profil neuf). L’extension a désormais son propre installateur — <code>install.sh</code> (runtime uniquement) ignore cette variable.</td>
 </tr>
 <tr>
 <td><code>DELONIX_PERF_CONF</code></td>
