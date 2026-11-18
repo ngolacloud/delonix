@@ -412,7 +412,10 @@ fn cmd_monitor(interval: u64, no_stream: bool) -> Result<()> {
             .filter(|c| c.is_live())
             .filter_map(|c| c.ip.clone().map(|ip| (ip, c.name.clone())))
             .collect();
+        // `None` = unmeasured (conntrack absent, or EPERM in rootless): never
+        // folded into a real `0` — the module's "unreadable is not zero" rule.
         let conns = delonix_sdn::list_connections(&ip2name);
+        let conns_slice: &[delonix_sdn::Connection] = conns.as_deref().unwrap_or(&[]);
         if !no_stream {
             print!("\x1b[2J\x1b[H"); // clear the screen
         }
@@ -420,7 +423,10 @@ fn cmd_monitor(interval: u64, no_stream: bool) -> Result<()> {
             "delonix monitor — {} {}, {} {}\n",
             ip2name.len(),
             super::po::t("containers"),
-            conns.len(),
+            match &conns {
+                Some(c) => c.len().to_string(),
+                None => "—".to_string(),
+            },
             super::po::t("active connections (conntrack)"),
         );
         if ip2name.is_empty() {
@@ -429,12 +435,16 @@ fn cmd_monitor(interval: u64, no_stream: bool) -> Result<()> {
                 super::output::dim(super::po::t("(no running containers with a network)"))
             );
         }
-        let mut ext_in: Vec<&delonix_sdn::Connection> =
-            conns.iter().filter(|c| c.kind == "external_in").collect();
+        let mut ext_in: Vec<&delonix_sdn::Connection> = conns_slice
+            .iter()
+            .filter(|c| c.kind == "external_in")
+            .collect();
         let mut egress: Vec<&delonix_sdn::Connection> =
-            conns.iter().filter(|c| c.kind == "egress").collect();
-        let internal: Vec<&delonix_sdn::Connection> =
-            conns.iter().filter(|c| c.kind == "internal").collect();
+            conns_slice.iter().filter(|c| c.kind == "egress").collect();
+        let internal: Vec<&delonix_sdn::Connection> = conns_slice
+            .iter()
+            .filter(|c| c.kind == "internal")
+            .collect();
         ext_in.sort_by(|a, b| a.container.cmp(&b.container));
         egress.sort_by(|a, b| a.container.cmp(&b.container));
         if !ext_in.is_empty() {
@@ -466,11 +476,20 @@ fn cmd_monitor(interval: u64, no_stream: bool) -> Result<()> {
                 println!("    {} ↔ {}", c.container, c.peer);
             }
         }
-        if conns.is_empty() && !ip2name.is_empty() {
-            println!(
+        match &conns {
+            // Unmeasured is not "zero connections": say so instead of a silent
+            // empty list (rootless cannot read the host conntrack) — #809.
+            None => println!(
+                "  {}",
+                super::output::dim(super::po::t(
+                    "(connection count unmeasured — conntrack needs the host netns, which rootless cannot read)"
+                ))
+            ),
+            Some(c) if c.is_empty() && !ip2name.is_empty() => println!(
                 "  {}",
                 super::output::dim(super::po::t("(no active connections right now)"))
-            );
+            ),
+            _ => {}
         }
         if no_stream {
             return Ok(());
