@@ -486,7 +486,10 @@ fn tunnels_dir() -> PathBuf {
 }
 
 fn record_store() -> Result<JsonStore<TunnelRecord>> {
-    Ok(JsonStore::open(tunnels_dir())?)
+    Ok(JsonStore::open_with_format(
+        tunnels_dir(),
+        delonix_state::JSON_RECORD_FORMAT,
+    )?)
 }
 
 /// Tunnel names, for shell autocompletion (`cmd::complete::tunnels`).

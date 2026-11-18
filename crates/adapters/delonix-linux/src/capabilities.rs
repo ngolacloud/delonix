@@ -8,9 +8,13 @@
 //! generator-and-reader-share-the-format discipline as `fw_rule_tail` on the
 //! network side.
 
-/// The capabilities the container MAY keep (Docker's model, minus
-/// `CAP_MKNOD` — without a device cgroup, this is how we prevent access to host
-/// disks). Everything else is dropped.
+/// The capabilities the container MAY keep. This is Docker/moby's default set
+/// (`oci/defaults.go`) minus `CAP_MKNOD` — without a device cgroup, dropping MKNOD
+/// is how we prevent access to host disks. Everything else is dropped.
+///
+/// `CAP_NET_BROADCAST` is NOT in Docker's default and used to be kept here, making
+/// the set a SUPERSET of the model it claims to follow (S5). Removed to match
+/// Docker/Podman exactly; a workload that needs it asks with `--cap-add`.
 pub const KEPT_CAPS: &[u8] = &[
     0,  // CHOWN
     1,  // DAC_OVERRIDE
@@ -21,7 +25,6 @@ pub const KEPT_CAPS: &[u8] = &[
     7,  // SETUID
     8,  // SETPCAP
     10, // NET_BIND_SERVICE
-    11, // NET_BROADCAST
     13, // NET_RAW
     18, // SYS_CHROOT
     29, // AUDIT_WRITE
@@ -43,7 +46,10 @@ pub fn cap_num(name: &str) -> Option<u8> {
     } else {
         format!("CAP_{n}")
     };
-    qualified.parse::<caps::Capability>().ok().map(|c| c.index())
+    qualified
+        .parse::<caps::Capability>()
+        .ok()
+        .map(|c| c.index())
 }
 
 /// Mask with ALL capabilities supported by the kernel (`--privileged`).

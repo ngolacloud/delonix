@@ -367,6 +367,48 @@ impl Violation {
         }
     }
 
+    /// A terse, stable, English one-liner for an engine surface to put on a
+    /// gRPC `Status` or a CRI error — `<RULE-ID>: <salient data>`.
+    ///
+    /// Deliberately NOT the CLI's prose: `cmd/policy.rs::render` writes the
+    /// operator-facing sentence and translates it, and a second copy of that
+    /// wording here would be two strings to keep in step. This keys off
+    /// [`Rule::id`] (the identifier that is frozen on purpose) plus the data the
+    /// violation already carries, so the message a kubelet or an API client sees
+    /// is greppable and never drifts from the rule it names.
+    pub fn summary(&self) -> String {
+        let id = self.rule().id();
+        match self {
+            Violation::Privileged => format!("{id}: --privileged"),
+            Violation::HostNetwork => format!("{id}: host network"),
+            Violation::LatestTag { image } => format!("{id}: {image}"),
+            Violation::Registry {
+                image,
+                host,
+                allowed,
+            } => format!(
+                "{id}: {image} (registry '{host}' not in [{}])",
+                allowed.join(", ")
+            ),
+            Violation::DevicePassthrough { devices } => format!("{id}: {}", devices.join(", ")),
+            Violation::LatestVmImage { image } => format!("{id}: {image}"),
+            Violation::ImageUrlHost { url, host, allowed } => {
+                format!(
+                    "{id}: {url} (host '{host}' not in [{}])",
+                    allowed.join(", ")
+                )
+            }
+            Violation::BaselineCapabilities { caps } => format!("{id}: {}", caps.join(", ")),
+            Violation::BaselineHostNamespace { namespaces } => {
+                format!("{id}: {}", namespaces.join(", "))
+            }
+            Violation::BaselineUnconfined { profiles } => format!("{id}: {}", profiles.join(", ")),
+            Violation::BaselineHostPath { paths } => format!("{id}: {}", paths.join(", ")),
+            Violation::BaselineDevice { devices } => format!("{id}: {}", devices.join(", ")),
+            Violation::BaselineUnmasked { paths } => format!("{id}: {}", paths.join(", ")),
+        }
+    }
+
     /// How much this matters if it is real. Admission is deterministic, so
     /// confidence is always [`crate::severity::Confidence::CERTAIN`] and only
     /// this axis varies.
@@ -531,6 +573,15 @@ fn baseline(r: &Request<'_>, privileged_already: bool, v: &mut Vec<Violation>) {
     }
     if h.host_ipc {
         namespaces.push("ipc".to_string());
+    }
+    // PSS *Baseline* requires `hostNetwork=false` just as it requires
+    // `hostPID`/`hostIPC=false`. The host netns is the most dangerous of the
+    // three (host ports, services on 127.0.0.1, the whole SDN bypass), so the
+    // one-switch `workloadSecurity: baseline` must refuse it too — not leave it
+    // to the separate `deny_host_network` toggle, which is independent of the PSS
+    // level. `host_network` lives on the request itself, not in `hardening`.
+    if r.host_network {
+        namespaces.push("network".to_string());
     }
     if !namespaces.is_empty() {
         v.push(Violation::BaselineHostNamespace { namespaces });
@@ -993,6 +1044,28 @@ mod tests {
         };
         let r = Request::container("alpine:3.20", false, false).with_hardening(h);
         assert_eq!(evaluate(&baseline_only(), &r), Decision::Allow);
+    }
+
+    /// PSS *Baseline* requires `hostNetwork=false` exactly as it requires
+    /// `hostPID`/`hostIPC=false`. The one-switch `workloadSecurity: baseline`
+    /// must refuse the host netns on its own — `deny_host_network` stays off
+    /// here, so only the PSS level can catch it. Regression for the gap where
+    /// baseline checked host_pid/host_ipc but silently admitted host_network.
+    #[test]
+    fn baseline_refuses_host_network_on_its_own() {
+        let p = baseline_only();
+        assert!(
+            !p.deny_host_network,
+            "the separate toggle must be off for this test"
+        );
+        let r = Request::container("alpine:3.20", false, /*host_network*/ true);
+        let d = evaluate(&p, &r);
+        assert!(d.is_denied());
+        let named = d.violations().iter().any(|v| {
+            matches!(v, Violation::BaselineHostNamespace { namespaces }
+                if namespaces.iter().any(|n| n == "network"))
+        });
+        assert!(named, "the host-namespace violation must name 'network'");
     }
 
     #[test]

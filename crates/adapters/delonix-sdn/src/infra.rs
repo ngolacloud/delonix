@@ -345,16 +345,73 @@ pub fn runtime_dir_env() -> (&'static str, PathBuf) {
     (RUNTIME_DIR_ENV, runtime_dir())
 }
 
-/// Creates `runtime_dir` with restrictive permissions (`0700`) — defense in
-/// depth alongside the control socket's own `0600`+`SO_PEERCRED` guard.
+/// Brings `runtime_dir` into existence as OURS, `0700`, fail-closed (R4).
+///
+/// `runtime_dir` is 100%% predictable — `/tmp/delonix-net-<uid>` — and `/tmp` is
+/// world-writable, so on a multi-user host an attacker can pre-create the victim's
+/// directory under their OWN ownership. The old code did `create_dir_all` (which
+/// happily ADOPTS such a directory) followed by a `set_permissions` whose result was
+/// discarded (`let _`): the chmod then failed with `EPERM`, silently, and the control
+/// / slirp sockets were bound inside a directory the attacker owns — DoS or
+/// interception. So before trusting the path we VERIFY it is ours and tight, and
+/// refuse rather than adopt anything else.
+///
+/// Deliberately NOT moved to `$XDG_RUNTIME_DIR`/`/run/user/<uid>` (podman's choice)
+/// despite being the conventional home for this state: the holder remounts a private
+/// tmpfs over `/run`, which makes anything the parent created there invisible to the
+/// child (the whole reason `runtime_dir` lives in `/tmp` — see its doc comment). This
+/// ownership+mode check is orthogonal to that path choice and does not disturb it.
 fn ensure_runtime_dir() -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
     let dir = runtime_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| Error::Command {
+    // SAFETY: geteuid() has no preconditions.
+    let euid = unsafe { libc::geteuid() };
+    let err = |message: String| Error::Command {
         context: "runtime dir",
-        message: e.to_string(),
-    })?;
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+        message,
+    };
+    // `symlink_metadata`, never `metadata`: a symlink planted at the path must be
+    // SEEN as a symlink and refused, not silently followed to wherever it points.
+    match std::fs::symlink_metadata(&dir) {
+        Ok(md) => {
+            if md.file_type().is_symlink() || !md.is_dir() {
+                return Err(err(format!(
+                    "{} exists but is not a directory (a symlink or file at a \
+                     predictable path is a hijack attempt); refusing to use it",
+                    dir.display()
+                )));
+            }
+            if md.uid() != euid {
+                return Err(err(format!(
+                    "{} is owned by uid {}, not us ({euid}); on a shared host this is a \
+                     pre-created path an attacker controls — refusing to bind sockets in it",
+                    dir.display(),
+                    md.uid()
+                )));
+            }
+            // Ours but loose: tighten it, and — unlike before — a failure here is an
+            // ERROR, not a silent `let _`. We own it, so this normally succeeds; if it
+            // cannot, the sockets must not sit in a world-/group-reachable directory.
+            if md.permissions().mode() & 0o777 != 0o700 {
+                std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                    .map_err(|e| err(format!("tightening {} to 0700: {e}", dir.display())))?;
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Parents of an operator-supplied deep override may be missing; the leaf
+            // itself, however, is created with `create` (NOT `create_dir_all`) so it
+            // FAILS if it already exists — we never adopt a leaf we did not just make.
+            if let Some(parent) = dir.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| err(format!("creating parent of {}: {e}", dir.display())))?;
+            }
+            std::fs::DirBuilder::new()
+                .mode(0o700)
+                .create(&dir)
+                .map_err(|e| err(format!("creating {} (0700): {e}", dir.display())))?;
+        }
+        Err(e) => return Err(err(e.to_string())),
+    }
     Ok(())
 }
 fn status_path() -> PathBuf {
@@ -730,7 +787,7 @@ fn allow_holder_ingress() -> bool {
 
 /// The rules of `fwguard`, as the environment asks for them.
 fn fwguard_rules() -> Vec<String> {
-    fwguard_rules_for(allow_link_local())
+    fwguard_rules_for(allow_link_local(), ipv6_enabled())
 }
 
 /// [`fwguard_rules`] with the decision passed in. PURE — the whole policy is in the
@@ -746,14 +803,35 @@ fn fwguard_rules() -> Vec<String> {
 ///     runs with `--disable-host-loopback` (hardcoded in [`start_slirp`] and in
 ///     `crate::slirp_attach`), but that is one flag in one spawn path away from
 ///     regressing, and this costs one rule.
-fn fwguard_rules_for(allow_link_local: bool) -> Vec<String> {
+///
+/// When `ipv6` is on (the default since ADR-0082 phase 4 — `DELONIX_DISABLE_IPV6=1`
+/// is the only thing that turns it off), the SAME two destinations have v6 forms that
+/// a container reaches just as easily, and the v4 rules above do nothing for them:
+///
+///   `fd00:ec2::254` — the cloud instance's metadata/credentials endpoint over IPv6
+///     (AWS IMDS; the ULA a container routes to through the ingress). Left open it is
+///     the v6 twin of 169.254.169.254: one HTTP GET from any container to the
+///     instance's credentials, and THIS CHAIN is again the only thing refusing it.
+///   `::1` — the host's own v6 loopback, the twin of 127.0.0.0/8, blocked for the
+///     same defense-in-depth reason (slirp's `--disable-host-loopback` covers it too,
+///     but one spawn-path flag away from regressing).
+///
+/// IPv6 link-local (`fe80::/10`) is deliberately NOT refused here: it is never routed
+/// through `forward` (it is on-link, delivered locally), so a drop would be a no-op,
+/// and the anti-spoof (`dlxspoof`) is what governs a container's own link-local use.
+fn fwguard_rules_for(allow_link_local: bool, ipv6: bool) -> Vec<String> {
     if allow_link_local {
         return Vec::new();
     }
-    vec![
+    let mut rules = vec![
         "ip daddr 169.254.0.0/16 counter drop".to_string(),
         "ip daddr 127.0.0.0/8 counter drop".to_string(),
-    ]
+    ];
+    if ipv6 {
+        rules.push("ip6 daddr fd00:ec2::254 counter drop".to_string());
+        rules.push("ip6 daddr ::1 counter drop".to_string());
+    }
+    rules
 }
 
 /// The rules of `dlxinput`, as the environment asks for them.
@@ -825,13 +903,14 @@ fn indent_chain_body(rules: &[String]) -> String {
 /// twice changes nothing. Creating the chain with its hook and priority is what makes
 /// this safe to run against a table that predates either chain.
 pub fn unconditional_guards_script() -> String {
-    unconditional_guards_script_for(allow_link_local(), allow_holder_ingress())
+    unconditional_guards_script_for(allow_link_local(), allow_holder_ingress(), ipv6_enabled())
 }
 
-/// [`unconditional_guards_script`] with both decisions passed in. PURE.
+/// [`unconditional_guards_script`] with all decisions passed in. PURE.
 pub fn unconditional_guards_script_for(
     allow_link_local: bool,
     allow_holder_ingress: bool,
+    ipv6: bool,
 ) -> String {
     let t = INGRESS_TABLE;
     let mut s = String::new();
@@ -840,7 +919,7 @@ pub fn unconditional_guards_script_for(
             FWGUARD_CHAIN,
             FWGUARD_PRIORITY,
             "forward",
-            fwguard_rules_for(allow_link_local),
+            fwguard_rules_for(allow_link_local, ipv6),
         ),
         (
             DLXINPUT_CHAIN,
@@ -2487,6 +2566,25 @@ fn adopt_failed(pid: i32, why: &str) -> Error {
 
 /// Starts the **single slirp** attached to the holder's netns (`tap0`), with an api-socket
 /// for the Phase 4 `add_hostfwd`s. Waits for the `--ready-fd` before returning.
+/// Whether the installed `slirp4netns` advertises `flag` (parsed once from its
+/// `--help`). Lets us opt into hardening flags only when the binary supports them,
+/// instead of passing an unknown flag that an older build would reject.
+pub(crate) fn slirp_supports(flag: &str) -> bool {
+    static HELP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let help = HELP.get_or_init(|| {
+        std::process::Command::new("slirp4netns")
+            .arg("--help")
+            .output()
+            .map(|o| {
+                let mut s = String::from_utf8_lossy(&o.stdout).into_owned();
+                s.push_str(&String::from_utf8_lossy(&o.stderr));
+                s
+            })
+            .unwrap_or_default()
+    });
+    help.contains(flag)
+}
+
 fn start_slirp(holder_pid: i32) -> Result<()> {
     let sock = slirp_sock_path();
     let _ = std::fs::remove_file(&sock);
@@ -2513,6 +2611,17 @@ fn start_slirp(holder_pid: i32) -> Result<()> {
     ];
     if ipv6_enabled() {
         args.push("--enable-ipv6".to_string());
+    }
+    // Defence-in-depth, as podman rootless does by default: run slirp4netns in its
+    // OWN mount namespace with all caps dropped (`--enable-sandbox`) and with a
+    // seccomp filter (`--enable-seccomp`). Gated on the binary advertising each
+    // flag, because builds older than 1.1 predate them and would refuse to start —
+    // a stale slirp4netns must still bring the network up.
+    if slirp_supports("--enable-sandbox") {
+        args.push("--enable-sandbox".to_string());
+    }
+    if slirp_supports("--enable-seccomp") {
+        args.push("--enable-seccomp".to_string());
     }
     args.push(holder_pid.to_string());
     args.push("tap0".to_string());
@@ -3380,7 +3489,7 @@ fn ensure_net_bridge(bridge: &str, fallback_addr: &str) -> Result<()> {
         let plen = cidr.map(|c| c.len).unwrap_or(16);
         crate::netlink::addr_add(bridge, &format!("{gateway}/{plen}"))?; // KRN-0001
         crate::netlink::link_set_up(bridge)?; // KRN-0001: native netlink
-        // IPv6 (ULA): gateway on the bridge + v6 forwarding (best-effort).
+                                              // IPv6 (ULA): gateway on the bridge + v6 forwarding (best-effort).
         let p = prefix_of(gateway);
         run_ok(
             "ip",
@@ -3906,6 +4015,43 @@ fn v6_of(ip4: &str) -> Option<String> {
     Some(format!("fd00:{}::{}:{}", o[1], o[2], o[3]))
 }
 
+/// The IPv6 link-local address a port's interface autoconfigures from its MAC, i.e.
+/// the modified-EUI-64 derivation (RFC 4291 §2.5.1): flip the U/L bit of the first
+/// octet, insert `ff:fe` in the middle, prefix `fe80::`. Returns `None` for a MAC
+/// that is not the strict `aa:bb:cc:dd:ee:ff`.
+///
+/// This is what lets the anti-spoof pin a port's link-local as tightly as it pins its
+/// v4 source (`@src`): the MAC is already pinned (`@macs`), the kernel's default
+/// `addr_gen_mode` (EUI-64) derives the link-local from that MAC deterministically, so
+/// a port's ONLY legitimate link-local source is this one address — not all of
+/// `fe80::/10`, which would let it forge a neighbour's link-local for ND/ICMPv6 MITM
+/// (S4). Pure, so the derivation is tested without a kernel.
+fn link_local_of_mac(mac: &str) -> Option<String> {
+    if !control_mac_ok(mac) {
+        return None;
+    }
+    let mut b = [0u8; 6];
+    for (i, part) in mac.split(':').enumerate() {
+        b[i] = u8::from_str_radix(part, 16).ok()?;
+    }
+    // Modified EUI-64: flip the universal/local bit of the first octet, insert
+    // `ff:fe` between OUI and NIC. `Ipv6Addr::to_string` then renders RFC 5952
+    // canonical form (lowercase, longest zero-run compressed) — the SAME form nft
+    // stores, so the set element and the packet's source compare equal.
+    let seg = |hi: u8, lo: u8| u16::from(hi) << 8 | u16::from(lo);
+    let addr = std::net::Ipv6Addr::new(
+        0xfe80,
+        0,
+        0,
+        0,
+        seg(b[0] ^ 0x02, b[1]),
+        seg(b[2], 0xff),
+        seg(0xfe, b[3]),
+        seg(b[4], b[5]),
+    );
+    Some(addr.to_string())
+}
+
 /// `/16` prefix (`10.x`) from an IP/gateway (`10.x.y.z`).
 fn prefix_of(ip: &str) -> String {
     let o: Vec<&str> = ip.split('.').collect();
@@ -4427,11 +4573,20 @@ fn do_netrate_clear(vh: &str) {
 ///   table and steals the frames meant for another workload;
 /// - the IPv4 source, exact (`src`) or an administrator-authorised prefix
 ///   (`srcpfx`, a Kind node's own PodCIDR, a router's declared prefixes);
-/// - the ARP sender IP and sender MAC, the same two facts.
+/// - the ARP sender IP and sender MAC, the same two facts;
+/// - the IPv6 source: the ULA exact (`src6`) or an authorised prefix
+///   (`srcpfx6`), AND the link-local (`srcll6`) — the ONE `fe80::` the port's
+///   MAC autoconfigures (modified EUI-64, see `link_local_of_mac`). The link-
+///   local pin is why a MAC-pinned port can no longer forge a neighbour's
+///   `fe80::` for ND/ICMPv6 MITM: before `srcll6` the chain accepted all of
+///   `fe80::/10` from any pinned port (S4). A port with no known MAC (legacy
+///   `spoofbind … -`) has no derivable link-local and keeps the open fe80 ND
+///   rule — it has no MAC pin to anchor the derivation to anyway.
 ///
 /// DHCP from `0.0.0.0` and ARP probes from `0.0.0.0` stay allowed: a VM has
 /// no address until our DHCP server gives it one. VLAN-tagged frames from a
 /// pinned port are dropped, so a spoofed source cannot ride inside a tag.
+/// IPv6 DAD from `::` stays allowed, for the same reason as v4 DHCP.
 pub const SPOOF_TABLE: &str = "dlxspoof";
 
 /// The whole `bridge dlxspoof` table, created once per holder (see
@@ -4447,6 +4602,7 @@ fn spoof_table_script() -> String {
   set srcpfx {{ type ifname . ipv4_addr; flags interval; }}
   set src6 {{ type ifname . ipv6_addr; }}
   set srcpfx6 {{ type ifname . ipv6_addr; flags interval; }}
+  set srcll6 {{ type ifname . ipv6_addr; }}
   chain pre {{
     type filter hook prerouting priority -300; policy accept;
     iifname @macports iifname . ether saddr != @macs counter drop
@@ -4460,8 +4616,10 @@ fn spoof_table_script() -> String {
     iifname @ports ether type arp iifname . arp saddr ip @src accept
     iifname @ports ether type arp iifname . arp saddr ip @srcpfx accept
     iifname @ports ether type arp counter drop
-    iifname @ports ether type ip6 ip6 saddr fe80::/10 icmpv6 type != nd-router-advert accept
     iifname @ports ether type ip6 ip6 saddr :: accept
+    iifname @ports ether type ip6 iifname . ip6 saddr @srcll6 icmpv6 type != nd-router-advert accept
+    iifname @macports ether type ip6 ip6 saddr fe80::/10 counter drop
+    iifname @ports ether type ip6 ip6 saddr fe80::/10 icmpv6 type != nd-router-advert accept
     iifname @ports ether type ip6 iifname . ip6 saddr @src6 accept
     iifname @ports ether type ip6 iifname . ip6 saddr @srcpfx6 accept
     iifname @ports ether type ip6 counter drop
@@ -4543,7 +4701,7 @@ fn spoof_elements_of(json: &str, port: &str) -> Vec<String> {
 /// workload on that name to the previous one's address.
 fn spoof_forget(port: &str) {
     for set in [
-        "ports", "macports", "macs", "src", "srcpfx", "src6", "srcpfx6",
+        "ports", "macports", "macs", "src", "srcpfx", "src6", "srcpfx6", "srcll6",
     ] {
         let listed = crate::capture("nft", &["-j", "list", "set", "bridge", SPOOF_TABLE, set])
             .unwrap_or_default();
@@ -4588,6 +4746,15 @@ fn spoof_bind(port: &str, ip: &str, mac: Option<&str>) -> Result<()> {
     // best-effort transaction on purpose: a `dlxspoof` table built before phase 4 has
     // no `src6`, and this must fail harmlessly there rather than abort the v4 bind
     // above — such a holder has v6 off anyway, so nothing passes the v6 `drop`.
+    //
+    // The port's OWN link-local is pinned too (S4): derived from the pinned MAC via
+    // modified EUI-64 (`link_local_of_mac`), it is the single `fe80::` source the
+    // anti-spoof then accepts for this port — the v6 analogue of `@src`. Without it the
+    // chain accepted all of `fe80::/10` from any pinned port, so a container could forge
+    // a neighbour's link-local and MITM east-west v6 (ND/ICMPv6) while keeping its own
+    // (pinned) MAC. Same best-effort reasoning as `src6`: a pre-upgrade table has no
+    // `srcll6` and must not abort the v4 bind; such a holder keeps the older (open)
+    // fe80 rule, which this closes only for tables built with the new script.
     if ipv6_enabled() {
         if let Some(ula) = v6_of(ip) {
             run_ok(
@@ -4599,6 +4766,19 @@ fn spoof_bind(port: &str, ip: &str, mac: Option<&str>) -> Result<()> {
                     SPOOF_TABLE,
                     "src6",
                     &format!("{{ \"{port}\" . {ula} }}"),
+                ],
+            );
+        }
+        if let Some(ll) = mac.and_then(link_local_of_mac) {
+            run_ok(
+                "nft",
+                &[
+                    "add",
+                    "element",
+                    "bridge",
+                    SPOOF_TABLE,
+                    "srcll6",
+                    &format!("{{ \"{port}\" . {ll} }}"),
                 ],
             );
         }
@@ -5648,19 +5828,30 @@ fn workload_route_inputs() -> (Vec<(String, String)>, Vec<crate::route_plan::Net
 /// there and this one container cannot use it» is otherwise invisible.
 fn sync_workload_routes(netns: &str, pairs: &[(String, String)], nets: &[crate::route_plan::Net]) {
     use crate::route_plan::{self, WORKLOAD_ROUTE_PROTO};
+    // The ADDRESS family read (which interfaces the workload has) and the DEFAULT
+    // route read stay on the `ip` CLI. KRN-0001 fatia 5 migrates the part that
+    // was text-parsing + per-route shelling-out: the ROUTE family's
+    // query→diff→mutate of OUR proto-<id> routes, now typed netlink
+    // (RTM_GETROUTE/NEWROUTE/DELROUTE) run INSIDE the workload's netns.
     let in_ns = |args: &[&str]| {
         let mut argv = vec!["netns", "exec", netns];
         argv.extend_from_slice(args);
         crate::capture("ip", &argv).unwrap_or_default()
     };
     let ifaces = route_plan::parse_ifaces(&in_ns(&["ip", "-o", "-4", "addr", "show"]));
-    let current = route_plan::parse_route_dests(&in_ns(&[
-        "ip",
-        "route",
-        "show",
-        "proto",
-        WORKLOAD_ROUTE_PROTO,
-    ]));
+    let netns_path = crate::cni::named_netns_path(netns);
+    // Our routes are marked with a private routing protocol; `WORKLOAD_ROUTE_PROTO`
+    // is always a valid u8 ("118") — the 0 fallback would be RTPROT_UNSPEC and is
+    // unreachable, kept only so the parse has no `unwrap`.
+    let proto: u8 = WORKLOAD_ROUTE_PROTO.parse().unwrap_or(0);
+    // The current proto-<id> routes, read over netlink instead of
+    // `ip route show proto <id>`. A read error is logged and treated as "nothing
+    // of ours in the table" — the same best-effort default the CLI
+    // `unwrap_or_default` gave, so one unreadable workload never fails the route.
+    let current = crate::netlink::route_list_proto(&netns_path, proto).unwrap_or_else(|e| {
+        tracing::warn!(netns, error = %e, "could not read workload routes over netlink");
+        Vec::new()
+    });
     // One interface and nothing of ours in the table: the common case, and
     // nothing to compute.
     if ifaces.len() < 2 && current.is_empty() {
@@ -5668,52 +5859,77 @@ fn sync_workload_routes(netns: &str, pairs: &[(String, String)], nets: &[crate::
     }
     let default_dev = route_plan::parse_default_dev(&in_ns(&["ip", "route", "show", "default"]));
     let wanted = route_plan::plan(&ifaces, default_dev.as_deref(), pairs, nets);
-    for gone in current
-        .iter()
-        .filter(|c| !wanted.iter().any(|w| w.dest == **c))
-    {
-        let dest = gone.to_string_cidr();
-        if run(
-            "ip",
-            &[
-                "netns",
-                "exec",
-                netns,
-                "ip",
-                "route",
-                "del",
-                &dest,
-                "proto",
-                WORKLOAD_ROUTE_PROTO,
-            ],
-        )
-        .is_err()
-        {
+    for gone in routes_to_remove(&current, &wanted) {
+        if crate::netlink::route_del_proto(&netns_path, gone, proto).is_err() {
+            let dest = gone.to_string_cidr();
             tracing::warn!(netns, dest, "could not remove a workload route");
         }
     }
     for r in &wanted {
-        let dest = r.dest.to_string_cidr();
-        if let Err(e) = run(
-            "ip",
-            &[
-                "netns",
-                "exec",
-                netns,
-                "ip",
-                "route",
-                "replace",
-                &dest,
-                "via",
-                &r.via,
-                "dev",
-                &r.dev,
-                "proto",
-                WORKLOAD_ROUTE_PROTO,
-            ],
-        ) {
+        if let Err(e) = crate::netlink::route_replace(&netns_path, r.dest, &r.via, &r.dev, proto) {
+            let dest = r.dest.to_string_cidr();
             tracing::warn!(netns, dest, dev = r.dev, error = %e, "could not install a workload route: this workload cannot use the network route");
         }
+    }
+}
+
+/// The routes to REMOVE from a workload's table: the ones this engine currently
+/// has installed (`current`, the proto-<id> destinations read from the table)
+/// that the desired plan (`wanted`) no longer calls for. Pure on purpose — the
+/// idempotent diff is asserted in a unit test instead of only observed live.
+fn routes_to_remove(
+    current: &[crate::Cidr],
+    wanted: &[crate::route_plan::WorkloadRoute],
+) -> Vec<crate::Cidr> {
+    current
+        .iter()
+        .filter(|c| !wanted.iter().any(|w| w.dest == **c))
+        .copied()
+        .collect()
+}
+
+#[cfg(test)]
+mod tests_workload_route_diff {
+    use super::routes_to_remove;
+    use crate::route_plan::WorkloadRoute;
+    use crate::Cidr;
+
+    fn cidr(s: &str) -> Cidr {
+        Cidr::parse(s).unwrap()
+    }
+
+    fn want(dest: &str) -> WorkloadRoute {
+        WorkloadRoute {
+            dest: cidr(dest),
+            via: "10.81.0.1".into(),
+            dev: "eth1".into(),
+        }
+    }
+
+    /// KRN-0001 fatia 5: the diff that drives the typed RTM_DELROUTE. A route
+    /// still wanted is kept; a route no longer in the plan is removed; and a plan
+    /// unchanged against the table removes nothing — the idempotency `ip route
+    /// replace` gave, now asserted without the kernel.
+    #[test]
+    fn removes_only_what_the_plan_dropped() {
+        let current = [cidr("10.82.0.0/16"), cidr("10.83.0.0/16")];
+        // 10.82 still wanted, 10.83 dropped → only 10.83 is removed.
+        let wanted = [want("10.82.0.0/16")];
+        assert_eq!(
+            routes_to_remove(&current, &wanted),
+            vec![cidr("10.83.0.0/16")]
+        );
+
+        // Table already matches the plan → nothing to remove (idempotent pass).
+        assert!(
+            routes_to_remove(&current, &[want("10.82.0.0/16"), want("10.83.0.0/16")]).is_empty()
+        );
+
+        // Empty table → nothing to remove regardless of the plan.
+        assert!(routes_to_remove(&[], &wanted).is_empty());
+
+        // Plan emptied (every route closed) → the whole table is removed.
+        assert_eq!(routes_to_remove(&current, &[]), current.to_vec());
     }
 }
 
@@ -11169,14 +11385,17 @@ Inter-|   Receive                                                |  Transmit
         assert!(rs.contains("oifname \"tap0\" masquerade"));
     }
 
-    /// ADR-0082 phase 3: the holder's firewall is ONE `inet` table that carries both
-    /// families. The v4 side is exactly what it was — a dual-stack table matches v4
-    /// packets with the same `ip saddr`/`ipv4_addr` rules an `ip` table did — and the
-    /// v6 side is PRESENT but EMPTY: its sets declared with no elements and its
-    /// dispatch inert, so the table is ready for phase 4 without governing a single v6
-    /// packet yet (the v6 refusal, `ingress_v6_refusal_ruleset`, still drops them all).
+    /// ADR-0082: the holder's firewall is ONE `inet` table that carries both families.
+    /// The v4 side is exactly what it was — a dual-stack table matches v4 packets with
+    /// the same `ip saddr`/`ipv4_addr` rules an `ip` table did — and the per-container
+    /// v6 GOVERNANCE sets/maps are PRESENT but start EMPTY: declared with no elements,
+    /// filled per container via `add element`. The only v6 ADDRESSES in the base table
+    /// are the unconditional fwguard denials (metadata/loopback), which phase 4 added
+    /// for the same reason their v4 twins exist (S2). Pins v6 ON for determinism.
     #[test]
     fn the_ingress_table_is_dual_family_with_an_empty_v6_side() {
+        let mut env = crate::testenv::lock();
+        env.unset("DELONIX_DISABLE_IPV6"); // v6 on (the default) — makes the guard deterministic
         let rs = ingress_table_ruleset();
         // One `inet` table, not the old v4-only `table ip`.
         assert!(
@@ -11213,9 +11432,16 @@ Inter-|   Receive                                                |  Transmit
             !rs.contains("elements"),
             "the base ruleset seeds no set: {rs}"
         );
+        // The per-container v6 GOVERNANCE writes no address (no ULA seeded as a source):
+        // those arrive per container via `add element`.
+        assert!(!rs.contains("fd00:1"), "no container ULA is seeded: {rs}");
+        // The ONLY v6 addresses present are the UNCONDITIONAL fwguard denials (S2): with
+        // v6 on by default (ADR-0082 phase 4), the metadata/credentials endpoint and the
+        // host loopback have v6 twins the v4-only guard never covered.
         assert!(
-            !rs.contains("fd00:") && !rs.contains("::"),
-            "no v6 address is written into the ruleset: {rs}"
+            rs.contains("ip6 daddr fd00:ec2::254 counter drop")
+                && rs.contains("ip6 daddr ::1 counter drop"),
+            "the fwguard must carry the v6 metadata/loopback denials: {rs}"
         );
         // Neither family's dispatch shares a forward-hook priority with the other:
         // equal priorities have no defined order between chains.
@@ -12036,8 +12262,10 @@ Inter-|   Receive                                                |  Transmit
     /// hatch left cannot survive), and renders the denials when the hatch is off.
     #[test]
     fn the_guard_script_repairs_a_chain_a_hatch_emptied() {
-        // The repairing direction: no hatch set → both denials come back.
-        let strong = unconditional_guards_script_for(false, false);
+        // The repairing direction: no hatch set → both denials come back. v6 off here,
+        // so this stays a pure v4-shape assertion; the v6 denials are covered by their
+        // own test (`the_guard_refuses_v6_metadata_and_loopback_when_v6_is_on`).
+        let strong = unconditional_guards_script_for(false, false, false);
         for chain in [FWGUARD_CHAIN, DLXINPUT_CHAIN] {
             let add = strong
                 .find(&format!(
@@ -12084,14 +12312,14 @@ Inter-|   Receive                                                |  Transmit
         // The weakening direction, so the hatch is still a hatch: each one empties ONLY
         // its own chain, and the flush is still there — which is what lets the next
         // invocation without it put the denial back.
-        let no_link_local = unconditional_guards_script_for(true, false);
+        let no_link_local = unconditional_guards_script_for(true, false, false);
         assert!(!no_link_local.contains("169.254.0.0/16"), "{no_link_local}");
         assert!(
             no_link_local.contains("ct state new counter drop"),
             "DELONIX_ALLOW_LINK_LOCAL must not touch the holder's own-services denial: \
              {no_link_local}"
         );
-        let no_holder_input = unconditional_guards_script_for(false, true);
+        let no_holder_input = unconditional_guards_script_for(false, true, false);
         assert!(
             !no_holder_input.contains("ct state new counter drop"),
             "{no_holder_input}"
@@ -12115,8 +12343,45 @@ Inter-|   Receive                                                |  Transmit
         }
         // Idempotent in the sense the reconciler relies on: same inputs, same script,
         // so the per-pin stamp is stable and the common call does no `nft` work.
-        assert_eq!(strong, unconditional_guards_script_for(false, false));
+        assert_eq!(strong, unconditional_guards_script_for(false, false, false));
         assert_ne!(script_stamp(&strong), script_stamp(&no_link_local));
+    }
+
+    /// S2 — with IPv6 on by default (ADR-0082 phase 4), the metadata/credentials
+    /// endpoint and the host loopback have v6 twins that the v4-only denials never
+    /// touched. A container on a v6-capable cloud host would reach `fd00:ec2::254`
+    /// (AWS IMDS) and `::1`, bypassing the single chain that refuses their v4 forms.
+    /// So the guard must render the v6 drops when v6 is on, and ONLY then.
+    #[test]
+    fn the_guard_refuses_v6_metadata_and_loopback_when_v6_is_on() {
+        let v6_on = unconditional_guards_script_for(false, false, true);
+        for denial in [
+            "ip6 daddr fd00:ec2::254 counter drop",
+            "ip6 daddr ::1 counter drop",
+        ] {
+            assert!(
+                v6_on.contains(denial),
+                "v6 on must refuse `{denial}`: {v6_on}"
+            );
+        }
+        // The v4 denials are unconditional — present in both directions.
+        assert!(v6_on.contains("ip daddr 169.254.0.0/16 counter drop"));
+
+        // v6 off: no ip6 refusal is emitted (there is nothing to filter — the v6
+        // refusal table + per-netns disable take over, see `ipv6_enabled`).
+        let v6_off = unconditional_guards_script_for(false, false, false);
+        assert!(
+            !v6_off.contains("ip6 daddr"),
+            "v6 off must emit no ip6 rule: {v6_off}"
+        );
+        // Still a v4 guard, unchanged.
+        assert!(v6_off.contains("ip daddr 169.254.0.0/16 counter drop"));
+
+        // The escape hatch drops BOTH families: `DELONIX_ALLOW_LINK_LOCAL=1` is the
+        // single switch for metadata/loopback, v4 and v6 alike.
+        let hatch = unconditional_guards_script_for(true, false, true);
+        assert!(!hatch.contains("ip6 daddr"), "{hatch}");
+        assert!(!hatch.contains("169.254.0.0/16"), "{hatch}");
     }
 
     /// The base ruleset and the reconciler must render the SAME rules, or a node
@@ -12398,11 +12663,12 @@ Inter-|   Receive                                                |  Transmit
     }
 
     /// `nft` accepts the dual-stack anti-spoof table — the v6 rules in particular,
-    /// where the syntax is subtle: ICMPv6 ND from link-local is allowed (a container
-    /// must do neighbour discovery) EXCEPT `nd-router-advert` (so it cannot pose as
-    /// the gateway), DAD from `::` is allowed, the container's own ULA via `@src6`,
-    /// and every other v6 source is dropped. Needs `nft` + `unshare -rn`; skips where
-    /// the runner blocks the user namespace.
+    /// where the syntax is subtle: ICMPv6 ND from the port's OWN link-local (`@srcll6`,
+    /// a MAC-pinned port's one EUI-64 `fe80::`) is allowed EXCEPT `nd-router-advert`
+    /// (so it cannot pose as the gateway); a MAC-pinned port's ANY-OTHER `fe80::` is
+    /// dropped (S4); DAD from `::` is allowed, the container's own ULA via `@src6`, and
+    /// every other v6 source is dropped. Needs `nft` + `unshare -rn`; skips where the
+    /// runner blocks the user namespace.
     #[test]
     fn nft_accepts_the_dual_stack_spoof_table() {
         let probe = std::process::Command::new("unshare")
@@ -12984,6 +13250,70 @@ Inter-|   Receive                                                |  Transmit
         );
     }
 
+    /// R4 — `ensure_runtime_dir` must not ADOPT a predictable path an attacker can
+    /// pre-create on a shared host. It makes the dir `0700` when fresh, tightens it if
+    /// it is ours but loose, and REFUSES anything that is not a directory we own (a
+    /// planted symlink is the realistic hijack primitive, and the one we can simulate
+    /// without a second uid). The old code did `create_dir_all` + a discarded
+    /// `set_permissions`, which adopted the attacker's directory silently.
+    #[test]
+    fn ensure_runtime_dir_is_fail_closed_on_a_hijacked_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tempfile::tempdir().expect("base");
+        let mut env = crate::testenv::lock();
+
+        // 1) Fresh path: created, and created 0700 — not inheriting the umask.
+        let fresh = base.path().join("fresh");
+        env.set(RUNTIME_DIR_ENV, &fresh);
+        ensure_runtime_dir().expect("fresh dir created");
+        let mode = std::fs::symlink_metadata(&fresh)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700, "fresh runtime dir must be 0700, got {mode:o}");
+
+        // 2) Ours but loose (world-writable): tightened to 0700, and the result of
+        //    the chmod is now CHECKED — the old `let _` hid exactly this.
+        let loose = base.path().join("loose");
+        std::fs::create_dir(&loose).unwrap();
+        std::fs::set_permissions(&loose, std::fs::Permissions::from_mode(0o777)).unwrap();
+        env.set(RUNTIME_DIR_ENV, &loose);
+        ensure_runtime_dir().expect("loose-but-ours dir accepted");
+        let mode = std::fs::symlink_metadata(&loose)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o700,
+            "a loose dir we own must be tightened, got {mode:o}"
+        );
+
+        // 3) A symlink planted at the predictable path is REFUSED, never followed —
+        //    fail-closed, so the sockets never land wherever the link points.
+        let target = base.path().join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        let planted = base.path().join("planted");
+        std::os::unix::fs::symlink(&target, &planted).unwrap();
+        env.set(RUNTIME_DIR_ENV, &planted);
+        assert!(
+            ensure_runtime_dir().is_err(),
+            "a symlink at the runtime-dir path must be refused, not followed"
+        );
+
+        // 4) A plain file squatting the path is refused too (not a directory).
+        let file = base.path().join("squat");
+        std::fs::write(&file, b"x").unwrap();
+        env.set(RUNTIME_DIR_ENV, &file);
+        assert!(
+            ensure_runtime_dir().is_err(),
+            "a file at the runtime-dir path must be refused"
+        );
+
+        env.unset(RUNTIME_DIR_ENV);
+    }
+
     /// BUG FIXED: DNS resolution used to do a full directory scan + JSON parse
     /// PER QUERY. These lock in the pieces extracted so that scan can be done
     /// once per refresh interval (`build_dns_index`) instead of once per query
@@ -13155,6 +13485,62 @@ Inter-|   Receive                                                |  Transmit
             "a tagged frame must not carry a spoofed source past the check"
         );
         assert!(t.starts_with(&format!("table bridge {}", super::SPOOF_TABLE)));
+    }
+
+    /// S4 — the v6 anti-spoof must pin a port's link-local as tightly as the v4 source.
+    /// The dangerous shape (fixed) accepted ALL of `fe80::/10` from any pinned port, so
+    /// a container could forge a neighbour's link-local for ND/ICMPv6 MITM while keeping
+    /// its own (pinned) MAC. The table must now: declare a per-port `srcll6` set; accept
+    /// a port's OWN link-local ND via `@srcll6` (still barring `nd-router-advert`); and
+    /// DROP any other `fe80::` from a MAC-pinned port BEFORE the (legacy) open fe80 rule
+    /// could accept it — so the open rule only ever serves ports with no known MAC.
+    #[test]
+    fn the_v6_antispoof_pins_link_local_per_port() {
+        let t = super::spoof_table_script();
+        let at = |needle: &str| {
+            t.find(needle)
+                .unwrap_or_else(|| panic!("missing: {needle}"))
+        };
+        // A dedicated per-port link-local set exists (the v6 twin of `@src`).
+        assert!(t.contains("set srcll6 { type ifname . ipv6_addr; }"), "{t}");
+        // Own link-local ND is accepted only through that set, RA still barred.
+        let own_ll =
+            at("iifname @ports ether type ip6 iifname . ip6 saddr @srcll6 icmpv6 type != nd-router-advert accept");
+        // A MAC-pinned port's any-other link-local is dropped...
+        let macport_drop = at("iifname @macports ether type ip6 ip6 saddr fe80::/10 counter drop");
+        // ...and that drop sits BEFORE the open fe80 ND accept, which therefore only
+        // reaches ports that are NOT MAC-pinned (legacy `spoofbind … -`).
+        let open_ll =
+            at("iifname @ports ether type ip6 ip6 saddr fe80::/10 icmpv6 type != nd-router-advert accept");
+        assert!(
+            own_ll < macport_drop && macport_drop < open_ll,
+            "own-LL accept must precede the MAC-pinned drop, which must precede the \
+             legacy open-LL accept, or the hole stays open: {t}"
+        );
+        // The blanket `fe80::/10 ... accept` that was keyed on @ports (every pinned
+        // port) must no longer be the FIRST fe80 rule — i.e. a MAC-pinned port can
+        // never reach an unrestricted accept.
+        assert!(macport_drop < open_ll, "{t}");
+    }
+
+    /// S4 — the modified-EUI-64 derivation that anchors `@srcll6` to a port's MAC.
+    /// RFC 4291 §2.5.1: flip the U/L bit of the first octet, insert `ff:fe`, prefix
+    /// `fe80::`, and emit nft's canonical (leading-zeros-stripped) form.
+    #[test]
+    fn link_local_is_derived_from_the_mac() {
+        // 52 ^ 02 = 50; insert ff:fe; group into hextets with zeros stripped.
+        assert_eq!(
+            super::link_local_of_mac("52:54:00:aa:bb:cc").as_deref(),
+            Some("fe80::5054:ff:feaa:bbcc")
+        );
+        // A MAC with the U/L bit already set flips back to 0 (00 -> 02).
+        assert_eq!(
+            super::link_local_of_mac("02:00:00:00:00:01").as_deref(),
+            Some("fe80::ff:fe00:1")
+        );
+        // Not a strict `aa:bb:cc:dd:ee:ff` -> no derivation (fail-closed, no element).
+        assert!(super::link_local_of_mac("-").is_none());
+        assert!(super::link_local_of_mac("52:54:00:aa:bb").is_none());
     }
 
     #[test]

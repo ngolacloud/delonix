@@ -21,6 +21,11 @@ ignore = [
     # sair: a migração (o advisory sugere `serde-saphyr`) toca todos os parsers de
     # manifesto e é trabalho próprio, não um bump. Nossa a fechar.
     "RUSTSEC-2024-0449",
+    # chrono não mantido (anunciado 2026) — TRANSITIVO, nenhum crate nosso o usa
+    # directamente: entra via `schemars` (JSON Schema dos manifestos), `pbjson-types`
+    # (JSON do node-API gRPC) e `rmcp` (MCP). Unmaintained, não CVE. Sem acção do
+    # nosso lado até esses upstreams o largarem; sai quando saírem.
+    "RUSTSEC-2026-0543",
 ]
 
 [licenses]
