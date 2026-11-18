@@ -163,7 +163,10 @@ impl ImageStore {
         }
         // Rootless (A13): without privileges, root's store (`/var/lib/delonix`)
         // is not writable → use the user's one (`$XDG_DATA_HOME/delonix`).
-        if !nix::unistd::geteuid().is_root() {
+        // `is_rootless()` (not `geteuid()==0`) so a NESTED user namespace — euid 0
+        // but no write to `/var/lib/delonix` — also lands in the user's store,
+        // consistent with `ContainerStore::default_root`.
+        if delonix_node::is_rootless() {
             let base = std::env::var_os("XDG_DATA_HOME")
                 .map(PathBuf::from)
                 .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))

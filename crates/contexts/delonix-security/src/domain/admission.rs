@@ -532,6 +532,15 @@ fn baseline(r: &Request<'_>, privileged_already: bool, v: &mut Vec<Violation>) {
     if h.host_ipc {
         namespaces.push("ipc".to_string());
     }
+    // PSS *Baseline* requires `hostNetwork=false` just as it requires
+    // `hostPID`/`hostIPC=false`. The host netns is the most dangerous of the
+    // three (host ports, services on 127.0.0.1, the whole SDN bypass), so the
+    // one-switch `workloadSecurity: baseline` must refuse it too — not leave it
+    // to the separate `deny_host_network` toggle, which is independent of the PSS
+    // level. `host_network` lives on the request itself, not in `hardening`.
+    if r.host_network {
+        namespaces.push("network".to_string());
+    }
     if !namespaces.is_empty() {
         v.push(Violation::BaselineHostNamespace { namespaces });
     }
@@ -993,6 +1002,25 @@ mod tests {
         };
         let r = Request::container("alpine:3.20", false, false).with_hardening(h);
         assert_eq!(evaluate(&baseline_only(), &r), Decision::Allow);
+    }
+
+    /// PSS *Baseline* requires `hostNetwork=false` exactly as it requires
+    /// `hostPID`/`hostIPC=false`. The one-switch `workloadSecurity: baseline`
+    /// must refuse the host netns on its own — `deny_host_network` stays off
+    /// here, so only the PSS level can catch it. Regression for the gap where
+    /// baseline checked host_pid/host_ipc but silently admitted host_network.
+    #[test]
+    fn baseline_refuses_host_network_on_its_own() {
+        let p = baseline_only();
+        assert!(!p.deny_host_network, "the separate toggle must be off for this test");
+        let r = Request::container("alpine:3.20", false, /*host_network*/ true);
+        let d = evaluate(&p, &r);
+        assert!(d.is_denied());
+        let named = d.violations().iter().any(|v| {
+            matches!(v, Violation::BaselineHostNamespace { namespaces }
+                if namespaces.iter().any(|n| n == "network"))
+        });
+        assert!(named, "the host-namespace violation must name 'network'");
     }
 
     #[test]

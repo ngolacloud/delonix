@@ -263,7 +263,35 @@ fn systemd_restart(policy: &str) -> &'static str {
     }
 }
 
+/// The unit stem for a workload, unique per `(namespace, name)`. The `default`
+/// namespace keeps the bare name — so existing units and the single-tenant case
+/// are byte-for-byte unchanged — while any other tenant is qualified with its
+/// namespace. Without this, two tenants that both name a container `db` generated
+/// the SAME `delonix-boot-db.service`: the second write silently clobbered the
+/// first, and `ExecStart=… container start db` then resolved ambiguously and the
+/// unit failed at boot — so BOTH tenants' `--restart always` containers were lost
+/// across a reboot, exactly the multi-tenant guarantee the units exist to give.
+fn boot_stem(namespace: &str, name: &str) -> String {
+    if namespace == delonix_model::records::default_namespace() {
+        name.to_string()
+    } else {
+        format!("{namespace}-{name}")
+    }
+}
+
+/// The `start`/`stop` target for a unit's `ExecStart`/`ExecStop`:
+/// namespace-qualified (`-n <ns> <name>`) for non-default tenants so it resolves
+/// EXACTLY one workload, bare for the default namespace (unchanged).
+fn start_target(namespace: &str, name: &str) -> String {
+    if namespace == delonix_model::records::default_namespace() {
+        name.to_string()
+    } else {
+        format!("-n {namespace} {name}")
+    }
+}
+
 fn container_unit(
+    namespace: &str,
     name: &str,
     rp: &str,
     root: &str,
@@ -271,6 +299,7 @@ fn container_unit(
     wanted_by: &str,
     anchor: Option<&str>,
 ) -> String {
+    let target = start_target(namespace, name);
     // Members of a POD are ordered behind the first one, and that is not
     // tidiness: they SHARE a network namespace, and whoever starts first is who
     // recreates it (`cmd_start` re-enters it if the holder still serves it, and
@@ -286,7 +315,7 @@ fn container_unit(
     format!(
         "[Unit]\nDescription=Delonix container {name}\nAfter=network-online.target\nWants=network-online.target\n{ordering}\n\
          [Service]\nType=forking\nRestart={sr}\nTimeoutStopSec=15\nEnvironment=DELONIX_INTERNAL=1\nEnvironment=DELONIX_ROOT={root}\n\
-         ExecStart={exe} container start {name}\nExecStop={exe} container stop {name}\n\n\
+         ExecStart={exe} container start {target}\nExecStop={exe} container stop {target}\n\n\
          [Install]\nWantedBy={wanted_by}\n",
     )
 }
@@ -303,15 +332,16 @@ fn container_unit(
 /// VMM is up (the guest boots on its own time) and there is no host process for
 /// systemd to follow — the backend owns it. Claiming otherwise would have
 /// systemd hunting for a main PID that is not there.
-fn vm_unit(name: &str, rp: &str, root: &str, exe: &str, wanted_by: &str) -> String {
+fn vm_unit(namespace: &str, name: &str, rp: &str, root: &str, exe: &str, wanted_by: &str) -> String {
     // `Type=oneshot` + `RemainAfterExit=yes`: a `Restart=` other than `no` is
     // meaningless for a oneshot that stays "active" — but map it to a valid
     // specifier anyway so systemd never logs a parse error and drops it.
     let sr = systemd_restart(rp);
+    let target = start_target(namespace, name);
     format!(
         "[Unit]\nDescription=Delonix VM {name}\nAfter=network-online.target\nWants=network-online.target\n\n\
          [Service]\nType=oneshot\nRemainAfterExit=yes\nRestart={sr}\nTimeoutStopSec=60\nEnvironment=DELONIX_INTERNAL=1\nEnvironment=DELONIX_ROOT={root}\n\
-         ExecStart={exe} vm start {name}\nExecStop={exe} vm stop {name}\n\n\
+         ExecStart={exe} vm start {target}\nExecStop={exe} vm stop {target}\n\n\
          [Install]\nWantedBy={wanted_by}\n",
     )
 }
@@ -387,15 +417,17 @@ fn enable(
             Some(explicit) => explicit.to_string(),
             None => c.restart_policy.as_deref().unwrap_or("always").to_string(),
         };
-        // A âncora do próprio pod nunca depende de si mesma.
+        // A âncora do próprio pod nunca depende de si mesma. O primeiro membro
+        // vive no MESMO namespace que `c` (um pod não cruza tenants), por isso o
+        // nome da unit da âncora usa o mesmo `boot_stem` qualificado por namespace.
         let anchor = c
             .labels
             .get(super::pod::POD_LABEL)
             .and_then(|p| anchors.get(p))
             .filter(|first| **first != c.name)
-            .map(|first| format!("{UNIT_PREFIX}{first}.service"));
-        let unit = container_unit(&c.name, &rp, root, exe, wanted_by, anchor.as_deref());
-        let unit_name = format!("{UNIT_PREFIX}{}.service", c.name);
+            .map(|first| format!("{UNIT_PREFIX}{}.service", boot_stem(&c.namespace, first)));
+        let unit = container_unit(&c.namespace, &c.name, &rp, root, exe, wanted_by, anchor.as_deref());
+        let unit_name = format!("{UNIT_PREFIX}{}.service", boot_stem(&c.namespace, &c.name));
         std::fs::write(unit_dir.join(&unit_name), unit)?;
         installed.push(unit_name);
     }
@@ -412,10 +444,10 @@ fn enable(
             Some(explicit) => explicit.to_string(),
             None => vm.restart_policy.as_deref().unwrap_or("always").to_string(),
         };
-        let unit_name = format!("{UNIT_PREFIX}vm-{}.service", vm.name);
+        let unit_name = format!("{UNIT_PREFIX}vm-{}.service", boot_stem(&vm.namespace, &vm.name));
         std::fs::write(
             unit_dir.join(&unit_name),
-            vm_unit(&vm.name, &rp, root, exe, wanted_by),
+            vm_unit(&vm.namespace, &vm.name, &rp, root, exe, wanted_by),
         )?;
         installed.push(unit_name);
     }
@@ -493,7 +525,7 @@ mod tests {
         assert_eq!(systemd_restart("no"), "no");
         assert_eq!(systemd_restart("garbage"), "no"); // safe default
                                                       // The generated unit must never carry the Delonix-only strings.
-        let u = container_unit("c", "unless-stopped", "/r", "/b", "multi-user.target", None);
+        let u = container_unit("default", "c", "unless-stopped", "/r", "/b", "multi-user.target", None);
         assert!(u.contains("Restart=always"), "{u}");
         assert!(!u.contains("Restart=unless-stopped"), "{u}");
     }
@@ -529,6 +561,7 @@ mod tests {
     #[test]
     fn a_politica_pedida_e_a_que_fica_no_unit() {
         let u = container_unit(
+            "default",
             "web",
             "no",
             "/r",
@@ -538,6 +571,29 @@ mod tests {
         );
         assert!(u.contains("Restart=no\n"), "{u}");
         assert!(!u.contains("Restart=always"));
+    }
+
+    /// REGRESSION (multi-tenant boot persistence): two tenants that both name a
+    /// container `db` must get DISTINCT unit files and each `ExecStart` must
+    /// resolve its own container by namespace. Before, both collapsed onto
+    /// `delonix-boot-db.service` with an ambiguous `container start db`, so
+    /// neither `--restart always` container came back after a reboot.
+    #[test]
+    fn boot_units_do_not_collide_across_namespaces() {
+        // The default namespace stays bare (back-compat + single-tenant).
+        assert_eq!(boot_stem("default", "db"), "db");
+        assert_eq!(start_target("default", "db"), "db");
+        // Other tenants are namespace-qualified in both stem and target.
+        assert_eq!(boot_stem("teamA", "db"), "teamA-db");
+        assert_ne!(boot_stem("teamA", "db"), boot_stem("teamB", "db"));
+        assert_eq!(start_target("teamA", "db"), "-n teamA db");
+
+        let a = container_unit("teamA", "db", "always", "/r", "/b", "default.target", None);
+        let b = container_unit("teamB", "db", "always", "/r", "/b", "default.target", None);
+        assert!(a.contains("ExecStart=/b container start -n teamA db\n"), "{a}");
+        assert!(b.contains("ExecStart=/b container start -n teamB db\n"), "{b}");
+        let v = vm_unit("teamA", "db", "always", "/r", "/b", "default.target");
+        assert!(v.contains("ExecStart=/b vm start -n teamA db\n"), "{v}");
     }
 
     /// **A lacuna que um reboot expõe.** O supervisor é um `fork()` e morre com
@@ -566,7 +622,7 @@ mod tests {
     /// do reboot: ficava tudo dependente de alguém se lembrar de um `vm start`.
     #[test]
     fn uma_vm_ganha_unit_e_nao_colide_com_um_container_do_mesmo_nome() {
-        let u = vm_unit("db", "always", "/r", "/b", "default.target");
+        let u = vm_unit("default", "db", "always", "/r", "/b", "default.target");
         assert!(u.contains("ExecStart=/b vm start db\n"), "{u}");
         assert!(u.contains("ExecStop=/b vm stop db\n"), "{u}");
         // `oneshot` + RemainAfterExit e NÃO `forking`: o `vm start` devolve
@@ -699,6 +755,7 @@ mod tests {
 
         // O unit do membro seguinte espera pela âncora...
         let u = container_unit(
+            "default",
             "pa-c1",
             "always",
             "/r",
@@ -710,7 +767,7 @@ mod tests {
         // ...e nunca se declara `Requires`, que derrubaria o pod todo.
         assert!(!u.contains("Requires="), "{u}");
         // A própria âncora não depende de si mesma.
-        let anchor_unit = container_unit("pa-c0", "always", "/r", "/b", "default.target", None);
+        let anchor_unit = container_unit("default", "pa-c0", "always", "/r", "/b", "default.target", None);
         assert!(
             !anchor_unit.contains("After=delonix-boot-"),
             "{anchor_unit}"
@@ -769,6 +826,7 @@ mod tests {
     #[test]
     fn o_unit_gerado_tem_o_que_o_arranque_precisa() {
         let u = container_unit(
+            "default",
             "web",
             "always",
             "/var/lib/delonix",

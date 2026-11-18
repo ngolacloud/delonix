@@ -263,7 +263,8 @@ struct ObjectStorageRecord {
 }
 
 fn store() -> Result<JsonStore<ObjectStorageRecord>> {
-    JsonStore::open(state_root().join(STORE_DIR)).map_err(Into::into)
+    JsonStore::open_with_format(state_root().join(STORE_DIR), delonix_state::JSON_RECORD_FORMAT)
+        .map_err(Into::into)
 }
 
 fn now_unix() -> u64 {

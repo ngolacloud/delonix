@@ -187,6 +187,21 @@ pub fn parse_reference(input: &str) -> (String, String, String) {
     (host, repo, reference)
 }
 
+/// The repository name as the user referenced it, with any `:tag` / `@digest`
+/// stripped — so a `name@sha256:…` digest reference lines up with the `name:tag`
+/// already in `repo_tags`. Keeps the user's form (does NOT normalise to the
+/// canonical `library/…` the way [`parse_reference`] does), because `repo_tags`
+/// keeps the user's form too. A `:` is a tag separator only after the last `/`
+/// (so `localhost:5000/img:tag` keeps the registry port).
+fn repo_base(input: &str) -> &str {
+    let before = input.split('@').next().unwrap_or(input);
+    let last_slash = before.rfind('/').map(|i| i + 1).unwrap_or(0);
+    match before[last_slash..].find(':') {
+        Some(colon) => &before[..last_slash + colon],
+        None => before,
+    }
+}
+
 /// Extracts `key="value"` from a `WWW-Authenticate` header.
 /// A read the registry refuses to authorise (401/403).
 fn is_denied(status: reqwest::StatusCode) -> bool {
@@ -2214,6 +2229,14 @@ pub fn pull_from_registry_with_events(
     // on any of it (before picking a platform, before fetching any blob).
     verify_manifest_digest(&refr, &body)?;
 
+    // The digest of the TOP-LEVEL manifest (the multi-arch index, or the single
+    // manifest) names this image by content. A pull by tag must still record a
+    // `name@sha256:…` reference so `repo_digests` is populated at the CRI
+    // boundary — the kubelet reads it for `imageID`, for image GC by digest and
+    // for digest-based admission. Without it `crictl inspecti` returned
+    // `repoDigests: []` on every tag pull.
+    let top_manifest_digest = format!("sha256:{}", crate::cas::sha256_hex(&body));
+
     let manifest_bytes = if content_type.contains("index") || content_type.contains("manifest.list")
     {
         // Multi-arch index (`oci_spec::image::ImageIndex`) — picks the
@@ -2229,8 +2252,30 @@ pub fn pull_from_registry_with_events(
                     .map(|p| p.os().to_string() == "linux" && p.architecture().to_string() == arch)
                     .unwrap_or(false)
             })
-            .or_else(|| index.manifests().first())
-            .ok_or_else(|| Error::Registry("empty manifest index".into()))?;
+            // No silent fall-back to the first manifest: picking an arbitrary
+            // architecture made a `pull` of an image that lacks this node's arch
+            // "succeed" and then die with `exec format error` at run time (and the
+            // stored `architecture` lied). containerd/docker error here — so do we.
+            .ok_or_else(|| {
+                let avail: Vec<String> = index
+                    .manifests()
+                    .iter()
+                    .filter_map(|m| {
+                        m.platform()
+                            .as_ref()
+                            .map(|p| format!("{}/{}", p.os(), p.architecture()))
+                    })
+                    .collect();
+                Error::Registry(format!(
+                    "no manifest for platform linux/{arch} in the multi-arch index \
+                     (available: {})",
+                    if avail.is_empty() {
+                        "none declared".to_string()
+                    } else {
+                        avail.join(", ")
+                    }
+                ))
+            })?;
         tracing::info!(arch = %arch, "platform selected: linux/{arch}");
         let purl = c.manifest_url(pick.digest().as_ref());
         let r = c.fetch(&purl, ACCEPT_MANIFEST)?;
@@ -2411,7 +2456,13 @@ pub fn pull_from_registry_with_events(
     // from the OCI config blob (`oci_spec::image::ImageConfiguration`).
     let oci_config: ImageConfiguration = serde_json::from_slice(&config_bytes)?;
     let inner = oci_config.config().clone().unwrap_or_default();
-    let repo_tags = store.merged_tags(&config_digest, reference);
+    // Record BOTH the tag reference and the `name@sha256:<manifest-digest>`
+    // digest reference. `partition_refs` at the CRI boundary splits them back
+    // into `repo_tags` / `repo_digests`; `normalise_tag` leaves the `@` form
+    // untouched. The tag comes first so it stays the image's primary name.
+    let digest_ref = format!("{}@{}", repo_base(reference), top_manifest_digest);
+    let repo_tags =
+        store.merged_tags_all(&config_digest, &[reference.to_string(), digest_ref]);
     let image = crate::image::Image {
         id: config_digest,
         repo_tags,
@@ -2431,9 +2482,11 @@ pub fn pull_from_registry_with_events(
             // `--wait`/compose `service_healthy` could never pass on it.
             healthcheck: crate::image::healthcheck_test(&config_bytes),
             exposed_ports: inner.exposed_ports().clone().unwrap_or_default(),
-            architecture: requested_arch
-                .map(str::to_string)
-                .unwrap_or_else(|| target_arch().to_string()),
+            // The architecture of the content ACTUALLY pulled, read from the OCI
+            // config blob — not the *requested* arch, which would lie for a
+            // single-arch image or any mismatch. A platform mismatch now errors
+            // when selecting the manifest (above), so this is always truthful.
+            architecture: oci_config.architecture().to_string(),
         },
         created_unix: now_unix(),
     };
@@ -3749,6 +3802,23 @@ mod tests {
     fn with_prefix_is_idempotent() {
         assert_eq!(with_prefix("abc"), "sha256:abc");
         assert_eq!(with_prefix("sha256:abc"), "sha256:abc");
+    }
+
+    /// `repo_base` underpins the `name@sha256:…` digest reference a pull records
+    /// so `repo_digests` is populated (O2). It strips the tag/digest but keeps
+    /// the user's form, and a `:` is a tag only after the last `/` (registry
+    /// ports survive).
+    #[test]
+    fn repo_base_strips_tag_and_digest_keeping_the_port() {
+        use super::repo_base;
+        assert_eq!(repo_base("alpine:3.24"), "alpine");
+        assert_eq!(repo_base("alpine"), "alpine");
+        assert_eq!(repo_base("library/nginx:latest"), "library/nginx");
+        assert_eq!(repo_base("localhost:5000/img:tag"), "localhost:5000/img");
+        assert_eq!(repo_base("gcr.io/x/y@sha256:abc"), "gcr.io/x/y");
+        assert_eq!(repo_base("localhost:5000/img@sha256:abc"), "localhost:5000/img");
+        // A combined `repo:tag@digest` keeps repo only (tag cut before '@').
+        assert_eq!(repo_base("repo:v1@sha256:abc"), "repo");
     }
 
     #[test]

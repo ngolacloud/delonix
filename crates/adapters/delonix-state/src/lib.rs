@@ -13,4 +13,7 @@ mod store;
 pub use config::{Config, ConfigStore};
 pub use error::{Error, Result};
 pub use secret::{Secret, SecretStore};
-pub use store::{write_atomic, write_atomic_mode, write_private_temp, JsonStore, PathLock, Store};
+pub use store::{
+    write_atomic, write_atomic_mode, write_private_temp, JsonStore, PathLock, Store,
+    JSON_RECORD_FORMAT,
+};
