@@ -150,7 +150,6 @@ bytes = "1"
 axum = "0.7"
 tower = "0.5"
 tokio-rustls = { version = "0.26", default-features = false }
-rustls-pemfile = "2"
 # Server side of the TLS mock node `delonix-provider-proxmox` tests against (dev-dependency
 # only): the client refuses http://, so a failure-injection test needs a real
 # listener with a certificate. Same 0.23 line reqwest already resolves to.
@@ -182,9 +181,14 @@ zstd = "0.14.3"
 rustix = "1.1"
 # CLI, manifests, schema
 clap_complete = "4.6"
-serde_yaml = "0.9"
+# `serde_yaml` oficial está arquivado (0.9.34+deprecated) e arrasta o
+# `unsafe-libyaml` não-mantido (RUSTSEC-2024-0449). `serde_norway` é um fork
+# mantido com a MESMA API 0.9, cujo backend `unsafe-libyaml-norway` é mantido.
+# O alias de pacote mantém o código a dizer `serde_yaml::…` — zero alterações
+# nos 53 ficheiros consumidores.
+serde_yaml = { package = "serde_norway", version = "0.9" }
 schemars = "1.2.2"
-ratatui = "0.29"
+ratatui = "0.30"
 # Telemetry and MCP
 prometheus-client = "0.25"
 rmcp = { version = "3", default-features = false }
