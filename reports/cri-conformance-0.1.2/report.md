@@ -37,7 +37,20 @@ re-run focado separou **ambiente** de **defeito real**:
 
 **Conformidade efectiva: ~101/103** (descontando o ambiental); **2 lacunas reais**.
 
-## Achados reais (backlog)
+## Achados reais — RESOLVIDOS e re-verificados (2026-11-19)
+
+> Ambos corrigidos no motor e **re-verificados por critest numa 2ª VM rootful**:
+> `critest FOCUS="simultaneous RemoveImage|dropping ALL capabilities"` →
+> **`SUCCESS! 2 Passed | 0 Failed`** (`critest-focus-fixed.console`). Conformidade
+> efectiva passa a **~102/103** (resta só a falha ambiental de pull). Fixes:
+> - **CRI-F1** `delonix-oci/src/image.rs` — `remove()` tolera ENOENT no
+>   `remove_file` do record (remoção concorrente = sucesso idempotente, não I/O
+>   cru). Teste unitário `concurrent_remove_never_surfaces_a_raw_io_enoent` (64
+>   corridas, 2 threads) verde.
+> - **CRI-F2** `delonix-linux/src/lib.rs:10835` — o `setgroups([])` de exec
+>   silencia EPERM (caps largadas) em vez de o imprimir no stderr do container.
+
+## Achados reais (detalhe original do backlog)
 
 ### CRI-F1 — `RemoveImage` não é idempotente sob chamadas simultâneas
 - **Spec:** `[k8s.io] Image Consistency … should not fail on simultaneous RemoveImage calls [Conformance] [Serial]` (`pkg/validate/image_consistency.go:171`).
