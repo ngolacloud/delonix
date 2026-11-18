@@ -1093,9 +1093,13 @@ pub enum VmCmd {
         /// Also list the VMs that are not up (stopped or crashed).
         ///
         /// Without it `ls` shows what is UP — running or paused — the same cut
-        /// `docker ps` makes.
-        #[arg(short = 'A', long)]
+        /// `docker ps` makes. `-a` is accepted too, for `docker ps -a` parity.
+        #[arg(short = 'A', short_alias = 'a', long)]
         all: bool,
+        /// Print only the VM names, one per line (to compose with `rm`/`stop`) —
+        /// the VM analogue of `container ls -q`. Ignored with `-o json`.
+        #[arg(short = 'q', long)]
+        quiet: bool,
         /// Show only the VMs of this isolation namespace (see `vm create
         /// --namespace`). Omit to list every namespace.
         ///
@@ -3965,6 +3969,7 @@ pub fn run(action: VmCmd) -> Result<()> {
             ports,
             output,
             all,
+            quiet,
             namespace,
             credentials,
             reveal,
@@ -4006,6 +4011,15 @@ pub fn run(action: VmCmd) -> Result<()> {
                     })
                     .collect()
             };
+            // `-q` prints one name per line (VMs are addressed by name), after
+            // the same `--all`/`--namespace` filter the table sees. JSON wins
+            // over `--quiet`, the precedence `container ps` also applies.
+            if quiet && output != super::output::OutputFormat::Json {
+                for vm in filter(delonix_vm::list(&base)?) {
+                    println!("{}", vm.name);
+                }
+                return Ok(());
+            }
             let svc_index = super::svc::SvcIndex::load();
             if output == super::output::OutputFormat::Json {
                 let rows: Vec<VmLsRow> = filter(delonix_vm::list(&base)?)
