@@ -3409,6 +3409,10 @@ fn ephemeral_host_port(proto: delonix_sdn::Proto) -> Option<u16> {
 }
 
 pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> Result<()> {
+    // Pre_spawn phase profiler (ADR-0095) — a strict no-op unless
+    // `DELONIX_PROFILE_SPAWN` is set; measures the parent's work upstream of
+    // `spawn` so the warm plane can be aimed. See `super::prespawn`.
+    super::prespawn::begin();
     // Imperative pod join (Podman `run --pod <name>`): a CLI caller sets `pod`
     // but never the hidden `pod_infra_pid`. Resolve it from the pod's existing
     // first member, so the SECOND and later `run --pod` into the SAME pod join
@@ -3490,6 +3494,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // side effect — see `delonix_compute::preflight` for the two that used to be
     // checked only after the workload had run, or never.
     delonix_compute::preflight::check_run_opts(&opts)?;
+    super::prespawn::mark("policy_preflight");
     // `--publish-all`/`-P`: read the image's EXPOSEd ports and fold one publish
     // entry per port into `opts.ports`, so the rest of the function (ownership,
     // slirp attach, the stored `ports`, the re-exec spec) handles them exactly
@@ -3807,6 +3812,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // image is not local yet — the same renderer `image pull` draws with.
     // BUG FOUND live: this path printed «pulling nginx…» and then went mute
     // for the whole download.
+    super::prespawn::mark("claims");
     let pull_renderer = super::output::PullRenderer::new();
     let on_pull_event = |ev: delonix_oci::registry::PullEvent<'_>| pull_renderer.handle(ev);
     let resolved = delonix_compute::run::resolve_run(
@@ -3836,6 +3842,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // unpacking line BELOW the block by the time this returns — a cursor-up
     // redraw now would overwrite it (seen live: the block stamped over the
     // «unpacking the image» line).
+    super::prespawn::mark("resolve_rootfs");
     print_notices(&resolved.notices);
     let rootfs = resolved.rootfs;
     let mut mounts = resolved.mounts;
@@ -4112,6 +4119,10 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // A detached start gets a SUPERVISOR that becomes the container's parent, so the
     // exit code is not lost; see `delonix_compute::launch::start`.
     unstarted.armed = false;
+    // End of the parent pre_spawn region: `launch::start` hands off to `spawn`
+    // (profiled separately by `delonix-linux::spawn_profile`). ADR-0095.
+    super::prespawn::mark("record_net");
+    super::prespawn::flush(&c.id);
     let final_status = match with_host_workload(images, store, |w| {
         delonix_compute::launch::start(&opts_copy, &mut c, &launch, w)
     })? {

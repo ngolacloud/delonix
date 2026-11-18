@@ -2,7 +2,7 @@
 
 Motor de **containers e microVMs daemonless, rootless-first, kernel-native, em Rust**.
 Repositório **público** (`ngolacloud/delonix`, Apache-2.0) — ver
-[README.md](README.md) para a arquitectura dos 39 crates.
+[README.md](README.md) para a arquitectura dos 40 crates.
 
 > **Primeiro contacto:** uma sessão lê [`.ai/INVARIANTS.md`](.ai/INVARIANTS.md) —
 > as invariantes mínimas antes de editar, com ponteiros. **Este ficheiro é o
@@ -108,7 +108,7 @@ Repositório **público** (`ngolacloud/delonix`, Apache-2.0) — ver
 - [As leituras de volumes no node API, e a F6 do ADR-0059 adiada (ADR-0042 passo E, fatia E3, 2026-10-03)](#as-leituras-de-volumes-no-node-api-e-a-f6-do-adr-0059-adiada-adr-0042-passo-e-fatia-e3-2026-10-03)
 - [Pools de armazenamento: a P0 do ADR-0067 (`kind: StoragePool`, driver `dir`, 2026-10-03)](#pools-de-armazenamento-a-p0-do-adr-0067-kind-storagepool-driver-dir-2026-10-03)
 - [Regra de ouro: o motor compila e responde sozinho](#regra-de-ouro-o-motor-compila-e-responde-sozinho)
-- [Arquitetura (39 crates)](#arquitetura-39-crates)
+- [Arquitetura (40 crates)](#arquitetura-40-crates)
 - [Histórico](#histórico)
 - [VMfile, `vm build` e o `--network` (v0.44.0/v0.45.0)](#vmfile-vm-build-e-o---network-v0440v0450)
 - [Delegação de cgroup: `cpu` fatal, `cpuset`/`io` opcionais (v0.44.0)](#delegação-de-cgroup-cpu-fatal-cpusetio-opcionais-v0440)
@@ -565,7 +565,7 @@ temporária deixa de ser permanente. Hoje são dez, e cada uma diz a sua fase (o
 ```
 crates/foundation/   delonix-model, delonix-net-rules
 crates/contexts/     delonix-stack, delonix-compute, delonix-networking, delonix-storage, delonix-node, delonix-security-runtime
-crates/adapters/     delonix-linux, delonix-sdn, delonix-oci, delonix-scanner, delonix-state, delonix-volume, delonix-vm, delonix-telemetry
+crates/adapters/     delonix-linux, delonix-sdn, delonix-oci, delonix-scanner, delonix-state, delonix-volume, delonix-vm, delonix-telemetry, delonix-pool-helper, delonix-warm
 crates/providers/    delonix-proxmox, delonix-truenas, delonix-opnsense, delonix-powerdns
 crates/interfaces/   delonix-cri, delonix-mgmt, delonix-mcp
 bins/                delonix-runtime-bin, delonix-mcp-bin, delonix-mgmt-bin
@@ -8671,7 +8671,7 @@ antes de qualquer commit:
    genuína. Decidir QUANDO e PARA QUEM publicar portas numa frota multi-inquilino não é do
    motor.
 
-## Arquitetura (39 crates)
+## Arquitetura (40 crates)
 
 | Crate | Responsabilidade |
 |---|---|
@@ -8711,6 +8711,7 @@ antes de qualquer commit:
 | `delonix-security` | as decisões de segurança do nó: a política (`policy.json`), o **único** ponto de admissão — container **e** VM —, o `SecurityEvent`, o score explicável e a redacção de segredos. Puro: três dependências, sem sensores, sem daemon e **sem noção de inquilino** (guarda-rio #2, imposto por teste) — ver ADR-0026 |
 | `delonix-host` | o adaptador do host (ADR-0040 R2, a divisão do `delonix-node`): o mecanismo de processo-e-ficheiro que os servidores do motor e os adaptadores partilham — escrita atómica, `flock` consultivo, o contrato de dispatch entre o `delonix` e os servidores irmãos e o peer cred do socket local. É um adaptador de que os outros adaptadores e providers podem depender directamente (A1) |
 | `delonix-pool-helper` | o protocolo do helper PRIVILEGIADO de armazenamento (ADR-0067 D3; retirado do contexto Storage para um adaptador próprio, ADR-0040 R2c): as operações de pool que precisam de root (tudo o que o LVM faz, montar um dataset ZFS) cruzam por ele para o `delonix-storage-helper` |
+| `delonix-warm` | o pool do **plano morno** (ADR-0095): mantém *runners* pré-carregados (`delonix __poolrunner`) — binário em memória, stores abertas, imagem resolvida — que eliminam o `pre_spawn` do arranque a frio nos caminhos com processo vivo (CRI/API) ou *opt-in*. Serve-one-then-exit (o `fork()` do supervisor corre sempre mono-thread); só orquestra processos e um protocolo de linha sobre `UnixStream` — não conhece imagens nem o motor |
 | `delonix-cri-bin` | o executável `delonix-cri`: `delonix serve cri` faz `exec` dele, monta o `Engine` (ADR-0040) e serve o CRI `runtime.v1` ao `kubelet`. Compõe a interface `delonix-cri` com os adaptadores do `delonix-host` e a observabilidade do `delonix-telemetry` |
 
 ## Histórico

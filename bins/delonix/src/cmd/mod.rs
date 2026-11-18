@@ -110,5 +110,7 @@ pub mod vmbridge;
 pub mod vmfile;
 pub mod vmimage;
 pub mod vmspec;
+pub mod prespawn;
 pub mod volume;
+pub mod warmpool;
 pub mod workload;
