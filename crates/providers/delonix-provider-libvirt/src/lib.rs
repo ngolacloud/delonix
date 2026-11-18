@@ -2278,6 +2278,23 @@ fn xml_escape(s: &str) -> String {
 /// valid hex of the expected width (domain 4, bus 2, slot 2, func 1) or the
 /// whole address is rejected — `xml_escape` is also applied at the call
 /// site as defense-in-depth, matching every other field in this function.
+/// Refuses any `--device` that is not a canonical PCI BDF, before
+/// [`libvirt_domain_xml`] can silently drop it (V4). `parse_pci_addr` is the
+/// EXACT parser the XML generator uses, so what this accepts is precisely what
+/// gets a `<hostdev>` — there is no third state where a device passes validation
+/// and then vanishes from the domain.
+fn validate_passthrough_devices(devices: &[String]) -> delonix_model::Result<()> {
+    for dev in devices {
+        if parse_pci_addr(dev).is_none() {
+            return Err(delonix_model::Error::Invalid(format!(
+                "VFIO passthrough device '{dev}' is not a PCI address \
+                 (expected [<path>/]DDDD:BB:SS.F, e.g. 0000:65:00.1)"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn parse_pci_addr(dev: &str) -> Option<(String, String, String, String)> {
     fn is_hex_of_len(s: &str, len: usize) -> bool {
         s.len() == len && s.chars().all(|c| c.is_ascii_hexdigit())
@@ -3265,6 +3282,15 @@ impl VmBackend for LibvirtBackend {
         overlay: &str,
         on: &dyn Fn(CreateStage),
     ) -> delonix_model::Result<Boot> {
+        // V4: a `--device` that is not a canonical PCI BDF would be SILENTLY
+        // dropped by `libvirt_domain_xml` — it emits a `<hostdev>` only for what
+        // `parse_pci_addr` accepts, and its loop has no `else`. The guest would
+        // then boot WITHOUT the device the operator asked to pass through, with
+        // no error anywhere: the silent degradation this engine refuses. Refuse
+        // it here, before any side effect (no network defined, no overlay
+        // written), so a typo is a clear failure, not a VM that quietly lacks
+        // its GPU/NIC.
+        validate_passthrough_devices(&cfg.devices)?;
         // Effective net mode: with no explicit `--net-mode`, prefer `nat`
         // whenever the SYSTEM connection is usable (libvirt group) — user-mode
         // (session) NEVER yields a reachable/visible IP, and silently landing
@@ -5526,6 +5552,26 @@ mod tests {
         assert_eq!(parse_pci_addr("0000:65:0.1"), None); // slot too short
         assert_eq!(parse_pci_addr("0000:65:00.12"), None); // func too long
         assert_eq!(parse_pci_addr("000g:65:00.1"), None); // non-hex digit
+    }
+    /// V4: a malformed `--device` is REFUSED before create, not silently
+    /// dropped. `libvirt_domain_xml`'s `<hostdev>` loop has no `else`, so
+    /// without this guard a typo'd BDF booted a guest with NO passthrough and
+    /// no error. The guard uses the SAME parser the XML emits from, so the two
+    /// can never disagree about what is a valid device.
+    #[test]
+    fn a_malformed_passthrough_device_is_refused_not_silently_dropped() {
+        // A well-formed BDF, bare or with a sysfs path, passes.
+        assert!(validate_passthrough_devices(&["0000:65:00.1".into()]).is_ok());
+        assert!(
+            validate_passthrough_devices(&["/sys/bus/pci/devices/0000:03:00.0".into()]).is_ok()
+        );
+        assert!(validate_passthrough_devices(&[]).is_ok());
+        // A typo is an ERROR naming the device, not a quiet boot without it.
+        let e = validate_passthrough_devices(&["0000:6:00.1".into()]).unwrap_err();
+        assert!(format!("{e}").contains("0000:6:00.1"), "{e}");
+        // One bad entry among good ones still fails.
+        let e = validate_passthrough_devices(&["0000:65:00.1".into(), "lixo".into()]).unwrap_err();
+        assert!(format!("{e}").contains("lixo"), "{e}");
     }
     #[test]
     fn the_filter_stays_on_unless_asked() {
