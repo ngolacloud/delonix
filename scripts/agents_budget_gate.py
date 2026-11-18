@@ -48,7 +48,7 @@ INVARIANTS_MAX_LINES = 190
 DOC_ONLY = {"permission-tiers.md", "authorization.md"}
 
 EXPECTED_AGENTS = 5
-EXPECTED_SKILLS = 5
+EXPECTED_SKILLS = 6  # arch, triage, security, release, e2e-quality, harness-check
 
 _PATH_RE = re.compile(r"`([^`]+\.(?:md|py|rs|sh|yaml|yml))`")
 
