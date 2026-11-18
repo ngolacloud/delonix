@@ -1,14 +1,16 @@
-"""Tests for the editor-extension step of install.sh.
+"""Tests for the editor-extension installer, scripts/install-vscode.sh.
 
 The reported symptom was «installing/updating the .vsix opens the editor and
 the delonix-runtime install hangs». A launcher that does not recognise a CLI
 argument opens a WINDOW with it and stays in the foreground, and the installer
 waits for that process — a convenience holding the engine install hostage.
 
-`editor_cli` is the one door every editor invocation goes through, so it is
-extracted from `scripts/install.sh` itself and exercised here against fake
-editors: these tests run the code the installer runs, not a copy of it, and
-need no editor, no network and no root.
+The editor extension now has its OWN installer, separate from `install.sh`
+(which is runtime-only): a container/microVM engine must not depend on an editor
+being present. `editor_cli` is the one door every editor invocation goes
+through, so it is extracted from `scripts/install-vscode.sh` itself and
+exercised here against fake editors: these tests run the code the installer
+runs, not a copy of it, and need no editor, no network and no root.
 """
 
 import os
@@ -20,12 +22,12 @@ import time
 import unittest
 from pathlib import Path
 
-INSTALL = Path(__file__).resolve().parent / "install.sh"
+INSTALL = Path(__file__).resolve().parent / "install-vscode.sh"
 TEXT = INSTALL.read_text()
 
 
 def function_source(name: str) -> str:
-    """The function as written in install.sh (indented), or a clear failure.
+    """The function as written in install-vscode.sh (indented), or a clear failure.
 
     A missing `editor_cli` is itself the regression this file guards: without
     it every editor call is unbounded again.
@@ -33,8 +35,8 @@ def function_source(name: str) -> str:
     m = re.search(rf"^(?P<i> *){name}\(\) \{{\n.*?^(?P=i)\}}\n", TEXT, re.S | re.M)
     if not m:
         raise AssertionError(
-            f"{name}() is gone from install.sh — every editor invocation must go "
-            "through it, or a launcher that opens a window hangs the install"
+            f"{name}() is gone from install-vscode.sh — every editor invocation must "
+            "go through it, or a launcher that opens a window hangs the install"
         )
     return m.group(0)
 
@@ -102,9 +104,11 @@ class EveryEditorCallGoesThroughIt(unittest.TestCase):
 
     def test_no_editor_is_invoked_outside_editor_cli(self):
         block = re.search(
-            r"# ---- Extensão de editor.*?\n(?=  ACTIVE=)", TEXT, re.S
+            r"# ---- Extensão de editor.*?\n(?=# ---- fim da extensão de editor)",
+            TEXT,
+            re.S,
         )
-        self.assertIsNotNone(block, "editor block not found in install.sh")
+        self.assertIsNotNone(block, "editor block not found in install-vscode.sh")
         body = block.group(0).replace(function_source("editor_cli"), "")
         # An invocation is `"$ed"` in COMMAND position; `"$ed"` as an argument
         # of spin/warn/stepok is just the editor's name being printed.

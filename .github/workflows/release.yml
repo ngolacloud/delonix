@@ -8,7 +8,7 @@
 #
 # Assets publicados (nomes estáveis — o scripts/install.sh depende deles):
 #   delonix-x86_64-linux, delonix-cri-x86_64-linux, SHA256SUMS,
-#   SHA256SUMS.minisig, install.sh
+#   SHA256SUMS.minisig, install.sh, install-vscode.sh
 #   plus the aarch64 twins (delonix[-cri|-mcp|-mgmt]-aarch64-linux), built on a
 #   native arm64 runner by the `build-arm64` job. There is no -v3 variant on
 #   arm64: one binary per component.
@@ -239,8 +239,9 @@ jobs:
           cp target/release/delonix-node-api dist-release/delonix-node-api-x86_64-v3-linux
           strip dist-release/delonix-*-x86_64*-linux
           cp scripts/install.sh dist-release/install.sh
+          cp scripts/install-vscode.sh dist-release/install-vscode.sh
           cp dist-arm64/* dist-release/
-          cd dist-release && sha256sum delonix-aarch64-linux delonix-cri-aarch64-linux delonix-mcp-aarch64-linux delonix-mgmt-aarch64-linux delonix-x86_64-linux delonix-x86_64-v3-linux delonix-cri-x86_64-linux delonix-cri-x86_64-v3-linux delonix-mcp-x86_64-linux delonix-mcp-x86_64-v3-linux delonix-mgmt-x86_64-linux delonix-mgmt-x86_64-v3-linux delonix-node-api-aarch64-linux delonix-node-api-x86_64-linux delonix-node-api-x86_64-v3-linux install.sh > SHA256SUMS
+          cd dist-release && sha256sum delonix-aarch64-linux delonix-cri-aarch64-linux delonix-mcp-aarch64-linux delonix-mgmt-aarch64-linux delonix-x86_64-linux delonix-x86_64-v3-linux delonix-cri-x86_64-linux delonix-cri-x86_64-v3-linux delonix-mcp-x86_64-linux delonix-mcp-x86_64-v3-linux delonix-mgmt-x86_64-linux delonix-mgmt-x86_64-v3-linux delonix-node-api-aarch64-linux delonix-node-api-x86_64-linux delonix-node-api-x86_64-v3-linux install.sh install-vscode.sh > SHA256SUMS
       - name: SBOM (SPDX 2.3, do Cargo.lock)
         run: |
           python3 scripts/sbom.py --version "${TAG#v}" > dist-release/delonix-sbom.spdx.json

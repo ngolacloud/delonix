@@ -9,6 +9,10 @@
 # source checkout is the Makefile's job (`make bootstrap`, `make build`,
 # `make install`).
 #
+# RUNTIME ONLY: this installer no longer touches editors. The VS Code extension
+# (developer convenience, not a runtime dependency) has its own installer:
+#   curl -fsSL https://github.com/ngolacloud/delonix/releases/latest/download/install-vscode.sh | bash
+#
 # Objectivo: um utilizador SEM experiência de sysadmin acaba com uma instalação
 # 100% funcional — binário + TODAS as dependências de runtime (containers E VMs)
 # + a configuração de host que o modo rootless exige (subuid/subgid, AppArmor).
@@ -31,11 +35,6 @@
 #   --no-gpu       não configura aceleradores (CDI da NVIDIA, grupo render).
 #                  Por omissão é LIGADO, e só faz algo se houver GPU.
 #   --no-binary    só dependências/configuração (usa um binário já instalado)
-#   --no-editor-plugin  não instala a extensão nos editores VS Code encontrados.
-#                  Toda a chamada a um editor tem tecto de tempo (120 s por
-#                  omissão, DELONIX_EDITOR_TIMEOUT=<segundos>): um editor que
-#                  abra uma janela em vez de responder na CLI é saltado com
-#                  aviso, nunca prende a instalação do motor.
 #   --with-cri     instala também o delonix-cri (nó Kubernetes)
 #   --low-ports    permite publicar portas <1024 (ex.: 80/443) sem root.
 #   --with-image-build
@@ -117,7 +116,6 @@ WITH_TUNE=1
 WITH_GPU=1
 WITH_BINARY=1
 WITH_CRI=0
-WITH_EDITOR_PLUGIN=1
 USER_INSTALL=0
 UNINSTALL=0
 PURGE=0
@@ -240,7 +238,6 @@ while [ $# -gt 0 ]; do
     --vm-provider) shift; VM_PROVIDER="${1:?--vm-provider requires libvirt or cloud-hypervisor}" ;;
     --no-tune)    WITH_TUNE=0 ;;
     --no-gpu)     WITH_GPU=0 ;;
-    --no-editor-plugin) WITH_EDITOR_PLUGIN=0 ;;
     --no-binary)  WITH_BINARY=0 ;;
     --with-cri)   WITH_CRI=1 ;;
     --low-ports)  LOW_PORTS=1 ;;
@@ -521,16 +518,6 @@ if [ "$WITH_BINARY" = 1 ]; then
     curl -fsSL -o "$TMP/$asset" "$BASE_URL/$asset" || return 1
     echo "$asset"
   }
-  # Um asset cujo nome é o nome, sem sufixo de arquitectura. O `fetch_asset`
-  # acima existe para BINÁRIOS e compõe sempre `-x86_64[-v3]-linux`; um `.vsix`
-  # é independente de arquitectura e chama-se `delonix-vscode` e mais nada.
-  # Reutilizar aquele aqui pedia dois nomes que não existem, levava 404 nos dois,
-  # e reportava «this release ships no editor extension» sobre uma release que a
-  # traz — medido contra a v0.66.0.
-  fetch_named_asset() { # $1 nome EXACTO do asset
-    curl -fsSL -o "$TMP/$1" "$BASE_URL/$1" || return 1
-    echo "$1"
-  }
   verify_asset() { # nunca instalar um download sem conferir contra o SHA256SUMS
     [ -s "$TMP/SHA256SUMS" ] \
       || die "could not download SHA256SUMS — check your network and re-run (this is a download failure, not a corrupted/tampered file)"
@@ -643,122 +630,6 @@ if [ "$WITH_BINARY" = 1 ]; then
   # Um delonix ANTIGO mais à frente no PATH faz sombra ao acabado de instalar
   # (caso real: um build 0.3.0 em ~/.local/bin escondia o 0.4.2 e ressuscitava
   # bugs já corrigidos). Detectar e dizer alto qual apagar.
-  # ---- Extensão de editor -------------------------------------------------
-  # Um só caminho serve VS Code E os seus forks: o Cursor, o Windsurf, o
-  # VSCodium e o Antigravity partilham a CLI de extensões, verificado neste host
-  # (`antigravity --list-extensions` responde tal como o `code`).
-  #
-  # O `codex` NÃO entra: é um agente de linha de comandos da OpenAI, não um
-  # editor com extensões — não há onde instalar um `.vsix`.
-  #
-  # BEST-EFFORT, e a razão é a mesma da etiqueta de GPU que já chumbou este
-  # script num host sem VGA: uma conveniência não pode falhar a instalação do
-  # motor. Cada editor é tentado, uma falha avisa e segue.
-  #
-  # E "best-effort" tem de querer dizer que o passo DESISTE, não que PENDURA.
-  # O sintoma relatado — «o editor abre e a instalação trava» — é o que
-  # acontece quando um launcher não reconhece um argumento de CLI: abre a
-  # JANELA com ele e fica em primeiro plano, e o `$(…)`/`spin` espera pelo
-  # processo até alguém fechar o editor. Daí `editor_cli`: TODA a invocação de
-  # um editor é limitada no tempo e corre com o stdin FECHADO. O stdin fecha a
-  # segunda metade do problema: o launcher do VS Code faz `read -r YN` em WSL
-  # e, com `curl … | bash`, o stdin É o script — a pergunta comeria as linhas
-  # seguintes.
-  EDITOR_TIMEOUT=${DELONIX_EDITOR_TIMEOUT:-120}
-  editor_cli() {
-    local ed="$1" out="$2"; shift 2
-    if command -v timeout >/dev/null 2>&1; then
-      DONT_PROMPT_WSL_INSTALL=1 timeout -k 5 "$EDITOR_TIMEOUT" "$ed" "$@" </dev/null >"$out" 2>&1
-    else
-      DONT_PROMPT_WSL_INSTALL=1 "$ed" "$@" </dev/null >"$out" 2>&1
-    fi
-  }
-  if [ "$WITH_EDITOR_PLUGIN" = 1 ]; then
-    EDITORS_FOUND=""
-    for ed in code code-insiders codium cursor windsurf antigravity; do
-      command -v "$ed" >/dev/null 2>&1 && EDITORS_FOUND="$EDITORS_FOUND $ed"
-    done
-    # Um editor só entra na lista depois de PROVAR que fala CLI, e a sonda é
-    # `--version`: o comando mais barato que toda a família VS Code serve sem
-    # GUI (medido neste host, antigravity: 0,5 s). Quem não responde nunca
-    # recebe um caminho de `.vsix` — é precisamente esse argumento que um
-    # launcher sem ramo de CLI abriria numa janela.
-    EDITORS_CLI=""
-    for ed in $EDITORS_FOUND; do
-      ed_rc=0; editor_cli "$ed" "$TMP/.ed-probe" --version || ed_rc=$?
-      case "$ed_rc" in
-        0) EDITORS_CLI="$EDITORS_CLI $ed" ;;
-        124|137)
-          warn "$ed did not answer \`--version\` within ${EDITOR_TIMEOUT}s — it is not usable as a CLI from here (a window of it may have opened; close it). Skipping its extension: install the .vsix from the editor, or re-run with --no-editor-plugin (raise the ceiling with DELONIX_EDITOR_TIMEOUT=<seconds>)" ;;
-        *)
-          warn "$ed does not answer \`--version\` (exit $ed_rc) — skipping its extension: $(tail -1 "$TMP/.ed-probe" 2>/dev/null)" ;;
-      esac
-    done
-    if [ -z "$EDITORS_FOUND" ]; then
-      skip editor "no VS Code-family editor on this host"
-    elif [ -z "$EDITORS_CLI" ]; then
-      skip editor "no editor here answers on the CLI (see the warnings above)"
-    else
-      # Sem `2>/dev/null`: foi silenciar este stderr que escondeu o 404 e fez o
-      # SKIP abaixo afirmar uma coisa falsa durante uma release inteira.
-      dl_vsix() { fetch_named_asset delonix-vscode > "$TMP/.asset-vsix"; }
-      if spin editor plugin "downloading..." dl_vsix; then
-        VSIX_ASSET=$(cat "$TMP/.asset-vsix")
-        verify_asset "$VSIX_ASSET"
-        # O CLI do VS Code EXIGE que o ficheiro termine em `.vsix`: sem isso lê o
-        # argumento como um ID de extensão e responde «make sure you use the full
-        # extension ID, including the publisher», uma frase que não tem nada que
-        # ver com a causa. O asset chama-se `delonix-vscode` porque é esse o nome
-        # que o SHA256SUMS assinado cobre — por isso verifica-se com o nome dele
-        # e instala-se com uma cópia que tem a extensão que o editor pede.
-        cp "$TMP/$VSIX_ASSET" "$TMP/$VSIX_ASSET.vsix"
-        for ed in $EDITORS_CLI; do
-          # NUNCA sobrepor uma extensão já instalada. A release do motor traz a
-          # versão que existia quando ela foi construída, e essa pode ser MAIS
-          # VELHA do que a que o editor tem — foi o que aconteceu neste host:
-          # um `--force` cego trocou a 0.2.0 pela 0.1.0 e levou a árvore de
-          # recursos com ele, sem uma palavra. Quando a extensão estiver nas
-          # galerias, é o editor que a mantém em dia; o trabalho deste script é
-          # a PRIMEIRA instalação, e mais nenhum.
-          #
-          # A listagem vai para um FICHEIRO e o `grep` corre sobre ele: o
-          # pipeline antigo (`$("$ed" … | grep …)`) juntava três coisas que
-          # falham de maneiras diferentes — um `grep` sem correspondência sai 1
-          # e, sob `set -e` com `pipefail`, matava o script no caso mais comum
-          # que existe (ainda não ter a extensão).
-          ed_rc=0; editor_cli "$ed" "$TMP/.ed-list" --list-extensions --show-versions || ed_rc=$?
-          if [ "$ed_rc" != 0 ]; then
-            warn "$ed could not list its extensions (exit $ed_rc) — skipping it: $(tail -1 "$TMP/.ed-list" 2>/dev/null)"
-            continue
-          fi
-          HAVE=$(grep -i '^ngolacloud\.delonix@' "$TMP/.ed-list" | head -1 || true)
-          if [ -n "$HAVE" ]; then
-            # A frase NÃO promete que o editor a actualiza: isso só passa a ser
-            # verdade quando a extensão estiver nas galerias, e hoje não está.
-            # Diz o que é verdade em qualquer dos dois estados.
-            skip editor "$ed already has ${HAVE#*@} — leaving it alone (update it from the editor, or install a .vsix by hand)"
-            continue
-          fi
-          # Com um perfil frio esta chamada mede 20 s neste host: sem o spinner
-          # é indistinguível de travada, que é metade da queixa.
-          ed_rc=0
-          spin editor "$ed" "installing the extension..." \
-            editor_cli "$ed" "$TMP/.ed-install" --install-extension "$TMP/$VSIX_ASSET.vsix" --force || ed_rc=$?
-          case "$ed_rc" in
-            0) stepok editor "$ed" ;;
-            124|137)
-              warn "$ed did not finish installing the extension within ${EDITOR_TIMEOUT}s — gave up so the engine install can go on (a window of it may have opened; close it). Install it by hand: $ed --install-extension <the .vsix from the release>" ;;
-            *)
-              warn "could not install the extension into $ed (exit $ed_rc): $(tail -1 "$TMP/.ed-install" 2>/dev/null) — install it by hand: $ed --install-extension <the .vsix from the release>" ;;
-          esac
-        done
-      else
-        # Uma release anterior à extensão não traz o asset. Não é uma falha do
-        # host, e dizer «download failed» mandaria alguém procurar rede partida.
-        skip editor "this release ships no editor extension"
-      fi
-    fi
-  fi
 
   ACTIVE=$(command -v delonix 2>/dev/null || true)
   if [ -n "$ACTIVE" ] && [ "$ACTIVE" != "$BIN_DIR/delonix" ]; then
