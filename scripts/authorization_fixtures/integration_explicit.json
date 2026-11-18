@@ -1,0 +1,11 @@
+{
+  "description": "Integration, EXPLICIT state: a grant naming operation and target. The named act proceeds; integration into develop does NOT authorize a release (engineering-process.md, Carrying a fix to both destinations).",
+  "state": "EXPLICIT",
+  "cases": [
+    {"name": "pr_create_to_develop_allowed", "operation": "pr_create", "target": "develop", "grant": {"pr_create": ["develop"]}, "expect": "ALLOW"},
+    {"name": "merge_named_pr_allowed", "operation": "merge", "target": "pr:742", "grant": {"merge": ["pr:742"]}, "expect": "ALLOW"},
+    {"name": "merge_other_pr_refused", "operation": "merge", "target": "pr:743", "grant": {"merge": ["pr:742"]}, "expect": "REFUSE"},
+    {"name": "release_not_implied_by_develop_integration", "operation": "release", "target": "tag:v0.1.2", "grant": {"pr_create": ["develop"], "merge": ["pr:742"]}, "expect": "REFUSE"},
+    {"name": "release_allowed_only_with_explicit_release_grant", "operation": "release", "target": "tag:v0.1.2", "grant": {"release": ["tag:v0.1.2"]}, "expect": "ALLOW"}
+  ]
+}

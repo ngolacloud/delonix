@@ -1,0 +1,24 @@
+{
+  "description": "Read-only profile (Tier A: auditor, security-reviewer). Read-only inspection is allowed; every write, remote effect, credential access, elevation and indirect subprocess effect is refused.",
+  "tier_note": "A = Read ceiling",
+  "cases": [
+    {"name": "ls_allowed", "tier": "A", "cmd": "ls -la crates/", "expect": "ALLOW"},
+    {"name": "git_log_allowed", "tier": "A", "cmd": "git log --oneline -5", "expect": "ALLOW"},
+    {"name": "git_diff_allowed", "tier": "A", "cmd": "git show HEAD --stat", "expect": "ALLOW"},
+    {"name": "cargo_tree_allowed", "tier": "A", "cmd": "cargo tree -p delonix-oci", "expect": "ALLOW"},
+    {"name": "grep_allowed", "tier": "A", "cmd": "grep -rn fn crates/", "expect": "ALLOW"},
+    {"name": "find_traversal_allowed", "tier": "A", "cmd": "find crates -name '*.rs'", "expect": "ALLOW"},
+
+    {"name": "write_in_workspace_refused_at_A", "tier": "A", "cmd": "cargo build -p delonix-runtime-bin", "expect": "REFUSE"},
+    {"name": "write_outside_scope_refused", "tier": "A", "cmd": "tee /etc/delonix.conf", "expect": "REFUSE"},
+    {"name": "remote_git_push_refused", "tier": "A", "cmd": "git push origin chore/x", "expect": "REFUSE"},
+    {"name": "remote_curl_refused", "tier": "A", "cmd": "curl https://example.com/data", "expect": "REFUSE"},
+    {"name": "credential_read_refused", "tier": "A", "cmd": "cat ~/.aws/credentials", "expect": "REFUSE"},
+    {"name": "secrets_path_refused", "tier": "A", "cmd": "cat $DELONIX_ROOT/secrets/token", "expect": "REFUSE"},
+    {"name": "elevation_sudo_refused", "tier": "A", "cmd": "sudo ls /root", "expect": "REFUSE"},
+    {"name": "indirect_subprocess_push_refused", "tier": "A", "cmd": "bash -c 'git push --force origin main'", "expect": "REFUSE"},
+    {"name": "indirect_find_delete_refused", "tier": "A", "cmd": "find . -name '*.tmp' -delete", "expect": "REFUSE"},
+    {"name": "indirect_xargs_rm_refused", "tier": "A", "cmd": "xargs rm -rf", "expect": "REFUSE"},
+    {"name": "unknown_verb_fails_closed", "tier": "A", "cmd": "frobnicate --all", "expect": "REFUSE"}
+  ]
+}

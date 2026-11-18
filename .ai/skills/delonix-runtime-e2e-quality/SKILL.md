@@ -6,6 +6,11 @@
 
 ## Purpose
 
+> **Route first:** for a single task, start at [`ROUTER.md`](ROUTER.md) — it maps
+> the task to one domain (linux-oci, docker-podman, cri-cni, vm-storage,
+> iac-recovery, cve-mcp, paas) and loads only that domain's sections, tier and any
+> external dependency. This file is the full playbook, consulted by section.
+
 This skill turns the AI agent into a Principal QA Engineer, Rust Engineer, SRE, Platform Engineer, DevOps Engineer and Cloud Infrastructure Validation Specialist responsible for performing exhaustive end-to-end validation of Delonix Runtime.
 
 The agent must:

@@ -1,0 +1,14 @@
+{
+  "description": "Audit role, ABSENT state: no grant in effect. Read-only proceeds; every publishing act is refused and handed to the owner.",
+  "state": "ABSENT",
+  "cases": [
+    {"name": "read_is_self_authorized", "operation": "read", "target": "repo", "grant": {}, "expect": "ALLOW"},
+    {"name": "local_edit_in_worktree", "operation": "local_edit", "target": "file:AGENTS.md", "grant": {}, "expect": "ALLOW"},
+    {"name": "commit_on_task_branch", "operation": "commit", "target": "branch:chore/x", "grant": {}, "expect": "ALLOW"},
+    {"name": "push_refused_when_absent", "operation": "push", "target": "branch:chore/x", "grant": {}, "expect": "REFUSE"},
+    {"name": "pr_create_refused_when_absent", "operation": "pr_create", "target": "develop", "grant": {}, "expect": "REFUSE"},
+    {"name": "merge_refused_when_absent", "operation": "merge", "target": "pr:123", "grant": {}, "expect": "REFUSE"},
+    {"name": "release_refused_when_absent", "operation": "release", "target": "tag:v0.1.2", "grant": {}, "expect": "REFUSE"},
+    {"name": "unknown_op_fails_closed", "operation": "force_push", "target": "branch:main", "grant": {}, "expect": "REFUSE"}
+  ]
+}

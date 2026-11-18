@@ -4,6 +4,12 @@ Motor de **containers e microVMs daemonless, rootless-first, kernel-native, em R
 Repositório **público** (`ngolacloud/delonix`, Apache-2.0) — ver
 [README.md](README.md) para a arquitectura dos 39 crates.
 
+> **Primeiro contacto:** uma sessão lê [`.ai/INVARIANTS.md`](.ai/INVARIANTS.md) —
+> as invariantes mínimas antes de editar, com ponteiros. **Este ficheiro é o
+> arquivo** (~124 secções, o porquê histórico): consulta-se por secção pelo índice
+> abaixo, não se lê de uma ponta à outra. O orçamento é um portão
+> (`scripts/agents_budget_gate.py`).
+
 <!-- agents-toc:begin -->
 
 ## Índice (124 secções)
@@ -180,9 +186,13 @@ assunto em português, corpo com **Porquê** e **Como validar** (os comandos e o
 `rc`). Identificadores, comentários e texto ao utilizador em **inglês** (LANG-01,
 secção própria abaixo) — o ratchet conta, mesmo onde os vizinhos estão em português.
 
-**Git**: nunca `git push` nem `gh pr create` sem pedido explícito do dono, e nunca
-operar PRs sem ele. Antes de algo destrutivo, uma tag de segurança. `git branch -d`
-(nunca `-D`), `git worktree remove` (nunca `--force`).
+**Git**: a autoridade para publicar — push, criar/editar PR, merge, release — é a
+fonte canónica [`.ai/agents/authorization.md`](.ai/agents/authorization.md), e esta
+secção defere para ela: tudo acima de `commit` exige autorização **explícita** do
+dono, por operação **e** destino, e na ausência entrega-se o comando em vez de o
+correr (nunca push forçado, nunca contornar uma protecção). Antes de algo
+destrutivo, uma tag de segurança. `git branch -d` (nunca `-D`), `git worktree
+remove` (nunca `--force`). Nenhum commit leva trailer `Co-Authored-By: Claude`.
 
 **Limite de WIP: no máximo 3 sessões/worktrees abertas ao mesmo tempo.** Abrir a
 quarta obriga a fechar ou estacionar uma, com handoff escrito. Há sempre outras

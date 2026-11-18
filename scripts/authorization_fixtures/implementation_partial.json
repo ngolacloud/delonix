@@ -1,0 +1,11 @@
+{
+  "description": "Builder/Tester, PARTIAL state: granted push for exactly one branch. Only that operation on that target is accepted; a different target or a different operation is refused.",
+  "state": "PARTIAL",
+  "cases": [
+    {"name": "push_granted_branch_allowed", "operation": "push", "target": "branch:chore/x", "grant": {"push": ["branch:chore/x"]}, "expect": "ALLOW"},
+    {"name": "push_other_branch_refused", "operation": "push", "target": "branch:chore/y", "grant": {"push": ["branch:chore/x"]}, "expect": "REFUSE"},
+    {"name": "pr_create_not_implied_by_push_grant", "operation": "pr_create", "target": "develop", "grant": {"push": ["branch:chore/x"]}, "expect": "REFUSE"},
+    {"name": "merge_not_implied_by_push_grant", "operation": "merge", "target": "pr:321", "grant": {"push": ["branch:chore/x"]}, "expect": "REFUSE"},
+    {"name": "release_not_implied_by_push_grant", "operation": "release", "target": "tag:v0.1.2", "grant": {"push": ["branch:chore/x"]}, "expect": "REFUSE"}
+  ]
+}
