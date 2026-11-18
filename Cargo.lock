@@ -1073,6 +1073,7 @@ dependencies = [
  "delonix-provider-opnsense",
  "delonix-provider-proxmox",
  "delonix-sdn",
+ "delonix-security",
  "delonix-state",
  "delonix-storage",
  "delonix-vm",
@@ -1333,6 +1334,7 @@ dependencies = [
  "delonix-node",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

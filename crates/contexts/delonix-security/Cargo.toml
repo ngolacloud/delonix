@@ -14,5 +14,10 @@ delonix-model = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Dev-only — the gate's load/emit round-trip needs a throwaway state root. Not a
+# production dependency: ADR-0026 caps what this crate SHIPS, not what it tests.
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

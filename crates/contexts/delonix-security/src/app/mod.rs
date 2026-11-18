@@ -3,3 +3,4 @@
 //! through `delonix_node::events`; the decision it records is `super::domain`.
 
 pub mod event;
+pub mod gate;

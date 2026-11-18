@@ -17,6 +17,10 @@ delonix-compute = { workspace = true }
 delonix-node = { workspace = true }
 delonix-host = { workspace = true }
 delonix-model = { workspace = true }
+# The node's admission gate (ADR-0026): `CreateVirtualMachine` consults the same
+# `policy.json` the CLI does, so a node that set `denyLatestVmImage`/
+# `allowedImageUrlHosts` refuses the VM here too — not only on the CLI path.
+delonix-security = { workspace = true }
 delonix-storage = { workspace = true }
 delonix-pool-helper = { workspace = true }
 tonic = { workspace = true }

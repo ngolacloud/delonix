@@ -1626,6 +1626,41 @@ pub fn create_container(
         .and_then(|s| s.capabilities.as_ref())
         .map(|c| (c.add_capabilities.clone(), c.drop_capabilities.clone()))
         .unwrap_or_default();
+    // The node's runtime POLICY (`policy.json`) — the declared admission gate,
+    // the same file and the same decision the CLI `container run` consults. It is
+    // a SEPARATE mechanism from the capability ceiling below
+    // (`DELONIX_CRI_CAP_CEILING`): this is the operator's declared security
+    // posture (registry allowlists, `:latest` refusal, `workloadSecurity:
+    // baseline` capabilities), and the CRI is the real multi-tenant surface it
+    // has to cover. Until this, `cmd/policy.rs::enforce` could not reach this
+    // crate (it lives in the `-bin`), so a pod whose image sat outside
+    // `allowedRegistries` was admitted here while the CLI refused the same run.
+    // `cap_add` is the pod's REQUESTED additions (judged against baseline, if
+    // set); the host-namespace/seccomp/host-path checks need sandbox context this
+    // create call does not carry and stay with the kubelet's Pod Security. An
+    // unreadable policy fails the create CLOSED (ADR-0026, "fail-closed").
+    {
+        use delonix_security::admission::{ContainerHardening, Request};
+        let hardening = ContainerHardening {
+            cap_add: &cap_add,
+            ..Default::default()
+        };
+        let req = Request::container(&image, privileged, false).with_hardening(hardening);
+        let decision = delonix_security::gate::admit(base, &md.name, &req)
+            .map_err(|e| Status::internal(format!("reading runtime policy: {e}")))?;
+        if decision.is_denied() {
+            let detail = decision
+                .violations()
+                .iter()
+                .map(|v| v.summary())
+                .collect::<Vec<_>>()
+                .join("; ");
+            tracing::warn!(image = %image, detail = %detail, "cri: refused by the node runtime policy");
+            return Err(Status::permission_denied(format!(
+                "refused by this node's runtime policy: {detail}"
+            )));
+        }
+    }
     // Node capability ceiling (`DELONIX_CRI_CAP_CEILING`) — enforced HERE, at
     // create, like the rest of the security context (AppArmor profile, the
     // run_as_group contract): the kubelet then surfaces the refusal on the pod
@@ -4255,6 +4290,77 @@ mod tests {
 
     fn tmp_base() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
+    }
+
+    /// A `CreateContainerRequest` naming a given image, no special security
+    /// context — for the runtime-policy admission tests.
+    fn req_with_image(image: &str) -> CreateContainerRequest {
+        CreateContainerRequest {
+            pod_sandbox_id: "sb".into(),
+            config: Some(ContainerConfig {
+                metadata: Some(ContainerMetadata {
+                    name: "app".into(),
+                    attempt: 0,
+                }),
+                image: Some(ImageSpec {
+                    image: image.into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            sandbox_config: None,
+        }
+    }
+
+    /// The CRI half of the admission gap this session closed: the node's runtime
+    /// policy (`policy.json`) now gates `create_container`, where before only the
+    /// capability ceiling did. A pod whose image sits outside `allowedRegistries`
+    /// is `PERMISSION_DENIED` — the same `policy.json` the CLI `container run`
+    /// reads — while an image ON the list, and every image when no policy is set,
+    /// is admitted. Red if the CRI stops consulting the node policy.
+    #[test]
+    fn create_container_is_refused_by_the_node_runtime_policy() {
+        let base_dir = tmp_base();
+        let base = base_dir.path();
+        std::fs::write(
+            base.join("policy.json"),
+            r#"{"allowedRegistries": ["ghcr.io"]}"#,
+        )
+        .unwrap();
+
+        let err = create_container(
+            base,
+            RT,
+            req_with_image("docker.io/library/nginx:1.27"),
+            crate::CapCeiling::unlimited(),
+        )
+        .expect_err("docker.io is off the node's registry allowlist");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+        assert!(
+            err.message().contains("ADM-REGISTRY") && err.message().contains("docker.io"),
+            "the refusal must name the rule and the registry: {}",
+            err.message()
+        );
+
+        // On the list → admitted, so the gate refuses the off-list registry
+        // specifically and does not block every pod.
+        create_container(
+            base,
+            RT,
+            req_with_image("ghcr.io/org/app:1.0"),
+            crate::CapCeiling::unlimited(),
+        )
+        .expect("ghcr.io is on the allowlist");
+
+        // No policy at all → no ceiling, exactly as before this change.
+        let bare = tmp_base();
+        create_container(
+            bare.path(),
+            RT,
+            req_with_image("docker.io/library/nginx:1.27"),
+            crate::CapCeiling::unlimited(),
+        )
+        .expect("no policy means no registry opinion");
     }
 
     /// `hostNetwork: true` tem de virar REDE DO HOST no ARGV do motor.

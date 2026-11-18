@@ -216,45 +216,17 @@ fn show_lints(p: &SecurityPolicy, w: Workload) {
 /// distinction between «refused» and «allowed, and here is what would have
 /// refused it» is one an operator must never have to infer.
 pub(crate) fn enforce(root: &Path, resource: &str, r: &Request<'_>) -> Result<()> {
-    let Some(p) = load(root)? else {
-        // No `policy.json` at all — the engine's documented default, and
-        // also the state in which admission refuses nothing AND, until now,
-        // recorded nothing: a caller admitting many resources through this
-        // node had no structural way to see that posture without reading
-        // the filesystem by hand.
-        srt::SecurityEvent::unconstrained(
-            srt::event::unconstrained::NO_RUNTIME_POLICY,
-            srt::Severity::Low,
-            r.workload,
-            resource,
-            None,
-        )
-        .emit(root);
-        return Ok(());
-    };
-    if !p.constrains(r.workload) {
-        // A `RuntimePolicy` IS configured, but none of its fields apply to
-        // this workload's own path — the same asymmetry `SecurityPolicy::
-        // lint` already warns about on a terminal, now a fact the engine's
-        // own event log carries too.
-        srt::SecurityEvent::unconstrained(
-            srt::event::unconstrained::WORKLOAD_POLICY_SILENT,
-            srt::Severity::Low,
-            r.workload,
-            resource,
-            None,
-        )
-        .emit(root);
+    // The CLI loads with its OWN (translated) loader so a malformed policy's
+    // refusal stays in the operator's language, and shows the lints the operator
+    // left open on the path they are using. The admission EVENTS, though, are
+    // emitted by `gate::decide` — the single point `delonix-node-api` and
+    // `delonix-cri` share, so the CLI and the programmatic surfaces can never
+    // disagree about what a given admission writes to the log.
+    let policy = load(root)?;
+    if let Some(p) = &policy {
+        show_lints(p, r.workload);
     }
-    show_lints(&p, r.workload);
-
-    let decision = srt::admission::evaluate(&p, r);
-
-    // The event carries the refusal into the engine's log whether or not the
-    // request was stopped, so a `mode: warn` rollout leaves a trail to count.
-    for ev in srt::SecurityEvent::from_decision(&decision, r, resource) {
-        ev.emit(root);
-    }
+    let decision = srt::gate::decide(root, resource, policy.as_ref(), r);
 
     match decision {
         Decision::Allow => Ok(()),

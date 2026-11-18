@@ -367,6 +367,48 @@ impl Violation {
         }
     }
 
+    /// A terse, stable, English one-liner for an engine surface to put on a
+    /// gRPC `Status` or a CRI error — `<RULE-ID>: <salient data>`.
+    ///
+    /// Deliberately NOT the CLI's prose: `cmd/policy.rs::render` writes the
+    /// operator-facing sentence and translates it, and a second copy of that
+    /// wording here would be two strings to keep in step. This keys off
+    /// [`Rule::id`] (the identifier that is frozen on purpose) plus the data the
+    /// violation already carries, so the message a kubelet or an API client sees
+    /// is greppable and never drifts from the rule it names.
+    pub fn summary(&self) -> String {
+        let id = self.rule().id();
+        match self {
+            Violation::Privileged => format!("{id}: --privileged"),
+            Violation::HostNetwork => format!("{id}: host network"),
+            Violation::LatestTag { image } => format!("{id}: {image}"),
+            Violation::Registry {
+                image,
+                host,
+                allowed,
+            } => format!(
+                "{id}: {image} (registry '{host}' not in [{}])",
+                allowed.join(", ")
+            ),
+            Violation::DevicePassthrough { devices } => format!("{id}: {}", devices.join(", ")),
+            Violation::LatestVmImage { image } => format!("{id}: {image}"),
+            Violation::ImageUrlHost { url, host, allowed } => {
+                format!(
+                    "{id}: {url} (host '{host}' not in [{}])",
+                    allowed.join(", ")
+                )
+            }
+            Violation::BaselineCapabilities { caps } => format!("{id}: {}", caps.join(", ")),
+            Violation::BaselineHostNamespace { namespaces } => {
+                format!("{id}: {}", namespaces.join(", "))
+            }
+            Violation::BaselineUnconfined { profiles } => format!("{id}: {}", profiles.join(", ")),
+            Violation::BaselineHostPath { paths } => format!("{id}: {}", paths.join(", ")),
+            Violation::BaselineDevice { devices } => format!("{id}: {}", devices.join(", ")),
+            Violation::BaselineUnmasked { paths } => format!("{id}: {}", paths.join(", ")),
+        }
+    }
+
     /// How much this matters if it is real. Admission is deterministic, so
     /// confidence is always [`crate::severity::Confidence::CERTAIN`] and only
     /// this axis varies.
