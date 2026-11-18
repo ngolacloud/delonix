@@ -1,0 +1,101 @@
+### probe delonix 0.1.2 — root 18B
+fixtura: alpine:3.24 pronto
+PASS     run                        run -d cria e aparece em ps
+PASS     ps                         ps -a lista o container
+PASS     top                        top mostra processos
+PASS     stats                      stats devolve amostra
+PASS     exec                       exec corre no container
+PASS     cp                         cp copia p/ dentro (lido de volta)
+PASS     pause                      pause congela (estado Paused)
+PASS     unpause                    unpause descongela
+PASS     rename                     rename muda o nome
+PASS     port                       port devolve (sem erro)
+PASS     restart                    restart mantém a correr
+PASS     stop                       stop pára (estado Exited)
+PASS     start                      start re-arranca
+PASS     kill                       kill mata (sai do running)
+PASS     rm                         rm remove (some de ps)
+PASS     images                     images lista o repo
+PASS     image ls                   image ls (alias)
+PASS     tag                        tag cria nova referência
+PASS     image inspect              inspect mostra metadados
+PASS     image exists               exists rc0 p/ imagem presente
+PASS     image tree                 tree devolve
+PASS     history                    history das camadas
+PASS     save                       save escreve tar não-vazio
+PASS     untag                      untag/rmi remove a referência
+PASS     load                       load re-importa do tar (round-trip)
+PASS     build                      build (FROM+RUN) cria imagem
+PASS     image build                image build (alias)
+PASS     rmi                        rmi remove a imagem
+PASS     image diff                 image diff entre duas refs
+PASS     commit                     commit cria imagem do container
+PASS     export                     export do rootfs do container
+PASS     import                     import cria imagem do rootfs
+PASS     image import               image import (alias)
+PASS     container exists           exists rc0 p/ container presente
+PASS     container create           create (sem start) aparece em ps -a
+PASS     create                     create top-level (alias)
+PASS     container export           container export rootfs
+BLOCKED  push                       sem registo de destino autenticado (credenciais sintéticas/endpoint)
+BLOCKED  image push                 sem registo de destino autenticado
+BLOCKED  login                      sem registo a autenticar (credenciais sintéticas)
+BLOCKED  logout                     par do login; sem sessão de registo
+BLOCKED  search                     sem endpoint de pesquisa configurado
+BLOCKED  image search               sem endpoint de pesquisa
+BLOCKED  image sign                 sem par de chaves de assinatura (cosign-like)
+BLOCKED  image attestations         sem assinatura/attestation prévia num registo
+BLOCKED  image provenance           sem proveniência assinada num registo
+PASS     pull                       pull top-level puxa 2ª imagem
+PASS     manifest convert           manifest convert devolve
+PASS     pod ps                     pod ps lista o pod
+PASS     pod exists                 pod exists
+PASS     pod inspect                pod inspect
+PASS     pod stats                  pod stats
+PASS     pod top                    pod top
+PASS     pod pause                  pod pause
+PASS     pod unpause                pod unpause
+PASS     pod stop                   pod stop
+PASS     pod start                  pod start
+PASS     pod restart                pod restart
+PASS     pod kill                   pod kill
+PASS     pod rm                     pod rm remove
+PASS     pod prune                  pod prune
+PASS     network exists             network exists
+PASS     network reload             network reload
+PASS     network prune              network prune
+PASS     volume exists              volume exists
+PASS     volume mount               volume monta e persiste bytes
+PASS     volume export              volume export
+PASS     volume import              volume import
+SKIP     volume unmount             montagem é por-run (--rm desmonta); sem mount imperativo persistente
+SKIP     container mount            mount imperativo do rootfs: precisa de container parado + privilégio de mount
+SKIP     container unmount          par do container mount
+PASS     info                       info devolve estado do nó
+PASS     events                     events devolve (janela curta)
+PASS     attach                     attach liga ao container (timeout)
+BLOCKED  container checkpoint       CRIU ausente/sem privilégio em rootless
+BLOCKED  container restore          par do checkpoint (CRIU)
+BLOCKED  container clone            depende de checkpoint/restore (CRIU)
+PASS     oci-runtime create         create do bundle + state legível
+PASS     oci-runtime start          start → running
+PASS     oci-runtime state          state devolve o estado
+PASS     oci-runtime kill           kill envia sinal
+PASS     oci-runtime delete         delete remove (state falha)
+PASS     cluster create             provado nesta campanha (cluster-lab.log: control-plane Ready v1.37.0, kind-mode)
+BLOCKED  cluster kube play          exige cluster vivo + manifestos k8s a aplicar
+BLOCKED  cluster kubeadm            bootstrap kubeadm offline: exige imagens/pacotes num nó rootful
+BLOCKED  bucket ls                  sem backend S3 (ObjectStorage cephRgw|external) configurado
+BLOCKED  bucket inspect             sem backend S3
+BLOCKED  bucket rm                  sem backend S3
+PASS     vm clone                   clone cria nova VM da fonte
+PASS     vm template                template marca a VM como molde
+BLOCKED  vm image pull              registo de imagens de VM não configurado
+BLOCKED  vm image push              registo de imagens de VM não configurado
+BLOCKED  vm image ls-remote         registo remoto de imagens de VM não configurado
+BLOCKED  vm image build             recipe/base de imagem de VM não fornecida nesta fixtura
+inventário final: containers=0 redes-extra=0
+PASS     _teardown                  0 containers residuais
+
+TOTAIS	PASS=71	FAIL=0	SKIP=3	BLOCKED=21
+resultados: /tmp/dlxprobe/results.tsv
