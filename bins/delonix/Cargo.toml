@@ -21,6 +21,10 @@ delonix-compute = { workspace = true }
 delonix-networking = { workspace = true }
 delonix-storage = { workspace = true }
 delonix-pool-helper = { workspace = true }
+# The warm-plane pool (ADR-0095): the bin is the runner process (`__poolrunner`)
+# and the measurement bench (`__poolbench`), and it is the binary the pool
+# launches — so the manager and this bin share the one crate.
+delonix-warm = { workspace = true }
 # The storage pool drivers the composition root registers (ADR-0067 P2-P4).
 delonix-provider-btrfs = { workspace = true }
 delonix-provider-lvm = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "delonix-warm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# O plano morno (ADR-0095): um pool de *runners* pré-carregados que elimina o
+# `pre_spawn` do arranque a frio nos caminhos com processo vivo (CRI/API).
+# Só orquestra processos e sockets — a mecânica do container fica no `delonix`
+# (via `__poolrunner`); este crate não conhece imagens, rootfs nem o motor.
+
+[dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
