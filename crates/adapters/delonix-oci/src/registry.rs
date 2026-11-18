@@ -187,6 +187,21 @@ pub fn parse_reference(input: &str) -> (String, String, String) {
     (host, repo, reference)
 }
 
+/// The repository name as the user referenced it, with any `:tag` / `@digest`
+/// stripped — so a `name@sha256:…` digest reference lines up with the `name:tag`
+/// already in `repo_tags`. Keeps the user's form (does NOT normalise to the
+/// canonical `library/…` the way [`parse_reference`] does), because `repo_tags`
+/// keeps the user's form too. A `:` is a tag separator only after the last `/`
+/// (so `localhost:5000/img:tag` keeps the registry port).
+fn repo_base(input: &str) -> &str {
+    let before = input.split('@').next().unwrap_or(input);
+    let last_slash = before.rfind('/').map(|i| i + 1).unwrap_or(0);
+    match before[last_slash..].find(':') {
+        Some(colon) => &before[..last_slash + colon],
+        None => before,
+    }
+}
+
 /// Extracts `key="value"` from a `WWW-Authenticate` header.
 /// A read the registry refuses to authorise (401/403).
 fn is_denied(status: reqwest::StatusCode) -> bool {
@@ -314,6 +329,69 @@ fn target_arch() -> &'static str {
         "aarch64" => "arm64",
         "arm" => "arm",
         other => other,
+    }
+}
+
+/// The host's CPU variant in OCI vocabulary, when the architecture ships in
+/// more than one variant that we can tell apart at compile time. `None` means
+/// "no variant to match on" — the arch alone picks the manifest, as on amd64
+/// and arm64 (whose v2–v4 / v8 micro-levels are almost never published as
+/// separate index entries).
+///
+/// 32-bit arm is the case that matters: an image built for `arm/v7` does NOT
+/// run on an `arm/v6` core and vice-versa, yet both carry `architecture: "arm"`
+/// — so a multi-arch index that offers both is only disambiguated by the
+/// variant. We know the host's own from the target the runtime was built for.
+fn target_variant() -> Option<&'static str> {
+    #[cfg(all(target_arch = "arm", target_feature = "v7"))]
+    {
+        Some("v7")
+    }
+    #[cfg(all(target_arch = "arm", not(target_feature = "v7")))]
+    {
+        Some("v6")
+    }
+    #[cfg(not(target_arch = "arm"))]
+    {
+        None
+    }
+}
+
+/// Picks the index entry for `(arch, variant)` out of a multi-arch index's
+/// manifests, or `None` when none runs on this host. Pure, and split out, so
+/// the variant-sensitive choice (easy to get wrong, and only exercised by a
+/// live multi-arch pull otherwise) is covered by a test.
+///
+/// When a `variant` is known, an entry whose variant matches exactly is
+/// preferred; failing that, an entry of the right arch that declares NO variant
+/// is accepted (a generic `arm` build runs on any arm). An entry of a DIFFERENT
+/// explicit variant is never chosen — that is the `exec format error` O1/O3
+/// close, so the caller errors instead of guessing. With no known variant the
+/// arch alone selects, as before.
+fn select_platform_manifest<'a>(
+    manifests: &'a [Descriptor],
+    arch: &str,
+    variant: Option<&str>,
+) -> Option<&'a Descriptor> {
+    let is_arch = |m: &Descriptor| {
+        m.platform()
+            .as_ref()
+            .map(|p| p.os().to_string() == "linux" && p.architecture().to_string() == arch)
+            .unwrap_or(false)
+    };
+    let entry_variant = |m: &Descriptor| -> Option<String> {
+        m.platform().as_ref().and_then(|p| p.variant().clone())
+    };
+    match variant {
+        Some(want) => manifests
+            .iter()
+            .find(|m| is_arch(m) && entry_variant(m).as_deref() == Some(want))
+            .or_else(|| {
+                manifests
+                    .iter()
+                    .find(|m| is_arch(m) && entry_variant(m).is_none())
+            }),
+        None => manifests.iter().find(|m| is_arch(m)),
     }
 }
 
@@ -1455,6 +1533,16 @@ pub(crate) const DOCKER_MANIFEST_MEDIA_TYPE: &str =
     "application/vnd.docker.distribution.manifest.v2+json";
 const DOCKER_LAYER_GZIP_MEDIA_TYPE: &str = "application/vnd.docker.image.rootfs.diff.tar.gzip";
 
+/// OCI image media types — the vocabulary [`build_manifest`] falls back to when
+/// a layer has no Docker schema-2 equivalent (zstd, plain tar). Docker v2s2
+/// defines exactly ONE layer type (gzip); carrying any other under a Docker v2
+/// envelope is the non-conformant hybrid podman/skopeo reject (GAP-OCI-IMG-1).
+pub(crate) const OCI_MANIFEST_MEDIA_TYPE: &str = "application/vnd.oci.image.manifest.v1+json";
+const OCI_CONFIG_MEDIA_TYPE: &str = "application/vnd.oci.image.config.v1+json";
+const OCI_LAYER_GZIP_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar+gzip";
+const OCI_LAYER_ZSTD_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar+zstd";
+const OCI_LAYER_TAR_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
+
 /// Builds an OCI [`Descriptor`] (`oci_spec`) from a mediaType, size
 /// and digest (with or without the `sha256:` prefix). Centralises the digest
 /// validation (`Digest::from_str`) and the construction via the builder.
@@ -1480,14 +1568,36 @@ pub const INTOTO_PREDICATE_TYPE_ANNOTATION: &str = "in-toto.io/predicate-type";
 const ATTESTATION_MANIFEST_ARTIFACT_TYPE: &str =
     "application/vnd.docker.attestation.manifest.v1+json";
 
-/// The mediaType of a layer by its *magic number* (gzip/zstd/plain tar).
+/// `true` if the blob starts with the gzip magic — the only compression a
+/// Docker schema-2 layer may carry.
+fn is_gzip(data: &[u8]) -> bool {
+    data.starts_with(&[0x1f, 0x8b])
+}
+
+/// The Docker-schema-2 mediaType of a layer by its *magic number*. gzip gets the
+/// Docker type; zstd/plain tar have no Docker v2s2 type, so they keep the OCI
+/// one (which is why a manifest with such a layer must be emitted as OCI, not
+/// Docker v2 — see [`build_manifest`]).
 fn layer_media_type(data: &[u8]) -> &'static str {
-    if data.starts_with(&[0x1f, 0x8b]) {
+    if is_gzip(data) {
         DOCKER_LAYER_GZIP_MEDIA_TYPE
     } else if data.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
-        "application/vnd.oci.image.layer.v1.tar+zstd"
+        OCI_LAYER_ZSTD_MEDIA_TYPE
     } else {
-        "application/vnd.oci.image.layer.v1.tar"
+        OCI_LAYER_TAR_MEDIA_TYPE
+    }
+}
+
+/// The OCI mediaType of a layer by its *magic number* — gzip included, which is
+/// where this differs from [`layer_media_type`]: here gzip is the OCI gzip type,
+/// so every layer in the manifest speaks one consistent OCI vocabulary.
+fn oci_layer_media_type(data: &[u8]) -> &'static str {
+    if is_gzip(data) {
+        OCI_LAYER_GZIP_MEDIA_TYPE
+    } else if data.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
+        OCI_LAYER_ZSTD_MEDIA_TYPE
+    } else {
+        OCI_LAYER_TAR_MEDIA_TYPE
     }
 }
 
@@ -2042,6 +2152,39 @@ pub fn pull_from_registry_with_creds_platform(
 /// threads has no business in a parallel pull.
 pub type PullProgressCb<'a> = &'a (dyn Fn(usize, usize, u64, Option<u64>) + Sync);
 
+/// One per-layer event of a pull — what a `docker pull`-style renderer needs
+/// and the aggregate [`PullProgressCb`] cannot carry: WHICH layer moved. The
+/// engine only reports; the bin draws (the split `blob_with_progress`'s doc
+/// comment establishes). Borrowed digest on purpose: `Downloading` fires once
+/// per read chunk, and an owned `String` there would be an allocation per
+/// chunk for a consumer that mostly throttles the event away.
+#[derive(Debug, Clone, Copy)]
+pub enum PullEvent<'a> {
+    /// A layer the manifest names that is missing locally — announced before
+    /// any download starts, in manifest order, so a renderer can lay out one
+    /// line per layer upfront. `size` is the manifest descriptor's declared
+    /// size (what `docker pull` shows before the first byte arrives).
+    Queued { digest: &'a str, size: u64 },
+    /// A layer already in the CAS (manifest order) — docker's "Already
+    /// exists": a re-pull of a shared base layer costs nothing.
+    AlreadyExists { digest: &'a str },
+    /// Bytes of ONE layer in flight: `done` is that layer's running total
+    /// (NOT an aggregate across layers). `total` is the Content-Length when
+    /// the registry sent one, else the manifest descriptor's size — so a
+    /// chunked transfer still gets a bounded bar.
+    Downloading {
+        digest: &'a str,
+        done: u64,
+        total: Option<u64>,
+    },
+    /// The layer fully downloaded, digest-verified and stored in the CAS.
+    Done { digest: &'a str },
+}
+
+/// `+ Sync` for the same reason as [`PullProgressCb`]: layers are pulled in
+/// PARALLEL and every worker reports through this callback.
+pub type PullEventCb<'a> = &'a (dyn Fn(PullEvent<'_>) + Sync);
+
 /// When `reference` names a content digest (`sha256:...`), verifies the fetched
 /// manifest bytes hash to EXACTLY that digest. A digest-pinned pull
 /// (`repo@sha256:...`) is the whole point of pinning: even a compromised or
@@ -2075,12 +2218,77 @@ fn verify_manifest_digest(reference: &str, manifest_bytes: &[u8]) -> Result<()> 
 /// very start — looked hung, unlike `docker pull`'s familiar per-layer bars.
 /// The engine crate only REPORTS bytes; the bin draws (same split
 /// `blob_with_progress`'s own doc comment establishes).
+///
+/// The AGGREGATE shape (`layer i of n, bytes so far`) is kept for the
+/// docker-API streamer (`dockerapi.rs`), which wants one running figure; it
+/// is derived here from the per-layer [`PullEvent`]s the pull itself now
+/// emits, so there is a single pull code path.
 pub fn pull_from_registry_with_creds_full(
     store: &ImageStore,
     reference: &str,
     creds_override: Option<(String, String)>,
     requested_arch: Option<&str>,
     progress: Option<PullProgressCb>,
+) -> Result<Image> {
+    let Some(cb) = progress else {
+        return pull_from_registry_with_events(
+            store,
+            reference,
+            creds_override,
+            requested_arch,
+            None,
+        );
+    };
+    // Rebuilds the old aggregate semantics from the events: `total` counts
+    // every real layer (Queued + AlreadyExists are emitted for all of them,
+    // before any Downloading tick can fire), `li` is "layers finished + 1"
+    // capped at the total, and bytes accumulate deltas per layer —
+    // `Downloading.done` is a per-layer running total, adding it raw would
+    // grow with the square of the layer size (the exact bug the old adapter
+    // comment records).
+    let total_layers = std::sync::atomic::AtomicUsize::new(0);
+    let done_layers = std::sync::atomic::AtomicUsize::new(0);
+    let done_bytes = std::sync::atomic::AtomicU64::new(0);
+    let seen = std::sync::Mutex::new(std::collections::HashMap::<String, u64>::new());
+    let adapter = |ev: PullEvent<'_>| match ev {
+        PullEvent::Queued { .. } | PullEvent::AlreadyExists { .. } => {
+            total_layers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        PullEvent::Downloading { digest, done, .. } => {
+            let delta = {
+                let mut m = seen.lock().unwrap();
+                let prev = m.entry(digest.to_string()).or_insert(0);
+                let d = done.saturating_sub(*prev);
+                *prev = done;
+                d
+            };
+            let acc = done_bytes.fetch_add(delta, std::sync::atomic::Ordering::Relaxed) + delta;
+            let total = total_layers.load(std::sync::atomic::Ordering::Relaxed);
+            let li = (done_layers.load(std::sync::atomic::Ordering::Relaxed) + 1).min(total);
+            cb(li, total, acc, None);
+        }
+        PullEvent::Done { .. } => {
+            done_layers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    };
+    pull_from_registry_with_events(
+        store,
+        reference,
+        creds_override,
+        requested_arch,
+        Some(&adapter),
+    )
+}
+
+/// The pull itself, reporting per-layer [`PullEvent`]s — what `delonix image
+/// pull` and the pull-on-miss of `container run` feed into the multi-line
+/// `docker pull`-style renderer in the bin.
+pub fn pull_from_registry_with_events(
+    store: &ImageStore,
+    reference: &str,
+    creds_override: Option<(String, String)>,
+    requested_arch: Option<&str>,
+    events: Option<PullEventCb>,
 ) -> Result<Image> {
     let (host, repo, refr) = parse_reference(reference);
     let http = transfer_client()?;
@@ -2116,24 +2324,57 @@ pub fn pull_from_registry_with_creds_full(
     // on any of it (before picking a platform, before fetching any blob).
     verify_manifest_digest(&refr, &body)?;
 
+    // The digest of the TOP-LEVEL manifest (the multi-arch index, or the single
+    // manifest) names this image by content. A pull by tag must still record a
+    // `name@sha256:…` reference so `repo_digests` is populated at the CRI
+    // boundary — the kubelet reads it for `imageID`, for image GC by digest and
+    // for digest-based admission. Without it `crictl inspecti` returned
+    // `repoDigests: []` on every tag pull.
+    let top_manifest_digest = format!("sha256:{}", crate::cas::sha256_hex(&body));
+
     let manifest_bytes = if content_type.contains("index") || content_type.contains("manifest.list")
     {
         // Multi-arch index (`oci_spec::image::ImageIndex`) — picks the
         // linux/<arch> entry (or the first one, lacking a match).
         let index: ImageIndex = serde_json::from_slice(&body)?;
         let arch = requested_arch.unwrap_or_else(|| target_arch());
-        let pick = index
-            .manifests()
-            .iter()
-            .find(|m| {
-                m.platform()
-                    .as_ref()
-                    .map(|p| p.os().to_string() == "linux" && p.architecture().to_string() == arch)
-                    .unwrap_or(false)
-            })
-            .or_else(|| index.manifests().first())
-            .ok_or_else(|| Error::Registry("empty manifest index".into()))?;
-        tracing::info!(arch = %arch, "platform selected: linux/{arch}");
+        // A variant only disambiguates WITHIN an architecture, and we only know
+        // the host's own (compile-time): apply it only when the arch being
+        // selected IS the host's, never when an explicit `--platform` asked for
+        // a different one (its variant is unknown to us).
+        let variant = (arch == target_arch()).then(target_variant).flatten();
+        let pick = select_platform_manifest(index.manifests(), arch, variant)
+            // No silent fall-back to the first manifest: picking an arbitrary
+            // architecture (or variant) made a `pull` of an image that lacks this
+            // node's platform "succeed" and then die with `exec format error` at
+            // run time (and the stored `architecture` lied). containerd/docker
+            // error here — so do we.
+            .ok_or_else(|| {
+                let avail: Vec<String> = index
+                    .manifests()
+                    .iter()
+                    .filter_map(|m| {
+                        m.platform().as_ref().map(|p| match p.variant() {
+                            Some(v) => format!("{}/{}/{v}", p.os(), p.architecture()),
+                            None => format!("{}/{}", p.os(), p.architecture()),
+                        })
+                    })
+                    .collect();
+                let want = match variant {
+                    Some(v) => format!("linux/{arch}/{v}"),
+                    None => format!("linux/{arch}"),
+                };
+                Error::Registry(format!(
+                    "no manifest for platform {want} in the multi-arch index \
+                     (available: {})",
+                    if avail.is_empty() {
+                        "none declared".to_string()
+                    } else {
+                        avail.join(", ")
+                    }
+                ))
+            })?;
+        tracing::info!(arch = %arch, variant = ?variant, "platform selected: linux/{arch}");
         let purl = c.manifest_url(pick.digest().as_ref());
         let r = c.fetch(&purl, ACCEPT_MANIFEST)?;
         let sub = read_capped(r, MAX_MANIFEST_BYTES, "sub-manifest")?;
@@ -2173,7 +2414,6 @@ pub fn pull_from_registry_with_creds_full(
         .iter()
         .filter(|l| !l.media_type().to_string().contains("foreign"))
         .collect();
-    let total = real_layers.len();
     let layers: Vec<String> = real_layers.iter().map(|l| l.digest().to_string()).collect();
 
     // WHAT IS MISSING, in one pass, before downloading anything. `Cas::has` is
@@ -2185,6 +2425,33 @@ pub fn pull_from_registry_with_creds_full(
         .filter(|d| !store.cas().has(d))
         .cloned()
         .collect();
+
+    // Declared sizes, by digest — `Downloading`'s fallback total when the
+    // registry answers without a Content-Length (chunked transfers).
+    let sizes: std::collections::HashMap<String, u64> = layers
+        .iter()
+        .cloned()
+        .zip(real_layers.iter().map(|l| l.size()))
+        .collect();
+
+    if let Some(cb) = events {
+        // Every layer announced upfront, in manifest order, before the first
+        // byte moves: the renderer lays out one line per layer and the user
+        // sees at once how much of the image is already local — the `docker
+        // pull` opening screen.
+        let missing_set: std::collections::HashSet<&str> =
+            missing.iter().map(String::as_str).collect();
+        for (digest, desc) in layers.iter().zip(&real_layers) {
+            if missing_set.contains(digest.as_str()) {
+                cb(PullEvent::Queued {
+                    digest,
+                    size: desc.size(),
+                });
+            } else {
+                cb(PullEvent::AlreadyExists { digest });
+            }
+        }
+    }
 
     if !missing.is_empty() || need_config {
         // LAYERS IN PARALLEL, and this is the difference between a pull that
@@ -2200,8 +2467,6 @@ pub fn pull_from_registry_with_creds_full(
         // layer streams to a scratch file in the CAS (`blob_into_cas`), so a
         // worker holds one read chunk, not the layer.
         let workers = missing.len().min(4);
-        let done_bytes = std::sync::atomic::AtomicU64::new(0);
-        let done_layers = std::sync::atomic::AtomicUsize::new(0);
         let next = std::sync::Mutex::new(missing.clone().into_iter());
         let errors = std::sync::Mutex::new(Vec::<String>::new());
         let config_result = std::sync::Mutex::new(None::<Result<()>>);
@@ -2227,39 +2492,27 @@ pub fn pull_from_registry_with_creds_full(
                 // obtained. `reqwest::blocking::Client` shares its connection
                 // pool across clones, so this is not N pools.
                 let mut cw = c.clone();
-                let (next, errors, done_bytes, done_layers) =
-                    (&next, &errors, &done_bytes, &done_layers);
+                let (next, errors, sizes) = (&next, &errors, &sizes);
                 let store = &store;
                 scope.spawn(move || loop {
                     let Some(dg) = next.lock().unwrap().next() else {
                         return;
                     };
-                    let res = if let Some(cb) = progress {
-                        // Progress is AGGREGATE across workers: with several
-                        // layers in flight there is no single "layer i of n" to
-                        // report, and per-layer bytes would make the bar jump
-                        // backwards. `done` is every byte pulled so far.
-                        //
-                        // BUG FOUND: `blob_with_progress` reports the RUNNING
-                        // TOTAL for its blob, and this adapter was adding that
-                        // running total into the aggregate on every tick, as if
-                        // it were a delta. The reported bytes grew with the
-                        // SQUARE of the layer size — a 100 MiB layer in 64 KiB
-                        // chunks announced tens of GiB pulled. `pull_oci_artifact`
-                        // reads the same callback correctly (it compares `done`
-                        // against the total), so the two consumers of one
-                        // callback disagreed about what its argument meant.
-                        // `Cell` and not an atomic: this closure is built per
-                        // blob and only ever called by the worker that owns it.
-                        let seen = std::cell::Cell::new(0u64);
-                        let adapter = |done: u64, _blob_total: Option<u64>| {
-                            let chunk = done.saturating_sub(seen.get());
-                            seen.set(done);
-                            let acc = done_bytes
-                                .fetch_add(chunk, std::sync::atomic::Ordering::Relaxed)
-                                + chunk;
-                            let li = done_layers.load(std::sync::atomic::Ordering::Relaxed) + 1;
-                            cb(li.min(total), total, acc, None);
+                    let res = if let Some(cb) = events {
+                        // Straight passthrough: `blob_with_progress` reports
+                        // the RUNNING TOTAL for its blob, which is exactly
+                        // what `Downloading.done` means — per-layer, each
+                        // worker its own line. (The old aggregate-across-
+                        // workers adapter, and the squared-bytes bug its
+                        // delta bookkeeping once had, now live in
+                        // `pull_from_registry_with_creds_full`.)
+                        let size_hint = sizes.get(&dg).copied();
+                        let adapter = |done: u64, blob_total: Option<u64>| {
+                            cb(PullEvent::Downloading {
+                                digest: &dg,
+                                done,
+                                total: blob_total.or(size_hint),
+                            });
                         };
                         cw.blob_into_cas(store.cas(), &dg, Some(&adapter))
                     } else {
@@ -2267,7 +2520,9 @@ pub fn pull_from_registry_with_creds_full(
                     };
                     match res {
                         Ok(()) => {
-                            done_layers.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if let Some(cb) = events {
+                                cb(PullEvent::Done { digest: &dg });
+                            }
                         }
                         Err(Error::DigestMismatch(_)) => errors
                             .lock()
@@ -2299,7 +2554,12 @@ pub fn pull_from_registry_with_creds_full(
     // from the OCI config blob (`oci_spec::image::ImageConfiguration`).
     let oci_config: ImageConfiguration = serde_json::from_slice(&config_bytes)?;
     let inner = oci_config.config().clone().unwrap_or_default();
-    let repo_tags = store.merged_tags(&config_digest, reference);
+    // Record BOTH the tag reference and the `name@sha256:<manifest-digest>`
+    // digest reference. `partition_refs` at the CRI boundary splits them back
+    // into `repo_tags` / `repo_digests`; `normalise_tag` leaves the `@` form
+    // untouched. The tag comes first so it stays the image's primary name.
+    let digest_ref = format!("{}@{}", repo_base(reference), top_manifest_digest);
+    let repo_tags = store.merged_tags_all(&config_digest, &[reference.to_string(), digest_ref]);
     let image = crate::image::Image {
         id: config_digest,
         repo_tags,
@@ -2319,9 +2579,11 @@ pub fn pull_from_registry_with_creds_full(
             // `--wait`/compose `service_healthy` could never pass on it.
             healthcheck: crate::image::healthcheck_test(&config_bytes),
             exposed_ports: inner.exposed_ports().clone().unwrap_or_default(),
-            architecture: requested_arch
-                .map(str::to_string)
-                .unwrap_or_else(|| target_arch().to_string()),
+            // The architecture of the content ACTUALLY pulled, read from the OCI
+            // config blob — not the *requested* arch, which would lie for a
+            // single-arch image or any mismatch. A platform mismatch now errors
+            // when selecting the manifest (above), so this is always truthful.
+            architecture: oci_config.architecture().to_string(),
         },
         created_unix: now_unix(),
     };
@@ -2339,11 +2601,34 @@ pub fn pull_from_registry_with_creds_full(
 /// layer descriptors, with the mediaType detected by the magic number of each
 /// blob). Returns `(bytes, digest)`. Used by the internal registry's OCI server
 /// to serve `docker pull` without re-packing anything.
-pub fn build_manifest(store: &ImageStore, image: &Image) -> Result<(Vec<u8>, String)> {
-    let manifest = docker_manifest(store, image)?;
+pub fn build_manifest(
+    store: &ImageStore,
+    image: &Image,
+) -> Result<(Vec<u8>, String, &'static str)> {
+    // Docker schema-2 defines exactly ONE layer type (`...diff.tar.gzip`). A
+    // manifest that SAYS it is Docker v2 but carries an OCI zstd/plain-tar layer
+    // type is the non-conformant hybrid podman/skopeo reject (GAP-OCI-IMG-1) —
+    // the O4 bug was emitting exactly that. So the vocabulary follows the layers:
+    // Docker v2 while every layer is gzip (what `docker load`/`ctr import` read
+    // natively), OCI the moment one is not. The media type is returned so the
+    // index that points at this manifest (archive or registry) echoes it rather
+    // than hard-coding Docker v2 over an OCI body.
+    let cas = store.cas();
+    let mut all_gzip = true;
+    for dg in &image.layers {
+        if !is_gzip(&cas.head(dg, 2)?) {
+            all_gzip = false;
+            break;
+        }
+    }
+    let (manifest, media_type) = if all_gzip {
+        (docker_manifest(store, image)?, DOCKER_MANIFEST_MEDIA_TYPE)
+    } else {
+        (oci_manifest(store, image)?, OCI_MANIFEST_MEDIA_TYPE)
+    };
     let bytes = serde_json::to_vec(&manifest)?;
     let digest = format!("sha256:{}", crate::cas::sha256_hex(&bytes));
-    Ok((bytes, digest))
+    Ok((bytes, digest, media_type))
 }
 
 /// Builds the manifest of a local image with **OCI media types** instead of the
@@ -2407,35 +2692,62 @@ pub(crate) fn to_oci_manifest(manifest: &ImageManifest) -> Result<ImageManifest>
         .map_err(oci_err)
 }
 
-/// Builds the Docker schema-2 [`ImageManifest`] of a local image (config +
-/// layer descriptors, mediaType detected by magic number). Shared by
-/// [`build_manifest`] (serving) and [`push_to_registry`] (publishing).
-fn docker_manifest(store: &ImageStore, image: &Image) -> Result<ImageManifest> {
-    // Size from the file's metadata and the media type from its first bytes:
-    // reading every layer whole just to learn those two facts made a push (and
-    // `write_oci_archive`) read each layer from disk twice.
+/// Builds an [`ImageManifest`] of a local image in one vocabulary: the envelope
+/// (`manifest_media_type`) and config type are given, and each layer's type is
+/// sniffed from its first bytes by `layer_type`. Size comes from the file's
+/// metadata and the type from its first bytes — reading every layer whole just
+/// to learn those two facts made a push (and `write_oci_archive`) read each
+/// layer from disk twice.
+fn image_manifest(
+    store: &ImageStore,
+    image: &Image,
+    manifest_media_type: &str,
+    config_media_type: &str,
+    layer_type: impl Fn(&[u8]) -> &'static str,
+) -> Result<ImageManifest> {
     let cas = store.cas();
-    let config_desc = descriptor(
-        DOCKER_CONFIG_MEDIA_TYPE,
-        cas.size(&image.id)? as usize,
-        &image.id,
-    )?;
+    let config_desc = descriptor(config_media_type, cas.size(&image.id)? as usize, &image.id)?;
     let mut layer_descs = Vec::with_capacity(image.layers.len());
     for dg in &image.layers {
         let head = cas.head(dg, 4)?;
-        layer_descs.push(descriptor(
-            layer_media_type(&head),
-            cas.size(dg)? as usize,
-            dg,
-        )?);
+        layer_descs.push(descriptor(layer_type(&head), cas.size(dg)? as usize, dg)?);
     }
     ImageManifestBuilder::default()
         .schema_version(2u32)
-        .media_type(DOCKER_MANIFEST_MEDIA_TYPE)
+        .media_type(manifest_media_type)
         .config(config_desc)
         .layers(layer_descs)
         .build()
         .map_err(oci_err)
+}
+
+/// The Docker schema-2 [`ImageManifest`] of a local image. Shared by
+/// [`build_manifest`] (serving an all-gzip image) and [`push_to_registry`],
+/// which feeds it to [`to_oci_manifest`] for the OCI twin it publishes.
+fn docker_manifest(store: &ImageStore, image: &Image) -> Result<ImageManifest> {
+    image_manifest(
+        store,
+        image,
+        DOCKER_MANIFEST_MEDIA_TYPE,
+        DOCKER_CONFIG_MEDIA_TYPE,
+        layer_media_type,
+    )
+}
+
+/// The OCI [`ImageManifest`] of a local image, every media type OCI — the
+/// vocabulary [`build_manifest`] emits when a layer (zstd, plain tar) has no
+/// Docker v2s2 type. Unlike [`to_oci_manifest`], which deliberately refuses a
+/// zstd layer on the archive/push paths (only gzip/plain tar were measured
+/// against a consumer that needs the OCI types), this carries whatever the
+/// image actually is, coherently.
+fn oci_manifest(store: &ImageStore, image: &Image) -> Result<ImageManifest> {
+    image_manifest(
+        store,
+        image,
+        OCI_MANIFEST_MEDIA_TYPE,
+        OCI_CONFIG_MEDIA_TYPE,
+        oci_layer_media_type,
+    )
 }
 
 pub fn push_to_registry(store: &ImageStore, source: &str, target: &str) -> Result<String> {
@@ -3639,11 +3951,92 @@ mod tests {
         assert_eq!(with_prefix("sha256:abc"), "sha256:abc");
     }
 
+    /// `repo_base` underpins the `name@sha256:…` digest reference a pull records
+    /// so `repo_digests` is populated (O2). It strips the tag/digest but keeps
+    /// the user's form, and a `:` is a tag only after the last `/` (registry
+    /// ports survive).
+    #[test]
+    fn repo_base_strips_tag_and_digest_keeping_the_port() {
+        use super::repo_base;
+        assert_eq!(repo_base("alpine:3.24"), "alpine");
+        assert_eq!(repo_base("alpine"), "alpine");
+        assert_eq!(repo_base("library/nginx:latest"), "library/nginx");
+        assert_eq!(repo_base("localhost:5000/img:tag"), "localhost:5000/img");
+        assert_eq!(repo_base("gcr.io/x/y@sha256:abc"), "gcr.io/x/y");
+        assert_eq!(
+            repo_base("localhost:5000/img@sha256:abc"),
+            "localhost:5000/img"
+        );
+        // A combined `repo:tag@digest` keeps repo only (tag cut before '@').
+        assert_eq!(repo_base("repo:v1@sha256:abc"), "repo");
+    }
+
     #[test]
     fn detects_layer_compression() {
         assert!(layer_media_type(&[0x1f, 0x8b, 0x08]).contains("gzip"));
         assert!(layer_media_type(&[0x28, 0xb5, 0x2f, 0xfd]).contains("zstd"));
         assert!(layer_media_type(b"ustar  ").ends_with(".tar"));
+    }
+
+    /// O3: within one architecture the VARIANT decides, not the index order. An
+    /// `arm/v7` binary does not run on an `arm/v6` core and vice-versa, so a
+    /// multi-arch index offering both must be picked by the host's variant —
+    /// and when none matches exactly, no arbitrary guess (the `exec format
+    /// error` O1/O3 close), only a variant-less generic arm entry as fallback.
+    #[test]
+    fn platform_pick_prefers_the_matching_variant() {
+        use super::select_platform_manifest;
+        fn entry(arch: &str, variant: Option<&str>, hex: char) -> oci_spec::image::Descriptor {
+            let mut platform = serde_json::json!({ "os": "linux", "architecture": arch });
+            if let Some(v) = variant {
+                platform["variant"] = serde_json::Value::String(v.to_string());
+            }
+            serde_json::from_value(serde_json::json!({
+                "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                "size": 2,
+                "digest": format!("sha256:{}", hex.to_string().repeat(64)),
+                "platform": platform,
+            }))
+            .unwrap()
+        }
+        let dg = |d: Option<&oci_spec::image::Descriptor>| d.unwrap().digest().to_string();
+
+        // arm/v6 then arm/v7, in that index order: the host's variant, not the
+        // position, selects the entry — both ways round.
+        let v6 = entry("arm", Some("v6"), '6');
+        let v7 = entry("arm", Some("v7"), '7');
+        let index = vec![v6.clone(), v7.clone()];
+        assert_eq!(
+            dg(select_platform_manifest(&index, "arm", Some("v7"))),
+            v7.digest().to_string()
+        );
+        assert_eq!(
+            dg(select_platform_manifest(&index, "arm", Some("v6"))),
+            v6.digest().to_string()
+        );
+
+        // A variant with neither an exact match nor a variant-less arm entry:
+        // no guess — the caller turns this `None` into the O1/O3 error.
+        assert!(select_platform_manifest(&index, "arm", Some("v8")).is_none());
+
+        // A variant-less arm entry IS the generic fallback (a plain `arm` build
+        // runs on any arm) when the exact variant is absent.
+        let generic = entry("arm", None, 'a');
+        let with_generic = vec![v6.clone(), generic.clone()];
+        assert_eq!(
+            dg(select_platform_manifest(&with_generic, "arm", Some("v8"))),
+            generic.digest().to_string()
+        );
+
+        // No variant known (an amd64/arm64 host): the arch alone selects and the
+        // first match wins, exactly as before — variants are not consulted.
+        assert_eq!(
+            dg(select_platform_manifest(&index, "arm", None)),
+            v6.digest().to_string()
+        );
+
+        // A different architecture is never selected on a variant request.
+        assert!(select_platform_manifest(&index, "amd64", Some("v7")).is_none());
     }
 
     #[test]
@@ -3942,14 +4335,193 @@ mod tests {
         assert_eq!(img1.id, img2.id);
     }
 
+    /// The per-layer event stream a `docker pull`-style renderer consumes:
+    /// every layer announced upfront (in manifest order, `AlreadyExists` for
+    /// what the CAS already holds, `Queued` with the declared size for the
+    /// rest), then `Downloading` ticks and a `Done` for each missing layer.
+    #[test]
+    fn pull_with_events_reports_existing_and_downloaded_layers() {
+        use super::{pull_from_registry_with_events, PullEvent};
+        let (port, _gets, _handle) = serve_anon_registry();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut c = test_client(&format!("127.0.0.1:{port}"), "events");
+        let config_bytes =
+            br#"{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]}}"#
+                .to_vec();
+        let config_digest = format!("sha256:{}", sha256_hex(&config_bytes));
+        c.push_blob(&config_digest, &config_bytes).unwrap();
+
+        let seeded_bytes = b"camada-ja-presente-no-cas".to_vec();
+        let seeded_digest = format!("sha256:{}", sha256_hex(&seeded_bytes));
+        c.push_blob(&seeded_digest, &seeded_bytes).unwrap();
+        let fresh_bytes = b"camada-que-falta-e-vai-ser-descarregada".to_vec();
+        let fresh_digest = format!("sha256:{}", sha256_hex(&fresh_bytes));
+        c.push_blob(&fresh_digest, &fresh_bytes).unwrap();
+
+        let manifest = serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "size": config_bytes.len(),
+                "digest": config_digest,
+            },
+            "layers": [
+                {
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                    "size": seeded_bytes.len(),
+                    "digest": seeded_digest,
+                },
+                {
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                    "size": fresh_bytes.len(),
+                    "digest": fresh_digest,
+                },
+            ],
+        });
+        let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+        c.push_manifest(
+            "tag",
+            &manifest_bytes,
+            "application/vnd.oci.image.manifest.v1+json",
+        )
+        .unwrap();
+
+        let store = crate::ImageStore::open(tmp.path()).unwrap();
+        // The seeded layer enters the CAS BEFORE the pull — the pull must
+        // recognise it (`AlreadyExists`) and never download it.
+        assert_eq!(store.cas().write(&seeded_bytes).unwrap(), seeded_digest);
+
+        #[derive(Debug, Clone, PartialEq)]
+        enum Ev {
+            Queued(String, u64),
+            Exists(String),
+            Downloading(String, u64, Option<u64>),
+            Done(String),
+        }
+        let got = std::sync::Mutex::new(Vec::<Ev>::new());
+        let cb = |ev: PullEvent<'_>| {
+            got.lock().unwrap().push(match ev {
+                PullEvent::Queued { digest, size } => Ev::Queued(digest.into(), size),
+                PullEvent::AlreadyExists { digest } => Ev::Exists(digest.into()),
+                PullEvent::Downloading {
+                    digest,
+                    done,
+                    total,
+                } => Ev::Downloading(digest.into(), done, total),
+                PullEvent::Done { digest } => Ev::Done(digest.into()),
+            });
+        };
+        let target = format!("127.0.0.1:{port}/events:tag");
+        pull_from_registry_with_events(&store, &target, None, None, Some(&cb))
+            .expect("the pull with events had to succeed");
+        let got = got.into_inner().unwrap();
+
+        // Layout first, in manifest order: the renderer draws every line
+        // before the first byte moves.
+        assert_eq!(
+            &got[..2],
+            &[
+                Ev::Exists(seeded_digest.clone()),
+                Ev::Queued(fresh_digest.clone(), fresh_bytes.len() as u64),
+            ],
+            "os 2 primeiros eventos têm de ser o layout, na ordem do manifesto"
+        );
+        let last_tick = got
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                Ev::Downloading(d, done, total) if d == &fresh_digest => Some((*done, *total)),
+                _ => None,
+            })
+            .expect("the missing layer had to report Downloading");
+        assert_eq!(last_tick.0, fresh_bytes.len() as u64);
+        assert_eq!(last_tick.1, Some(fresh_bytes.len() as u64));
+        assert!(
+            got.contains(&Ev::Done(fresh_digest.clone())),
+            "a camada descarregada tinha de terminar em Done"
+        );
+        assert!(
+            !got.iter()
+                .any(|e| matches!(e, Ev::Downloading(d, ..) if d == &seeded_digest)),
+            "uma camada já no CAS nunca reporta Downloading"
+        );
+    }
+
+    /// The aggregate shape (`layer i of n, bytes so far`) is now DERIVED from
+    /// the per-layer events — this pins the old contract the docker-API
+    /// streamer still consumes: `total` = all real layers, bytes accumulate
+    /// monotonically to the sum of the MISSING layers, never the squared
+    /// figure the old per-tick adapter once produced.
+    #[test]
+    fn aggregate_pull_derived_from_events_keeps_the_contract() {
+        use super::pull_from_registry_with_creds_full;
+        let (port, _gets, _handle) = serve_anon_registry();
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut c = test_client(&format!("127.0.0.1:{port}"), "aggr");
+        let config_bytes =
+            br#"{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]}}"#
+                .to_vec();
+        let config_digest = format!("sha256:{}", sha256_hex(&config_bytes));
+        c.push_blob(&config_digest, &config_bytes).unwrap();
+        let layer_bytes = b"bytes-da-unica-camada-do-teste-agregado".to_vec();
+        let layer_digest = format!("sha256:{}", sha256_hex(&layer_bytes));
+        c.push_blob(&layer_digest, &layer_bytes).unwrap();
+        let manifest = serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "size": config_bytes.len(),
+                "digest": config_digest,
+            },
+            "layers": [{
+                "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                "size": layer_bytes.len(),
+                "digest": layer_digest,
+            }],
+        });
+        c.push_manifest(
+            "tag",
+            &serde_json::to_vec(&manifest).unwrap(),
+            "application/vnd.oci.image.manifest.v1+json",
+        )
+        .unwrap();
+
+        let store = crate::ImageStore::open(tmp.path()).unwrap();
+        let ticks = std::sync::Mutex::new(Vec::<(usize, usize, u64)>::new());
+        let cb = |li: usize, total: usize, acc: u64, _t: Option<u64>| {
+            ticks.lock().unwrap().push((li, total, acc));
+        };
+        let target = format!("127.0.0.1:{port}/aggr:tag");
+        pull_from_registry_with_creds_full(&store, &target, None, None, Some(&cb))
+            .expect("the aggregate pull had to succeed");
+        let ticks = ticks.into_inner().unwrap();
+        assert!(!ticks.is_empty(), "o callback agregado tinha de disparar");
+        assert!(
+            ticks.windows(2).all(|w| w[0].2 <= w[1].2),
+            "bytes agregados têm de ser monótonos"
+        );
+        let last = ticks.last().unwrap();
+        assert_eq!(last.0, 1);
+        assert_eq!(last.1, 1);
+        assert_eq!(
+            last.2,
+            layer_bytes.len() as u64,
+            "o total agregado é a soma das camadas em falta — nem mais (o bug quadrático), nem menos"
+        );
+    }
+
     fn scratch() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
     }
 
     /// The manifest of a push is now built from each blob's SIZE (metadata)
     /// and its first four bytes, instead of reading every layer whole a second
-    /// time. This proves the descriptors did not change: the three media types
-    /// are still sniffed correctly, the sizes are the real ones, and the image
+    /// time. This proves the descriptors did not change: the media types are
+    /// still sniffed correctly, the sizes are the real ones, and the image
     /// survives a push → pull round trip byte for byte.
     #[test]
     fn push_manifest_from_metadata_round_trips() {
@@ -3959,14 +4531,12 @@ mod tests {
         let config =
             br#"{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]}}"#;
         let id = store.cas().write(config).unwrap();
-        // A zstd layer is deliberately NOT among these: `push_to_registry`
-        // publishes the OCI TWIN of the manifest (a Docker v2s2 shape carrying
-        // OCI layer types is a non-conformant hybrid podman/skopeo reject —
-        // GAP-OCI-IMG-1), and `to_oci_manifest` refuses a zstd layer by name
-        // rather than relabel it on a guess. The magic-number detection of zstd
-        // and that refusal each have their own test (`detects_layer_compression`,
-        // `a_zstd_or_foreign_layer_is_refused_by_name`); this one proves the
-        // gzip + plain-tar round trip a push actually carries, end to end.
+        // gzip + plain-tar. Because a plain-tar layer has no Docker v2s2 type,
+        // `build_manifest` emits the COHERENT OCI manifest (O4): a Docker v2s2
+        // envelope over an OCI plain-tar layer is the non-conformant hybrid
+        // podman/skopeo reject (GAP-OCI-IMG-1). zstd is covered separately
+        // (`build_manifest_is_coherent_for_zstd_and_uncompressed`); this one
+        // proves the gzip + plain-tar round trip a push actually carries.
         let blobs: [&[u8]; 2] = [&[0x1f, 0x8b, 0x08, 0x00, 1, 2, 3], b"plain-tar-bytes"];
         let layers: Vec<String> = blobs
             .iter()
@@ -3981,11 +4551,18 @@ mod tests {
         };
         store.save(&image).unwrap();
 
-        let (bytes, _) = crate::registry::build_manifest(&store, &image).unwrap();
+        let (bytes, _, media_type) = crate::registry::build_manifest(&store, &image).unwrap();
+        assert_eq!(media_type, "application/vnd.oci.image.manifest.v1+json");
         let m: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        // The envelope and every member speak one vocabulary — the O4 invariant.
+        assert_eq!(m["mediaType"], media_type);
+        assert_eq!(
+            m["config"]["mediaType"],
+            "application/vnd.oci.image.config.v1+json"
+        );
         assert_eq!(m["config"]["size"], config.len());
         let want = [
-            "application/vnd.docker.image.rootfs.diff.tar.gzip",
+            "application/vnd.oci.image.layer.v1.tar+gzip",
             "application/vnd.oci.image.layer.v1.tar",
         ];
         for (i, l) in m["layers"].as_array().unwrap().iter().enumerate() {
@@ -4003,6 +4580,78 @@ mod tests {
         assert_eq!(pulled.layers, layers);
         for (i, dg) in layers.iter().enumerate() {
             assert_eq!(store2.cas().read(dg).unwrap(), blobs[i]);
+        }
+    }
+
+    /// O4: `build_manifest` never emits a Docker v2s2 envelope over a layer
+    /// Docker v2s2 cannot name. An all-gzip image stays Docker v2 (what `docker
+    /// load`/`ctr import` read natively); a zstd or uncompressed layer forces
+    /// the OCI vocabulary, and in BOTH cases the envelope, the config and every
+    /// layer type agree — the coherence a non-conformant hybrid broke.
+    #[test]
+    fn build_manifest_is_coherent_for_zstd_and_uncompressed() {
+        let dir = scratch();
+        let store = crate::ImageStore::open(dir.path()).unwrap();
+        let config =
+            br#"{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]}}"#;
+        let id = store.cas().write(config).unwrap();
+
+        let image_with = |layers: &[&[u8]]| {
+            let digests: Vec<String> = layers
+                .iter()
+                .map(|b| store.cas().write(b).unwrap())
+                .collect();
+            crate::image::Image {
+                id: id.clone(),
+                repo_tags: vec!["local/coh:t".into()],
+                layers: digests,
+                config: crate::image::ImageConfig::default(),
+                created_unix: 0,
+            }
+        };
+
+        // The magic numbers: gzip, zstd, and bytes that are neither (plain tar).
+        let gzip: &[u8] = &[0x1f, 0x8b, 0x08, 0x00, 9];
+        let zstd: &[u8] = &[0x28, 0xb5, 0x2f, 0xfd, 9];
+        let plain: &[u8] = b"uncompressed-tar";
+
+        // Every layer gzip → Docker v2s2, with the Docker gzip layer type.
+        let (bytes, _, mt) = super::build_manifest(&store, &image_with(&[gzip, gzip])).unwrap();
+        assert_eq!(mt, "application/vnd.docker.distribution.manifest.v2+json");
+        let m: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(m["mediaType"], mt);
+        assert_eq!(
+            m["config"]["mediaType"],
+            "application/vnd.docker.container.image.v1+json"
+        );
+        for l in m["layers"].as_array().unwrap() {
+            assert_eq!(
+                l["mediaType"],
+                "application/vnd.docker.image.rootfs.diff.tar.gzip"
+            );
+        }
+
+        // A zstd or uncompressed layer has no Docker v2s2 type → the whole
+        // manifest is OCI, and every member is OCI too (never a mixed hybrid).
+        for layers in [vec![zstd], vec![plain], vec![gzip, zstd], vec![gzip, plain]] {
+            let (bytes, _, mt) = super::build_manifest(&store, &image_with(&layers)).unwrap();
+            assert_eq!(
+                mt, "application/vnd.oci.image.manifest.v1+json",
+                "a non-gzip layer forces OCI for {layers:?}"
+            );
+            let m: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(m["mediaType"], mt);
+            assert_eq!(
+                m["config"]["mediaType"],
+                "application/vnd.oci.image.config.v1+json"
+            );
+            for l in m["layers"].as_array().unwrap() {
+                let t = l["mediaType"].as_str().unwrap();
+                assert!(
+                    t.starts_with("application/vnd.oci.image.layer.v1.tar"),
+                    "layer type {t} is not OCI, incoherent with an OCI manifest"
+                );
+            }
         }
     }
 

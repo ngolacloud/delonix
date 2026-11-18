@@ -42,22 +42,35 @@ controladores. Está medido no `AGENTS.md`.
 
 ## Registar o runner
 
-Num host que passe o preflight, com uma conta própria (`runner`), sem sudo e com
-linger activo:
+Um comando, da conta `runner` do host de laboratório. O
+[`scripts/lab_runner_register.sh`](../scripts/lab_runner_register.sh)
+provisiona os habilitadores que faltam (delegação de cgroup, linger,
+`subuid`/`subgid` e — nos kernels que o restringem — o perfil AppArmor de
+userns), descarrega e configura o runner do GitHub Actions com a etiqueta
+**`delonix-lab`**, instala-o como serviço da conta, e termina a correr o
+`lab_preflight.sh` como porta final:
 
 ```bash
-sudo loginctl enable-linger runner
+scripts/lab_runner_register.sh \
+  --url https://github.com/ngolacloud/delonix \
+  --token "$(gh api -X POST repos/ngolacloud/delonix/actions/runners/registration-token -q .token)"
 ```
 
-A seguir, em *Settings → Actions → Runners → New self-hosted runner* do
-repositório, segue as instruções do GitHub e dá ao runner a etiqueta
-**`delonix-lab`**. Instala-o como serviço da conta `runner`.
+O token de registo é **efémero e do dono**: mintado em *Settings → Actions →
+Runners → New self-hosted runner* ou com a linha `gh` acima (precisa da conta
+admin do repositório). O script nunca o cria — é a credencial do dono, não do
+host do runner. Passa `--no-provision` se um root já montou os habilitadores à
+mão, e `--version` para fixar a versão do runner.
 
 Confirma com um disparo manual:
 
 ```bash
-gh workflow run lab.yml
+gh workflow run lab.yml        # deixa a fila e arranca neste host
 ```
+
+Uma corrida de PR do `chaos.yml` num runner alojado continua a reportar
+`skipped` por desenho (a sua sonda de userns); a cobertura real de caos + E2E
+corre aqui, pelo `lab.yml`.
 
 ## Os SKIPs declarados
 

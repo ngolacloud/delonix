@@ -2854,10 +2854,25 @@ if [[ "$E2E_ISOLATED" == 1 ]]; then
     # `-u 0` is the command, never exec's own --user.
     check "exec: a command after -- is never an option of exec (no uid 0)" fail bash -c \
       "'$BIN' container exec '$WS' -- -u 0 id 2>&1 | grep -q 'uid=0'"
+    # BUG-0008: with no --group-add, the exec must NOT inherit the host
+    # `delonix` process's supplementary groups — unmapped in the userns, they
+    # surface as a row of 65534(nobody), the wrong answer and a small leak of
+    # the host identity. `id` has to come back clean.
+    check "exec: no --group-add leaves no inherited host groups (65534)" fail bash -c \
+      "'$BIN' container exec '$WS' id 2>&1 | grep -q '65534'"
   else
     skip "baseline: update --volume-add" "could not start the container"
   fi
   "$BIN" container rm -f "$WS" >/dev/null 2>&1
+  # KRN-0004 (fatia 1): a `--read-only` container gets a best-effort Landlock FS
+  # sandbox. The risk is partir workloads — so the regression guard is that a
+  # `--tmpfs` the user mounted rw STAYS writable (Landlock covers it), while the
+  # frozen rootfs stays read-only. Best-effort means an old kernel is a no-op,
+  # so this asserts the non-regression (writable tmpfs), not enforcement.
+  check "landlock: --read-only with --tmpfs keeps the tmpfs writable (not partido)" ok bash -c \
+    "'$BIN' container run --rm --read-only --tmpfs /scratch '$IMG' sh -c 'echo x > /scratch/f && cat /scratch/f' 2>&1 | grep -q '^x$'"
+  check "landlock: --read-only still freezes the rootfs" fail bash -c \
+    "'$BIN' container run --rm --read-only --tmpfs /scratch '$IMG' sh -c 'echo x > /rootfile' 2>&1 | grep -q 'rootfile.*x'"
   printf '{"denyDevicePassthrough":true}\n' > "$POL"
   cat > "$OUT/ws-vm-$PFX.yaml" <<YAML
 apiVersion: compute.delonix.io/v1alpha1

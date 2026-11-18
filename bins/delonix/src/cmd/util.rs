@@ -52,12 +52,46 @@ pub(crate) fn resolve_or_pull_with_creds(
     reference: &str,
     creds: Option<(String, String)>,
 ) -> Result<Image> {
-    Ok(delonix_oci::registry::resolve_or_pull(
+    if let Ok(img) = images.resolve(reference) {
+        return Ok(img);
+    }
+    announce_pull(reference);
+    pull_with_layer_progress(images, reference, creds, None)
+}
+
+/// The pull every CLI path shares, drawing the per-layer `docker pull`-style
+/// block (`output::PullRenderer`) as it goes. BUG FOUND live: `container run`
+/// with an absent image printed «pulling nginx…» and then NOTHING until the
+/// container started — a multi-hundred-MB download indistinguishable from a
+/// hang, while `image pull` of the same reference already drew a bar. One
+/// pull, one experience.
+pub(crate) fn pull_with_layer_progress(
+    images: &ImageStore,
+    reference: &str,
+    creds: Option<(String, String)>,
+    platform: Option<&str>,
+) -> Result<Image> {
+    let renderer = super::output::PullRenderer::new();
+    let on_event = |ev: delonix_oci::registry::PullEvent<'_>| renderer.handle(ev);
+    let img = delonix_oci::registry::pull_from_registry_with_events(
         images,
         reference,
         creds,
-        &announce_pull,
-    )?)
+        platform,
+        Some(&on_event),
+    );
+    match img {
+        Ok(img) => {
+            renderer.finish();
+            Ok(img)
+        }
+        // Settle the block BEFORE the error prints: unfinished layers get a
+        // red ✗ instead of freezing mid-bar under the error message.
+        Err(e) => {
+            renderer.abort();
+            Err(e.into())
+        }
+    }
 }
 
 /// The line a pull prints before it starts. English in the source, Portuguese
@@ -100,14 +134,7 @@ pub(crate) fn resolve_or_pull_platform(
             &[("reference", reference), ("arch", arch)],
         )
     );
-    Ok(
-        delonix_oci::registry::pull_from_registry_with_creds_platform(
-            images,
-            reference,
-            None,
-            Some(arch),
-        )?,
-    )
+    pull_with_layer_progress(images, reference, None, Some(arch))
 }
 
 /// Effective command (pure function): ENTRYPOINT + (the user's args, otherwise the
@@ -350,6 +377,21 @@ pub fn silence_cgroup_warning() {
     unsafe {
         std::env::set_var("DELONIX_NO_CGROUP_WARN", "1");
     }
+}
+
+/// The error for `container logs` when the log file does not exist. The bare
+/// ENOENT read as a broken store; the usual cause is benign and dated: a
+/// container started in FOREGROUND by a delonix from before foreground
+/// capture never wrote a log file at all.
+pub(crate) fn no_logs_hint(name: &str, path: &std::path::Path, err: &std::io::Error) -> Error {
+    Error::Invalid(super::po::tf(
+        "no logs for {name} at {path}: {err} (a container started in foreground by an older delonix wrote no log file — restart it to begin capturing)",
+        &[
+            ("name", name),
+            ("path", &path.display().to_string()),
+            ("err", &err.to_string()),
+        ],
+    ))
 }
 
 #[cfg(test)]

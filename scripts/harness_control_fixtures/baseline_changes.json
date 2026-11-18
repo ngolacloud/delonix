@@ -1,0 +1,20 @@
+{
+  "description": "Harness-control changes classified by direction. Tightening lands free; loosening/opaque needs a complete governance record (diff/reason/impact/review).",
+  "cases": [
+    {"name": "debt_count_falls_is_tighten", "path": "scripts/arch_baseline.json", "old": {"library_prints": 12}, "new": {"library_prints": 9}, "record": null, "expect": "OK"},
+    {"name": "lang_debt_falls_is_tighten", "path": "scripts/lang_baseline.json", "old": {"comments": 2974, "identifiers": 1011}, "new": {"comments": 2900, "identifiers": 1011}, "record": null, "expect": "OK"},
+    {"name": "coverage_rises_is_tighten", "path": "scripts/cli_exec_baseline.json", "old": {"executed": 200}, "new": {"executed": 215}, "record": null, "expect": "OK"},
+
+    {"name": "debt_count_rises_needs_record", "path": "scripts/arch_baseline.json", "old": {"library_prints": 9}, "new": {"library_prints": 14}, "record": null, "expect": "NEEDS_RECORD"},
+    {"name": "coverage_falls_needs_record", "path": "scripts/capability_baseline.json", "old": {"proved": 158}, "new": {"proved": 150}, "record": null, "expect": "NEEDS_RECORD"},
+    {"name": "denominator_change_is_opaque_needs_record", "path": "scripts/cli_exec_baseline.json", "old": {"executed": 200, "leaves": 278}, "new": {"executed": 200, "leaves": 270}, "record": null, "expect": "NEEDS_RECORD"},
+
+    {"name": "loosen_with_complete_record_ok", "path": "scripts/arch_baseline.json", "old": {"library_prints": 9}, "new": {"library_prints": 14},
+     "record": "Diff: library_prints 9 -> 14. Motivo: nova fronteira CLI exige 5 prints temporários. Impacto: +5 sites, a reduzir no sprint seguinte. Revisão: aprovado por maintainer (deferred, single-owner).", "expect": "OK"},
+    {"name": "loosen_with_incomplete_record_fails", "path": "scripts/arch_baseline.json", "old": {"library_prints": 9}, "new": {"library_prints": 14},
+     "record": "Diff: 9 -> 14. Motivo: refactor.", "expect": "RECORD_INCOMPLETE"},
+
+    {"name": "opaque_surfaces_change_needs_record", "path": "scripts/folhas_baseline.json", "old": {"surfaces": ["a", "b"]}, "new": {"surfaces": ["a"]}, "record": null, "expect": "NEEDS_RECORD"},
+    {"name": "unchanged_is_ok", "path": "scripts/lang_baseline.json", "old": {"comments": 100}, "new": {"comments": 100}, "record": null, "expect": "OK"}
+  ]
+}

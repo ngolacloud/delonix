@@ -300,7 +300,11 @@ struct NetworkGatewayRecord {
 }
 
 fn store() -> Result<JsonStore<NetworkGatewayRecord>> {
-    JsonStore::open(state_root().join("network-gateways")).map_err(Into::into)
+    JsonStore::open_with_format(
+        state_root().join("network-gateways"),
+        delonix_state::JSON_RECORD_FORMAT,
+    )
+    .map_err(Into::into)
 }
 
 fn alias_kind(raw: &str) -> Result<AliasKind> {

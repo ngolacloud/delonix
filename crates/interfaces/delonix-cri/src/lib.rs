@@ -346,14 +346,24 @@ impl ImageService for DelonixImage {
     ) -> Result<Response<RemoveImageResponse>, Status> {
         let name = req.into_inner().image.map(|s| s.image).unwrap_or_default();
         let engine = self.engine.clone();
-        // CRI: RemoveImage is IDEMPOTENT — removing a nonexistent image is success
-        // (the kubelet calls it in GC cycles without guaranteeing it still exists).
-        tokio::task::spawn_blocking(move || {
-            let _ = engine.remove_image(&name);
-        })
-        .await
-        .map_err(st)?;
-        Ok(Response::new(RemoveImageResponse {}))
+        // CRI: RemoveImage is IDEMPOTENT — removing an image that is not there is
+        // SUCCESS (the kubelet calls it in GC cycles without guaranteeing it still
+        // exists). But ONLY a "not found" may be swallowed: a REAL failure (I/O,
+        // the image is in use) used to be discarded (`let _ = …`) and reported as
+        // success, so under disk pressure the kubelet recorded the reclaim as done
+        // and looped forever freeing nothing. A not-found is Ok; everything else
+        // becomes the `Status` the kubelet needs to see and back off on.
+        let outcome = tokio::task::spawn_blocking(move || engine.remove_image(&name))
+            .await
+            .map_err(st)?;
+        match outcome {
+            Ok(()) => Ok(Response::new(RemoveImageResponse {})),
+            // `code()` is the stable, locale-independent identity of the class
+            // (the message is translated); "DX_NOT_FOUND" is the engine's
+            // not-found class — the one miss the idempotent contract absorbs.
+            Err(e) if e.code() == "DX_NOT_FOUND" => Ok(Response::new(RemoveImageResponse {})),
+            Err(e) => Err(st(e)),
+        }
     }
 
     async fn image_fs_info(
@@ -361,9 +371,14 @@ impl ImageService for DelonixImage {
         _req: Request<ImageFsInfoRequest>,
     ) -> Result<Response<ImageFsInfoResponse>, Status> {
         let engine = self.engine.clone();
-        let used = tokio::task::spawn_blocking(move || engine.image_fs_used_bytes())
-            .await
-            .map_err(st)?;
+        let base = self.base.clone();
+        // Both numbers are measured off the SAME image store (`<base>/blobs`),
+        // on the blocking pool because both walk the disk.
+        let (used, inodes) = tokio::task::spawn_blocking(move || {
+            (engine.image_fs_used_bytes(), image_fs_inodes_used(&base))
+        })
+        .await
+        .map_err(st)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as i64)
@@ -374,13 +389,48 @@ impl ImageService for DelonixImage {
                 mountpoint: self.base.to_string_lossy().into_owned(),
             }),
             used_bytes: Some(UInt64Value { value: used }),
-            inodes_used: Some(UInt64Value { value: 0 }),
+            // Was hardcoded 0, which read to the kubelet as "this filesystem can
+            // never run out of inodes" — it disables inode-pressure eviction. Now
+            // the real count of the image store's blobs (see `image_fs_inodes_used`).
+            inodes_used: Some(UInt64Value { value: inodes }),
         };
+        // `container_filesystems` is LEFT EMPTY on purpose. Delonix keeps image
+        // layers and container writable layers on ONE filesystem; before, the
+        // SAME `fs` (the image-layer bytes) was handed back here too, so the
+        // kubelet read the image usage a SECOND time as container usage — a
+        // double count that skewed ephemeral-storage accounting. An empty list is
+        // the CRI way to say "containers share the image filesystem"; the kubelet
+        // then falls back to the image fs for container stats instead of adding a
+        // fabricated second figure. A real split-fs would fill this with its own
+        // measured usage, which Delonix does not have to report.
         Ok(Response::new(ImageFsInfoResponse {
-            image_filesystems: vec![fs.clone()],
-            container_filesystems: vec![fs],
+            image_filesystems: vec![fs],
+            container_filesystems: Vec::new(),
         }))
     }
+}
+
+/// Inodes the image store occupies, counted by walking its blob directory
+/// (`<base>/blobs/sha256`, where `image_fs_used_bytes` sums the same blobs'
+/// sizes). Every entry is one inode; a directory is descended into. Best-effort:
+/// an unreadable directory contributes what could be walked (a lower bound — the
+/// safe direction for the kubelet's disk-pressure GC), never an error, matching
+/// the `0`-on-failure contract of the byte total beside it.
+fn image_fs_inodes_used(base: &std::path::Path) -> u64 {
+    let mut stack = vec![base.join("blobs").join("sha256")];
+    let mut inodes = 0u64;
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            inodes += 1;
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                stack.push(entry.path());
+            }
+        }
+    }
+    inodes
 }
 
 /// Maps the image OCI config's `user` to the `uid`/`username` fields of the CRI
@@ -971,5 +1021,177 @@ mod tests {
             partition_refs(&["repo:tag".to_string(), "repo@sha256:abc".to_string()]);
         assert_eq!(tags, vec!["repo:tag"]);
         assert_eq!(digests, vec!["repo@sha256:abc"]);
+    }
+
+    /// What `remove_image` should do, per call: swallow a miss (idempotent), pass
+    /// an Ok through, propagate anything else.
+    enum RemoveOutcome {
+        Ok,
+        NotFound,
+        RealError,
+    }
+
+    /// An image port whose `remove_image` outcome and `image_fs_used_bytes` are
+    /// fixed by the test — enough to drive the two handlers under test without the
+    /// composed engine.
+    struct FakeImages {
+        remove: RemoveOutcome,
+        used: u64,
+    }
+
+    impl ImageOps for FakeImages {
+        fn list_images(&self) -> Result<Vec<serde_json::Value>, delonix_model::Error> {
+            Ok(Vec::new())
+        }
+        fn image_status(
+            &self,
+            _reference: &str,
+        ) -> Result<Option<serde_json::Value>, delonix_model::Error> {
+            Ok(None)
+        }
+        fn pull_image(
+            &self,
+            _reference: &str,
+            _creds: Option<(String, String)>,
+        ) -> Result<String, delonix_model::Error> {
+            Ok(String::new())
+        }
+        fn remove_image(&self, _reference: &str) -> Result<(), delonix_model::Error> {
+            match self.remove {
+                RemoveOutcome::Ok => Ok(()),
+                // Same not-found CLASS the engine raises for a missing image
+                // (`code() == "DX_NOT_FOUND"`), which the idempotent path absorbs.
+                RemoveOutcome::NotFound => {
+                    Err(delonix_model::Error::NotFound("image absent".into()))
+                }
+                // A real failure: the image is in use / the unlink failed. Its
+                // class is NOT not-found, so the handler must surface it.
+                RemoveOutcome::RealError => Err(delonix_model::Error::Runtime {
+                    context: "unlink",
+                    message: "image in use".into(),
+                }),
+            }
+        }
+        fn image_fs_used_bytes(&self) -> u64 {
+            self.used
+        }
+    }
+
+    fn image_svc(base: PathBuf, images: FakeImages) -> DelonixImage {
+        DelonixImage {
+            base,
+            engine: Arc::new(images),
+        }
+    }
+
+    /// RemoveImage is idempotent for a MISS (CRI contract), but a REAL error must
+    /// propagate: the old `let _ = …` reported every failure as success, so the
+    /// kubelet recorded a reclaim that never happened and looped under disk
+    /// pressure. A not-found is Ok; an in-use/I/O failure is an error.
+    #[tokio::test]
+    async fn remove_image_swallows_a_miss_but_surfaces_a_real_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let req = || {
+            Request::new(RemoveImageRequest {
+                image: Some(ImageSpec {
+                    image: "x".into(),
+                    ..Default::default()
+                }),
+            })
+        };
+
+        let svc = image_svc(
+            dir.path().to_path_buf(),
+            FakeImages {
+                remove: RemoveOutcome::NotFound,
+                used: 0,
+            },
+        );
+        assert!(
+            svc.remove_image(req()).await.is_ok(),
+            "removing an image that is not there is success"
+        );
+
+        let svc = image_svc(
+            dir.path().to_path_buf(),
+            FakeImages {
+                remove: RemoveOutcome::Ok,
+                used: 0,
+            },
+        );
+        assert!(
+            svc.remove_image(req()).await.is_ok(),
+            "a real removal succeeds"
+        );
+
+        let svc = image_svc(
+            dir.path().to_path_buf(),
+            FakeImages {
+                remove: RemoveOutcome::RealError,
+                used: 0,
+            },
+        );
+        assert!(
+            svc.remove_image(req()).await.is_err(),
+            "a real failure must reach the kubelet, not be reported as done"
+        );
+    }
+
+    /// `image_fs_inodes_used` counts the blobs under `<base>/blobs/sha256` (one
+    /// inode each), so the figure tracks the images instead of the hardcoded 0.
+    #[test]
+    fn image_fs_inodes_counts_the_blob_store() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(image_fs_inodes_used(dir.path()), 0, "no store yet → 0");
+
+        let blobs = dir.path().join("blobs").join("sha256");
+        std::fs::create_dir_all(&blobs).unwrap();
+        std::fs::write(blobs.join("aa"), b"layer-a").unwrap();
+        std::fs::write(blobs.join("bb"), b"layer-b").unwrap();
+        std::fs::write(blobs.join("cc"), b"layer-c").unwrap();
+        assert_eq!(
+            image_fs_inodes_used(dir.path()),
+            3,
+            "three blobs, three inodes"
+        );
+    }
+
+    /// `ImageFsInfo` reports a NON-zero inode count when images exist and does NOT
+    /// hand the image usage back a second time as container usage (the old double
+    /// count): the image filesystem is reported once, the container list is empty
+    /// (shared filesystem).
+    #[tokio::test]
+    async fn image_fs_info_populates_inodes_and_does_not_double_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = dir.path().join("blobs").join("sha256");
+        std::fs::create_dir_all(&blobs).unwrap();
+        std::fs::write(blobs.join("aa"), b"layer-a").unwrap();
+        std::fs::write(blobs.join("bb"), b"layer-b").unwrap();
+
+        let svc = image_svc(
+            dir.path().to_path_buf(),
+            FakeImages {
+                remove: RemoveOutcome::Ok,
+                used: 4096,
+            },
+        );
+        let resp = svc
+            .image_fs_info(Request::new(ImageFsInfoRequest {}))
+            .await
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(resp.image_filesystems.len(), 1, "one image filesystem");
+        let fs = &resp.image_filesystems[0];
+        assert_eq!(fs.used_bytes.as_ref().unwrap().value, 4096);
+        assert_eq!(
+            fs.inodes_used.as_ref().unwrap().value,
+            2,
+            "two blobs on disk — inodes must not be a hardcoded 0"
+        );
+        assert!(
+            resp.container_filesystems.is_empty(),
+            "the image usage must not be counted a second time as container usage"
+        );
     }
 }

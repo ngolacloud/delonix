@@ -639,7 +639,11 @@ fn resolve_ipam(provider_id: &str) -> Result<Box<dyn IpamProvider>> {
 }
 
 fn store() -> Result<JsonStore<NetworkZoneRecord>> {
-    JsonStore::open(state_root().join("network-zones")).map_err(Into::into)
+    JsonStore::open_with_format(
+        state_root().join("network-zones"),
+        delonix_state::JSON_RECORD_FORMAT,
+    )
+    .map_err(Into::into)
 }
 
 /// The segment provider for a zone (ADR-0059 D3): the one on its record,

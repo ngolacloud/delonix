@@ -253,11 +253,29 @@ impl CloudHypervisorHost {
     pub fn probe() -> CloudHypervisorHost {
         CloudHypervisorHost {
             binary: binary_in_path("cloud-hypervisor"),
-            kvm: std::path::Path::new("/dev/kvm").exists(),
+            kvm: kvm_usable(),
             firmware: DEFAULT_CH_FIRMWARES
                 .iter()
                 .any(|f| std::path::Path::new(f).exists()),
         }
+    }
+}
+
+/// KRN-0005: a NATIVE KVM probe via `kvm-ioctls` (rust-vmm), replacing the old
+/// `Path::new("/dev/kvm").exists()`. Opening the device and reading the stable
+/// API version is the honest test: `exists()` returned `true` on a host where
+/// `/dev/kvm` was present but the process lacked permission, or where KVM was not
+/// functional — a false "VMs will boot". `Kvm::new()` fails closed (no device, no
+/// permission, nested-virt off), and a mismatched API version means an ABI this
+/// build does not speak. No ioctl here needs privilege beyond opening the device,
+/// which the operator's own uid already has when it is in the `kvm` group.
+fn kvm_usable() -> bool {
+    // `KVM_API_VERSION` has been the stable `12` since Linux 2.6.22; a different
+    // value means an ABI this build was not written against.
+    const KVM_API_VERSION: i32 = 12;
+    match kvm_ioctls::Kvm::new() {
+        Ok(kvm) => kvm.get_api_version() == KVM_API_VERSION,
+        Err(_) => false,
     }
 }
 
@@ -2456,6 +2474,26 @@ pub fn host_capacity(vmdir: &Path) -> delonix_node::host::HostCapacity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KRN-0005: the native KVM probe must AGREE with actually opening the
+    /// device, on any host — the whole point of replacing `Path::exists`, which
+    /// said `true` while the open could still fail (no permission, KVM off). On a
+    /// host where `/dev/kvm` opens read-write, `kvm_usable()` is `true`; on one
+    /// where it does not, it is `false`. (Assumes the stable `KVM_API_VERSION`
+    /// 12, true on every kernel since 2.6.22.)
+    #[test]
+    fn kvm_usable_concorda_com_a_abertura_real_do_dispositivo() {
+        let can_open = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/kvm")
+            .is_ok();
+        assert_eq!(
+            kvm_usable(),
+            can_open,
+            "a sonda nativa de KVM deve concordar com a abertura real de /dev/kvm"
+        );
+    }
 
     /// `host.capacity` on the real host, through the provider's own entry: a CH
     /// host always has a CPU, RAM and a VM-image filesystem, and none of the

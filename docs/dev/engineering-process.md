@@ -7,6 +7,11 @@ how its traces are cleaned up. AGENTS.md, [CONTRIBUTING.md](../../CONTRIBUTING.m
 branch model and lifecycle — they do not restate it. When they disagree with this page, this page
 wins; fix the other place rather than forking the rule.
 
+For the **authority to publish** — who may push, open or operate a PR, merge, or release, and onto
+which target — the single source of truth is [`.ai/agents/authorization.md`](../../.ai/agents/authorization.md).
+This page defers there for that model; the rules below (integration ≠ release, never bypass a
+protection) are instances of it, not a second contract.
+
 > **This is a Delonix decision, not a claim about other projects.** The branch model below is
 > GitFlow-shaped by the owner's decision (2026-10-23). Docker/Moby and Podman are PR-first,
 > trunk-based projects; we borrow their *contribution* and *review* discipline (tests before merge,

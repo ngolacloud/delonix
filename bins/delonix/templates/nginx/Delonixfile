@@ -26,5 +26,5 @@ RUN mkdir -p /var/www/acme && \
     rm -f /tmp/check.conf /tmp/chk-tls.sock /tmp/chk-http.sock
 EXPOSE __PORT__ __TLS_PORT__
 # Delonix extension: the runtime probes this to mark the container healthy.
-HEALTHCHECK CMD wget -qO- http://127.0.0.1:__PORT__/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD wget -qO- http://127.0.0.1:__PORT__/healthz || exit 1
 CMD ["nginx", "-g", "daemon off;"]

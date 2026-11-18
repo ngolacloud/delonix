@@ -102,6 +102,7 @@ impl RunResolver for LocalResolver {
             &delonix_oci::run_images::HostImages {
                 store: &images,
                 announce_pull: &announce_pull,
+                pull_events: None,
                 unpacking: &unpacking,
                 user_error: &user_error,
             },

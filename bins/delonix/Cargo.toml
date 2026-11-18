@@ -70,10 +70,10 @@ bytes = { workspace = true }
 tokio-stream = { workspace = true }
 base64 = { workspace = true }
 # TLS do proxy (Fase 3): tokio-rustls já está na árvore (via delonix-cri). O
-# provider é o `ring` (já presente) — não puxamos aws-lc-rs. `rustls-pemfile`
-# carrega cert/chave BYO (PEM do kind: Secret); `rcgen` gera o self-signed.
+# provider é o `ring` (já presente) — não puxamos aws-lc-rs. O carregamento de
+# cert/chave BYO (PEM do kind: Secret) usa `rustls-pki-types` re-exportado pelo
+# próprio rustls (ver ingress_proxy.rs); `rcgen` gera o self-signed.
 tokio-rustls = { workspace = true, features = ["ring", "logging", "tls12"] }
-rustls-pemfile = { workspace = true }
 rcgen = { workspace = true, features = ["ring", "pem"] }
 # `__volsnap` (tar.gz do _data de um volume, no userns mapeado) — ja no workspace,
 # nao acrescenta nada a arvore de dependencias do repo publico.
@@ -88,6 +88,8 @@ serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "rustls-tls-webpki-roots"] }
 libc = { workspace = true }
+# KRN-0014: getpwnam nativo (User::from_name) em vez de forkar `getent passwd`.
+nix = { workspace = true }
 # `delonix dash` — TUI interactivo (tiles/tabela/gráfico estilo htop). Só o BIN a
 # usa (os crates de motor ficam dep-limpos); o modo `--once` (snapshot de texto)
 # não precisa de tty. ratatui traz o crossterm.

@@ -631,7 +631,13 @@ mod tests {
         assert_eq!(canonical_restart_policy("OnFailure"), "on-failure");
         assert_eq!(canonical_restart_policy("Never"), "no");
         // delonix/docker spellings are already canonical.
-        for p in ["always", "on-failure", "unless-stopped", "no", "on-failure:3"] {
+        for p in [
+            "always",
+            "on-failure",
+            "unless-stopped",
+            "no",
+            "on-failure:3",
+        ] {
             assert_eq!(canonical_restart_policy(p), p, "{p} should pass through");
         }
     }

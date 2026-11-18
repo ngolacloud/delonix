@@ -371,7 +371,7 @@ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hi
 <span class="lang-pt">Pesquisar</span><span class="lang-en">Search</span>
 <span class="kbd">Ctrl K</span></button>
 <div class="hdr-right">
-<a class="ver-pill" href="estabilidade.html" title="Versão documentada / Documented version">v0.1.1</a>
+<a class="ver-pill" href="estabilidade.html" title="Versão documentada / Documented version">v0.1.2</a>
 <button class="lang-toggle" type="button" aria-label="Switch language / Mudar idioma" title="EN / PT">
 <span class="lbl-en">EN</span><span class="lbl-pt">PT</span></button>
 <button class="theme-toggle" type="button" aria-label="Alternar tema claro/escuro" title="Tema claro/escuro">
@@ -438,9 +438,14 @@ raiz      run  create  ps  start  stop  restart  kill  rm  exec  logs  attach  s
   — um <code>run</code> em foreground, por ser <em>daemonless</em>, já HERDA o stdio do operador,
   por isso o shell interactivo, o <code>test -t 0</code> e o código de saída já eram os do
   <code>docker run -it</code>; o que faltava era o reconhecimento, não o comportamento.
-  Limite documentado e deliberado: um <code>-t</code> cujo stdout NÃO seja já um terminal
-  (<code>run -t … | cat</code>) não recebe um pty sintetizado — o caminho honesto é <code>-d</code> e
-  depois <code>container exec -it</code>.</li>
+  O <code>-t</code> passou também a mudar o comportamento: um <code>run -t</code> em foreground
+  sintetiza um pty (a mesma maquinaria <code>setup_console</code> do console do PID 1),
+  liga-o ao stdio do processo (<code>setsid</code> + <code>TIOCSCTTY</code> + <code>dup2</code>) e faz pump do
+  master para o stdio do operador em modo raw. Assim <code>isatty(1)</code> é verdadeiro
+  dentro do container <strong>mesmo quando o stdout do operador é um pipe</strong> —
+  <code>echo x | run -t … sh -c 'test -t 1'</code> passa, o limite que esta secção
+  documentava como deliberado e que deixou de existir. (Sem <code>-t</code> nada muda:
+  stdio herdado, sem pty.)</li>
 <li><strong>Os códigos de saída</strong> — ver a secção «Códigos de saída» abaixo.</li>
 <li><strong>A saída JSON de <code>inspect</code></strong> — campos podem ser ACRESCENTADOS, nunca removidos
   nem com o tipo mudado.</li>

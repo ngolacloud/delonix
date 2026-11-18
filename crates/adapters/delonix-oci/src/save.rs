@@ -44,13 +44,17 @@ pub fn write_oci_archive(
     ref_name: &str,
     dest: &Path,
 ) -> Result<()> {
-    let (manifest_bytes, manifest_digest) = build_manifest(store, image)?;
+    // The media type is whatever `build_manifest` actually emitted: Docker v2
+    // for an all-gzip image, OCI the moment a layer has no Docker v2s2 type. The
+    // index entry MUST echo it — hard-coding Docker v2 over an OCI body was the
+    // O4 incoherence on this path.
+    let (manifest_bytes, manifest_digest, manifest_media_type) = build_manifest(store, image)?;
     write_archive(
         store,
         image,
         ref_name,
         dest,
-        crate::registry::DOCKER_MANIFEST_MEDIA_TYPE,
+        manifest_media_type,
         &manifest_bytes,
         &manifest_digest,
     )
@@ -146,15 +150,37 @@ fn write_archive(
     }]);
     append_file(&mut tar, "manifest.json", &serde_json::to_vec(&legacy)?)?;
 
+    // The manifest and config are a few KiB — read whole. The layers are not:
+    // each is streamed straight from its blob FILE into the tar (O7), where
+    // `cas().read` used to pull a multi-GB layer into a `Vec` only to re-emit it.
     append_blob(&mut tar, manifest_digest, manifest_bytes)?;
     let config = store.cas().read(&image.id)?;
     append_blob(&mut tar, &image.id, &config)?;
     for digest in &image.layers {
-        let data = store.cas().read(digest)?;
-        append_blob(&mut tar, digest, &data)?;
+        append_blob_streaming(&mut tar, store.cas(), digest)?;
     }
 
     tar.finish()?;
+    Ok(())
+}
+
+/// Appends a blob to the tar by STREAMING its file, rather than reading it into
+/// memory first. The bytes written are identical to [`append_blob`]'s — same
+/// path, same header (size from the file's metadata, fixed mode and mtime) — so
+/// an archive of the same image stays byte-for-byte reproducible; only the peak
+/// memory differs (one copy buffer instead of the whole layer).
+fn append_blob_streaming<W: std::io::Write>(
+    tar: &mut tar::Builder<W>,
+    cas: &crate::cas::Cas,
+    digest: &str,
+) -> Result<()> {
+    let file = std::fs::File::open(cas.path(digest))?;
+    let mut header = tar::Header::new_gnu();
+    header.set_size(cas.size(digest)?);
+    header.set_mode(0o644);
+    header.set_mtime(0);
+    header.set_cksum();
+    tar.append_data(&mut header, blob_path(digest), file)?;
     Ok(())
 }
 

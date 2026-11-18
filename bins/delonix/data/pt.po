@@ -701,6 +701,9 @@ msgstr "o container '{name}' saiu imediatamente — vê `delonix container logs 
 msgid "rootless with the default `--net host` cannot bind ports below 1024 — if the image binds one (nginx, httpd, ...), publish it (`-p 8080:80`) or use `--net <network>`"
 msgstr "rootless com o default `--net host` não consegue bind de portas abaixo de 1024 — se a imagem usa uma (nginx, httpd, ...), publica-a (`-p 8080:80`) ou usa `--net <rede>`"
 
+msgid "delonix: warning — image '{image}' exposes port {port}, which rootless with the default `--net host` cannot bind: the container shares the host's network namespace, where ports below 1024 need privilege — publish it (`-p {alt}:{port}`) or give it its own network (`--net <network>`)"
+msgstr "delonix: aviso — a imagem '{image}' expõe a porta {port}, que o rootless com o default `--net host` não consegue bind: o container partilha o namespace de rede do host, onde portas abaixo de 1024 exigem privilégio — publica-a (`-p {alt}:{port}`) ou dá-lhe uma rede própria (`--net <rede>`)"
+
 # ---- --version rico ---------------------------------------------------------
 
 msgid "daemonless, rootless-first container & microVM engine (kernel-native, Rust)"
@@ -3235,6 +3238,18 @@ msgstr "  criado: {path}"
 
 msgid "`delonix {args}` failed:\n{stderr}"
 msgstr "`delonix {args}` falhou:\n{stderr}"
+
+msgid "generated {lock}"
+msgstr "gerado {lock}"
+
+msgid "{bin} is not on PATH — skipping {lock}; run `{cmd}` in the project and commit {lock} for reproducible builds"
+msgstr "{bin} não está no PATH — a saltar {lock}; corre `{cmd}` no projecto e faz commit de {lock} para builds reprodutíveis"
+
+msgid "could not generate {lock} (`{cmd}` failed) — run it in the project and commit {lock} for reproducible builds:\n{stderr}"
+msgstr "não foi possível gerar {lock} (`{cmd}` falhou) — corre-o no projecto e faz commit de {lock} para builds reprodutíveis:\n{stderr}"
+
+msgid "could not run `{cmd}` to generate {lock} ({err}) — run it by hand and commit {lock}"
+msgstr "não foi possível correr `{cmd}` para gerar {lock} ({err}) — corre-o à mão e faz commit de {lock}"
 
 msgid "the container started but did not become healthy in {secs}s — see `delonix container logs`"
 msgstr "o container arrancou mas não ficou saudável em {secs}s — vê `delonix container logs`"
@@ -9973,11 +9988,14 @@ msgstr ""
 msgid "per document"
 msgstr "por documento"
 
-msgid "Disk size for the node, in GiB (e.g. `40`) — omit to inherit the image's own size"
-msgstr "Tamanho do disco do nó, em GiB (ex.: `40`) — omitir herda o da própria imagem"
+msgid "'{value}' is not a valid disk size — use whole GiB, e.g. `20` or `20G`"
+msgstr "'{value}' não é um tamanho de disco válido — use GiB inteiros, p.ex. `20` ou `20G`"
 
-msgid "Disk size for the node, in GiB (e.g. `40`) — omit to inherit the image's own size.\n\nThis is the number a tenant's storage quota is counted against: it is PROVISIONED, not consumed (the overlay is thin and grows with use). Cannot be smaller than the base image."
-msgstr "Tamanho do disco do nó, em GiB (ex.: `40`) — omitir herda o da própria imagem.\n\nÉ este o número que a quota de armazenamento do inquilino conta: é PROVISIONADO, não consumido (o overlay é fino e cresce com o uso). Não pode ser menor que a imagem base."
+msgid "Disk size for the node, in whole GiB — bare (`40`) or with a `G`/`Gi` suffix (`40G`). Omit to inherit the image's own size"
+msgstr "Tamanho do disco do nó, em GiB inteiros — simples (`40`) ou com sufixo `G`/`Gi` (`40G`). Omitir herda o da própria imagem"
+
+msgid "Disk size for the node, in whole GiB — bare (`40`) or with a `G`/`Gi` suffix (`40G`). Omit to inherit the image's own size.\n\nThis is the number a tenant's storage quota is counted against: it is PROVISIONED, not consumed (the overlay is thin and grows with use). Cannot be smaller than the base image."
+msgstr "Tamanho do disco do nó, em GiB inteiros — simples (`40`) ou com sufixo `G`/`Gi` (`40G`). Omitir herda o da própria imagem.\n\nÉ este o número que a quota de armazenamento do inquilino conta: é PROVISIONADO, não consumido (o overlay é fino e cresce com o uso). Não pode ser menor que a imagem base."
 
 msgid "Set a root password in the image (without it, no account has one)"
 msgstr "Define uma password de root na imagem (sem ela, nenhuma conta tem password)"
@@ -11628,6 +11646,19 @@ msgstr "a puxar {reference}…"
 
 msgid "pulling {reference} (linux/{arch})…"
 msgstr "a puxar {reference} (linux/{arch})…"
+
+# output: estados do bloco de progresso por camada (estilo docker pull)
+msgid "waiting"
+msgstr "em espera"
+
+msgid "already exists"
+msgstr "já existe"
+
+msgid "download complete"
+msgstr "descarga concluída"
+
+msgid "failed"
+msgstr "falhou"
 
 # stack apply: uma adopção muda de dono, e diz-se
 msgid "{kind}/{name}: adopted — it belonged to no stack, and a `destroy` or `apply --prune` of '{stack}' now removes it"
@@ -14830,8 +14861,8 @@ msgstr "Novo número de vCPUs (pelo menos 1)"
 msgid "New memory: a number with an optional M/G suffix (`768M`, `4G`, `4Gi`)"
 msgstr "Nova memória: um número com sufixo M/G opcional (`768M`, `4G`, `4Gi`)"
 
-msgid "New boot disk size, in whole GiB — grows only, never shrinks"
-msgstr "Novo tamanho do disco de arranque, em GiB inteiros — só cresce, nunca encolhe"
+msgid "New boot disk size, in whole GiB — bare (`40`) or with a `G`/`Gi` suffix (`40G`). Grows only, never shrinks"
+msgstr "Novo tamanho do disco de arranque, em GiB inteiros — simples (`40`) ou com sufixo `G`/`Gi` (`40G`). Só cresce, nunca encolhe"
 
 msgid "give a stopped VM 4 vCPUs and 8 GiB for its next boot"
 msgstr "dar a uma VM parada 4 vCPUs e 8 GiB para o próximo arranque"
@@ -17865,3 +17896,8 @@ msgstr "imprime a proveniência SLSA que um `build --provenance` cacheou"
 
 msgid "attach it to the image in its registry as an in-toto attestation"
 msgstr "anexa-a à imagem no seu registo como attestation in-toto"
+
+# container logs: o ENOENT cru parecia store corrompida; a causa habitual é um
+# container foreground de um delonix anterior à captura
+msgid "no logs for {name} at {path}: {err} (a container started in foreground by an older delonix wrote no log file — restart it to begin capturing)"
+msgstr "sem logs para {name} em {path}: {err} (um container arrancado em foreground por um delonix mais antigo não escrevia ficheiro de log — reinicia-o para começar a capturar)"

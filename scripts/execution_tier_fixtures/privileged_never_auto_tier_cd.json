@@ -1,0 +1,16 @@
+{
+  "description": "Tiers C and D never auto-allow: anything above SafeWrite requires explicit human confirm (risk.rs requires_confirm). Even at its own ceiling, a Disruptive/Destructive/Privileged op is a stop-and-ask, never an automatic ALLOW.",
+  "tier_note": "C and D raise the ceiling but requires_confirm still blocks auto-allow above SafeWrite",
+  "cases": [
+    {"name": "read_auto_allowed_at_C", "tier": "C", "cmd": "git log -1", "expect": "ALLOW"},
+    {"name": "safewrite_auto_allowed_at_C", "tier": "C", "cmd": "cargo build", "expect": "ALLOW"},
+    {"name": "apply_needs_confirm_at_C", "tier": "C", "cmd": "delonix stack destroy", "expect": "REFUSE"},
+    {"name": "cluster_apply_needs_confirm_at_C", "tier": "C", "cmd": "rm -rf target/old", "expect": "REFUSE"},
+
+    {"name": "read_auto_allowed_at_D", "tier": "D", "cmd": "ls /proc", "expect": "ALLOW"},
+    {"name": "mount_needs_confirm_even_at_D", "tier": "D", "cmd": "mount -t tmpfs none /mnt", "expect": "REFUSE"},
+    {"name": "nft_needs_confirm_even_at_D", "tier": "D", "cmd": "nft add table inet filter", "expect": "REFUSE"},
+    {"name": "virsh_needs_confirm_even_at_D", "tier": "D", "cmd": "virsh start vm0", "expect": "REFUSE"},
+    {"name": "unknown_tier_fails_closed", "tier": "Z", "cmd": "ls", "expect": "REFUSE"}
+  ]
+}

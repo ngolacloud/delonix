@@ -8,13 +8,13 @@
 | Layer | Crates | Lines | Share |
 | --- | ---: | ---: | ---: |
 | foundation | 2 | 6,462 | 1.7% |
-| context | 6 | 28,670 | 7.7% |
-| adapter | 10 | 84,891 | 22.7% |
-| provider | 10 | 54,991 | 14.7% |
-| interface | 4 | 36,525 | 9.8% |
+| context | 6 | 29,664 | 7.8% |
+| adapter | 10 | 87,889 | 23.2% |
+| provider | 10 | 55,075 | 14.5% |
+| interface | 4 | 36,951 | 9.7% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 160,950 | 43.1% |
-| **total** | **39** | **373,621** | 100% |
+| bin | 6 | 161,828 | 42.7% |
+| **total** | **39** | **379,001** | 100% |
 
 ## Lines per crate
 
@@ -29,23 +29,23 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-compute | 12,882 |
+| delonix-compute | 13,134 |
 | delonix-networking | 5,559 |
-| delonix-stack | 3,744 |
-| delonix-security | 3,313 |
+| delonix-security | 3,892 |
+| delonix-stack | 3,746 |
 | delonix-storage | 2,117 |
-| delonix-node | 1,055 |
+| delonix-node | 1,216 |
 
 ### adapter
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-sdn ⚠️ >20k | 29,206 |
-| delonix-linux ⚠️ >20k | 23,874 |
-| delonix-oci | 14,196 |
-| delonix-vm | 5,398 |
-| delonix-state | 3,452 |
-| delonix-volume | 3,375 |
+| delonix-sdn ⚠️ >20k | 30,107 |
+| delonix-linux ⚠️ >20k | 24,475 |
+| delonix-oci | 15,365 |
+| delonix-vm | 5,402 |
+| delonix-volume | 3,583 |
+| delonix-state | 3,567 |
 | delonix-scanner | 2,637 |
 | delonix-pool-helper | 1,267 |
 | delonix-telemetry | 1,144 |
@@ -56,9 +56,9 @@
 | Crate | Lines |
 | --- | ---: |
 | delonix-provider-proxmox ⚠️ >20k | 31,653 |
-| delonix-provider-libvirt | 6,931 |
+| delonix-provider-libvirt | 6,977 |
 | delonix-provider-opnsense | 5,244 |
-| delonix-provider-cloud-hypervisor | 3,598 |
+| delonix-provider-cloud-hypervisor | 3,636 |
 | delonix-provider-ceph | 2,077 |
 | delonix-provider-lvm | 1,271 |
 | delonix-provider-truenas | 1,189 |
@@ -70,8 +70,8 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-node-api ⚠️ >20k | 20,874 |
-| delonix-cri | 10,817 |
+| delonix-node-api ⚠️ >20k | 20,972 |
+| delonix-cri | 11,145 |
 | delonix-mgmt | 2,872 |
 | delonix-mcp | 1,962 |
 
@@ -85,8 +85,8 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-bin ⚠️ >20k | 158,168 |
-| delonix-node-api-bin | 1,230 |
+| delonix-bin ⚠️ >20k | 159,045 |
+| delonix-node-api-bin | 1,231 |
 | delonix-storage-helper | 645 |
 | delonix-cri-bin | 454 |
 | delonix-mcp-bin | 236 |
@@ -99,18 +99,18 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 
 | Destination | Lines | Modules | Context? |
 | --- | ---: | ---: | :---: |
-| delonix-compute | 25,769 | 9 | ✓ |
+| delonix-compute | 26,078 | 9 | ✓ |
 | delonix-stack | 23,205 | 10 | ✓ |
-| delonix-networking | 19,997 | 26 | ✓ |
-| delonix-artifact | 16,906 | 6 | ✓ |
+| delonix-networking | 20,002 | 26 | ✓ |
+| delonix-artifact | 16,886 | 6 | ✓ |
 | delonix-cluster | 13,758 | 10 | ✓ |
-| delonix-storage | 10,101 | 9 | ✓ |
-| delonix-node | 7,242 | 4 | ✓ |
-| delonix-gateway | 5,349 | 2 | ✓ |
-| delonix-security | 3,167 | 4 | ✓ |
-| delonix-cli | 16,886 | 17 |  |
-| delonix-docker-api | 3,814 | 1 |  |
-| delonix-engine | 3,207 | 5 |  |
+| delonix-storage | 10,105 | 9 | ✓ |
+| delonix-node | 7,340 | 4 | ✓ |
+| delonix-gateway | 5,352 | 2 | ✓ |
+| delonix-security | 3,216 | 4 | ✓ |
+| delonix-cli | 17,264 | 17 |  |
+| delonix-docker-api | 3,823 | 1 |  |
+| delonix-engine | 3,249 | 5 |  |
 | delonix-l7proxy | 2,044 | 1 |  |
 | delonix-linux | 1,238 | 1 |  |
 | delonix-sdn | 471 | 1 |  |
@@ -118,7 +118,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | delonix-ssh | 274 | 1 |  |
 | tests | 256 | 1 |  |
 | delonix-mcp | 36 | 1 |  |
-| **context total** | **125,494** | | |
+| **context total** | **125,942** | | |
 
 ## Ratchets
 
@@ -128,12 +128,12 @@ falls without the baseline lowered in the same commit.
 | Ratchet | Now | Baseline | Target |
 | --- | ---: | ---: | --- |
 | self_exec_sites | 37 | 37 | 0 (R5) |
-| library_prints | 111 | 111 | down |
+| library_prints | 114 | 114 | down |
 | env_writes | 23 | 23 | down |
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 125,494 | 125,494 | 0 (R4) |
+| cli_context_lines | 125,942 | 125,942 | 0 (R4) |
 | interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 6 | 6 | 1 (R1) |
@@ -298,6 +298,7 @@ graph LR
   delonix_node_api --> delonix_model
   delonix_node_api --> delonix_node
   delonix_node_api --> delonix_pool_helper
+  delonix_node_api --> delonix_security
   delonix_node_api --> delonix_storage
   delonix_node_api_bin --> delonix_compute
   delonix_node_api_bin --> delonix_engine
