@@ -2048,8 +2048,23 @@ msgstr "Aplica o(s) documento(s) `kind: KubernetesCluster` de um manifesto."
 msgid "Also list the VMs that are not up (stopped or crashed)"
 msgstr "Lista também as VMs que não estão de pé (paradas ou caídas)"
 
-msgid "Also list the VMs that are not up (stopped or crashed).\n\nWithout it `ls` shows what is UP — running or paused — the same cut `docker ps` makes."
-msgstr "Lista também as VMs que não estão de pé (paradas ou caídas).\n\nSem ela, o `ls` mostra o que está de pé — a correr ou pausado —, o mesmo corte que o `docker ps` faz."
+msgid "Also list the VMs that are not up (stopped or crashed).\n\nWithout it `ls` shows what is UP — running or paused — the same cut `docker ps` makes. `-a` is accepted too, for `docker ps -a` parity."
+msgstr "Lista também as VMs que não estão de pé (paradas ou caídas).\n\nSem ela, o `ls` mostra o que está de pé — a correr ou pausado —, o mesmo corte que o `docker ps` faz. O `-a` também é aceite, por paridade com `docker ps -a`."
+
+msgid "Print only the VM names, one per line (to compose with `rm`/`stop`) — the VM analogue of `container ls -q`. Ignored with `-o json`"
+msgstr "Imprime só os nomes das VMs, um por linha (para compor com `rm`/`stop`) — o análogo do `container ls -q` para VMs. Ignorado com `-o json`"
+
+msgid "Accepted for Docker/Podman parity (`docker images -a`): Delonix already lists every image, the untagged `<none>` ones included, so there is no hidden intermediate-image set for this to reveal — it has no effect"
+msgstr "Aceite por paridade com Docker/Podman (`docker images -a`): o Delonix já lista todas as imagens, incluindo as sem tag `<none>`, portanto não há conjunto escondido de imagens intermédias para revelar — não tem efeito"
+
+msgid "Print only the image IDs, one per image and deduplicated across tags — `docker images -q`. Composes with `rm`/`rmi`. Ignored with `-o json`"
+msgstr "Imprime só os ids das imagens, um por imagem e sem duplicados entre tags — `docker images -q`. Compõe com `rm`/`rmi`. Ignorado com `-o json`"
+
+msgid "Also reclaim the ENTIRE build cache now, ignoring the 7-day last-use TTL that `prune` otherwise honours. Implied by `--all`"
+msgstr "Reclama também TODA a cache de build agora, ignorando o TTL de 7 dias por último-uso que o `prune` normalmente respeita. Implicado por `--all`"
+
+msgid "Also reclaim the ENTIRE build cache now, ignoring the 7-day last-use TTL that `prune` otherwise honours. Implied by `--all`.\n\nThe build cache is rebuildable content and is often the single biggest reclaimable block, yet the TTL can hold a day-old 6 GiB out of reach: this is the on-demand counterpart of deleting the `build-cache/` directory by hand, which `system df` used to be the only way to suggest. The next build simply repopulates what it needs."
+msgstr "Reclama também TODA a cache de build agora, ignorando o TTL de 7 dias por último-uso que o `prune` normalmente respeita. Implicado por `--all`.\n\nA cache de build é conteúdo reconstruível e é muitas vezes o maior bloco recuperável, mas o TTL pode manter 6 GiB de um dia fora de alcance: este é o equivalente, a pedido, de apagar o directório `build-cache/` à mão, que o `system df` era a única forma de sugerir. A build seguinte repovoa apenas o que precisar."
 
 msgid "List this host's clusters — kind-mode AND VM-based"
 msgstr "Lista os clusters desta máquina — em modo kind E baseados em VM"

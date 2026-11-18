@@ -227,6 +227,15 @@ pub struct PullArgs {
 // cannot drift into accepting different flags.
 #[derive(clap::Args)]
 pub struct LsArgs {
+    /// Accepted for Docker/Podman parity (`docker images -a`): Delonix already
+    /// lists every image, the untagged `<none>` ones included, so there is no
+    /// hidden intermediate-image set for this to reveal — it has no effect.
+    #[arg(short = 'a', long)]
+    pub(crate) all: bool,
+    /// Print only the image IDs, one per image and deduplicated across tags —
+    /// `docker images -q`. Composes with `rm`/`rmi`. Ignored with `-o json`.
+    #[arg(short = 'q', long)]
+    pub(crate) quiet: bool,
     /// Output format: `table` (default) or `json` (ADR-0005).
     // `pub(crate)` because `verbs.rs` (the generic `get images`) builds this
     // struct by hand to reach the SAME handler as `image ls` / `images`.
@@ -578,7 +587,13 @@ pub fn run(action: ImageCmd) -> Result<()> {
     let (images, store) = open_stores()?;
     match action {
         ImageCmd::Pull(PullArgs { image, verify }) => cmd_pull(&images, &image, verify.as_deref()),
-        ImageCmd::Ls(LsArgs { output }) => cmd_ls(&images, output),
+        // `all` is accepted for Docker parity only (see `LsArgs`): the listing
+        // already includes every image, so there is nothing extra to surface.
+        ImageCmd::Ls(LsArgs {
+            all: _,
+            quiet,
+            output,
+        }) => cmd_ls(&images, quiet, output),
         ImageCmd::Inspect { names } => cmd_inspect(&images, &names),
         ImageCmd::Exists { name } => cmd_exists(&images, &name),
         ImageCmd::Untag { name } => cmd_untag(&images, &name),
@@ -1120,11 +1135,20 @@ fn image_is_orphan(store: &delonix_state::Store, img: &delonix_oci::Image) -> Op
     Some(!cs.iter().any(|c| container_references_image(&c.image, img)))
 }
 
-fn cmd_ls(images: &ImageStore, format: super::output::OutputFormat) -> Result<()> {
+fn cmd_ls(images: &ImageStore, quiet: bool, format: super::output::OutputFormat) -> Result<()> {
     let format = super::config::resolve_output(&super::util::state_root(), format);
     let mut imgs = images.list()?;
     // Newest first, as in `docker images`.
     imgs.sort_by_key(|i| std::cmp::Reverse(i.created_unix));
+    // `-q` prints one id per image (already deduplicated — `list()` returns one
+    // record per image, tags live inside it). JSON wins over `--quiet`, the same
+    // precedence `container ps` applies.
+    if quiet && format != super::output::OutputFormat::Json {
+        for img in &imgs {
+            println!("{}", img.short_id());
+        }
+        return Ok(());
+    }
     let cstore = delonix_state::Store::open(super::util::state_root().join("containers")).ok();
     if format == super::output::OutputFormat::Json {
         let rows: Vec<ImageLsRow> = imgs
@@ -1363,6 +1387,21 @@ fn cmd_prune(
             ]
         )
     );
+    // A default prune only takes the dangling images; the `ORPHAN=yes` rows of
+    // `image ls` are tagged and stay. Say so, so "prune did nothing" does not
+    // become a bug report for behaviour that is working as designed.
+    if !all {
+        let n = super::prune::unused_tagged_image_count(images, store)?;
+        if n > 0 {
+            println!(
+                "{}",
+                super::po::tf(
+                    "hint: {n} tagged image(s) are unused — `delonix image prune --all` would also remove them.",
+                    &[("n", &n.to_string())]
+                )
+            );
+        }
+    }
     Ok(())
 }
 

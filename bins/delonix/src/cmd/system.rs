@@ -170,6 +170,16 @@ pub enum SystemCmd {
         /// Also remove unused images that DO have a tag (not just the dangling ones).
         #[arg(short, long)]
         all: bool,
+        /// Also reclaim the ENTIRE build cache now, ignoring the 7-day
+        /// last-use TTL that `prune` otherwise honours. Implied by `--all`.
+        ///
+        /// The build cache is rebuildable content and is often the single
+        /// biggest reclaimable block, yet the TTL can hold a day-old 6 GiB out
+        /// of reach: this is the on-demand counterpart of deleting the
+        /// `build-cache/` directory by hand, which `system df` used to be the
+        /// only way to suggest. The next build simply repopulates what it needs.
+        #[arg(long = "build-cache")]
+        build_cache: bool,
         /// SCHEDULED mode: reclaim only when the disk is at or above
         /// `--threshold`, and do nothing at all below it.
         ///
@@ -358,11 +368,12 @@ pub fn run(action: SystemCmd) -> Result<()> {
         },
         SystemCmd::Prune {
             all,
+            build_cache,
             force,
             auto,
             threshold,
             dry_run,
-        } => cmd_prune(all, force, auto, threshold, dry_run),
+        } => cmd_prune(all, build_cache, force, auto, threshold, dry_run),
         SystemCmd::Monitor {
             interval,
             no_stream,
@@ -636,7 +647,18 @@ fn print_plan(p: &super::prune::PrunePlan, auto: bool, would_run: bool) {
     super::prune::note_partial(total);
 }
 
-fn cmd_prune(all: bool, force: bool, auto: bool, threshold: u8, dry_run: bool) -> Result<()> {
+fn cmd_prune(
+    all: bool,
+    build_cache: bool,
+    force: bool,
+    auto: bool,
+    threshold: u8,
+    dry_run: bool,
+) -> Result<()> {
+    // `--all` is the aggressive cut, so it pulls the build cache in with it — the
+    // one reclaimable block the default sweep leaves behind. `--build-cache`
+    // asks for exactly that and nothing else.
+    let build_cache = build_cache || all;
     // THE GATE COMES FIRST — before opening a store, before listing anything.
     // A scheduled sweep that is not going to act should cost nothing and, above
     // all, should not have started deciding what to delete.
@@ -651,7 +673,7 @@ fn cmd_prune(all: bool, force: bool, auto: bool, threshold: u8, dry_run: bool) -
     let (images, store) = open_stores()?;
 
     if dry_run {
-        let p = super::prune::plan(&images, &store, all)?;
+        let p = super::prune::plan(&images, &store, all, build_cache)?;
         print_plan(&p, auto, would_run);
         return Ok(());
     }
@@ -749,7 +771,7 @@ fn cmd_prune(all: bool, force: bool, auto: bool, threshold: u8, dry_run: bool) -
     // Build-cache entries nothing has asked for in a week. Debris in the same
     // sense as an orphan blob: rebuildable content that no longer earns the
     // space. See `prune::BUILD_CACHE_TTL_DAYS` for why it is last-USE and not age.
-    let (bc, bc_bytes) = super::prune::sweep_build_cache(images.root());
+    let (bc, bc_bytes) = super::prune::sweep_build_cache(images.root(), build_cache);
 
     let mut total = c.freed;
     total.add(i.freed);
@@ -773,6 +795,21 @@ fn cmd_prune(all: bool, force: bool, auto: bool, threshold: u8, dry_run: bool) -
         )
     );
     super::prune::note_partial(total);
+    // The `ORPHAN=yes` rows of `image ls` are tagged, so a default prune leaves
+    // them — pointing that out here is what stops "prune did nothing" when the
+    // disk is still full of images no container uses.
+    if !all {
+        let n = super::prune::unused_tagged_image_count(&images, &store)?;
+        if n > 0 {
+            println!(
+                "{}",
+                super::po::tf(
+                    "hint: {n} tagged image(s) are unused — `delonix system prune --all` would also remove them (see `--all --dry-run`).",
+                    &[("n", &n.to_string())]
+                )
+            );
+        }
+    }
     Ok(())
 }
 
