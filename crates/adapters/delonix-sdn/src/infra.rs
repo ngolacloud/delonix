@@ -2569,7 +2569,7 @@ fn adopt_failed(pid: i32, why: &str) -> Error {
 /// Whether the installed `slirp4netns` advertises `flag` (parsed once from its
 /// `--help`). Lets us opt into hardening flags only when the binary supports them,
 /// instead of passing an unknown flag that an older build would reject.
-fn slirp_supports(flag: &str) -> bool {
+pub(crate) fn slirp_supports(flag: &str) -> bool {
     static HELP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let help = HELP.get_or_init(|| {
         std::process::Command::new("slirp4netns")

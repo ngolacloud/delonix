@@ -2097,6 +2097,17 @@ pub fn slirp_attach(pid: i32, publish: &[String]) -> Result<()> {
         let _ = std::fs::remove_file(sock);
         args.push(format!("--api-socket={}", sock.display()));
     }
+    // Defence-in-depth (podman rootless default), the SAME hardening as the holder
+    // slirp in `infra::start_slirp` (R5): own mount namespace with caps dropped
+    // (`--enable-sandbox`) and a seccomp filter (`--enable-seccomp`), gated on the
+    // binary advertising each flag so an older slirp4netns still brings the network
+    // up. This is the per-container `-p` path, which must be hardened too.
+    if crate::infra::slirp_supports("--enable-sandbox") {
+        args.push("--enable-sandbox".to_string());
+    }
+    if crate::infra::slirp_supports("--enable-seccomp") {
+        args.push("--enable-seccomp".to_string());
+    }
     args.push(pid.to_string());
     args.push("tap0".to_string());
     let spawned = spawn_holding_only(Command::new("slirp4netns").args(&args), wr);
