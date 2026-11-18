@@ -26,7 +26,7 @@ COPY --from=build /app/.venv /app/.venv
 RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --no-create-home --home-dir /nonexistent app
 EXPOSE __PORT__
 # The runtime probes liveness; readiness is for the load balancer.
-HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:__PORT__/api/v1/health/live', timeout=3)" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:__PORT__/api/v1/health/live', timeout=3)" || exit 1
 STOPSIGNAL SIGTERM
 USER app
 # The project's own entry point (server.py): readiness, drain and exit code.
