@@ -1,0 +1,40 @@
+==> cgroup2 subtree_control: cpuset cpu io memory pids
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> arrancar delonix-cri (socket=/run/delonix-cri.sock, CAP_CEILING=all, CNI=1, SECCOMP_NIL=unconfined)
+==> smoke: crictl version
+time="2026-11-18T21:30:58Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.2
+RuntimeApiVersion:  v1
+==> critest (timeout ginkgo=12m) FOCUS='simultaneous RemoveImage|dropping ALL capabilities' SKIP=''
++ critest -runtime-endpoint unix:///run/delonix-cri.sock -image-endpoint unix:///run/delonix-cri.sock -ginkgo.timeout=12m -ginkgo.no-color '-ginkgo.focus=simultaneous RemoveImage|dropping ALL capabilities'
++ tee /tmp/cf.out
+time="2026-11-18T21:30:58Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1795037458
+
+Will run 2 of 122 specs
+SSS•SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS•SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+
+Ran 2 of 122 Specs in 9.056 seconds
+SUCCESS! -- 2 Passed | 0 Failed | 0 Pending | 120 Skipped
+PASS
++ rc=0
++ set +x
+==> critest rc=0 (log=/tmp/cf.out; server=/tmp/cf.out.server)
+=== server log tail ===
+2026-11-18T21:30:58.315104Z  INFO delonix_cri: delonix-cri starting addr=unix:///run/delonix-cri.sock root=/var/lib/delonix
+delonix-cri (CRI v1) listening on unix:///run/delonix-cri.sock
+delonix-cri: streaming (exec/attach) at http://127.0.0.1:42313
+delonix-cri: WARNING: no capability ceiling (DELONIX_CRI_CAP_CEILING=all) — a privileged pod gets all capabilities; unset it, or set 'default' or a list of names, to bound it
+2026-11-18T21:30:58.315775Z  WARN delonix_cri: delonix-cri: WARNING: no capability ceiling (DELONIX_CRI_CAP_CEILING=all) — a privileged pod gets all capabilities; unset it, or set 'default' or a list of names, to bound it
+2026-11-18T21:30:58.685069Z  INFO delonix_oci::registry: pulling k8s-staging-cri-tools/test-image-tag:test from gcr.io repo=k8s-staging-cri-tools/test-image-tag reference=test host=gcr.io
+2026-11-18T21:31:00.299598Z  INFO delonix_oci::registry: platform selected: linux/amd64 arch=amd64 variant=None
+2026-11-18T21:31:03.947390Z  INFO delonix_oci::registry: pulling e2e-test-images/busybox:1.29-2 from registry.k8s.io repo=e2e-test-images/busybox reference=1.29-2 host=registry.k8s.io
+2026-11-18T21:31:06.414194Z  INFO delonix_oci::registry: platform selected: linux/amd64 arch=amd64 variant=None
+2026-11-18T21:31:07.897852Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=fa6ecf36e664fe63
+2026-11-18T21:31:08.078985Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=fa6ecf36e664fe63

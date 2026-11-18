@@ -1,0 +1,10 @@
+ • Provisioning the HAProxy load balancer ⚖️
+ ✓ Provisioning the HAProxy load balancer ⚖️ 4.8s
+ • Starting control-plane (kubeadm init) 🕹️
+ ✓ Starting control-plane (kubeadm init) 🕹️ 1m30s
+ • Joining 2 control-plane(s) 🎮
+ ✓ Joining 2 control-plane(s) 🎮 2m49s
+ • Waiting for all 3 node(s) to be Ready ⏳
+ ✓ Waiting for all 3 node(s) to be Ready ⏳ 56.5s
+kubeconfig: /tmp/dlxha/root/clusters/ha012-kubeconfig.yaml
+info cluster "ha012" ready (HA)

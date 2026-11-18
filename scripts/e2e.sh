@@ -338,9 +338,22 @@ libvirt_system_usable() {
 # to guard on the binary alone and SKIP «o vm create CH falhou neste host (infra
 # de rede?)» on anything else, a guess written into the report as a host
 # property. Only when this is false may a CH section SKIP.
+# H-1 (ronda 0.1.2): o api-socket do VMM é `<DELONIX_ROOT>/vms/[<ns>/]<nome>.sock`
+# e o kernel recusa-o acima de 107 bytes (SUN_PATH). Um `DELONIX_ROOT` fundo — um
+# scratch de agente, p. ex. — estoura-o, e as 11 secções CH falhariam TODAS com
+# `DX-1506`, que se lê como regressão do motor em vez da armadilha de medição que
+# é (o binário diagnostica-o certo: `delonix-provider-cloud-hypervisor` recusa à
+# cabeça, `SUN_PATH_MAX=107`). Orçamento: root + `/vms/` (5) + `<ns>/` (≤16) +
+# nome de VM de teste (≤24) + `.sock` (5) = root+50; não cabendo, a secção não é
+# mensurável com este root e vira SKIP, não FAIL.
+ch_sockfits() {
+  local root="${DELONIX_ROOT:-$HOME/.local/share/delonix}"
+  (( ${#root} + 50 <= 107 ))
+}
 ch_usable() {
   command -v cloud-hypervisor >/dev/null && command -v qemu-img >/dev/null \
     && [[ -r /dev/kvm && -w /dev/kvm ]] || return 1
+  ch_sockfits || return 1
   [[ -n "${DELONIX_HYPERVISOR_FW:-}" && -e "$DELONIX_HYPERVISOR_FW" ]] && return 0
   local f
   for f in /usr/local/share/delonix/CLOUDHV.fd /usr/share/delonix/CLOUDHV.fd \
@@ -354,6 +367,7 @@ ch_missing() {  # the SKIP reason when `ch_usable` is false: the absent piece
   command -v cloud-hypervisor >/dev/null || m+=("cloud-hypervisor")
   command -v qemu-img >/dev/null || m+=("qemu-img")
   [[ -r /dev/kvm && -w /dev/kvm ]] || m+=("/dev/kvm legível e gravável")
+  ch_sockfits || m+=("um DELONIX_ROOT curto p/ o socket do VMM caber em 107B (actual: ${#DELONIX_ROOT} bytes + 50 do sufixo — usa um OUT curto)")
   (( ${#m[@]} )) || m+=("um firmware de DEFAULT_CH_FIRMWARES")
   local out="${m[0]}" i
   for i in "${m[@]:1}"; do out+=", $i"; done
@@ -7515,20 +7529,23 @@ else
 fi
 
 ########################################
-section "vm: o mesmo nome noutra namespace é um conflito, não «ensured»"
+section "vm: o mesmo nome noutra namespace coexiste (VMs são namespaced)"
 ########################################
-# ADR-0069 item 2, medido a 2026-10-06: o registo de uma VM é `vms/<nome>.json`,
-# qualquer que seja a namespace que declare, por isso o nome é ÚNICO no nó — e
-# um manifesto que peça o mesmo nome noutra namespace estava a receber
-# `stack plan` = «1 unchanged» e `stack apply` = «vm/<nome>: ensured» com rc=0,
-# com a VM a ficar na PRIMEIRA namespace. Numa VM a namespace É a fronteira de
-# isolamento (`@dlxns_<ns>`), logo o inquilino que pediu a segunda ficava com uma
-# VM que a primeira alcança e a dele não. É a mesma regra que um Pod já diz, e
-# aqui a consequência é de isolamento, não cosmética.
+# ATUALIZADO 2026-11-18 (ronda 0.1.2, GAP-0028): o registo de uma VM passou a ser
+# `vms/<namespace>/<nome>.json` (`delonix_compute::vm::vms_root` indexa por
+# namespace desde o port do catálogo, ADR-0086) e existe o verbo `vm
+# move-namespace` (#982/#999) — ou seja, a VM é um objecto NAMESPACED por desenho
+# actual. Dois inquilinos podem ter cada um a sua `nsvm`: o `stack apply` em
+# `teamA` E em `teamB` ambos dão `ensured`, cada VM visível só na sua namespace.
+#
+# Isto SUPERSEDE a cláusula de VM do ADR-0069 item 2 (que dizia nome node-único e
+# `Conflict` exit 5, da era em que o registo era `vms/<nome>.json` sem namespace);
+# essa decisão e o teste unitário que a selava (`the_same_vm_name_in_another_
+# namespace_is_a_conflict`, já removido) pertencem ao desenho antigo. Deixado
+# como drift de doc para o dono reconciliar no ADR — ver reports/e2e/0.1.2/.
 #
 # Precisa do Cloud Hypervisor: o libvirt RECUSA uma VM com namespace (DX-1508,
-# as VMs dele vivem fora da SDN), por isso a pré-condição — um registo em
-# `teamA` — só se consegue aqui.
+# as VMs dele vivem fora da SDN), por isso a pré-condição só se consegue aqui.
 if [[ -n "${DELONIX_ROOT:-}" && -z "${DELONIX_NET_RUNTIME_DIR:-}" ]]; then
   skip "vm: nome repetido noutra namespace" \
     "DELONIX_ROOT isolado sem DELONIX_NET_RUNTIME_DIR — isola os DOIS ou nenhum"
@@ -7553,14 +7570,15 @@ spec:
 YAML
   done
   if check_then "vm namespace: stack apply da VM CH em teamA" ok "$BIN" stack apply -f "$NSW/teamA.yaml"; then
-    check "o mesmo nome noutra namespace é um conflito (5)" 5 \
+    check "o mesmo nome noutra namespace coexiste (ensured, não conflito)" ok \
       "$BIN" stack apply -f "$NSW/teamB.yaml"
-    check "... e a recusa nomeia as duas namespaces" ok bash -c "
-      '$BIN' stack apply -f '$NSW/teamB.yaml' 2>&1 | grep -q \"already exists in namespace 'teamA'\""
-    check "... e a VM continua na namespace da primeira" ok bash -c "
+    check "... e a VM está na namespace de teamA" ok bash -c "
       '$BIN' vm ls --namespace teamA | grep -q '$NSVM'"
+    check "... e também na de teamB (objecto distinto, namespaced)" ok bash -c "
+      '$BIN' vm ls --namespace teamB | grep -q '$NSVM'"
   fi
-  "$BIN" delete vm "$NSVM" -f >/dev/null 2>&1
+  "$BIN" delete vm "teamB/$NSVM" -f >/dev/null 2>&1
+  "$BIN" delete vm "teamA/$NSVM" -f >/dev/null 2>&1
   e2e_net_rm "$NSNET"
   rm -rf "$NSW"
 else

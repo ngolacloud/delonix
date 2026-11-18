@@ -1,0 +1,22 @@
+PASS	push
+PASS	image push
+PASS	pull
+PASS	login
+PASS	logout
+PASS	search
+PASS	image sign
+PASS	image attestations
+PASS	image provenance
+PASS	vm image ls-remote
+PASS	vm image pull
+PASS	vm image push
+PASS	bucket ls
+SKIP	bucket inspect (precisa de um Bucket external sobre um S3 vivo)
+SKIP	bucket rm (idem)
+PASS	cluster kube play
+SKIP	cluster kubeadm (provisiona VMs + bootstrap — nó rootful, Parte c)
+SKIP	container checkpoint (CRIU — nó rootful, Parte c)
+SKIP	container restore (CRIU — Parte c)
+SKIP	container clone (depende de checkpoint/restore — Parte c)
+SKIP	vm image build (recipe/base de imagem de VM — não fornecida)
+TOTAIS	PASS=14	FAIL=0	SKIP=7
