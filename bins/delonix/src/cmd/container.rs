@@ -2630,9 +2630,36 @@ pub fn apply(docs: &[ManifestDoc]) -> Result<()> {
         // runs in `manifest::load` — which every path arrives at, including this
         // one — so it keeps that property AND gains `validate`/`plan`, which it
         // never had. See `manifest::spec_fields_for`.
-        if store.list()?.iter().any(|c| &c.name == name) {
+        // A container name is unique on the node (like a pod's — see
+        // `pod::check_pod_namespace`): re-applying in the SAME namespace is
+        // idempotent, but the same name in ANOTHER namespace is a conflict, not
+        // «already exists». Comparing only `c.name` made `kk@default` and
+        // `kk@other` collide and apply rc 0 while the plan showed `+` (#824).
+        let want_ns = doc.metadata.namespace.as_deref().unwrap_or("default");
+        let ns_of = |c: &&delonix_compute::Container| -> String {
+            if c.namespace.is_empty() {
+                "default".into()
+            } else {
+                c.namespace.clone()
+            }
+        };
+        let same_name: Vec<_> = store
+            .list()?
+            .into_iter()
+            .filter(|c| &c.name == name)
+            .collect();
+        if same_name
+            .iter()
+            .any(|c| ns_of(&c).eq_ignore_ascii_case(want_ns))
+        {
             println!("container/{name}: already exists, nothing to do");
             continue;
+        }
+        if let Some(other) = same_name.first() {
+            return Err(Error::Conflict(format!(
+                "container '{name}' already exists in namespace '{}'; a container name is unique on the node, so '{want_ns}' cannot reuse it",
+                ns_of(&other)
+            )));
         }
         let mut opts = doc_run_opts(doc)?;
         opts.policy_hold = hold;
