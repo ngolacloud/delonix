@@ -188,7 +188,7 @@ clap_complete = "4.6"
 # nos 53 ficheiros consumidores.
 serde_yaml = { package = "serde_norway", version = "0.9" }
 schemars = "1.2.2"
-ratatui = "0.29"
+ratatui = "0.30"
 # Telemetry and MCP
 prometheus-client = "0.25"
 rmcp = { version = "3", default-features = false }
