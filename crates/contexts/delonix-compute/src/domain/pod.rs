@@ -447,6 +447,22 @@ pub fn pod_member_run_opts(
     Ok(out)
 }
 
+/// Canonical (delonix/docker) restart-policy keyword for a manifest value: maps
+/// the k8s spellings (`Always`/`OnFailure`/`Never`) to the engine's own
+/// (`always`/`on-failure`/`no`); delonix values pass through. The single source
+/// of truth for this mapping — used both when lowering a Pod AND when stamping
+/// `restartPolicy` for the reconciler, so the DESIRED value matches the OBSERVED
+/// one. Without it, `restartPolicy: Always` kept drift red forever against the
+/// stored `always` (BUG-0009).
+pub fn canonical_restart_policy(value: &str) -> &str {
+    match value {
+        "Always" => "always",
+        "OnFailure" => "on-failure",
+        "Never" => "no",
+        other => other,
+    }
+}
+
 /// Normalizes ONE Pod container (k8s-shaped) into the flat [`RunOpts`], resolving
 /// its `volumeMounts` against the pod-level `volumes`. Shared by the single
 /// `kind: Container` and each member of a `kind: Pod`.
@@ -572,13 +588,7 @@ pub fn container_to_run_opts(
     }
 
     // restartPolicy: k8s → delonix (delonix values pass through).
-    let restart = match restart_policy {
-        "Always" => "always",
-        "OnFailure" => "on-failure",
-        "Never" => "no",
-        other => other,
-    }
-    .to_string();
+    let restart = canonical_restart_policy(restart_policy).to_string();
 
     Ok(RunOpts {
         detach,
@@ -605,4 +615,30 @@ pub fn container_to_run_opts(
         workdir: c.working_dir,
         ..Default::default()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_restart_policy;
+
+    /// BUG-0009: the reconciler stamps the DESIRED policy through this mapping
+    /// so it matches the OBSERVED (engine-canonical) value. The k8s spellings
+    /// must fold to the delonix ones, and delonix values must pass through —
+    /// otherwise `restartPolicy` diffs forever against the stored value.
+    #[test]
+    fn restart_policy_maps_k8s_to_canonical_and_passes_delonix_through() {
+        assert_eq!(canonical_restart_policy("Always"), "always");
+        assert_eq!(canonical_restart_policy("OnFailure"), "on-failure");
+        assert_eq!(canonical_restart_policy("Never"), "no");
+        // delonix/docker spellings are already canonical.
+        for p in [
+            "always",
+            "on-failure",
+            "unless-stopped",
+            "no",
+            "on-failure:3",
+        ] {
+            assert_eq!(canonical_restart_policy(p), p, "{p} should pass through");
+        }
+    }
 }

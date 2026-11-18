@@ -8,13 +8,13 @@
 | Layer | Crates | Lines | Share |
 | --- | ---: | ---: | ---: |
 | foundation | 2 | 6,462 | 1.7% |
-| context | 6 | 29,365 | 7.8% |
+| context | 6 | 29,401 | 7.8% |
 | adapter | 10 | 87,889 | 23.2% |
 | provider | 10 | 55,029 | 14.5% |
 | interface | 4 | 36,951 | 9.8% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 161,731 | 42.7% |
-| **total** | **39** | **378,559** | 100% |
+| bin | 6 | 161,746 | 42.7% |
+| **total** | **39** | **378,610** | 100% |
 
 ## Lines per crate
 
@@ -29,7 +29,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-compute | 13,098 |
+| delonix-compute | 13,134 |
 | delonix-networking | 5,559 |
 | delonix-stack | 3,744 |
 | delonix-security | 3,631 |
@@ -85,7 +85,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-bin ⚠️ >20k | 158,948 |
+| delonix-bin ⚠️ >20k | 158,963 |
 | delonix-node-api-bin | 1,231 |
 | delonix-storage-helper | 645 |
 | delonix-cri-bin | 454 |
@@ -99,7 +99,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 
 | Destination | Lines | Modules | Context? |
 | --- | ---: | ---: | :---: |
-| delonix-compute | 26,067 | 9 | ✓ |
+| delonix-compute | 26,073 | 9 | ✓ |
 | delonix-stack | 23,205 | 10 | ✓ |
 | delonix-networking | 20,002 | 26 | ✓ |
 | delonix-artifact | 16,886 | 6 | ✓ |
@@ -109,7 +109,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | delonix-gateway | 5,352 | 2 | ✓ |
 | delonix-security | 3,139 | 4 | ✓ |
 | delonix-cli | 17,264 | 17 |  |
-| delonix-docker-api | 3,814 | 1 |  |
+| delonix-docker-api | 3,823 | 1 |  |
 | delonix-engine | 3,249 | 5 |  |
 | delonix-l7proxy | 2,044 | 1 |  |
 | delonix-linux | 1,238 | 1 |  |
@@ -118,7 +118,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | delonix-ssh | 274 | 1 |  |
 | tests | 256 | 1 |  |
 | delonix-mcp | 36 | 1 |  |
-| **context total** | **125,854** | | |
+| **context total** | **125,860** | | |
 
 ## Ratchets
 
@@ -133,7 +133,7 @@ falls without the baseline lowered in the same commit.
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 125,854 | 125,854 | 0 (R4) |
+| cli_context_lines | 125,860 | 125,860 | 0 (R4) |
 | interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 6 | 6 | 1 (R1) |
