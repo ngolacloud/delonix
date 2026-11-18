@@ -368,7 +368,12 @@ const SYSCALLS_ARCH: &[(&str, i64)] = &[
     ("chmod", libc::SYS_chmod),
     ("chown", libc::SYS_chown),
     ("creat", libc::SYS_creat),
-    ("create_module", libc::SYS_create_module),
+    // create_module (174), get_kernel_syms (177) e query_module (178) foram
+    // removidos do kernel (Linux 5.18) e o `libc` 0.2.191 deixou de expor as
+    // constantes. O número de syscall x86_64 é ABI estável e nunca reutilizado,
+    // por isso mantemos a entrada na denylist por defesa-em-profundidade (kernel
+    // antigo) com o literal em vez da constante.
+    ("create_module", 174),
     ("dup2", libc::SYS_dup2),
     ("epoll_create", libc::SYS_epoll_create),
     ("epoll_ctl_old", libc::SYS_epoll_ctl_old),
@@ -380,7 +385,7 @@ const SYSCALLS_ARCH: &[(&str, i64)] = &[
     ("fork", libc::SYS_fork),
     ("futimesat", libc::SYS_futimesat),
     ("getdents", libc::SYS_getdents),
-    ("get_kernel_syms", libc::SYS_get_kernel_syms),
+    ("get_kernel_syms", 177), // ver nota em create_module (constante removida do libc 0.2.191)
     ("getpgrp", libc::SYS_getpgrp),
     ("getpmsg", libc::SYS_getpmsg),
     ("get_thread_area", libc::SYS_get_thread_area),
@@ -399,7 +404,7 @@ const SYSCALLS_ARCH: &[(&str, i64)] = &[
     ("pipe", libc::SYS_pipe),
     ("poll", libc::SYS_poll),
     ("putpmsg", libc::SYS_putpmsg),
-    ("query_module", libc::SYS_query_module),
+    ("query_module", 178), // ver nota em create_module (constante removida do libc 0.2.191)
     ("readlink", libc::SYS_readlink),
     ("rename", libc::SYS_rename),
     ("rmdir", libc::SYS_rmdir),
