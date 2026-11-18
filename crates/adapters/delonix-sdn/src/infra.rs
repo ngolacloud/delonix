@@ -2566,6 +2566,25 @@ fn adopt_failed(pid: i32, why: &str) -> Error {
 
 /// Starts the **single slirp** attached to the holder's netns (`tap0`), with an api-socket
 /// for the Phase 4 `add_hostfwd`s. Waits for the `--ready-fd` before returning.
+/// Whether the installed `slirp4netns` advertises `flag` (parsed once from its
+/// `--help`). Lets us opt into hardening flags only when the binary supports them,
+/// instead of passing an unknown flag that an older build would reject.
+fn slirp_supports(flag: &str) -> bool {
+    static HELP: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let help = HELP.get_or_init(|| {
+        std::process::Command::new("slirp4netns")
+            .arg("--help")
+            .output()
+            .map(|o| {
+                let mut s = String::from_utf8_lossy(&o.stdout).into_owned();
+                s.push_str(&String::from_utf8_lossy(&o.stderr));
+                s
+            })
+            .unwrap_or_default()
+    });
+    help.contains(flag)
+}
+
 fn start_slirp(holder_pid: i32) -> Result<()> {
     let sock = slirp_sock_path();
     let _ = std::fs::remove_file(&sock);
@@ -2592,6 +2611,17 @@ fn start_slirp(holder_pid: i32) -> Result<()> {
     ];
     if ipv6_enabled() {
         args.push("--enable-ipv6".to_string());
+    }
+    // Defence-in-depth, as podman rootless does by default: run slirp4netns in its
+    // OWN mount namespace with all caps dropped (`--enable-sandbox`) and with a
+    // seccomp filter (`--enable-seccomp`). Gated on the binary advertising each
+    // flag, because builds older than 1.1 predate them and would refuse to start —
+    // a stale slirp4netns must still bring the network up.
+    if slirp_supports("--enable-sandbox") {
+        args.push("--enable-sandbox".to_string());
+    }
+    if slirp_supports("--enable-seccomp") {
+        args.push("--enable-seccomp".to_string());
     }
     args.push(holder_pid.to_string());
     args.push("tap0".to_string());

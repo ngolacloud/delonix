@@ -138,9 +138,13 @@ impl Cas {
     }
 
     /// Verifies integrity: `sha256(content) == digest`.
+    ///
+    /// Hashes the blob with [`sha256_file`] (1 MiB chunks), never `self.read`:
+    /// a verify of a multi-GiB layer pulled the WHOLE blob into a `Vec` first,
+    /// so checking a big image could OOM the node — the one path that must stay
+    /// cheap, since it runs under disk pressure (GC, `delonix image verify`).
     pub fn verify(&self, digest: &str) -> Result<bool> {
-        let data = self.read(digest)?;
-        Ok(sha256_hex(&data) == strip(digest))
+        Ok(sha256_file(&self.path(digest))? == strip(digest))
     }
 }
 
@@ -358,6 +362,28 @@ mod tests {
         blob.append(&whole[cut..]).unwrap();
         assert_eq!(blob.finish().unwrap(), sha256_hex(&whole));
         assert_eq!(fs::read(&path).unwrap(), whole);
+    }
+
+    /// `verify` streams the blob (no whole-file `read`) and still answers
+    /// correctly in both directions: a blob whose bytes hash to its name
+    /// matches, and one whose bytes were tampered with under the same name does
+    /// not. The content is larger than one chunk so the streaming path is the
+    /// one under test.
+    #[test]
+    fn verify_streams_and_catches_a_tampered_blob() {
+        let dir = tempfile::tempdir().unwrap();
+        let cas = Cas::open(dir.path()).unwrap();
+        let data: Vec<u8> = (0..(3 << 20) as u32).map(|i| (i % 251) as u8).collect();
+        let dg = cas.write(&data).unwrap();
+        assert!(cas.verify(&dg).unwrap(), "an intact blob matches its digest");
+
+        // Overwrite the blob file in place (keeping its digest name) with
+        // different bytes: the stored name no longer matches the content.
+        fs::write(cas.path(&dg), b"tampered").unwrap();
+        assert!(
+            !cas.verify(&dg).unwrap(),
+            "a blob whose bytes changed must fail verification"
+        );
     }
 
     #[test]
