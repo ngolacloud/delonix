@@ -10592,7 +10592,7 @@ for line in sys.stdin:
         "$BIN" container exec "vx-$PFX" wget -qO- -T 2 "http://$VIP:8080/"
       # Anti-spoof: forging a same-namespace member must not even reach the DNAT.
       CIP=$("$BIN" container inspect "vc-$PFX" | python3 -c 'import json,sys;d=json.load(sys.stdin);d=d[0] if isinstance(d,list) else d;print(d["ip"])')
-      vdnat() { vnft list chain ip dlxing svcpre | awk -v v="$VIP" '$0~v{for(i=1;i<=NF;i++) if($i=="packets") print $(i+1)}'; }
+      vdnat() { vnft list chain inet dlxing svcpre | awk -v v="$VIP" '$0~v{for(i=1;i<=NF;i++) if($i=="packets") print $(i+1)}'; }
       d0=$(vdnat)
       "$BIN" container exec "vs-$PFX" ip addr add "$CIP/16" dev eth0 >/dev/null 2>&1
       "$BIN" container exec "vs-$PFX" nc -w 2 -s "$CIP" "$VIP" 8080 </dev/null >/dev/null 2>&1
