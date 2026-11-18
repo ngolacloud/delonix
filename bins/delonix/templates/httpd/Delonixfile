@@ -20,5 +20,5 @@ RUN sed -i -e 's/^Listen 80$/Listen __PORT__/' \
 COPY public /usr/local/apache2/htdocs
 EXPOSE __PORT__ __TLS_PORT__
 # Delonix extension: the runtime probes this to mark the container healthy.
-HEALTHCHECK CMD wget -qO- http://127.0.0.1:__PORT__/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD wget -qO- http://127.0.0.1:__PORT__/healthz || exit 1
 CMD ["httpd-foreground"]

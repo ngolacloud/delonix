@@ -52,7 +52,7 @@ RUN php artisan package:discover --ansi \
 VOLUME /var/lib/app
 EXPOSE __PORT__
 # The runtime probes liveness; readiness is for the load balancer.
-HEALTHCHECK CMD php -r "exit(@file_get_contents('http://127.0.0.1:__PORT__/api/v1/health/live') === false ? 1 : 0);"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 CMD php -r "exit(@file_get_contents('http://127.0.0.1:__PORT__/api/v1/health/live') === false ? 1 : 0);"
 STOPSIGNAL SIGTERM
 # The unprivileged user created above (uid 10001). It owns /var/lib/app — the
 # database volume takes that owner on its first mount — and nothing else.
