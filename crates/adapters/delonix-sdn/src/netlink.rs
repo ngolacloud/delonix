@@ -68,10 +68,7 @@ pub(crate) fn link_exists(name: &str) -> bool {
             Err(rtnetlink::Error::NetlinkError(err)) => {
                 // The kernel's own "no such device" is a clean negative. `code`
                 // is the negated errno (e.g. -ENODEV); None means a bare ACK.
-                let enodev = err
-                    .code
-                    .map(|c| c.get() == -libc::ENODEV)
-                    .unwrap_or(false);
+                let enodev = err.code.map(|c| c.get() == -libc::ENODEV).unwrap_or(false);
                 if !enodev {
                     tracing::warn!("netlink link_exists({name}): {err:?}");
                 }
@@ -304,7 +301,11 @@ pub(crate) fn route_list_proto(netns_path: &str, proto: u8) -> crate::Result<Vec
                 let len = msg.header.destination_prefix_length;
                 // Host bits cleared, as `Cidr::parse` would — so equality with a
                 // planned `WorkloadRoute.dest` (also a masked `Cidr`) holds.
-                let mask = if len == 0 { 0 } else { u32::MAX << (32 - u32::from(len)) };
+                let mask = if len == 0 {
+                    0
+                } else {
+                    u32::MAX << (32 - u32::from(len))
+                };
                 out.push(crate::Cidr {
                     base: u32::from(v4) & mask,
                     len,
@@ -421,7 +422,9 @@ pub(crate) fn route_replace(
 
 #[cfg(test)]
 mod tests {
-    use super::{addr_add, link_exists, link_set_up, route_del_proto, route_list_proto, route_replace};
+    use super::{
+        addr_add, link_exists, link_set_up, route_del_proto, route_list_proto, route_replace,
+    };
     use crate::Cidr;
 
     /// KRN-0001 fatia 1: the native `RTM_GETLINK` query answers like `ip link
@@ -455,7 +458,10 @@ mod tests {
     /// path is proven by the network e2e (the bridge gets its gateway address).
     #[test]
     fn addr_add_rejects_a_bad_cidr_and_a_missing_link() {
-        assert!(addr_add("lo", "not-a-cidr").is_err(), "non ip/plen must error");
+        assert!(
+            addr_add("lo", "not-a-cidr").is_err(),
+            "non ip/plen must error"
+        );
         assert!(
             addr_add("dlx-noexist-zzz0", "10.0.0.1/24").is_err(),
             "a missing link must error"
@@ -493,7 +499,14 @@ mod tests {
             "a non-parsable gateway must error before touching any netns"
         );
         assert!(
-            route_replace("/run/netns/dlx-noexist-zzz0", dest, "10.81.0.1", "eth1", 118).is_err(),
+            route_replace(
+                "/run/netns/dlx-noexist-zzz0",
+                dest,
+                "10.81.0.1",
+                "eth1",
+                118
+            )
+            .is_err(),
             "replace in a missing netns must error"
         );
     }

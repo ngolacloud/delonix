@@ -122,7 +122,9 @@ fn copy_with_uring(src: &Path, dst: &Path) -> Result<u64, UringCopyError> {
                 return Err(UringCopyError::Io(io::Error::from_raw_os_error(-w)));
             }
             if w == 0 {
-                return Err(UringCopyError::Io(io::Error::other("io_uring: zero-length write")));
+                return Err(UringCopyError::Io(io::Error::other(
+                    "io_uring: zero-length write",
+                )));
             }
             written += w as usize;
         }

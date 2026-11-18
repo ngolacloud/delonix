@@ -17258,8 +17258,8 @@ mod pidfd_tests {
         assert_eq!(alive, 0, "a live process must be reachable via its pidfd");
         child.kill().expect("kill");
         child.wait().expect("reap"); // pid number is now free to recycle
-        // SAFETY: same call as above; `fd` is still an owned pidfd (the now-reaped
-        // process's), signal 0 sends nothing and a null `siginfo` is valid.
+                                     // SAFETY: same call as above; `fd` is still an owned pidfd (the now-reaped
+                                     // process's), signal 0 sends nothing and a null `siginfo` is valid.
         let r = unsafe {
             libc::syscall(
                 libc::SYS_pidfd_send_signal,

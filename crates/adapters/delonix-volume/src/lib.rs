@@ -1691,10 +1691,18 @@ mod tests {
     #[test]
     fn only_unsupported_errnos_fall_back_to_the_binary() {
         use std::io::Error as IoError;
-        assert!(loopdev::is_unsupported(&IoError::from_raw_os_error(libc::ENOTTY)));
-        assert!(loopdev::is_unsupported(&IoError::from_raw_os_error(libc::EINVAL)));
-        assert!(!loopdev::is_unsupported(&IoError::from_raw_os_error(libc::EPERM)));
-        assert!(!loopdev::is_unsupported(&IoError::from_raw_os_error(libc::ENODEV)));
+        assert!(loopdev::is_unsupported(&IoError::from_raw_os_error(
+            libc::ENOTTY
+        )));
+        assert!(loopdev::is_unsupported(&IoError::from_raw_os_error(
+            libc::EINVAL
+        )));
+        assert!(!loopdev::is_unsupported(&IoError::from_raw_os_error(
+            libc::EPERM
+        )));
+        assert!(!loopdev::is_unsupported(&IoError::from_raw_os_error(
+            libc::ENODEV
+        )));
     }
 
     /// The sysfs scan picks the loop device whose `backing_file` resolves to the

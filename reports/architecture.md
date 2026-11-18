@@ -9,12 +9,12 @@
 | --- | ---: | ---: | ---: |
 | foundation | 2 | 6,462 | 1.7% |
 | context | 6 | 29,365 | 7.8% |
-| adapter | 10 | 87,861 | 23.2% |
+| adapter | 10 | 87,889 | 23.2% |
 | provider | 10 | 55,029 | 14.5% |
 | interface | 4 | 36,951 | 9.8% |
 | assembly | 1 | 1,132 | 0.3% |
 | bin | 6 | 161,731 | 42.7% |
-| **total** | **39** | **378,531** | 100% |
+| **total** | **39** | **378,559** | 100% |
 
 ## Lines per crate
 
@@ -40,11 +40,11 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-sdn ⚠️ >20k | 30,089 |
+| delonix-sdn ⚠️ >20k | 30,107 |
 | delonix-linux ⚠️ >20k | 24,475 |
-| delonix-oci | 15,363 |
+| delonix-oci | 15,365 |
 | delonix-vm | 5,402 |
-| delonix-volume | 3,575 |
+| delonix-volume | 3,583 |
 | delonix-state | 3,567 |
 | delonix-scanner | 2,637 |
 | delonix-pool-helper | 1,267 |
@@ -133,7 +133,7 @@ falls without the baseline lowered in the same commit.
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 125,854 | 125,748 | 0 (R4) |
+| cli_context_lines | 125,854 | 125,854 | 0 (R4) |
 | interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 6 | 6 | 1 (R1) |

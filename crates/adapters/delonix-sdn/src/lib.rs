@@ -50,9 +50,9 @@ pub mod infra;
 pub mod ipam;
 /// Rootful realization of the `macvlan`/`ipvlan` LAN drivers (see the module).
 pub mod lan;
-pub mod netops;
 /// KRN-0001: native netlink (currently the `link_exists` query), replacing `ip`.
 mod netlink;
+pub mod netops;
 mod pin_userns;
 pub mod policy_nft;
 pub mod provider_report;

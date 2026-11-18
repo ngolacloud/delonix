@@ -7027,7 +7027,7 @@ delonix0         UNKNOWN        10.200.0.1/16";
         ); // gateway → VM-reachable
         assert_eq!(m.get("tcp/22").map(String::as_str), Some("0.0.0.0")); // all ifaces
         assert_eq!(m.get("tcp/443").map(String::as_str), Some("[::]")); // IPv6, igual ao que o ss imprimia
-        // Estado 01 (ESTABLISHED), não LISTEN → não é porta publicada, fica de fora.
+                                                                        // Estado 01 (ESTABLISHED), não LISTEN → não é porta publicada, fica de fora.
         assert!(!m.contains_key("tcp/8070"));
     }
 

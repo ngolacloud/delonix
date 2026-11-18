@@ -5915,10 +5915,15 @@ mod tests_workload_route_diff {
         let current = [cidr("10.82.0.0/16"), cidr("10.83.0.0/16")];
         // 10.82 still wanted, 10.83 dropped → only 10.83 is removed.
         let wanted = [want("10.82.0.0/16")];
-        assert_eq!(routes_to_remove(&current, &wanted), vec![cidr("10.83.0.0/16")]);
+        assert_eq!(
+            routes_to_remove(&current, &wanted),
+            vec![cidr("10.83.0.0/16")]
+        );
 
         // Table already matches the plan → nothing to remove (idempotent pass).
-        assert!(routes_to_remove(&current, &[want("10.82.0.0/16"), want("10.83.0.0/16")]).is_empty());
+        assert!(
+            routes_to_remove(&current, &[want("10.82.0.0/16"), want("10.83.0.0/16")]).is_empty()
+        );
 
         // Empty table → nothing to remove regardless of the plan.
         assert!(routes_to_remove(&[], &wanted).is_empty());
