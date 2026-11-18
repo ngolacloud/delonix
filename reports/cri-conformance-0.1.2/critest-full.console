@@ -1,0 +1,172 @@
+==> cgroup2 subtree_control: cpuset cpu io memory pids
+==> loading critest AppArmor profiles (apparmor_parser)
+   loaded: cri-validate-apparmor-test-audit-write cri-validate-apparmor-test-deny-write 
+==> arrancar delonix-cri (socket=/run/delonix-cri.sock, CAP_CEILING=all, CNI=1, SECCOMP_NIL=unconfined)
+==> smoke: crictl version
+time="2026-11-18T21:13:02Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/usr/local/bin/crictl.yaml\""
+Version:  0.1.0
+RuntimeName:  delonix
+RuntimeVersion:  0.1.2
+RuntimeApiVersion:  v1
+==> critest (timeout ginkgo=25m) FOCUS='' SKIP=''
++ critest -runtime-endpoint unix:///run/delonix-cri.sock -image-endpoint unix:///run/delonix-cri.sock -ginkgo.timeout=25m -ginkgo.no-color
++ tee /tmp/critest.out
+time="2026-11-18T21:13:02Z" level=warning msg="Config \"/etc/crictl.yaml\" does not exist, trying next: \"/home/crictl.yaml\""
+critest version: v1.36.0
+Running Suite: CRI validation - /home/delonix
+=============================================
+Random Seed: 1795036382
+
+Will run 117 of 122 specs
+SS•E1118 21:13:18.076671    1266 remote_image.go:250] "PullImage from image service failed" err="rpc error: code = DeadlineExceeded desc = context deadline exceeded" image="gcr.io/k8s-staging-cri-tools/test-image-tag:test"
+•••••••••S•S••••••••S•••E1118 21:14:23.115951    1266 v2.go:105] "Copying stdin failed" err="EOF" logger="UnhandledError"
+••SSSSE1118 21:14:25.955741    1266 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="1389a0f4439f8695"
+•••E1118 21:14:26.617999    1266 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="aa64f311e0e511a5"
+•••E1118 21:14:27.376098    1266 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = AppArmor profile 'non-existent-profile' is not loaded on the host" podSandboxID="862b66ca8ab4b8c4"
+•••••E1118 21:14:32.821618    1266 remote_image.go:284] "RemoveImage from image service failed" err="rpc error: code = Internal desc = I/O error: No such file or directory (os error 2)" image="sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49"
+E1118 21:14:32.821874    1266 remote_image.go:284] "RemoveImage from image service failed" err="rpc error: code = Internal desc = I/O error: No such file or directory (os error 2)" image="sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49"
+E1118 21:14:32.821883    1266 remote_image.go:284] "RemoveImage from image service failed" err="rpc error: code = Internal desc = I/O error: No such file or directory (os error 2)" image="sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49"
+E1118 21:14:32.821976    1266 remote_image.go:284] "RemoveImage from image service failed" err="rpc error: code = Internal desc = I/O error: No such file or directory (os error 2)" image="sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49"
+
+------------------------------
+• [FAILED] [1.415 seconds]
+[k8s.io] Image Consistency [It] should not fail on simultaneous RemoveImage calls [Conformance] [Serial]
+/home/runner/work/cri-tools/cri-tools/pkg/validate/image_consistency.go:128
+
+  Timeline >>
+  STEP: Remove image : gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/18/26 21:14:31.408
+  STEP: Pulling an image to be removed @ 11/18/26 21:14:31.408
+  STEP: Pull image : gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/18/26 21:14:31.408
+  STEP: Get image status for image: gcr.io/k8s-staging-cri-tools/test-image-tag:test @ 11/18/26 21:14:32.82
+  STEP: Concurrently removing the same image @ 11/18/26 21:14:32.821
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:14:32.821
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:14:32.821
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:14:32.821
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:14:32.821
+  STEP: Get image status for image: sha256:552a946d71c1a27bd126431c3af69b3ded9eea21a2e98b6e93305927f37edb49 @ 11/18/26 21:14:32.821
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/image_consistency.go:171 @ 11/18/26 21:14:32.822
+  << Timeline
+
+  [FAILED] Concurrent RemoveImage calls should not return an error
+  Unexpected error:
+      <*status.Error | 0x1a88621a4fb0>: 
+      rpc error: code = Internal desc = I/O error: No such file or directory (os error 2)
+      {
+          s: {
+              s: {
+                  state: {
+                      NoUnkeyedLiterals: {},
+                      DoNotCompare: [],
+                      DoNotCopy: [],
+                      atomicMessageInfo: nil,
+                  },
+                  sizeCache: 0,
+                  unknownFields: nil,
+                  Code: 13,
+                  Message: "I/O error: No such file or directory (os error 2)",
+                  Details: nil,
+              },
+          },
+      }
+  occurred
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/image_consistency.go:171 @ 11/18/26 21:14:32.822
+------------------------------
+••••••••••••E1118 21:15:07.743340    1266 remote_runtime.go:410] "CreateContainer in sandbox from runtime service failed" err="rpc error: code = InvalidArgument desc = run_as_group specified without run_as_user or run_as_username" podSandboxID="be24e8938d4484dc"
+••••••••
+------------------------------
+• [FAILED] [0.333 seconds]
+[k8s.io] Security Context bucket [It] runtime should support dropping ALL capabilities
+/home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:574
+
+  Timeline >>
+  STEP: create pod @ 11/18/26 21:15:10.34
+  STEP: create container with security context Capability and test @ 11/18/26 21:15:10.385
+  STEP: create Capability container @ 11/18/26 21:15:10.385
+  STEP: Get image status for image: registry.k8s.io/e2e-test-images/busybox:1.29-2 @ 11/18/26 21:15:10.385
+  STEP: Create container. @ 11/18/26 21:15:10.385
+  Nov 18 21:15:10.386: INFO: Created container "b13d7ab4dda6f674"
+
+  STEP: Start container for containerID: b13d7ab4dda6f674 @ 11/18/26 21:15:10.386
+  Nov 18 21:15:10.423: INFO: Started container "b13d7ab4dda6f674"
+
+  STEP: Get container status for containerID: b13d7ab4dda6f674 @ 11/18/26 21:15:10.423
+  [FAILED] in [It] - /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:593 @ 11/18/26 21:15:10.442
+  STEP: stop PodSandbox @ 11/18/26 21:15:10.442
+  STEP: delete PodSandbox @ 11/18/26 21:15:10.559
+  << Timeline
+
+  [FAILED] Expected
+      <string>: delonix: exec setgroups([]) failed
+      
+  to be empty
+  In [It] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:593 @ 11/18/26 21:15:10.442
+------------------------------
+••SS•••••••••SSSSSS•••••••••••••••••••••
+------------------------------
+• [FAILED] [0.150 seconds]
+[k8s.io] Container runtime should support basic operations on container [BeforeEach] runtime should support execSync [Conformance]
+  [BeforeEach] /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:75
+  [It] /home/runner/work/cri-tools/cri-tools/pkg/validate/container.go:202
+
+  Timeline >>
+  [FAILED] in [BeforeEach] - /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/18/26 21:15:23.119
+  STEP: stop PodSandbox @ 11/18/26 21:15:23.119
+  STEP: delete PodSandbox @ 11/18/26 21:15:23.12
+  << Timeline
+
+  [FAILED] Timed out after 60.001s.
+  The stdout of attach should be hello
+  Expected
+      <string>: 
+  to equal
+      <string>: hello
+  In [BeforeEach] at: /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317 @ 11/18/26 21:15:23.119
+------------------------------
+••••••••••SS•••
+
+Summarizing 3 Failures:
+  [FAIL] [k8s.io] Image Consistency [It] should not fail on simultaneous RemoveImage calls [Conformance] [Serial]
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/image_consistency.go:171
+  [FAIL] [k8s.io] Security Context bucket [It] runtime should support dropping ALL capabilities
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/security_context_linux.go:593
+  [FAIL] [k8s.io] Container runtime should support basic operations on container [BeforeEach] runtime should support execSync [Conformance]
+  /home/runner/work/cri-tools/cri-tools/pkg/validate/streaming.go:317
+
+Ran 103 of 122 Specs in 196.946 seconds
+FAIL! -- 100 Passed | 3 Failed | 0 Pending | 19 Skipped
+--- FAIL: TestCRISuite (196.95s)
+FAIL
++ rc=1
++ set +x
+==> critest rc=1 (log=/tmp/critest.out; server=/tmp/critest.out.server)
+=== server log tail ===
+2026-11-18T21:15:23.119842Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=f3a99824d33a926b
+2026-11-18T21:15:23.120162Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=f3a99824d33a926b
+2026-11-18T21:15:24.326926Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=fa62736c079803ab
+2026-11-18T21:15:24.443039Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=fa62736c079803ab
+2026-11-18T21:15:24.645006Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=a94184cb0b7f8de0
+2026-11-18T21:15:24.764700Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=a94184cb0b7f8de0
+2026-11-18T21:15:24.975991Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=2dcd385ff9ae2587
+2026-11-18T21:15:25.093081Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=2dcd385ff9ae2587
+2026-11-18T21:15:25.286974Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=1964ee8a3fbdaf24
+2026-11-18T21:15:25.406099Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=1964ee8a3fbdaf24
+2026-11-18T21:15:25.684766Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=0287d55aa8e4cc9b
+2026-11-18T21:15:26.067062Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=0287d55aa8e4cc9b
+2026-11-18T21:15:26.296590Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=5bba1795493c664f
+2026-11-18T21:15:26.414643Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=5bba1795493c664f
+2026-11-18T21:15:26.638614Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=45c4fc2bd3a7e47a
+2026-11-18T21:15:26.778244Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=45c4fc2bd3a7e47a
+2026-11-18T21:15:27.026898Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=2f121623f95ea174
+2026-11-18T21:15:27.147770Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=2f121623f95ea174
+2026-11-18T21:15:27.392352Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=a601207610ce75ae
+2026-11-18T21:15:27.408423Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=a601207610ce75ae
+2026-11-18T21:15:33.609373Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=4f49f099e50d566b
+2026-11-18T21:15:33.726920Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=4f49f099e50d566b
+2026-11-18T21:15:33.891479Z  INFO delonix_oci::registry: pulling e2e-test-images/httpd:2.4.39-4 from registry.k8s.io repo=e2e-test-images/httpd reference=2.4.39-4 host=registry.k8s.io
+2026-11-18T21:15:35.708108Z  INFO delonix_oci::registry: platform selected: linux/amd64 arch=amd64 variant=None
+2026-11-18T21:16:11.601477Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=dd7b78aabd009d38
+2026-11-18T21:16:11.845975Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=dd7b78aabd009d38
+2026-11-18T21:16:17.891662Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=38932f8f5a4ff5ee
+2026-11-18T21:16:18.127089Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=38932f8f5a4ff5ee
+2026-11-18T21:16:18.737734Z  INFO delonix_cri::runtime_svc::lifecycle: CRI StopPodSandbox sandbox=d9f11892f5181a4d
+2026-11-18T21:16:18.969182Z  INFO delonix_cri::runtime_svc::lifecycle: CRI RemovePodSandbox sandbox=d9f11892f5181a4d
