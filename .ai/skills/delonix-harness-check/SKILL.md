@@ -30,6 +30,8 @@ validation route to `delonix-runtime-e2e-quality` (see its `ROUTER.md`).
    - `python3 scripts/agents_budget_gate.py`  (context budget + spec discovery)
    - `python3 scripts/harness_control_gate.py check-fixtures scripts/harness_control_fixtures`
    - `python3 scripts/skill_router_gate.py`  (skills present, router covers domains)
+   - `python3 scripts/prompt_lint_gate.py check-fixtures scripts/prompt_lint_fixtures`
+   - `python3 scripts/evidence_gate.py check-fixtures scripts/evidence_fixtures`  (+ `render`/`promote` for a run's evidence)
 3. **Index/doc integrity**:
    - `python3 scripts/agents_toc.py --check` — the AGENTS.md index is not stale.
    - `python3 scripts/lang_ratchet.py` — the language ratchet holds.
