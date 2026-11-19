@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Perfil por fase do arranque A FRIO de um container no delonix (rootless).
 #
-# O `docs/comparacao-medida.md` mede ~91 ms de arranque a frio (host) e
+# O `docs/measured-comparison.md` mede ~91 ms de arranque a frio (host) e
 # ~216–344 ms com rede isolada, mas NÃO diz onde se vão. Este arnês liga o
 # profiler embutido (`DELONIX_PROFILE_SPAWN`, em `crates/adapters/delonix-linux`)
 # E cronometra o WALL-CLOCK de cada corrida, para separar:

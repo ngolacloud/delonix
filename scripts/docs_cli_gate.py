@@ -23,7 +23,7 @@ What is NOT checked, and why:
     cite the spelling of the version they talk about — rewriting them would
     erase the record.
   * The five audit/measurement reports in `docs/` (`COMPARACAO-DOCKER-
-    PODMAN.md`, `paridade-docker-podman.md`, `comparacao-medida.md`,
+    PODMAN.md`, `paridade-docker-podman.md`, `measured-comparison.md`,
     `RELATORIO-PRE-PRODUCAO.md`, `cri-conformance.md`) are the SAME class —
     each already carries a date and version in its own header, and none is
     rewritten on every release. They stay published (`comparacao.html`/
@@ -61,7 +61,7 @@ EXCLUDE = (
     # the "current documentation" this gate keeps in sync with the binary.
     "docs/COMPARACAO-DOCKER-PODMAN.md",
     "docs/paridade-docker-podman.md",
-    "docs/comparacao-medida.md",
+    "docs/measured-comparison.md",
     "docs/RELATORIO-PRE-PRODUCAO.md",
     "docs/cri-conformance.md",
 )

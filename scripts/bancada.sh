@@ -10,7 +10,7 @@
 # ## Porque existe, e porque é PARTILHADA
 #
 # A bateria de latência de 2026-08-10 foi RETIRADA e a razão está no
-# `docs/comparacao-medida.md`: dava docker 1406 ms, podman 1351 ms, delonix
+# `docs/measured-comparison.md`: dava docker 1406 ms, podman 1351 ms, delonix
 # 640 ms, e a corrida seguinte — mesmas ferramentas, mesma distro, mesmo kernel —
 # deu 208 / 268 / 89. Três motores a acelerarem seis vezes ao mesmo tempo não é
 # melhoria de nenhum: é a bancada. O `bench.sh` transformou essa lição em código

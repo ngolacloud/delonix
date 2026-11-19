@@ -525,7 +525,7 @@ correct: it means debt that was already there was discovered. Lower the baseline
 in the same commit in which you add the word.
 
 **An ENGLISH comment that cites a file with a Portuguese name counts as debt**
-— and the case that exists is `docs/comparacao-medida.md`, whose name carries `medida`,
+— and the case that exists is `docs/measured-comparison.md`, whose name carries `medida`,
 which is in the lexicon. `is_pt_text` accepts ONE word as proof, and does not distinguish
 prose from path. Caught on 2026-09-23 while writing the M11 gate, in two lines
 that were pure English.
@@ -9641,7 +9641,7 @@ same number is how they start to diverge. And it has THREE exits, not two:
 | **3** | **refuses to judge** |
 
 The third is what makes it reliable, and it comes directly from the incident of
-2026-08-10 (`docs/comparacao-medida.md`): docker 1406, podman 1351, delonix 640,
+2026-08-10 (`docs/measured-comparison.md`): docker 1406, podman 1351, delonix 640,
 and the next run 208 / 268 / 89. A naive gate would have read that as «the
 delonix regressed 7×» and gone red over a machine problem. That is why
 docker and podman are **anchors**: if they degraded as much as we did, what changed was the

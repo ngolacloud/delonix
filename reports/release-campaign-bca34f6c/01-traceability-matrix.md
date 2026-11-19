@@ -81,5 +81,5 @@ Evidence = file under `evidence/` or a report sheet.
 
 ## Capabilities promised but potentially absent (to be classified as a requirement FAILURE, not N/A)
 
-- CLI-5 (Docker/Podman side-by-side): the reference binaries are not installed → **BLOCKED** (environment), not N/A. The repo has a prior measured comparison (`docs/comparacao-medida.md`); this campaign does not re-measure it live.
+- CLI-5 (Docker/Podman side-by-side): the reference binaries are not installed → **BLOCKED** (environment), not N/A. The repo has a prior measured comparison (`docs/measured-comparison.md`); this campaign does not re-measure it live.
 - CLUSTER-3 / VM-4: depend on the `k8s-golden` image and on disk space (45 G free). **BLOCKED (environment)** until the image and space are available; it is not N/A.

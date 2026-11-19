@@ -12,7 +12,7 @@
 > **dated** (measured on v0.x–v3.1.0/5.1.1 lines). A high-criticality buyer would
 > require independent measurement — which is precisely item 1 of the gate (§6).
 >
-> **Sources:** `docs/COMPARACAO-DOCKER-PODMAN.md`, `docs/comparacao-medida.md`,
+> **Sources:** `docs/COMPARACAO-DOCKER-PODMAN.md`, `docs/measured-comparison.md`,
 > `docs/AUDITORIA-E2E.md`, `docs/cri-conformance.md`,
 > `docs/providers/capability-matrix.md`, `reports/capability-ceiling-20261027.md`,
 > `reports/production-readiness/v3.1.0/*`, `reports/release-campaign-*`,
@@ -52,7 +52,7 @@ It is not "Docker with fewer features". **Real and measured** differentiators:
 hot reconfiguration without changing PID; daemonless ~2.3–3.5× lower latency on the
 default (91 vs 208/268 ms); **governed rootless networking** (incl. IPv6 dual-stack
 by default with per-workload v6 policy — the only one of the three, see
-`docs/comparacao-medida.md` §IPv6); container+microVM+CRI in a single engine (real
+`docs/measured-comparison.md` §IPv6); container+microVM+CRI in a single engine (real
 kubelet, `kindest/node` `Ready`); stricter security by default (NNP always +
 fail-closed check); mandatory resource ceilings (Docker/Podman leave memory
 uncapped).

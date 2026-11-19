@@ -139,7 +139,7 @@ crate 列表、每个 crate 所在的层，以及谁依赖谁，这些都是生�
 **生成**的；`gen.py` 本身，以及像 `cli-stability.md`、`gitops.md`、`estrutura.md`、
 `guia-vm-lab.md` 这样的 Markdown，是它渲染所依据的手写源文件；`RELEASES.md` 是由
 `scripts/gen-releases.sh` **生成**的；而带日期的报告（`AUDITORIA-E2E.md`、
-`RELATORIO-PRE-PRODUCAO.md`、`paridade-docker-podman.md`、`comparacao-medida.md`、
+`RELATORIO-PRE-PRODUCAO.md`、`paridade-docker-podman.md`、`measured-comparison.md`、
 `sovereignty-engine.md`）记录的是在某个特定日期测量到的结果。
 
 | 路径 | 是什么 | 谁在什么时候改它 | 延伸阅读 |

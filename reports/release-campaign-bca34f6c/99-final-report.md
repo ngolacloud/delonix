@@ -71,7 +71,7 @@ change with measurement**. The 3 defects have minimal reproductions and closure 
 
 ## 8. Compatibility limitations
 
-- **Docker/Podman side-by-side not measurable** (absent). Previously measured parity lives in `docs/comparacao-medida.md` (not re-measured live).
+- **Docker/Podman side-by-side not measurable** (absent). Previously measured parity lives in `docs/measured-comparison.md` (not re-measured live).
 - `-o yaml` promised in `plano-folhas.md §8` but `ps -o` only offers `table|json` (contract DISCREPANCY — low).
 - `rmi` is single-image (docker is variadic); `compose` has no global `-f` (uses directory discovery).
 - **cloudflare edge** not reliable in this sandbox (525/timeout) — ngrok/pinggy reliable.

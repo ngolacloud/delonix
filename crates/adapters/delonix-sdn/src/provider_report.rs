@@ -155,7 +155,7 @@ pub fn report(host: &SdnHost) -> ProviderReport {
                     component: "a tunnel provider (pinggy, ngrok, cloudflared) and its binary/account",
                 },
                 C::NetIpv6 => filt(S::Supported {
-                    evidence: "live:docs/comparacao-medida.md",
+                    evidence: "live:docs/measured-comparison.md",
                 }),
                 C::NetRateLimit => base(S::Supported {
                     evidence: "check:update: net-rate a quente",

@@ -178,7 +178,7 @@ proven in a prior session — see [[delonix-kubeadm-ha-offline-findings]]).
 **Current state.** Not measured. Only sample: chaos `scale(30)` with clean teardown.
 The attach path does ~20-25 `fork`+`exec` + 2 `nft` dumps that grow with the number
 of containers/namespaces; all numbers were taken on an empty node
-(`comparacao-medida.md:207-230`).
+(`measured-comparison.md:207-230`).
 
 **GO criterion.** A declared density ceiling (e.g. "N containers/node with attach p99
 < X ms and stable teardown"), measured on a dedicated node, with the latency curve
@@ -228,7 +228,7 @@ the comparison documents updated from those runs.
 - `[agent]` **MISSING (dedicated node/infra):** re-run `bench.sh` (refuses on a loaded
   node — by design), `bench_density.sh` (curve — idle node), `critest`
   (k8s/CRI) and `chaos.sh`/`e2e.sh` (create VMs/kind). This box has foreign load
-  (owner's DBs) → not publishable. Update `cri-conformance.md`/`comparacao-medida.md`
+  (owner's DBs) → not publishable. Update `cri-conformance.md`/`measured-comparison.md`
   once those runs exist.
 - `[agent]` ✅ **DONE:** `stale-evidence.md` marks the matrix as FRESH and lists what
   remains STALE (and why).
