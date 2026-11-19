@@ -924,7 +924,11 @@ pub fn build_command() -> clap::Command {
     // translation, not before: the map's category labels are built here, and a
     // pass that rewrote help strings afterwards would have to know to leave
     // this tail alone. Order is the cheap way to make that impossible.
-    cmd::manual::apply(command)
+    let command = cmd::manual::apply(command);
+    // Docker-style flag sections for `run`/`create` (the shared `RunArgs`). Only
+    // sets `help_heading`, so it composes with the translation above (which only
+    // rewrites help text) in either order.
+    cmd::help::with_flag_headings(command)
 }
 
 /// The `init`s whose FLAGS are filtered once a template is named. They do NOT
@@ -1829,10 +1833,34 @@ fn run() -> Result<()> {
     if let Some(l) = cmd::po::peek_lang() {
         cmd::output::set_lang(&l);
     }
-    let command = build_command();
+    let mut command = build_command();
     let argv: Vec<String> = std::env::args().collect();
-    let cli = match <Cli as clap::FromArgMatches>::from_arg_matches(&command.get_matches_from(argv))
-    {
+    // Docker-style grouped help. clap cannot group subcommands into sections, so
+    // we render them ourselves (see `cmd::help`). The top level
+    // (`delonix`/`help`/`--help`/`-h`) is intercepted before the parse; a GROUP's
+    // help (`delonix <group> --help`, `delonix help <group>`) is intercepted on
+    // clap's own `DisplayHelp` so we regroup clap's exact rendering. A LEAF's
+    // `--help` and every other path fall through to clap unchanged.
+    if cmd::help::wants_top_help(&argv) {
+        print!("{}", cmd::help::render(command));
+        return Ok(());
+    }
+    let matches = match command.try_get_matches_from_mut(argv.iter().map(String::as_str)) {
+        Ok(m) => m,
+        Err(e) => {
+            if e.kind() == clap::error::ErrorKind::DisplayHelp {
+                if let Some(path) = cmd::help::group_help_path(&argv, &command) {
+                    print!(
+                        "{}",
+                        cmd::help::render_group(&e.render().to_string(), &path, &command)
+                    );
+                    return Ok(());
+                }
+            }
+            e.exit();
+        }
+    };
+    let cli = match <Cli as clap::FromArgMatches>::from_arg_matches(&matches) {
         Ok(v) => v,
         Err(e) => e.exit(),
     };
