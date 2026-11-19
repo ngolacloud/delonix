@@ -32,6 +32,10 @@ pub struct HostWorkload<'a> {
     pub addresses: &'a LaunchAddressesHook<'a>,
     /// Wires the container's own slirp to its init, with the ports it publishes.
     pub attach_slirp: &'a dyn Fn(i32, &[String]) -> Result<()>,
+    /// Wires the ROOTFUL default uplink to its init (veth+bridge+NAT), with the
+    /// address the container gets on the bridge. The rootful analogue of
+    /// [`Self::attach_slirp`] — slirp does not serve rootful.
+    pub attach_uplink: &'a dyn Fn(i32, &str) -> Result<()>,
     /// Releases the slirp that served the incarnation with this pid, once it
     /// has exited.
     pub detach_slirp: &'a dyn Fn(&Container, i32),
@@ -47,14 +51,26 @@ pub struct HostWorkload<'a> {
 
 impl WorkloadRuntime for HostWorkload<'_> {
     fn create(&self, c: &mut Container, l: &Launch) -> delonix_model::Result<Status> {
-        let hook = |pid: i32| (self.attach_slirp)(pid, &l.slirp_ports);
+        let hook = |pid: i32| {
+            if l.rootful_uplink {
+                (self.attach_uplink)(pid, l.uplink_ip.as_deref().unwrap_or(""))
+            } else {
+                (self.attach_slirp)(pid, &l.slirp_ports)
+            }
+        };
         let (dns, hosts_ip) = (self.addresses)(l);
         let spec = crate::launch_spec::run_spec(c, l, dns, hosts_ip, &hook);
         Ok(crate::create_with(self.store, c, &l.rootfs, &spec)?)
     }
 
     fn supervise(&self, c: &mut Container, l: &Launch, policy: &str) -> delonix_model::Result<()> {
-        let hook = |pid: i32| (self.attach_slirp)(pid, &l.slirp_ports);
+        let hook = |pid: i32| {
+            if l.rootful_uplink {
+                (self.attach_uplink)(pid, l.uplink_ip.as_deref().unwrap_or(""))
+            } else {
+                (self.attach_slirp)(pid, &l.slirp_ports)
+            }
+        };
         let (dns, hosts_ip) = (self.addresses)(l);
         let spec = crate::launch_spec::run_spec(c, l, dns, hosts_ip, &hook);
         crate::supervise::run_supervised(

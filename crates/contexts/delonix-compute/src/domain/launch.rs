@@ -34,6 +34,19 @@ pub struct Launch {
     pub attached_ip: Option<String>,
     /// Ports published through the container's own slirp (see [`slirp_ports`]).
     pub slirp_ports: Vec<String>,
+    /// The DEFAULT rootful network (`--net private`, the unset default) when the
+    /// engine runs with privilege: the container gets a netns of its own with a
+    /// veth+bridge NAT uplink (MASQUERADE in `nft`), the rootful analogue of
+    /// [`Self::rootless_uplink`] — slirp4netns is a rootless-only mechanism and
+    /// does not serve rootful. Set when rootful, no `--net`, no custom network, no
+    /// pod, first pass. Feeds [`Self::new_netns`]; the veth hook is attached by the
+    /// adapter instead of a slirp. Carries [`Self::uplink_ip`], the address the
+    /// container gets on the uplink bridge.
+    pub rootful_uplink: bool,
+    /// The address the rootful uplink gives the container on the NAT bridge
+    /// (`None` unless [`Self::rootful_uplink`]). The veth hook addresses the
+    /// container's `eth0` with it.
+    pub uplink_ip: Option<String>,
     /// The DEFAULT rootless network (`--net private`, the unset default): the
     /// container gets a netns of its own with a slirp4netns outbound uplink, even
     /// with no published ports — the Podman-rootless model, replacing the old
@@ -63,19 +76,31 @@ pub struct Launch {
 }
 
 impl Launch {
-    /// A netns of its own: `--net none`, ports through its own slirp, or the
-    /// default rootless uplink — never on the re-exec's pass, which already runs
-    /// inside the right one.
+    /// A netns of its own: `--net none`, ports through its own slirp, the default
+    /// rootless uplink, or the default rootful veth+bridge uplink — never on the
+    /// re-exec's pass, which already runs inside the right one.
     pub fn new_netns(&self) -> bool {
         !self.second_pass
-            && (self.net_none || !self.slirp_ports.is_empty() || self.rootless_uplink)
+            && (self.net_none
+                || !self.slirp_ports.is_empty()
+                || self.rootless_uplink
+                || self.rootful_uplink)
     }
 
     /// Whether a slirp4netns uplink must be attached to the new netns: either for
     /// published ports (`-p`) or for the default rootless outbound uplink. NOT for
-    /// `--net none` (a netns with deliberately no connectivity).
+    /// `--net none` (a netns with deliberately no connectivity), and NOT for the
+    /// rootful uplink (which wires veth+bridge, not slirp — see [`Self::wants_started_hook`]).
     pub fn wants_slirp(&self) -> bool {
         !self.slirp_ports.is_empty() || self.rootless_uplink
+    }
+
+    /// Whether the new netns needs the post-start hook run at all — the slirp
+    /// (rootless) OR the veth+bridge (rootful) uplink. `--net none` wants a netns
+    /// with no connectivity, so it is excluded. Gated on [`Self::new_netns`] by the
+    /// caller so the re-exec pass never re-attaches.
+    pub fn wants_started_hook(&self) -> bool {
+        self.wants_slirp() || self.rootful_uplink
     }
 
     /// On the re-exec's pass the process inherits the holder's user namespace
@@ -427,6 +452,56 @@ mod tests {
             second_pass: true,
             ..Default::default()
         };
-        assert!(!reexec.new_netns(), "re-exec pass must not re-create the netns");
+        assert!(
+            !reexec.new_netns(),
+            "re-exec pass must not re-create the netns"
+        );
+    }
+
+    /// The default rootful uplink (`--net private` with privilege): its own netns
+    /// WITH a hook, but NOT a slirp — the hook wires veth+bridge+NAT. `--net none`
+    /// gets a netns and no hook.
+    #[test]
+    fn the_rootful_uplink_gets_a_netns_and_a_veth_hook_not_a_slirp() {
+        let uplink = Launch {
+            rootful_uplink: true,
+            uplink_ip: Some("10.88.0.2".into()),
+            ..Default::default()
+        };
+        assert!(uplink.new_netns(), "rootful uplink must own a netns");
+        assert!(
+            !uplink.wants_slirp(),
+            "rootful uplink must NOT attach a slirp (veth, not slirp)"
+        );
+        assert!(
+            uplink.wants_started_hook(),
+            "rootful uplink must run the started hook (the veth wiring)"
+        );
+
+        // `--net none` gets a netns but no hook of any kind.
+        let none = Launch {
+            net_none: true,
+            ..Default::default()
+        };
+        assert!(none.new_netns());
+        assert!(!none.wants_started_hook(), "--net none wires nothing");
+
+        // The rootless uplink also wants the hook (via `wants_slirp`).
+        let rootless = Launch {
+            rootless_uplink: true,
+            ..Default::default()
+        };
+        assert!(rootless.wants_started_hook());
+
+        // The re-exec pass never re-creates the netns, rootful flag or not.
+        let reexec = Launch {
+            rootful_uplink: true,
+            second_pass: true,
+            ..Default::default()
+        };
+        assert!(
+            !reexec.new_netns(),
+            "re-exec pass must not re-create the netns"
+        );
     }
 }
