@@ -242,10 +242,14 @@ pub fn launch_addresses(l: &delonix_compute::launch::Launch) -> LaunchAddresses 
         None if l.wants_slirp() => Some(crate::SLIRP_DNS.to_string()),
         None => None,
     };
-    // /etc/hosts: the custom network's address, or the slirp's (ports or default uplink).
+    // /etc/hosts: the custom network's address, the rootful uplink's bridge
+    // address, or the slirp's (ports or default rootless uplink). The rootful
+    // uplink leaves `dns` as `None` so the runtime copies the host's resolver —
+    // reachable from the container's netns through the bridge's NAT.
     let hosts_ip = l
         .attached_ip
         .clone()
+        .or_else(|| l.uplink_ip.clone())
         .or_else(|| l.wants_slirp().then(|| crate::SLIRP_IP.to_string()));
     LaunchAddresses { dns, hosts_ip }
 }
