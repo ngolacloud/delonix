@@ -1,142 +1,142 @@
-# Perfil por fase do arranque a frio — onde se vão os ~91 ms
+# Per-phase profile of the cold start — where the ~91 ms go
 
-> **O que este documento é.** A decomposição, **medida**, dos ~91 ms que o
-> `docs/comparacao-medida.md` (linha 4a) atribui ao arranque a frio de um
-> container no delonix rootless. Aquele documento diz *quanto*; este diz *onde*.
-> É o pré-requisito que o **ADR-0095** exige antes de desenhar o plano morno/pool:
-> «medir primeiro onde se vão os ~91 ms».
+> **What this document is.** The **measured** breakdown of the ~91 ms that
+> `docs/comparacao-medida.md` (line 4a) attributes to the cold start of a
+> container on delonix rootless. That document says *how much*; this one says *where*.
+> It is the prerequisite that **ADR-0095** requires before designing the warm plane/pool:
+> «measure first where the ~91 ms go».
 >
-> **O que não é.** Uma proposta de optimização. Nada no motor foi alterado — a
-> instrumentação é um perfil **env-gated** (`DELONIX_PROFILE_SPAWN`) que é um
-> no-op sem a variável (confirmado: stdout do container intacto, exit codes 0/42
-> propagados, 261/261 testes do crate, clippy limpo).
+> **What it is not.** An optimization proposal. Nothing in the engine was changed — the
+> instrumentation is an **env-gated** profile (`DELONIX_PROFILE_SPAWN`) that is a
+> no-op without the variable (confirmed: container stdout intact, exit codes 0/42
+> propagated, 261/261 crate tests, clippy clean).
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Data | **2026-11-18** |
-| Onde | host de desenvolvimento, kernel 7.0.0-43-generic, 20 threads |
-| Carga | load1 ≈ 3,6 (abaixo de nproc/2=10; a bancada **passou** o juízo de recusa) |
-| Binário | `delonix 0.1.2` release, rootless, root e runtime-dir isolados |
-| Método | `scripts/spawn_profile.sh --runs 25` + `spawn_profile_report.py` |
-| Imagem | `alpine:latest`, pré-extraída no aquecimento (o pull fica fora do cronómetro) |
+| Date | **2026-11-18** |
+| Where | development host, kernel 7.0.0-43-generic, 20 threads |
+| Load | load1 ≈ 3.6 (below nproc/2=10; the bench **passed** the refusal judgement) |
+| Binary | `delonix 0.1.2` release, rootless, isolated root and runtime-dir |
+| Method | `scripts/spawn_profile.sh --runs 25` + `spawn_profile_report.py` |
+| Image | `alpine:latest`, pre-extracted during warm-up (the pull stays off the clock) |
 
 ---
 
-## Como foi medido
+## How it was measured
 
-Cada `container run --rm alpine true` é cronometrado em **wall-clock** (`date
-+%s%N` à volta do processo, como o `bench.sh`) e, em paralelo, o profiler
-embutido emite o **total interno do `spawn`** e as suas fases. A subtracção dá a
-fase que o doc nunca conseguiu nomear:
+Each `container run --rm alpine true` is timed in **wall-clock** (`date
++%s%N` around the process, like `bench.sh`) and, in parallel, the embedded profiler
+emits the **internal total of `spawn`** and its phases. The subtraction yields the
+phase the doc could never name:
 
 ```
-wall = pre_spawn  (arranque do processo + resolução de imagem/rootfs no CLI)
-     + spawn_total (clone + cgroup + rede-hook + mounts)
+wall = pre_spawn  (process startup + image/rootfs resolution in the CLI)
+     + spawn_total (clone + cgroup + net-hook + mounts)
 ```
 
-As marcas (ver `crates/adapters/delonix-linux/src/lib.rs`, módulo `spawn_profile`):
+The marks (see `crates/adapters/delonix-linux/src/lib.rs`, module `spawn_profile`):
 
-| Fase | Onde | O que mede |
+| Phase | Where | What it measures |
 |---|---|---|
-| `pre_spawn` | `wall − spawn_total` | re-exec do binário (43 MB), linker, parse CLI, resolução do manifesto da imagem, preparação do rootfs/overlay |
-| `pre_clone` | entrada do `spawn` → antes do `clone_init` | ficheiros `/etc/*`, `InitInputs::gather` (CStrings/mounts), pipes, console |
-| `clone` | à volta de `clone_init` | o `clone(2)` que cria os namespaces |
-| `cgroup` | dentro de `userns_handshake`/`place_without_userns` | `setup_cgroup` (escrita de `cgroup.procs`, `memory.max`, `cpu.max`) |
-| `net` | à volta do hook `on_started` | hook CNI/slirp **quando existe** (só `--net <rede>` o tem) |
-| `mounts` | à volta de `wait_for_mounts` | o filho a moldar a mount-ns: overlay + `pivot_root` + `/proc`,`/sys`,`/dev` |
-| `setup_rootfs`/`confine_tail` | **no filho**, sub-fases de `mounts` | o overlay+pivot isolado do resto do confinamento |
+| `pre_spawn` | `wall − spawn_total` | re-exec of the binary (43 MB), linker, CLI parse, image manifest resolution, rootfs/overlay preparation |
+| `pre_clone` | `spawn` entry → before `clone_init` | `/etc/*` files, `InitInputs::gather` (CStrings/mounts), pipes, console |
+| `clone` | around `clone_init` | the `clone(2)` that creates the namespaces |
+| `cgroup` | inside `userns_handshake`/`place_without_userns` | `setup_cgroup` (writing `cgroup.procs`, `memory.max`, `cpu.max`) |
+| `net` | around the `on_started` hook | CNI/slirp hook **when it exists** (only `--net <net>` has it) |
+| `mounts` | around `wait_for_mounts` | the child shaping the mount-ns: overlay + `pivot_root` + `/proc`,`/sys`,`/dev` |
+| `setup_rootfs`/`confine_tail` | **in the child**, sub-phases of `mounts` | the overlay+pivot isolated from the rest of the confinement |
 
-> **Risco de método afastado.** `wait_for_mounts` é um único `poll()` que bloqueia
-> até ao byte do filho — **sem sleep/polling** —, por isso a fase `mounts` é tempo
-> de trabalho real, não um artefacto de intervalo.
-
----
-
-## O resultado
-
-### HOST (`--net host`) — a linha 4a do doc (~91 ms)
-
-Mediana de 24 corridas quentes (a 1ª, fria, está à parte):
-
-| Fase | min | **mediana** | max | % do total |
-|---|---|---|---|---|
-| **`pre_spawn`** (processo + imagem/rootfs) | 35,38 | **57,93** | 218,98 | **68,0 %** |
-| `cgroup` (`setup_cgroup`) | 2,59 | 19,03 | 453,40 | 22,3 % |
-| `mounts` (overlay+pivot, filho) | 1,45 | 2,00 | 238,08 | 2,4 % |
-| `clone` (namespaces) | 0,25 | 0,42 | 0,53 | 0,5 % |
-| `pre_clone` (setup no pai) | 0,06 | 0,14 | 0,20 | 0,2 % |
-| `net` (hook) | 0,00 | 0,00 | 0,00 | 0,0 % |
-| **total (wall)** | 52,11 | **85,15** | 513,98 | 100 % |
-
-- 1ª corrida (**fria**): wall **76,26 ms** (spawn 18,77 + pre_spawn 57,49).
-- Sub-fase do filho dentro de `mounts`: `setup_rootfs` ≈ **1,49 ms**,
-  `confine_tail` ≈ 0,41 ms.
-- Arranque **puro** do processo (`delonix --version`): mediana **7,90 ms**.
-
-**A mediana quente de 85,15 ms bate com os 91 ms do doc** — valida o método. E o
-maior consumidor **não é a mecânica do container**: é o **`pre_spawn`, 57,9 ms
-(68 %)** — o binário daemonless a ser re-exec a cada `run` e a resolver a imagem
-e a preparar o rootfs/overlay **antes** sequer de clonar. Desses 57,9 ms, só
-~7,9 ms são arranque puro do processo; os restantes ~50 ms são resolução de
-imagem + preparação do rootfs no handler do CLI.
-
-### ISOLADO (`--net <rede>`, plano de pé) — a linha 4b do doc (~216 ms)
-
-| Fase | min | **mediana** | max | % do total |
-|---|---|---|---|---|
-| **`pre_spawn`** | 282,14 | **391,70** | 2673,46 | **96,2 %** |
-| `cgroup` | 0,72 | 15,63 | 183,05 | 3,8 % |
-| `mounts` | 0,01 | 0,01 | 1,46 | 0,0 % |
-| `net` (hook `on_started`) | 0,00 | 0,00 | 0,00 | 0,0 % |
-| **total (wall)** | 291,92 | **407,35** | 2676,11 | 100 % |
-
-> **Nota de método, e importa.** A fase `net` (o hook `on_started`) é **0** mesmo
-> no modo isolado. Não é erro: o custo da rede isolada (veth, IPAM, ruleset nft,
-> o re-exec `nsenter … ip netns exec` que o rootless exige) é montado pela
-> **orquestração de rede do CLI à volta do `spawn`**, não dentro do hook de
-> colocação — por isso aparece em `pre_spawn` e mede-se por **wall-clock**,
-> exactamente como o doc faz nas linhas 4b/4c. O número absoluto (407 ms) é mais
-> alto e muito mais disperso que os 216 ms do doc (max 2,7 s) porque esta corrida
-> apanhou o host com carga; o **sinal qualitativo** — pre_spawn domina — é o
-> mesmo nos dois modos.
-
-### Delta host → isolado
-
-```
-host    ~  85,15 ms
-isolado ~ 407,35 ms   (delta +322 ms, todo em pre_spawn/orquestração de rede)
-```
+> **Method risk ruled out.** `wait_for_mounts` is a single `poll()` that blocks
+> until the byte from the child — **no sleep/polling** —, so the `mounts` phase is real
+> work time, not an interval artefact.
 
 ---
 
-## O que isto diz ao ADR-0095
+## The result
 
-O ADR-0095 suspeitava da **rede isolada a frio** como «suspeito nº 1». A medição
-confirma-o como o maior *delta* (host→isolado: +322 ms), **e** mostra onde ele
-vive: não no `clone`, não no cgroup, não na mount-ns — vive no **`pre_spawn`**, a
-orquestração do CLI que um processo daemonless re-paga por inteiro a cada `run`.
+### HOST (`--net host`) — line 4a of the doc (~91 ms)
 
-Consequências para o desenho do plano morno/pool:
+Median of 24 warm runs (the 1st, cold, is set apart):
 
-1. **O maior lever é eliminar o `pre_spawn`, não afinar a mecânica do container.**
-   Um plano morno sobre um processo persistente (`serve cri`/`serve api`) que
-   mantenha o binário carregado, a imagem resolvida e o plano de rede de pé
-   apaga 68 % (host) a 96 % (isolado) do arranque a frio. É coerente com o
-   guardrail: o CLI a frio continua igual; só os caminhos com processo vivo
-   ganham.
-2. **A mecânica do container já é barata e não vale reescrita.** `clone` 0,4 ms,
-   `mounts`/`setup_rootfs` ~1,5–2 ms, `pre_clone` 0,14 ms. Isto confirma a
-   recusa do ADR-0095 ao `clone3`+`CLONE_INTO_CGROUP` (ganho sub-ms) — o perfil
-   mostra que não há ali ms para ganhar.
-3. **O `cgroup` (~19 ms, muito disperso) é o único item in-spawn com gordura**,
-   mas é ruído de escrita de ficheiros cgroup sob carga, não um alvo de pool.
+| Phase | min | **median** | max | % of total |
+|---|---|---|---|---|
+| **`pre_spawn`** (process + image/rootfs) | 35.38 | **57.93** | 218.98 | **68.0 %** |
+| `cgroup` (`setup_cgroup`) | 2.59 | 19.03 | 453.40 | 22.3 % |
+| `mounts` (overlay+pivot, child) | 1.45 | 2.00 | 238.08 | 2.4 % |
+| `clone` (namespaces) | 0.25 | 0.42 | 0.53 | 0.5 % |
+| `pre_clone` (setup in the parent) | 0.06 | 0.14 | 0.20 | 0.2 % |
+| `net` (hook) | 0.00 | 0.00 | 0.00 | 0.0 % |
+| **total (wall)** | 52.11 | **85.15** | 513.98 | 100 % |
 
-## Artefactos (reproduzível)
+- 1st run (**cold**): wall **76.26 ms** (spawn 18.77 + pre_spawn 57.49).
+- Child sub-phase inside `mounts`: `setup_rootfs` ≈ **1.49 ms**,
+  `confine_tail` ≈ 0.41 ms.
+- **Pure** process startup (`delonix --version`): median **7.90 ms**.
 
-- `host.jsonl` / `isolated.jsonl` — um registo JSON por corrida (fases + wall).
-- `host.child.txt` / `isolated.child.txt` — sub-fases do filho (do stderr).
-- `host.walls` / `isolated.walls` — wall-clock cru por corrida (µs).
-- `process-start.us` — arranque puro do processo (`--version`).
-- `REPORT.txt` — a saída do `spawn_profile_report.py`.
+**The warm median of 85.15 ms matches the doc's 91 ms** — it validates the method. And the
+biggest consumer **is not the container mechanics**: it is **`pre_spawn`, 57.9 ms
+(68 %)** — the daemonless binary being re-exec'd on every `run` and resolving the image
+and preparing the rootfs/overlay **before** even cloning. Of those 57.9 ms, only
+~7.9 ms are pure process startup; the remaining ~50 ms are image resolution +
+rootfs preparation in the CLI handler.
 
-Reproduzir: `scripts/spawn_profile.sh --runs 25` (recusa-se a correr sob carga).
+### ISOLATED (`--net <net>`, plane up) — line 4b of the doc (~216 ms)
+
+| Phase | min | **median** | max | % of total |
+|---|---|---|---|---|
+| **`pre_spawn`** | 282.14 | **391.70** | 2673.46 | **96.2 %** |
+| `cgroup` | 0.72 | 15.63 | 183.05 | 3.8 % |
+| `mounts` | 0.01 | 0.01 | 1.46 | 0.0 % |
+| `net` (hook `on_started`) | 0.00 | 0.00 | 0.00 | 0.0 % |
+| **total (wall)** | 291.92 | **407.35** | 2676.11 | 100 % |
+
+> **Method note, and it matters.** The `net` phase (the `on_started` hook) is **0** even
+> in isolated mode. It is not an error: the cost of the isolated network (veth, IPAM, nft ruleset,
+> the `nsenter … ip netns exec` re-exec that rootless requires) is set up by the
+> **CLI network orchestration around `spawn`**, not inside the placement hook
+> — so it shows up in `pre_spawn` and is measured by **wall-clock**,
+> exactly as the doc does on lines 4b/4c. The absolute number (407 ms) is
+> higher and much more dispersed than the doc's 216 ms (max 2.7 s) because this run
+> caught the host under load; the **qualitative signal** — pre_spawn dominates — is the
+> same in both modes.
+
+### Host → isolated delta
+
+```
+host    ~  85.15 ms
+isolated ~ 407.35 ms   (delta +322 ms, all in pre_spawn/network orchestration)
+```
+
+---
+
+## What this tells ADR-0095
+
+ADR-0095 suspected the **cold isolated network** as «suspect #1». The measurement
+confirms it as the biggest *delta* (host→isolated: +322 ms), **and** shows where it
+lives: not in `clone`, not in the cgroup, not in the mount-ns — it lives in **`pre_spawn`**, the
+CLI orchestration that a daemonless process re-pays in full on every `run`.
+
+Consequences for the warm plane/pool design:
+
+1. **The biggest lever is eliminating `pre_spawn`, not tuning the container mechanics.**
+   A warm plane over a persistent process (`serve cri`/`serve api`) that
+   keeps the binary loaded, the image resolved and the network plane up
+   erases 68 % (host) to 96 % (isolated) of the cold start. It is consistent with the
+   guardrail: the cold CLI stays the same; only the paths with a live process
+   gain.
+2. **The container mechanics are already cheap and not worth a rewrite.** `clone` 0.4 ms,
+   `mounts`/`setup_rootfs` ~1.5–2 ms, `pre_clone` 0.14 ms. This confirms the
+   ADR-0095 refusal of `clone3`+`CLONE_INTO_CGROUP` (sub-ms gain) — the profile
+   shows there are no ms to gain there.
+3. **The `cgroup` (~19 ms, very dispersed) is the only in-spawn item with fat**,
+   but it is cgroup-file write noise under load, not a pool target.
+
+## Artefacts (reproducible)
+
+- `host.jsonl` / `isolated.jsonl` — one JSON record per run (phases + wall).
+- `host.child.txt` / `isolated.child.txt` — child sub-phases (from stderr).
+- `host.walls` / `isolated.walls` — raw wall-clock per run (µs).
+- `process-start.us` — pure process startup (`--version`).
+- `REPORT.txt` — the output of `spawn_profile_report.py`.
+
+Reproduce: `scripts/spawn_profile.sh --runs 25` (refuses to run under load).

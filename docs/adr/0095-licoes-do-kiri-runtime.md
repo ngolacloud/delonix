@@ -1,31 +1,31 @@
-# ADR-0095 — Lições do runtime Kiri: o que adoptamos, o que não, e o único ganho real
+# ADR-0095 — Lessons from the Kiri runtime: what we adopt, what we don't, and the only real gain
 
-**Estado:** Proposed (2026-11-18) — análise do runtime **Kiri**
-(`github.com/libracoder/kiri`, container runtime em Rust, Docker-compatível) a
-pedido do dono, para ver o que render com os ~2 ms de arranque dele. Conclusão:
-o delonix **já implementa, e bem, todas as técnicas de arranque do Kiri que
-respeitam a sua filosofia**; o único ganho real que falta é o **plano morno/pool**
-— trabalho de fatia própria, não um drop-in. **Nada a implementar neste ADR.**
-GO do dono é que o torna Aceite. **Relaciona:** ADR-0040 (binário multicall,
-daemonless), ADR-0094 (rede isolada por omissão), ADR-0056 (overlay `volatile`).
+**Status:** Proposed (2026-11-18) — analysis of the **Kiri** runtime
+(`github.com/libracoder/kiri`, Docker-compatible container runtime in Rust) at
+the owner's request, to see what we can extract from its ~2 ms startup. Conclusion:
+delonix **already implements, and well, all of Kiri's startup techniques that
+respect its philosophy**; the only real gain missing is the **warm plane/pool**
+— work for its own slice, not a drop-in. **Nothing to implement in this ADR.**
+The owner's GO is what makes it Accepted. **Relates to:** ADR-0040 (multicall binary,
+daemonless), ADR-0094 (isolated network by default), ADR-0056 (`volatile` overlay).
 
-> **A decisão, numa linha:** adoptamos **zero mudanças de arranque** do Kiri (o
-> delonix já faz o equivalente seguro), **recusamos** o modelo warm-VM/agente
-> persistente como omissão (parte o daemonless) e o `clone3`+`CLONE_INTO_CGROUP`
-> (reescrita de risco por ganho sub-ms numa corrida já resolvida), e **perseguimos**
-> apenas o **plano morno/pool** (holder netns + IPAM + slirp) nos caminhos
-> persistentes (`serve cri`/`serve api`) e/ou opt-in — que já é o item nº 1 da
-> lista de optimização do README.
+> **The decision, in one line:** we adopt **zero startup changes** from Kiri (the
+> delonix already does the safe equivalent), we **reject** the warm-VM/persistent-agent
+> model as the default (it breaks daemonless) and `clone3`+`CLONE_INTO_CGROUP`
+> (risky rewrite for a sub-ms gain on an already-resolved race), and we **pursue**
+> only the **warm plane/pool** (holder netns + IPAM + slirp) on the
+> persistent paths (`serve cri`/`serve api`) and/or opt-in — which is already item nº 1 on the
+> optimization list in the README.
 
-## Contexto
+## Context
 
-O Kiri anuncia ~2 ms de arranque de container e o dono pediu para extrair lições
-para o delonix. A análise (código real de ambos) desfaz o número e separa o que
-transfere do que não.
+Kiri advertises ~2 ms container startup and the owner asked us to extract lessons
+for delonix. The analysis (real code from both) unpacks the number and separates what
+transfers from what doesn't.
 
-### O que os ~2 ms do Kiri REALMENTE medem
+### What Kiri's ~2 ms REALLY measures
 
-Do `bench/api.sh` do Kiri (`hyperfine --warmup 3 --runs 30`, `alpine true` via
+From Kiri's `bench/api.sh` (`hyperfine --warmup 3 --runs 30`, `alpine true` via
 **Docker Engine API**):
 
 | | Kiri | Docker Desktop | OrbStack |
@@ -33,75 +33,75 @@ Do `bench/api.sh` do Kiri (`hyperfine --warmup 3 --runs 30`, `alpine true` via
 | Docker Engine API | **2,55 ms** | 213 ms | 380 ms |
 | docker CLI | 14,2 ms | 243 ms | 442 ms |
 
-Lido com honestidade:
+Read honestly:
 
-- **A VM e o agente já estão mornos.** O boot da microVM (~100 ms) e o pull/unpack
-  de imagem estão **fora** do cronómetro. Os 2,55 ms são `create+start+wait+delete`
-  com a VM viva, o agente (PID 1, ~900 KB) vivo e as camadas já desempacotadas.
-  A VM só dorme após 60 s de inactividade.
-- **É o caminho da API, não o CLI.** O CLI do Kiri custa 14,2 ms — o overhead é o
-  *próprio binário* `docker`, não o runtime.
-- Portanto **não é comparável de forma directa** aos ~91 ms de arranque a frio do
-  delonix (`docs/comparacao-medida.md`): o delonix é **daemonless** (ADR-0040) —
-  cada `container run` é um processo efémero que re-paga arranque de processo +
-  montagem de overlay + namespaces + fork do supervisor + exec. O Kiri reutiliza
-  tudo num processo persistente.
+- **The VM and the agent are already warm.** The microVM boot (~100 ms) and the image
+  pull/unpack are **outside** the stopwatch. The 2,55 ms are `create+start+wait+delete`
+  with the VM alive, the agent (PID 1, ~900 KB) alive and the layers already unpacked.
+  The VM only sleeps after 60 s of inactivity.
+- **It is the API path, not the CLI.** Kiri's CLI costs 14,2 ms — the overhead is the
+  *`docker` binary itself*, not the runtime.
+- Therefore it is **not directly comparable** to delonix's ~91 ms cold startup
+  (`docs/comparacao-medida.md`): delonix is **daemonless** (ADR-0040) —
+  each `container run` is an ephemeral process that re-pays process startup +
+  overlay mount + namespaces + supervisor fork + exec. Kiri reuses
+  everything in a persistent process.
 
-As **técnicas de arranque**, essas, transferem-se — e o delonix já as tem.
+The **startup techniques**, those, do transfer — and delonix already has them.
 
-### O que o Kiri faz bem e o delonix JÁ implementa
+### What Kiri does well and delonix ALREADY implements
 
-| Técnica do Kiri (`crates/kiri-init/src/linux/`) | Estado no delonix |
+| Kiri technique (`crates/kiri-init/src/linux/`) | Status in delonix |
 |---|---|
-| `clone` para namespaces, sem runc/shim/dockerd | ✅ `clone_init`/`clone_flags` (`crates/adapters/delonix-linux/src/lib.rs`) — clone directo, zero runc/shim |
-| Trabalho pesado ANTES do clone (CStrings, mounts ordenados, `/etc/*` pré-gerados) | ✅ `inputs`/`IoSpec` montados no pai antes do `clone_init` |
-| Pipes de prontidão em vez de polling (`root_ready`, `net_ready`) | ✅ `ready_w`, `sync`, `cg_sync` (`StartPipes`) |
-| Corrida de colocação no cgroup (pai escreve `cgroup.procs` vs exec do filho) | ✅ **já resolvida** pela barreira `cg_sync` — o filho espera a colocação antes do exec |
-| Vista de cgroup privada (`CLONE_NEWCGROUP`) | ✅ `unshare(CLONE_NEWCGROUP)` após a colocação (Docker/Podman `--cgroupns=private`) |
-| Overlay afinado | ✅ `volatile` (ADR-0056); `mount_overlay_from_lowers` é mínimo, sem sondagem de features por-mount |
-| Agente init minúsculo que só reap/forward de sinais | ✅ `supervise.rs` (supervisor efémero por container, modelo `conmon`) |
+| `clone` for namespaces, no runc/shim/dockerd | ✅ `clone_init`/`clone_flags` (`crates/adapters/delonix-linux/src/lib.rs`) — direct clone, zero runc/shim |
+| Heavy work BEFORE the clone (CStrings, ordered mounts, pre-generated `/etc/*`) | ✅ `inputs`/`IoSpec` assembled in the parent before `clone_init` |
+| Readiness pipes instead of polling (`root_ready`, `net_ready`) | ✅ `ready_w`, `sync`, `cg_sync` (`StartPipes`) |
+| Cgroup placement race (parent writes `cgroup.procs` vs child exec) | ✅ **already resolved** by the `cg_sync` barrier — the child waits for placement before exec |
+| Private cgroup view (`CLONE_NEWCGROUP`) | ✅ `unshare(CLONE_NEWCGROUP)` after placement (Docker/Podman `--cgroupns=private`) |
+| Tuned overlay | ✅ `volatile` (ADR-0056); `mount_overlay_from_lowers` is minimal, no per-mount feature probing |
+| Tiny init agent that only reaps/forwards signals | ✅ `supervise.rs` (ephemeral per-container supervisor, `conmon` model) |
 
-## Decisão
+## Decision
 
-### Não adoptar
+### Not to adopt
 
-1. **Warm-VM / agente persistente como modelo por omissão.** É a origem real dos
-   2 ms do Kiri, mas **parte o guardrail «daemonless by design»** (ADR-0040): o
-   delonix não tem (nem quer) um daemon sempre-presente no caminho do CLI. O
-   modelo persistente do Kiri é uma escolha de produto diferente; copiá-lo como
-   omissão trocaria a filosofia do delonix por latência que o CLI a frio não
-   precisa de ter.
-2. **`clone3` + `CLONE_INTO_CGROUP`.** Colocaria o container no cgroup de forma
-   atómica, dispensando a barreira `cg_sync`. Mas:
-   - a corrida que resolveria **já está resolvida** pela `cg_sync` (correcção, não
-     micro-optimização);
-   - o delonix usa `nix::sched::clone`, não `clone3` — adoptá-la é **reescrever o
-     caminho mais perigoso do runtime** (userns/console/pidns/`cg_sync`) por um
-     ganho **sub-ms** irrelevante face aos ~91 ms;
-   - é risco por quase nada. **Fica fora.**
+1. **Warm-VM / persistent agent as the default model.** It is the real source of
+   Kiri's 2 ms, but it **breaks the «daemonless by design» guardrail** (ADR-0040): the
+   delonix has no (nor wants an) always-present daemon on the CLI path. Kiri's
+   persistent model is a different product choice; copying it as the
+   default would trade delonix's philosophy for latency that the cold CLI does not
+   need to have.
+2. **`clone3` + `CLONE_INTO_CGROUP`.** It would place the container in the cgroup
+   atomically, dispensing with the `cg_sync` barrier. But:
+   - the race it would resolve is **already resolved** by `cg_sync` (a correctness fix, not a
+     micro-optimization);
+   - delonix uses `nix::sched::clone`, not `clone3` — adopting it means **rewriting the
+     most dangerous path in the runtime** (userns/console/pidns/`cg_sync`) for a
+     **sub-ms** gain irrelevant against the ~91 ms;
+   - it is risk for almost nothing. **It stays out.**
 
-### Perseguir (trabalho futuro, ADR + fatia e2e-gated própria)
+### To pursue (future work, its own ADR + e2e-gated slice)
 
-3. **Plano morno/pool** — holder netns + IPAM + `slirp4netns` pré-construídos e
-   reutilizados. É onde está o salto real (~91 ms host → ~216–344 ms rede isolada
-   a frio, porque o rootless reconstrói veth/IPAM/slirp do zero) e **é já o item
-   nº 1 da lista de optimização do README** do delonix. Respeita o daemonless se
-   for aplicado **só aos caminhos que já têm processo vivo** (`serve cri` para o
-   kubelet, `serve api`) e/ou como **pool opt-in** — o CLI a frio fica igual.
-   **Medir primeiro** (onde se vão os ~91 ms) antes de desenhar o pool.
+3. **Warm plane/pool** — holder netns + IPAM + `slirp4netns` pre-built and
+   reused. This is where the real leap is (~91 ms host → ~216–344 ms isolated network
+   cold, because rootless rebuilds veth/IPAM/slirp from scratch) and **it is already item
+   nº 1 on delonix's optimization list in the README**. It respects daemonless if
+   it is applied **only to paths that already have a live process** (`serve cri` for the
+   kubelet, `serve api`) and/or as an **opt-in pool** — the cold CLI stays the same.
+   **Measure first** (where the ~91 ms go) before designing the pool.
 
-## Consequências
+## Consequences
 
-- **Zero alterações de código neste ADR.** O delonix não ganha nada em copiar
-  técnicas de arranque que já tem, e perde (risco) em reescrever o `clone`.
-- O caminho de optimização fica **nomeado e justificado** para uma sessão futura
-  (plano morno), com a fronteira de filosofia explícita: nunca no CLI a frio.
-- Serve a narrativa competitiva (o buraco nº 1 de adopção): o delonix sabe
-  exactamente onde está face a um concorrente rápido, e porquê, com evidência.
+- **Zero code changes in this ADR.** delonix gains nothing by copying
+  startup techniques it already has, and loses (risk) by rewriting the `clone`.
+- The optimization path is left **named and justified** for a future session
+  (warm plane), with the explicit philosophy boundary: never on the cold CLI.
+- It serves the competitive narrative (adoption hole nº 1): delonix knows
+  exactly where it stands against a fast competitor, and why, with evidence.
 
-## Alinhamento com os guardrails
+## Alignment with the guardrails
 
-- **Daemonless by design:** reafirmado — recusamos o warm-VM-por-omissão por isto.
-- **No silent failure / GO-NO-GO antes de nova fronteira de privilégio:** o plano
-  morno não abre fronteira nova (reusa infra que o rootless já usa), mas entra por
-  ADR + fatia e2e-gated própria, não por aqui.
+- **Daemonless by design:** reaffirmed — we reject the warm-VM-by-default because of this.
+- **No silent failure / GO-NO-GO before a new privilege boundary:** the warm
+  plane does not open a new boundary (it reuses infra that rootless already uses), but it enters via
+  its own ADR + e2e-gated slice, not here.
