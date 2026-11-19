@@ -1273,7 +1273,10 @@ mod tests {
             .unwrap();
             let e = lower_legacy_kind(&mut doc).unwrap_err().to_string();
             assert!(e.contains("was removed"), "{kind}: {e}");
-            assert!(e.contains(expect), "{kind} does not name the replacement: {e}");
+            assert!(
+                e.contains(expect),
+                "{kind} does not name the replacement: {e}"
+            );
         }
         // And a Kind that STAYS is not caught by the refusal.
         let mut ok: ManifestDoc = serde_yaml::from_str(
@@ -1762,7 +1765,10 @@ spec: { disk: k8s-golden }
             "Dependency",
             "Cluster",
         ] {
-            assert!(!kind_honors_namespace(kind), "{kind} does not honor it today");
+            assert!(
+                !kind_honors_namespace(kind),
+                "{kind} does not honor it today"
+            );
         }
     }
 

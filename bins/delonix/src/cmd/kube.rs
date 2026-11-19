@@ -309,10 +309,7 @@ mod tests {
         // not an actual newline byte.
         let q = quote("line1\nline2");
         assert_eq!(q, r#""line1\nline2""#);
-        assert!(
-            !q.contains('\n'),
-            "must not contain a real line break"
-        );
+        assert!(!q.contains('\n'), "must not contain a real line break");
     }
 
     #[test]

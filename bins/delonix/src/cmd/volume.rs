@@ -2464,7 +2464,10 @@ mod tests {
 
         // Strict: anything it cannot fully parse keeps the caller on the direct
         // measurement instead of fabricating a complete one.
-        assert!(parse_duusage("4096").is_none(), "without the 2nd field, refuse");
+        assert!(
+            parse_duusage("4096").is_none(),
+            "without the 2nd field, refuse"
+        );
         assert!(parse_duusage("").is_none());
         assert!(parse_duusage("abc def").is_none());
     }

@@ -4110,13 +4110,16 @@ pub(crate) fn validate_graph(docs: &[manifest::ManifestDoc]) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default();
-    existing_workloads.extend(delonix_vm::list(&root).unwrap_or_default().into_iter().map(
-        |v| ExistingWorkload {
-            name: v.name,
-            namespace: v.namespace,
-            labels: v.labels,
-        },
-    ));
+    existing_workloads.extend(
+        delonix_vm::list(&root)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|v| ExistingWorkload {
+                name: v.name,
+                namespace: v.namespace,
+                labels: v.labels,
+            }),
+    );
     let existing_secrets: Vec<String> = delonix_state::SecretStore::open(&root)
         .map(|s| s.list().into_iter().map(|sec| sec.name).collect())
         .unwrap_or_default();
@@ -4786,7 +4789,9 @@ fn validate_graph_full(
                             k::VOLUME => volumes.contains(&spec.target_name),
                             k::VM => {
                                 declared_vms.contains(&spec.target_name)
-                                    || existing_workloads.iter().any(|w| w.name == spec.target_name)
+                                    || existing_workloads
+                                        .iter()
+                                        .any(|w| w.name == spec.target_name)
                             }
                             _ => {
                                 issues.push(super::po::tf(
@@ -5796,8 +5801,15 @@ kind: NetworkPolicy
 metadata: {name: p2}
 spec: {target: other, direction: ingress, scope: systemcontainer}
 "#;
-        let issues =
-            validate_graph_full(&docs(yaml), &[], &[], &[ew("other", "default", &[])], &[], &[], &[]);
+        let issues = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("other", "default", &[])],
+            &[],
+            &[],
+            &[],
+        );
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(issues[0].contains("'other'"), "{issues:?}");
         let issues = validate_graph_full(&docs(yaml), &[], &[], &[], &[], &[], &["other".into()]);
@@ -6031,7 +6043,10 @@ spec:
 ",
         );
         assert_eq!(issues.len(), 1, "{issues:?}");
-        assert!(issues[0].contains("selector.matchLabels is empty"), "{issues:?}");
+        assert!(
+            issues[0].contains("selector.matchLabels is empty"),
+            "{issues:?}"
+        );
     }
 
     /// A workload reference may name its target the way `apply` does through

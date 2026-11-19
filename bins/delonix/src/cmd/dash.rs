@@ -2990,7 +2990,11 @@ mod tests {
         for _ in 0..6 {
             s = s.next();
         }
-        assert_eq!(s, DashScope::Global, "6 next() must wrap all the way around");
+        assert_eq!(
+            s,
+            DashScope::Global,
+            "6 next() must wrap all the way around"
+        );
         assert_eq!(DashScope::Global.prev(), DashScope::Images);
         assert_eq!(DashScope::Images.next(), DashScope::Global);
     }
