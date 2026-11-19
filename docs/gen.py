@@ -176,17 +176,17 @@ def bi(tag, pt_html, en_html, cls=""):
 
 
 def render_prose(text):
-    """Escapa HTML e traduz as convenções markdown-ish do `--help` (clap
-    `about`/`long_about`) para HTML real: `` `code` `` e `**bold**`."""
+    """Escapes HTML and translates the markdown-ish conventions of `--help` (clap
+    `about`/`long_about`) into real HTML: `` `code` `` and `**bold**`."""
     out = html.escape(text)
     out = re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
     out = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", out)
     return out
 
 
-# Mapeia cada grupo de comandos (chave de `GROUPS`) para o ficheiro Rust que o
-# implementa, para a página de referência poder linkar para a implementação
-# real — quem quiser contribuir vê imediatamente onde mexer.
+# Maps each command group (a `GROUPS` key) to the Rust file that implements it,
+# so the reference page can link to the real implementation — anyone who wants
+# to contribute sees immediately where to touch.
 SOURCE_FILES = {
     "container": "container.rs",
     "workload": "workload.rs",
@@ -738,11 +738,12 @@ do cofre), ou uma fatia isolada e com quota talhada de um volume já existente (
                  "delonix volume rm tenant-a"),
             ]},
             "apply": {"examples": [("", "delonix volume apply -f delonix-manifest.yaml")]},
-            # `prune` faltava aqui, e a consequência não era estética: a página
-            # listava o subcomando na tabela do grupo e nunca documentava uma
-            # única flag dele. O âmbito por dono (`--namespace`/`-A`) existia no
-            # binário e não na documentação — e o portão da CI não dava por isso,
-            # porque só compara o que ESTE mapa manda gerar.
+            # `prune` was missing here, and the consequence was not cosmetic:
+            # the page listed the subcommand in the group table and never
+            # documented a single flag of it. The per-owner scope
+            # (`--namespace`/`-A`) existed in the binary and not in the
+            # documentation — and the CI gate did not notice, because it only
+            # compares what THIS map tells it to generate.
             "prune": {"examples": [
                 ('DESTRUIR todos os volumes locais que nada referencia (só a raiz sem dono)',
                  'delonix volume prune'),
@@ -1733,10 +1734,10 @@ VERBATIM da flag, para os dois nunca poderem divergir.""",
     },
 }
 
-# Tradução EN de `tagline`/`intro` por grupo (nível de página, não por
-# subcomando) — usada pelo toggle de idioma no cabeçalho. Fica num dict à
-# parte em vez de dentro de `GROUPS` para não obrigar a tocar em 26 entradas
-# grandes já existentes; `group_page` funde os dois por chave.
+# EN translation of `tagline`/`intro` per group (page level, not per
+# subcommand) — used by the language toggle in the header. It lives in a
+# separate dict instead of inside `GROUPS` so as not to force touching 26 large
+# existing entries; `group_page` merges the two by key.
 GROUPS_EN = {
     "backup": {
         "tagline": "Backup of ONE resource — container, pod, vm or stack — into a tar.gz.",
@@ -2438,9 +2439,9 @@ for _v, (_grp, _canon) in _ROOT_VERB_ALIASES.items():
 
 
 def lab_challenge_html(entry):
-    """Secção "Laboratório"/"Desafio" bilingue de uma página de referência
-    CLI: um exercício guiado com comandos reais desse grupo, e um desafio
-    mais aberto a seguir — para o leitor aprender fazendo, não só lendo."""
+    """Bilingual "Lab"/"Challenge" section of a CLI reference page: a guided
+    exercise with real commands from that group, followed by a more open-ended
+    challenge — so the reader learns by doing, not just reading."""
     parts = [f"<h2>{bi('span', 'Laboratório', 'Lab')}</h2>"]
     parts.append(bi("div", entry["lab"]["pt"], entry["lab"]["en"], cls="callout"))
     parts.append(f"<h2>{bi('span', 'Desafio', 'Challenge')}</h2>")
@@ -2448,11 +2449,11 @@ def lab_challenge_html(entry):
     return "\n".join(parts)
 
 
-# Lab + Desafio por grupo de comandos — cada um usa SÓ subcommands/flags reais
-# (confirmados contra `GROUPS[name]["subs"]` e o `AGENTS.md` do projecto),
-# nunca inventados. `lab` é guiado (passo a passo); `challenge` é mais aberto,
-# normalmente estica uma garantia já documentada do motor (idempotência,
-# isolamento, persistência) em vez de introduzir comportamento novo.
+# Lab + Challenge per command group — each one uses ONLY real subcommands/flags
+# (confirmed against `GROUPS[name]["subs"]` and the project's `AGENTS.md`),
+# never invented. `lab` is guided (step by step); `challenge` is more
+# open-ended, usually stretching an already documented engine guarantee
+# (idempotency, isolation, persistence) rather than introducing new behaviour.
 CLI_LABS = {
     "container": {
         "lab": {"pt": """<p>Sobe um nginx publicado, confirma que responde, e prova que o estado
@@ -2937,9 +2938,9 @@ itself, with no manual editing.</p>"""},
     },
 }
 
-# Tradução EN das `notes` por-subcomando (autoral, técnicas) — chave
-# (grupo, subcomando). Só 14 blocos no total; ver `group_page` para onde
-# entram no render.
+# EN translation of the per-subcommand `notes` (authored, technical) — key
+# (group, subcommand). Only 14 blocks in total; see `group_page` for where they
+# enter the render.
 NOTES_EN = {
     ("container", "run"): """<p><strong><code>-p</code> and networking:</strong> with
 <code>--net host</code> (the default) the container switches to its own netns with userspace NAT
@@ -3007,11 +3008,11 @@ Repeatable for several hostnames.</p>""",
 internet reached a local server through the tunnel (HTTP 200) using exactly this command.</p>""",
 }
 
-# Tradução EN das legendas de exemplos (`examples_html`'s `captions_en`) —
-# chave (grupo, subcomando), com sub=None para os exemplos ao nível do
-# grupo. Cada lista tem de bater exactamente com o número/ordem de
-# `GROUPS[grupo]["examples"]` ou `GROUPS[grupo]["subs"][sub]["examples"]` —
-# uma legenda vazia ("") fica vazia nas duas línguas (sem legenda nenhuma).
+# EN translation of the example captions (`examples_html`'s `captions_en`) —
+# key (group, subcommand), with sub=None for group-level examples. Each list
+# must match exactly the count/order of `GROUPS[group]["examples"]` or
+# `GROUPS[group]["subs"][sub]["examples"]` — an empty caption ("") stays empty
+# in both languages (no caption at all).
 EXAMPLES_EN = {
     ("gitops", None): [
         "Run one pass now, without waiting for the timer",
@@ -3776,8 +3777,8 @@ def sidebar(active, depth=0):
         return (f"<details{c}{attr}><summary>{bi('span', summary_pt, summary_en)}"
                 f"<span class='chev' aria-hidden='true'></span></summary>{inner}</details>")
 
-    # Grupos de documentação: abertos por omissão (conteúdo à vista) mas
-    # recolhíveis — acordeões acessíveis via <details>/<summary> nativos.
+    # Documentation groups: open by default (content in view) but collapsible —
+    # accessible accordions via native <details>/<summary>.
     doc_html = "".join(
         group_details(
             section_pt, section_en,
@@ -3787,11 +3788,12 @@ def sidebar(active, depth=0):
         for section_pt, section_en, entries in doc_groups
     )
 
-    # Referência CLI — recolhida por omissão (divulgação progressiva: não despeja
-    # TODOS os comandos na sidebar permanentemente). Abre sozinha a categoria do
-    # comando activo. Mesma taxonomia (COMMAND MAP + nesting) do cheatsheet — não
-    # uma 4.ª cópia. `cri` é o único filho sem `commands/cri.html` (documentado
-    # no guia `cri.html`), mesmo fallback que o `cheatsheet_page()` já trata.
+    # CLI reference — collapsed by default (progressive disclosure: it does not
+    # dump ALL commands into the sidebar permanently). It opens the category of
+    # the active command on its own. Same taxonomy (COMMAND MAP + nesting) as the
+    # cheatsheet — not a 4th copy. `cri` is the only child without
+    # `commands/cri.html` (documented in the `cri.html` guide), the same fallback
+    # that `cheatsheet_page()` already handles.
     children = children_of_top_level()
     cli_active = active.startswith("commands/")
     cat_blocks = []
@@ -3834,10 +3836,10 @@ def sidebar(active, depth=0):
 </nav>"""
 
 
-# Script anti-FOUC: corre em <head>, SÍNCRONO, antes de qualquer pintura —
-# só lê a escolha manual do leitor (`localStorage`) e marca `data-theme` no
-# <html> logo de início. Sem isto, a página pintava sempre no tema do SO por
-# uma fracção de segundo antes do JS do fim da página a corrigir.
+# Anti-FOUC script: runs in <head>, SYNCHRONOUSLY, before any paint — it only
+# reads the reader's manual choice (`localStorage`) and sets `data-theme` on
+# <html> right from the start. Without this, the page always painted in the OS
+# theme for a fraction of a second before the end-of-page JS corrected it.
 THEME_INIT_JS = """<script>(function(){try{
 var t=localStorage.getItem('delonix-docs-theme');
 if(t)document.documentElement.setAttribute('data-theme',t);
@@ -3845,10 +3847,10 @@ var l=localStorage.getItem('delonix-docs-lang');
 if(l){document.documentElement.setAttribute('data-lang',l);document.documentElement.lang=(l==='en'?'en':'pt');}
 }catch(e){}})();</script>"""
 
-# JS partilhado por todas as páginas: toggle de tema (persistido), índice
-# "Nesta página" gerado a partir dos <h2> reais, e um highlighter leve
-# (bash/YAML/`--help`) — tudo vendored, sem dependência externa nenhuma,
-# coerente com o resto do site ser 100% auto-contido.
+# JS shared by every page: theme toggle (persisted), "On this page" index
+# generated from the real <h2>s, and a lightweight highlighter
+# (bash/YAML/`--help`) — all vendored, with no external dependency whatsoever,
+# consistent with the rest of the site being 100% self-contained.
 SITE_JS = """<script>(function(){
 function esc(s){return s.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
 
@@ -4254,33 +4256,33 @@ FOOTER_EN = ('Delonix Engine · Apache-2.0 · '
              ' · Reference generated from the real <code>--help</code> of the binary by <code>docs/gen.py</code>.')
 FOOTER_HTML = bi("span", FOOTER_PT, FOOTER_EN)
 TOC_HEADING_HTML = bi("span", "Nesta página", "On this page")
-# Os blocos `<div class='help'>` embebem o `--help` REAL do clap, que é só-EN.
-# Em vez de tentar traduzir a saída do binário, rotula-se o bloco (bilingue)
-# para o leitor PT saber que o que se segue é a saída verbatim, em inglês.
+# The `<div class='help'>` blocks embed clap's REAL `--help`, which is EN-only.
+# Instead of trying to translate the binary's output, the block is labelled
+# (bilingual) so the PT reader knows what follows is verbatim output, in English.
 HELP_NOTE_HTML = bi("div", "Saída real do binário (em inglês).",
                     "Real output of the binary (English).", cls="help-note")
 
-# URL base do GitHub Pages (modo "branch → /docs", sem CNAME/domínio próprio).
-# NÃO se usa uma tag <base> HTML: os links do site são relativos com
-# profundidade variável (`../kinds.html`, `commands/x.html`) e um <base>
-# resolvê-los-ia todos contra a raiz, partindo a navegação. Serve só de origem
-# para os URLs ABSOLUTOS de `canonical`/`og:url`, calculados por página.
+# GitHub Pages base URL ("branch → /docs" mode, no CNAME/custom domain).
+# An HTML <base> tag is NOT used: the site's links are relative with varying
+# depth (`../kinds.html`, `commands/x.html`) and a <base> would resolve them all
+# against the root, breaking navigation. It only serves as the origin for the
+# ABSOLUTE `canonical`/`og:url` URLs, computed per page.
 SITE_BASE = "https://ngolacloud.github.io/delonix"
 SITE_NAME = "Delonix Engine"
-# Versão documentada, mostrada no cabeçalho global. Fica vazia até `main()` a
-# preencher com o `delonix --version` real — `topbar()` só corre durante a
-# geração das páginas, já depois de `main()` a ter definido.
+# Documented version, shown in the global header. Stays empty until `main()`
+# fills it with the real `delonix --version` — `topbar()` only runs during page
+# generation, after `main()` has already set it.
 DOCS_VERSION = ""
 SITE_DESCRIPTION = ("Engine de containers e microVMs daemonless, rootless-first, "
                     "em Rust — referência gerada do --help real do binário.")
 
-# Material recolhido por `page()` para o índice de pesquisa (uma entrada por
-# página gerada), consumido no fim por `build_search_index()`.
+# Material collected by `page()` for the search index (one entry per generated
+# page), consumed at the end by `build_search_index()`.
 _SEARCH_PAGES = []
 
-# Marcação do modal de pesquisa, partilhada por todas as páginas. Rótulos
-# bilingues por CSS (lang-pt/lang-en); placeholder/aria-label são postos pelo
-# JS conforme o idioma activo. Começa escondido (sem classe `open`).
+# Search-modal markup, shared by every page. Bilingual labels via CSS
+# (lang-pt/lang-en); placeholder/aria-label are set by the JS according to the
+# active language. Starts hidden (no `open` class).
 SEARCH_MODAL_HTML = """<div class="search-overlay" id="search-overlay" role="dialog" aria-modal="true" aria-label="Pesquisa / Search" aria-hidden="true">
 <div class="search-panel">
 <div class="search-head">
@@ -4294,8 +4296,8 @@ SEARCH_MODAL_HTML = """<div class="search-overlay" id="search-overlay" role="dia
 
 
 def _doc_order():
-    """Ordem canónica de leitura das páginas de documentação (a MESMA do
-    `DOC_GROUPS`/sidebar) — fonte única para breadcrumbs e anterior/seguinte."""
+    """Canonical reading order of the documentation pages (the SAME as
+    `DOC_GROUPS`/sidebar) — single source for breadcrumbs and previous/next."""
     out = []
     for sp, se, entries in DOC_GROUPS:
         for h, pt, en in entries:
@@ -4304,7 +4306,7 @@ def _doc_order():
 
 
 def _cli_order():
-    """Ordem dos comandos CLI, idêntica à da sidebar (COMMAND MAP + nesting)."""
+    """Order of the CLI commands, identical to the sidebar's (COMMAND MAP + nesting)."""
     children = children_of_top_level()
     out = []
     for category, members in root_command_categories():
@@ -4340,7 +4342,7 @@ def nav_chain(active, title, depth):
                 seq_kind, seq, idx = "cli", cli, i
                 break
 
-    # Breadcrumb — omitido na raiz (a própria "Documentação").
+    # Breadcrumb — omitted at the root ("Documentação" itself).
     bc = ""
     if active != "index.html":
         crumbs = [
@@ -4361,7 +4363,7 @@ def nav_chain(active, title, depth):
         bc = ('<nav class="breadcrumb" aria-label="Trilho / Breadcrumb">'
               + '<span class="sep">/</span>'.join(crumbs) + '</nav>')
 
-    # Anterior / seguinte dentro da mesma cadeia.
+    # Previous / next within the same chain.
     def cell(j, direction):
         if not seq or j < 0 or j >= len(seq):
             return ""
@@ -4387,17 +4389,17 @@ def nav_chain(active, title, depth):
 
 
 def page(path, title, body, depth=0):
-    # Guarda o material desta página para o índice de pesquisa — `page()` é o
-    # único sítio por onde TODAS as páginas passam, logo o índice sai das
-    # mesmas estruturas que o site, nunca de uma segunda fonte.
+    # Save this page's material for the search index — `page()` is the only
+    # place ALL pages pass through, so the index comes out of the same
+    # structures as the site, never a second source.
     _SEARCH_PAGES.append({"path": path, "title": title, "body": body})
     base = "../" * depth
     breadcrumb_html, prevnext_html = nav_chain(path, title, depth)
-    # `canonical`/`og:url` absolutos a partir do caminho da própria página
-    # (independente da profundidade); a raiz colapsa `index.html` para `/`.
+    # Absolute `canonical`/`og:url` from the page's own path (independent of
+    # depth); the root collapses `index.html` to `/`.
     canon = SITE_BASE + "/" + ("" if path == "index.html" else path)
-    # O index chama-se já "Delonix Engine" — sem isto o <title> saía duplicado
-    # ("Delonix Engine · Delonix Engine").
+    # The index is already called "Delonix Engine" — without this the <title>
+    # came out duplicated ("Delonix Engine · Delonix Engine").
     page_title = (html.escape(title) if title == SITE_NAME
                   else f"{html.escape(title)} · {html.escape(SITE_NAME)}")
     og_title = html.escape(title)
@@ -4455,14 +4457,14 @@ def examples_html(exs, captions_en=None, key=None):
     the caption renders bilingually via `bi()`; without it, the caption
     stays PT-only (unaffected, the default for the ~200 examples not yet
     translated)."""
-    # As duas listas são PARALELAS por posição, e é o suficiente para uma
-    # divergir em silêncio: acrescentar um exemplo sem a legenda EN dava um
-    # `IndexError` cru a meio da geração, deixando o site PARCIALMENTE escrito
-    # com a página velha no lugar. Falha aqui, a dizer qual é a chave.
+    # The two lists are PARALLEL by position, and that is enough for one to
+    # drift in silence: adding an example without the EN caption gave a raw
+    # `IndexError` halfway through generation, leaving the site PARTIALLY written
+    # with the old page in place. Fail here, saying which key it is.
     if captions_en is not None and len(captions_en) != len(exs):
         raise SystemExit(
-            f"EXAMPLES_EN{key!r}: {len(captions_en)} legenda(s) EN para "
-            f"{len(exs)} exemplo(s) — as duas listas são paralelas por posição."
+            f"EXAMPLES_EN{key!r}: {len(captions_en)} EN caption(s) for "
+            f"{len(exs)} example(s) — the two lists are parallel by position."
         )
     parts = []
     for i, ex in enumerate(exs):
@@ -4495,10 +4497,10 @@ def group_page(name, g):
         body.append(f"<p>{g['intro']}</p>")
     body.append(source_link_html(name))
     top_help = help_of(*group_argv(name))
-    # A intro já vem de `g['intro']` (prosa autoral) — o `about` do clap aqui
-    # seria quase sempre uma repetição em EN da mesma frase, por isso só se
-    # descarta (nunca se duplica), mantendo o bloco de código a começar já
-    # em "Usage:".
+    # The intro already comes from `g['intro']` (authored prose) — clap's
+    # `about` here would almost always be an EN repeat of the same sentence, so
+    # it is just dropped (never duplicated), keeping the code block starting
+    # right at "Usage:".
     _, top_rest = split_help_intro(top_help)
     body.append(f"<div class='help'>{HELP_NOTE_HTML}<pre><code>{html.escape(top_rest)}</code></pre></div>")
     if g.get("examples"):
@@ -5788,7 +5790,7 @@ def c4_page():
     import markdown
 
     src = open(os.path.join(ROOT, "..", "ARCHITECTURE.md")).read()
-    # separa os blocos mermaid ANTES do markdown (para não serem tratados como código)
+    # split out the mermaid blocks BEFORE the markdown (so they aren't treated as code)
     parts = re.split(r"```mermaid\n(.*?)```", src, flags=re.S)
     out = []
     for i, part in enumerate(parts):
@@ -5866,9 +5868,9 @@ def md_page(src_name, out_name, title):
         extensions=["tables", "fenced_code", "toc"],
         extension_configs={"toc": {"slugify": _md_slug}},
     )
-    # Estes guias são escritos SÓ em português; o toggle de idioma não traduz o
-    # corpo Markdown. Em vez de mostrar texto PT a um leitor EN em silêncio,
-    # rotula-se explicitamente (o aviso só aparece com data-lang="en").
+    # These guides are authored in Portuguese ONLY; the language toggle does not
+    # translate the Markdown body. Instead of silently showing PT text to an EN
+    # reader, it is labelled explicitly (the warning only appears with data-lang="en").
     banner = ('<div class="callout warn lang-en"><b>Portuguese only.</b> '
               "This guide is authored in Portuguese; the language toggle does "
               "not translate its body.</div>")
@@ -5876,7 +5878,7 @@ def md_page(src_name, out_name, title):
 
 
 def subcommands_of(group):
-    """(sub, short-help) de cada subcomando de um grupo, lido do `--help` real."""
+    """(sub, short-help) of each subcommand of a group, read from the real `--help`."""
     out, seen, rows = help_of(*group_argv(group)), False, []
     for line in out.splitlines():
         if line.strip().startswith("Commands:"):
@@ -5895,7 +5897,7 @@ def subcommands_of(group):
 
 
 
-# Tarefas comuns — o "cola e corre" no topo do cheatsheet.
+# Common tasks — the "paste and run" at the top of the cheatsheet.
 CHEAT_TASKS = [
     ("Serviço web, sem root, sem daemon", "delonix container run -d --name web -p 8080:80 nginx"),
     ("Shell descartável", "delonix container run --rm -it alpine sh"),
@@ -5919,7 +5921,7 @@ CHEAT_TASKS = [
     ("Recuperar espaço (GC)", "delonix system prune"),
 ]
 
-# Tradução EN das legendas de `CHEAT_TASKS` (mesma ordem/tamanho).
+# EN translation of the `CHEAT_TASKS` captions (same order/size).
 CHEAT_TASKS_EN = [
     "Web service, no root, no daemon",
     "Disposable shell",
@@ -5940,8 +5942,8 @@ CHEAT_TASKS_EN = [
 ]
 
 
-# Kinds do manifesto — cada um com um template COMPLETO e funcional (lido dos
-# `examples/*.yaml`, que são a referência canónica com todos os campos + defaults).
+# Manifest Kinds — each with a COMPLETE, working template (read from the
+# `examples/*.yaml`, which are the canonical reference with every field + defaults).
 KINDS_DOC = [
     ("Secret", "core/secret.yaml", "Um segredo do cofre cifrado em repouso. Consumido por <code>run --secret</code>/"
      "<code>--secret-files</code> e por <code>passwordSecret</code> do Storage. Os valores NUNCA ficam no registo do "
@@ -6048,12 +6050,12 @@ KINDS_DOC = [
      "provider."),
 ]
 
-# Cada Kind é agora UM único ficheiro de exemplo (em examples/<grupo>/<kind>.yaml)
-# que já traz o cenário mínimo E o completo com todos os campos. Deixou de haver
-# um par simples→full, por isso a antiga tabela KINDS_FULL desapareceu.
+# Each Kind is now ONE single example file (in examples/<group>/<kind>.yaml)
+# that carries both the minimal scenario AND the complete one with every field.
+# There is no longer a simple→full pair, so the old KINDS_FULL table is gone.
 
-# Tradução EN das intros do `KINDS_DOC` (mesma ordem/tamanho — o YAML em si
-# vem sempre de `examples/*.yaml`, ficheiros reais, e não se traduz).
+# EN translation of the `KINDS_DOC` intros (same order/size — the YAML itself
+# always comes from `examples/*.yaml`, real files, and is not translated).
 KINDS_DOC_EN = [
     "A secret from the vault, encrypted at rest. Consumed by <code>run --secret</code>/"
     "<code>--secret-files</code> and by Storage's <code>passwordSecret</code>. Values are NEVER kept in the "
@@ -6161,12 +6163,12 @@ KINDS_DOC_EN = [
 
 
 # ---------------------------------------------------------------------------
-# Laboratórios — o que falta entre "li a referência" e "sei usar isto"
+# Labs — what is missing between "I read the reference" and "I can use this"
 # ---------------------------------------------------------------------------
 #
-# Cada lab é uma sessão curta, do zero a um resultado verificável, com a
-# LIMPEZA incluída. A verificação não é decorativa: um lab que não diz como
-# confirmar o resultado ensina a copiar comandos, não a usar a ferramenta.
+# Each lab is a short session, from zero to a verifiable result, with the
+# CLEANUP included. The verification is not decorative: a lab that doesn't say
+# how to confirm the result teaches copying commands, not using the tool.
 LABS = [
     ("lab-1", "Primeiro serviço, em 60 segundos", "iniciante", """
 <p>Objectivo: perceber o ciclo <code>run → ps → logs → exec → rm</code> e ver,
@@ -6480,10 +6482,10 @@ ainda <code>stack apply --prune</code> — não corrido aqui de propósito, para
 este lab nunca apagar mais do que os dois recursos que ele próprio criou.</p>"""),
 ]
 
-# Tradução EN de `LABS` — dict por âncora (title, level, body), para não
-# depender de ordem posicional. Nomes de recursos de exemplo (redes/
-# containers arbitrários, ex.: "loja"→"shop") traduzem-se também, por
-# naturalidade de leitura; os comandos em si nunca mudam.
+# EN translation of `LABS` — dict keyed by anchor (title, level, body), so as
+# not to depend on positional order. Example resource names (arbitrary
+# networks/containers, e.g. "loja"→"shop") are translated too, for natural
+# reading; the commands themselves never change.
 LABS_EN = {
     "lab-1": ("First service, in 60 seconds", "beginner", """
 <p>Goal: understand the <code>run → ps → logs → exec → rm</code> cycle and see,
@@ -6833,8 +6835,8 @@ def labs_page():
             body.append(f"<h2 id='{anchor}'>{html.escape(title)} "
                         f"<span class='badge'>{html.escape(level)}</span></h2>")
             body.append(html_body)
-        # Só ligamos os labs que têm materiais reais em disco (lab-1..6);
-        # lab-7/lab-8 ainda não têm arnês — evita links quebrados no Pages.
+        # We only link the labs that have real materials on disk (lab-1..6);
+        # lab-7/lab-8 have no harness yet — avoids broken links on Pages.
         if os.path.isdir(os.path.join(ROOT, "labs", anchor)):
             body.append(bi("p",
                 f"<strong>Materiais:</strong> "
@@ -7353,10 +7355,10 @@ def param_table_html(kind):
 
 
 def kinds_page():
-    # O `bi(...)` sai da f-string de propósito. Uma expressão que se espalha por
-    # VÁRIAS LINHAS dentro de `{...}` só é válida a partir do Python 3.12
-    # (PEP 701); o runner do CI é mais antigo e responde `unterminated string
-    # literal`. Aqui parsava, lá não — e o gate do site só falhou no release.
+    # The `bi(...)` stays out of the f-string on purpose. An expression spread
+    # over SEVERAL LINES inside `{...}` is only valid from Python 3.12 onwards
+    # (PEP 701); the CI runner is older and answers `unterminated string
+    # literal`. It parsed here, not there — and the site gate only failed at release.
     tagline = bi(
         'p',
         'Cada Kind com um template COMPLETO e funcional — '
@@ -7397,8 +7399,8 @@ def kinds_page():
         "resource itself. Still fail-fast and without rollback, and still convergence <em>on demand</em> — not "
         "a loop. The templates below are the real files in "
         "<a href='https://github.com/ngolacloud/delonix/tree/main/examples'><code>examples/</code></a>."))
-    # Diagrama do ciclo plan/apply (vectorial, temático). Fundamentado na prosa
-    # acima e no reconciliador de 3 vias (delonix-stack, ADR-0019).
+    # plan/apply cycle diagram (vector, themed). Grounded in the prose above and
+    # in the 3-way reconciler (delonix-stack, ADR-0019).
     body.append("""
 <div class="diagram-legend">
 <span><i></i><span class="lang-pt">Passo</span><span class="lang-en">Step</span></span>
@@ -7440,12 +7442,12 @@ def kinds_page():
         try:
             yaml = open(path).read().strip()
         except OSError:
-            yaml = f"# (exemplo em falta: examples/{fname})"
-        # data-validated="schema": o CI valida cada examples/*.yaml contra o
-        # JSON Schema (job "valid examples", ADR-0007) — validação ESTÁTICA, não
-        # execução. O chip di-lo com honestidade (§13).
+            yaml = f"# (missing example: examples/{fname})"
+        # data-validated="schema": CI validates each examples/*.yaml against the
+        # JSON Schema (the "valid examples" job, ADR-0007) — STATIC validation,
+        # not execution. The chip says so honestly (§13).
         body.append(f'<pre data-file="examples/{html.escape(fname)}" data-validated="schema"><code>{html.escape(yaml)}</code></pre>')
-        # Tabela de parâmetros do spec, directa do JSON Schema gerado (§9).
+        # Spec parameter table, straight from the generated JSON Schema (§9).
         body.append(param_table_html(kind))
     page("kinds.html", "Kinds do manifesto", "\n".join(body))
 
@@ -7483,9 +7485,9 @@ def cheatsheet_page():
             f"<tr><td><code>{html.escape(prefix)} {html.escape(s)}</code></td><td>{html.escape(d)}</td></tr>"
             for s, d in subs
         )
-        # `d` (a descrição curta) vem do `--help` REAL do binário, que já é EN
-        # por omissão — não precisa de tradução própria, ao contrário da prosa
-        # autoral desta página.
+        # `d` (the short description) comes from the binary's REAL `--help`,
+        # which is already EN by default — it needs no translation of its own,
+        # unlike the authored prose on this page.
         table_head = bi("span", "Comando", "Command") + "</th><th>" + bi("span", "O que faz", "What it does")
         return head + f"<table><tr><th>{table_head}</th></tr>{rows}</table>"
 
@@ -7755,11 +7757,11 @@ delonix container rm -f delonix-temp</code></pre>
 
 
 def command_map_members():
-    """Lista plana de todos os nomes do COMMAND MAP do `delonix --help`.
+    """Flat list of every name in `delonix --help`'s COMMAND MAP.
 
-    São os MESMOS nomes (já resolvidos a page-keys por
-    `root_command_categories()`) que o índice e o cheatsheet iteram — não uma
-    segunda cópia da taxonomia.
+    These are the SAME names (already resolved to page-keys by
+    `root_command_categories()`) that the index and the cheatsheet iterate over —
+    not a second copy of the taxonomy.
     """
     members = []
     for _category, names in root_command_categories():
@@ -7768,58 +7770,58 @@ def command_map_members():
 
 
 def contract_gate():
-    """Aborta a geração se binário e `gen.py` divergirem no que documentam.
+    """Aborts generation if the binary and `gen.py` diverge on what they document.
 
-    Três modos de deriva silenciosa que mais nada apanhava:
+    Three modes of silent drift that nothing else caught:
 
-      * **Binário à FRENTE do `gen.py`.** O índice e o cheatsheet iteram os
-        membros do COMMAND MAP e só desenham cartão `if g in GROUPS` — um comando
-        NOVO no binário que `GROUPS` ainda não documenta era descartado SEM
-        aviso. O `help_of()` nunca o apanha, porque o `gen.py` jamais pede o
-        `--help` de um comando que não conhece.
-      * **`gen.py` à frente do binário.** Uma página de topo em `GROUPS` cujo
-        comando foi removido/renomeado — ou um binário STALE a que falta `bucket`
-        e companhia. O `help_of()` só abortaria ao gerar essa página; aqui
-        aborta-se primeiro, com as duas listas lado a lado.
-      * **Exemplo embebido em falta.** Um `examples/<grupo>/<kind>.yaml` ausente
-        publica hoje, em silêncio, um bloco `# (exemplo em falta: …)` (fallback
-        em `kinds_page()`). Aqui é erro duro.
+      * **Binary AHEAD of `gen.py`.** The index and the cheatsheet iterate the
+        COMMAND MAP members and only draw a card `if g in GROUPS` — a NEW command
+        in the binary that `GROUPS` does not yet document was dropped WITHOUT a
+        warning. `help_of()` never catches it, because `gen.py` never asks for
+        the `--help` of a command it doesn't know.
+      * **`gen.py` ahead of the binary.** A top-level page in `GROUPS` whose
+        command was removed/renamed — or a STALE binary missing `bucket` and
+        company. `help_of()` would only abort when generating that page; here it
+        aborts first, with the two lists side by side.
+      * **Missing embedded example.** A missing `examples/<group>/<kind>.yaml`
+        today silently publishes a `# (missing example: …)` block (fallback in
+        `kinds_page()`). Here it is a hard error.
 
-    É barato: um só `delonix --help` (já em cache) mais leituras de ficheiro.
-    `scripts/docs_command_gate.py` corre SÓ isto, sem gerar HTML.
+    It is cheap: a single `delonix --help` (already cached) plus file reads.
+    `scripts/docs_command_gate.py` runs ONLY this, without generating HTML.
     """
     members = set(command_map_members())
-    # Uma chave de `GROUPS` cujo `GROUP_PATH` tem um só elemento é um comando de
-    # TOPO (com página própria); as de vários elementos (`ingress` → `net
-    # ingress`) são filhos aninhados e não aparecem no COMMAND MAP de raiz.
+    # A `GROUPS` key whose `GROUP_PATH` has a single element is a TOP-level
+    # command (with its own page); the multi-element ones (`ingress` → `net
+    # ingress`) are nested children and don't appear in the root COMMAND MAP.
     documented = {k for k in GROUPS if len(group_argv(k)) == 1}
     problems = []
     for name in sorted(members - documented):
         problems.append(
-            f"binário tem `{name}` no COMMAND MAP mas `GROUPS` não lhe dá página "
-            "— seria descartado em silêncio do índice/cheatsheet"
+            f"binary has `{name}` in the COMMAND MAP but `GROUPS` gives it no page "
+            "— it would be silently dropped from the index/cheatsheet"
         )
     for name in sorted(documented - members):
         problems.append(
-            f"`GROUPS` documenta `{name}` mas não está no COMMAND MAP do binário "
-            "— página órfã (binário stale ou comando removido?)"
+            f"`GROUPS` documents `{name}` but it is not in the binary's COMMAND MAP "
+            "— orphan page (stale binary or removed command?)"
         )
     for kind, fname, _intro in KINDS_DOC:
         if not os.path.isfile(os.path.join(ROOT, "..", "examples", fname)):
-            problems.append(f"exemplo embebido em falta para `{kind}`: examples/{fname}")
+            problems.append(f"missing embedded example for `{kind}`: examples/{fname}")
     if problems:
         raise SystemExit(
-            f"gen.py: contrato binário↔documentação divergente ({BIN}):\n  - "
+            f"gen.py: binary↔documentation contract divergent ({BIN}):\n  - "
             + "\n  - ".join(problems)
-            + "\n  Corrige `GROUPS`/`GROUP_PATH`/`KINDS_DOC` ou reconstrói o binário."
+            + "\n  Fix `GROUPS`/`GROUP_PATH`/`KINDS_DOC` or rebuild the binary."
         )
 
 
-# Glossário (Secção 13) — termos nucleares, agrupados por tema. Cada entrada é
-# (termo, definição PT, definição EN). As definições foram verificadas contra o
-# `--help` do binário (`apply`, `cluster create`, `net`, `api-resources`, ...);
-# os nomes de Kind coincidem com o que `delonix api-resources` lista. Os títulos
-# dos grupos são <h2> (entram na TOC); cada grupo rende um <dl>.
+# Glossary (Section 13) — core terms, grouped by theme. Each entry is
+# (term, PT definition, EN definition). The definitions were verified against
+# the binary's `--help` (`apply`, `cluster create`, `net`, `api-resources`, ...);
+# the Kind names match what `delonix api-resources` lists. The group titles are
+# <h2> (they enter the TOC); each group renders a <dl>.
 GLOSSARY = [
     ("Modelo de execução", "Execution model", [
         ("daemonless",
@@ -8026,17 +8028,17 @@ def glossary_page():
 
 
 # ---------------------------------------------------------------------------
-# Índice de pesquisa (Ctrl/Cmd+K) — gerado a partir das MESMAS páginas que o
-# site (`_SEARCH_PAGES`, recolhido por `page()`) e dos títulos bilingues da nav
-# (`DOC_GROUPS`/`GROUPS`), escrito em `docs/search-index.json` versionável. O
-# modal carrega-o uma vez por `fetch` (vendored, mesma origem — zero CDN).
+# Search index (Ctrl/Cmd+K) — generated from the SAME pages as the site
+# (`_SEARCH_PAGES`, collected by `page()`) and the nav's bilingual titles
+# (`DOC_GROUPS`/`GROUPS`), written to a versionable `docs/search-index.json`. The
+# modal loads it once via `fetch` (vendored, same origin — zero CDN).
 # ---------------------------------------------------------------------------
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
 
 def _plain(fragment):
-    """HTML → texto nu: tira tags, desfaz entidades, colapsa espaços."""
+    """HTML → bare text: strips tags, undoes entities, collapses whitespace."""
     return _WS_RE.sub(" ", html.unescape(_TAG_RE.sub(" ", fragment))).strip()
 
 
@@ -8112,14 +8114,15 @@ def _extract_sections(body):
             hid = idm.group(1) if idm else None
             own = _class_lang(open_tag)
             ctx = div_stack[-1] if div_stack else None
-            eff = own or ctx  # None => bilingue (visível nos dois idiomas)
+            eff = own or ctx  # None => bilingual (visible in both languages)
             pt_span = re.search(r"<span[^>]*lang-pt[^>]*>(.*?)</span>", inner, re.S)
             en_span = re.search(r"<span[^>]*lang-en[^>]*>(.*?)</span>", inner, re.S)
             region = body[m.end():m.end() + 1400]
-            # O antecessor lang-xx manda mesmo quando o <hN> traz spans dos dois
-            # idiomas (ex.: cartões do index duplicados nos blocos pt E en): o
-            # `buildToc` só vê o cabeçalho no idioma do bloco, logo o texto/slug
-            # têm de sair só desse idioma, senão o dedup `-x` não bate.
+            # The lang-xx ancestor wins even when the <hN> carries spans for both
+            # languages (e.g. index cards duplicated across the pt AND en
+            # blocks): `buildToc` only sees the heading in the block's language,
+            # so the text/slug must come from that language only, otherwise the
+            # `-x` dedup doesn't match.
             if eff == "pt":
                 t = _plain(pt_span.group(1)) if pt_span else _plain(inner)
                 pt_text, en_text, vis_pt, vis_en = t, "", True, False
@@ -8139,9 +8142,10 @@ def _extract_sections(body):
             })
     used_pt, used_en = {}, {}
     for h in heads:
-        # Id explícito do gerador MANDA — é o que o `buildToc` preserva no DOM
-        # (mesma regra), por isso `url#slug` da pesquisa bate com o elemento.
-        # Registamo-lo no dedup para os slugs calculados não colidirem com ele.
+        # An explicit id from the generator WINS — it is what `buildToc`
+        # preserves in the DOM (same rule), so the search's `url#slug` matches
+        # the element. We register it in the dedup so computed slugs don't collide
+        # with it.
         if h["id"]:
             used_pt[h["id"]] = used_en[h["id"]] = 1
             h["slug_pt"] = h["id"] if h["vis_pt"] else ""
@@ -8158,7 +8162,7 @@ def _page_titles_bi():
         for href, pt, en in entries:
             m[href] = (pt, en)
     for name in GROUPS:
-        # Nomes de comando são neutros em idioma (p.ex. "delonix run").
+        # Command names are language-neutral (e.g. "delonix run").
         m["commands/%s.html" % name] = (GROUPS[name]["title"], GROUPS[name]["title"])
     return m
 
@@ -8191,13 +8195,13 @@ def build_search_index():
     out = os.path.join(ROOT, "search-index.json")
     with open(out, "w") as f:
         json.dump(records, f, ensure_ascii=False, separators=(",", ":"))
-    print(f"search-index.json: {len(records)} registos ({len(_SEARCH_PAGES)} páginas)")
+    print(f"search-index.json: {len(records)} records ({len(_SEARCH_PAGES)} pages)")
 
 
 def main():
     contract_gate()
-    # Só a 1.ª linha: desde a v0.6.1 o --version é um cartão multi-linha e o
-    # último token do output inteiro deixou de ser a versão.
+    # Only the 1st line: since v0.6.1 --version is a multi-line card and the
+    # last token of the whole output is no longer the version.
     ver = (
         subprocess.run([BIN, "--version"], capture_output=True, text=True)
         .stdout.strip()
@@ -8241,8 +8245,8 @@ def main():
     md_page("estrutura.md", "estrutura.html", "Estrutura de recursos")
     md_page("cli-stability.md", "estabilidade.html", "Promessa de estabilidade")
     codes_page()
-    # O guia de VMs é escrito à mão em Markdown (legível no GitHub) e publicado
-    # daqui — a MESMA fonte, nunca uma segunda cópia do texto.
+    # The VM guide is hand-written in Markdown (readable on GitHub) and published
+    # from here — the SAME source, never a second copy of the text.
     md_page("guia-vm-lab.md", "guia-vm.html", "Guia de VMs e laboratório de rede")
     page("cri.html", "CRI", bi("div", CRI, CRI_EN))
     page("comparacao.html", "Delonix vs Docker vs Podman", bi("div", COMPARE, COMPARE_EN))

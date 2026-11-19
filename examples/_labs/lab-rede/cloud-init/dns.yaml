@@ -1,8 +1,9 @@
 #cloud-config
-# lab-dns — servidor DNS autoritativo (BIND 9) da zona lab.ngola
+# lab-dns — authoritative DNS server (BIND 9) for the lab.ngola zone
 #
-# `spec.userData` SUBSTITUI o user-data que o delonix geraria, por isso a conta
-# e a chave têm de vir aqui: sem elas, a VM arranca sem forma de entrar.
+# `spec.userData` REPLACES the user-data that delonix would generate, so the
+# account and the key have to come from here: without them, the VM boots with no
+# way to log in.
 hostname: lab-dns
 fqdn: ns.lab.ngola
 
@@ -21,8 +22,8 @@ packages:
   - bind9-dnsutils
 
 write_files:
-  # A 2.ª placa (a do lab) casa por MAC e não por nome: `enp1s0`/`enp2s0`
-  # dependem da ordem em que o PCI as enumera, e essa ordem não é um contrato.
+  # The 2nd NIC (the lab one) matches by MAC and not by name: `enp1s0`/`enp2s0`
+  # depend on the order in which PCI enumerates them, and that order is not a contract.
   - path: /etc/netplan/60-lab.yaml
     permissions: "0600"
     content: |
@@ -74,8 +75,8 @@ write_files:
       20      IN      PTR     nas.lab.ngola.
       254     IN      PTR     fw.lab.ngola.
 
-  # Responde à LAN do lab e reencaminha o que não é seu. `dnssec-validation no`
-  # porque a zona lab.ngola não existe na raiz e não pode ser validada.
+  # Answers the lab LAN and forwards whatever isn't its own. `dnssec-validation no`
+  # because the lab.ngola zone does not exist at the root and cannot be validated.
   - path: /etc/bind/named.conf.options
     content: |
       options {

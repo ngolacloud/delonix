@@ -2493,8 +2493,8 @@ mod advisory_flag_tests {
         }
         assert!(
             missing.is_empty(),
-            "`flags_of_controller` nomeia flags que `container run` não tem: {missing:?}\n\
-             As reais são: {real:?}"
+            "`flags_of_controller` names flags that `container run` does not have: {missing:?}\n\
+             The real ones are: {real:?}"
         );
     }
 
@@ -2509,8 +2509,8 @@ mod advisory_flag_tests {
         for f in ["--cpuset-mems", "--io-max"] {
             assert!(
                 !real.contains(f),
-                "{f} passou a existir — se é mesmo nossa, acrescenta-a ao \
-                 `flags_of_controller` no mesmo commit"
+                "{f} started to exist — if it really is ours, add it to \
+                 `flags_of_controller` in the same commit"
             );
         }
     }
@@ -2610,50 +2610,50 @@ mod help_i18n_tests {
     /// The command descriptions — what `--help` shows at the top and what the
     /// parent lists next to each subcommand. Strict: zero tolerated.
     #[test]
-    fn todo_o_help_de_comando_tem_traducao_pt() {
+    fn every_command_help_has_a_pt_translation() {
         let (mut missing, mut args) = (Vec::new(), Vec::new());
         untranslated(&super::Cli::command(), "delonix", &mut missing, &mut args);
         assert!(
             missing.is_empty(),
-            "{} descrição(ões) de comando sem entrada no pt.po:\n  {}",
+            "{} command description(s) with no entry in pt.po:\n  {}",
             missing.len(),
             missing.join("\n  ")
         );
     }
 
-    /// Os comentários dos exemplos do manual são texto de utilizador como
-    /// qualquer outro: sob `--l18n=pt` um bloco EXEMPLOS em inglês seria a
-    /// única coisa por traduzir no ecrã. As LINHAS DE COMANDO não entram —
-    /// `delonix container run -d` escreve-se igual em todas as línguas, e
-    /// pedir tradução para elas é como um catálogo ganha ruído.
+    /// The manual's example comments are user text like any other: under
+    /// `--l18n=pt` an EXAMPLES block in English would be the only thing left
+    /// untranslated on screen. The COMMAND LINES do not count — `delonix
+    /// container run -d` is written the same in every language, and asking for a
+    /// translation of them is how a catalog gains noise.
     #[test]
-    fn todo_o_comentario_de_exemplo_tem_traducao_pt() {
-        let mut sem: Vec<String> = Vec::new();
+    fn every_example_comment_has_a_pt_translation() {
+        let mut missing: Vec<String> = Vec::new();
         for e in crate::cmd::manual::ENTRIES {
             for (comment, _) in e.examples {
                 if !crate::cmd::po::has_pt_translation(comment) {
-                    sem.push(format!("{}: {comment}", e.path));
+                    missing.push(format!("{}: {comment}", e.path));
                 }
             }
         }
         assert!(
-            sem.is_empty(),
-            "{} comentário(s) de exemplo sem entrada no pt.po:\n  {}",
-            sem.len(),
-            sem.join("\n  ")
+            missing.is_empty(),
+            "{} example comment(s) with no entry in pt.po:\n  {}",
+            missing.len(),
+            missing.join("\n  ")
         );
     }
 
     #[test]
-    fn o_help_dos_argumentos_so_pode_encolher() {
+    fn arg_help_can_only_shrink() {
         let (mut missing, mut args) = (Vec::new(), Vec::new());
         untranslated(&super::Cli::command(), "delonix", &mut missing, &mut args);
         assert_eq!(
             args.len(),
             ARG_HELP_PENDING,
-            "help de argumento por traduzir: {} (esperado {ARG_HELP_PENDING}). \
-             Se subiu, é uma flag nova sem entrada no pt.po; se desceu, baixa a \
-             constante no mesmo commit.\n  {}",
+            "arg help left untranslated: {} (expected {ARG_HELP_PENDING}). \
+             If it went up, it is a new flag with no entry in pt.po; if it went down, \
+             lower the constant in the same commit.\n  {}",
             args.len(),
             args.join("\n  ")
         );
@@ -2661,10 +2661,10 @@ mod help_i18n_tests {
 }
 
 /// `docs/cli-stability.md` classifies every root command group as either
-/// "Estável" or "NÃO estável" — but nothing checked that classification was
+/// "Stable" or "NOT stable" — but nothing checked that classification was
 /// EXHAUSTIVE. Measured before this test existed: of 33 real root groups,
 /// only `container`/`image` (+ `build`, folded into the same promise) and the
-/// 9 named in "NÃO estável" had any status at all — 21 groups (`apply`,
+/// 9 named in "NOT stable" had any status at all — 21 groups (`apply`,
 /// `compose`, `volume`, `network`, `secret`, `stack`, … ) were simply never
 /// mentioned by either list. A group with no status is a group nobody has to
 /// think about before breaking, which is worse than one explicitly marked
@@ -2678,7 +2678,7 @@ mod help_i18n_tests {
 mod cli_stability_classification_tests {
     use clap::CommandFactory;
 
-    /// Groups `docs/cli-stability.md`'s "Estável" section covers: the name,
+    /// Groups `docs/cli-stability.md`'s "Stable" section covers: the name,
     /// positional order, listed flags and exit codes don't change without a
     /// major. `build` is included here even though it is its own root
     /// command — the doc's fenced block names it in the same breath as
@@ -2740,7 +2740,7 @@ mod cli_stability_classification_tests {
         "search",
     ];
 
-    /// Every other real top-level group, mirroring "NÃO estável" 1:1. A group
+    /// Every other real top-level group, mirroring "NOT stable" 1:1. A group
     /// added to `Cmd` has to land in ONE of these two lists (and in
     /// `docs/cli-stability.md`) in the same commit — that's what
     /// `every_root_group_is_classified_exactly_once` enforces.
@@ -2831,21 +2831,21 @@ mod cli_stability_classification_tests {
         }
         assert!(
             unclassified.is_empty(),
-            "grupo(s) de topo sem classificação de estabilidade — acrescenta a \
-             STABLE_GROUPS ou NOT_STABLE_GROUPS (e a docs/cli-stability.md) no \
-             MESMO commit que os introduziu: {unclassified:?}"
+            "top-level group(s) with no stability classification — add to \
+             STABLE_GROUPS or NOT_STABLE_GROUPS (and to docs/cli-stability.md) in the \
+             SAME commit that introduced them: {unclassified:?}"
         );
         assert!(
             double_classified.is_empty(),
-            "grupo(s) na promessa de estabilidade E na lista de não-estáveis \
-             ao mesmo tempo — só pode estar numa: {double_classified:?}"
+            "group(s) in the stability promise AND in the not-stable list \
+             at the same time — it may only be in one: {double_classified:?}"
         );
     }
 
     /// The inverse of the guard above: a name in either list that is no
     /// longer a real group is a promise (or a disclaimer) about something
     /// that stopped existing. That's exactly what happened to
-    /// `storage`/`sharevolume` after #216 — they stayed in "NÃO estável" long
+    /// `storage`/`sharevolume` after #216 — they stayed in "NOT stable" long
     /// after `delonix storage`/`delonix sharevolume` already answered
     /// "unrecognized subcommand".
     #[test]
@@ -2860,9 +2860,9 @@ mod cli_stability_classification_tests {
             .collect();
         assert!(
             stale.is_empty(),
-            "nome(s) classificado(s) que já não são um grupo de comandos real \
-             — actualiza STABLE_GROUPS/NOT_STABLE_GROUPS e docs/cli-stability.md \
-             no mesmo commit que os removeu: {stale:?}",
+            "classified name(s) that are no longer a real command group \
+             — update STABLE_GROUPS/NOT_STABLE_GROUPS and docs/cli-stability.md \
+             in the same commit that removed them: {stale:?}",
         );
     }
 }
@@ -2881,16 +2881,16 @@ mod container_image_contract_tests {
     fn verb<'a>(cmd: &'a clap::Command, group: &str, verb: &str) -> &'a clap::Command {
         cmd.get_subcommands()
             .find(|c| c.get_name() == group)
-            .unwrap_or_else(|| panic!("`delonix {group}` desapareceu"))
+            .unwrap_or_else(|| panic!("`delonix {group}` disappeared"))
             .get_subcommands()
             .find(|c| c.get_name() == verb)
-            .unwrap_or_else(|| panic!("`delonix {group} {verb}` desapareceu"))
+            .unwrap_or_else(|| panic!("`delonix {group} {verb}` disappeared"))
     }
 
     fn subcommand_names(cmd: &clap::Command, group: &str) -> BTreeSet<String> {
         cmd.get_subcommands()
             .find(|c| c.get_name() == group)
-            .unwrap_or_else(|| panic!("`delonix {group}` desapareceu"))
+            .unwrap_or_else(|| panic!("`delonix {group}` disappeared"))
             .get_subcommands()
             .map(|s| s.get_name().to_string())
             .collect()
@@ -2906,8 +2906,8 @@ mod container_image_contract_tests {
         ] {
             assert!(
                 real.contains(name),
-                "`container {name}` desapareceu — docs/cli-stability.md promete \
-                 que não quebra sem um major"
+                "`container {name}` disappeared — docs/cli-stability.md promises \
+                 it does not break without a major"
             );
         }
     }
@@ -2919,8 +2919,8 @@ mod container_image_contract_tests {
         for name in ["pull", "ls", "remove"] {
             assert!(
                 real.contains(name),
-                "`image {name}` desapareceu — docs/cli-stability.md promete \
-                 que não quebra sem um major"
+                "`image {name}` disappeared — docs/cli-stability.md promises \
+                 it does not break without a major"
             );
         }
     }
@@ -2958,17 +2958,17 @@ mod container_image_contract_tests {
             "--label-file",
             "--annotation",
         ] {
-            assert!(long.contains(f), "`container run {f}` desapareceu");
+            assert!(long.contains(f), "`container run {f}` disappeared");
         }
         assert!(
             long.iter().any(|f| f.starts_with("--health-")),
-            "`container run --health-*` desapareceu"
+            "`container run --health-*` disappeared"
         );
         let short: BTreeSet<char> = run.get_arguments().filter_map(|a| a.get_short()).collect();
         // `-i`/`-t` joined the set so `run -it` parses like docker/podman — the
         // gap flow 1 of the CLI-parity review hit on its very first line.
         for f in ['d', 'i', 't', 'p', 'P', 'v', 'e', 'w', 'u'] {
-            assert!(short.contains(&f), "`container run -{f}` desapareceu");
+            assert!(short.contains(&f), "`container run -{f}` disappeared");
         }
     }
 
@@ -2978,14 +2978,14 @@ mod container_image_contract_tests {
         let exec = verb(&cmd, "container", "exec");
         let short: BTreeSet<char> = exec.get_arguments().filter_map(|a| a.get_short()).collect();
         for f in ['i', 't', 'e', 'w', 'u'] {
-            assert!(short.contains(&f), "`container exec -{f}` desapareceu");
+            assert!(short.contains(&f), "`container exec -{f}` disappeared");
         }
     }
 }
 
 /// Every command this CLI names in its own text has to EXIST in this CLI.
 ///
-/// This replaces `comandos_citados_tests`, which was written for the same class
+/// This replaces the old command-citation test, which was written for the same class
 /// and could not see any of it. That test compared only the FIRST word after
 /// the tool name against the TOP-LEVEL subcommand names, over a hand-written
 /// list of twelve files. So a reference to `pod ls` passed — `pod` is real, and

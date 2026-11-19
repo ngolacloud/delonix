@@ -1,4 +1,4 @@
-# lab-samba — autenticacao e partilha de ficheiros
+# lab-samba — authentication and file sharing
 apiVersion: delonix.io/v1
 kind: Vm
 metadata:

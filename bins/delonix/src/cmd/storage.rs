@@ -381,12 +381,12 @@ mod tests {
         from_const.sort();
         assert_eq!(
             from_struct, from_const,
-            "NET_SHARE_FIELDS divergiu de NetShareSpec — actualiza a const"
+            "NET_SHARE_FIELDS diverged from NetShareSpec — update the const"
         );
     }
 
     #[test]
-    fn nfs_forma_servidor_export() {
+    fn nfs_forms_server_export() {
         let m = build_mount("nfs", "10.0.0.5", "/mnt/pool/media", None, false, None).unwrap();
         assert_eq!(m.driver, "nfs");
         assert_eq!(m.device, "10.0.0.5:/mnt/pool/media");
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn cifs_forma_unc_com_ficheiro_de_credenciais_e_ro() {
+    fn cifs_forms_unc_with_credentials_file_and_ro() {
         // BUG regression guard: the password used to be inlined as
         // `password=...` right in the mount options (visible in
         // `/proc/<pid>/cmdline`, and comma-delimited with no escaping).
@@ -415,14 +415,14 @@ mod tests {
         assert!(o.contains("credentials=/tmp/delonix-storage-test.cifs-credentials"));
         assert!(
             !o.contains("password="),
-            "a password nunca deve ir para os options"
+            "the password must never go into the options"
         );
         assert!(o.contains("ro"));
         assert!(o.contains("vers=3.0"));
     }
 
     #[test]
-    fn webdav_monta_url_https_por_omissao() {
+    fn webdav_builds_https_url_by_default() {
         let m = build_mount(
             "webdav",
             "cloud.example.com",
@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn webdav_respeita_esquema_explicito() {
+    fn webdav_respects_explicit_scheme() {
         let m = build_mount(
             "webdav",
             "http://192.168.1.10:8080",
@@ -454,12 +454,12 @@ mod tests {
     }
 
     #[test]
-    fn tipo_invalido_e_erro() {
+    fn invalid_type_is_an_error() {
         assert!(build_mount("s3", "x", "y", None, false, None).is_err());
     }
 
     #[test]
-    fn write_cifs_credentials_sem_username_nem_password_devolve_none() {
+    fn write_cifs_credentials_without_username_or_password_returns_none() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("creds");
         assert_eq!(
@@ -469,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn write_cifs_credentials_escreve_0600_e_recusa_quebra_de_linha() {
+    fn write_cifs_credentials_writes_0600_and_refuses_newline() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("creds");
         // BUG regression guard: a password containing a newline could inject
@@ -491,6 +491,6 @@ mod tests {
         assert!(content.contains("password=s3cr3t"));
         use std::os::unix::fs::PermissionsExt as _;
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "ficheiro de credenciais tem de ser 0600");
+        assert_eq!(mode, 0o600, "credentials file must be 0600");
     }
 }

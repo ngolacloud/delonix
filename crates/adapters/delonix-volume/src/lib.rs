@@ -1673,7 +1673,7 @@ mod tests {
         assert!(no_link.bytes > 0);
         assert!(
             seq.bytes < 40 * 4096 + 12 * 8192 + 4 * 65536 + 40 * 4096,
-            "os hardlinks foram contados mais do que uma vez"
+            "the hardlinks were counted more than once"
         );
     }
     use super::*;
@@ -1760,11 +1760,11 @@ mod tests {
     /// `volumes ls` while its bytes stay on disk, which is exactly the
     /// cross-tenant leak `write_meta`'s own doc-comment warns about.
     #[test]
-    fn meta_json_sem_labels_continua_a_desserializar() {
+    fn meta_json_without_labels_still_deserializes() {
         let legacy =
-            r#"{"name":"dados","mountpoint":"/x/_data","created_unix":1,"driver":"local"}"#;
+            r#"{"name":"data","mountpoint":"/x/_data","created_unix":1,"driver":"local"}"#;
         let v: Volume = serde_json::from_str(legacy).unwrap();
-        assert_eq!(v.name, "dados");
+        assert_eq!(v.name, "data");
         assert!(v.labels.is_empty() && v.annotations.is_empty());
         // And a volume with no metadata serializes without the keys at all
         // (`skip_serializing_if`), so re-writing a legacy record does not grow it.
@@ -1787,18 +1787,18 @@ mod tests {
     /// namespaced volume, and that `list_all` does, with the owner attached. If
     /// someone re-bases a sweep on `list`, the second half stops being true.
     #[test]
-    fn list_nao_ve_o_volume_de_um_inquilino_e_list_all_ve_com_o_dono() {
+    fn list_does_not_see_a_tenants_volume_and_list_all_sees_it_with_the_owner() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp = tmp_dir.path();
 
         let store = VolumeStore::open(tmp).unwrap();
-        store.create("sem-dono").unwrap();
+        store.create("no-owner").unwrap();
         store.scoped("acme").unwrap().create("pgdata").unwrap();
         store.scoped("globex").unwrap().create("pgdata").unwrap();
 
         // Half 1: the scoped listing stays scoped.
         let root: Vec<String> = store.list().unwrap().into_iter().map(|v| v.name).collect();
-        assert_eq!(root, ["sem-dono"], "`list` deixou de ser a raiz apenas");
+        assert_eq!(root, ["no-owner"], "`list` stopped being the root only");
 
         // Half 2: the whole store is reachable, and each volume knows its owner.
         let mut all: Vec<(String, String)> = store
@@ -1811,11 +1811,11 @@ mod tests {
         assert_eq!(
             all,
             [
-                ("<none>".to_string(), "sem-dono".to_string()),
+                ("<none>".to_string(), "no-owner".to_string()),
                 ("acme".to_string(), "pgdata".to_string()),
                 ("globex".to_string(), "pgdata".to_string()),
             ],
-            "um dono ficou de fora da varredura"
+            "an owner was left out of the sweep"
         );
 
         // And the two `pgdata` are genuinely different volumes on disk — the
@@ -1833,21 +1833,21 @@ mod tests {
     /// must still be there after a re-`apply` — otherwise `stack destroy` would
     /// stop recognizing its own volumes.
     #[test]
-    fn as_labels_sobrevivem_a_um_create_repetido_e_a_set_quota() {
+    fn labels_survive_a_repeated_create_and_a_set_quota() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp = tmp_dir.path();
         let store = VolumeStore::open(tmp).unwrap();
-        store.create("dados").unwrap();
+        store.create("data").unwrap();
         store
             .set_metadata(
-                "dados",
+                "data",
                 &[("delonix.io/stack".into(), Some("web".into()))],
                 &[("delonix.io/last-applied".into(), Some("{\"a\":1}".into()))],
             )
             .unwrap();
 
         // Re-`apply` of the same manifest: `create` short-circuits via `inspect`.
-        let again = store.create("dados").unwrap();
+        let again = store.create("data").unwrap();
         assert_eq!(again.labels.get("delonix.io/stack").unwrap(), "web");
         assert_eq!(
             again.annotations.get("delonix.io/last-applied").unwrap(),
@@ -1855,13 +1855,13 @@ mod tests {
         );
 
         // `create_with` takes a different branch (it also calls `ensure_mounted`).
-        let w = store.create_with("dados", "local", None, None).unwrap();
+        let w = store.create_with("data", "local", None, None).unwrap();
         assert_eq!(w.labels.get("delonix.io/stack").unwrap(), "web");
 
         // A `None` value REMOVES the key — the only way to unstamp a volume that
         // left a stack.
         let cleared = store
-            .set_metadata("dados", &[("delonix.io/stack".into(), None)], &[])
+            .set_metadata("data", &[("delonix.io/stack".into(), None)], &[])
             .unwrap();
         assert!(cleared.labels.is_empty());
         assert!(
@@ -1871,7 +1871,7 @@ mod tests {
     }
 
     #[test]
-    fn bind_option_rejeita_selinux_e_desconhecidas() {
+    fn bind_option_rejects_selinux_and_unknown_ones() {
         // Fail-closed: an unsupported bind option (`:z`/`:Z` SELinux, `:U`,
         // propagation) gives an ERROR instead of being silently ignored.
         let tmp_dir = tempfile::tempdir().unwrap();
@@ -1914,7 +1914,7 @@ mod tests {
         s.create("qv").unwrap();
         std::fs::write(s.data_dir("qv").join("f"), vec![0u8; 950]).unwrap();
         let used = s.usage("qv");
-        assert!(used > 0, "um ficheiro de 950 bytes tem de ocupar blocos");
+        assert!(used > 0, "a 950-byte file must occupy blocks");
 
         // quota chosen so `used` sits at ~95 % of it ⇒ in alert, not above.
         let quota = used * 100 / 95;
@@ -1922,7 +1922,7 @@ mod tests {
         let qs = s.quota_state_checked(&v);
         assert!(
             qs.measured && qs.in_alert && !qs.above_quota,
-            "{used}/{quota} (~95%) deve estar em alerta mas não acima: {qs:?}"
+            "{used}/{quota} (~95%) should be in alert but not above: {qs:?}"
         );
 
         // grow past the quota
@@ -1930,7 +1930,7 @@ mod tests {
         let qs2 = s.quota_state_checked(&v);
         assert!(
             qs2.above_quota,
-            "{}/{quota} deve estar acima da quota",
+            "{}/{quota} should be above the quota",
             s.usage("qv")
         );
     }
@@ -1976,7 +1976,7 @@ mod tests {
     /// rootless quota on a volume that genuinely holds far less. Reverting the
     /// `(dev, ino)` dedup in `dir_usage_inner` makes this fail.
     #[test]
-    fn usage_conta_um_ficheiro_com_hardlinks_uma_so_vez() {
+    fn usage_counts_a_file_with_hardlinks_only_once() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         let store = VolumeStore::open(base).unwrap();
@@ -1987,7 +1987,7 @@ mod tests {
         let one_copy = store.usage("hl");
         assert!(
             one_copy >= 64 * 1024,
-            "esperava >=64 KiB, obtive {one_copy}"
+            "expected >=64 KiB, got {one_copy}"
         );
 
         // Nine extra NAMES for the same inode — zero extra blocks on disk.
@@ -1997,14 +1997,14 @@ mod tests {
         let with_links = store.usage("hl");
         assert_eq!(
             with_links, one_copy,
-            "10 nomes do MESMO inode não podem contar 10 vezes ({with_links} vs {one_copy})"
+            "10 names for the SAME inode must not count 10 times ({with_links} vs {one_copy})"
         );
 
         // A genuinely distinct file still adds up (no over-eager dedup).
-        fs::write(data.join("outro"), vec![3u8; 64 * 1024]).unwrap();
+        fs::write(data.join("other"), vec![3u8; 64 * 1024]).unwrap();
         assert!(
             store.usage("hl") > with_links,
-            "um ficheiro NOVO tem de continuar a somar"
+            "a NEW file must still add up"
         );
     }
 
@@ -2017,17 +2017,17 @@ mod tests {
     /// 100 GB quota reported 100 GB used, in `volumes inspect`, `system df` and
     /// the dashboard alike.
     #[test]
-    fn usage_de_ficheiro_esparso_conta_blocos_nao_o_tamanho_nominal() {
+    fn usage_of_sparse_file_counts_blocks_not_nominal_size() {
         use std::io::{Seek, SeekFrom, Write};
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         let store = VolumeStore::open(base).unwrap();
         store.create("sp").unwrap();
 
-        const NOMINAL: u64 = 256 * 1024 * 1024; // 256 MiB de tamanho aparente
+        const NOMINAL: u64 = 256 * 1024 * 1024; // 256 MiB of apparent size
         let mut f = fs::File::create(store.data_dir("sp").join("sparse.img")).unwrap();
         f.set_len(NOMINAL).unwrap();
-        // Um único byte no fim — o resto do ficheiro é um buraco.
+        // A single byte at the end — the rest of the file is a hole.
         f.seek(SeekFrom::End(-1)).unwrap();
         f.write_all(&[1u8]).unwrap();
         f.sync_all().unwrap();
@@ -2036,27 +2036,27 @@ mod tests {
         let apparent = fs::metadata(store.data_dir("sp").join("sparse.img"))
             .unwrap()
             .len();
-        assert_eq!(apparent, NOMINAL, "o tamanho nominal tem de ser 256 MiB");
+        assert_eq!(apparent, NOMINAL, "the nominal size must be 256 MiB");
 
         let used = store.usage("sp");
-        // Alguns filesystems de teste (tmpfs) não têm buracos reais; se este
-        // não tiver, a asserção não teria significado — declara-o em vez de
-        // passar por acaso.
+        // Some test filesystems (tmpfs) have no real holes; if this one does
+        // not, the assertion would be meaningless — declare it instead of
+        // passing by accident.
         if used >= NOMINAL {
             eprintln!(
-                "aviso: {} não suporta ficheiros esparsos (used={used}) — asserção saltada",
+                "warning: {} does not support sparse files (used={used}) — assertion skipped",
                 base.display()
             );
         } else {
             assert!(
                 used < NOMINAL / 100,
-                "um ficheiro esparso de 256 MiB com 1 byte escrito não pode contar {used} bytes"
+                "a 256 MiB sparse file with 1 byte written cannot count {used} bytes"
             );
         }
     }
 
     #[test]
-    fn valid_name_recusa_dot_dot_e_dot() {
+    fn valid_name_rejects_dot_dot_and_dot() {
         // CRITICAL fixed here: a name made ENTIRELY of the allowed char '.'
         // passed the old charset-only check. `register_external`'s caller
         // (kind: ShareVolume) joins the name onto `<parent>/shares/<name>` —
@@ -2073,7 +2073,7 @@ mod tests {
     }
 
     #[test]
-    fn register_external_recusa_nome_dot_dot() {
+    fn register_external_rejects_dot_dot_name() {
         let (s, tmp) = store();
         let dir = tmp.path();
         let external = dir.join("shares").join("..");
@@ -2084,7 +2084,7 @@ mod tests {
     }
 
     #[test]
-    fn register_external_aponta_para_fora_e_e_idempotente() {
+    fn register_external_points_outside_and_is_idempotent() {
         let (s, tmp) = store();
         let dir = tmp.path();
         let external = dir.join("shares").join("tenant-a");
@@ -2094,7 +2094,7 @@ mod tests {
         assert_eq!(v.mountpoint, external.to_string_lossy());
         assert!(
             external.exists(),
-            "o mountpoint externo devia ter sido criado"
+            "the external mountpoint should have been created"
         );
         // Re-registering (a `ShareVolume` re-`apply`) updates quota in place,
         // does not error, and keeps pointing at the SAME external path.
@@ -2105,17 +2105,17 @@ mod tests {
         assert_eq!(v2.mountpoint, external.to_string_lossy());
 
         // usage_at/quota_state_at_checked measure the EXTERNAL path directly.
-        // Derivado da medição real, não de um número aparente fixo — ver a nota
-        // em `quota_state_alerts` sobre porque o valor absoluto deixou de ser
-        // uma asserção legítima depois de `dir_usage` passar a contar blocos.
+        // Derived from the real measurement, not a fixed apparent number — see
+        // the note in `quota_state_alerts` on why the absolute value stopped
+        // being a legitimate assertion once `dir_usage` began counting blocks.
         std::fs::write(external.join("f"), vec![0u8; 1900]).unwrap();
         let used = s.usage_at(&external);
-        assert!(used > 0, "o caminho externo tem de ser medível");
+        assert!(used > 0, "the external path must be measurable");
         let quota = used * 100 / 95;
         let qs = s.quota_state_at_checked(&external, Some(quota), Some(90));
         assert!(
             qs.measured && qs.in_alert && !qs.above_quota,
-            "{used}/{quota} (~95%) devia estar em alerta mas não acima: {qs:?}"
+            "{used}/{quota} (~95%) should be in alert but not above: {qs:?}"
         );
 
         // `remove` deletes ONLY this store's own bookkeeping dir — the
@@ -2123,7 +2123,7 @@ mod tests {
         s.remove("share-a").unwrap();
         assert!(
             external.exists(),
-            "remove() nunca deve tocar num mountpoint externo"
+            "remove() must never touch an external mountpoint"
         );
     }
 
@@ -2201,8 +2201,8 @@ mod tests {
     fn snapshot_names_reject_traversal() {
         assert!(safe_snapshot_name("pre-upgrade-1"));
         assert!(safe_snapshot_name("2026.07.06_0300"));
-        for bad in ["", "../x", "a/b", ".oculto", "a b", &"x".repeat(129)] {
-            assert!(!safe_snapshot_name(bad), "aceitou '{bad}'");
+        for bad in ["", "../x", "a/b", ".hidden", "a b", &"x".repeat(129)] {
+            assert!(!safe_snapshot_name(bad), "accepted '{bad}'");
         }
     }
 
@@ -2265,49 +2265,49 @@ mod tests {
     /// multiplication makes this test fail (panic in debug, wrong answer in
     /// release).
     #[test]
-    fn quota_nao_transborda_em_quotas_enormes() {
-        // A maior quota que `parse_size_bytes` aceita nesta forma.
-        let huge = parse_size_bytes("1024t").expect("1024t tem de continuar a parsear");
-        // Vazio: nem em alerta nem acima.
+    fn quota_does_not_overflow_on_enormous_quotas() {
+        // The largest quota `parse_size_bytes` accepts in this form.
+        let huge = parse_size_bytes("1024t").expect("1024t must still parse");
+        // Empty: neither in alert nor above.
         assert_eq!(quota_state_of(0, Some(huge), Some(90)), (false, false));
-        // Metade da quota: longe do alerta de 90%.
+        // Half the quota: far from the 90% alert.
         assert_eq!(
             quota_state_of(huge / 2, Some(huge), Some(90)),
             (false, false)
         );
-        // 95%: em alerta, mas não acima.
+        // 95%: in alert, but not above.
         let at_95 = (huge as u128 * 95 / 100) as u64;
         assert_eq!(quota_state_of(at_95, Some(huge), Some(90)), (true, false));
-        // Exactamente na quota: alerta E acima.
+        // Exactly at the quota: alert AND above.
         assert_eq!(quota_state_of(huge, Some(huge), Some(90)), (true, true));
-        // O extremo absoluto do tipo, para não deixar nenhum canto por cobrir.
+        // The absolute extreme of the type, so no corner is left uncovered.
         assert_eq!(
             quota_state_of(u64::MAX, Some(u64::MAX), Some(100)),
             (true, true)
         );
 
-        // Quotas pequenas continuam exactas (a correcção não pode perder
-        // precisão onde o comportamento antigo estava certo).
+        // Small quotas stay exact (the fix must not lose precision where the
+        // old behavior was correct).
         assert_eq!(quota_state_of(899, Some(1000), Some(90)), (false, false));
         assert_eq!(quota_state_of(900, Some(1000), Some(90)), (true, false));
         assert_eq!(quota_state_of(1000, Some(1000), Some(90)), (true, true));
     }
 
-    /// `alert_pct` é `u8`: nada impedia um 200, que significava "avisa ao dobro
-    /// da quota" — um aviso que só dispara depois do limite já estourado, ou
-    /// seja, o contrário de um aviso antecipado.
+    /// `alert_pct` is a `u8`: nothing stopped a 200, which meant "warn at twice
+    /// the quota" — a warning that only fires after the limit has already blown,
+    /// i.e. the opposite of an early warning.
     #[test]
-    fn alert_pct_acima_de_100_e_tratado_como_100() {
-        // Com 200 sem clamp, 900/1000 não daria alerta nenhum (900*100 <
-        // 1000*200) e o alerta só chegaria aos 2000 — depois de `above_quota`.
+    fn alert_pct_above_100_is_treated_as_100() {
+        // With 200 and no clamp, 900/1000 would give no alert at all (900*100 <
+        // 1000*200) and the alert would only arrive at 2000 — after `above_quota`.
         assert_eq!(quota_state_of(999, Some(1000), Some(200)), (false, false));
         assert_eq!(quota_state_of(1000, Some(1000), Some(200)), (true, true));
-        // O alerta nunca pode ficar para DEPOIS de se estar acima da quota.
+        // The alert can never land AFTER being above the quota.
         for pct in [0u8, 50, 90, 100, 150, 255] {
             let (warn, over) = quota_state_of(1000, Some(1000), Some(pct));
             assert!(
                 warn || !over,
-                "pct={pct}: acima da quota sem estar em alerta é incoerente"
+                "pct={pct}: above the quota without being in alert is incoherent"
             );
         }
     }
@@ -2315,7 +2315,7 @@ mod tests {
     /// A quota that overflows `u64` is an ERROR, never a silent saturation to
     /// `u64::MAX` — which reads as "quota set" but means "no quota at all".
     #[test]
-    fn parse_size_bytes_recusa_overflow_em_vez_de_saturar() {
+    fn parse_size_bytes_rejects_overflow_instead_of_saturating() {
         assert_eq!(parse_size_bytes("99999999999t"), None);
         assert_eq!(parse_size_bytes("18446744073709551616"), None);
         // The largest sane values still parse (no over-eager rejection).
@@ -2327,7 +2327,7 @@ mod tests {
     /// (see `Usage`): 0 is indistinguishable from an empty volume, and that is
     /// what made a rootless quota unable to ever fire.
     #[test]
-    fn usage_marca_subarvore_ilegivel_em_vez_de_devolver_zero() {
+    fn usage_marks_unreadable_subtree_instead_of_returning_zero() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -2340,14 +2340,14 @@ mod tests {
         fs::write(data.join("visible"), vec![1u8; 100]).unwrap();
 
         let before = store.usage_checked("v1");
-        assert!(before.is_complete(), "tudo legível: {before:?}");
-        // Blocos alocados, não tamanho aparente (ver `dir_usage`): 4096+100
-        // bytes de conteúdo ocupam PELO MENOS isso em disco, tipicamente mais
-        // por causa do enchimento até ao bloco. Fixar o número exacto voltaria
-        // a codificar o tamanho do bloco do filesystem no teste.
+        assert!(before.is_complete(), "everything readable: {before:?}");
+        // Allocated blocks, not apparent size (see `dir_usage`): 4096+100 bytes
+        // of content occupy AT LEAST that on disk, typically more because of
+        // padding up to the block. Pinning the exact number would re-encode the
+        // filesystem's block size into the test.
         assert!(
             before.bytes >= 4196,
-            "esperava pelo menos o conteúdo (4196), obtive {}",
+            "expected at least the content (4196), got {}",
             before.bytes
         );
         let all_readable = before.bytes;
@@ -2361,14 +2361,14 @@ mod tests {
             assert_eq!(after.unreadable, 1);
             assert!(
                 after.bytes > 0 && after.bytes < all_readable,
-                "só o que foi legível conta: {} (total legível era {all_readable})",
+                "only what was readable counts: {} (readable total was {all_readable})",
                 after.bytes
             );
             let qs = quota_state_checked_of(after, Some(50), Some(90));
-            assert!(!qs.measured, "não medido tem de ser 'desconhecido'");
+            assert!(!qs.measured, "unmeasured must be 'unknown'");
             assert!(
                 !qs.above_quota,
-                "e nunca afirmar 'acima' nem 'dentro' da quota"
+                "and never claim 'above' nor 'within' the quota"
             );
         }
         fs::set_permissions(&hidden, fs::Permissions::from_mode(0o755)).unwrap();
@@ -2379,7 +2379,7 @@ mod tests {
     /// bytes, because the name then frees up and the next `create` of it hands
     /// the previous owner's data to someone else.
     #[test]
-    fn remove_que_falha_nao_apaga_o_meta_nem_orfaniza_os_dados() {
+    fn remove_that_fails_does_not_delete_the_meta_nor_orphan_the_data() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -2398,20 +2398,20 @@ mod tests {
             // The invariant that matters: the record survived the failure.
             assert!(
                 store.meta_path("v1").exists(),
-                "meta.json foi apagado numa remoção FALHADA — é este o bug"
+                "meta.json was deleted on a FAILED removal — this is the bug"
             );
             assert!(
                 store.inspect("v1").is_ok(),
-                "o volume tem de continuar visível"
+                "the volume must remain visible"
             );
             assert!(
                 store.list().unwrap().iter().any(|v| v.name == "v1"),
-                "e continuar em `ls`, para não haver dados órfãos invisíveis"
+                "and stay in `ls`, so there are no invisible orphaned data"
             );
             assert_eq!(
                 fs::read(inner.join("secret")).unwrap(),
                 b"tenant-a",
-                "os dados do dono continuam lá"
+                "the owner's data is still there"
             );
         }
     }
@@ -2419,7 +2419,7 @@ mod tests {
     /// The happy path still removes everything, and the injected `rmtree` hook
     /// is what gets a chance at a tree the plain `fs` path cannot unlink.
     #[test]
-    fn remove_apaga_tudo_e_chama_o_rmtree_injectado() {
+    fn remove_deletes_everything_and_calls_the_injected_rmtree() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         let store = VolumeStore::open(base).unwrap();
@@ -2432,10 +2432,10 @@ mod tests {
 
         assert!(
             !store.volume_dir("v1").exists(),
-            "o volume tem de desaparecer"
+            "the volume must disappear"
         );
         assert!(store.inspect("v1").is_err());
-        assert!(called.get() >= 1, "o rmtree injectado tem de ser tentado");
+        assert!(called.get() >= 1, "the injected rmtree must be attempted");
         // Removing what is already gone is an error (docker parity), not a panic.
         assert!(store.remove("v1").is_err());
     }
@@ -2443,7 +2443,7 @@ mod tests {
     /// A `ShareVolume`'s EXTERNAL data must survive un-registering it — only
     /// this store's own bookkeeping dir goes away.
     #[test]
-    fn remove_de_volume_externo_preserva_os_dados_partilhados() {
+    fn remove_of_external_volume_preserves_the_shared_data() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         let store = VolumeStore::open(base).unwrap();
@@ -2454,11 +2454,11 @@ mod tests {
         fs::write(shared.join("data"), b"nas-payload").unwrap();
 
         store.remove("tenant-a").unwrap();
-        assert!(store.inspect("tenant-a").is_err(), "o registo sai");
+        assert!(store.inspect("tenant-a").is_err(), "the record goes away");
         assert_eq!(
             fs::read(shared.join("data")).unwrap(),
             b"nas-payload",
-            "os dados do NAS NUNCA saem por um `rm` de share"
+            "the NAS data NEVER leaves via an `rm` of a share"
         );
     }
 }

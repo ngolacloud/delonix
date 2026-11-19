@@ -445,7 +445,7 @@ mod tests {
         from_const.sort();
         assert_eq!(
             from_struct, from_const,
-            "PROVISION_FIELDS divergiu de ProvisionSpec — actualiza a const"
+            "PROVISION_FIELDS diverged from ProvisionSpec — update the const"
         );
     }
 
@@ -456,7 +456,7 @@ mod tests {
         from_const.sort();
         assert_eq!(
             from_struct, from_const,
-            "TRUENAS_FIELDS divergiu de TrueNasSpec — actualiza a const"
+            "TRUENAS_FIELDS diverged from TrueNasSpec — update the const"
         );
     }
 
@@ -481,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    fn o_host_vem_do_url_e_nao_de_um_campo_a_parte() {
+    fn the_host_comes_from_the_url_not_a_separate_field() {
         assert_eq!(host_of_url("https://nas.local").unwrap(), "nas.local");
         assert_eq!(host_of_url("https://nas.local:8443").unwrap(), "nas.local");
         assert_eq!(host_of_url("https://10.0.0.5/api/").unwrap(), "10.0.0.5");
@@ -491,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn o_modo_e_octal_e_vem_de_uma_string() {
+    fn the_mode_is_octal_and_comes_from_a_string() {
         assert_eq!(parse_mode("0770").unwrap(), 0o770);
         assert_eq!(parse_mode("770").unwrap(), 0o770);
         assert_eq!(parse_mode("0o755").unwrap(), 0o755);

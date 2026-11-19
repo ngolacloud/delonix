@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Verificador de contraste WCAG AA dos tokens de cor da documentação (§8).
+"""WCAG AA contrast checker for the documentation's colour tokens (§8).
 
-Determinístico, sem browser. Sai != 0 se algum par de texto falhar AA (4.5:1
-normal, 3.0:1 texto grande / componentes). Mantém-se em par com os tokens de
-`CSS` em `docs/gen.py`; actualizar aqui quando a paleta mudar.
+Deterministic, no browser. Exits != 0 if any text pair fails AA (4.5:1 normal,
+3.0:1 large text / components). Kept in sync with the `CSS` tokens in
+`docs/gen.py`; update here when the palette changes.
 
     python3 docs/testing/contrast.py
 """
@@ -27,26 +27,26 @@ def ratio(a, b):
     return (hi + 0.05) / (lo + 0.05)
 
 
-# (nome, fg, bg, limiar). 3.0 = texto grande/componente; 4.5 = texto normal.
+# (name, fg, bg, threshold). 3.0 = large text/component; 4.5 = normal text.
 PAIRS = [
-    # Claro
-    ("claro: ink/bg", "#1a1a2e", "#ffffff", 4.5),
-    ("claro: muted/bg", "#5a6472", "#ffffff", 4.5),
-    ("claro: muted/side", "#5a6472", "#f7f8fa", 4.5),
-    ("claro: link/bg", "#b8420a", "#ffffff", 4.5),
-    ("claro: link/soft (nav+passos)", "#b8420a", "#fff0e6", 4.5),
-    ("claro: btn/pill branco/strong", "#ffffff", "#b8420a", 4.5),
-    ("claro: out-ink/bg", "#4a5563", "#ffffff", 4.5),
-    ("claro: tok-comment/code", "#9da7b3", "#0f172a", 4.5),
-    ("claro: code-head-ink/head", "#cbd5e1", "#1e293b", 4.5),
-    # Escuro
-    ("escuro: ink/bg", "#e6e8ee", "#0d1117", 4.5),
-    ("escuro: muted/bg", "#9aa4b2", "#0d1117", 4.5),
-    ("escuro: muted/side", "#9aa4b2", "#10151c", 4.5),
-    ("escuro: link/bg", "#f4733b", "#0d1117", 4.5),
-    ("escuro: link/soft", "#f4733b", "#2a1810", 4.5),
-    ("escuro: tok-comment/code", "#8b949e", "#161b22", 4.5),
-    ("escuro: code-head-ink/head", "#9aa4b2", "#1b222c", 4.5),
+    # Light
+    ("light: ink/bg", "#1a1a2e", "#ffffff", 4.5),
+    ("light: muted/bg", "#5a6472", "#ffffff", 4.5),
+    ("light: muted/side", "#5a6472", "#f7f8fa", 4.5),
+    ("light: link/bg", "#b8420a", "#ffffff", 4.5),
+    ("light: link/soft (nav+steps)", "#b8420a", "#fff0e6", 4.5),
+    ("light: btn/pill white/strong", "#ffffff", "#b8420a", 4.5),
+    ("light: out-ink/bg", "#4a5563", "#ffffff", 4.5),
+    ("light: tok-comment/code", "#9da7b3", "#0f172a", 4.5),
+    ("light: code-head-ink/head", "#cbd5e1", "#1e293b", 4.5),
+    # Dark
+    ("dark: ink/bg", "#e6e8ee", "#0d1117", 4.5),
+    ("dark: muted/bg", "#9aa4b2", "#0d1117", 4.5),
+    ("dark: muted/side", "#9aa4b2", "#10151c", 4.5),
+    ("dark: link/bg", "#f4733b", "#0d1117", 4.5),
+    ("dark: link/soft", "#f4733b", "#2a1810", 4.5),
+    ("dark: tok-comment/code", "#8b949e", "#161b22", 4.5),
+    ("dark: code-head-ink/head", "#9aa4b2", "#1b222c", 4.5),
 ]
 
 fails = 0
@@ -57,5 +57,5 @@ for name, fg, bg, need in PAIRS:
         fails += 1
     print(f"  [{tag}] {r:5.2f} (>= {need}) {name}  {fg} on {bg}")
 
-print(f"\n{'OK' if not fails else 'FALHAS: ' + str(fails)} — contraste WCAG AA")
+print(f"\n{'OK' if not fails else 'FAILURES: ' + str(fails)} — WCAG AA contrast")
 sys.exit(1 if fails else 0)

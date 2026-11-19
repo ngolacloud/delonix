@@ -1248,7 +1248,7 @@ mod tests {
     }
 
     #[test]
-    fn recurso_ausente_e_criado() {
+    fn a_missing_resource_is_created() {
         let p = plan(&[desired("web", &[("image", "nginx")])], &[], "s");
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].action, Action::Create);
@@ -1256,7 +1256,7 @@ mod tests {
     }
 
     #[test]
-    fn recurso_igual_e_noop() {
+    fn an_identical_resource_is_a_noop() {
         let p = plan(
             &[desired("web", &[("image", "nginx")])],
             &[actual("web", &[("image", "nginx")], Some("s"))],
@@ -1270,7 +1270,7 @@ mod tests {
     /// The whole point of the module: a manifest that changed must produce
     /// work. Before this, `apply` printed «already exists, nothing to do».
     #[test]
-    fn campo_quente_produz_update_e_nao_replace() {
+    fn a_hot_field_produces_update_not_replace() {
         let p = plan(
             &[desired("web", &[("image", "nginx"), ("memory", "512M")])],
             &[actual(
@@ -1289,7 +1289,7 @@ mod tests {
     }
 
     #[test]
-    fn campo_frio_produz_replace_e_nomeia_todos_os_campos() {
+    fn a_cold_field_produces_replace_and_names_all_fields() {
         let p = plan(
             &[desired(
                 "web",
@@ -1318,7 +1318,7 @@ mod tests {
     /// Three-way, the row that a two-way diff cannot get right: a field the
     /// user set BY HAND (never ours) must survive an apply untouched.
     #[test]
-    fn campo_que_nunca_foi_nosso_nao_e_revertido() {
+    fn a_field_that_was_never_ours_is_not_reverted() {
         let a = Actual {
             last_applied: Some(map(&[("image", "nginx")])),
             ..actual(
@@ -1338,7 +1338,7 @@ mod tests {
 
     /// The other row: a field WE set, now gone from the manifest, is reverted.
     #[test]
-    fn campo_retirado_do_manifesto_e_revertido() {
+    fn a_field_removed_from_the_manifest_is_reverted() {
         let a = Actual {
             last_applied: Some(map(&[("image", "nginx"), ("ports", "8080:80")])),
             ..actual(
@@ -1354,7 +1354,7 @@ mod tests {
     }
 
     #[test]
-    fn recurso_sem_dono_e_adoptado_e_nao_duplicado() {
+    fn an_unowned_resource_is_adopted_not_duplicated() {
         let p = plan(
             &[desired("web", &[("image", "nginx")])],
             &[actual("web", &[("image", "nginx")], None)],
@@ -1366,14 +1366,14 @@ mod tests {
 
     /// Two stacks converging the same resource would flap it on every apply.
     #[test]
-    fn recurso_de_outra_stack_e_conflito_e_nunca_tocado() {
+    fn a_resource_of_another_stack_is_a_conflict_and_never_touched() {
         let p = plan(
             &[desired("web", &[("image", "nginx:1.27")])],
-            &[actual("web", &[("image", "nginx:1.24")], Some("outra"))],
+            &[actual("web", &[("image", "nginx:1.24")], Some("other"))],
             "s",
         );
         assert_eq!(p[0].action, Action::Conflict);
-        assert!(p[0].reason.as_deref().unwrap().contains("outra"));
+        assert!(p[0].reason.as_deref().unwrap().contains("other"));
         assert!(
             p[0].diffs.is_empty(),
             "a conflict must not even compute a diff — there is nothing to offer"
@@ -1381,18 +1381,18 @@ mod tests {
     }
 
     #[test]
-    fn so_o_que_a_stack_possui_e_candidato_a_remocao() {
+    fn only_what_the_stack_owns_is_a_removal_candidate() {
         let p = plan(
             &[],
             &[
-                actual("meu", &[("image", "nginx")], Some("s")),
-                actual("alheio", &[("image", "nginx")], Some("outra")),
-                actual("a-mao", &[("image", "nginx")], None),
+                actual("mine", &[("image", "nginx")], Some("s")),
+                actual("others", &[("image", "nginx")], Some("other")),
+                actual("by-hand", &[("image", "nginx")], None),
             ],
             "s",
         );
         assert_eq!(p.len(), 1, "only ours is a deletion candidate: {p:?}");
-        assert_eq!(p[0].name, "meu");
+        assert_eq!(p[0].name, "mine");
         assert_eq!(p[0].action, Action::Delete);
     }
 
@@ -1400,7 +1400,7 @@ mod tests {
     /// plan that hides a resource reads as «no changes», which is the exact
     /// dishonesty this module exists to remove.
     #[test]
-    fn kind_nao_convergente_aparece_no_plano() {
+    fn a_non_converging_kind_appears_in_the_plan() {
         let d = Desired {
             kind: "Vm".into(),
             name: "db".into(),
@@ -1422,8 +1422,8 @@ mod tests {
     }
 
     #[test]
-    fn last_applied_faz_round_trip_e_um_valor_corrompido_degrada_para_none() {
-        let m = map(&[("image", "nginx"), ("cmd", "sh -c \"echo\nolá\"")]);
+    fn last_applied_round_trips_and_a_corrupt_value_degrades_to_none() {
+        let m = map(&[("image", "nginx"), ("cmd", "sh -c \"echo\nhi\"")]);
         let raw = encode_last_applied(&m);
         assert!(
             !raw.contains('\n'),
@@ -1434,7 +1434,7 @@ mod tests {
     }
 
     #[test]
-    fn list_delta_da_o_que_acrescentar_e_o_que_tirar() {
+    fn list_delta_gives_what_to_add_and_what_to_remove() {
         let (rm, add) = list_delta(Some("8080:80,9090:90"), Some("8080:80,7070:70"));
         assert_eq!(rm, vec!["9090:90".to_string()]);
         assert_eq!(add, vec!["7070:70".to_string()]);
@@ -1447,7 +1447,7 @@ mod tests {
     }
 
     #[test]
-    fn o_resumo_conta_por_accao() {
+    fn the_summary_counts_per_action() {
         let p = plan(
             &[
                 desired("a", &[("image", "x")]),
@@ -1461,11 +1461,11 @@ mod tests {
         assert_eq!(s.get("unchanged"), Some(&1));
     }
 
-    /// Conteúdo PARTILHADO não se adopta nem se poda. A mesma imagem serve
-    /// todas as stacks do host; carimbá-la para uma e removê-la quando essa
-    /// deixasse de a declarar tirava-a debaixo das outras.
+    /// SHARED content is neither adopted nor pruned. The same image serves every
+    /// stack on the host; stamping it for one and removing it when that one
+    /// stopped declaring it would pull it out from under the others.
     #[test]
-    fn um_recurso_nao_possuivel_nunca_e_adoptado_nem_removido() {
+    fn an_unownable_resource_is_never_adopted_nor_removed() {
         let d = Desired {
             kind: "Image".into(),
             name: "base".into(),
@@ -1485,12 +1485,12 @@ mod tests {
         assert_eq!(
             p[0].action,
             Action::NoOp,
-            "sem dono é o estado NORMAL de conteúdo partilhado, não algo a corrigir"
+            "unowned is the NORMAL state of shared content, not something to fix"
         );
-        // E fora do manifesto continua a não ser candidato a remoção.
+        // And outside the manifest it is still not a removal candidate.
         assert!(
             plan(&[], &[a], "s").is_empty(),
-            "conteúdo partilhado nunca entra no --prune"
+            "shared content never enters --prune"
         );
     }
 
@@ -1501,7 +1501,7 @@ mod tests {
     fn without_facts_a_vm_change_is_still_a_recreate() {
         assert!(
             hot_fields("Vm").is_empty(),
-            "um campo quente numa VM prometeria um update que o motor não sabe fazer"
+            "a hot field on a VM would promise an update the engine cannot perform"
         );
         let d = Desired {
             kind: "Vm".into(),
@@ -1750,7 +1750,7 @@ mod tests {
             assert_eq!(
                 c.action,
                 Action::Update,
-                "{field}: devia convergir em vivo, não exigir --replace"
+                "{field}: should converge live, not require --replace"
             );
             assert!(c.cold_fields.is_empty(), "{field}: {:?}", c.cold_fields);
             assert!(c.diffs.iter().all(|d| d.hot), "{field}: {:?}", c.diffs);

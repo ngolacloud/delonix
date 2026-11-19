@@ -469,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn load_e_remove_recusam_nomes_com_traversal() {
+    fn load_and_remove_refuse_names_with_traversal() {
         // BUG regression guard: only `save` validated the name — `load`/
         // `remove` built `<root>/<name>.json` from the raw name, so
         // `../../../home/x` (or any path resolving to an existing .json)
@@ -488,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn update_faz_read_modify_write_sem_perder_chaves() {
+    fn update_does_read_modify_write_without_losing_keys() {
         // Sequential stand-in for the concurrent-writer race `update` fixes
         // (two `secret set db A=1` / `secret set db B=2` racing a naive
         // load+mutate+save used to silently drop one key) — `update`'s own
@@ -521,12 +521,12 @@ mod tests {
             .unwrap();
         assert!(
             aborted.data.contains_key("C"),
-            "o valor devolvido reflecte a mutação tentada"
+            "the returned value reflects the attempted mutation"
         );
         assert_eq!(
             s.load("db").unwrap().updated_unix,
             before,
-            "mas nada foi persistido — f devolveu false"
+            "but nothing was persisted — f returned false"
         );
         assert!(!s.load("db").unwrap().data.contains_key("C"));
     }
@@ -551,11 +551,11 @@ mod tests {
         let raw = std::fs::read(dir.join("secrets/app.json")).unwrap();
         assert!(
             !String::from_utf8_lossy(&raw).contains("PLAINTEXT-MARKER-XYZ"),
-            "o valor do segredo vazou em claro no disco!"
+            "the secret value leaked in cleartext on disk!"
         );
         assert!(
             raw.starts_with(SEALED_MAGIC),
-            "ficheiro devia ter o cabeçalho cifrado"
+            "file should carry the encrypted header"
         );
         // round-trip decrypts correctly.
         assert_eq!(
@@ -639,7 +639,7 @@ mod tests {
         let key_before = std::fs::read(dir.join("tunnels/keyring.key")).unwrap();
         store.rotate_key().unwrap();
         let key_after = std::fs::read(dir.join("tunnels/keyring.key")).unwrap();
-        assert_ne!(key_before, key_after, "a chave-mestra não rodou");
+        assert_ne!(key_before, key_after, "the master key did not rotate");
 
         // values preserved, readable with the new key (in memory and reopening from disk).
         assert_eq!(store.load("s1").unwrap().data.get("A").unwrap(), "1");

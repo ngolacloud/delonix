@@ -346,7 +346,7 @@ pub struct TlsSpec {
 /// dispatches by path prefix to a backend.
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct RouteRule {
-    /// Host name to match (e.g.: `loja.exemplo.ao`). Empty/omitted = any Host.
+    /// Host name to match (e.g.: `shop.example.com`). Empty/omitted = any Host.
     #[serde(default)]
     pub host: Option<String>,
     /// Sub-rules by path prefix. Required and non-empty.
@@ -387,7 +387,7 @@ pub fn valid_host(h: &str) -> bool {
         return false;
     }
     // Each label (separated by `.`) must be non-empty and not start/end with
-    // `-` — otherwise `loja..exemplo`/`loja.`/`-loja` would pass and the rule
+    // `-` — otherwise `shop..example`/`shop.`/`-shop` would pass and the rule
     // would be dead (a real `Host:` never has that form). Alphabet: alnum + `-`.
     h.split('.').all(|label| {
         !label.is_empty()
@@ -854,7 +854,7 @@ fn container_ips_from(list: Vec<Container>) -> std::collections::HashMap<String,
             continue;
         };
         // The pod NAME is what a route names (and what the validator promised);
-        // `<pod>-<member>` is added for completeness. `or_insert` never pisa a real
+        // `<pod>-<member>` is added for completeness. `or_insert` never steps on a real
         // container from step 1 nor an already-resolved pod.
         m.entry(pod.to_string()).or_insert_with(|| ip.clone());
         for c in &members {
@@ -2175,28 +2175,28 @@ mod tests {
     }
 
     #[test]
-    fn valid_host_rejeita_lixo_e_aceita_dns() {
-        assert!(valid_host("loja.exemplo.ao"));
+    fn valid_host_rejects_junk_and_accepts_dns() {
+        assert!(valid_host("shop.example.com"));
         assert!(valid_host("api-v2.example.com"));
         assert!(!valid_host(""));
-        assert!(!valid_host("loja.exemplo.ao/path")); // with path
-        assert!(!valid_host("loja:8080")); // with port
+        assert!(!valid_host("shop.example.com/path")); // with path
+        assert!(!valid_host("shop:8080")); // with port
         assert!(!valid_host("a b")); // space
         assert!(!valid_host(".leading.dot"));
         assert!(!valid_host("host;rm -rf"));
     }
 
     #[test]
-    fn valid_host_rejeita_labels_vazias_e_hifens_de_bordo() {
-        assert!(!valid_host("loja..exemplo")); // empty label
-        assert!(!valid_host("loja.")); // trailing dot
-        assert!(!valid_host("-loja.com")); // hyphen at the head of the label
-        assert!(!valid_host("loja-.com")); // hyphen at the end of the label
+    fn valid_host_rejects_empty_labels_and_edge_hyphens() {
+        assert!(!valid_host("shop..example")); // empty label
+        assert!(!valid_host("shop.")); // trailing dot
+        assert!(!valid_host("-shop.com")); // hyphen at the head of the label
+        assert!(!valid_host("shop-.com")); // hyphen at the end of the label
         assert!(valid_host("a.b.c")); // 1-char labels, ok
     }
 
     #[test]
-    fn rota_duplicada_host_path_falha() {
+    fn duplicate_host_path_route_fails() {
         let r = parse(
             "rules:\n  - host: x.example\n    paths:\n      - { path: /, backend: { service: a, port: 80 } }\n  - host: x.example\n    paths:\n      - { path: /, backend: { service: b, port: 81 } }\n",
         );
@@ -2261,7 +2261,7 @@ defaultBackend:
     fn tls_hosts_are_reported_as_not_applied() {
         let yaml = "\
 tls:
-  - hosts: [shop.example.ao, loja.example.ao]
+  - hosts: [shop.example.ao, blog.example.ao]
     secretName: shop-tls
 ";
         let ing: IngressSpec = serde_yaml::from_str(yaml).unwrap();
@@ -2270,7 +2270,7 @@ tls:
         // The message has to NAME what was written, otherwise the author cannot
         // tell which of several hosts is the one losing its certificate.
         assert!(w[0].contains("shop.example.ao"), "{}", w[0]);
-        assert!(w[0].contains("loja.example.ao"), "{}", w[0]);
+        assert!(w[0].contains("blog.example.ao"), "{}", w[0]);
         assert!(w[0].contains("Ingress/shop"), "{}", w[0]);
     }
 
@@ -2378,7 +2378,7 @@ rules:
     }
 
     #[test]
-    fn valid_path_prefix_exige_barra_e_rejeita_traversal() {
+    fn valid_path_prefix_requires_slash_and_rejects_traversal() {
         assert!(valid_path_prefix("/"));
         assert!(valid_path_prefix("/api/v2"));
         assert!(!valid_path_prefix("api")); // no leading slash
@@ -2387,7 +2387,7 @@ rules:
     }
 
     #[test]
-    fn valid_service_alfabeto_de_nome_de_recurso() {
+    fn valid_service_resource_name_alphabet() {
         assert!(valid_service("web"));
         assert!(valid_service("api-prod_2"));
         assert!(!valid_service(""));
@@ -2402,37 +2402,36 @@ rules:
         Ok(hr)
     }
 
-    /// **Deriva ETERNA, e no caso mais comum que existe.**
+    /// **ETERNAL drift, and in the single most common case there is.**
     ///
-    /// O `resolve_config` aplica os defaults (`:80`, mais `:443` se houver
-    /// `tls`) quando o manifesto não declara `entrypoints`; o `desired()` lia
-    /// `spec.entrypoints` em CRU. Um ficheiro sem `entrypoints` — o que
-    /// praticamente toda a gente escreve — dava `desired=""` contra
-    /// `actual="80"`, ou seja uma diferença em TODOS os planos de um manifesto
-    /// que ninguém tocou. E um plano que reporta deriva sempre vale menos que
-    /// plano nenhum.
+    /// `resolve_config` applies the defaults (`:80`, plus `:443` when `tls` is
+    /// present) when the manifest declares no `entrypoints`; `desired()` read
+    /// `spec.entrypoints` RAW. A file without `entrypoints` — which is what
+    /// practically everyone writes — gave `desired=""` against `actual="80"`,
+    /// i.e. a difference on EVERY plan of a manifest nobody touched. And a plan
+    /// that always reports drift is worth less than no plan at all.
     ///
-    /// Uma regra, um dono: as duas metades chamam a mesma função.
+    /// One rule, one owner: both halves call the same function.
     #[test]
-    fn os_entrypoints_por_omissao_sao_os_mesmos_nos_dois_lados() {
-        let sem =
+    fn default_entrypoints_are_the_same_on_both_sides() {
+        let without_tls =
             parse("rules:\n  - paths:\n      - backend: { service: web, port: 80 }\n").unwrap();
-        let eps = super::effective_entrypoints(&sem);
+        let eps = super::effective_entrypoints(&without_tls);
         assert_eq!(eps.len(), 1, "{eps:?}");
         assert_eq!((eps[0].port, eps[0].tls), (80, false));
 
-        // Com TLS declarado, o default ganha o :443 — e o desired tem de o ver
-        // também, senão ligar TLS parece mudar um listener que ninguém escreveu.
-        let com_tls = parse(
+        // With TLS declared, the default gains the :443 — and desired has to see
+        // it too, otherwise turning TLS on looks like changing a listener nobody wrote.
+        let with_tls = parse(
             "tls: { mode: selfSigned }\nrules:\n  - paths:\n      - backend: { service: web, port: 80 }\n",
         )
         .unwrap();
-        let eps = super::effective_entrypoints(&com_tls);
+        let eps = super::effective_entrypoints(&with_tls);
         assert_eq!(eps.len(), 2, "{eps:?}");
         assert!(eps.iter().any(|e| e.port == 443 && e.tls));
 
-        // Declarado explicitamente, manda o que está escrito — sem defaults por
-        // cima.
+        // Declared explicitly, it sends what is written — no defaults layered
+        // on top.
         let expl = parse(
             "entrypoints: [{ port: 8443, tls: true }]\ntls: { mode: selfSigned }\nrules:\n  - paths:\n      - backend: { service: web, port: 80 }\n",
         )
@@ -2442,53 +2441,53 @@ rules:
         assert_eq!((eps[0].port, eps[0].tls), (8443, true));
     }
 
-    /// O `hot_fields` é uma promessa, e para este Kind estava VAZIA enquanto o
-    /// `RECONCILED_HTTPROUTE_FIELDS` prometia que tudo converge a quente.
+    /// `hot_fields` is a promise, and for this Kind it was EMPTY while
+    /// `RECONCILED_HTTPROUTE_FIELDS` promised everything converges hot.
     ///
-    /// Com a tabela vazia, todo o diff era frio → `Replace` → recusado sem
-    /// `--replace` → e com ele o `destroy_one` erra, porque uma config COLECTIVA
-    /// não tem teardown por documento. O braço do `converge_all` era
-    /// inalcançável. Este teste fixa as duas metades juntas.
+    /// With the table empty, every diff was cold → `Replace` → refused without
+    /// `--replace` → and with it `destroy_one` errs, because a COLLECTIVE config
+    /// has no per-document teardown. The `converge_all` arm was unreachable.
+    /// This test pins the two halves together.
     #[test]
-    fn todos_os_campos_comparados_do_httproute_convergem_a_quente() {
+    fn all_compared_httproute_fields_converge_hot() {
         for kind in ["HTTPRoute", "Ingress"] {
             let hot = crate::cmd::reconcile::hot_fields_for(kind);
             for f in super::RECONCILED_HTTPROUTE_FIELDS {
                 assert!(
                     hot.contains(f),
-                    "{kind}: '{f}' é comparado mas não converge a quente — o plano \
-                     proporia um Replace que o `destroy_one` não sabe executar"
+                    "{kind}: '{f}' is compared but does not converge hot — the plan \
+                     would propose a Replace that `destroy_one` does not know how to run"
                 );
             }
         }
     }
 
-    /// **O `actual` do TLS copiava o DESEJADO.**
+    /// **The TLS `actual` copied the DESIRED.**
     ///
-    /// A config guarda o material (cert+chave) e um cert não diz de onde veio,
-    /// por isso o lado real reportava `spec_tls_mode(doc)` — o valor pedido.
-    /// Resultado: trocar `selfSigned` por `secretRef` numa rota que já tinha TLS
-    /// não produzia diferença nenhuma, e o plano dizia «sem alterações» sobre um
-    /// certificado que ia ser substituído. Um campo que devolve o desejado não é
-    /// uma observação.
+    /// The config stores the material (cert+key) and a cert does not say where it
+    /// came from, so the real side reported `spec_tls_mode(doc)` — the requested
+    /// value. Result: swapping `selfSigned` for `secretRef` on a route that
+    /// already had TLS produced no difference at all, and the plan said «no
+    /// changes» about a certificate that was about to be replaced. A field that
+    /// returns the desired is not an observation.
     #[test]
-    fn o_modo_do_tls_e_registado_com_o_material() {
-        let m = super::ingress_proxy::self_signed_pem(&["a.exemplo.ao".into()]).unwrap();
+    fn tls_mode_is_recorded_with_the_material() {
+        let m = super::ingress_proxy::self_signed_pem(&["a.example.ao".into()]).unwrap();
         assert_eq!(m.mode, "selfSigned");
-        // E o material de um Secret carrega o seu, logo os dois são
-        // distinguíveis depois de gerados — que era o que faltava.
+        // And a Secret's material carries its own, so the two are distinguishable
+        // once generated — which was what was missing.
         assert_ne!(m.mode, "secretRef");
-        // Uma config escrita antes deste campo lê-se com modo vazio («desconhecido»),
-        // e não a fingir que era self-signed.
-        let antigo: super::ingress_proxy::TlsMaterial =
+        // A config written before this field reads back with an empty mode
+        // («unknown»), and not pretending it was self-signed.
+        let old: super::ingress_proxy::TlsMaterial =
             serde_json::from_str(r#"{"certPem":"c","keyPem":"k"}"#).unwrap();
-        assert_eq!(antigo.mode, "");
+        assert_eq!(old.mode, "");
     }
 
     #[test]
-    fn spec_valido_passa() {
+    fn valid_spec_passes() {
         let hr = parse(
-            "rules:\n  - host: loja.exemplo.ao\n    paths:\n      - path: /\n        backend: { service: web, port: 8080 }\n",
+            "rules:\n  - host: shop.example.ao\n    paths:\n      - path: /\n        backend: { service: web, port: 8080 }\n",
         )
         .unwrap();
         assert_eq!(hr.rules.len(), 1);
@@ -2497,19 +2496,19 @@ rules:
     }
 
     #[test]
-    fn path_default_e_barra() {
+    fn default_path_is_slash() {
         let hr =
             parse("rules:\n  - paths:\n      - backend: { service: web, port: 80 }\n").unwrap();
         assert_eq!(hr.rules[0].paths[0].path, "/");
     }
 
     #[test]
-    fn rules_vazio_falha() {
+    fn empty_rules_fails() {
         assert!(parse("rules: []\n").is_err());
     }
 
     #[test]
-    fn entrypoint_tls_sem_spec_tls_falha() {
+    fn entrypoint_tls_without_spec_tls_fails() {
         let r = parse(
             "entrypoints:\n  - { port: 443, tls: true }\nrules:\n  - paths:\n      - backend: { service: web, port: 80 }\n",
         );
@@ -2517,7 +2516,7 @@ rules:
     }
 
     #[test]
-    fn tls_secretref_sem_nome_falha() {
+    fn tls_secretref_without_name_fails() {
         let r = parse(
             "tls: { mode: secretRef }\nrules:\n  - paths:\n      - backend: { service: web, port: 80 }\n",
         );
@@ -2525,7 +2524,7 @@ rules:
     }
 
     #[test]
-    fn backend_service_malicioso_rejeitado() {
+    fn malicious_backend_service_rejected() {
         let r =
             parse("rules:\n  - paths:\n      - backend: { service: \"web; rm -rf\", port: 80 }\n");
         assert!(r.is_err());

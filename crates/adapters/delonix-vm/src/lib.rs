@@ -125,9 +125,9 @@ fn store(base: &Path, namespace: &str) -> Result<JsonStore<Vm>> {
     .map_err(state_err)
 }
 
-// `is_alive` era uma TERCEIRA cópia da mesma pergunta (a do motor usa o
-// `kill(pid, 0)`, esta lia `/proc`). Usa-se agora a do `delonix-node`,
-// que é também onde vive o `safe_to_signal` que fecha a reciclagem de PID.
+// `is_alive` was a THIRD copy of the same question (the engine's uses
+// `kill(pid, 0)`, this one read `/proc`). We now use `delonix-node`'s, which is
+// also where `safe_to_signal` lives — the one that closes PID recycling.
 
 /// `true` if a VM with this name already exists.
 pub fn exists(base: &Path, name: &str) -> bool {
@@ -1202,7 +1202,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn so_o_cloud_hypervisor_preve_o_ip_em_vez_de_o_observar() {
+    fn only_cloud_hypervisor_predicts_the_ip_instead_of_observing_it() {
         // The whole point of the flag, and the reason it is checked here rather
         // than trusted: a backend that predicts an address without declaring it
         // makes `vm create --wait` announce "is up" in 60ms over a guest that
@@ -1231,7 +1231,7 @@ mod tests {
     }
 
     #[test]
-    fn valid_vm_name_recusa_exploits() {
+    fn valid_vm_name_refuses_exploits() {
         // Path traversal (seed/overlay outside the state dir), via CLI or manifest.
         assert!(!super::valid_vm_name("../../.ssh/authorized_keys"));
         assert!(!super::valid_vm_name("a/b"));
@@ -1342,7 +1342,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(Pausable))),
         })
-        .expect("registar");
+        .expect("register");
 
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -1379,7 +1379,7 @@ mod tests {
     }
 
     #[test]
-    fn stop_e_remove_de_vm_inexistente_dizem_no_such_vm() {
+    fn stop_and_remove_of_a_nonexistent_vm_say_no_such_vm() {
         // Regression from the bug report: `vm stop dev` without a record answered
         // "no such container: dev" — wrong noun for a VM — and
         // `vm rm` of a non-existent name returned silent success.
@@ -1466,7 +1466,7 @@ mod tests {
                 report: crate::capabilities::undeclared("fake"),
                 new: Box::new(|| Ok(Box::new(Stopped))),
             })
-            .expect("registar");
+            .expect("register");
             // SAFETY: setrlimit + ignoring SIGXFSZ turns the oversized write into
             // EFBIG rather than a fatal signal; this is a throwaway process.
             unsafe {
@@ -1520,7 +1520,7 @@ mod tests {
             .env("DELONIX_TEST_MOVE_NS_CHILD", base)
             .stdout(std::process::Stdio::null())
             .status()
-            .expect("re-exec do filho");
+            .expect("re-exec of the child");
         let code = st.code().unwrap_or(-1);
 
         assert_eq!(
@@ -1571,7 +1571,7 @@ mod tests {
     }
 
     #[test]
-    fn vm_admission_recusa_quando_nao_cabe() {
+    fn vm_admission_refuses_when_it_does_not_fit() {
         // 8 GiB available, no reserve: a 1 PB VM never fits, a 1 MiB VM always does —
         // on any machine, because the numbers are the test's and not the host's.
         assert!(
@@ -1590,7 +1590,7 @@ mod tests {
     }
 
     #[test]
-    fn restart_policy_unsupervised_deteta() {
+    fn restart_policy_unsupervised_detects() {
         // CH/QEMU do not supervise always/on-failure → warns.
         assert!(restart_policy_unsupervised(
             "cloud-hypervisor",
@@ -1608,7 +1608,7 @@ mod tests {
     }
 
     #[test]
-    fn create_recusa_clobber_de_vm_run() {
+    fn create_refuses_to_clobber_a_vm_run_record() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp = tmp_dir.path();
         let vmdir = vms_dir(tmp);
@@ -1675,28 +1675,28 @@ mod tests {
     /// name is recognised, AND it is still refused (fail-closed — nothing about
     /// this makes an unfinished backend selectable).
     #[test]
-    fn um_backend_conhecido_mas_nao_registado_nao_se_reporta_como_desconhecido() {
+    fn a_known_but_unregistered_backend_is_not_reported_as_unknown() {
         let e = unknown_backend("proxmox").to_string();
         assert!(
             !e.contains("unknown VM backend"),
-            "o proxmox existe neste workspace — nao pode sair como desconhecido: {e}"
+            "proxmox exists in this workspace — it must not come out as unknown: {e}"
         );
         assert!(e.contains("not available in this build"), "{e}");
-        assert!(e.contains("0008"), "a mensagem tem de apontar o ADR: {e}");
-        // A mensagem tem de dizer o que FAZER, e nao so o que falta: o backend
-        // pode ser configurado, e um operador que leia isto quer o passo
-        // seguinte, nao um relatorio de estado.
+        assert!(e.contains("0008"), "the message has to point at the ADR: {e}");
+        // The message has to say what to DO, not just what is missing: the
+        // backend can be configured, and an operator reading this wants the next
+        // step, not a status report.
         assert!(
             e.contains("DELONIX_PROXMOX_URL"),
-            "tem de dizer como o configurar: {e}"
+            "it has to say how to configure it: {e}"
         );
-        // E continua a NAO estar registado por omissao — quem nao configurou um
-        // no nao pode seleccionar um.
+        // And it is still NOT registered by default — whoever did not configure a
+        // node cannot select one.
         assert!(!backend_is_registered("proxmox"));
-        // E um nome que nao existe mesmo continua a dizer que nao existe.
+        // And a name that really does not exist still says it does not exist.
         let o = unknown_backend("naoexiste").to_string();
         assert!(o.contains("unknown VM backend"), "{o}");
-        assert!(o.contains("libvirt"), "nomeia os que servem: {o}");
+        assert!(o.contains("libvirt"), "it names the ones that work: {o}");
     }
 
     /// `backend_for` answers "what IS running this?", and a wrong answer does
@@ -1704,7 +1704,7 @@ mod tests {
     /// record naming anything else got the wrong backend silently: `is_running`
     /// on a live libvirt VM would report it stopped.
     #[test]
-    fn backend_for_recusa_um_registo_com_backend_desconhecido() {
+    fn backend_for_refuses_a_record_with_an_unknown_backend() {
         let mut vm = Vm::new(
             "db".into(),
             "/base.qcow2".into(),
@@ -1721,21 +1721,21 @@ mod tests {
             vm.backend = known.into();
             assert!(
                 backend_for(&vm).is_ok(),
-                "'{known}' está registado e tem de resolver"
+                "'{known}' is registered and has to resolve"
             );
         }
 
-        // O que ANTES caía em cloud-hypervisor em silêncio.
+        // What BEFORE fell through to cloud-hypervisor silently.
         for unknown in ["hyperv", "proxmox", "", "cloud-hypervisr"] {
             vm.backend = unknown.into();
             let msg = match backend_for(&vm) {
-                Ok(_) => panic!("'{unknown}' não está registado e resolveu na mesma"),
+                Ok(_) => panic!("'{unknown}' is not registered and resolved anyway"),
                 Err(e) => e.to_string(),
             };
-            assert!(msg.contains("db"), "a mensagem tem de nomear a VM: {msg}");
+            assert!(msg.contains("db"), "the message has to name the VM: {msg}");
             assert!(
                 msg.contains("libvirt") && msg.contains("cloud-hypervisor"),
-                "e tem de dizer o que É aceite: {msg}"
+                "and it has to say what IS accepted: {msg}"
             );
         }
     }
@@ -1956,7 +1956,7 @@ mod tests {
     /// machine with no TPM, no CPU topology and no extra disks and reported
     /// success — twenty-one fields silently replaced by their defaults.
     #[test]
-    fn a_forma_de_arranque_sobrevive_a_um_start() {
+    fn the_boot_shape_survives_a_start() {
         let cfg = VmConfig {
             name: "dev".into(),
             disk: "/base.qcow2".into(),
@@ -2069,7 +2069,7 @@ mod tests {
     // ---- namespace isolation for VMs ----------------------------------------
 
     #[test]
-    fn vm_namespace_of_normaliza_ausencia_e_vazio() {
+    fn vm_namespace_of_normalizes_absence_and_empty() {
         let mut cfg = VmConfig {
             name: "v".into(),
             ..Default::default()
@@ -2090,7 +2090,7 @@ mod tests {
     fn both_local_backends_support_namespaces() {
         assert!(vm_namespace_supported("cloud-hypervisor"));
         assert!(vm_namespace_supported("libvirt"));
-        assert!(!vm_namespace_supported("qualquer-outro"));
+        assert!(!vm_namespace_supported("any-other"));
     }
 
     /// ADR-0044 D3 rule 3: the two predicates ask the backend's REPORT, never
@@ -2132,7 +2132,7 @@ mod tests {
     /// bitten by three times (`-v` not persisted, `-p` on a custom net, extra
     /// networks lost on restart).
     #[test]
-    fn config_from_preserva_a_namespace() {
+    fn config_from_preserves_the_namespace() {
         let mut vm = Vm::new(
             "v".into(),
             "d".into(),
@@ -2219,7 +2219,7 @@ mod tests {
     }
 
     #[test]
-    fn os_dois_backends_de_hoje_mantem_o_comportamento_de_sempre() {
+    fn the_two_current_backends_keep_their_usual_behaviour() {
         // The defaults are what makes this addition invisible to everything
         // that already exists: both local backends prepare a local overlay and
         // both may be auto-detected, exactly as before.
@@ -2245,14 +2245,14 @@ mod tests {
     /// reason: a remote backend needs an endpoint and a credential, and
     /// `fn() -> Box<dyn VmBackend>` has nowhere to receive them.
     #[test]
-    fn um_backend_de_fora_pode_registar_se_e_passa_a_resolver_por_nome() {
+    fn an_external_backend_can_register_and_then_resolves_by_name() {
         // A name no other test uses: the registry is process-wide and the test
         // harness is threaded.
         let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counter = seen.clone();
         assert!(
             select_backend(Some("fakeremote")).is_err(),
-            "antes de registar nao existe"
+            "before registering it does not exist"
         );
         register_backend(BackendRegistration {
             id: "fakeremote",
@@ -2269,10 +2269,10 @@ mod tests {
                 }))
             }),
         })
-        .expect("registar");
+        .expect("register");
 
-        // Registar NAO constroi: um no inalcancavel nao pode custar nada ate
-        // alguem o escolher.
+        // Registering does NOT build: an unreachable node cannot cost anything
+        // until someone chooses it.
         assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 0);
 
         assert_eq!(
@@ -2282,8 +2282,8 @@ mod tests {
         assert_eq!(select_backend(Some("FR ")).unwrap().id(), "fakeremote");
         assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 2);
 
-        // E um registo que o nomeia resolve — que e o que faltava para
-        // `is_running`/`stop` de uma VM criada por ele.
+        // And a record that names it resolves — which is what was missing for
+        // `is_running`/`stop` of a VM created by it.
         let mut vm = Vm::new(
             "x".into(),
             "local-lvm:8".into(),
@@ -2298,7 +2298,7 @@ mod tests {
         vm.backend = "fakeremote".into();
         assert!(backend_for(&vm).is_ok());
 
-        // Idempotente por id: reconfigurar um alvo substitui, nunca duplica.
+        // Idempotent by id: reconfiguring a target replaces, never duplicates.
         register_backend(BackendRegistration {
             id: "fakeremote",
             aliases: &["fr"],
@@ -2313,19 +2313,19 @@ mod tests {
                 }))
             }),
         })
-        .expect("re-registar");
+        .expect("re-register");
         assert_eq!(
             with_backends(|bs| bs.iter().filter(|b| b.id == "fakeremote").count()),
             1
         );
-        // Limpeza: o registo e do processo inteiro.
+        // Cleanup: the registry belongs to the whole process.
         vm_registry::deregister("fakeremote");
     }
 
     /// Two refusals, and each one is a name that would otherwise go missing in
     /// silence.
     #[test]
-    fn o_registo_recusa_roubar_um_nome_e_recusa_auto_deteccao_de_fora() {
+    fn registration_refuses_to_steal_a_name_and_refuses_external_auto_detection() {
         // Stealing an alias would make the loser unreachable BY NAME, which is
         // the same silent failure the `_ => CloudHypervisorBackend` default was.
         let e = register_backend(BackendRegistration {
@@ -2338,7 +2338,7 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(e.contains("kvm") && e.contains("libvirt"), "{e}");
-        assert!(!backend_is_registered("impostor"), "nao pode ter entrado");
+        assert!(!backend_is_registered("impostor"), "it must not have been entered");
 
         // Auto-detection asks `available()`, and a backend from outside may only
         // be able to answer that over the network (ADR-0008).
@@ -2368,12 +2368,12 @@ mod tests {
     /// entry, and the remote one is never reached either way. A test that
     /// cannot reach the line it is about proves nothing.
     #[test]
-    fn a_auto_deteccao_nao_constroi_um_backend_que_vai_descartar() {
+    fn auto_detection_does_not_build_a_backend_it_will_discard() {
         let built = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counter = built.clone();
         // The remote one FIRST, and no local backend after it that is available
         // — so a walk that builds before filtering has to touch it.
-        let tabela = vec![
+        let table = vec![
             BackendRegistration {
                 id: "remoto",
                 aliases: &[],
@@ -2406,15 +2406,15 @@ mod tests {
         ];
 
         assert_eq!(
-            auto_detect(&tabela, &[]).unwrap().id(),
+            auto_detect(&table, &[]).unwrap().id(),
             "local",
-            "a auto-deteccao tem de escolher o local"
+            "auto-detection has to choose the local one"
         );
         assert_eq!(
             built.load(std::sync::atomic::Ordering::SeqCst),
             0,
-            "a auto-deteccao construiu um backend que o filtro ia descartar — \
-             num backend remoto isso e uma ligacao HTTP a um no que ninguem pediu"
+            "auto-detection built a backend the filter would discard — on a \
+             remote backend that is an HTTP connection to a node nobody asked for"
         );
     }
 
@@ -2547,13 +2547,13 @@ mod tests {
         assert_eq!(m, vec!["net.bridge: not in this provider's report"]);
     }
 
-    // A test that used to live here (`a_auto_deteccao_salta_um_backend_nao_
-    // auto_selecionavel`) is gone rather than kept: it re-implemented the
-    // filter inside the assertion — `[remote, local].filter(auto_selectable)` —
-    // so it asserted that an iterator chain written in the test does what the
+    // A test that used to live here (on auto-detection skipping a
+    // non-auto-selectable backend) is gone rather than kept: it re-implemented
+    // the filter inside the assertion — `[remote, local].filter(auto_selectable)`
+    // — so it asserted that an iterator chain written in the test does what the
     // test says. It could not have caught the ordering bug in `select_backend`
-    // because it never called it. `a_auto_deteccao_nao_constroi_um_backend_que_
-    // vai_descartar` above now drives the real `auto_detect`.
+    // because it never called it. `auto_detection_does_not_build_a_backend_it_
+    // will_discard` above now drives the real `auto_detect`.
 
     /// A failed boot must not delete a file this engine did not create.
     ///
@@ -2568,7 +2568,7 @@ mod tests {
     /// the `manages_own_storage` branch of `create_with` had no registered
     /// backend that reached it, so it was never exercised at all.
     #[test]
-    fn um_boot_falhado_nao_apaga_o_disco_de_um_backend_com_storage_propria() {
+    fn a_failed_boot_does_not_delete_the_disk_of_a_backend_with_its_own_storage() {
         struct FailingRemote;
         impl VmBackend for FailingRemote {
             fn id(&self) -> &'static str {
@@ -2609,7 +2609,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(FailingRemote))),
         })
-        .expect("registar");
+        .expect("register");
 
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -2679,7 +2679,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(Nop))),
         })
-        .expect("registar");
+        .expect("register");
 
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -2746,7 +2746,7 @@ mod tests {
     /// Two halves, and both matter: the local backends must keep the old
     /// behaviour exactly (the default), and `vm rm` must call `destroy`.
     #[test]
-    fn o_rm_destroi_e_o_stop_so_para() {
+    fn rm_destroys_and_stop_only_stops() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static STOPS: AtomicUsize = AtomicUsize::new(0);
         static DESTROYS: AtomicUsize = AtomicUsize::new(0);
@@ -2796,7 +2796,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(Counting))),
         })
-        .expect("registar");
+        .expect("register");
 
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -2821,14 +2821,14 @@ mod tests {
         assert_eq!(
             DESTROYS.load(Ordering::SeqCst),
             0,
-            "`vm stop` destruiu a VM — o disco de um backend remoto vai com ela"
+            "`vm stop` destroyed the VM — a remote backend's disk goes with it"
         );
 
         remove(base, "r").expect("rm");
         assert_eq!(
             DESTROYS.load(Ordering::SeqCst),
             1,
-            "`vm rm` tem de libertar tudo, senao fica um orfao no no"
+            "`vm rm` has to release everything, or an orphan is left on the node"
         );
 
         // The local backends must be untouched: `destroy` defaults to `stop`.
@@ -2877,7 +2877,7 @@ mod tests {
     /// with a fresh empty disk on the new one, so the data was still there and
     /// unreachable.
     #[test]
-    fn um_start_retoma_a_vm_do_registo_em_vez_de_criar_outra() {
+    fn a_start_resumes_the_vm_from_the_record_instead_of_creating_another() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static BOOTS: AtomicUsize = AtomicUsize::new(0);
         static RESUMES: AtomicUsize = AtomicUsize::new(0);
@@ -2941,7 +2941,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(Resumable))),
         })
-        .expect("registar");
+        .expect("register");
 
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -2967,18 +2967,18 @@ mod tests {
         assert_eq!(
             BOOTS.load(Ordering::SeqCst),
             0,
-            "criou uma VM nova — a antiga fica orfa no no e o registo passa a apontar para a nova"
+            "it created a new VM — the old one is orphaned on the node and the record now points at the new one"
         );
         assert_eq!(
             out.api_socket, "remoto:original",
-            "o registo tem de continuar a apontar para a MESMA VM"
+            "the record has to keep pointing at the SAME VM"
         );
 
         vm_registry::deregister("retomavel");
     }
 
     #[test]
-    fn um_backend_remoto_recebe_o_disco_tal_como_foi_escrito() {
+    fn a_remote_backend_receives_the_disk_exactly_as_written() {
         // The point of `manages_own_storage`: `cfg.disk` names something on the
         // FAR node, so the engine must not canonicalize it here (it would fail
         // before the backend was asked) nor build an overlay from it.
@@ -3047,7 +3047,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(Talks))),
         })
-        .expect("registar");
+        .expect("register");
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
@@ -3179,7 +3179,7 @@ mod tests {
                 report: crate::capabilities::undeclared("fake"),
                 new,
             })
-            .expect("registar");
+            .expect("register");
         }
 
         let tmp = tempfile::tempdir().unwrap();
@@ -3388,7 +3388,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(Resizable))),
         })
-        .expect("registar");
+        .expect("register");
         register_backend(BackendRegistration {
             id: "sem-resize",
             aliases: &[],
@@ -3396,7 +3396,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(NoOverride))),
         })
-        .expect("registar");
+        .expect("register");
 
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -3572,7 +3572,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(Ci))),
         })
-        .expect("registar");
+        .expect("register");
 
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -3736,7 +3736,7 @@ mod tests {
             report: crate::capabilities::undeclared("fake"),
             new: Box::new(|| Ok(Box::new(Moved))),
         })
-        .expect("registar");
+        .expect("register");
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         std::fs::create_dir_all(vms_dir(base)).unwrap();
@@ -3768,21 +3768,21 @@ mod tests {
         vm_registry::deregister("movido");
     }
 
-    /// O campo é `#[serde(default)]`: um `.json` escrito antes disto existir
-    /// tem de continuar a carregar, senão a correcção tranca VMs em disco.
-    /// Escrito com o MESMO `JsonStore` que o motor usa, e sem o campo novo.
+    /// The field is `#[serde(default)]`: a `.json` written before this existed
+    /// has to keep loading, or the fix locks VMs out on disk. Written with the
+    /// SAME `JsonStore` the engine uses, and without the new field.
     #[test]
-    fn um_registo_em_disco_sem_o_campo_continua_a_carregar() {
+    fn a_record_on_disk_without_the_field_keeps_loading() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
-        let antigo = concat!(
+        let old = concat!(
             r#"{"name":"v","disk":"d","overlay":"o","vcpus":1,"#,
             r#""memory":"1G","network":"n","tap":"t","mac":"m","pid":42,"#,
             r#""api_socket":"s","status":"Running","created_unix":0}"#
         );
-        std::fs::write(dir.join("v.json"), antigo).unwrap();
+        std::fs::write(dir.join("v.json"), old).unwrap();
         let st: JsonStore<Vm> = JsonStore::open(dir).unwrap();
-        let vm = st.load("v").expect("um registo antigo tem de carregar");
+        let vm = st.load("v").expect("an old record has to load");
         assert_eq!(vm.pid, Some(42));
         assert_eq!(vm.pid_starttime, None);
     }

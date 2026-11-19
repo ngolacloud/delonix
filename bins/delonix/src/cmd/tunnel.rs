@@ -1345,7 +1345,7 @@ fn spawn_and_capture(
         // regional PoP that accepts the SSH connection, allocates the remote
         // forward, then closes it a moment later — no URL is EVER going to
         // appear in the log. Without this check, `apply_one` always waited
-        // the full 15s before reporting "URL ainda não confirmada", even
+        // the full 15s before reporting "URL not confirmed yet", even
         // though the process had already died after ~1-2s — and (see
         // `spawn_pinggy`) there was no way to distinguish "still connecting,
         // just slow" from "already dead" to decide whether a retry makes
@@ -2173,7 +2173,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn find_url_containing_ignora_https_nao_relacionados() {
+    fn find_url_containing_ignores_unrelated_https() {
         let text = "banner: visit https://pinggy.io/docs for help\n\
                     forwarding https://abc123.free.pinggy.link -> localhost:8080\n";
         assert_eq!(
@@ -2183,7 +2183,7 @@ mod tests {
     }
 
     #[test]
-    fn find_url_containing_apara_pontuacao_em_volta() {
+    fn find_url_containing_trims_surrounding_punctuation() {
         let text =
             "Your quick Tunnel has been created! Visit it at (https://foo-bar.trycloudflare.com).";
         assert_eq!(
@@ -2193,12 +2193,12 @@ mod tests {
     }
 
     #[test]
-    fn find_url_containing_sem_match_devolve_none() {
+    fn find_url_containing_without_match_returns_none() {
         assert_eq!(find_url_containing("nothing here", ".pinggy."), None);
     }
 
     #[test]
-    fn pinggy_predicate_ignora_o_link_de_upsell_do_dashboard() {
+    fn pinggy_predicate_ignores_the_dashboard_upsell_link() {
         // Real `ssh ... free.pinggy.io` output, captured live — this is the
         // exact bug found while validating this module: a naive `.contains(".pinggy.")`
         // matched `https://dashboard.pinggy.io` (pinggy's own upsell banner,
@@ -2222,7 +2222,7 @@ mod tests {
     }
 
     #[test]
-    fn pid_alive_distingue_processo_vivo_de_pid_inexistente() {
+    fn pid_alive_distinguishes_a_live_process_from_a_nonexistent_pid() {
         assert!(pid_alive(std::process::id() as i32));
         // A high PID astronomically unlikely to be in use on any real host —
         // same class of assumption `spawn_and_capture`'s own early-death
@@ -2254,7 +2254,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_token_recusa_token_a_comecar_por_traco() {
+    fn resolve_token_refuses_token_starting_with_a_dash() {
         // CRITICAL fixed here: a token like "-oProxyCommand=..." embedded as
         // `<token>@free.pinggy.io`, the last positional ssh argv element, was
         // parsed by ssh as an OPTION instead of part of the destination —
@@ -2271,7 +2271,7 @@ mod tests {
     }
 
     #[test]
-    fn config_hash_muda_com_qualquer_campo() {
+    fn config_hash_changes_with_any_field() {
         let base = TunnelSpec {
             provider: "pinggy".to_string(),
             local_port: 8080,
@@ -2472,7 +2472,7 @@ mod tests {
     }
 
     #[test]
-    fn is_alive_falso_sem_pid() {
+    fn is_alive_false_without_pid() {
         let rec = TunnelRecord {
             name: "t".to_string(),
             provider: "pinggy".to_string(),
@@ -2495,7 +2495,7 @@ mod tests {
     }
 
     #[test]
-    fn is_alive_falso_para_provider_desconhecido() {
+    fn is_alive_false_for_unknown_provider() {
         let rec = TunnelRecord {
             name: "t".to_string(),
             provider: "carrier-pigeon".to_string(),
@@ -2547,7 +2547,7 @@ mod tests {
         store.save("other", &stale).unwrap();
         assert!(
             other_alive_ngrok(&store, "mine").unwrap().is_none(),
-            "o registo não está genuinamente vivo (cmdline não é ngrok)"
+            "the record is not genuinely alive (cmdline is not ngrok)"
         );
     }
 
@@ -2589,7 +2589,7 @@ mod tests {
         // Re-applying 'web' over its own live record: not a rival.
         assert!(
             ngrok_rival(vec![rec("web", "ngrok")], "web", |_| true).is_none(),
-            "o túnel a ser aplicado não é rival de si mesmo"
+            "the tunnel being applied is not a rival of itself"
         );
         // A DIFFERENT live ngrok tunnel still is — the guard must keep working.
         assert_eq!(
@@ -2597,7 +2597,7 @@ mod tests {
                 .map(|r| r.name)
                 .as_deref(),
             Some("api"),
-            "um segundo túnel ngrok continua a ser recusado"
+            "a second ngrok tunnel is still refused"
         );
         // And the own-record exemption is by NAME, not "first record wins":
         // a rival hiding behind one's own record is still found.

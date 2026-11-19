@@ -1,10 +1,10 @@
 #cloud-config
-# lab-samba — autenticação e partilha de ficheiros (Samba, modo standalone)
+# lab-samba — authentication and file sharing (Samba, standalone mode)
 #
-# Standalone e não Active Directory DC: um AD DC exige que o Samba seja também
-# o DNS da zona, e neste lab o DNS é o BIND do `lab-dns`. Trocar isso obrigaria
-# a desligar o bind9 e a dar a zona ao Samba — uma decisão de arquitectura que
-# o lab mostra em separado, em vez de a misturar aqui.
+# Standalone and not Active Directory DC: an AD DC requires Samba to also be the
+# zone's DNS, and in this lab the DNS is the BIND on `lab-dns`. Changing that
+# would mean turning off bind9 and handing the zone to Samba — an architectural
+# decision that the lab shows separately, rather than mixing it in here.
 hostname: lab-samba
 fqdn: dc.lab.ngola
 
@@ -57,9 +57,9 @@ runcmd:
   - netplan apply
   - mkdir -p /srv/samba/publico
   - groupadd -f labusers
-  # Utilizador de demonstração. A password está no manifesto de propósito, para
-  # o lab arrancar sem passos manuais — num ambiente a sério isto vem de um
-  # `kind: Secret`, nunca de um ficheiro em git.
+  # Demo user. The password is in the manifest on purpose, so the lab boots
+  # without manual steps — in a real environment this would come from a
+  # `kind: Secret`, never from a file in git.
   - useradd -m -g labusers -s /bin/bash ana || true
   - printf 'Lab#2026Ngola\nLab#2026Ngola\n' | smbpasswd -s -a ana
   - smbpasswd -e ana

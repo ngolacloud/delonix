@@ -1917,7 +1917,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn o_destino_nao_adivinha_entre_pasta_e_volume() {
+    fn the_destination_does_not_guess_between_folder_and_volume() {
         // `backups` is a plausible directory AND a plausible volume. Guessing
         // would put somebody's archive somewhere they cannot find it.
         assert!(matches!(Dest::parse("backups"), Dest::Path(_)));
@@ -1930,7 +1930,7 @@ mod tests {
     }
 
     #[test]
-    fn max_for_day_recusa_o_que_nao_divide_o_dia() {
+    fn max_for_day_rejects_what_does_not_divide_the_day() {
         assert_eq!(on_calendar_for(1).unwrap(), "*-*-* 00:00:00");
         assert_eq!(on_calendar_for(2).unwrap(), "*-*-* 00/12:00:00");
         assert_eq!(on_calendar_for(4).unwrap(), "*-*-* 00/6:00:00");
@@ -1944,7 +1944,7 @@ mod tests {
     }
 
     #[test]
-    fn o_cron_traduz_se_ou_recusa_se_nunca_se_aproxima() {
+    fn cron_translates_or_refuses_never_approximates() {
         // The forms people actually write.
         assert_eq!(cron_to_on_calendar("0 2 * * *").unwrap(), "*-*-* 2:0:00");
         assert_eq!(
@@ -1983,7 +1983,7 @@ mod tests {
     }
 
     #[test]
-    fn os_arquivos_ordenam_se_cronologicamente_pelo_nome() {
+    fn archives_sort_chronologically_by_name() {
         let a = archive_name(Kind::Container, "db", 1_700_000_000);
         let b = archive_name(Kind::Container, "db", 1_700_003_600);
         assert!(a < b, "{a} should sort before {b}");
@@ -1993,7 +1993,7 @@ mod tests {
     }
 
     #[test]
-    fn a_retencao_guarda_os_mais_novos_e_diz_o_que_tirou() {
+    fn retention_keeps_the_newest_and_reports_what_it_removed() {
         let tmp = tempfile::tempdir().unwrap();
         let d = tmp.path();
         let mut made = Vec::new();
@@ -2020,7 +2020,7 @@ mod tests {
     }
 
     #[test]
-    fn um_timer_nunca_leva_um_caminho_relativo() {
+    fn a_timer_never_takes_a_relative_path() {
         // MEASURED bug, not a hypothetical: `--to .` went into the unit verbatim,
         // systemd ran it from `$HOME`, and the scheduled archive landed there
         // while the operator watched the on-demand one appear in the directory
@@ -2069,7 +2069,7 @@ mod tests {
     }
 
     #[test]
-    fn um_nome_de_recurso_nao_vira_opcao_nem_caminho() {
+    fn a_resource_name_does_not_become_an_option_or_a_path() {
         for bad in ["", "-rf", "a/b", "../x", "a b", "a;rm", &"x".repeat(129)] {
             assert!(!valid_name(bad), "{bad:?} should be refused");
         }
@@ -2079,7 +2079,7 @@ mod tests {
     }
 
     #[test]
-    fn um_formato_futuro_recusa_se_em_vez_de_adivinhar() {
+    fn a_future_format_refuses_instead_of_guessing() {
         let mut m = Meta {
             format: FORMAT,
             delonix_version: "9.9.9".into(),

@@ -2450,41 +2450,41 @@ mod tests {
     /// measurement assert it was complete, which is the bug `Usage` exists to
     /// prevent.
     #[test]
-    fn o_duusage_traz_de_volta_a_incompletude_e_nao_so_os_bytes() {
-        let u = parse_duusage("4096 2\n").expect("linha válida");
+    fn duusage_brings_back_incompleteness_not_just_the_bytes() {
+        let u = parse_duusage("4096 2\n").expect("valid line");
         assert_eq!(u.bytes, 4096);
         assert_eq!(u.unreadable, 2);
         assert!(
             !u.is_complete(),
-            "2 dirs por ler não é uma medição completa"
+            "2 unread dirs is not a complete measurement"
         );
 
-        let ok = parse_duusage("120\u{20}0").expect("linha válida");
+        let ok = parse_duusage("120\u{20}0").expect("valid line");
         assert!(ok.is_complete());
 
         // Strict: anything it cannot fully parse keeps the caller on the direct
         // measurement instead of fabricating a complete one.
-        assert!(parse_duusage("4096").is_none(), "sem o 2.º campo, recusa");
+        assert!(parse_duusage("4096").is_none(), "without the 2nd field, refuse");
         assert!(parse_duusage("").is_none());
         assert!(parse_duusage("abc def").is_none());
     }
 
     #[test]
-    fn volumespec_aceita_options_legado_e_mountoptions_canonico() {
-        let legado: VolumeSpec = serde_yaml::from_str("driver: nfs\noptions: vers=4,ro\n").unwrap();
-        assert_eq!(legado.options.as_deref(), Some("vers=4,ro"));
+    fn volumespec_accepts_legacy_options_and_canonical_mountoptions() {
+        let legacy: VolumeSpec = serde_yaml::from_str("driver: nfs\noptions: vers=4,ro\n").unwrap();
+        assert_eq!(legacy.options.as_deref(), Some("vers=4,ro"));
         let canon: VolumeSpec =
             serde_yaml::from_str("driver: nfs\nmountOptions: vers=4,ro\n").unwrap();
         assert_eq!(canon.options.as_deref(), Some("vers=4,ro"));
     }
 
     #[test]
-    fn usage_sem_quota_mostra_so_o_uso() {
+    fn usage_without_quota_shows_only_usage() {
         assert_eq!(fmt_usage(1536, None), "1.5 KiB");
     }
 
     #[test]
-    fn usage_com_quota_mostra_percentagem() {
+    fn usage_with_quota_shows_percentage() {
         assert_eq!(
             fmt_usage(512 * 1024 * 1024, Some(1024 * 1024 * 1024)),
             "512.0 MiB / 1.00 GiB (50%)"
@@ -2492,7 +2492,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_com_quota_zero_nao_divide_por_zero() {
+    fn usage_with_quota_zero_does_not_divide_by_zero() {
         // A quota of 0 would give `inf%`/NaN in the percentage — degrades to raw usage.
         assert_eq!(fmt_usage(100, Some(0)), "100 B / 0 B");
     }
@@ -2504,7 +2504,7 @@ mod tests {
     /// overlay). This test is the constant's real consumer: it fails the moment
     /// a field is compared without being documented.
     #[test]
-    fn os_campos_comparados_sao_os_documentados() {
+    fn the_compared_fields_are_the_documented_ones() {
         // Two documents, because no single volume carries every comparable
         // field: `parent` belongs to a share, and a share has neither driver nor
         // device. Between them they have to cover the constant exactly.
@@ -2563,7 +2563,7 @@ mod tests {
     /// A `share:` beside anything that mounts is two volumes in one document.
     /// Honouring one of them silently is the failure this refuses.
     #[test]
-    fn um_share_nao_pode_declarar_tambem_um_mount() {
+    fn a_share_cannot_also_declare_a_mount() {
         for (yaml, expected) in [
             (
                 "share:\n  from: nas\nnfs:\n  server: 10.0.0.1\n  share: /export\n",
@@ -2575,11 +2575,11 @@ mod tests {
             let spec: super::VolumeSpec = serde_yaml::from_str(yaml).unwrap();
             let e = spec
                 .check_share_exclusivity()
-                .expect_err("um share com mount tem de ser recusado")
+                .expect_err("a share with a mount must be refused")
                 .to_string();
             assert!(e.contains(expected), "{e}");
         }
-        // E o caso normal continua a passar, nos dois sentidos.
+        // And the normal case still passes, both ways.
         let share: super::VolumeSpec = serde_yaml::from_str("share:\n  from: nas\n").unwrap();
         assert!(share.check_share_exclusivity().is_ok());
         let plain: super::VolumeSpec =

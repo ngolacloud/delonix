@@ -341,12 +341,12 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 detail: "`available()` checks the two binaries; `provider ls` additionally probes qemu:///system",
             }),
             C::ResourceReadback => bin(S::Supported {
-                evidence: "check:o vm ls diz Paused (não Stopped)",
+                evidence: "check: vm ls shows Paused (not Stopped)",
             }),
             C::Events => S::NotImplemented,
             C::AsyncOperations => S::NotImplemented,
             C::VmCreate => bin(S::Supported {
-                evidence: "e2e:vm: o snapshot sobrevive a um stop/start (precisa de hipervisor)",
+                evidence: "e2e:vm: the snapshot survives a stop/start (needs a hypervisor)",
             }),
             C::VmStart => bin(S::Supported {
                 evidence: "check:vm start",
@@ -367,7 +367,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 evidence: "check:vm unpause",
             }),
             C::VmResumeSameIdentity => bin(S::Supported {
-                evidence: "check:vm start depois do stop de uma VM pausada",
+                evidence: "check: vm start after the stop of a paused VM",
             }),
             C::VmClone => bin(S::Supported {
                 evidence: "test:crates/providers/delonix-provider-libvirt/tests/live.rs::vm_clone_boots_an_independent_domain_from_a_copied_disk",
@@ -376,27 +376,27 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 evidence: "test:crates/contexts/delonix-compute/src/app/vm.rs::mark_template_freezes_the_vm_and_start_refuses_it",
             }),
             C::VmResizeCold => bin(S::Supported {
-                evidence: "check:o domínio arranca com 2 vCPU",
+                evidence: "check: the domain boots with 2 vCPU",
             }),
             C::VmHotplugCpuAdd => sys(S::Supported {
-                evidence: "e2e:vm: um vCPU a QUENTE e ONLINE DENTRO do guest (libvirt, cloud-init, guestfish)",
+                evidence: "e2e:vm: a HOT vCPU is ONLINE INSIDE the guest (libvirt, cloud-init, guestfish)",
             }),
             C::VmHotplugCpuRemove => S::NotImplemented,
             C::VmHotplugMemoryAdd => sys(S::Supported {
-                evidence: "e2e:vm: memoria a QUENTE e ONLINE DENTRO do guest (libvirt, cloud-init, guestfish)",
+                evidence: "e2e:vm: HOT memory is ONLINE INSIDE the guest (libvirt, cloud-init, guestfish)",
             }),
             C::VmHotplugMemoryRemove => S::NotImplemented,
             C::VmHotplugDiskAdd => sys(S::Supported {
-                evidence: "e2e:vm: um disco a QUENTE e detectado e fica R/W DENTRO do guest (libvirt, cloud-init, guestfish)",
+                evidence: "e2e:vm: a HOT disk is detected and goes R/W INSIDE the guest (libvirt, cloud-init, guestfish)",
             }),
             C::VmHotplugDiskRemove => sys(S::Supported {
-                evidence: "e2e:vm: um disco a QUENTE REMOVIDO com seguranca DENTRO do guest (libvirt, cloud-init, guestfish)",
+                evidence: "e2e:vm: a HOT disk is safely REMOVED INSIDE the guest (libvirt, cloud-init, guestfish)",
             }),
             C::VmHotplugNicAdd => sys(S::Supported {
-                evidence: "e2e:vm: uma NIC a QUENTE e detectada e passa TRAFEGO REAL DENTRO do guest (libvirt, cloud-init, guestfish)",
+                evidence: "e2e:vm: a HOT NIC is detected and passes REAL TRAFFIC INSIDE the guest (libvirt, cloud-init, guestfish)",
             }),
             C::VmHotplugNicRemove => sys(S::Supported {
-                evidence: "e2e:vm: uma NIC a QUENTE REMOVIDA DENTRO do guest sem derrubar a primaria (libvirt, cloud-init, guestfish)",
+                evidence: "e2e:vm: a HOT NIC is REMOVED INSIDE the guest without taking down the primary (libvirt, cloud-init, guestfish)",
             }),
             C::VmExtraDisks => bin(S::Supported {
                 evidence: "e2e:vm: an extra disk declared at create is seen and R/W inside the guest (libvirt, cloud-init, guestfish)",
@@ -405,7 +405,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 evidence: "e2e:vm: an extra NIC declared at create is seen and passes real traffic inside the guest (libvirt, cloud-init, guestfish)",
             }),
             C::VmDiskResize => bin(S::Supported {
-                evidence: "check:o overlay cresceu para exactamente 1 GiB",
+                evidence: "check: the overlay grew to exactly 1 GiB",
             }),
             C::VmPciPassthrough => bin(S::Partial {
                 detail: "`<hostdev>` per validated PCI address; proving the EFFECT live needs a non-critical PCI device in an isolated IOMMU group bound to `vfio-pci`, and that bind needs root the battery does not run as — the host's own GPU/NIC/storage must never be detached to prove it",
@@ -477,7 +477,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 reason: "a VM provider; containers are the Linux provider's",
             },
             C::VmNetworkNat => sys(S::Supported {
-                evidence: "e2e:vm: o snapshot sobrevive a um stop/start (precisa de hipervisor)",
+                evidence: "e2e:vm: the snapshot survives a stop/start (needs a hypervisor)",
             }),
             C::VmNetworkBridge => sys(S::Partial {
                 detail: "`netMode: bridge` enslaves the NIC to a host bridge; validated live for ADR-0046 phase 2, no battery check",
@@ -493,7 +493,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 // #16: the offline disk snapshot is proved by DATA RECOVERY — a
                 // datum is written to the disk, the snapshot is taken, the datum is
                 // corrupted, and the restore reads the ORIGINAL back (guestfish).
-                evidence: "check:o snapshot de disco captura o dado para recuperacao",
+                evidence: "check: the disk snapshot captures the data for recovery",
             }),
             C::VmSnapshotMemory => bin(S::Partial {
                 // `snapshot-create-as` on a running VM captures RAM + disk and a
@@ -508,7 +508,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 // #16: the restore is proved by DATA recoverability, not by an
                 // exit code nor by creating a file. See the cycle
                 // ORIGINAL->snapshot->CORRUPTED->restore->ORIGINAL in e2e.sh.
-                evidence: "check:o restore RECUPERA o dado de disco (nao so um codigo de saida)",
+                evidence: "check: restore RECOVERS the disk data (not just an exit code)",
             }),
             C::VmSnapshotDelete => bin(S::Supported {
                 evidence: "check:vm snapshot rm",
@@ -1503,10 +1503,10 @@ fn vm_iotune_xml() -> String {
 /// The composition used to be tested by SETTING the environment variables, in a
 /// test binary where every test runs in the same process, in parallel. The
 /// sibling test that asserts iotune is opt-in reads the same variables — so it
-/// saw whatever this one had just set, and failed with "o iotune tem de ser
+/// saw whatever this one had just set, and failed with "iotune must be
 /// opt-in" depending on scheduling. The test's own comment warned about exactly
-/// this ("mexer em env vars num teste paralelo é uma corrida com todos os
-/// outros") while its neighbour did it anyway.
+/// this ("touching env vars in a parallel test is a race with every other
+/// one") while its neighbour did it anyway.
 ///
 /// Reading the environment is now the ONLY thing `vm_iotune_xml` does that is
 /// not testable in isolation, and nothing tests it.
@@ -3568,7 +3568,7 @@ impl VmBackend for LibvirtBackend {
     /// What the guest says about itself through `qemu-guest-agent`
     /// (`vm.guest-agent`), via `virsh qemu-agent-command` — the SAME agent
     /// the golden image's own build recipe already installs and enables
-    /// (`vmimage.rs`, "`qemu-guest-agent` nas três receitas"). `Ok(None)`
+    /// (`vmimage.rs`, "`qemu-guest-agent` installed by all three recipes"). `Ok(None)`
     /// when the VM is not running, the domain was defined before this
     /// backend started adding the guest-agent channel (an old record is
     /// never redefined except by `vm start`/`vm create`), or nothing
@@ -5102,7 +5102,7 @@ mod tests {
     }
 
     #[test]
-    fn o_blockcommit_nomeia_sempre_o_topo_e_a_base() {
+    fn blockcommit_always_names_top_and_base() {
         // MEASURED disaster, not a hypothetical. Without `--top`/`--base`, virsh
         // committed the whole chain and left a live VM writing straight into
         // `vm-images/delonix-vm-base_debian-bookworm.qcow2` — the image every
@@ -5133,7 +5133,7 @@ mod tests {
         assert!(a.contains(&"--wait".to_string()));
     }
     #[test]
-    fn parse_leases_latest_ip_escolhe_o_expiry_mais_recente() {
+    fn parse_leases_latest_ip_picks_the_most_recent_expiry() {
         // Real `virsh net-dhcp-leases default` output captured live while
         // diagnosing this exact bug — 3 leases for the SAME MAC (a VM whose
         // guest renegotiated DHCP repeatedly during one boot), not in
@@ -5270,7 +5270,7 @@ mod tests {
         );
     }
     #[test]
-    fn parse_leases_latest_ip_tolera_saida_vazia_ou_so_cabecalho() {
+    fn parse_leases_latest_ip_tolerates_empty_or_header_only_output() {
         assert_eq!(parse_leases_latest_ip("", "52:54:00:e2:55:fb"), None);
         assert_eq!(
             parse_leases_latest_ip(
@@ -5293,7 +5293,7 @@ mod tests {
         );
     }
     #[test]
-    fn o_uuid_do_snapshot_e_reescrito_em_todas_as_ocorrencias() {
+    fn the_snapshot_uuid_is_rewritten_in_every_occurrence() {
         // `snapshot-create --redefine` REFUSES an XML whose domain uuid is not
         // the CURRENT one, and the uuid of a re-defined domain is new every
         // time. The dumped XML carries it more than once (the snapshot and the
@@ -5311,7 +5311,7 @@ mod tests {
         assert_eq!(super::snapshot_xml_with_uuid("<a/>", "u"), "<a/>");
     }
     #[test]
-    fn os_snapshots_preservados_moram_onde_o_rm_ja_apaga() {
+    fn preserved_snapshots_live_where_rm_already_deletes() {
         // The preserved metadata MUST live under the per-VM directory that
         // `remove` deletes wholesale (`remove_dir_all(vmdir/<name>)`). Anywhere
         // else and a `vm rm` leaves metadata behind pointing at a disk that no
@@ -5325,7 +5325,7 @@ mod tests {
         );
     }
     #[test]
-    fn a_lista_preservada_le_so_xml_e_ordena() {
+    fn the_preserved_list_reads_only_xml_and_sorts() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp = tmp_dir.path();
         let dir = super::snapshot_meta_dir(tmp, "dev");
@@ -5357,17 +5357,17 @@ mod tests {
             assert!(!libvirt_domstate_is_alive(dead), "{dead:?} is not alive");
         }
     }
-    /// REGRESSION (protecção do host): o XML tem de levar um tecto que o HOST
-    /// impõe, não só a alocação que o guest vê.
+    /// REGRESSION (host protection): the XML has to carry a ceiling the HOST
+    /// enforces, not just the allocation the guest sees.
     ///
-    /// `<memory>` dimensiona a visão do guest; o RSS real do QEMU é isso MAIS
-    /// device models, buffers de vídeo/migração e o heap dele. Sem
-    /// `<memtune><hard_limit>` uma fuga leva o host — a mesma falha que o
-    /// caminho de container fecha com `memory.max`. E `<vcpu>N` limita as
-    /// threads de vCPU a N cores, mas as threads de emulador/IO do QEMU correm
-    /// fora dessa conta e ficavam sem tecto nenhum.
+    /// `<memory>` sizes the guest's view; QEMU's real RSS is that PLUS
+    /// device models, video/migration buffers and its own heap. Without
+    /// `<memtune><hard_limit>` a leak takes the host down — the same failure the
+    /// container path closes with `memory.max`. And `<vcpu>N` limits the vCPU
+    /// threads to N cores, but QEMU's emulator/IO threads run outside that count
+    /// and used to have no ceiling at all.
     #[test]
-    fn o_dominio_leva_tecto_de_memoria_e_de_cpu_imposto_pelo_host() {
+    fn the_domain_carries_memory_and_cpu_ceilings_enforced_by_the_host() {
         let cfg = VmConfig {
             name: "v".into(),
             vcpus: 4,
@@ -5376,28 +5376,28 @@ mod tests {
         };
         let xml = super::libvirt_domain_xml(&cfg, "/x.qcow2", "52:54:00:aa:bb:cc");
 
-        // 2 GiB de guest = 2097152 KiB; margem de 25% = 524288, abaixo do mínimo
-        // de 1 GiB, por isso vale o mínimo → 2097152 + 1048576 = 3145728.
+        // 2 GiB of guest = 2097152 KiB; a 25% margin = 524288, below the 1 GiB
+        // minimum, so the minimum applies → 2097152 + 1048576 = 3145728.
         assert!(
             xml.contains("<hard_limit unit='KiB'>3145728</hard_limit>"),
-            "faltou o tecto de memória imposto pelo host:\n{xml}"
+            "the host-enforced memory ceiling is missing:\n{xml}"
         );
-        // O tecto TEM de ficar acima da RAM do guest, senão o host mata a VM.
+        // The ceiling MUST stay above the guest's RAM, or the host kills the VM.
         assert!(
             xml.contains("<memory unit='KiB'>2097152</memory>"),
-            "a alocação do guest não pode ter mudado"
+            "the guest allocation must not have changed"
         );
-        // 4 vCPUs + 1 core de folga para emulador/IO = 5 × 100000.
+        // 4 vCPUs + 1 spare core for emulator/IO = 5 × 100000.
         assert!(
             xml.contains("<period>100000</period>") && xml.contains("<quota>500000</quota>"),
-            "faltou o tecto de CPU do domínio inteiro:\n{xml}"
+            "the whole-domain CPU ceiling is missing:\n{xml}"
         );
     }
-    /// O tecto de CPU tem de conviver com o pinning de vCPUs — os dois vivem no
-    /// MESMO `<cputune>`, e emitir dois blocos produziria XML que o libvirt
-    /// recusa.
+    /// The CPU ceiling has to coexist with vCPU pinning — the two live in the
+    /// SAME `<cputune>`, and emitting two blocks would produce XML that libvirt
+    /// refuses.
     #[test]
-    fn cputune_junta_quota_e_pinning_num_so_bloco() {
+    fn cputune_joins_quota_and_pinning_in_one_block() {
         let cfg = VmConfig {
             name: "v".into(),
             vcpus: 2,
@@ -5409,25 +5409,26 @@ mod tests {
         assert_eq!(
             xml.matches("<cputune>").count(),
             1,
-            "só pode haver UM <cputune>:\n{xml}"
+            "there can only be ONE <cputune>:\n{xml}"
         );
         assert!(xml.contains("<quota>300000</quota>"), "{xml}");
         assert!(xml.contains("<vcpupin vcpu='0' cpuset='8-15'/>"), "{xml}");
         assert!(xml.contains("<vcpupin vcpu='1' cpuset='8-15'/>"), "{xml}");
     }
-    /// As fórmulas puras, incluindo as escapatórias — um operador que meça o seu
-    /// workload tem de conseguir voltar ao comportamento antigo sem editar código.
+    /// The pure formulas, including the escape hatches — an operator who measures
+    /// their workload has to be able to return to the old behaviour without
+    /// editing code.
     #[test]
-    fn formulas_de_tecto_e_escapatorias() {
-        // margem = max(25%, 1 GiB)
+    fn ceiling_formulas_and_escape_hatches() {
+        // margin = max(25%, 1 GiB)
         assert_eq!(
             super::mem_hard_limit_kib(1024 * 1024),
             Some(2 * 1024 * 1024)
         );
-        // guest grande: os 25% ultrapassam o mínimo
-        let big = 64 * 1024 * 1024; // 64 GiB em KiB
+        // large guest: the 25% exceeds the minimum
+        let big = 64 * 1024 * 1024; // 64 GiB in KiB
         assert_eq!(super::mem_hard_limit_kib(big), Some(big + big / 4));
-        // o tecto é SEMPRE maior que o guest — o contrário mataria a VM
+        // the ceiling is ALWAYS larger than the guest — the opposite would kill the VM
         for g in [1024u64, 1024 * 1024, 8 * 1024 * 1024] {
             assert!(super::mem_hard_limit_kib(g).unwrap() > g);
         }
@@ -5435,13 +5436,13 @@ mod tests {
         assert_eq!(super::cpu_quota_micros(1), Some(200_000));
         assert_eq!(super::cpu_quota_micros(8), Some(900_000));
     }
-    /// REGRESSION: o tecto de I/O por-disco das VMs — o último recurso que um
-    /// guest podia esgotar no host depois de CPU e memória ficarem limitadas.
-    /// Opt-in de propósito: ligar throttling de disco a VMs já existentes seria
-    /// uma mudança silenciosa de desempenho num upgrade, e ao contrário da
-    /// memória não há valor "generoso" seguro — depende do dispositivo.
+    /// REGRESSION: the per-disk I/O ceiling for VMs — the last resource a guest
+    /// could exhaust on the host after CPU and memory were capped.
+    /// Opt-in on purpose: turning on disk throttling for VMs that already exist
+    /// would be a silent performance change on an upgrade, and unlike memory
+    /// there is no safe "generous" value — it depends on the device.
     #[test]
-    fn iotune_das_vms_e_opt_in_e_so_no_disco_raiz() {
+    fn vm_iotune_is_opt_in_and_only_on_the_root_disk() {
         let cfg = VmConfig {
             name: "v".into(),
             vcpus: 1,
@@ -5449,24 +5450,24 @@ mod tests {
             seed: Some("/seed.iso".into()),
             ..Default::default()
         };
-        // Sem env: nenhum <iotune> — o XML fica byte-a-byte como antes.
+        // No env: no <iotune> — the XML stays byte-for-byte as before.
         assert!(
             !super::libvirt_domain_xml(&cfg, "/x.qcow2", "52:54:00:aa:bb:cc").contains("<iotune>"),
-            "o iotune tem de ser opt-in"
+            "iotune must be opt-in"
         );
 
-        // A função pura é o que se testa: mexer em env vars num teste paralelo
-        // é uma corrida com todos os outros.
+        // The pure function is what you test: touching env vars in a parallel
+        // test is a race with every other one.
         assert_eq!(super::vm_iotune_xml(), "");
     }
-    /// A composição do bloco, em cada combinação — `total_*` e não um par
-    /// read/write, porque o recurso protegido é o DÉBITO do dispositivo e um
-    /// guest esgota-o por qualquer das direcções.
+    /// The block composition, in every combination — `total_*` and not a
+    /// read/write pair, because the protected resource is the device THROUGHPUT
+    /// and a guest exhausts it from either direction.
     #[test]
-    fn iotune_compoe_bytes_e_iops() {
-        // Sem env vars: a composição é uma função pura, e testá-la assim é o que
-        // impede a corrida que fazia o teste irmão (`iotune ... opt-in`) falhar
-        // por ordem de escalonamento.
+    fn iotune_composes_bytes_and_iops() {
+        // No env vars: the composition is a pure function, and testing it this
+        // way is what prevents the race that made the sibling test
+        // (`iotune ... opt-in`) fail by scheduling order.
         let x = super::iotune_xml_from(Some(104_857_600), None);
         assert!(
             x.contains("<total_bytes_sec>104857600</total_bytes_sec>"),
@@ -5485,19 +5486,19 @@ mod tests {
             "{x}"
         );
 
-        // Nenhum valor = nenhum tecto. O filtro de lixo/zero vive no leitor de
-        // ambiente (`vm_iotune_xml`), que só sabe transformar "0"/"abc" em
-        // `None` — o que esta função recebe já é o resultado disso.
+        // No value = no ceiling. The junk/zero filter lives in the environment
+        // reader (`vm_iotune_xml`), which only turns "0"/"abc" into `None` —
+        // what this function receives is already the result of that.
         assert_eq!(super::iotune_xml_from(None, None), "");
     }
     #[test]
-    fn libvirt_xml_partilha_volumes_por_9p() {
+    fn libvirt_xml_shares_volumes_over_9p() {
         let mut cfg = test_vm_cfg("1G");
         cfg.volumes = vec![
             VmVolume {
-                tag: "dados".into(),
-                source: "/srv/dados".into(),
-                mount_path: "/mnt/dados".into(),
+                tag: "data".into(),
+                source: "/srv/data".into(),
+                mount_path: "/mnt/data".into(),
                 read_only: false,
             },
             VmVolume {
@@ -5512,8 +5513,8 @@ mod tests {
             xml.contains("<filesystem type='mount' accessmode='passthrough'>"),
             "{xml}"
         );
-        assert!(xml.contains("<source dir='/srv/dados'/>"), "{xml}");
-        assert!(xml.contains("<target dir='dados'/>"), "{xml}");
+        assert!(xml.contains("<source dir='/srv/data'/>"), "{xml}");
+        assert!(xml.contains("<target dir='data'/>"), "{xml}");
         // The read-only one (2nd volume) carries `<readonly/>` in its block.
         let ro_idx = xml.find("<target dir='ro'/>").unwrap();
         assert!(
@@ -5536,10 +5537,10 @@ mod tests {
             parse_pci_addr("0000:03:00.0"),
             Some(("0000".into(), "03".into(), "00".into(), "0".into()))
         );
-        assert_eq!(parse_pci_addr("lixo"), None);
+        assert_eq!(parse_pci_addr("junk"), None);
     }
     #[test]
-    fn pci_addr_recusa_injeccao_de_atributos_xml() {
+    fn pci_addr_refuses_xml_attribute_injection() {
         // BUG regression guard: the parser used to accept ANY non-`:`/`.`/`/`
         // characters for each component, with no hex check — a manifest
         // `spec.devices` entry like `0' foo='bar:00:00.0` produced an
@@ -5730,7 +5731,7 @@ mod tests {
         );
     }
     #[test]
-    fn um_dominio_tem_sempre_ecra_a_nao_ser_que_o_tirem() {
+    fn a_domain_always_has_a_display_unless_it_is_removed() {
         // The bug this closes: a display adapter only appeared with `--vnc`,
         // and every Proxmox appliance image — the vendor's own, untouched —
         // boots into a SeaBIOS→GRUB→reset loop with no adapter at all. So

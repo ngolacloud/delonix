@@ -389,7 +389,7 @@ pub enum ImageCmd {
         /// Gate on a declarative policy file (JSON: `fail_on`, `ignore` waiver
         /// list, `ignore_unfixed`). Richer CI gate than `--fail-on`; takes
         /// precedence over it. Exits 1 on failure.
-        #[arg(long = "policy", value_name = "FICHEIRO")]
+        #[arg(long = "policy", value_name = "FILE")]
         policy: Option<String>,
         /// Report the vulnerability delta against another image (added/removed
         /// CVEs), like `docker scout compare`, instead of the dashboard.
@@ -399,7 +399,7 @@ pub enum ImageCmd {
         #[arg(long)]
         update: bool,
         /// Feed source for `--update`: URL or file (or $DELONIX_ADVISORY_FEED).
-        #[arg(long = "feed", value_name = "URL|FICHEIRO")]
+        #[arg(long = "feed", value_name = "URL|FILE")]
         feed: Option<String>,
     },
     /// The image's SBOM as an SPDX 2.3 document, not the table `scan
@@ -1963,8 +1963,8 @@ mod tests {
         )
         .expect("build spec");
 
-        let json = serde_json::to_vec(&spec).expect("serializar");
-        let parsed: Spec = serde_json::from_slice(&json).expect("round-trip pelo tipo canónico");
+        let json = serde_json::to_vec(&spec).expect("serialize");
+        let parsed: Spec = serde_json::from_slice(&json).expect("round-trip through the canonical type");
 
         // GAP-RT-2: the default (non-rootless) bundle has NO user namespace and
         // NO id mappings — it is a real-root bundle.
@@ -1977,9 +1977,9 @@ mod tests {
                     .unwrap()
                     .iter()
                     .any(|n| n.typ() == LinuxNamespaceType::User),
-                "default bundle não deve ter user namespace"
+                "default bundle must not have a user namespace"
             );
-            assert!(linux.uid_mappings().is_none(), "default: sem uid mappings");
+            assert!(linux.uid_mappings().is_none(), "default: no uid mappings");
         }
 
         // GAP-RT-2: a --rootless bundle DOES carry the user namespace + mappings
@@ -1995,23 +1995,23 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|n| n.typ() == LinuxNamespaceType::User),
-            "--rootless tem de adicionar o user namespace"
+            "--rootless must add the user namespace"
         );
         let umaps = rlinux.uid_mappings().as_ref().expect("uid mappings");
         assert!(
             umaps.iter().any(|m| m.container_id() == 0 && m.size() == 1),
-            "container uid 0 mapeia para um único uid do host (o nosso)"
+            "container uid 0 maps to a single host uid (ours)"
         );
         assert!(
             umaps
                 .iter()
                 .any(|m| m.container_id() == 1
                     && m.host_id() == delonix_linux::rootless_subid_bases().0),
-            "container uid 1.. mapeia para os subuids delegados (base real do utilizador)"
+            "container uid 1.. maps to the delegated subuids (the user's real base)"
         );
         assert!(
             rlinux.gid_mappings().is_some(),
-            "--rootless: gid mappings presentes"
+            "--rootless: gid mappings present"
         );
 
         // ociVersion present and the version `runc`/`crun` emit (GAP-RT-1).
@@ -2023,16 +2023,16 @@ mod tests {
             .linux()
             .as_ref()
             .and_then(|l| l.seccomp().as_ref())
-            .expect("bundle tem de carregar um perfil seccomp (GAP-RT-3)");
+            .expect("bundle must carry a seccomp profile (GAP-RT-3)");
         assert_eq!(
             seccomp.default_action(),
             LinuxSeccompAction::ScmpActErrno,
-            "default-deny: tudo o que não está na allowlist devolve ERRNO"
+            "default-deny: anything not in the allowlist returns ERRNO"
         );
         let allowed: Vec<String> = seccomp
             .syscalls()
             .as_ref()
-            .expect("regras de syscalls")
+            .expect("syscall rules")
             .iter()
             .filter(|s| s.action() == LinuxSeccompAction::ScmpActAllow)
             .flat_map(|s| s.names().clone())
@@ -2040,7 +2040,7 @@ mod tests {
         for essential in ["read", "write", "execve", "openat"] {
             assert!(
                 allowed.iter().any(|n| n == essential),
-                "a allowlist do bundle tem de conter o syscall essencial {essential}"
+                "the bundle's allowlist must contain the essential syscall {essential}"
             );
         }
 
@@ -2051,11 +2051,11 @@ mod tests {
             mounts
                 .iter()
                 .any(|m| m.destination() == std::path::Path::new("/proc")),
-            "bundle tem de montar /proc (era a lacuna que o tornava não-funcional)"
+            "bundle must mount /proc (this was the gap that made it non-functional)"
         );
         assert!(
             mounts.len() >= 5,
-            "conjunto de mounts padrão do runc (proc/sys/dev/pts/shm/…)"
+            "runc's default mount set (proc/sys/dev/pts/shm/…)"
         );
 
         // Process: args/env/cwd propagated and EFFECTIVE capabilities (not just bounding).
@@ -2067,7 +2067,7 @@ mod tests {
         let eff = caps.effective().as_ref().expect("effective caps");
         assert!(
             eff.contains(&Capability::NetBindService),
-            "as capacidades têm de ir ao conjunto EFETIVO, não só ao bounding"
+            "capabilities must go into the EFFECTIVE set, not just the bounding set"
         );
 
         // Standard hardening that the previous bundle omitted.
@@ -2093,7 +2093,7 @@ mod tests {
     /// alpine:latest` silently untagged an image a live container still
     /// depended on.
     #[test]
-    fn container_references_image_normaliza_o_nome_nu() {
+    fn container_references_image_normalizes_the_bare_name() {
         let img = tagged_image("sha256:abc", &["alpine:latest"]);
         assert!(container_references_image("alpine", &img));
         assert!(container_references_image("alpine:latest", &img));
@@ -2101,7 +2101,7 @@ mod tests {
     }
 
     #[test]
-    fn container_references_image_por_id_ou_digest_despido() {
+    fn container_references_image_by_id_or_bare_digest() {
         let img = tagged_image("sha256:abc", &[]);
         assert!(container_references_image("sha256:abc", &img));
         assert!(container_references_image("abc", &img));

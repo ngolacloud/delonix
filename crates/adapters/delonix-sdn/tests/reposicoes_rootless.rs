@@ -1,15 +1,15 @@
-//! As funções que o `Net` levou consigo, repostas pelo caminho rootless.
+//! The functions `Net` took with it, restored on the rootless path.
 //!
-//! Testa o que se pode testar sem holder: as VALIDAÇÕES e o relatório. O que
-//! exige netns (o attach em si, a remoção de regras) fica para a validação ao
-//! vivo — um teste que precise de holder deixa de correr no CI e passa a
-//! decoração.
+//! Tests what can be tested without a holder: the VALIDATIONS and the report.
+//! What needs a netns (the attach itself, rule removal) is left to live
+//! validation — a test that needs a holder stops running in CI and becomes
+//! decoration.
 
 use std::io::Write;
 
-/// `import_iptables` não toca no host: lê, conta e relata.
+/// `import_iptables` does not touch the host: it reads, counts and reports.
 #[test]
-fn import_iptables_conta_sem_aplicar() {
+fn import_iptables_counts_without_applying() {
     let d = tempfile::tempdir().unwrap();
     let f = d.path().join("save.txt");
     let mut fh = std::fs::File::create(&f).unwrap();
@@ -19,53 +19,53 @@ fn import_iptables_conta_sem_aplicar() {
     )
     .unwrap();
 
-    let r = delonix_sdn::infra::import_iptables(&f).expect("devia analisar");
-    assert!(r.contains("1 table"), "contagem de tabelas: {r}");
-    assert!(r.contains("2 chain"), "contagem de cadeias: {r}");
-    assert!(r.contains("1 rule"), "contagem de regras: {r}");
+    let r = delonix_sdn::infra::import_iptables(&f).expect("should parse");
+    assert!(r.contains("1 table"), "table count: {r}");
+    assert!(r.contains("2 chain"), "chain count: {r}");
+    assert!(r.contains("1 rule"), "rule count: {r}");
 }
 
-/// Um ficheiro que não existe dá erro NOMEADO — não um relatório de zeros.
+/// A file that does not exist gives a NAMED error — not a report of zeros.
 ///
-/// A distinção importa: «não há regras nenhumas» e «não consegui ler o ficheiro»
-/// levam quem migra a decisões opostas.
+/// The distinction matters: "there are no rules at all" and "I could not read
+/// the file" lead whoever is migrating to opposite decisions.
 #[test]
-fn import_iptables_recusa_ficheiro_ausente() {
+fn import_iptables_rejects_a_missing_file() {
     let e = delonix_sdn::infra::import_iptables(std::path::Path::new("/nao/existe/save.txt"))
-        .expect_err("devia falhar");
+        .expect_err("should fail");
     let t = e.to_string();
     assert!(
         t.contains("save.txt"),
-        "o erro devia nomear o ficheiro: {t}"
+        "the error should name the file: {t}"
     );
 }
 
-/// O IP de um attach com endereço escolhido é validado contra a rede.
+/// The IP of an attach with a chosen address is validated against the network.
 ///
-/// Um endereço de fora do prefixo não é um pedido exótico, é um engano: aplicá-lo
-/// daria um container inalcançável com um attach bem-sucedido — o pior dos dois
-/// mundos, porque nada assinala o problema.
+/// An address outside the prefix is not an exotic request, it is a mistake:
+/// applying it would give an unreachable container with a successful attach —
+/// the worst of both worlds, because nothing flags the problem.
 #[test]
-fn attach_on_ip_recusa_endereco_fora_da_rede() {
+fn attach_on_ip_rejects_an_address_outside_the_network() {
     // The only test in this binary that reads `DELONIX_ROOT`, so a per-test
     // dir is safe even though the variable is process-wide — re-checked
     // 2026-10-07 against `import_iptables_*`, which touch no state root.
     let d = tempfile::tempdir().unwrap();
     std::env::set_var("DELONIX_ROOT", d.path());
 
-    let net = delonix_sdn::infra::network_create("rede-teste").expect("cria rede");
-    let fora = "10.99.0.5";
+    let net = delonix_sdn::infra::network_create("rede-teste").expect("create network");
+    let outside = "10.99.0.5";
     assert!(
-        !fora.starts_with(&net.prefix),
-        "o teste precisa de um IP fora de {}",
+        !outside.starts_with(&net.prefix),
+        "the test needs an IP outside {}",
         net.prefix
     );
 
-    let e = delonix_sdn::infra::attach_container_on_ip("abc123", "rede-teste", fora, "")
-        .expect_err("devia recusar um IP de outra rede");
+    let e = delonix_sdn::infra::attach_container_on_ip("abc123", "rede-teste", outside, "")
+        .expect_err("should reject an IP from another network");
     let t = e.to_string();
-    assert!(t.contains(fora), "o erro devia nomear o IP: {t}");
-    assert!(t.contains("rede-teste"), "e a rede: {t}");
+    assert!(t.contains(outside), "the error should name the IP: {t}");
+    assert!(t.contains("rede-teste"), "and the network: {t}");
 
     // A removal that fails FAILS the test: `TempDir`'s own `Drop` ignores the
     // error, and a cleanup that reports nothing is how a stray `.tmpXXXXXX`

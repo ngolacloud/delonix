@@ -205,7 +205,7 @@ fn pod_manifest(name: &str, members: &[Container]) -> String {
         }
         y.push_str("      resources:\n");
         y.push_str("        limits:\n");
-        // cpus (cores) → millicores do k8s; memória tal e qual (ex.: `64M` → `64Mi` aprox).
+        // cpus (cores) → k8s millicores; memory as-is (e.g. `64M` → `64Mi`, approx).
         if let Ok(cpus) = c.cpus.parse::<f64>() {
             y.push_str(&format!("          cpu: \"{}m\"\n", (cpus * 1000.0) as i64));
         }
@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn gera_pod_com_recursos_e_args() {
+    fn generates_pod_with_resources_and_args() {
         let c = ctr(
             "web",
             "nginx:1.27",
@@ -282,18 +282,18 @@ mod tests {
     }
 
     #[test]
-    fn memoria_max_nao_vira_limite() {
-        // `memory_max = "max"` (sem teto) não deve gerar um `memory: "maxi"` inválido.
+    fn memory_max_does_not_become_a_limit() {
+        // `memory_max = "max"` (no cap) must not produce an invalid `memory: "maxi"`.
         let c = ctr("x", "alpine", &["sh"], "1", "max");
         let y = pod_manifest("x", &[c]);
         assert!(
             !y.contains("memory:"),
-            "não devia haver limite de memória: {y}"
+            "there should be no memory limit: {y}"
         );
     }
 
     #[test]
-    fn quote_escapa_aspas_e_barra_invertida() {
+    fn quote_escapes_quotes_and_backslash() {
         // BUG regression guard: `quote` used to be a bare `"{s}"` with no
         // escaping — `sh -c 'echo "hi"'` produced `["echo "hi""]`, invalid
         // YAML that `kubectl apply -f -` rejects outright.
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn quote_escapa_quebras_de_linha_em_vez_de_as_injectar() {
+    fn quote_escapes_newlines_instead_of_injecting_them() {
         // A raw embedded newline would inject a literal line break into the
         // emitted document — potentially adding sibling keys the emitter
         // never intended. Must come out as the two-character escape `\n`,
@@ -311,12 +311,12 @@ mod tests {
         assert_eq!(q, r#""line1\nline2""#);
         assert!(
             !q.contains('\n'),
-            "não pode conter uma quebra de linha real"
+            "must not contain a real line break"
         );
     }
 
     #[test]
-    fn gera_pod_com_comando_contendo_aspas_produz_yaml_valido() {
+    fn generates_pod_with_command_containing_quotes_produces_valid_yaml() {
         let c = ctr("web", "alpine", &["sh", "-c", r#"echo "hi""#], "0.1", "64M");
         let y = pod_manifest("web", &[c]);
         assert!(y.contains(r#""echo \"hi\"""#), "{y}");

@@ -261,7 +261,7 @@ mod tests {
     /// ran out of threads. Removing the `swap` guard in `run_bounded` makes the
     /// spawn counter below come out at 5 instead of 1, and this test fails.
     #[test]
-    fn run_bounded_nao_lanca_uma_2a_thread_enquanto_a_1a_esta_presa() {
+    fn run_bounded_does_not_spawn_a_2nd_thread_while_the_1st_is_stuck() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
 
@@ -301,51 +301,50 @@ mod tests {
                     run_bounded(&TEST_FLAG, deadline, hang.clone()),
                     Bounded::Skipped
                 ),
-                "tentativa {i} devia ter sido saltada, não relançada"
+                "attempt {i} should have been skipped, not relaunched"
             );
         }
         assert_eq!(
             spawns.load(Ordering::SeqCst),
             1,
-            "a fuga tem de ficar limitada a UMA thread, por muito que o hang dure"
+            "the leak must stay bounded to ONE thread, no matter how long the hang lasts"
         );
 
-        // Assim que a operação desbloqueia, o disjuntor rearma-se sozinho.
+        // As soon as the operation unblocks, the breaker rearms on its own.
         {
             let (lock, cv) = &*unblock;
             *lock.lock().unwrap() = true;
             cv.notify_all();
         }
-        // Espera o worker sair (o guard limpa a latch no Drop).
+        // Wait for the worker to leave (the guard clears the latch on Drop).
         let rearmed = (0..200).any(|_| {
             std::thread::sleep(Duration::from_millis(10));
             matches!(run_bounded(&TEST_FLAG, deadline, || 7u32), Bounded::Done(7))
         });
         assert!(
             rearmed,
-            "depois do hang resolver, a colheita tem de voltar a correr sozinha"
+            "after the hang resolves, collection must resume on its own"
         );
     }
 
-    /// O disjuntor NÃO pode ficar preso por um `work` que entra em pânico —
-    /// senão trocava-se uma fuga de threads por uma métrica morta para sempre.
-    /// É para isto que a latch é limpa por `Drop` e não por um `store` a seguir
-    /// à chamada.
+    /// The breaker must NOT get stuck on a `work` that panics — otherwise a
+    /// thread leak would be traded for a forever-dead metric. This is why the
+    /// latch is cleared by `Drop` and not by a `store` after the call.
     #[test]
-    fn run_bounded_rearma_depois_de_um_panico_no_worker() {
+    fn run_bounded_rearms_after_a_panic_in_the_worker() {
         static TEST_FLAG: InFlight = InFlight::new();
         let deadline = Duration::from_secs(5);
 
-        // O worker entra em pânico; o `recv` vê o canal fechado → TimedOut.
+        // The worker panics; `recv` sees the channel closed → TimedOut.
         assert!(matches!(
             run_bounded(&TEST_FLAG, deadline, || -> u32 { panic!("boom") }),
             Bounded::TimedOut
         ));
-        // A latch tem de ter sido limpa no unwind: a chamada seguinte corre.
+        // The latch must have been cleared on unwind: the next call runs.
         let rearmed = (0..200).any(|_| {
             std::thread::sleep(Duration::from_millis(10));
             matches!(run_bounded(&TEST_FLAG, deadline, || 9u32), Bounded::Done(9))
         });
-        assert!(rearmed, "um pânico no worker deixou o disjuntor preso");
+        assert!(rearmed, "a panic in the worker left the breaker stuck");
     }
 }
