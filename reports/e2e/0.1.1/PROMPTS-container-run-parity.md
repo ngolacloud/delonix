@@ -1,167 +1,167 @@
-# `delonix container run` — defeitos de paridade e prompts de correcção
+# `delonix container run` — parity defects and fix prompts
 
-**Fonte:** teste funcional ao vivo, parâmetro a parâmetro, de `delonix container run`
-contra o comportamento Docker/Podman.
-**Ambiente:** delonix 0.1.1 (commit `64ec5a498`), host rootless · daemonless,
-cgroup2 delegado, imagens `alpine:3.19` + `busybox`. Data: 2026-11-19.
-**Método:** efeito observado (não só `--help`) — leitura de cgroups no host via
+**Source:** live functional test, flag by flag, of `delonix container run`
+against Docker/Podman behaviour.
+**Environment:** delonix 0.1.1 (commit `64ec5a498`), rootless host · daemonless,
+delegated cgroup2, images `alpine:3.19` + `busybox`. Date: 2026-11-19.
+**Method:** observed effect (not just `--help`) — reading host cgroups via
 `/proc/<pid>/cgroup`, inodes `/proc/self/ns/*`, `/proc/self/status`
-(CapEff/Seccomp/NoNewPrivs), probes HTTP/TCP nativas e `curl`/`wget` ponta-a-ponta.
+(CapEff/Seccomp/NoNewPrivs), native HTTP/TCP probes and end-to-end `curl`/`wget`.
 
-**Veredicto:** ~95 flags exercitadas; núcleo em forte paridade (e por vezes mais
-seguro que o Docker). 4 defeitos onde a flag é aceite mas inoperante/quebrada.
+**Verdict:** ~95 flags exercised; core in strong parity (and sometimes more
+secure than Docker). 4 defects where the flag is accepted but inoperative/broken.
 
-Ordem de ataque (severidade): segurança → funcionalidade → paridade → DX.
-
----
-
-## Notas transversais (para qualquer destas sessões)
-
-- Host **rootless e sem sudo**; validar com os arneses rootless.
-- `/tmp` e o scratchpad são **efémeros entre turnos** — guardar artefactos fora de `/tmp`.
-- Testes do binário: `cargo test -p delonix-bin --bins` (o pacote `delonix-bin` não tem lib).
-- Processo **develop-GitFlow**; o `push`/`merge` de PR é do dono.
-- Não enfraquecer defaults de segurança ao corrigir (1, 3 e 4 tocam em hardening).
+Order of attack (severity): security → functionality → parity → DX.
 
 ---
 
-## BUG-1 — `--knows` / `--knows-none` não aplicam isolamento de DNS  _(Alta · segurança)_
+## Cross-cutting notes (for any of these sessions)
 
-**Sintoma.** `run --knows-none` e `run --knows X` são aceites e persistidos mas não
-isolam: o container continua a resolver e a ligar a todos os pares da rede.
+- **Rootless and sudo-less** host; validate with the rootless harnesses.
+- `/tmp` and the scratchpad are **ephemeral between turns** — store artefacts outside `/tmp`.
+- Binary tests: `cargo test -p delonix-bin --bins` (the `delonix-bin` package has no lib).
+- **develop-GitFlow** process; the `push`/`merge` of a PR is the owner's.
+- Do not weaken security defaults when fixing (1, 3 and 4 touch hardening).
 
-**Evidência.** Em rede dedicada:
+---
+
+## BUG-1 — `--knows` / `--knows-none` do not apply DNS isolation  _(High · security)_
+
+**Symptom.** `run --knows-none` and `run --knows X` are accepted and persisted but do not
+isolate: the container keeps resolving and connecting to all peers on the network.
+
+**Evidence.** On a dedicated network:
 ```
-run --net N --knows-none alpine nslookup srv  → Address 10.239.102.249 (resolveu)
-                                   wget http://srv/ → SRVBODY (ligou)
-run --net N --knows srv ...  → srv=OK  mas  srv2 também respondeu (fuga K2LEAK)
+run --net N --knows-none alpine nslookup srv  → Address 10.239.102.249 (resolved)
+                                   wget http://srv/ → SRVBODY (connected)
+run --net N --knows srv ...  → srv=OK  but  srv2 also responded (K2LEAK leak)
 ```
 
-**Causa-raiz.** O campo `dns_knows` É escrito no record
+**Root cause.** The `dns_knows` field IS written to the record
 (`crates/contexts/delonix-compute/src/app/run.rs:583-586`,
-`crates/contexts/delonix-compute/src/app/record.rs:647`) mas **nenhum resolvedor o
-consome**. O resolvedor de nomes de containers
-(`crates/contexts/delonix-networking/src/domain/dns.rs` e
-`crates/adapters/delonix-sdn/src/`) não filtra as respostas pela allowlist.
+`crates/contexts/delonix-compute/src/app/record.rs:647`) but **no resolver
+consumes it**. The container name resolver
+(`crates/contexts/delonix-networking/src/domain/dns.rs` and
+`crates/adapters/delonix-sdn/src/`) does not filter responses by the allowlist.
 
-**Correcção.** Ao responder A/AAAA, filtrar pela `dns_knows` do container que faz a
-query: `None` = resolve tudo (default); `Some([])` = resolve nada (`--knows-none`);
-`Some([...])` = só esses nomes + o próprio.
+**Fix.** When answering A/AAAA, filter by the `dns_knows` of the container making the
+query: `None` = resolve everything (default); `Some([])` = resolve nothing (`--knows-none`);
+`Some([...])` = only those names + itself.
 
 **Done when.**
-1. `--knows-none` → `nslookup <par>` devolve NXDOMAIN e `wget` falha.
-2. `--knows A` resolve `A` mas devolve NXDOMAIN para `B`.
-3. Teste e2e/regressão que PROVE o isolamento (não um teste cego — ver a armadilha
-   `nft ip-vs-inet`, onde harnesses contavam na família errada e não viam a fuga).
+1. `--knows-none` → `nslookup <peer>` returns NXDOMAIN and `wget` fails.
+2. `--knows A` resolves `A` but returns NXDOMAIN for `B`.
+3. An e2e/regression test that PROVES the isolation (not a blind test — see the
+   `nft ip-vs-inet` trap, where harnesses counted in the wrong family and did not see the leak).
 
-**Gates.** Sem flag nova (sem pt.po novo). Não regredir a resolução normal (sem `--knows`).
-Gates rootless. **Agente:** general-purpose, tier alto (resolvedor/SDN).
+**Gates.** No new flag (no new pt.po). Do not regress normal resolution (without `--knows`).
+Rootless gates. **Agent:** general-purpose, high tier (resolver/SDN).
 
 ---
 
-## BUG-2 — `--pod <name>` não junta o netns do pod  _(Alta · funcionalidade)_
+## BUG-2 — `--pod <name>` does not join the pod's netns  _(High · functionality)_
 
-**Sintoma.** `run --pod <name>` dá ao container IP próprio em vez de partilhar o do
-pod, e um pod inexistente é aceite sem erro.
+**Symptom.** `run --pod <name>` gives the container its own IP instead of sharing the
+pod's, and a non-existent pod is accepted without error.
 
-**Evidência.** Pod `vp` com IP `10.239.0.2` servindo em `:8080`:
+**Evidence.** Pod `vp` with IP `10.239.0.2` serving on `:8080`:
 ```
 run --net N --pod vp busybox …  → hostname -i = 10.239.9.136  (≠ 10.239.0.2)
                                    wget 127.0.0.1:8080 → Connection refused (SEPARATE-NS)
-run --pod naoexistexyz busybox echo joined  → rc=0  (devia falhar)
+run --pod naoexistexyz busybox echo joined  → rc=0  (should fail)
 ```
 
-**Causa-raiz.** Join imperativo em `bins/delonix/src/cmd/container.rs:3416-3424`;
-handling do netns/erro em `container.rs:3931-4058`. A guarda "pod does not exist"
-(`:4056`, `joined.is_err() && !pod::exists`) não dispara — o join "tem sucesso" sem
-ligar ao netns. O caminho vizinho `--net container:<name>` (`container.rs:3931`)
-funciona e faz o setns correcto.
+**Root cause.** Imperative join in `bins/delonix/src/cmd/container.rs:3416-3424`;
+netns/error handling in `container.rs:3931-4058`. The "pod does not exist" guard
+(`:4056`, `joined.is_err() && !pod::exists`) does not fire — the join "succeeds" without
+connecting to the netns. The neighbouring `--net container:<name>` path (`container.rs:3931`)
+works and does the correct setns.
 
-**Correcção.** Alinhar o `--pod` para reutilizar o mesmo mecanismo de setns do
-`--net container:` (entrar no netns do infra/membro do pod), e fazer a guarda de
-pod inexistente abortar com erro claro.
+**Fix.** Align `--pod` to reuse the same setns mechanism as
+`--net container:` (enter the netns of the pod infra/member), and make the
+non-existent pod guard abort with a clear error.
 
 **Done when.**
-1. `run --pod vp` → `hostname -i` == IP do pod e `wget 127.0.0.1:<porta-do-pod>`
-   responde (`JOINED-NS`).
-2. `run --pod inexistente` → erro claro, `rc≠0`.
-3. Teste cobrindo join bem-sucedido + pod ausente.
+1. `run --pod vp` → `hostname -i` == pod IP and `wget 127.0.0.1:<pod-port>`
+   responds (`JOINED-NS`).
+2. `run --pod nonexistent` → clear error, `rc≠0`.
+3. Test covering a successful join + a missing pod.
 
-**Gates.** Paridade Podman `run --pod`. Não regredir `--net container:`. Gates rootless.
-**Agente:** general-purpose, tier alto.
+**Gates.** Podman `run --pod` parity. Do not regress `--net container:`. Rootless gates.
+**Agent:** general-purpose, high tier.
 
 ---
 
-## BUG-3 — `--pid host` / `--host-pid` falham em rootless não-privilegiado  _(Média · paridade)_
+## BUG-3 — `--pid host` / `--host-pid` fail in non-privileged rootless  _(Medium · parity)_
 
-**Sintoma.** Falham no arranque; funcionam com `--privileged`. O Docker permite
-`--pid=host` sem privilégio.
+**Symptom.** They fail at startup; they work with `--privileged`. Docker allows
+`--pid=host` without privilege.
 
-**Evidência.**
+**Evidence.**
 ```
 run --pid host busybox …  → delonix: could not bind '/proc/sys' for read-only:
                               EINVAL: Invalid argument; aborting
-run --pid host --privileged busybox …  → 905 pids do host visíveis  ✓
+run --pid host --privileged busybox …  → 905 host pids visible  ✓
 ```
 
-**Causa-raiz.** O hardening remonta `/proc/sys` read-only
+**Root cause.** The hardening remounts `/proc/sys` read-only
 (`crates/contexts/delonix-compute/src/app/run.rs:615`
-`default_readonly_paths: ["/proc/sys"]`, aplicado em
-`crates/adapters/delonix-linux/src/lib.rs` ~1625-1660 / 2034-2047). Com o PID-ns do
-host partilhado (`host_pid` em `bins/delonix/src/cmd/container.rs:136/1369-1377`), o
-`/proc` é o do host e o utilizador rootless não pode remontar `/proc/sys` ro → EINVAL.
+`default_readonly_paths: ["/proc/sys"]`, applied in
+`crates/adapters/delonix-linux/src/lib.rs` ~1625-1660 / 2034-2047). With the host
+PID-ns shared (`host_pid` in `bins/delonix/src/cmd/container.rs:136/1369-1377`), the
+`/proc` is the host's and the rootless user cannot remount `/proc/sys` ro → EINVAL.
 
-**Correcção.** Quando `host_pid`, omitir `/proc/sys` dos `default_readonly_paths` (ou
-tornar esse remount best-effort com aviso — nunca abortar).
+**Fix.** When `host_pid`, omit `/proc/sys` from `default_readonly_paths` (or
+make that remount best-effort with a warning — never abort).
 
 **Done when.**
-1. `run --pid host busybox sh -c 'ls /proc | grep -c "^[0-9]"'` → >50 em rootless sem
+1. `run --pid host busybox sh -c 'ls /proc | grep -c "^[0-9]"'` → >50 in rootless without
    `--privileged`.
-2. `--host-pid` idem.
-3. Container normal (sem `--pid host`) mantém `/proc/sys` ro (não-regressão do hardening).
+2. `--host-pid` likewise.
+3. Normal container (without `--pid host`) keeps `/proc/sys` ro (no regression of the hardening).
 
-**Gates.** Não enfraquecer o default. Gates rootless + segurança. **Agente:**
-general-purpose, tier alto (namespaces/mounts — considerar o painel de revisores Rust).
+**Gates.** Do not weaken the default. Rootless + security gates. **Agent:**
+general-purpose, high tier (namespaces/mounts — consider the Rust reviewer panel).
 
 ---
 
-## BUG-4 — `--wait` ignora a probe definida na CLI  _(Média · DX)_
+## BUG-4 — `--wait` ignores the probe defined on the CLI  _(Medium · DX)_
 
-**Sintoma.** `--wait` + `--health-cmd`/`--health-http`/`--health-tcp` é rejeitado,
-mesmo quando a probe (sozinha) funciona e atinge `healthy`.
+**Symptom.** `--wait` + `--health-cmd`/`--health-http`/`--health-tcp` is rejected,
+even when the probe (on its own) works and reaches `healthy`.
 
-**Evidência.**
+**Evidence.**
 ```
 run -d --health-http :8080/ --wait busybox <srv>  →
   error[DX-1000]: --wait: image 'busybox' declares no HEALTHCHECK — nothing to wait for
-(idêntico para --health-tcp e --health-cmd; as probes SEM --wait → healthy)
+(identical for --health-tcp and --health-cmd; the probes WITHOUT --wait → healthy)
 ```
 
-**Causa-raiz.** A validação do `--wait` em
-`bins/delonix/src/cmd/container.rs:4242-4252` só considera `--no-healthcheck` e o
-HEALTHCHECK da imagem, ignorando as probes da CLI. O caminho em
-`container.rs:6687` já considera `--health-cmd`+imagem — alinhar a condição de `:4252`
-para aceitar qualquer probe efectiva (CLI `--health-cmd/http/tcp` OU imagem) antes de
-rejeitar.
+**Root cause.** The `--wait` validation in
+`bins/delonix/src/cmd/container.rs:4242-4252` only considers `--no-healthcheck` and the
+image's HEALTHCHECK, ignoring the CLI probes. The path at
+`container.rs:6687` already considers `--health-cmd`+image — align the condition at `:4252`
+to accept any effective probe (CLI `--health-cmd/http/tcp` OR image) before
+rejecting.
 
 **Done when.**
-1. `run -d --health-http :8080/ --wait --wait-timeout 40 busybox <srv>` bloqueia e
-   retorna `rc=0` com estado `healthy`.
-2. Idem `--health-tcp` e `--health-cmd`.
-3. `--wait` sem probe nenhuma mantém o erro claro actual.
+1. `run -d --health-http :8080/ --wait --wait-timeout 40 busybox <srv>` blocks and
+   returns `rc=0` with state `healthy`.
+2. Likewise `--health-tcp` and `--health-cmd`.
+3. `--wait` with no probe at all keeps the current clear error.
 
-**Gates.** Mensagem de erro consistente. Sem pt.po novo (flags existentes). Gate de
-teste. **Agente:** general-purpose, tier médio (lógica localizada no CLI).
+**Gates.** Consistent error message. No new pt.po (existing flags). Test gate.
+**Agent:** general-purpose, medium tier (logic localized in the CLI).
 
 ---
 
-## Divergências seguras (NÃO são bugs — não corrigir)
+## Safe divergences (NOT bugs — do not fix)
 
-- **`-p` safe-by-default**: liga a `127.0.0.1`, não a `0.0.0.0` (mais seguro que Docker;
-  `0.0.0.0:p:p` alarga explicitamente). Comportamento intencional.
-- **`--sysctl` recusa `net.*` não-namespaced** com "not namespaced; refused (affects
-  the host)". Chaves namespaced (`kernel.shmmax`) aplicam. Conservador, do lado seguro.
-- **`/sys/fs/cgroup` não é montado dentro do container** (rootless; Docker monta-o ro).
-  Os limites SÃO aplicados — verificado no cgroup do host.
-- **SKIP de host:** `--gpus all` exige CDI NVIDIA (`--gpus dri` funciona);
-  `--no-userns` não é possível em rootless (userns obrigatório para o mapeamento).
+- **`-p` safe-by-default**: binds to `127.0.0.1`, not `0.0.0.0` (safer than Docker;
+  `0.0.0.0:p:p` explicitly widens it). Intentional behaviour.
+- **`--sysctl` refuses non-namespaced `net.*`** with "not namespaced; refused (affects
+  the host)". Namespaced keys (`kernel.shmmax`) apply. Conservative, on the safe side.
+- **`/sys/fs/cgroup` is not mounted inside the container** (rootless; Docker mounts it ro).
+  The limits ARE applied — verified in the host cgroup.
+- **Host SKIP:** `--gpus all` requires NVIDIA CDI (`--gpus dri` works);
+  `--no-userns` is not possible in rootless (userns is mandatory for the mapping).

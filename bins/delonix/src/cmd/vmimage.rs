@@ -223,8 +223,8 @@ fn distro_label(img: &VmImage) -> String {
 
 /// `vm create --distro <d>` with neither `--disk` nor `--url-img`: the flag is
 /// a semantic selector. It FIRST verifies the official VM image repository is
-/// reachable — the guarantee the flag makes ("garantir que o repo das imagens
-/// de VM está acessível") — then picks the newest published `base` image for
+/// reachable — the guarantee the flag makes ("ensure the VM image repository
+/// is reachable") — then picks the newest published `base` image for
 /// the distro and resolves-or-pulls it. A registry it cannot read fails with
 /// exactly that, never a misleading "no such tag"; a reachable registry with no
 /// image for the distro lists what IS published.

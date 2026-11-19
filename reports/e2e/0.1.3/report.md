@@ -1,58 +1,58 @@
-# Ronda e2e `delonix 0.1.3` — distroless-por-omissão + `vm --distro` + perfil de superfície
+# e2e round `delonix 0.1.3` — distroless-by-default + `vm --distro` + surface profile
 
-> Binário sob teste: `delonix 0.1.2 (+33 commits)` no worktree
-> `feat/distroless-default-vm-distro`. Esta ronda valida os diferenciais
-> **distroless-por-omissão** e **`vm create --distro`** e mede a **superfície CLI
-> inteira** (tempo por folha) e o **comportamento em concorrência/alta
-> disponibilidade**. Fonte da árvore: `scripts/cli-tree.sh` (**366 folhas / 413
-> comandos / 78 grupos**).
+> Binary under test: `delonix 0.1.2 (+33 commits)` in the worktree
+> `feat/distroless-default-vm-distro`. This round validates the
+> **distroless-by-default** and **`vm create --distro`** differentiators and measures the **entire CLI
+> surface** (time per leaf) and the **concurrency/high
+> availability** behaviour. Tree source: `scripts/cli-tree.sh` (**366 leaves / 413
+> commands / 78 groups**).
 
-## 1. O que mudou nesta ronda (vs 0.1.2)
+## 1. What changed in this round (vs 0.1.2)
 
-| Área | Mudança | Prova |
+| Area | Change | Proof |
 |---|---|---|
-| Distroless (containers) | Scaffold genérico e templates `go/rust/python/node` passam a ter a imagem RUNTIME distroless (multi-stage); registo configurável por `DELONIX_DISTROLESS_REGISTRY` (default `gcr.io/distroless`) | §3 |
-| Fallback no pull | Uma imagem distroless reconhecida e ausente (not-found) recorre à base convencional equivalente, em vez de falhar | §3 |
-| `vm create --distro` | Novo selector semântico `ubuntu\|debian\|rocky\|fedora`; verifica o repositório de imagens de VM acessível; cross-check com `--disk` | §3 |
-| i18n | 7 strings novas em `data/pt.po` (fonte EN) | `--l18n=pt vm create --help` |
+| Distroless (containers) | Generic scaffold and `go/rust/python/node` templates now have a distroless RUNTIME image (multi-stage); registry configurable via `DELONIX_DISTROLESS_REGISTRY` (default `gcr.io/distroless`) | §3 |
+| Pull fallback | A recognised and absent (not-found) distroless image falls back to the equivalent conventional base, instead of failing | §3 |
+| `vm create --distro` | New semantic selector `ubuntu\|debian\|rocky\|fedora`; checks that the VM image repository is reachable; cross-check with `--disk` | §3 |
+| i18n | 7 new strings in `data/pt.po` (EN source) | `--l18n=pt vm create --help` |
 
-## 2. Cobertura da superfície
+## 2. Surface coverage
 
-| Eixo | Valor | Fonte |
+| Axis | Value | Source |
 |---|---|---|
-| Folhas descobertas (parser real) | **366** / 413 comandos / 78 grupos | `cli-tree.sh --count` |
-| Folhas com tempo medido (`--help`, RUNS=20) | **366 (100%)** | `cli_timing_profile.sh` → `timing-results.jsonl` |
-| Folhas exercitadas em concorrência (read-only seguras) | 7 activas (1 SKIP correcto) | `cli_concurrency_probe.sh` |
-| Regressão de comportamento (pass/fail por folha) | baseline **0.1.2** (1735 PASS / 22 FAIL triadas / 35 SKIP) — mudanças desta ronda são aditivas (nova flag, templates) e cobertas por 50 testes de scaffold + 4 de distroless | `reports/e2e/0.1.2/` |
+| Leaves discovered (real parser) | **366** / 413 commands / 78 groups | `cli-tree.sh --count` |
+| Leaves with measured time (`--help`, RUNS=20) | **366 (100%)** | `cli_timing_profile.sh` → `timing-results.jsonl` |
+| Leaves exercised under concurrency (safe read-only) | 7 active (1 correct SKIP) | `cli_concurrency_probe.sh` |
+| Behaviour regression (pass/fail per leaf) | baseline **0.1.2** (1735 PASS / 22 triaged FAIL / 35 SKIP) — this round's changes are additive (new flag, templates) and covered by 50 scaffold tests + 4 distroless tests | `reports/e2e/0.1.2/` |
 
-As conversões distroless foram provadas **a correr** (não só a compilar): ver §3.
+The distroless conversions were proven **running** (not just compiling): see §3.
 
-## 3. Prova dos diferenciais (comportamento observado)
+## 3. Proof of the differentiators (observed behaviour)
 
-**Distroless-por-omissão**
-- `delonix init -t go` → `FROM gcr.io/distroless/static-debian12:nonroot`, `USER 65532:65532`, `ENTRYPOINT ["/usr/local/bin/server"]`, `HEALTHCHECK CMD ["/usr/local/bin/server","healthcheck"]` (exec-form, sem shell).
-- Genérico (sem `--image`) → multi-stage `busybox:1.37-musl AS tools` + `FROM gcr.io/distroless/base-debian12:nonroot`; **build+run+`curl` → `hello-distroless`** (rc=0).
-- Template **go** real → build (golang-alpine→distroless/static) + `run -d -p` + `curl /api/v1/health/live` rc=0 + `exec … server healthcheck` rc=0.
-- Registo configurável: `DELONIX_DISTROLESS_REGISTRY=cgr.dev/chainguard delonix init` → `FROM cgr.dev/chainguard/base-debian12:nonroot`.
+**Distroless-by-default**
+- `delonix init -t go` → `FROM gcr.io/distroless/static-debian12:nonroot`, `USER 65532:65532`, `ENTRYPOINT ["/usr/local/bin/server"]`, `HEALTHCHECK CMD ["/usr/local/bin/server","healthcheck"]` (exec-form, no shell).
+- Generic (no `--image`) → multi-stage `busybox:1.37-musl AS tools` + `FROM gcr.io/distroless/base-debian12:nonroot`; **build+run+`curl` → `hello-distroless`** (rc=0).
+- Real **go** template → build (golang-alpine→distroless/static) + `run -d -p` + `curl /api/v1/health/live` rc=0 + `exec … server healthcheck` rc=0.
+- Configurable registry: `DELONIX_DISTROLESS_REGISTRY=cgr.dev/chainguard delonix init` → `FROM cgr.dev/chainguard/base-debian12:nonroot`.
 
-**Fallback no pull**
-- `FROM gcr.io/distroless/static-debian12:<tag-inexistente>` → stderr `distroless image … not found; falling back to alpine:3.24` → pull alpine → build OK (`fbtest:dev`, 8.3 MiB). Só dispara em **not-found** (`DX_NOT_FOUND`), nunca em erro de rede/auth; só para refs distroless reconhecidas. Node é excluído de propósito (o caminho do `node` diverge entre distroless e `node:*-slim`).
+**Pull fallback**
+- `FROM gcr.io/distroless/static-debian12:<nonexistent-tag>` → stderr `distroless image … not found; falling back to alpine:3.24` → pull alpine → build OK (`fbtest:dev`, 8.3 MiB). Only triggers on **not-found** (`DX_NOT_FOUND`), never on a network/auth error; only for recognised distroless refs. Node is excluded on purpose (the `node` path diverges between distroless and `node:*-slim`).
 
 **`vm create --distro`**
-- `vm create --help` mostra `--distro <ubuntu|debian|rocky|fedora>` (en e pt-AO).
-- `vm create --distro debian` com o repo inacessível → erro claro: *«VM image repository 'ghcr.io/ngolacloud/delonix-vm-base' is not reachable: …»*.
+- `vm create --help` shows `--distro <ubuntu|debian|rocky|fedora>` (en and pt-AO).
+- `vm create --distro debian` with the repo unreachable → clear error: *«VM image repository 'ghcr.io/ngolacloud/delonix-vm-base' is not reachable: …»*.
 
-## 4. Desempenho — tempo por folha (`--help`, RUNS=20)
+## 4. Performance — time per leaf (`--help`, RUNS=20)
 
-Latência de **parse+arranque** por folha (inclui `fork`/`exec` do binário — o custo real da superfície CLI). Arranque base: `--version` mean **9.874ms** (p95 11.212), `--help` mean **9.886ms** (p95 12.253).
+**parse+startup** latency per leaf (includes binary `fork`/`exec` — the real cost of the CLI surface). Base startup: `--version` mean **9.874ms** (p95 11.212), `--help` mean **9.886ms** (p95 12.253).
 
-- **mean global das 366 folhas: 9.12 ms** · mediana 9.065 ms · min 7.785 ms · max 10.715 ms.
-- Distribuição muito apertada (todas as folhas 7,8–10,7 ms de mean): não há folha-outlier de parse; o custo é dominado pelo arranque do binário, não pelo comando.
-- p99 ocasional 18–26 ms em folhas isoladas (`pod`, `vm`, `container`, `network`) = jitter de agendamento, não trabalho da folha.
+- **global mean of the 366 leaves: 9.12 ms** · median 9.065 ms · min 7.785 ms · max 10.715 ms.
+- Very tight distribution (all leaves 7.8–10.7 ms mean): there is no parse-outlier leaf; the cost is dominated by binary startup, not by the command.
+- Occasional p99 18–26 ms on isolated leaves (`pod`, `vm`, `container`, `network`) = scheduling jitter, not leaf work.
 
-Tabela completa por grupo em [`PERFORMANCE.md`](PERFORMANCE.md). Topo (mais lentas por mean-dos-means):
+Full table per group in [`PERFORMANCE.md`](PERFORMANCE.md). Top (slowest by mean-of-means):
 
-| grupo | folhas | mean-dos-means (ms) | p95 máx (ms) | p99 máx (ms) |
+| group | leaves | mean-of-means (ms) | p95 max (ms) | p99 max (ms) |
 |---|--:|--:|--:|--:|
 | `run` | 1 | 10.53 | 12.14 | 12.26 |
 | `pull` | 1 | 10.27 | 11.73 | 11.75 |
@@ -68,32 +68,32 @@ Tabela completa por grupo em [`PERFORMANCE.md`](PERFORMANCE.md). Topo (mais lent
 | `bucket` | 3 | 9.69 | 12.52 | 16.93 |
 
 
-## 5. Concorrência / alta disponibilidade
+## 5. Concurrency / high availability
 
-`cli_concurrency_probe.sh`: **32 processos `delonix` em paralelo**, 20s, sobre folhas read-only seguras (`version`, `info`, `ps`, `image ls`, `vm ls`, `system info`, `events`).
+`cli_concurrency_probe.sh`: **32 parallel `delonix` processes**, 20s, over safe read-only leaves (`version`, `info`, `ps`, `image ls`, `vm ls`, `system info`, `events`).
 
-| Métrica | Valor |
+| Metric | Value |
 |---|--:|
-| Invocações | **8736** |
-| Sucesso (rc=0) | **8736 (100.00%)** |
-| Erros | 0 (0.00%) |
-| Corrupção de estado | **nenhuma** (`state_corruption_suspected=False`) |
+| Invocations | **8736** |
+| Success (rc=0) | **8736 (100.00%)** |
+| Errors | 0 (0.00%) |
+| State corruption | **none** (`state_corruption_suspected=False`) |
 | Throughput | **435.58 inv/s** |
-| Latência p50 / p95 / p99 / max | 51.657 / 108.59 / 362.212 / 736.948 ms |
+| Latency p50 / p95 / p99 / max | 51.657 / 108.59 / 362.212 / 736.948 ms |
 
-**Leitura:** sob 32× de contenção, a superfície read-only daemonless mantém **0 erros e 0 corrupção de estado** — o `flock`/estado atómico e o GC oportunista de arranque aguentam acesso concorrente. A cauda (p99 362.212 ms, max 736.948 ms) é a contenção esperada de 32 `fork`/`exec` + varrimento de estado por processo; não há falha, só latência de cauda.
+**Reading:** under 32× contention, the daemonless read-only surface keeps **0 errors and 0 state corruption** — the `flock`/atomic state and the opportunistic startup GC hold up under concurrent access. The tail (p99 362.212 ms, max 736.948 ms) is the expected contention of 32 `fork`/`exec` + per-process state scan; there is no failure, only tail latency.
 
-## 6. Onde melhorar a performance (accionável)
+## 6. Where to improve performance (actionable)
 
-1. **Arranque do binário domina** (~8–10 ms por invocação, 45 MB). Alvos: (a) o plano morno (ADR-0095) já ataca o `pre_spawn` no caminho de container/CRI; (b) para a superfície CLI pura, a latência é o custo de `fork`/`exec`+parse clap — um daemon opcional de longa duração para o caminho de alta-frequência reduziria isto, mas quebra a invariante daemonless (manter como está).
-2. **GC oportunista por processo** (`gc_orphan_cgroup_leaves_once`) acrescenta trabalho a cada comando que abre o store — sob 32× concorrência é parte da cauda p99. Avaliar torná-lo *best-effort com amortização* (1×/N processos ou por TTL) para baixar a cauda sem perder a recuperação pós-crash.
-3. **p99 de parse em `pod`/`network`/`vm`** (18–26 ms) — jitter de agendamento, não trabalho; aceitável. Reavaliar só se um SLO de latência CLI o exigir.
+1. **Binary startup dominates** (~8–10 ms per invocation, 45 MB). Targets: (a) the warm plane (ADR-0095) already attacks `pre_spawn` on the container/CRI path; (b) for the pure CLI surface, the latency is the cost of `fork`/`exec`+clap parse — an optional long-lived daemon for the high-frequency path would reduce this, but breaks the daemonless invariant (keep as is).
+2. **Per-process opportunistic GC** (`gc_orphan_cgroup_leaves_once`) adds work to every command that opens the store — under 32× concurrency it is part of the p99 tail. Consider making it *best-effort with amortisation* (1×/N processes or per TTL) to lower the tail without losing post-crash recovery.
+3. **parse p99 on `pod`/`network`/`vm`** (18–26 ms) — scheduling jitter, not work; acceptable. Re-evaluate only if a CLI latency SLO requires it.
 
-## 7. Artefactos
+## 7. Artifacts
 
-- [`timing-results.jsonl`](timing-results.jsonl) — 368 linhas (366 folhas + 2 startup), uma por folha com min/p50/p95/p99/max/mean.
-- [`concurrency-results.json`](concurrency-results.json) — agregados da sonda de concorrência.
-- [`PERFORMANCE.md`](PERFORMANCE.md) — tabela completa por grupo.
-- [`COVERAGE_MATRIX.md`](COVERAGE_MATRIX.md) — cobertura por eixo/grupo.
+- [`timing-results.jsonl`](timing-results.jsonl) — 368 lines (366 leaves + 2 startup), one per leaf with min/p50/p95/p99/max/mean.
+- [`concurrency-results.json`](concurrency-results.json) — aggregates from the concurrency probe.
+- [`PERFORMANCE.md`](PERFORMANCE.md) — full table per group.
+- [`COVERAGE_MATRIX.md`](COVERAGE_MATRIX.md) — coverage per axis/group.
 
-> Arneses novos (reutilizáveis): `scripts/cli_timing_profile.sh`, `scripts/cli_concurrency_probe.sh`.
+> New (reusable) harnesses: `scripts/cli_timing_profile.sh`, `scripts/cli_concurrency_probe.sh`.
