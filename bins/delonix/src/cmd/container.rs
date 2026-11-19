@@ -1637,6 +1637,9 @@ pub struct ExecArgs {
     /// the container's own env. Repeatable.
     #[arg(short = 'e', long = "env")]
     pub(crate) env: Vec<String>,
+    /// Load variables from a `.env` file (`KEY=VAL` per line). Repeatable.
+    #[arg(long = "env-file")]
+    pub(crate) env_file: Vec<String>,
     /// Working directory for this call only (default: the container's own
     /// configured `workdir`, or `/`).
     #[arg(short = 'w', long = "workdir")]
@@ -2565,6 +2568,7 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             interactive,
             tty,
             env,
+            env_file,
             workdir,
             user,
             id,
@@ -2577,6 +2581,7 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             interactive,
             tty,
             &env,
+            &env_file,
             workdir.as_deref(),
             user.as_deref(),
             &command,
@@ -6574,6 +6579,7 @@ pub(crate) fn cmd_exec(
     interactive: bool,
     tty: bool,
     env: &[String],
+    env_file: &[String],
     workdir: Option<&str>,
     user: Option<&str>,
     command: &[String],
@@ -6642,6 +6648,18 @@ pub(crate) fn cmd_exec(
     if !c.config_files && !c.configs.is_empty() {
         if let Ok(cs) = delonix_state::ConfigStore::open(super::util::state_root()) {
             extra_env.extend(cs.resolve_env(&c.configs));
+        }
+    }
+    // `--env-file` (docker `exec --env-file`): each file's `KEY=VAL` lines, in the
+    // order the files were given, applied BEFORE the explicit `-e` below so a `-e`
+    // on the same key still wins — the same precedence `run --env-file` has, and
+    // the SAME parser (`delonix_model::secret::parse_env_file`, via
+    // `secret::load_env_file`, which also accepts `-` for stdin and resolves a
+    // relative path against the current directory).
+    for f in env_file {
+        let map = super::secret::load_env_file(std::path::Path::new("."), std::path::Path::new(f))?;
+        for (k, v) in map {
+            extra_env.push(format!("{k}={v}"));
         }
     }
     extra_env.extend(env.iter().cloned());

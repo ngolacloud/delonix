@@ -1324,6 +1324,7 @@ fn exec(
         interactive,
         tty,
         env,
+        &[], // `pod exec` has no `--env-file`; only `-e` is plumbed through
         workdir,
         user,
         command,
