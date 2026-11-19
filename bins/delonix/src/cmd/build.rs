@@ -959,8 +959,11 @@ fn work_launch(rootfs: &str) -> delonix_compute::launch::Launch {
         attached_ip: None,
         slirp_ports: vec![],
         // The build's work container stays on the host netns (a `RUN` fetches
-        // packages) — it does NOT take the default rootless slirp uplink.
+        // packages) — it does NOT take the default slirp (rootless) or veth
+        // (rootful) uplink.
         rootless_uplink: false,
+        rootful_uplink: false,
+        uplink_ip: None,
         pod_infra_pid: None,
         pod_shared_pid: false,
         pod_pidns_pid: None,

@@ -3418,7 +3418,18 @@ pub(crate) fn with_host_workload<R>(
         delonix_sdn::slirp_attach(pid, ports)
             .map_err(|e| delonix_linux::Error::Engine(delonix_model::Error::from(e)))
     };
-    let detach_slirp = |c: &Container, pid: i32| delonix_sdn::run_network::reap_own_slirp(c, pid);
+    // The rootful twin of `attach_slirp`: wires veth+bridge+NAT for the default
+    // `--net private` uplink when the engine runs with privilege (slirp is
+    // rootless-only). The launch flag picks which of the two runs.
+    let attach_uplink = |pid: i32, ip: &str| -> delonix_linux::Result<()> {
+        delonix_sdn::uplink::rootful_uplink_attach(pid, ip)
+            .map_err(|e| delonix_linux::Error::Engine(delonix_model::Error::from(e)))
+    };
+    let detach_slirp = |c: &Container, pid: i32| {
+        delonix_sdn::run_network::reap_own_slirp(c, pid);
+        // The host-side veth dies with the netns; this only returns the lease.
+        delonix_sdn::uplink::reap_own_uplink(c);
+    };
     let on_first_start = |c: &Container| {
         if let Some(cfg) = c.health.clone() {
             spawn_health_monitor(c.id.clone(), cfg);
@@ -3432,6 +3443,7 @@ pub(crate) fn with_host_workload<R>(
         state_root: &state_root,
         addresses: &addresses,
         attach_slirp: &attach_slirp,
+        attach_uplink: &attach_uplink,
         detach_slirp: &detach_slirp,
         on_first_start: &on_first_start,
         silent_death: super::po::t(
@@ -4148,8 +4160,29 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // `--net host` opts back into sharing the host netns; `-p` adds hostfwds on top
     // of the same slirp. On rootful this stays false (that path shares the host
     // netns as before and is governed separately). The slirp dies with the netns.
-    let rootless_uplink =
-        !reexec && net == "private" && custom_net.is_none() && pod.is_none() && runtime::is_rootless();
+    let rootless_uplink = !reexec
+        && net == "private"
+        && custom_net.is_none()
+        && pod.is_none()
+        && runtime::is_rootless();
+    // The ROOTFUL twin of the default `--net private`: with real privilege the
+    // container gets its own netns wired to a host bridge with NAT egress (veth +
+    // `dlxnat0` + MASQUERADE), the Podman-rootful model — slirp does not serve
+    // rootful. Same gate as `rootless_uplink` but `!is_rootless()`; the two are
+    // mutually exclusive. The bridge address is leased now so it persists in the
+    // record and the `start` of a stopped container comes back on the same one.
+    let rootful_uplink = !reexec
+        && net == "private"
+        && custom_net.is_none()
+        && pod.is_none()
+        && !runtime::is_rootless();
+    let uplink_ip = if rootful_uplink {
+        let ip = delonix_sdn::ipam::allocate(delonix_sdn::uplink::UPLINK_PREFIX, &id)?;
+        c.ip = Some(ip.clone());
+        Some(ip)
+    } else {
+        None
+    };
     let launch = delonix_compute::launch::Launch {
         slirp_ports: delonix_compute::launch::slirp_ports(
             custom_net.is_some(),
@@ -4157,6 +4190,8 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
             &ports,
         ),
         rootless_uplink,
+        rootful_uplink,
+        uplink_ip,
         rootfs,
         mounts,
         detach,
@@ -6016,6 +6051,22 @@ fn start_container(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
         .join("log")
         .to_string_lossy()
         .into_owned();
+    // Reconstruct the ROOTFUL default uplink from the record, the privileged twin
+    // of `rootless_uplink` below: a `--net private` container started with real
+    // privilege comes back on its own netns + veth bridge. The bridge address is
+    // the one leased at `run` and persisted as `c.ip`; a record from before this
+    // field (no `c.ip`) gets the same deterministic lease back.
+    let rootful_uplink = !reexec
+        && c.net_mode.as_deref() == Some("private")
+        && c.network.is_none()
+        && c.pod.is_none()
+        && !runtime::is_rootless();
+    let uplink_ip = if rootful_uplink {
+        c.ip.clone()
+            .or_else(|| delonix_sdn::ipam::allocate(delonix_sdn::uplink::UPLINK_PREFIX, &c.id).ok())
+    } else {
+        None
+    };
     let launch = delonix_compute::launch::Launch {
         slirp_ports: delonix_compute::launch::slirp_ports(
             c.network.is_some(),
@@ -6031,6 +6082,8 @@ fn start_container(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
             && c.network.is_none()
             && c.pod.is_none()
             && runtime::is_rootless(),
+        rootful_uplink,
+        uplink_ip,
         rootfs,
         mounts: c.mounts.clone(),
         detach: true,
