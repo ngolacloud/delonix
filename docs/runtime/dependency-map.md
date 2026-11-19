@@ -56,7 +56,7 @@ graph TD
   - **L3 — servers:** `cri`, `mgmt` (fan-in over multiple engines).
   - **L4 — CLI:** `bin` (depends on all).
 - **No private-repo edge.** Zero references to `delonix-core`/`delonix-api`/
-  `delonix-orchestrator`/`delonix-overlay`. **Regra de ouro #1 holds.**
+  `delonix-orchestrator`/`delonix-overlay`. **Golden rule #1 holds.**
 
 ## 3. Invariants this graph must preserve
 

@@ -1079,7 +1079,7 @@ mod tests {
     }
 
     #[test]
-    fn o_default_leva_o_que_nao_se_reconstroi() {
+    fn default_scope_takes_what_cannot_be_rebuilt() {
         let s = Scope::default();
         for rel in [
             "containers/abc123.json",
@@ -1101,7 +1101,7 @@ mod tests {
     }
 
     #[test]
-    fn a_chave_mestra_so_viaja_quando_pedida() {
+    fn master_key_only_travels_when_requested() {
         // The whole point: a leaked archive must not be a leaked vault.
         assert_eq!(
             classify("tunnels/keyring.key", &Scope::default()),
@@ -1111,7 +1111,7 @@ mod tests {
     }
 
     #[test]
-    fn o_encanamento_de_um_no_vivo_nunca_volta() {
+    fn a_live_nodes_plumbing_never_comes_back() {
         // Restoring a stale `holder.pid` makes `status()` — which decides "up"
         // by reading a pidfile — report a holder that does not exist.
         let s = all();
@@ -1133,7 +1133,7 @@ mod tests {
     }
 
     #[test]
-    fn o_rootfs_de_um_container_nao_viaja_mas_o_registo_sim() {
+    fn a_containers_rootfs_does_not_travel_but_its_record_does() {
         let s = all();
         assert_eq!(classify("containers/abc.json", &s), Decision::Include);
         assert_eq!(
@@ -1156,7 +1156,7 @@ mod tests {
     }
 
     #[test]
-    fn os_dados_pesados_sao_opt_in() {
+    fn heavy_data_is_opt_in() {
         let d = Scope::default();
         assert_eq!(
             classify("blobs/sha256/aa", &d),
@@ -1191,7 +1191,7 @@ mod tests {
     }
 
     #[test]
-    fn os_dados_de_um_volume_nunca_vao_pelo_walk() {
+    fn volume_data_never_goes_through_the_walk() {
         // Even with --volumes: reading `_data` as the real user hits EACCES on
         // every subuid-owned dir and would pack an EMPTY volume that looks full.
         // The data travels as a mapped `__volsnap` snapshot instead.
@@ -1214,7 +1214,7 @@ mod tests {
     }
 
     #[test]
-    fn um_formato_desconhecido_e_recusado() {
+    fn an_unknown_format_is_refused() {
         let mut m = Manifest {
             format: FORMAT,
             delonix_version: "9.9.9".into(),
@@ -1232,12 +1232,12 @@ mod tests {
         let e = check_format(&m).unwrap_err().to_string();
         assert!(
             e.contains("9.9.9"),
-            "a mensagem tem de nomear a versão: {e}"
+            "the message must name the version: {e}"
         );
     }
 
     #[test]
-    fn um_membro_do_arquivo_nao_escapa_do_destino() {
+    fn an_archive_member_cannot_escape_the_destination() {
         // A backup file is untrusted input: without this, a member named
         // `../../.ssh/authorized_keys` writes wherever it likes.
         let base = Path::new("/tmp/dest");
@@ -1252,7 +1252,7 @@ mod tests {
     }
 
     #[test]
-    fn o_plano_poda_a_arvore_do_rootfs_em_vez_de_a_percorrer() {
+    fn the_plan_prunes_the_rootfs_tree_instead_of_walking_it() {
         let tmp = tempfile::tempdir().unwrap();
         let d = tmp.path();
         std::fs::create_dir_all(d.join("containers/abc/rootfs/etc")).unwrap();
@@ -1294,7 +1294,7 @@ mod tests {
     }
 
     #[test]
-    fn um_formato_futuro_nomeia_a_versao_e_nao_o_membro_desconhecido() {
+    fn a_future_format_names_the_version_not_the_unknown_member() {
         // Live-validated finding: a future format legitimately carries members
         // this build never heard of, so refusing on the FIRST unknown member
         // answered "not a delonix backup" — an accusation — instead of the one
@@ -1311,12 +1311,12 @@ mod tests {
         let e = survey(&a).unwrap_err().to_string();
         assert!(
             e.contains("9.9.9") && !e.contains("unknown member"),
-            "a recusa tinha de nomear a versão que escreveu o arquivo: {e}"
+            "the refusal had to name the version that wrote the archive: {e}"
         );
     }
 
     #[test]
-    fn um_arquivo_reempacotado_com_ponto_barra_continua_a_ser_lido() {
+    fn a_repacked_archive_with_dot_slash_is_still_read() {
         // `tar czf … .` heads every member with `./`. Our writer never does, but
         // an unpacked-and-repacked archive is still the operator's backup.
         let tmp = tempfile::tempdir().unwrap();
@@ -1335,7 +1335,7 @@ mod tests {
     }
 
     #[test]
-    fn um_membro_que_nao_e_ficheiro_normal_e_recusado() {
+    fn a_member_that_is_not_a_regular_file_is_refused() {
         // A symlink member is a target the restore would have to reason about;
         // the cheapest correct answer is not to have them.
         let tmp = tempfile::tempdir().unwrap();
@@ -1367,7 +1367,7 @@ mod tests {
     }
 
     #[test]
-    fn timestamp_e_utc_legivel() {
+    fn timestamp_is_readable_utc() {
         assert_eq!(timestamp(0), "19700101-000000");
         assert_eq!(timestamp(1_754_000_000), "20250731-221320");
     }

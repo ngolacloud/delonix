@@ -1,11 +1,12 @@
-# Armazenamento do laboratório, provisionado NA NAS a partir do manifesto.
+# Lab storage, provisioned ON the NAS from the manifest.
 #
 #   delonix stack apply -f 60-storage.yaml
 #
-# O que isto faz na appliance, sem ninguém abrir a interface web: cria o
-# dataset, aplica-lhe a quota, define dono/modo e publica o export NFS. O que
-# NÃO faz é criar a pool — dispor discos físicos não é coisa que um manifesto
-# de volume deva desencadear (ver ADR-0009). A pool `labpool` cria-se uma vez:
+# What this does on the appliance, without anyone opening the web interface: it
+# creates the dataset, applies its quota, sets owner/mode and publishes the NFS
+# export. What it does NOT do is create the pool — laying out physical disks is
+# not something a volume manifest should trigger (see ADR-0009). The `labpool`
+# pool is created once:
 #
 #   curl -sk -u truenas_admin:<pass> -H 'Content-Type: application/json' \
 #     -X POST https://<nas>/api/v2.0/pool \
@@ -26,18 +27,18 @@ metadata:
 spec:
   provision:
     truenas:
-      # HTTPS e não HTTP: a credencial vai neste pedido. O motor RECUSA
-      # `http://` com credencial, precisamente para ela não viajar em claro.
+      # HTTPS and not HTTP: the credential travels in this request. The engine
+      # REFUSES `http://` with a credential, precisely so it does not travel in the clear.
       url: https://NAS_IP
       username: truenas_admin
       passwordSecret: nas-cred
-      # Um TrueNAS de fábrica serve um certificado que este host não valida.
-      # Ligar isto é dizer que se aceita esse risco nesta rede.
+      # A factory TrueNAS serves a certificate that this host does not validate.
+      # Turning this on means accepting that risk on this network.
       insecureTLS: true
       dataset: labpool/lab-dados
-      quota: 2G          # mínimo aceite pela appliance: 1 GiB
-      # Dono e modo do dataset. Sem isto o dataset é do root da appliance com
-      # modo 0755, e um cliente que o monte vê-o mas não escreve nele.
+      quota: 2G          # minimum accepted by the appliance: 1 GiB
+      # Dataset owner and mode. Without this the dataset belongs to the appliance's
+      # root with mode 0755, and a client that mounts it sees it but can't write to it.
       owner:
         uid: 1000
         gid: 1000
@@ -46,9 +47,9 @@ spec:
         networks:
           - 10.50.0.0/24
           - 192.168.122.0/24
-        # O NFS faz root-squash por omissão: o root do cliente chega à NAS como
-        # `nobody`. Mapeá-lo para root é o `no_root_squash` clássico — cómodo
-        # num laboratório, e uma cedência real de segurança fora dele: quem for
-        # root numa máquina que possa montar isto é root nos dados.
+        # NFS does root-squash by default: the client's root reaches the NAS as
+        # `nobody`. Mapping it to root is the classic `no_root_squash` — convenient
+        # in a lab, and a real security concession outside it: whoever is root on a
+        # machine that can mount this is root on the data.
         maprootUser: root
         maprootGroup: root

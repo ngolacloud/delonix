@@ -324,9 +324,9 @@ impl VmImageStore {
 
     pub fn get(&self, name: &str) -> Result<VmImage> {
         let bytes = std::fs::read(self.meta_path(name))
-            // `VM image`, not `imagem VM`: the sentence is assembled by `NotFound`'s
-            // Display (`no such {0}`), which is English, and the result came out
-            // half-translated — `no such imagem VM 'x'` — even with the CLI in EN.
+            // `VM image`, not a half-translated label: the sentence is assembled
+            // by `NotFound`'s Display (`no such {0}`), which is English, and feeding
+            // it a translated noun phrase came out mangled even with the CLI in EN.
             .map_err(|e| Error::not_found_or_io(e, || format!("VM image '{name}'")))?;
         Ok(serde_json::from_slice(&bytes)?)
     }
@@ -404,10 +404,10 @@ fn vms_backed_by(root: &std::path::Path, image_qcow2: &std::path::Path) -> Vec<S
 pub(crate) fn cmd_rm(store: &VmImageStore, names: &[String], force: bool) -> Result<()> {
     let root = state_root();
     let mut failed = false;
-    // «Não existe» é uma CLASSE de saída (4), não o genérico. Um reconciliador
-    // usa o código para decidir entre «cria porque falta» e «pára porque
-    // falhou», e um lote onde tudo o que falhou foi por ausência tem de dizer
-    // isso — como o `container rm` já diz.
+    // "Not found" is an exit CLASS (4), not the generic one. A reconciler uses
+    // the code to decide between "create because it is missing" and "stop
+    // because it failed", and a batch where every failure was an absence has to
+    // say so — just as `container rm` already does.
     let mut missing = false;
     for name in names {
         // Fail on a name that does not exist (docker/`vm rm` parity), rather
@@ -645,8 +645,8 @@ pub struct BuildArgs {
     #[arg(long, default_value = "44-1.1")]
     pub fedora_release: String,
     /// Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION`
-    /// (1.37, o estável mais recente do pkgs.k8s.io). 1.34/1.35/1.36 continuam
-    /// disponíveis passando-as aqui.
+    /// (1.37, the latest stable on pkgs.k8s.io). 1.34/1.35/1.36 remain
+    /// available by passing them here.
     #[arg(long)]
     pub k8s_version: Option<String>,
     /// Extra apt package, repeatable — extensibility without touching the code.
@@ -1258,9 +1258,9 @@ fn describe_one(store: &VmImageStore, img: &VmImage) {
         "On disk",
         std::fs::metadata(&qcow2).ok().map(|m| fmt_size(m.len())),
     );
-    // Proveniência e inventário: as duas perguntas que alguém faz a um
-    // artefacto que recebeu — «de onde veio isto?» e «tem a versão X?».
-    // Sem elas a resposta é montar a imagem.
+    // Provenance and inventory: the two questions anyone asks of an artifact
+    // they received — "where did this come from?" and "does it have version X?".
+    // Without them the only answer is to mount the image.
     d.field_opt("Built by", img.built_by.clone());
     d.field_opt("Base sha256", img.base_sha256.clone());
     let sbom = store.sbom_path(&img.name);
@@ -1277,9 +1277,9 @@ fn describe_one(store: &VmImageStore, img: &VmImage) {
         (Some(n), false) => {
             d.field("Packages", n.to_string());
         }
-        // Deliberadamente uma linha e não silêncio: «não sei» e «zero pacotes»
-        // não são a mesma coisa, e um artefacto sem inventário é um facto que
-        // quem o for auditar precisa de ver.
+        // Deliberately a line and not silence: "I don't know" and "zero
+        // packages" are not the same thing, and an artifact with no inventory
+        // is a fact whoever audits it needs to see.
         (None, _) => {
             d.field(
                 "Packages",
@@ -1444,28 +1444,28 @@ pub(crate) fn resolve_official_ref(reference: &str) -> Result<String> {
     }
 }
 
-/// Versão do Kubernetes por OMISSÃO da golden.
+/// DEFAULT Kubernetes version of the golden.
 ///
-/// **1.37** (pedido do dono, 2026-10-27), o canal estável mais recente do
-/// `pkgs.k8s.io` — v1.37.0 verificado a existir no `pkgs.k8s.io` e como
-/// `kindest/node:v1.37.0` (o comentário anterior dizia «v1.37 não existe»;
-/// deixou de ser verdade). Serve os caminhos SELF-MANAGED: `cluster kubeadm`
-/// (control-plane próprio, kubeadm) e `cluster kind` (via `KIND_NODE_IMAGE`,
-/// bumpada em par para `v1.37.0`).
+/// **1.37** (owner's request, 2026-10-27), the latest stable channel on
+/// `pkgs.k8s.io` — v1.37.0 verified to exist on `pkgs.k8s.io` and as
+/// `kindest/node:v1.37.0` (the previous comment said "v1.37 does not exist";
+/// that is no longer true). It serves the SELF-MANAGED paths: `cluster kubeadm`
+/// (own control-plane, kubeadm) and `cluster kind` (via `KIND_NODE_IMAGE`,
+/// bumped in lockstep to `v1.37.0`).
 ///
-/// **O DKS/control-plane alojado é um eixo SEPARADO, e não é capado por aqui.**
-/// O Kamaji que o `delonix-deploy` aloja (v1.0.0) recusa pelo seu webhook um
-/// `TenantControlPlane` acima de `1.30.2` (ADR 0006), e a golden DKS já estava
-/// à frente disso (1.36) — um mismatch que o próprio `delonix-deploy` regista
-/// como por resolver («needs an aligned golden or a Kamaji upgrade — neither is
-/// decided here», `roles/dks_worker_golden`). Um nó mais novo que o seu
-/// control-plane não é combinação suportada pelo kubeadm; para o DKS isso
-/// resolve-se LÁ (golden alinhada ou upgrade do Kamaji), não baixando a omissão
-/// self-managed. Ao preparar uma release DKS, alinha a golden do tenant com o
-/// tecto do Kamaji alojado ANTES.
+/// **The hosted DKS/control-plane is a SEPARATE axis, and is not capped here.**
+/// The Kamaji that `delonix-deploy` hosts (v1.0.0) rejects via its webhook a
+/// `TenantControlPlane` above `1.30.2` (ADR 0006), and the DKS golden was
+/// already ahead of that (1.36) — a mismatch that `delonix-deploy` itself
+/// records as unresolved ("needs an aligned golden or a Kamaji upgrade — neither
+/// is decided here", `roles/dks_worker_golden`). A node newer than its
+/// control-plane is not a combination kubeadm supports; for DKS that is resolved
+/// THERE (aligned golden or Kamaji upgrade), not by lowering the self-managed
+/// default. When preparing a DKS release, align the tenant golden with the
+/// hosted Kamaji's ceiling FIRST.
 ///
-/// As tags 1.34/1.35/1.36 continuam construíveis com `--k8s-version`; só deixam
-/// de ser a omissão.
+/// The 1.34/1.35/1.36 tags remain buildable with `--k8s-version`; they just stop
+/// being the default.
 pub(crate) const DEFAULT_K8S_VERSION: &str = "1.37";
 
 /// The architecture the Kubernetes golden image is built for.
@@ -1479,51 +1479,50 @@ pub(crate) const DEFAULT_K8S_VERSION: &str = "1.37";
 /// amd64; this is where that decision is spelled.
 pub(crate) const GOLDEN_ARCH: &str = "amd64";
 
-/// Tamanho VIRTUAL do disco da golden, em GiB.
+/// VIRTUAL disk size of the golden, in GiB.
 ///
-/// A imagem base do Ubuntu vem com 3,5 GiB (≈2,4 GB de raiz utilizável), e isso
-/// **não chega para um nó de Kubernetes**. Medido a 2026-08-16 numa golden 1.36:
-/// depois de o `delonix-cri` puxar as imagens do control-plane a raiz ficava a
-/// `2.4G/2.4G, 100%`, o `fallocate` do WAL do etcd falhava com ENOSPC — à letra
-/// `failed to preallocate space when creating a new WAL` — o etcd morria, o
-/// apiserver não o alcançava e o `kubeadm init` ficava preso em
+/// The Ubuntu base image ships at 3.5 GiB (≈2.4 GB of usable root), and that
+/// **is not enough for a Kubernetes node**. Measured 2026-08-16 on a 1.36 golden:
+/// after `delonix-cri` pulled the control-plane images the root sat at
+/// `2.4G/2.4G, 100%`, etcd's WAL `fallocate` failed with ENOSPC — literally
+/// `failed to preallocate space when creating a new WAL` — etcd died, the
+/// apiserver could not reach it, and `kubeadm init` hung at
 /// `wait-control-plane`.
 ///
 /// A delivery log elsewhere already said a node needs ≥20G, and marked it
 /// closed with "the golden image comes sized". It did not.
 ///
-/// Custa ZERO ao artefacto publicado: o qcow2 é esparso, e a imagem
-/// redimensionada continua a ocupar ~690 MiB em disco e a viajar igual no
-/// registo. E não exige nada ao guest — as imagens cloud do Ubuntu trazem o
-/// `growpart` do cloud-init, que cresce a raiz no primeiro arranque.
+/// It costs the published artifact ZERO: the qcow2 is sparse, and the resized
+/// image still takes ~690 MiB on disk and travels identically in the registry.
+/// And it demands nothing of the guest — the Ubuntu cloud images ship
+/// cloud-init's `growpart`, which grows the root on first boot.
 ///
-/// ## Porque 10 e não 30: isto é um PISO, não um tamanho
+/// ## Why 10 and not 30: this is a FLOOR, not a size
 ///
-/// A quota de armazenamento de um inquilino conta-se sobre o **provisionado**
-/// (a soma dos tamanhos virtuais), não sobre o consumido — decisão do
-/// utilizador, 2026-08-17. Um inquilino que paga 40G não pode receber nós de
-/// 30G, senão o segundo já estoura a quota. Por isso a golden nasce no **mínimo
-/// viável** e o disco de cada nó cresce a partir daí, dentro da quota do
-/// cluster.
+/// A tenant's storage quota is counted against the **provisioned** amount (the
+/// sum of the virtual sizes), not against what is consumed — user's decision,
+/// 2026-08-17. A tenant paying for 40G cannot receive 30G nodes, or the second
+/// one already blows the quota. So the golden is born at the **viable minimum**
+/// and each node's disk grows from there, within the cluster's quota.
 ///
-/// O mínimo está medido, não estimado (2026-08-17, golden 1.36 encolhida para
-/// 10 GiB): a raiz fica com 8,7G, um control-plane completo consome **2,4G
-/// (28%)**, o apiserver atende na 6443 aos ~120s e o log do etcd não tem uma
-/// única linha de `preallocate`/`No space`. Sobram 6,3G de folga. Com os 3,5
-/// GiB da imagem base, a mesma corrida enchia o disco a 100% e o WAL do etcd
-/// falhava — ver acima.
+/// The minimum is measured, not estimated (2026-08-17, 1.36 golden shrunk to
+/// 10 GiB): the root is 8.7G, a full control-plane consumes **2.4G (28%)**, the
+/// apiserver answers on 6443 by ~120s, and etcd's log has not a single
+/// `preallocate`/`No space` line. 6.3G of headroom remains. With the 3.5 GiB of
+/// the base image, the same run filled the disk to 100% and etcd's WAL failed —
+/// see above.
 ///
-/// **O que isto NÃO resolve**: `delonix vm create` não tem hoje flag de
-/// tamanho de disco, por isso todo o nó herda este piso. Dimensionar um nó pela
-/// quota do inquilino exige essa flag primeiro.
+/// **What this does NOT solve**: `delonix vm create` has no disk-size flag
+/// today, so every node inherits this floor. Sizing a node to the tenant's quota
+/// requires that flag first.
 pub(crate) const GOLDEN_DISK_SIZE_GIB: u32 = 10;
 
 /// Delonix's OFFICIAL golden VM image (Ubuntu 24.04 + kubeadm/kubelet/
 /// kubectl + delonix-cri as a systemd service) — published and validated with
 /// a byte-identical round-trip; see AGENTS.md, section "Golden VM image".
-/// A tag TEM de ser `DEFAULT_K8S_VERSION` — amarrado pelo teste
-/// `a_imagem_oficial_aponta_para_a_versao_por_omissao` (o `concat!` não aceita
-/// constantes, e duas fontes de verdade para o mesmo número divergem sempre).
+/// The tag MUST be `DEFAULT_K8S_VERSION` — tied by the test
+/// `the_official_image_points_at_the_default_version` (`concat!` does not accept
+/// constants, and two sources of truth for the same number always diverge).
 pub(crate) const OFFICIAL_VM_IMAGE: &str = "ghcr.io/ngolacloud/delonix-vm-k8s:1.37";
 
 /// Golden VM image with NO Kubernetes — just the `delonix` engine binary and
@@ -1707,8 +1706,8 @@ pub(crate) fn official_distro_base(
         default_memory: None,
         default_backend: None,
         cloud_init: None,
-        // O artefacto OCI/o disco importado não trazem inventário nem
-        // proveniência — a mesma lacuna conhecida do `kernel_version`.
+        // The OCI artifact / imported disk carry no inventory and no
+        // provenance — the same known gap as `kernel_version`.
         packages: None,
         packages_sha256: None,
         built_by: None,
@@ -1948,8 +1947,8 @@ pub(crate) fn cmd_import(store: &VmImageStore, args: ImportArgs) -> Result<()> {
         default_memory,
         default_backend: None,
         cloud_init: Some(!appliance),
-        // O artefacto OCI/o disco importado não trazem inventário nem
-        // proveniência — a mesma lacuna conhecida do `kernel_version`.
+        // The OCI artifact / imported disk carry no inventory and no
+        // provenance — the same known gap as `kernel_version`.
         packages: None,
         packages_sha256: None,
         built_by: None,
@@ -2161,8 +2160,8 @@ pub(crate) fn cmd_pull(store: &VmImageStore, source: &str, name: Option<String>)
         // set them. Left `None` (= assume cloud-init, the historical
         // behaviour) for an artifact that carries no annotations.
         cloud_init: None,
-        // O artefacto OCI/o disco importado não trazem inventário nem
-        // proveniência — a mesma lacuna conhecida do `kernel_version`.
+        // The OCI artifact / imported disk carry no inventory and no
+        // provenance — the same known gap as `kernel_version`.
         packages: None,
         packages_sha256: None,
         built_by: None,
@@ -2390,14 +2389,14 @@ pub(crate) fn cmd_build(
         // rootless recipe now takes `extra_packages` and appends them to its own
         // `apt-get`/`dnf install`.
     }
-    // NOTA: `--delonix-bin` já foi rejeitado no caminho k8s ("only applies with
-    // --no-k8s"). Deixou de o ser, e a razão é um defeito medido: a golden k8s
-    // instalava `delonix-cri` SEM o `delonix` a que ele delega TODO o ciclo de
-    // vida de containers (`cli_bin()` em `delonix-cri`). Resultado numa VM da
-    // golden 1.35, a 2026-08-16: os `pull` funcionavam (o ImageService usa a
-    // biblioteca em processo) mas cada `StartContainer` morria com
-    // `No such file or directory (os error 2)` — o kubeadm nunca levantava um
-    // control-plane. Os dois binários são UMA unidade; ver `install_cri_steps`.
+    // NOTE: `--delonix-bin` used to be rejected on the k8s path ("only applies with
+    // --no-k8s"). It no longer is, and the reason is a measured defect: the k8s
+    // golden installed `delonix-cri` WITHOUT the `delonix` it delegates the ENTIRE
+    // container lifecycle to (`cli_bin()` in `delonix-cri`). Result on a VM of the
+    // 1.35 golden, 2026-08-16: `pull`s worked (ImageService uses the in-process
+    // library) but every `StartContainer` died with
+    // `No such file or directory (os error 2)` — kubeadm never brought up a
+    // control-plane. The two binaries are ONE unit; see `install_cri_steps`.
     // Rocky's dnf-family customization steps only exist for the `--no-k8s`
     // path (`rootless_customization_steps`) — `k8s_recipes` is apt-only
     // (pkgs.k8s.io's RPM repo has a different URL/GPG scheme, not
@@ -2475,22 +2474,22 @@ pub(crate) fn cmd_build(
         "{}",
         super::po::t("preparing the working image (flattened, no backing file)...")
     );
-    // **Cresce ANTES de customizar, e não depois.** O disco crescia no fim, o
-    // que serve o `growpart` do primeiro arranque e não serve de nada ao
-    // BUILD: durante o `virt-customize` o convidado tinha o tamanho de origem
-    // do fabricante. Medido a 2026-08-18 — a golden `--offline` morria no
-    // primeiro `dpkg -i` com `No space left on device`, porque os pacotes do
-    // k8s mais as imagens pré-semeadas já não cabem nos ~2 GiB livres de uma
-    // cloud image de 24.04. O `qemu-img resize` também não chegaria: mexe só
-    // no tamanho virtual, e quem estende partição E filesystem offline é o
-    // `virt-resize`. Como escreve para uma imagem nova, achata de caminho (era
-    // o que o `qemu-img convert` aqui fazia).
+    // **Grow BEFORE customizing, not after.** The disk used to grow at the end,
+    // which serves the first-boot `growpart` but does nothing for the BUILD:
+    // during `virt-customize` the guest still had the vendor's original size.
+    // Measured 2026-08-18 — the `--offline` golden died on the first `dpkg -i`
+    // with `No space left on device`, because the k8s packages plus the
+    // pre-seeded images no longer fit in the ~2 GiB free of a 24.04 cloud image.
+    // `qemu-img resize` would not suffice either: it only touches the virtual
+    // size, and what extends the partition AND the filesystem offline is
+    // `virt-resize`. Since it writes to a new image, it flattens on the way (what
+    // the `qemu-img convert` here used to do).
     let parts = std::process::Command::new("virt-filesystems")
         .args(["-a", &base.to_string_lossy(), "--parts", "--long", "--csv"])
         .output()
         .ok()
-        // O exit status LÊ-SE: um `Ok` do `output()` diz que o processo
-        // correu, não que respondeu — a armadilha já catalogada do `capture`.
+        // The exit status MUST be read: an `Ok` from `output()` says the process
+        // ran, not that it succeeded — the `capture` trap already catalogued.
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default();
@@ -2538,8 +2537,8 @@ pub(crate) fn cmd_build(
         )
     } else {
         let cri = resolve_cri_bin(cri_bin)?;
-        // O mesmo resolver do caminho `--no-k8s`: explícito, senão o
-        // `current_exe()` (este comando JÁ está a correr como `delonix`).
+        // The same resolver as the `--no-k8s` path: explicit, otherwise
+        // `current_exe()` (this command IS already running as `delonix`).
         let delonix = resolve_delonix_bin(delonix_bin)?;
         let service_unit = workspace_dist_file("delonix-cri.service")?;
         // The reference CNI plugins and the node preflight — fetched and
@@ -2626,16 +2625,15 @@ pub(crate) fn cmd_build(
                     )
                 );
             }
-            // **O retorno TEM de ser recolhido.** A receita não copia o
-            // DIRECTÓRIO para dentro do convidado — faz um `--copy-in` por
-            // ficheiro, a partir deste vector (`for d in debs`). Descartá-lo
-            // deixava os `.deb` do agente no host, com o `dpkg -i
-            // /tmp/k8s-debs/*.deb` a instalar só o que veio da lista do k8s.
-            // Medido a 2026-08-18 numa golden construída: kubeadm e kubelet
-            // presentes, `qemu-guest-agent` ausente do inventário e sem
-            // `/usr/sbin/qemu-ga` — exactamente a ausência INVISÍVEL que o
-            // comentário acima diz que este passo existe para impedir, e que
-            // só apareceu porque a imagem passou a levar inventário.
+            // **The return value MUST be collected.** The recipe does not copy the
+            // DIRECTORY into the guest — it does a `--copy-in` per file, from this
+            // vector (`for d in debs`). Dropping it left the agent's `.deb`s on the
+            // host, with `dpkg -i /tmp/k8s-debs/*.deb` installing only what came
+            // from the k8s list. Measured 2026-08-18 on a built golden: kubeadm and
+            // kubelet present, `qemu-guest-agent` absent from the inventory and no
+            // `/usr/sbin/qemu-ga` — exactly the INVISIBLE absence the comment above
+            // says this step exists to prevent, and which only showed up once the
+            // image started carrying an inventory.
             let agent_debs = download_archive_debs(
                 &work_dir,
                 &work_dir.join("debs"),
@@ -2648,10 +2646,10 @@ pub(crate) fn cmd_build(
                 // before settling on four.
                 &["main", "universe"],
                 "amd64",
-                // Só as RAÍZES são nomeadas; o resto do fecho sai do índice
-                // e do que a imagem base já tem (`liburing2` estava aqui à
-                // mão, e o `ubuntu-virt` que a 26.04 acrescentou não estava —
-                // era essa a golden que saía sem agente configurado).
+                // Only the ROOTS are named; the rest of the closure comes from the
+                // index and from what the base image already has (`liburing2` was
+                // listed here by hand, and the `ubuntu-virt` that 26.04 added was
+                // not — that was the golden that shipped with no agent configured).
                 &archive_wanted,
                 &guest_installed_packages(&work_qcow2),
             )?;
@@ -2721,10 +2719,10 @@ pub(crate) fn cmd_build(
         }
         None => ops,
     };
-    // O manifesto de build vai para DENTRO da imagem: um qcow2 que circula sem
-    // ele obriga quem o recebe a adivinhar de onde veio. O sha256 da base é o
-    // elo que falta para alguém poder repetir o build a partir do mesmo ponto
-    // de partida — a cloud image do fabricante muda debaixo da mesma URL.
+    // The build manifest goes INSIDE the image: a qcow2 that circulates without
+    // it forces whoever receives it to guess where it came from. The base's
+    // sha256 is the missing link that lets someone repeat the build from the same
+    // starting point — the vendor's cloud image moves under the same URL.
     let base_sha256 = hex_sha256_file(&base).ok();
     let manifest = build_manifest(&[
         ("DELONIX_IMAGE", tag.to_string()),
@@ -2864,11 +2862,11 @@ pub(crate) fn cmd_build(
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty() && s != "unknown");
 
-    // O inventário sai para um sidecar ao lado do qcow2, pela mesma razão que o
-    // `kernel_version` sai para os metadados: responder a «esta versão está
-    // aqui?» não pode obrigar a montar a imagem. Best-effort — uma imagem sem
-    // inventário é pior que uma com, mas muito melhor que um build chumbado por
-    // causa dele.
+    // The inventory goes to a sidecar beside the qcow2, for the same reason
+    // `kernel_version` goes to the metadata: answering "is this version here?"
+    // must not require mounting the image. Best-effort — an image with no
+    // inventory is worse than one with it, but much better than a build failed
+    // over it.
     // The inventory answers for TWO things: the package count and the k8s
     // version the image actually carries (`k8s_version_from_inventory`), which
     // is what makes that field answerable when no `--k8s-version` was passed.
@@ -2888,16 +2886,16 @@ pub(crate) fn cmd_build(
             let n = bytes.iter().filter(|b| **b == b'\n').count() as u32;
             let sha = hex_sha256(&bytes);
             let _ = std::fs::write(store.sbom_path(tag), &bytes);
-            // **A golden RECUSA sair sem o agente**, e é o inventário que
-            // torna a pergunta respondível sem arrancar a imagem. A intenção
-            // já estava escrita no passo que o descarrega («this FAILS the
-            // build instead of warning: a golden that silently lacks the agent
-            // is indistinguishable from one that has it») — o que faltava era
-            // alguém VERIFICAR. Faltava mesmo: medido a 2026-08-18, a golden
-            // saía sem ele porque o `--copy-in` é por ficheiro e o retorno do
-            // download tinha sido descartado. Um teste da receita não podia
-            // apanhar isto; a receita estava certa, o chamador é que não lhe
-            // deu os ficheiros.
+            // **The golden REFUSES to ship without the agent**, and it is the
+            // inventory that makes the question answerable without booting the
+            // image. The intent was already written in the step that downloads it
+            // ("this FAILS the build instead of warning: a golden that silently
+            // lacks the agent is indistinguishable from one that has it") — what
+            // was missing was someone to VERIFY it. And it really was missing:
+            // measured 2026-08-18, the golden shipped without it because
+            // `--copy-in` is per file and the download's return value had been
+            // discarded. A test of the recipe could not catch this; the recipe was
+            // correct, it was the caller that did not hand it the files.
             let tsv = String::from_utf8_lossy(&bytes);
             if offline && !no_k8s && !inventory_has(&tsv, "qemu-guest-agent") {
                 return Err(Error::Invalid(
@@ -3091,13 +3089,13 @@ pub(crate) fn deb_closure(
         };
         out.push(pkg.clone());
         for group in parse_depends_groups(deps) {
-            // Satisfeito por algo que a imagem já tem? Não se traz nada.
+            // Satisfied by something the image already has? Carry nothing.
             if group.iter().any(|a| installed.contains(a)) {
                 continue;
             }
-            // Senão, a primeira alternativa que o arquivo REALMENTE tem —
-            // escolher a primeira escrita traz um nome que não é um ficheiro e
-            // deixa o `dpkg` a configurar metade da cadeia.
+            // Otherwise, the first alternative the archive ACTUALLY has —
+            // picking the first one written brings a name that is not a file and
+            // leaves `dpkg` with half the chain unconfigured.
             if let Some(pick) = group.iter().find(|a| index.contains_key(*a)) {
                 queue.push(pick.clone());
             }
@@ -3248,13 +3246,13 @@ pub(crate) fn node_exporter_asset(version: &str) -> String {
 /// path with no checksum on it.
 pub(crate) fn fetch_node_exporter(store: &VmImageStore, version: &str) -> Result<PathBuf> {
     let version = VmImageStore::sanitize(version);
-    // **O nome do ficheiro faz parte do contrato.** O `virt-customize
-    // --copy-in` preserva o BASENAME, e tanto o `ExecStart` da unit como o
-    // `chmod` a seguir nomeiam `/usr/local/bin/node_exporter`. Guardar a cache
-    // como `node_exporter-1.9.1` punha lá `/usr/local/bin/node_exporter-1.9.1`
-    // e o build morria no chmod — apanhado a CONSTRUIR uma imagem, não a ler
-    // o código. Mesma armadilha do `gen.py`, que tira o `Usage:` do argv[0].
-    // Daí um directório por versão, com o binário sempre com o nome certo.
+    // **The file name is part of the contract.** `virt-customize --copy-in`
+    // preserves the BASENAME, and both the unit's `ExecStart` and the `chmod`
+    // that follows name `/usr/local/bin/node_exporter`. Caching it as
+    // `node_exporter-1.9.1` put `/usr/local/bin/node_exporter-1.9.1` there and
+    // the build died on the chmod — caught while BUILDING an image, not reading
+    // the code. Same trap as `gen.py`, which takes its `Usage:` from argv[0].
+    // Hence a directory per version, with the binary always under the right name.
     let vdir = store
         .base_cache_path(Distro::Ubuntu, "unused")
         .with_file_name(format!("node_exporter-{version}"));
@@ -3308,8 +3306,8 @@ pub(crate) fn fetch_node_exporter(store: &VmImageStore, version: &str) -> Result
         ],
     )?;
     let _ = std::fs::remove_file(&tarball);
-    // Fail-closed: sem isto, um tarball com outro layout deixava a cache vazia
-    // e o erro só aparecia lá dentro do convidado, como o chmod que falhou.
+    // Fail-closed: without this, a tarball with a different layout left the cache
+    // empty and the error only showed up inside the guest, like the failed chmod.
     if !cached.exists() {
         return Err(Error::Invalid(format!(
             "{asset}: {}",
@@ -3411,11 +3409,11 @@ fn with_bootloader_reinstall(ops: Vec<CustomizeOp>) -> Vec<CustomizeOp> {
 }
 
 pub(crate) fn node_exporter_steps(bin: &Path, listen: &str) -> Result<Vec<CustomizeOp>> {
-    // O contrato do basename, verificado AQUI e não confiado a quem chama: o
-    // `--copy-in` preserva o nome do ficheiro, e a unit fala de
-    // `/usr/local/bin/node_exporter`. Um src com outro nome instala um binário
-    // que a unit nunca encontra — e a primeira vez isso só apareceu dentro do
-    // convidado, no `chmod`, com um build de 4 minutos já pago.
+    // The basename contract, verified HERE and not trusted to the caller:
+    // `--copy-in` preserves the file name, and the unit speaks of
+    // `/usr/local/bin/node_exporter`. A src with a different name installs a
+    // binary the unit never finds — and the first time that only showed up inside
+    // the guest, at the `chmod`, with a 4-minute build already paid for.
     if bin.file_name().and_then(|n| n.to_str()) != Some(NODE_EXPORTER_BIN) {
         return Err(Error::Invalid(format!(
             "{}: {}",
@@ -4209,12 +4207,12 @@ pub(crate) fn parse_packages_index(
         ) else {
             continue;
         };
-        // `Architecture: all` conta como o arch pedido — é o que um
-        // metapacote É. Filtrar só por `amd64` deixava-os TODOS de fora do
-        // índice, e o efeito foi silencioso: o fecho de dependências tratava
-        // o que faltava como pacote virtual e seguia. Medido — a golden saía
-        // com `ubuntu-virt` por configurar porque o `ubuntu-helper-virt-hwe`
-        // de que depende é `all`.
+        // `Architecture: all` counts as the requested arch — it is what a
+        // metapackage IS. Filtering only by `amd64` left them ALL out of the
+        // index, and the effect was silent: the dependency closure treated what
+        // was missing as a virtual package and carried on. Measured — the golden
+        // shipped with `ubuntu-virt` unconfigured because the
+        // `ubuntu-helper-virt-hwe` it depends on is `all`.
         if *a != arch && *a != "all" {
             continue;
         }
@@ -4566,9 +4564,9 @@ fn download_archive_debs(
             let f = std::fs::File::open(&gz)?;
             flate2::read::GzDecoder::new(f).read_to_string(&mut text)?;
         }
-        // Parse-se o índice INTEIRO (e não só o que se pediu) porque o fecho
-        // de dependências tem de ser calculado a partir dele — ver `deb_closure`
-        // para a lista escrita à mão que envelheceu numa release.
+        // The WHOLE index is parsed (not just what was asked for) because the
+        // dependency closure has to be computed from it — see `deb_closure` for
+        // the hand-written list that went stale in one release.
         found.extend(parse_packages_index(&text, arch, "", &[], &[]));
     }
 
@@ -4626,42 +4624,43 @@ fn download_archive_debs(
 /// `kubeadm config images list` or the pre-seed step does not succeed, and
 /// logs (does not fail) a per-image pull error — a slower first boot beats a
 /// broken one.
-/// A versão `X.Y.Z` a partir do nome de um `.deb` do `pkgs.k8s.io`
-/// (`kubeadm_1.34.10-1.1_amd64.deb` → `1.34.10`). `None` se o nome não tiver a
-/// forma esperada — nesse caso o `kubeadm` resolve sozinho, e o pior que acontece
-/// é usar a versão dele por omissão.
+/// The `X.Y.Z` version from the name of a `pkgs.k8s.io` `.deb`
+/// (`kubeadm_1.34.10-1.1_amd64.deb` → `1.34.10`). `None` if the name does not
+/// have the expected shape — in that case `kubeadm` resolves it on its own, and
+/// the worst that happens is it uses its own default version.
 ///
-/// # Porque é que a versão NÃO pode vir do `--k8s-version`
+/// # Why the version CANNOT come from `--k8s-version`
 ///
-/// A mesma flag alimenta dois consumidores que querem formatos DIFERENTES, e não
-/// há valor que sirva os dois (medido a 2026-08-19):
+/// The same flag feeds two consumers that want DIFFERENT formats, and there is no
+/// value that serves both (measured 2026-08-19):
 ///
-/// - o repo e o filtro de pacotes querem a MINOR. `--k8s-version 1.34` resolve
-///   `kubeadm 1.34.10-1.1`; com `1.34.10` o prefixo do filtro passa a `1.34.10.`,
-///   não casa com `1.34.10-1.1`, e o build aborta com «the k8s repo … does not
-///   have 'kubeadm'».
-/// - o `kubeadm config images list` quer a PATCH. Com `--kubernetes-version=v1.34`
-///   responde «version "v1.34" doesn't match patterns for neither semantic version
-///   nor labels»; com `v1.34.10` lista as imagens, sem rede.
+/// - the repo and the package filter want the MINOR. `--k8s-version 1.34`
+///   resolves `kubeadm 1.34.10-1.1`; with `1.34.10` the filter prefix becomes
+///   `1.34.10.`, does not match `1.34.10-1.1`, and the build aborts with "the k8s
+///   repo … does not have 'kubeadm'".
+/// - `kubeadm config images list` wants the PATCH. With `--kubernetes-version=v1.34`
+///   it answers "version "v1.34" doesn't match patterns for neither semantic
+///   version nor labels"; with `v1.34.10` it lists the images, no network.
 ///
-/// Resultado: quem seguia o exemplo da própria ajuda (`--k8s-version 1.34`) ficava
-/// com a pré-semeagem SALTADA — e em silêncio, porque é best-effort e só avisa. A
-/// golden saía sem as imagens core, cada `kubeadm init` redescarregava-as dentro da
-/// VM, e isso é lento o suficiente para estourar o deadline do rate-limiter do
-/// kubeadm: o `wait-control-plane` falhava e o cluster nunca ficava Ready.
+/// Result: whoever followed the help's own example (`--k8s-version 1.34`) got the
+/// pre-seeding SKIPPED — and silently, because it is best-effort and only warns.
+/// The golden shipped without the core images, each `kubeadm init` re-downloaded
+/// them inside the VM, and that is slow enough to blow kubeadm's rate-limiter
+/// deadline: `wait-control-plane` failed and the cluster never went Ready.
 ///
-/// O `.deb` é a fonte certa porque é o que vai mesmo ser instalado no convidado — a
-/// versão das imagens fica assim amarrada à dos binários, por construção.
-fn patch_version_do_deb(deb: &Path) -> Option<String> {
-    let nome = deb.file_name()?.to_str()?;
-    // `<pacote>_<versão>_<arch>.deb`, com a versão a trazer o revision do Debian
-    // (`1.34.10-1.1`), que não faz parte da versão do Kubernetes.
-    let versao = nome.split('_').nth(1)?;
-    let sem_revision = versao.split('-').next()?;
-    if sem_revision.split('.').count() < 3 {
+/// The `.deb` is the right source because it is what will actually be installed in
+/// the guest — the image version is thus tied to the binaries' version, by
+/// construction.
+fn patch_version_from_deb(deb: &Path) -> Option<String> {
+    let name = deb.file_name()?.to_str()?;
+    // `<package>_<version>_<arch>.deb`, with the version carrying the Debian
+    // revision (`1.34.10-1.1`), which is not part of the Kubernetes version.
+    let version = name.split('_').nth(1)?;
+    let without_revision = version.split('-').next()?;
+    if without_revision.split('.').count() < 3 {
         return None;
     }
-    Some(sem_revision.to_string())
+    Some(without_revision.to_string())
 }
 
 fn preseed_k8s_images(work: &Path, kubeadm_deb: &Path) -> Option<PathBuf> {
@@ -4684,17 +4683,19 @@ fn preseed_k8s_images(work: &Path, kubeadm_deb: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    // A versao vem do NOME DO `.deb` que acabamos de descarregar e verificar,
-    // nunca do `--k8s-version` da linha de comandos. Ver `patch_version_do_deb`.
+    // The version comes from the NAME of the `.deb` we just downloaded and
+    // verified, never from the command line's `--k8s-version`. See
+    // `patch_version_from_deb`.
     let mut cmd = Command::new(&kubeadm_bin);
     cmd.arg("config").arg("images").arg("list");
-    if let Some(v) = patch_version_do_deb(kubeadm_deb) {
+    if let Some(v) = patch_version_from_deb(kubeadm_deb) {
         cmd.arg(format!("--kubernetes-version=v{v}"));
     }
-    // O `stderr` do kubeadm ENTRA no aviso. Sem ele o modo de falha era mudo: a
-    // golden saia sem imagens, cada `kubeadm init` redescarregava-as dentro da VM,
-    // o `wait-control-plane` estourava, e nada ligava o segundo sintoma a primeira
-    // causa. Diagnosticar isto obrigou a correr o binario a mao; nao deve voltar a.
+    // kubeadm's `stderr` GOES INTO the warning. Without it the failure mode was
+    // mute: the golden shipped without images, each `kubeadm init` re-downloaded
+    // them inside the VM, `wait-control-plane` blew up, and nothing connected the
+    // second symptom to the first cause. Diagnosing this meant running the binary
+    // by hand; it should not have to happen again.
     let out = match cmd.output() {
         Ok(o) if o.status.success() => o,
         Ok(o) => {
@@ -5425,12 +5426,12 @@ fn install_cri_steps(cri_bin: &Path, delonix_bin: &Path, cri_service: &Path) -> 
     vec![
         CustomizeOp::CopyIn(cri_bin.to_path_buf(), "/usr/local/bin".to_string()),
         CustomizeOp::RunCommand("chmod +x /usr/local/bin/delonix-cri".into()),
-        // O `delonix` viaja SEMPRE com o `delonix-cri`. O CRI não corre
-        // containers — delega neste binário (`cli_bin()`), cujo próprio
-        // comentário diz que "the golden image installs both in
-        // /usr/local/bin". Não instalava: o CRI ficava a falar sozinho e o
-        // kubelet via `No such file or directory (os error 2)` em cada
-        // `StartContainer`. Ver `install_cri_steps_instala_os_dois_binarios`.
+        // `delonix` ALWAYS travels with `delonix-cri`. The CRI does not run
+        // containers — it delegates to this binary (`cli_bin()`), whose own
+        // comment says "the golden image installs both in /usr/local/bin". It was
+        // not installing it: the CRI was talking to itself and the kubelet saw
+        // `No such file or directory (os error 2)` on every `StartContainer`.
+        // See `install_cri_steps_installs_both_binaries`.
         CustomizeOp::CopyIn(delonix_bin.to_path_buf(), "/usr/local/bin".to_string()),
         CustomizeOp::RunCommand("chmod +x /usr/local/bin/delonix".into()),
         CustomizeOp::CopyIn(cri_service.to_path_buf(), "/etc/systemd/system".to_string()),
@@ -5474,19 +5475,19 @@ fn shared_account_steps(
             "echo 'delonix ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-delonix && chmod 440 /etc/sudoers.d/90-delonix"
                 .into(),
         ),
-        // Activa o `qemu-guest-agent` — instalado pelas TRÊS receitas (a golden
-        // busca os `.deb` verificados no host, a base instala-o pelo gestor de
-        // pacotes), por isso o `enable` vive aqui e não numa delas: estava só na
-        // receita offline da golden, e era por isso que a `delonix-vm-base` saía
-        // sem agente nenhum.
+        // Enables `qemu-guest-agent` — installed by ALL THREE recipes (the
+        // golden fetches the verified `.deb`s on the host, the base installs it
+        // through the package manager), so the `enable` lives here and not in one
+        // of them: it used to be only in the golden's offline recipe, and that is
+        // why `delonix-vm-base` shipped with no agent at all.
         //
-        // O postinst do próprio pacote TAMBÉM activa a unit — mas por
-        // `deb-systemd-helper`, contra um convidado onde o systemd não corre, o
-        // que é uma afirmação sobre o script de outra pessoa e não uma medição.
-        // Fazê-lo aqui custa um comando idempotente e é o mesmo que este build já
-        // faz ao `delonix-cri.service` em vez de confiar num preset. Guardado,
-        // porque uma build sem o agente (uma distro cujo arquivo não buscamos)
-        // não pode falhar por causa de uma unit ausente.
+        // The package's own postinst ALSO enables the unit — but via
+        // `deb-systemd-helper`, against a guest where systemd is not running,
+        // which is a claim about someone else's script and not a measurement.
+        // Doing it here costs one idempotent command and is the same thing this
+        // build already does for `delonix-cri.service` instead of trusting a
+        // preset. Guarded, because a build without the agent (a distro whose
+        // archive we do not fetch) must not fail over a missing unit.
         CustomizeOp::RunCommand(
             "systemctl list-unit-files qemu-guest-agent.service >/dev/null 2>&1 && \
              systemctl enable qemu-guest-agent.service || true"
@@ -5514,8 +5515,8 @@ fn shared_account_steps(
         // of the image: `--root-password` at build time, or `chpasswd` in the
         // cloud-init user-data of that one VM. What is gone is the default.
         match root_password {
-            // Escolha EXPLÍCITA de quem constrói, para o caso da consola série —
-            // e vive só naquela imagem, não em todas as cópias publicadas.
+            // The builder's EXPLICIT choice, for the serial-console case — and it
+            // lives only in that one image, not in every published copy.
             Some(pw) => CustomizeOp::RootPassword(pw.to_string()),
             None => CustomizeOp::RunCommand(
                 "passwd -l root >/dev/null 2>&1 || true; passwd -l delonix >/dev/null 2>&1 || true"
@@ -5594,18 +5595,18 @@ fn shared_account_steps(
     // with `cluster apply`, which prepares LIVE hosts — cleaning the package
     // cache is a concern of the ARTIFACT (shrinking a distributable image),
     // not of host preparation.
-    // **O journal é VOLÁTIL nas cloud images de Ubuntu/Debian**, e o que isso
-    // custa é preciso: `Storage=auto` quer dizer «persiste SE `/var/log/journal`
-    // existir», e não existe — por isso um reboot apaga os logs do arranque que
-    // falhou, que são exactamente os que alguém iria ler. Uma VM que reinicia
-    // sozinha não deixa rasto nenhum de porquê. (Rocky/Fedora já criam o
-    // directório; lá isto só acrescenta os limites.)
+    // **The journal is VOLATILE on Ubuntu/Debian cloud images**, and what that
+    // costs is exact: `Storage=auto` means "persist IF `/var/log/journal`
+    // exists", and it does not — so a reboot wipes the logs of the boot that
+    // failed, which are exactly the ones someone would read. A VM that reboots on
+    // its own leaves no trace of why. (Rocky/Fedora already create the directory;
+    // there this only adds the limits.)
     //
-    // **O limite não é decoração.** Este host já teve disk-pressure a sério (49
-    // rootfs órfãos, o kubelet a marcar o nó), e um journal sem tecto na raiz de
-    // 10 GiB de um inquilino é uma forma de a encher com os NOSSOS logs. Os
-    // 200 MiB são a proporção default do systemd (10%) escrita à mão, para não
-    // escalar com um disco que não controlamos.
+    // **The limit is not decoration.** This host has had serious disk-pressure
+    // (49 orphan rootfs, the kubelet tainting the node), and an uncapped journal
+    // on a tenant's 10 GiB root is one way to fill it with OUR logs. The 200 MiB
+    // is systemd's default proportion (10%) written out by hand, so it does not
+    // scale with a disk we do not control.
     ops.push(CustomizeOp::RunCommand(
         "mkdir -p /var/log/journal /etc/systemd/journald.conf.d && \
          printf '[Journal]\\nStorage=persistent\\nCompress=yes\\nSystemMaxUse=200M\\nSystemMaxFileSize=50M\\nRuntimeMaxUse=50M\\n' \
@@ -5619,20 +5620,20 @@ fn shared_account_steps(
         Distro::Rocky | Distro::Fedora => "dnf clean all",
     };
     ops.push(CustomizeOp::RunCommand(cleanup_cmd.into()));
-    // **A imagem passa a dizer o que tem dentro.** Um artefacto que se publica
-    // sem inventário obriga quem o consome a montá-lo para responder à única
-    // pergunta que interessa depois de um CVE sair: «esta versão está aqui?».
+    // **The image now says what is inside it.** An artifact published without an
+    // inventory forces whoever consumes it to mount it to answer the one question
+    // that matters after a CVE lands: "is this version here?".
     //
-    // O formato é o que o convidado sabe produzir sem ferramenta nova — nome,
-    // versão e arquitectura, uma linha por pacote — que é exactamente o
-    // conteúdo que um SPDX/CycloneDX carrega. Gerar um desses aqui obrigaria a
-    // meter um gerador dentro de TODAS as imagens, e o que este passo precisa
-    // de ser é uma leitura da base de dados de pacotes que já lá está.
+    // The format is what the guest can produce with no new tool — name, version
+    // and architecture, one line per package — which is exactly the content an
+    // SPDX/CycloneDX carries. Generating one of those here would mean putting a
+    // generator inside ALL the images, and what this step needs to be is a read of
+    // the package database that is already there.
     //
-    // Corre DEPOIS da limpeza de cache de propósito: o `dpkg-query`/`rpm` lê
-    // `/var/lib/dpkg`/`/var/lib/rpm`, não os índices que a limpeza apaga, por
-    // isso é aqui que o inventário reflecte a imagem FINAL — incluindo o que um
-    // `--extra-run` tenha instalado.
+    // It runs AFTER the cache cleanup on purpose: `dpkg-query`/`rpm` reads
+    // `/var/lib/dpkg`/`/var/lib/rpm`, not the indexes the cleanup removes, so this
+    // is where the inventory reflects the FINAL image — including anything an
+    // `--extra-run` installed.
     let sbom_cmd = match distro {
         Distro::Ubuntu | Distro::Debian => {
             "dpkg-query -W -f='${binary:Package}\\t${Version}\\t${Architecture}\\n'"
@@ -5695,19 +5696,20 @@ pub(crate) fn rootless_customization_steps(
     // `conntrack-tools` (not `conntrack`) — all present in Rocky's base
     // BaseOS/AppStream, no EPEL needed. `nftables`/`slirp4netns` share the
     // same package name across both families.
-    // `qemu-guest-agent` viaja com a imagem base pela mesma razão que já viaja na
-    // golden k8s (ver `k8s_customization_steps_offline`): sem ele o hypervisor
-    // não sabe o IP do convidado (mede-o por ARP ou pelo lease, e em
-    // cloud-hypervisor o endereço é CALCULADO do MAC, nunca observado), não faz
-    // `fsfreeze` antes de um snapshot — o que torna qualquer snapshot de uma base
-    // de dados a correr crash-consistent em vez de consistente — e não tem forma
-    // de pedir um shutdown ordenado. O backend Proxmox deste repo já chama
-    // `/agent/…` e trata a ausência como normal; o que faltava era o convidado.
+    // `qemu-guest-agent` travels with the base image for the same reason it
+    // already travels in the k8s golden (see `k8s_customization_steps_offline`):
+    // without it the hypervisor does not know the guest's IP (it measures it by
+    // ARP or the lease, and on cloud-hypervisor the address is CALCULATED from the
+    // MAC, never observed), does not `fsfreeze` before a snapshot — which makes
+    // any snapshot of a running database crash-consistent instead of consistent —
+    // and has no way to request an orderly shutdown. This repo's Proxmox backend
+    // already calls `/agent/…` and treats the absence as normal; what was missing
+    // was the guest side.
     //
-    // Vai no MESMO `apt-get`/`dnf` dos outros: esta receita já instala por rede
-    // (ao contrário da golden, que tem o caminho `--offline` com os `.deb`
-    // verificados no host), por isso não há mecanismo novo — há um nome a mais
-    // numa lista que já existia.
+    // It goes in the SAME `apt-get`/`dnf` as the others: this recipe already
+    // installs over the network (unlike the golden, which has the `--offline`
+    // path with the host-verified `.deb`s), so there is no new mechanism — just
+    // one more name in a list that already existed.
     let mut pkg_install_cmd = match distro {
         Distro::Ubuntu | Distro::Debian => {
             "apt-get update && apt-get install -y slirp4netns uidmap nftables iproute2 conntrack qemu-guest-agent"
@@ -6296,11 +6298,11 @@ mod tests {
     }
 
     #[test]
-    fn versao_de_pre_semeagem_vem_do_deb_com_a_patch() {
-        // O `.deb` que o build descarrega traz a PATCH e o revision do Debian; o
-        // `kubeadm --kubernetes-version` só aceita semver completo.
+    fn preseed_version_comes_from_the_deb_with_the_patch() {
+        // The `.deb` the build downloads carries the PATCH and the Debian
+        // revision; `kubeadm --kubernetes-version` only accepts full semver.
         assert_eq!(
-            super::patch_version_do_deb(std::path::Path::new(
+            super::patch_version_from_deb(std::path::Path::new(
                 "/tmp/build/kubeadm_1.34.10-1.1_amd64.deb"
             )),
             Some("1.34.10".to_string())
@@ -6308,36 +6310,36 @@ mod tests {
     }
 
     #[test]
-    fn a_minor_da_linha_de_comandos_nao_serve_para_o_kubeadm() {
-        // Guarda da regressão. `--k8s-version 1.34` — a forma que o repo do
-        // pkgs.k8s.io EXIGE, e a que a ajuda dá como exemplo — chegava aqui intacta
-        // e o kubeadm recusava-a: «version "v1.34" doesn't match patterns for
-        // neither semantic version nor labels». A pré-semeagem era saltada em
-        // silêncio e a golden saía sem as imagens core.
-        let do_deb =
-            super::patch_version_do_deb(std::path::Path::new("kubeadm_1.34.10-1.1_amd64.deb"))
-                .expect("o nome tem a forma canónica do repo");
-        assert_eq!(do_deb, "1.34.10");
+    fn the_command_line_minor_is_no_good_for_kubeadm() {
+        // Regression guard. `--k8s-version 1.34` — the form the pkgs.k8s.io repo
+        // REQUIRES, and the one the help gives as an example — used to arrive here
+        // intact and kubeadm rejected it: "version "v1.34" doesn't match patterns
+        // for neither semantic version nor labels". The pre-seeding was skipped
+        // silently and the golden shipped without the core images.
+        let from_deb =
+            super::patch_version_from_deb(std::path::Path::new("kubeadm_1.34.10-1.1_amd64.deb"))
+                .expect("the name has the repo's canonical shape");
+        assert_eq!(from_deb, "1.34.10");
         assert_eq!(
-            do_deb.matches('.').count(),
+            from_deb.matches('.').count(),
             2,
-            "o kubeadm exige vX.Y.Z — uma minor volta a saltar a pré-semeagem"
+            "kubeadm requires vX.Y.Z — a minor skips the pre-seeding again"
         );
     }
 
     #[test]
-    fn nome_de_deb_sem_patch_nao_inventa_versao() {
-        // Sem terceira componente devolve None e o kubeadm resolve sozinho — melhor
-        // do que passar-lhe uma versão que ele recusa.
-        for nome in [
+    fn deb_name_without_patch_invents_no_version() {
+        // Without a third component it returns None and kubeadm resolves it on its
+        // own — better than handing it a version it rejects.
+        for name in [
             "kubeadm_1.34-1.1_amd64.deb",
             "kubeadm.deb",
             "kubeadm_amd64.deb",
         ] {
             assert_eq!(
-                super::patch_version_do_deb(std::path::Path::new(nome)),
+                super::patch_version_from_deb(std::path::Path::new(name)),
                 None,
-                "{nome}"
+                "{name}"
             );
         }
     }
@@ -6348,14 +6350,14 @@ mod tests {
     /// wiring — a bare `pull`/`ls-remote --no-k8s` now resolves to it, same as a
     /// bare `pull`/`ls-remote` already resolved to the Kubernetes golden.
     #[test]
-    fn default_pull_source_escolhe_k8s_ou_base_consoante_a_flag() {
+    fn default_pull_source_picks_k8s_or_base_per_the_flag() {
         assert_eq!(default_pull_source(false), OFFICIAL_VM_IMAGE);
         assert_eq!(default_pull_source(true), OFFICIAL_VM_BASE_IMAGE);
         assert_ne!(default_pull_source(false), default_pull_source(true));
     }
 
     #[test]
-    fn customization_steps_incluem_pacotes_extra() {
+    fn customization_steps_include_extra_packages() {
         let cri = PathBuf::from("/tmp/delonix-cri");
         let eng = PathBuf::from("/tmp/delonix");
         let svc = PathBuf::from("/tmp/delonix-cri.service");
@@ -6377,7 +6379,7 @@ mod tests {
                 CustomizeOp::RunCommand(c) if c.contains("apt-get install") => Some(c),
                 _ => None,
             })
-            .expect("devia haver um RunCommand de apt-get install");
+            .expect("there should be an apt-get install RunCommand");
         assert!(install_step.contains("kubeadm"));
         assert!(install_step.contains("htop"));
     }
@@ -6565,7 +6567,7 @@ Package: cri-tools\nVersion: 1.34.0-1.1\nArchitecture: amd64\nFilename: pool/cri
     }
 
     #[test]
-    fn debloat_purga_a_superficie_e_poupa_o_storage_csi() {
+    fn debloat_purges_the_surface_and_spares_the_storage_csi() {
         let ops = k8s_node_debloat_steps(Distro::Ubuntu);
         let purge = ops
             .iter()
@@ -6598,13 +6600,13 @@ Package: cri-tools\nVersion: 1.34.0-1.1\nArchitecture: amd64\nFilename: pool/cri
     }
 
     #[test]
-    fn debloat_e_no_op_fora_da_familia_debian() {
+    fn debloat_is_a_no_op_outside_the_debian_family() {
         assert!(k8s_node_debloat_steps(Distro::Rocky).is_empty());
         assert!(k8s_node_debloat_steps(Distro::Fedora).is_empty());
     }
 
     #[test]
-    fn debloat_entra_nos_dois_caminhos_k8s() {
+    fn debloat_enters_both_k8s_paths() {
         let cri = PathBuf::from("/tmp/delonix-cri");
         let eng = PathBuf::from("/tmp/delonix");
         let svc = PathBuf::from("/tmp/delonix-cri.service");
@@ -6642,7 +6644,7 @@ Package: cri-tools\nVersion: 1.34.0-1.1\nArchitecture: amd64\nFilename: pool/cri
     }
 
     #[test]
-    fn debloat_corre_antes_do_inventario_de_pacotes() {
+    fn debloat_runs_before_the_package_inventory() {
         // `packages.tsv` must reflect the ALREADY-slim image: the purge runs
         // before the shared tail that generates the inventory and cleans cache.
         let cri = PathBuf::from("/tmp/delonix-cri");
@@ -6776,7 +6778,7 @@ Package: cri-tools\nVersion: 1.34.0-1.1\nArchitecture: amd64\nFilename: pool/cri
     }
 
     #[test]
-    fn fmt_size_legivel_por_escalao() {
+    fn fmt_size_is_human_readable_per_scale() {
         assert_eq!(fmt_size(0), "0 B");
         assert_eq!(fmt_size(512), "512 B");
         assert_eq!(fmt_size(1024), "1.0 KiB");
@@ -6787,24 +6789,24 @@ Package: cri-tools\nVersion: 1.34.0-1.1\nArchitecture: amd64\nFilename: pool/cri
     }
 
     #[test]
-    fn fmt_local_tem_a_forma_data_hora() {
+    fn fmt_local_has_the_date_time_shape() {
         // 1784216635 → a local date/time; we validate the SHAPE (the timezone is the host's).
         let s = fmt_local(1_784_216_635);
         let b = s.as_bytes();
-        assert_eq!(s.len(), 16, "esperado 'AAAA-MM-DD HH:MM', obtido {s:?}");
+        assert_eq!(s.len(), 16, "expected 'YYYY-MM-DD HH:MM', got {s:?}");
         assert!(b[4] == b'-' && b[7] == b'-' && b[10] == b' ' && b[13] == b':');
         assert!(s[..4].chars().all(|c| c.is_ascii_digit()));
     }
 
     #[test]
-    fn customization_steps_incluem_extra_run_no_fim() {
+    fn customization_steps_include_extra_run_at_the_end() {
         let cri = PathBuf::from("/tmp/delonix-cri");
         let eng = PathBuf::from("/tmp/delonix");
         let svc = PathBuf::from("/tmp/delonix-cri.service");
         let ops = k8s_customization_steps(
             DEFAULT_K8S_VERSION,
             &[],
-            &["echo oi".to_string()],
+            &["echo hi".to_string()],
             &cri,
             &eng,
             &svc,
@@ -6817,12 +6819,12 @@ Package: cri-tools\nVersion: 1.34.0-1.1\nArchitecture: amd64\nFilename: pool/cri
         // comes after it (it must be last — the extra-run may install packages).
         let idx_extra = ops
             .iter()
-            .position(|op| matches!(op, CustomizeOp::RunCommand(c) if c == "echo oi"))
-            .expect("o --extra-run devia estar na lista");
-        // Ordem, e não posições fixas: a cauda cresceu duas vezes desde que este
-        // teste foi escrito (journal, inventário de pacotes) e o que ele existe
-        // para fixar é que NADA se intromete entre o `--extra-run` e a limpeza,
-        // e que o reset do machine-id continua a ser o último passo.
+            .position(|op| matches!(op, CustomizeOp::RunCommand(c) if c == "echo hi"))
+            .expect("the --extra-run should be in the list");
+        // Order, not fixed positions: the tail has grown twice since this test
+        // was written (journal, package inventory) and what it exists to pin is
+        // that NOTHING slips in between `--extra-run` and the cleanup, and that
+        // the machine-id reset stays the last step.
         let at = |needle: &str| {
             ops.iter()
                 .position(|op| matches!(op, CustomizeOp::RunCommand(c) if c.contains(needle)))
@@ -6832,14 +6834,14 @@ Package: cri-tools\nVersion: 1.34.0-1.1\nArchitecture: amd64\nFilename: pool/cri
         assert!(at("/etc/delonix-kernel-version") < at("apt-get clean"));
         assert!(
             at("apt-get clean") < at("packages.tsv"),
-            "o inventário tem de reflectir a imagem FINAL"
+            "the inventory has to reflect the FINAL image"
         );
         // machine-id reset must be the ABSOLUTE last step (regression: shared
         // machine-id across cloned VMs breaks DHCP client-id, see comment at
         // the push site in `common_customization_steps`).
         assert!(
             matches!(ops.last(), Some(CustomizeOp::RunCommand(c)) if c.contains("truncate -s 0 /etc/machine-id")),
-            "o reset do machine-id devia ser o ÚLTIMO passo"
+            "the machine-id reset should be the LAST step"
         );
     }
 
@@ -6886,12 +6888,12 @@ Package: cri-tools\nVersion: 1.34.0-1.1\nArchitecture: amd64\nFilename: pool/cri
         assert!(
             ops.iter()
                 .any(|op| matches!(op, CustomizeOp::RunCommand(c) if c.contains(grub))),
-            "sem marcador, o passo do grub tem de ser acrescentado"
+            "with no marker, the grub step has to be appended"
         );
     }
 
     #[test]
-    fn customization_steps_configuram_completion_e_alias_k() {
+    fn customization_steps_configure_completion_and_the_k_alias() {
         let cri = PathBuf::from("/tmp/delonix-cri");
         let eng = PathBuf::from("/tmp/delonix");
         let svc = PathBuf::from("/tmp/delonix-cri.service");
@@ -6930,7 +6932,7 @@ Package: cri-tools\nVersion: 1.34.0-1.1\nArchitecture: amd64\nFilename: pool/cri
                     CustomizeOp::RunCommand(c) if c.contains("/etc/bash.bashrc") => Some(c),
                     _ => None,
                 })
-                .expect("devia haver um passo a escrever no /etc/bash.bashrc");
+                .expect("there should be a step writing to /etc/bash.bashrc");
             assert!(bashrc.contains("kubectl completion bash"));
             assert!(bashrc.contains("alias k=kubectl"));
             assert!(bashrc.contains("complete -o default -F __start_kubectl k"));
@@ -6981,7 +6983,7 @@ SHA256: ccc1
 ";
 
     #[test]
-    fn parse_packages_escolhe_maior_versao_da_arch_certa() {
+    fn parse_packages_picks_the_highest_version_of_the_right_arch() {
         let got = parse_packages_index(
             PACKAGES_FIXTURE,
             "amd64",
@@ -6992,14 +6994,14 @@ SHA256: ccc1
         assert_eq!(got.len(), 1);
         assert_eq!(
             got[0].version, "1.34.9-1.1",
-            "devia escolher a maior 1.34.*"
+            "should pick the highest 1.34.*"
         );
         assert_eq!(got[0].filename, "amd64/kubeadm_1.34.9-1.1_amd64.deb");
         assert_eq!(got[0].sha256, "bbb2");
     }
 
     #[test]
-    fn parse_packages_ignora_versionamento_proprio_no_filtro_de_versao() {
+    fn parse_packages_ignores_own_versioning_in_the_version_filter() {
         // REGRESSION: `kubernetes-cni` is 1.7.x — filtering it by "1.34." returned
         // nothing and the offline build aborted with "does not have kubernetes-cni".
         let got = parse_packages_index(
@@ -7012,7 +7014,7 @@ SHA256: ccc1
         let cni = got
             .iter()
             .find(|d| d.name == "kubernetes-cni")
-            .expect("cni tem de vir");
+            .expect("cni must be present");
         assert_eq!(cni.version, "1.7.1-1.1");
         assert!(got
             .iter()
@@ -7020,19 +7022,19 @@ SHA256: ccc1
     }
 
     #[test]
-    fn deb_version_lt_compara_numericamente() {
+    fn deb_version_lt_compares_numerically() {
         assert!(deb_version_lt("1.34.0-1.1", "1.34.9-1.1"));
         assert!(deb_version_lt("1.33.1-1.1", "1.34.0-1.1"));
         assert!(
             deb_version_lt("1.9.0-1.1", "1.10.0-1.1"),
-            "9 < 10 numericamente, não lexicograficamente"
+            "9 < 10 numerically, not lexicographically"
         );
         assert!(!deb_version_lt("1.34.9-1.1", "1.34.0-1.1"));
         assert!(!deb_version_lt("1.34.9-1.1", "1.34.9-1.1"));
     }
 
     #[test]
-    fn release_sha256_of_le_a_seccao_certa() {
+    fn release_sha256_of_reads_the_right_section() {
         let release = "\
 Origin: obs://build.opensuse.org
 MD5Sum:
@@ -7050,36 +7052,37 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             release_sha256_of(release, "Release").as_deref(),
             Some("def456")
         );
-        assert_eq!(release_sha256_of(release, "nao-existe"), None);
+        assert_eq!(release_sha256_of(release, "does-not-exist"), None);
     }
 
-    /// O codinome sai da própria imagem, e é o que constrói o URL do arquivo — um valor
-    /// errado aqui dá um 404 depois de centenas de MB, ou pior, o índice de outra suite.
+    /// The codename comes from the image itself, and it is what builds the archive URL — a
+    /// wrong value here gives a 404 after hundreds of MB, or worse, another suite's index.
     #[test]
-    fn o_codinome_le_se_do_os_release_da_imagem() {
+    fn the_codename_is_read_from_the_image_os_release() {
         let real = "PRETTY_NAME=\"Ubuntu 24.04.1 LTS\"\nNAME=\"Ubuntu\"\n\
                     VERSION_ID=\"24.04\"\nVERSION_CODENAME=noble\nID=ubuntu\n\
                     UBUNTU_CODENAME=noble\n";
         assert_eq!(parse_os_release_codename(real).as_deref(), Some("noble"));
-        // Algumas distros citam-no; o valor é o mesmo.
+        // Some distros quote it; the value is the same.
         assert_eq!(
             parse_os_release_codename("VERSION_CODENAME=\"bookworm\"\n").as_deref(),
             Some("bookworm")
         );
-        // Ausente é None e NÃO uma string vazia: vazio construiria
-        // `dists//InRelease`, que é um 404 a dizer outra coisa.
+        // Absent is None and NOT an empty string: empty would build
+        // `dists//InRelease`, which is a 404 saying something else.
         assert!(parse_os_release_codename("ID=fedora\nVERSION_ID=42\n").is_none());
         assert!(parse_os_release_codename("VERSION_CODENAME=\n").is_none());
-        // `UBUNTU_CODENAME` sozinho não conta — este parser tem um dono, e é a chave
-        // padronizada pelo os-release(5).
+        // `UBUNTU_CODENAME` alone does not count — this parser has one owner, the key
+        // standardized by os-release(5).
         assert!(parse_os_release_codename("UBUNTU_CODENAME=noble\n").is_none());
     }
 
-    /// O `.deb` do agente instala pelo passo que já existia; o que faltava era garantir a
-    /// unit ACTIVA, sem depender do postinst de outro pacote num convidado sem systemd a
-    /// correr. Guardado, para um build sem o agente não falhar numa unit ausente.
+    /// The agent's `.deb` is installed by the step that already existed; what was missing
+    /// was ensuring the unit is ENABLED, without relying on another package's postinst in a
+    /// guest with no systemd running. Guarded, so a build without the agent does not fail on
+    /// a missing unit.
     #[test]
-    fn steps_offline_activam_a_unit_do_guest_agent() {
+    fn offline_steps_enable_the_guest_agent_unit() {
         let ops = k8s_customization_steps_offline(
             &[PathBuf::from("/tmp/x/qemu-guest-agent_8.2.2_amd64.deb")],
             &[],
@@ -7103,19 +7106,19 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         let enable = cmds
             .iter()
             .find(|c| c.contains("qemu-guest-agent.service"))
-            .expect("faltou activar a unit do guest agent");
+            .expect("the guest agent unit was not enabled");
         assert!(
             enable.contains("systemctl enable"),
-            "a unit é listada mas não activada: {enable}"
+            "the unit is listed but not enabled: {enable}"
         );
         assert!(
             enable.contains("list-unit-files") && enable.contains("|| true"),
-            "activar tem de ser guardado, senão um build sem o agente chumba: {enable}"
+            "enabling has to be guarded, otherwise a build without the agent fails: {enable}"
         );
     }
 
     #[test]
-    fn steps_offline_instalam_por_dpkg_e_nao_tocam_a_rede() {
+    fn offline_steps_install_via_dpkg_and_do_not_touch_the_network() {
         let debs = vec![PathBuf::from("/tmp/x/kubeadm_1.34.9-1.1_amd64.deb")];
         let ops = k8s_customization_steps_offline(
             &debs,
@@ -7142,13 +7145,13 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             .any(|c| c.contains("dpkg -i /tmp/k8s-debs/*.deb")));
         assert!(
             cmds.iter().any(|c| c.contains("mkdir -p /tmp/k8s-debs")),
-            "o --copy-in exige o dir criado"
+            "the --copy-in requires the dir to be created"
         );
         // The central guarantee of offline mode: nothing contacts the network in the guest.
         for c in &cmds {
             assert!(
                 !c.contains("curl") && !c.contains("apt-get update") && !c.contains("https://"),
-                "passo offline com rede: {c}"
+                "offline step touching the network: {c}"
             );
         }
         // And the .deb is injected.
@@ -7158,7 +7161,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn steps_offline_com_preseed_injecta_as_4_subpastas_do_image_store() {
+    fn offline_steps_with_preseed_inject_the_4_image_store_subfolders() {
         let debs = vec![PathBuf::from("/tmp/x/kubeadm_1.34.9-1.1_amd64.deb")];
         let preseed_root = PathBuf::from("/tmp/preseed-images");
         let ops = k8s_customization_steps_offline(
@@ -7181,19 +7184,19 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
                     CustomizeOp::CopyIn(src, dst)
                         if src == &preseed_root.join(sub) && dst == "/var/lib/delonix"
                 )),
-                "faltou o --copy-in de {sub}"
+                "the --copy-in of {sub} was missing"
             );
         }
         assert!(
             ops.iter().any(
                 |o| matches!(o, CustomizeOp::RunCommand(c) if c == "mkdir -p /var/lib/delonix")
             ),
-            "/var/lib/delonix tem de existir antes do --copy-in"
+            "/var/lib/delonix has to exist before the --copy-in"
         );
     }
 
     #[test]
-    fn customization_steps_limpam_a_cache_apt_no_fim() {
+    fn customization_steps_clean_the_apt_cache_at_the_end() {
         let cri = PathBuf::from("/tmp/delonix-cri");
         let eng = PathBuf::from("/tmp/delonix");
         let svc = PathBuf::from("/tmp/delonix-cri.service");
@@ -7210,10 +7213,10 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             None,
         );
         // ~367 MiB of .deb + indexes that, without this, filled the golden's root to 92%.
-        // Tem de correr DEPOIS de tudo o que instala pacotes (incluindo o
-        // `--extra-run`) e ANTES do reset do machine-id, que é o último passo.
-        // Por posição fixa isto já chumbou duas vezes por a cauda ter crescido
-        // (journal, inventário) — o que fixa é a ordem.
+        // Must run AFTER everything that installs packages (including
+        // `--extra-run`) and BEFORE the machine-id reset, which is the last step.
+        // By fixed position this has failed twice because the tail grew (journal,
+        // inventory) — what pins it is the order.
         let at = |needle: &str| {
             ops.iter()
                 .position(|op| matches!(op, CustomizeOp::RunCommand(c) if c.contains(needle)))
@@ -7221,16 +7224,16 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         };
         assert!(
             matches!(&ops[at("apt-get clean")], CustomizeOp::RunCommand(c) if c.contains("/var/lib/apt/lists")),
-            "a limpeza tem de apagar tambem os indices"
+            "the cleanup has to delete the indexes too"
         );
         assert!(at("apt-get clean") < at("truncate -s 0 /etc/machine-id"));
     }
 
     #[test]
-    fn a_imagem_traz_o_journal_persistente_em_todas_as_distros() {
-        // Um journal volátil apaga, a cada reboot, os logs do arranque que
-        // falhou — e o tecto impede que os NOSSOS logs encham a raiz do
-        // inquilino, que é uma forma de disk-pressure que este host já viu.
+    fn the_image_ships_a_persistent_journal_on_every_distro() {
+        // A volatile journal wipes, at every reboot, the logs of the boot that
+        // failed — and the cap keeps OUR logs from filling the tenant's root,
+        // which is a form of disk-pressure this host has already seen.
         for d in [
             Distro::Ubuntu,
             Distro::Debian,
@@ -7248,19 +7251,19 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             assert!(
                 cmds.iter()
                     .any(|c| c.contains("Storage=persistent") && c.contains("/var/log/journal")),
-                "{d:?} ficou com o journal volátil"
+                "{d:?} was left with a volatile journal"
             );
             assert!(
                 cmds.iter().any(|c| c.contains("SystemMaxUse=")),
-                "{d:?} ficou com um journal sem tecto"
+                "{d:?} was left with an uncapped journal"
             );
         }
     }
 
     #[test]
-    fn sem_a_flag_a_imagem_nao_abre_porta_nenhuma() {
-        // O agente de métricas é opt-in: uma imagem publicada não leva um
-        // listener que o inquilino nunca pediu.
+    fn without_the_flag_the_image_opens_no_port() {
+        // The metrics agent is opt-in: a published image does not carry a
+        // listener the tenant never asked for.
         let ops = rootless_customization_steps(
             &[],
             &[],
@@ -7275,9 +7278,9 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn o_node_exporter_corre_sem_privilegio_no_endereco_pedido() {
+    fn the_node_exporter_runs_unprivileged_on_the_requested_address() {
         let ops = node_exporter_steps(&PathBuf::from("/tmp/node_exporter"), "127.0.0.1:9100")
-            .expect("um src com o nome certo tem de passar");
+            .expect("a src with the right name has to pass");
         let cmds: Vec<&str> = ops
             .iter()
             .filter_map(|o| match o {
@@ -7293,7 +7296,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             .any(|c| c.contains("--web.listen-address=127.0.0.1:9100")));
         assert!(
             cmds.iter().any(|c| c.contains("User=node-exporter")),
-            "o exporter nunca corre como root"
+            "the exporter never runs as root"
         );
         assert!(cmds.iter().any(|c| c.contains("NoNewPrivileges=yes")));
         assert!(cmds
@@ -7302,35 +7305,35 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn o_reset_do_machine_id_continua_a_ser_o_ultimo_passo() {
-        // Se o `systemctl enable` do exporter corresse DEPOIS do reset, podia
-        // materializar um machine-id — e VMs que partilham um perdem o lease
-        // DHCP umas às outras (medido, e a razão de aquele passo ser o último).
+    fn the_machine_id_reset_stays_the_last_step() {
+        // If the exporter's `systemctl enable` ran AFTER the reset, it could
+        // materialize a machine-id — and VMs that share one steal each other's
+        // DHCP lease (measured, and the reason that step is the last).
         let base = shared_account_steps(&[], Distro::Ubuntu, None);
         let with = splice_before_machine_id(
             base.clone(),
             node_exporter_steps(&PathBuf::from("/tmp/node_exporter"), ":9100").unwrap(),
         );
-        let last = match with.last().expect("não pode ficar vazio") {
+        let last = match with.last().expect("cannot be empty") {
             CustomizeOp::RunCommand(c) => c.clone(),
-            other => panic!("último passo inesperado: {other:?}"),
+            other => panic!("unexpected last step: {other:?}"),
         };
-        assert!(last.contains("/etc/machine-id"), "último passo: {last}");
+        assert!(last.contains("/etc/machine-id"), "last step: {last}");
         assert_eq!(with.len(), base.len() + 4);
     }
 
     #[test]
-    fn o_indice_aceita_architecture_all() {
-        // Um metapacote é `all`, e é dele que a cadeia do agente depende.
+    fn the_index_accepts_architecture_all() {
+        // A metapackage is `all`, and it is what the agent's chain depends on.
         let index = "Package: ubuntu-helper-virt-hwe\n\
                      Version: 1.0\n\
                      Filename: pool/main/u/x_1.0_all.deb\n\
                      SHA256: aa\n\
                      Architecture: all\n\
                      \n\
-                     Package: outro\n\
+                     Package: other\n\
                      Version: 2.0\n\
-                     Filename: pool/main/o/outro_2.0_i386.deb\n\
+                     Filename: pool/main/o/other_2.0_i386.deb\n\
                      SHA256: bb\n\
                      Architecture: i386\n";
         let got = parse_packages_index(index, "amd64", "", &[], &[]);
@@ -7338,15 +7341,15 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         assert_eq!(
             names,
             vec!["ubuntu-helper-virt-hwe"],
-            "o `all` entra, o `i386` não"
+            "the `all` gets in, the `i386` does not"
         );
     }
 
     #[test]
-    fn o_fecho_de_dependencias_sai_do_indice_e_nao_de_uma_lista() {
+    fn the_dependency_closure_comes_from_the_index_not_a_list() {
         use std::collections::{BTreeMap, BTreeSet};
-        // A forma REAL que partiu a golden: na 24.04 o agente dependia de
-        // `liburing2`, na 26.04 passou a depender também de `ubuntu-virt`.
+        // The REAL shape that broke the golden: on 24.04 the agent depended on
+        // `liburing2`, on 26.04 it also started depending on `ubuntu-virt`.
         let index: BTreeMap<String, String> = [
             (
                 "qemu-guest-agent".to_string(),
@@ -7358,28 +7361,28 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         ]
         .into_iter()
         .collect();
-        // `libc6` já vem na cloud image; os outros dois não.
+        // `libc6` already ships in the cloud image; the other two do not.
         let installed: BTreeSet<String> = ["libc6".to_string()].into_iter().collect();
         let need = deb_closure(&["qemu-guest-agent"], &index, &installed);
         assert_eq!(need, vec!["liburing2", "qemu-guest-agent", "ubuntu-virt"]);
 
-        // Uma dependência que o índice não conhece é VIRTUAL (alguém a
-        // `Provides`), não um erro — recusar partia o build por um nome que
-        // nunca foi um ficheiro.
-        let so_virtual: BTreeMap<String, String> =
+        // A dependency the index does not know is VIRTUAL (someone `Provides` it),
+        // not an error — refusing would break the build over a name that was never
+        // a file.
+        let only_virtual: BTreeMap<String, String> =
             [("qemu-guest-agent".to_string(), "debconf-2.0".to_string())]
                 .into_iter()
                 .collect();
         assert_eq!(
-            deb_closure(&["qemu-guest-agent"], &so_virtual, &BTreeSet::new()),
+            deb_closure(&["qemu-guest-agent"], &only_virtual, &BTreeSet::new()),
             vec!["qemu-guest-agent"]
         );
 
-        // A forma que partiu a golden uma SEGUNDA vez: a primeira alternativa
-        // escrita não existe nos componentes que se buscam, e é a segunda que
-        // tem de vir. Escolher a primeira às cegas deixava o `dpkg` com a
-        // cadeia por configurar.
-        let alternativas: BTreeMap<String, String> = [
+        // The shape that broke the golden a SECOND time: the first alternative
+        // written does not exist in the components being fetched, and it is the
+        // second that has to be used. Picking the first blindly left `dpkg` with
+        // the chain unconfigured.
+        let alternatives: BTreeMap<String, String> = [
             (
                 "ubuntu-virt".to_string(),
                 "ubuntu-helper-virt-hwe | ubuntu-helper-virt-generic".to_string(),
@@ -7389,13 +7392,13 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         .into_iter()
         .collect();
         assert_eq!(
-            deb_closure(&["ubuntu-virt"], &alternativas, &BTreeSet::new()),
+            deb_closure(&["ubuntu-virt"], &alternatives, &BTreeSet::new()),
             vec!["ubuntu-helper-virt-generic", "ubuntu-virt"]
         );
     }
 
     #[test]
-    fn as_dependencias_lem_se_com_alternativas_e_versoes() {
+    fn dependencies_are_read_with_alternatives_and_versions() {
         assert_eq!(
             parse_depends_groups("libc6 (>= 2.34), liburing2 (>= 2.1) | liburing1, python3:any"),
             vec![
@@ -7408,11 +7411,11 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn o_inventario_responde_pelo_nome_exacto_do_pacote() {
+    fn the_inventory_answers_by_the_exact_package_name() {
         let tsv = "kubeadm\t1.34.10-1.1\tamd64\nqemu-guest-agent\t1:8.2.2\tamd64\n";
         assert!(inventory_has(tsv, "qemu-guest-agent"));
         assert!(inventory_has(tsv, "kubeadm"));
-        // Um pacote parecido não responde pelo que se procurou.
+        // A similar package does not answer for what was searched.
         assert!(!inventory_has(tsv, "qemu-guest-agent-dbg"));
         assert!(!inventory_has(tsv, "qemu"));
         assert!(!inventory_has("", "qemu-guest-agent"));
@@ -7473,11 +7476,11 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn a_particao_a_crescer_e_a_maior_lida_por_nome_de_coluna() {
-        // Saída REAL do `virt-filesystems --parts --long --csv` contra a cloud
-        // image de Ubuntu 24.04, capturada a 2026-08-18. A 3.ª coluna é `MBR` e
-        // vem VAZIA — um parser por posição leria o tamanho da coluna errada e
-        // faria crescer a ESP, o que produz uma imagem que não arranca.
+    fn the_partition_to_grow_is_the_largest_read_by_column_name() {
+        // REAL output of `virt-filesystems --parts --long --csv` against the
+        // Ubuntu 24.04 cloud image, captured 2026-08-18. The 3rd column is `MBR`
+        // and comes out EMPTY — a positional parser would read the size from the
+        // wrong column and grow the ESP, which produces an image that does not boot.
         let csv = "Name,Type,MBR,Size,Parent\n\
                    /dev/sda1,partition,,2683289088,/dev/sda\n\
                    /dev/sda14,partition,,4194304,/dev/sda\n\
@@ -7487,40 +7490,40 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             largest_partition_from_csv(csv).as_deref(),
             Some("/dev/sda1")
         );
-        // Uma release do libguestfs que acrescente uma coluna à frente não pode
-        // mudar a resposta.
-        let reordenado =
+        // A libguestfs release that adds a column in front must not change the
+        // answer.
+        let reordered =
             "Parent,Size,Name\n/dev/sda,4194304,/dev/sda14\n/dev/sda,2683289088,/dev/sda1\n";
         assert_eq!(
-            largest_partition_from_csv(reordenado).as_deref(),
+            largest_partition_from_csv(reordered).as_deref(),
             Some("/dev/sda1")
         );
-        // Sem cabeçalho reconhecível não se adivinha: quem chama recusa.
-        assert_eq!(largest_partition_from_csv("lixo\n1,2,3\n"), None);
+        // With no recognizable header there is no guessing: the caller refuses.
+        assert_eq!(largest_partition_from_csv("garbage\n1,2,3\n"), None);
         assert_eq!(largest_partition_from_csv(""), None);
     }
 
     #[test]
-    fn um_binario_com_o_nome_errado_e_recusado_antes_de_construir() {
-        // Bug REAL, apanhado a construir uma imagem e não a ler código: a cache
-        // chamava-se `node_exporter-1.9.1`, o `--copy-in` preservou o basename,
-        // e o build morreu lá dentro em `chmod /usr/local/bin/node_exporter:
-        // No such file or directory` — depois de já ter instalado tudo.
+    fn a_binary_with_the_wrong_name_is_refused_before_building() {
+        // REAL bug, caught while building an image and not reading code: the cache
+        // was named `node_exporter-1.9.1`, `--copy-in` preserved the basename, and
+        // the build died inside at `chmod /usr/local/bin/node_exporter:
+        // No such file or directory` — after everything was already installed.
         let err = node_exporter_steps(&PathBuf::from("/tmp/node_exporter-1.9.1"), ":9100");
-        assert!(err.is_err(), "um nome com versão tem de ser recusado");
+        assert!(err.is_err(), "a name with a version has to be refused");
         assert!(format!("{}", err.unwrap_err()).contains("node_exporter"));
     }
 
     #[test]
-    fn sem_marcador_de_machine_id_os_passos_sao_acrescentados() {
-        let extra = vec![CustomizeOp::RunCommand("echo oi".into())];
+    fn with_no_machine_id_marker_the_steps_are_appended() {
+        let extra = vec![CustomizeOp::RunCommand("echo hi".into())];
         let out = splice_before_machine_id(vec![CustomizeOp::RunCommand("echo a".into())], extra);
         assert_eq!(out.len(), 2);
-        assert!(matches!(&out[1], CustomizeOp::RunCommand(c) if c == "echo oi"));
+        assert!(matches!(&out[1], CustomizeOp::RunCommand(c) if c == "echo hi"));
     }
 
     #[test]
-    fn o_sums_gnu_casa_o_nome_exacto_e_nao_um_sufixo() {
+    fn the_gnu_sums_match_the_exact_name_not_a_suffix() {
         let hash_amd = "a".repeat(64);
         let hash_arm = "b".repeat(64);
         let text = format!(
@@ -7531,15 +7534,15 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             sha256_from_gnu_sums(&text, "node_exporter-1.9.1.linux-amd64.tar.gz"),
             Some(hash_amd)
         );
-        // Um nome que é SUFIXO de outra entrada não pode devolver o hash dela.
+        // A name that is a SUFFIX of another entry must not return its hash.
         assert_eq!(sha256_from_gnu_sums(&text, "linux-amd64.tar.gz"), None);
-        assert_eq!(sha256_from_gnu_sums(&text, "inexistente.tar.gz"), None);
-        // Uma linha truncada não é um hash.
-        assert_eq!(sha256_from_gnu_sums("abc  ficheiro\n", "ficheiro"), None);
+        assert_eq!(sha256_from_gnu_sums(&text, "nonexistent.tar.gz"), None);
+        // A truncated line is not a hash.
+        assert_eq!(sha256_from_gnu_sums("abc  file\n", "file"), None);
     }
 
     #[test]
-    fn a_imagem_nao_leva_password_nenhuma_por_omissao() {
+    fn the_image_carries_no_password_by_default() {
         let cri = PathBuf::from("/tmp/delonix-cri");
         let eng = PathBuf::from("/tmp/delonix");
         let svc = PathBuf::from("/tmp/delonix-cri.service");
@@ -7573,7 +7576,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         assert!(
             cmds.iter()
                 .any(|c| c.contains("passwd -l root") && c.contains("passwd -l delonix")),
-            "as contas ficam trancadas quando ninguem pede password"
+            "the accounts are locked when nobody asks for a password"
         );
         // With --root-password, and only then, the image carries one.
         let ops = k8s_customization_steps(
@@ -7584,17 +7587,17 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             &eng,
             &svc,
             Distro::Ubuntu,
-            Some("segredo"),
+            Some("secret"),
             None,
             None,
         );
         assert!(ops
             .iter()
-            .any(|op| matches!(op, CustomizeOp::RootPassword(p) if p == "segredo")));
+            .any(|op| matches!(op, CustomizeOp::RootPassword(p) if p == "secret")));
     }
 
     #[test]
-    fn rootless_steps_instalam_dependencias_e_o_binario_delonix_sem_cri() {
+    fn rootless_steps_install_deps_and_the_delonix_binary_without_cri() {
         let delonix = PathBuf::from("/tmp/delonix");
         let ops = rootless_customization_steps(&[], &[], &delonix, Distro::Ubuntu, None);
         let cmds: Vec<&str> = ops
@@ -7620,7 +7623,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn rootless_steps_configuram_subuid_e_subgid_para_delonix() {
+    fn rootless_steps_configure_subuid_and_subgid_for_delonix() {
         let ops = rootless_customization_steps(
             &[],
             &[],
@@ -7644,7 +7647,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn rootless_steps_escrevem_o_perfil_apparmor_unconfined_userns() {
+    fn rootless_steps_write_the_unconfined_userns_apparmor_profile() {
         let ops = rootless_customization_steps(
             &[],
             &[],
@@ -7665,7 +7668,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn rootless_steps_partilham_a_criacao_de_conta_delonix() {
+    fn rootless_steps_share_the_delonix_account_creation() {
         let ops = rootless_customization_steps(
             &[],
             &[],
@@ -7680,9 +7683,10 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
                 _ => None,
             })
             .collect();
-        // A conta é partilhada com as receitas do k8s — é o que este teste
-        // sempre guardou. O que MUDOU é que ela já não traz password: exigia
-        // `RootPassword("delonix")` e `delonix:delonix`, e era esse o defeito.
+        // The account is shared with the k8s recipes — that is what this test has
+        // always guarded. What CHANGED is that it no longer carries a password: it
+        // used to require `RootPassword("delonix")` and `delonix:delonix`, and that
+        // was the defect.
         assert!(cmds
             .iter()
             .any(|c| c.contains("useradd") && c.contains("delonix")));
@@ -7696,7 +7700,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn rootless_steps_rocky_usa_dnf_e_pacotes_rpm() {
+    fn rootless_steps_rocky_use_dnf_and_rpm_packages() {
         let ops = rootless_customization_steps(
             &[],
             &[],
@@ -7723,7 +7727,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn rootless_steps_rocky_usa_wheel_bashrc_e_dnf_clean() {
+    fn rootless_steps_rocky_use_wheel_bashrc_and_dnf_clean() {
         let ops = rootless_customization_steps(
             &[],
             &[],
@@ -7748,15 +7752,15 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         assert!(!cmds.iter().any(|c| c.contains("apt-get clean")));
     }
 
-    /// Achado de auditoria (MÉDIO): a golden traz `root/delonix` e
-    /// `delonix:delonix` com sudo NOPASSWD — credenciais FIXAS e públicas (estão
-    /// no código-fonte aberto). Sem desligar o login por password no SSH, uma
-    /// golden exposta à rede é root remoto com credenciais conhecidas. Todos os
-    /// caminhos suportados entram por chave (cloud-init injecta-a, o
-    /// `cluster kubeadm` gera a sua), por isso desligar não custa nada; a
-    /// consola série continua a aceitar a password para recuperação.
+    /// Audit finding (MEDIUM): the golden ships `root/delonix` and
+    /// `delonix:delonix` with NOPASSWD sudo — FIXED, public credentials (they are
+    /// in the open source). Without disabling SSH password login, a golden exposed
+    /// to the network is remote root with known credentials. Every supported path
+    /// gets in by key (cloud-init injects it, `cluster kubeadm` generates its own),
+    /// so disabling costs nothing; the serial console still accepts the password
+    /// for recovery.
     #[test]
-    fn todas_as_goldens_desligam_o_login_por_password_no_ssh() {
+    fn all_goldens_disable_ssh_password_login() {
         let hardened = |ops: &[CustomizeOp]| {
             ops.iter().any(
                 |o| matches!(o, CustomizeOp::RunCommand(c) if c.contains("PasswordAuthentication no")),
@@ -7767,10 +7771,10 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
                 rootless_customization_steps(&[], &[], &PathBuf::from("/tmp/delonix"), d, None);
             assert!(
                 hardened(&ops),
-                "a golden rootless ({d:?}) tem de desligar o login por password"
+                "the rootless golden ({d:?}) has to disable password login"
             );
-            // Tem de mexer nos DOIS sítios: o `sshd_config` do bullseye não tem
-            // linha `Include`, logo só o drop-in seria ignorado em silêncio.
+            // Must touch BOTH places: bullseye's `sshd_config` has no `Include`
+            // line, so a lone drop-in would be silently ignored.
             let cmds: Vec<&String> = ops
                 .iter()
                 .filter_map(|o| match o {
@@ -7782,8 +7786,8 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
                 .iter()
                 .any(|c| c.contains("sshd_config.d") && c.contains("/etc/ssh/sshd_config")));
         }
-        // A golden k8s partilha os mesmos passos de conta, logo também vem
-        // endurecida — é a que corre em nós de produção.
+        // The k8s golden shares the same account steps, so it is hardened too —
+        // it is the one that runs on production nodes.
         let k8s = k8s_customization_steps(
             DEFAULT_K8S_VERSION,
             &[],
@@ -7796,11 +7800,11 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             None,
             None,
         );
-        assert!(hardened(&k8s), "a golden k8s também tem de vir endurecida");
+        assert!(hardened(&k8s), "the k8s golden also has to be hardened");
     }
 
     #[test]
-    fn rootless_steps_rocky_nunca_escreve_perfil_apparmor() {
+    fn rootless_steps_rocky_never_write_the_apparmor_profile() {
         // BUG CAUGHT DURING IMPLEMENTATION: the AppArmor write is
         // `printf ... > /etc/apparmor.d/delonix && (apparmor_parser ... || true)`
         // — only the parser call is guarded. Rocky has no `/etc/apparmor.d/`
@@ -7827,7 +7831,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     /// since the file is a kernel path, not a packaging convention. The k8s
     /// golden must NOT get it: that node's kubelet/kube-proxy run as root.
     #[test]
-    fn so_a_golden_rootless_traz_as_portas_baixas_abertas() {
+    fn only_the_rootless_golden_ships_the_low_ports_open() {
         let has_lowports = |ops: &[CustomizeOp]| {
             ops.iter().any(
                 |o| matches!(o, CustomizeOp::RunCommand(c) if c.contains("ip_unprivileged_port_start")),
@@ -7875,7 +7879,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn rootless_steps_debian_nao_muda_de_comportamento() {
+    fn rootless_steps_debian_do_not_change_behavior() {
         // v0.17.0 regression guard: Debian's sudo/bashrc/apt-clean output must
         // stay byte-identical to before this Rocky-driven refactor.
         let ops = rootless_customization_steps(
@@ -7900,7 +7904,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn parse_bsd_checksum_extrai_o_hash_do_ficheiro_pedido() {
+    fn parse_bsd_checksum_extracts_the_hash_of_the_requested_file() {
         // Real line captured live from `dl.rockylinux.org`.
         let text = "# Rocky-9-GenericCloud.latest.x86_64.qcow2: 645988352 bytes\n\
                      SHA256 (Rocky-9-GenericCloud.latest.x86_64.qcow2) = 92c206cc6f790c61583247eefe87890f8828420662c17cacf247cec78ab4eec8\n";
@@ -7982,7 +7986,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn valid_rocky_release_aceita_so_as_versoes_conhecidas() {
+    fn valid_rocky_release_accepts_only_known_versions() {
         assert!(valid_rocky_release("8").is_ok());
         assert!(valid_rocky_release("9").is_ok());
         assert!(valid_rocky_release("10").is_ok());
@@ -7991,7 +7995,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn no_k8s_false_com_distro_rocky_e_rejeitado() {
+    fn no_k8s_false_with_distro_rocky_is_rejected() {
         let (store, _dir) = tmp_store();
         let err = cmd_build(
             &store,
@@ -8009,8 +8013,8 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             false,
             false, // no_k8s = false — Rocky doesn't support the k8s path yet
             None,
-            None, // sem password: o caminho por omissão, e o que a imagem publica
-            None, // node_exporter: sem agente, que é o default
+            None, // no password: the default path, and what the image publishes
+            None, // node_exporter: no agent, which is the default
         );
         assert!(err.is_err());
         assert!(format!("{}", err.unwrap_err()).contains("--no-k8s"));
@@ -8026,7 +8030,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn hex_sha512_file_bate_com_vector_conhecido() {
+    fn hex_sha512_file_matches_a_known_vector() {
         // NIST test vector: SHA-512("abc").
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("abc");
@@ -8036,7 +8040,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn debian_major_version_conhece_os_codinomes_suportados() {
+    fn debian_major_version_knows_the_supported_codenames() {
         assert_eq!(debian_major_version("bullseye").unwrap(), "11");
         assert_eq!(debian_major_version("bookworm").unwrap(), "12");
         assert_eq!(debian_major_version("trixie").unwrap(), "13");
@@ -8045,7 +8049,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn distro_label_combina_distro_e_release_ou_degrada_com_gracia() {
+    fn distro_label_combines_distro_and_release_or_degrades_gracefully() {
         let mut img = VmImage {
             name: "x".to_string(),
             tag: "x".to_string(),
@@ -8074,7 +8078,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn base_cache_path_distingue_distro_e_continua_a_sanitizar() {
+    fn base_cache_path_distinguishes_distro_and_still_sanitizes() {
         let (store, dir) = tmp_store();
         let ubuntu = store.base_cache_path(Distro::Ubuntu, "24.04");
         let debian = store.base_cache_path(Distro::Debian, "bookworm");
@@ -8112,41 +8116,41 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         assert!(!evil.file_name().unwrap().to_str().unwrap().contains('/'));
     }
 
-    /// A golden tem de nascer com disco para um nó de Kubernetes. Com os 3,5
-    /// GiB da imagem base do Ubuntu, o WAL do etcd não cabe e o control-plane
-    /// nunca arranca — medido, não suposto (ver `GOLDEN_DISK_SIZE_GIB`).
+    /// A golden must be born with disk for a Kubernetes node. With the 3.5 GiB
+    /// of the Ubuntu base image, etcd's WAL does not fit and the control-plane
+    /// never starts — measured, not assumed (see `GOLDEN_DISK_SIZE_GIB`).
     #[test]
-    fn a_golden_nasce_com_disco_para_um_no_de_kubernetes() {
+    fn a_golden_is_born_with_disk_for_a_kubernetes_node() {
         const _: () = assert!(
             GOLDEN_DISK_SIZE_GIB >= 10,
-            "medido: um control-plane completo consome 2,4G de 8,7G úteis; abaixo de 10 GiB o WAL do etcd deixa de caber"
+            "measured: a full control-plane consumes 2.4G of 8.7G usable; below 10 GiB etcd's WAL stops fitting"
         );
     }
 
-    /// A omissão self-managed é 1.37 (o estável mais recente do `pkgs.k8s.io`,
-    /// v1.37.0 verificado a existir). O alinhamento com o control-plane alojado
-    /// (DKS/Kamaji) é um eixo SEPARADO, tratado no `delonix-deploy` e já em
-    /// mismatch conhecido lá — não é capado por esta constante (ver o doc de
-    /// `DEFAULT_K8S_VERSION`). O que este teste trava é a `OFFICIAL_VM_IMAGE`
-    /// discordar da omissão: as duas TÊM de apontar para o mesmo minor.
+    /// The self-managed default is 1.37 (the latest stable on `pkgs.k8s.io`,
+    /// v1.37.0 verified to exist). Alignment with the hosted control-plane
+    /// (DKS/Kamaji) is a SEPARATE axis, handled in `delonix-deploy` and already in
+    /// a known mismatch there — it is not capped by this constant (see the doc for
+    /// `DEFAULT_K8S_VERSION`). What this test pins is `OFFICIAL_VM_IMAGE` not
+    /// disagreeing with the default: the two MUST point at the same minor.
     #[test]
-    fn a_imagem_oficial_aponta_para_a_versao_por_omissao() {
+    fn the_official_image_points_at_the_default_version() {
         assert_eq!(
             DEFAULT_K8S_VERSION, "1.37",
-            "o estável mais recente do pkgs.k8s.io; o alinhamento DKS/Kamaji vive no delonix-deploy"
+            "the latest stable on pkgs.k8s.io; DKS/Kamaji alignment lives in delonix-deploy"
         );
         assert!(
             OFFICIAL_VM_IMAGE.ends_with(&format!(":{DEFAULT_K8S_VERSION}")),
-            "a imagem oficial ({OFFICIAL_VM_IMAGE}) tem de apontar para {DEFAULT_K8S_VERSION}"
+            "the official image ({OFFICIAL_VM_IMAGE}) has to point at {DEFAULT_K8S_VERSION}"
         );
         let k8s = OFFICIAL_REPOS
             .iter()
             .find(|r| r.key == "k8s")
-            .expect("repo k8s");
+            .expect("k8s repo");
         assert_eq!(
             k8s.default_tag,
             Some(DEFAULT_K8S_VERSION),
-            "o pull por omissão tem de puxar a mesma"
+            "the default pull has to fetch the same one"
         );
     }
 
@@ -8179,18 +8183,18 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         let recipes = super::super::k8s_recipes::k8s_host_recipes(&installed, &[]);
         let repo_step = recipes
             .iter()
-            .find(|r| r.name.contains("repositório"))
-            .expect("receita do repositório");
+            .find(|r| r.name.contains("repository"))
+            .expect("repository recipe");
         assert!(
             repo_step
                 .apply
                 .contains(&format!("stable:/v{DEFAULT_K8S_VERSION}/deb")),
-            "o repo tem de ser o da versão por omissão: {}",
+            "the repo has to be the default version's: {}",
             repo_step.apply
         );
         assert!(
             !repo_step.apply.contains("v1.31"),
-            "o default independente de 1.31 voltou: {}",
+            "the independent 1.31 default came back: {}",
             repo_step.apply
         );
 
@@ -8202,7 +8206,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         )]);
         assert!(
             manifest.contains(&format!("DELONIX_K8S_VERSION=\"{DEFAULT_K8S_VERSION}\"")),
-            "a imagem tem de dizer o que tem dentro: {manifest}"
+            "the image has to say what is inside it: {manifest}"
         );
         assert!(!manifest.contains("none"), "{manifest}");
 
@@ -8244,31 +8248,31 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         assert_eq!(declared.as_deref(), Some("1.31.2"));
     }
 
-    /// 1.34 e 1.35 deixam de ser a omissão mas continuam construíveis — o
-    /// pedido foi mudar a omissão, não retirar as outras.
+    /// 1.34 and 1.35 stop being the default but remain buildable — the request
+    /// was to change the default, not to remove the others.
     #[test]
-    fn as_versoes_anteriores_continuam_aceites() {
+    fn the_previous_versions_remain_accepted() {
         for v in ["1.34", "1.35", "1.36"] {
             assert!(
                 v.chars().all(|c| c.is_ascii_digit() || c == '.'),
-                "{v} tem de passar a validação de --k8s-version"
+                "{v} has to pass --k8s-version validation"
             );
         }
     }
 
-    /// O defeito que impedia a golden de correr Kubernetes: instalava o
-    /// `delonix-cri` sem o `delonix` a que ele delega TODO o ciclo de vida.
-    /// Medido numa VM da golden 1.35 (2026-08-16): os `pull` passavam, cada
-    /// `StartContainer` morria com `No such file or directory (os error 2)`, e
-    /// o `kubeadm init` nunca levantava o control-plane.
+    /// The defect that stopped the golden from running Kubernetes: it installed
+    /// `delonix-cri` without the `delonix` it delegates the ENTIRE lifecycle to.
+    /// Measured on a VM of the 1.35 golden (2026-08-16): `pull`s passed, every
+    /// `StartContainer` died with `No such file or directory (os error 2)`, and
+    /// `kubeadm init` never brought up the control-plane.
     #[test]
-    fn install_cri_steps_instala_os_dois_binarios() {
+    fn install_cri_steps_installs_both_binaries() {
         let cri = PathBuf::from("/tmp/delonix-cri");
         let eng = PathBuf::from("/tmp/delonix");
         let unit = PathBuf::from("/tmp/delonix-cri.service");
         let ops = install_cri_steps(&cri, &eng, &unit);
 
-        let copiados: Vec<&PathBuf> = ops
+        let copied_in: Vec<&PathBuf> = ops
             .iter()
             .filter_map(|o| match o {
                 CustomizeOp::CopyIn(src, dst) if dst == "/usr/local/bin" => Some(src),
@@ -8276,12 +8280,12 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             })
             .collect();
         assert!(
-            copiados.contains(&&cri),
-            "delonix-cri tem de ir para /usr/local/bin"
+            copied_in.contains(&&cri),
+            "delonix-cri has to go to /usr/local/bin"
         );
         assert!(
-            copiados.contains(&&eng),
-            "o `delonix` TEM de viajar com o CRI — sem ele o kubelet vê ENOENT em cada StartContainer"
+            copied_in.contains(&&eng),
+            "`delonix` MUST travel with the CRI — without it the kubelet sees ENOENT on every StartContainer"
         );
 
         let cmds: Vec<&str> = ops
@@ -8296,12 +8300,12 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             .any(|c| c.contains("chmod +x /usr/local/bin/delonix-cri")));
         assert!(
             cmds.contains(&"chmod +x /usr/local/bin/delonix"),
-            "sem bit de execução o binário está lá e continua a não correr"
+            "without the execute bit the binary is there and still does not run"
         );
     }
 
     #[test]
-    fn no_k8s_rejeita_k8s_version_offline_e_cri_bin() {
+    fn no_k8s_rejects_k8s_version_offline_and_cri_bin() {
         let (store, _dir) = tmp_store();
         let base = |k8s_version: Option<String>, offline: bool, cri_bin: Option<PathBuf>| {
             cmd_build(
@@ -8431,7 +8435,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn customize_args_traduz_run_command_e_copy_in_correctamente() {
+    fn customize_args_translates_run_command_and_copy_in_correctly() {
         let ops = vec![
             CustomizeOp::RunCommand("apt-get install -y a b".to_string()),
             CustomizeOp::CopyIn(PathBuf::from("/host/bin"), "/usr/local/bin".to_string()),
@@ -8475,7 +8479,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn hex_sha256_e_consistente() {
+    fn hex_sha256_is_consistent() {
         assert_eq!(
             hex_sha256(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
@@ -8487,10 +8491,10 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     /// Measured on a host without libguestfs: `vm build` downloaded 600 MB,
     /// verified the checksum, resized the disk, and then said
     /// `running virt-customize: No such file or directory` — which reads as a
-    /// broken path, not as «install this package». The mapping is the fix, so
+    /// broken path, not as "install this package". The mapping is the fix, so
     /// it is the mapping that gets the test.
     #[test]
-    fn ferramenta_ausente_nomeia_o_pacote_das_tres_familias() {
+    fn a_missing_tool_names_the_package_for_the_three_families() {
         assert_eq!(
             super::tool_package("virt-customize"),
             Some(("libguestfs-tools", "guestfs-tools", "libguestfs"))
@@ -8508,7 +8512,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     /// case where reading `ID` alone prints the wrong package manager: the host
     /// this was written on is `ID=zorin`, which no table will ever list.
     #[test]
-    fn familia_da_distro_segue_id_e_depois_id_like() {
+    fn the_distro_family_follows_id_then_id_like() {
         use super::{family_of, Family};
         assert_eq!(family_of("ID=ubuntu\nID_LIKE=debian\n"), Family::Debian);
         assert_eq!(
@@ -8529,7 +8533,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn install_cmd_usa_o_gestor_da_familia_e_lista_todos_quando_nao_sabe() {
+    fn install_cmd_uses_the_family_manager_and_lists_all_when_unknown() {
         use super::{install_cmd, Family};
         assert_eq!(
             install_cmd(
@@ -8560,7 +8564,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         );
         let unknown = install_cmd(Family::Unknown, "a", "b", "c");
         for cmd in ["apt install a", "dnf install b", "pacman -S c"] {
-            assert!(unknown.contains(cmd), "faltava {cmd} em: {unknown}");
+            assert!(unknown.contains(cmd), "{cmd} was missing in: {unknown}");
         }
     }
 
@@ -8568,13 +8572,13 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     /// both printed everything needed to name the cause without naming it. The
     /// hint is the outcome of that session, so it is what gets the test.
     #[test]
-    fn falhas_conhecidas_do_build_dizem_o_que_fazer() {
+    fn known_build_failures_say_what_to_do() {
         use super::{tool_failure_hint, Family};
         // supermin cannot read the host kernel (Debian/Ubuntu ship it 0600).
         let supermin = "supermin: build: 4284 files, after munging\n\
                         cp: cannot open '/boot/vmlinuz-7.0.0-28-generic' for reading: Permission denied\n\
                         supermin: cp -p '/boot/vmlinuz-7.0.0-28-generic' … command failed";
-        let h = tool_failure_hint(supermin, Family::Debian).expect("devia reconhecer o supermin");
+        let h = tool_failure_hint(supermin, Family::Debian).expect("should recognize supermin");
         assert!(h.contains("chmod 0644 /boot/vmlinuz-*"), "{h}");
         // The permanent form is Debian-specific and must not be printed to a
         // reader whose distro has no /etc/kernel/postinst.d.
@@ -8585,7 +8589,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
 
         // passt: `--network` only.
         let passt = "virt-customize: error: libguestfs error: passt exited with status 1";
-        let h = tool_failure_hint(passt, Family::Debian).expect("devia reconhecer o passt");
+        let h = tool_failure_hint(passt, Family::Debian).expect("should recognize passt");
         assert!(h.contains("XDG_RUNTIME_DIR"), "{h}");
         assert!(h.contains("--network"), "{h}");
         // Building a current passt is only half the remedy: libguestfs looks it
@@ -8608,7 +8612,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
                    https://mirrors.fedoraproject.org/metalink?repo=updates-released-f42\n\
                    virt-customize: error: dnf install -y slirp4netns: command exited with an error";
         let h = tool_failure_hint(dnf, Family::Debian)
-            .expect("um build sem DNS tem de dizer que a rede do appliance é a causa");
+            .expect("a build with no DNS has to say the appliance's network is the cause");
         assert!(h.contains("passt"), "{h}");
         assert!(h.contains("XDG_RUNTIME_DIR"), "{h}");
 
@@ -8654,24 +8658,24 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn metadados_antigos_sem_o_campo_continuam_a_carregar_e_contam_como_cloud_init() {
+    fn old_metadata_without_the_field_still_loads_and_counts_as_cloud_init() {
         // Every `.json` written before `cloud_init` existed. Loading these has
         // to keep working, AND they have to behave exactly as before — those
         // images are cloud images, and `vm create` must still seed them.
-        let antigo = r#"{
+        let old_json = r#"{
             "name": "golden", "tag": "golden", "digest": "sha256:a", "size": 1,
             "ubuntu_release": "24.04", "k8s_version": "1.34", "created_unix": 0
         }"#;
-        let img: VmImage = serde_json::from_str(antigo).unwrap();
+        let img: VmImage = serde_json::from_str(old_json).unwrap();
         assert_eq!(img.cloud_init, None);
         assert!(
             img.uses_cloud_init(),
-            "unknown tem de contar como cloud-init: e o que estas imagens sempre foram"
+            "unknown has to count as cloud-init: it is what these images have always been"
         );
     }
 
     #[test]
-    fn so_uma_marca_explicita_de_appliance_desliga_o_seed() {
+    fn only_an_explicit_appliance_mark_disables_the_seed() {
         let mut img = bare_img();
         assert!(img.uses_cloud_init());
         img.cloud_init = Some(true);
@@ -8681,7 +8685,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn annotations_fazem_round_trip_pelo_push_e_pull() {
+    fn annotations_round_trip_through_push_and_pull() {
         // The point of the annotations: what the store knows must survive a
         // push/pull, because the qcow2 blob carries none of it.
         let mut orig = bare_img();
@@ -8692,33 +8696,33 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         orig.default_backend = Some("libvirt".to_string());
         orig.cloud_init = Some(false);
 
-        let recuperado = apply_pulled_annotations(bare_img(), &annotations_of(&orig));
-        assert_eq!(recuperado.distro, orig.distro);
-        assert_eq!(recuperado.ubuntu_release, orig.ubuntu_release);
-        assert_eq!(recuperado.default_vcpus, orig.default_vcpus);
-        assert_eq!(recuperado.default_memory, orig.default_memory);
-        assert_eq!(recuperado.default_backend, orig.default_backend);
-        assert_eq!(recuperado.cloud_init, Some(false));
-        assert!(!recuperado.uses_cloud_init());
+        let recovered = apply_pulled_annotations(bare_img(), &annotations_of(&orig));
+        assert_eq!(recovered.distro, orig.distro);
+        assert_eq!(recovered.ubuntu_release, orig.ubuntu_release);
+        assert_eq!(recovered.default_vcpus, orig.default_vcpus);
+        assert_eq!(recovered.default_memory, orig.default_memory);
+        assert_eq!(recovered.default_backend, orig.default_backend);
+        assert_eq!(recovered.cloud_init, Some(false));
+        assert!(!recovered.uses_cloud_init());
     }
 
     #[test]
-    fn artefacto_sem_annotations_nao_muda_nada() {
+    fn an_artifact_without_annotations_changes_nothing() {
         // Everything published before this existed, and anything pushed by
         // another tool: the pull must land exactly where it landed before.
-        let vazio = std::collections::BTreeMap::new();
-        let img = apply_pulled_annotations(bare_img(), &vazio);
+        let empty = std::collections::BTreeMap::new();
+        let img = apply_pulled_annotations(bare_img(), &empty);
         assert_eq!(img.cloud_init, None);
         assert_eq!(img.distro, None);
         assert!(img.uses_cloud_init());
     }
 
     #[test]
-    fn annotation_malformada_e_ignorada_menos_no_campo_que_decide_o_seed() {
+    fn a_malformed_annotation_is_ignored_except_in_the_field_that_decides_the_seed() {
         let mut a = std::collections::BTreeMap::new();
         a.insert(
             "io.delonix.vmimage.default-vcpus".to_string(),
-            "muitos".to_string(),
+            "many".to_string(),
         );
         // Anything that is not exactly "true"/"false" leaves cloud-init
         // unknown — which falls back to "yes, seed it", the safe reading for
@@ -8731,15 +8735,15 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn annotations_so_carregam_o_que_e_sabido() {
+    fn annotations_only_carry_what_is_known() {
         // An absent annotation and one saying "unknown" are different claims;
         // only the first is honest for a field nobody filled in.
         let a = annotations_of(&bare_img());
-        assert!(a.is_empty(), "nada sabido, nada anunciado: {a:?}");
+        assert!(a.is_empty(), "nothing known, nothing announced: {a:?}");
     }
 
     #[test]
-    fn valid_fedora_release_exige_release_e_build() {
+    fn valid_fedora_release_requires_release_and_build() {
         // Fedora's artifact name carries a build number the release does not
         // determine, and its redirector has no listing to look it up in — so a
         // bare `42` is rejected here rather than 404-ing several hundred
@@ -8751,14 +8755,14 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
             "42", "42-", "-1.1", "abc-1.1", "42-1.1a", "42-.1", "42-1.", "",
         ] {
             let e = valid_fedora_release(bad)
-                .expect_err("devia recusar")
+                .expect_err("should refuse")
                 .to_string();
             assert!(e.contains("<release>-<build>"), "{bad}: {e}");
         }
     }
 
     #[test]
-    fn fedora_partilha_as_convencoes_rpm_do_rocky() {
+    fn fedora_shares_rockys_rpm_conventions() {
         // Same dnf/RPM family: `wheel` (not `sudo`), `/etc/bashrc` (not
         // `/etc/bash.bashrc`), `dnf clean all`. Verified against the Rocky
         // steps rather than restated, so the two cannot drift apart.
@@ -8774,14 +8778,14 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
                 .collect()
         };
         let (f, r) = (cmds(&fedora), cmds(&rocky));
-        assert_eq!(f, r, "Fedora e Rocky partilham os passos da familia RPM");
+        assert_eq!(f, r, "Fedora and Rocky share the RPM family's steps");
         assert!(f.iter().any(|c| c.contains("dnf install -y")));
         assert!(f.iter().any(|c| c.contains("wheel")));
         assert!(f.iter().any(|c| c.contains("dnf clean all")));
     }
 
     #[test]
-    fn fedora_nunca_escreve_perfil_apparmor() {
+    fn fedora_never_writes_the_apparmor_profile() {
         // AppArmor is an Ubuntu-only workaround (the
         // `kernel.apparmor_restrict_unprivileged_userns` patch); Fedora uses
         // SELinux and has no /etc/apparmor.d, so writing there would fail the
@@ -8800,7 +8804,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn fedora_sem_no_k8s_e_rejeitado() {
+    fn fedora_without_no_k8s_is_rejected() {
         let (store, _dir) = tmp_store();
         let err = cmd_build(
             &store,
@@ -8825,13 +8829,13 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         .to_string();
         assert!(
             err.contains("fedora"),
-            "a recusa tem de nomear a distro: {err}"
+            "the refusal has to name the distro: {err}"
         );
         assert!(err.contains("--no-k8s"), "{err}");
     }
 
     #[test]
-    fn image_type_label_distingue_appliance_de_cloud_init_e_de_desconhecido() {
+    fn image_type_label_distinguishes_appliance_from_cloud_init_and_unknown() {
         // The three states are genuinely different and the column must not
         // collapse them: an appliance REFUSES --ssh-key, a cloud-init image
         // accepts it, and an unknown one (pre-existing metadata, or a tag
@@ -8840,11 +8844,11 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         assert_eq!(image_type_label(Some("false")), "appliance");
         assert_eq!(image_type_label(Some("true")), "cloud-init");
         assert_eq!(image_type_label(None), "-");
-        assert_eq!(image_type_label(Some("sim")), "-");
+        assert_eq!(image_type_label(Some("yes")), "-");
     }
 
     #[test]
-    fn defaults_label_mostra_so_o_que_a_imagem_recomenda() {
+    fn defaults_label_shows_only_what_the_image_recommends() {
         let mut img = bare_img();
         assert_eq!(defaults_label(&img), "-");
         img.default_vcpus = Some(4);
@@ -8856,7 +8860,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn o_reset_do_machine_id_cria_o_dir_do_dbus_antes_de_lhe_apontar() {
+    fn the_machine_id_reset_creates_the_dbus_dir_before_pointing_at_it() {
         // Found live on Fedora: /var/lib/dbus does not exist there, so the
         // `ln -sf` failed and virt-customize aborted the whole build. Every
         // distro must get a command that cannot fail on a missing directory.
@@ -8874,21 +8878,20 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
                     _ => None,
                 })
                 .next_back()
-                .expect("o reset de machine-id tem de existir");
+                .expect("the machine-id reset has to exist");
             assert!(
                 mid.contains("mkdir -p /var/lib/dbus"),
-                "{d:?}: sem mkdir, o ln falha onde o dir nao existe: {mid}"
+                "{d:?}: without mkdir, the ln fails where the dir does not exist: {mid}"
             );
         }
     }
 
-    /// **`vhd` é `vpc` para o qemu-img, e `.vhd` para quem importa.** É a única
-    /// combinação em que o nome do formato e a extensão divergem, e é
-    /// exactamente o detalhe que um utilizador não devia ter de saber para
-    /// obter um ficheiro que o Hyper-V aceita — daí serem duas funções e não
-    /// uma string usada duas vezes.
+    /// **`vhd` is `vpc` to qemu-img, and `.vhd` to whoever imports it.** It is the
+    /// only combination where the format name and the extension diverge, and it is
+    /// exactly the detail a user should not have to know to get a file Hyper-V
+    /// accepts — hence two functions and not one string used twice.
     #[test]
-    fn o_formato_do_qemu_e_a_extensao_do_ecossistema_podem_divergir() {
+    fn the_qemu_format_and_the_ecosystem_extension_can_diverge() {
         use super::ConvertFormat as F;
         for (f, qemu, ext) in [
             (F::Qcow2, "qcow2", "qcow2"),
@@ -8903,11 +8906,11 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
         }
     }
 
-    /// Só o qcow2 e o vmdk aceitam o `-c` do qemu-img; passá-lo aos outros faz
-    /// a ferramenta falhar, e o utilizador levaria um erro de tool numa flag
-    /// que lhe foi oferecida.
+    /// Only qcow2 and vmdk accept qemu-img's `-c`; passing it to the others makes
+    /// the tool fail, and the user would get a tool error on a flag that was
+    /// offered to them.
     #[test]
-    fn so_dois_formatos_aceitam_compressao() {
+    fn only_two_formats_accept_compression() {
         use super::ConvertFormat as F;
         assert!(F::Qcow2.supports_compression() && F::Vmdk.supports_compression());
         for f in [F::Raw, F::Vdi, F::Vhdx, F::Vhd] {
@@ -8916,7 +8919,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn o_cabecalho_do_ls_remote_tira_a_tag_mas_nao_a_porta() {
+    fn the_ls_remote_header_strips_the_tag_but_not_the_port() {
         // The default source carries a tag; showing it would suggest the
         // listing is scoped to it. A `host:port/repo` must keep its port —
         // hence cutting only a colon that comes after the last slash.
@@ -8943,7 +8946,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn o_repo_oficial_sai_do_que_a_imagem_diz_de_si() {
+    fn the_official_repo_comes_from_what_the_image_says_about_itself() {
         let mut img = bare_img();
         // Nothing known: must NOT guess a destination.
         assert!(official_repo_for(&img).is_none());
@@ -8958,11 +8961,11 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn resolve_official_ref_so_toca_no_que_nao_tem_registo() {
+    fn resolve_official_ref_only_touches_what_has_no_registry() {
         // A real reference is left alone — the argument keeps meaning
         // "a repository of your own".
         for as_is in [
-            "ghcr.io/outro/coisa:1.0",
+            "ghcr.io/other/thing:1.0",
             "docker.io/library/alpine:latest",
             "localhost:5000/x:v1",
         ] {
@@ -8979,7 +8982,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn um_tag_nu_nao_e_adivinhado_para_um_repositorio() {
+    fn a_bare_tag_is_not_guessed_into_a_repository() {
         // The bug this replaced: EVERY bare tag was assumed to live in the
         // appliances repository, so `vm pull rocky-9` reported "no such image
         // …/delonix-vm-appliances:rocky-9" for an image that was published,
@@ -8998,7 +9001,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn a_tag_publicada_e_o_inverso_do_que_o_pull_resolve() {
+    fn the_published_tag_is_the_inverse_of_what_pull_resolves() {
         // push and pull must agree without either knowing about the other.
         let mut img = bare_img();
         img.cloud_init = Some(false);
@@ -9024,7 +9027,7 @@ Date: Fri, 12 Jun 2026 12:40:56 UTC
     }
 
     #[test]
-    fn uma_imagem_em_uso_por_uma_vm_e_detectada_pelo_disco() {
+    fn an_image_in_use_by_a_vm_is_detected_from_the_disk() {
         // The guard that matters: a VM runs on a thin overlay whose backing
         // file IS the image. Deleting the image does not free the VM — it makes
         // it permanently unreadable. The check reads the OVERLAY, not the

@@ -1,115 +1,118 @@
-# Requisitos de laboratório — o que falta, por folhas que desbloqueia
+# Lab requirements — what is missing, by leaves it unlocks
 
-> **Como ler.** Cada linha é uma peça de infra-estrutura que **não existe neste
-> host** e as folhas classe `E` que ela liberta. Ordenado pelo número de folhas,
-> não pela dificuldade: a decisão de investir é do dono, e o que ela precisa é
-> do retorno, não da minha opinião sobre o esforço.
+> **How to read this.** Each line is a piece of infrastructure that **does not exist on
+> this host**, and the class-`E` leaves it unlocks. Ordered by the number of leaves,
+> not by difficulty: the decision to invest is the owner's, and what it needs is
+> the return, not my opinion on the effort.
 >
-> **Medido** a 2026-10-18, commit `a24731e3`, com `scripts/lab_preflight.sh`
-> (**rc=1**, duas peças a faltar) e sondagem directa de cada ferramenta.
+> **Measured** on 2026-10-18, commit `a24731e3`, with `scripts/lab_preflight.sh`
+> (**rc=1**, two pieces missing) and direct probing of each tool.
 
-## O que este host JÁ tem
+## What this host ALREADY has
 
-O `lab_preflight.sh` passa em 25 das 27 verificações. Está tudo cá para a parte
-difícil: user namespaces sem privilégio, `/etc/subuid`+`/etc/subgid`
-(`walter:100000:65536`), `br_netfilter` com `bridge-nf-call-iptables=1`,
-`/dev/kvm` com leitura e escrita, `virsh`, `qemu-img`, `qemu-system-x86_64`,
-`cloud-hypervisor`, `cloud-localds`, `virt-customize`, o EDK2 `CLOUDHV.fd`,
-`qemu:///system` acessível, `slirp4netns`, `nft`, `ip`, `conntrack`,
-`newuidmap`, `protoc`, `wg`, e 138 GiB livres.
+`lab_preflight.sh` passes 25 of 27 checks. Everything is here for the hard
+part: unprivileged user namespaces, `/etc/subuid`+`/etc/subgid`
+(`walter:100000:65536`), `br_netfilter` with `bridge-nf-call-iptables=1`,
+`/dev/kvm` with read-write access, `virsh`, `qemu-img`, `qemu-system-x86_64`,
+`cloud-hypervisor`, `cloud-localds`, `virt-customize`, the EDK2 `CLOUDHV.fd`,
+`qemu:///system` reachable, `slirp4netns`, `nft`, `ip`, `conntrack`,
+`newuidmap`, `protoc`, `wg`, and 138 GiB free.
 
-Também presentes, e importam: `critest` e `crictl` **v1.36.0** — exactamente a
-versão dos dois baselines gravados —, `kubeadm`, `kubectl` e `kind`.
+Also present, and this matters: `critest` and `crictl` **v1.36.0** — exactly
+the version of the two recorded baselines —, `kubeadm`, `kubectl`, and `kind`.
 
-Logo o laboratório local cobre containers, rede rootless, e os **dois** backends
-de VM. O que falta é tudo externo ao nó, mais duas peças de cgroup.
+So the local lab covers containers, rootless networking, and **both** VM
+backends. What is missing is everything external to the node, plus two
+cgroup pieces.
 
 ---
 
-## A tabela, por retorno
+## The table, by return
 
-| # | peça que falta | folhas que desbloqueia | quem a pode pôr |
+| # | missing piece | leaves it unlocks | who can put it in place |
 |---|---|---:|---|
-| 0 | **`socat`** (um pacote) | **5** folhas da CLI, **sem uma linha de código** | dono (`apt install socat`) |
-| 1 | **Registry OCI local** | **5** folhas da CLI | eu, se autorizares |
-| 2 | **`docker` + `podman` numa VM de laboratório** | a **Fase 5 inteira** | dono (instalação) |
-| 3 | **Nó Proxmox VE** (API + credenciais) | **~10** | dono |
-| 4 | **Delegação de `cpuset` e `io`** | os limites de cpuset/io | dono (precisa de root) |
-| 5 | **Appliance OPNsense que arranque** | **4** células de Kind + o `live.rs` | dono |
-| 6 | **Imagem de VM arrancável no store isolado** | **2** folhas da CLI | eu, se autorizares |
-| 7 | **`buf` + `protoc-gen-openapi`** | destranca o `contract_gate.py` | dono (instalação) |
-| 8 | **Imagem `kindest/node`** | **1** folha | eu, se autorizares |
-| 9 | **Imagem golden + VMs reais** | **1** folha | eu, se autorizares |
-| 10 | **VG LVM / zpool / sistema btrfs reais** | **33** operações de provider | dono |
-| 11 | **Appliance TrueNAS** | o `live.rs` do TrueNAS (5 ops) | dono |
-| 12 | **Servidor PowerDNS + zona** | o `live.rs` do PowerDNS (2 ops) | dono |
-| 13 | **NAS com NFS** | os volumes de share | dono |
-| 14 | **`cosign` / `syft`** | só interoperabilidade | dono (instalação) |
-| 15 | **2.º nó Proxmox + storage partilhado** | **4** casos live que nunca passaram | dono |
+| 0 | **`socat`** (one package) | **5** CLI leaves, **with no line of code** | owner (`apt install socat`) |
+| 1 | **Local OCI registry** | **5** CLI leaves | me, if you authorize it |
+| 2 | **`docker` + `podman` in a lab VM** | the **whole of Phase 5** | owner (installation) |
+| 3 | **Proxmox VE node** (API + credentials) | **~10** | owner |
+| 4 | **Delegation of `cpuset` and `io`** | the cpuset/io limits | owner (needs root) |
+| 5 | **A bootable OPNsense appliance** | **4** Kind cells plus `live.rs` | owner |
+| 6 | **A bootable VM image in the isolated store** | **2** CLI leaves | me, if you authorize it |
+| 7 | **`buf` + `protoc-gen-openapi`** | unlocks `contract_gate.py` | owner (installation) |
+| 8 | **`kindest/node` image** | **1** leaf | me, if you authorize it |
+| 9 | **Golden image + real VMs** | **1** leaf | me, if you authorize it |
+| 10 | **Real LVM VG / zpool / btrfs filesystem** | **33** provider operations | owner |
+| 11 | **TrueNAS appliance** | TrueNAS's `live.rs` (5 ops) | owner |
+| 12 | **PowerDNS server + zone** | PowerDNS's `live.rs` (2 ops) | owner |
+| 13 | **NAS with NFS** | share volumes | owner |
+| 14 | **`cosign` / `syft`** | interoperability only | owner (installation) |
+| 15 | **2nd Proxmox node + shared storage** | **4** live cases that have never passed | owner |
 
 ---
 
-## 0. `socat` — **RESOLVIDO** a 2026-10-20
+## 0. `socat` — **RESOLVED** on 2026-10-20
 
-Nunca foi uma lacuna de cobertura: a bateria **já tinha** os cinco checks de
-`net netns exec/detach/firewall/publish/unpublish` em `scripts/e2e.sh`, e
-julgam no **fio** — dois netns, A responde um token por `socat`, B consome-o
-com `nc`. O bloco saltava num `command -v socat`, e o `socat` não estava no
-host; o `nc` estava.
+It was never a coverage gap: the battery **already had** the five
+`net netns exec/detach/firewall/publish/unpublish` checks in `scripts/e2e.sh`,
+and they judge things **on the wire** — two netns, A answers a token over
+`socat`, B consumes it with `nc`. The block was skipping on a `command -v
+socat`, and `socat` was not on the host; `nc` was.
 
-O bloco entrou em `5c62db13` (2026-10-11), **antes** do trace de `e5be0903`
-(2026-10-16). Logo as cinco folhas contaram zero por o bloco ter saltado, não
-por não haver checks.
+The block landed in `5c62db13` (2026-10-11), **before** the trace in
+`e5be0903` (2026-10-16). So the five leaves counted zero because the block
+skipped, not because there were no checks.
 
-Medido a 2026-10-20, com o `socat` em `/usr/bin/socat`: o bloco corre, os cinco
-checks dão PASS a afirmar efeito no fio, e as cinco folhas estão em **A**. A
-previsão escrita aqui era levar a CLI de 254 para **259** sem uma linha de
-código, e foi exactamente isso — os **263** do trace actual são esses 259 mais
-as quatro folhas da onda 2 (`net l4guard set/clear`, `system boot
-enable/disable`).
+Measured on 2026-10-20, with `socat` at `/usr/bin/socat`: the block runs, the
+five checks PASS asserting effect on the wire, and the five leaves are now
+**A**. The prediction written here was that the CLI would go from 254 to
+**259** with no line of code, and that's exactly what happened — the current
+trace's **263** are those 259 plus the four wave-2 leaves (`net l4guard
+set/clear`, `system boot enable/disable`).
 
-A alternativa que se considerou — reescrever o servidor do fixture com o `nc`
-que já existe — ficou por fazer, e bem: mexia num check que funciona para
-contornar uma falta do host, e trocaria um `socat` com `fork,reuseaddr` por um
-`nc -k` com semântica diferente.
+The alternative that was considered — rewriting the fixture's server with the
+`nc` that already exists — was left undone, and rightly so: it would have
+touched a check that works to work around a host gap, and would have swapped
+a `socat` with `fork,reuseaddr` for an `nc -k` with different semantics.
 
-## 1. Registry OCI local — 5 folhas, e é o melhor retorno do conjunto
+## 1. Local OCI registry — 5 leaves, and it's the best return in the set
 
-Desbloqueia `image push`, `image sign`, `vm image pull`, `vm image push` e
-`vm image ls-remote` — cinco das dezanove folhas que nenhuma corrida executa.
+Unlocks `image push`, `image sign`, `vm image pull`, `vm image push`, and
+`vm image ls-remote` — five of the nineteen leaves that no run exercises.
 
-Nem `registry` nem `skopeo` estão no host. Basta um registry local sem TLS no
-`127.0.0.1`, levantado e derrubado pela própria bateria; não precisa de ser um
-serviço permanente nem de credenciais reais.
+Neither `registry` nor `skopeo` is on the host. A local, TLS-less registry on
+`127.0.0.1` is enough, stood up and torn down by the battery itself; it
+doesn't need to be a permanent service or to have real credentials.
 
-**E `image sign` NÃO precisa de `cosign`**: o motor tem ECDSA-P256 próprio, com
-a chave gerada à primeira utilização em `<DELONIX_ROOT>/keys/image-signing.key`.
-O `cosign` só serviria para provar interoperabilidade da assinatura (linha 14).
+**And `image sign` does NOT need `cosign`**: the engine has its own
+ECDSA-P256, with the key generated on first use at
+`<DELONIX_ROOT>/keys/image-signing.key`. `cosign` would only serve to prove
+signature interoperability (line 14).
 
-## 2. `docker` + `podman` numa VM — a Fase 5 inteira
+## 2. `docker` + `podman` in a VM — the whole of Phase 5
 
-Nenhum dos dois existe aqui, e instalá-los **neste** host está fora de âmbito:
-é a máquina de desenvolvimento, e a própria `comparacao-medida.md` registou em
-2026-08-13 que não se mexe nela por isso mesmo. A comparação correu numa VM
-`libvirt` criada pelo próprio motor, e é esse o caminho a repetir.
+Neither exists here, and installing them on **this** host is out of scope: it
+is the development machine, and `comparacao-medida.md` itself recorded on
+2026-08-13 that it is not touched for exactly that reason. The comparison ran
+in a `libvirt` VM created by the engine itself, and that's the path to
+repeat.
 
-**Há um segundo bloqueio, e é independente.** O `scripts/bench_gate.py` é
-**por máquina** por desenho, e a única entrada da `bench_baseline.json` é de uma
-**AMD Ryzen 9 8940HX, 32 threads** (2026-09-23, delonix 4.3.0). Este host é um
-**Intel i9-13900H, 20 threads** — máquina desconhecida, e o gate **recusa julgar**
-(sai 3, nunca um verde silencioso). Logo a bancada tem de correr na VM e gravar
-a sua própria entrada, ou a Fase 5 não tem veredicto.
+**There is a second blocker, and it is independent.** `scripts/bench_gate.py`
+is **per-machine** by design, and the only entry in `bench_baseline.json` is
+from an **AMD Ryzen 9 8940HX, 32 threads** (2026-09-23, delonix 4.3.0). This
+host is an **Intel i9-13900H, 20 threads** — an unknown machine, and the gate
+**refuses to judge** (exits 3, never a silent green). So the bench must run
+in the VM and record its own entry, or Phase 5 has no verdict.
 
-## 3. Nó Proxmox VE — ~10 folhas
+## 3. Proxmox VE node — ~10 leaves
 
-Com credenciais (`DELONIX_PROXMOX_TEST_URL` + token ou utilizador/senha)
-destranca: as 4 células de Kind do `NetworkZone` (`apply`, `plan`, `diff`,
-`drift`), o `apply` do `SystemContainer` (hoje só recusas), e as 5 rotas que a
-matriz do Proxmox marca `supported+untested`.
+With credentials (`DELONIX_PROXMOX_TEST_URL` plus a token or username/
+password) this unlocks: the 4 `NetworkZone` Kind cells (`apply`, `plan`,
+`diff`, `drift`), `SystemContainer`'s `apply` (today only refusals), and the
+5 routes the Proxmox matrix marks `supported+untested`.
 
-## 4. `cpuset` e `io` delegados — precisa de root
+## 4. Delegated `cpuset` and `io` — needs root
 
-As duas únicas falhas do preflight:
+The only two preflight failures:
 
 ```
 MISS  cgroup controller cpuset delegated — missing from
@@ -124,77 +127,78 @@ printf '[Service]\nDelegate=cpu cpuset io memory pids\n' \
 sudo systemctl daemon-reload && sudo systemctl restart user@1000.service
 ```
 
-O `daemon-reload` sozinho **não chega**: um `user@` a correr não muda de
-controladores. Está medido no `AGENTS.md`, e o `docs/lab.md` pede os cinco.
+`daemon-reload` alone **is not enough**: a running `user@` does not change
+controllers. This is measured in `AGENTS.md`, and `docs/lab.md` asks for all
+five.
 
-## 5. Appliance OPNsense que arranque — 4 células de Kind
+## 5. A bootable OPNsense appliance — 4 Kind cells
 
-O ADR-0071 já o diz por escrito: *«Not proven live: the lab OPNsense VM does not
-boot»*. Enquanto não arrancar, o `NetworkGateway` fica com `apply`, `plan`,
-`diff` e `drift` em `E`, e o `live.rs` do OPNsense (4 casos, 15 operações) não
-corre.
+ADR-0071 already says it in writing: *«Not proven live: the lab OPNsense VM
+does not boot»*. Until it boots, `NetworkGateway` stays with `apply`, `plan`,
+`diff`, and `drift` at `E`, and OPNsense's `live.rs` (4 cases, 15 operations)
+does not run.
 
-## 6. Imagem de VM arrancável no store isolado — 2 folhas
+## 6. A bootable VM image in the isolated store — 2 leaves
 
-`vm pause` e `vm unpause` são reais nos **três** backends
+`vm pause` and `vm unpause` are real in all **three** backends
 (cloud-hypervisor `:847`/`:851`, libvirt `:3254`/`:3268`, proxmox
-`:6488`/`:6497`) e recusam uma VM que não esteja a correr. Falta só uma VM a
-correr: o trace de 2026-10-16 diz «no VM images in the isolated store».
+`:6488`/`:6497`) and refuse a VM that is not running. All that's missing is a
+running VM: the 2026-10-16 trace says «no VM images in the isolated store».
 
-O `vm image import` **já é executado** pela bateria, logo o caminho de entrada
-funciona — falta o ficheiro. Com `virt-customize` presente, a alternativa é
-construí-la (linha 9).
+`vm image import` **is already exercised** by the battery, so the entry path
+works — only the file is missing. With `virt-customize` present, the
+alternative is to build it (line 9).
 
-## 7. `buf` + `protoc-gen-openapi` — destranca um gate que hoje chumba
+## 7. `buf` + `protoc-gen-openapi` — unlocks a gate that fails today
 
-`python3 scripts/contract_gate.py` dá **rc=1** aqui:
+`python3 scripts/contract_gate.py` returns **rc=1** here:
 
 ```
 FAIL  buf is not on PATH — the gate cannot check what it guards
 FAIL  protoc-gen-openapi is not on PATH — the gate cannot check what it guards
 ```
 
-**O comportamento está correcto** — falha fechada, não finge medir. Mas
-significa que o contrato do nó (formato, lint, mudanças incompatíveis,
-mapeamentos HTTP, OpenAPI) **não é verificável neste host**, e as Fases 4/5
-mexem-lhe.
+**The behavior is correct** — fail closed, never pretend to measure. But it
+means the node's contract (format, lint, breaking changes, HTTP mappings,
+OpenAPI) **is not verifiable on this host**, and Phases 4/5 touch it.
 
-## 10. VG LVM / zpool / btrfs reais — 33 operações sem cobertura alguma
+## 10. Real LVM VG / zpool / btrfs — 33 operations with zero coverage
 
-Os três crates (`delonix-provider-lvm`, `-zfs`, `-btrfs`) **não têm `tests/`**.
-As ~11 operações de cada (`probe`, `required`, `allocate`, `release`, `usage`,
-`create_pool`, `created_here`, `contents`, `destroy_pool`) só têm unidade com um
-`Run` falso — nunca correram contra um VG, um zpool ou um sistema btrfs.
+The three crates (`delonix-provider-lvm`, `-zfs`, `-btrfs`) **have no
+`tests/`**. Each one's ~11 operations (`probe`, `required`, `allocate`,
+`release`, `usage`, `create_pool`, `created_here`, `contents`, `destroy_pool`)
+only have unit tests with a fake `Run` — they have never run against a real
+VG, zpool, or btrfs filesystem.
 
-E são enviadas e **ligadas** (`delonix-storage-helper/src/main.rs:120-133`,
-`cmd/storage_pool.rs:125-134`) enquanto o `capability-matrix.md:196-197` declara
-`storage.lvm-thin` e `storage.zfs-btrfs` **`not-implemented`**: a matriz e o
-código discordam, e nenhum dos dois está provado.
+And they are shipped and **linked** (`delonix-storage-helper/src/main.rs:120-133`,
+`cmd/storage_pool.rs:125-134`) while `capability-matrix.md:196-197` declares
+`storage.lvm-thin` and `storage.zfs-btrfs` **`not-implemented`**: the matrix
+and the code disagree, and neither one is proven.
 
-Um ficheiro-loopback (`losetup`) serve para LVM e btrfs sem hardware dedicado;
-ZFS precisa do módulo.
+A loopback file (`losetup`) is enough for LVM and btrfs without dedicated
+hardware; ZFS needs the kernel module.
 
-## 15. 2.º nó Proxmox + storage partilhado — 4 casos que nunca passaram
+## 15. 2nd Proxmox node + shared storage — 4 cases that have never passed
 
-O `delonix-proxmox/tests/live.rs:33-50` declara-o: nove casos nunca passaram
-contra um nó. Quatro precisam de um segundo nó e de storage partilhado — os três
-`move` de VM e o `move_to` do system container. Logo
-`VmBackend::move_to_node` e `SystemContainerProvider::move_to` estão
-implementados e **não provados**.
+`delonix-proxmox/tests/live.rs:33-50` states it plainly: nine cases have
+never passed against a node. Four need a second node and shared storage — the
+three VM `move` cases and the system container's `move_to`. So
+`VmBackend::move_to_node` and `SystemContainerProvider::move_to` are
+implemented and **not proven**.
 
-Os outros cinco precisam de: um convidado com guest agent (IP, vCPUs/memória),
-uma zona DNS (`DnsProvider::prepare_zone`/`observe`), e um gateway libertado à
-mão (a reparação).
+The other five need: a guest with a guest agent (IP, vCPUs/memory), a DNS
+zone (`DnsProvider::prepare_zone`/`observe`), and a gateway freed up by hand
+(the repair).
 
 ---
 
-## Uma nota sobre a etiqueta que a missão pede
+## A note on the label the mission asks for
 
-O briefing exige que «recursos de teste levem a label
-`delonix-test-run=<uuid>`». **Não existe**: `grep -rn 'delonix-test-run'` no
-repositório dá **0 ocorrências**, nos nove providers. Não é um requisito de
-laboratório — é trabalho de código, e entra no plano da Fase 4, não aqui. O que
-existe hoje são nomes derivados do PID (TrueNAS, PowerDNS, libvirt), um nome
-fixo (`dlxhp-live`, Cloud Hypervisor), nomes por caso (Proxmox) e o
-`fresh_mark()` do OPNsense — que é a marca de posse **de produção** (ADR-0059
-D1.5), não uma etiqueta de teste.
+The brief requires that «test resources carry the label
+`delonix-test-run=<uuid>`». **It does not exist**: `grep -rn
+'delonix-test-run'` across the repository returns **0 occurrences**, across
+all nine providers. It is not a lab requirement — it is code work, and it
+belongs in the Phase 4 plan, not here. What exists today are names derived
+from the PID (TrueNAS, PowerDNS, libvirt), a fixed name (`dlxhp-live`, Cloud
+Hypervisor), per-case names (Proxmox), and OPNsense's `fresh_mark()` — which
+is a **production** ownership mark (ADR-0059 D1.5), not a test label.

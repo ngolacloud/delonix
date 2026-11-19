@@ -401,11 +401,11 @@ mod tests {
     /// downgrade to "unlimited" — that is the failure mode the whole module
     /// exists to prevent.
     #[test]
-    fn valor_invalido_e_erro_nunca_tecto_vazio() {
+    fn an_invalid_value_is_an_error_never_an_empty_ceiling() {
         for bad in ["NET_ADMINN", "sys admin", "CAP_", ",,", "cap_net_adminx"] {
             assert!(
                 CapCeiling::parse(bad, "", CAPS).is_err(),
-                "spec {bad:?} devia ser recusada"
+                "spec {bad:?} should be rejected"
             );
         }
         assert!(CapCeiling::parse("CHOWN", "wide-open", CAPS).is_err());
@@ -415,18 +415,18 @@ mod tests {
     }
 
     #[test]
-    fn none_e_um_tecto_vazio_nao_a_ausencia_de_tecto() {
+    fn none_is_an_empty_ceiling_not_the_absence_of_one() {
         let c = CapCeiling::parse("none", "", CAPS).unwrap();
         assert!(!c.is_unlimited());
         assert_eq!(
             c.cap_args(&[], &[], false, CAPS),
             Some(s(&["--cap-drop", "ALL"])),
-            "com tecto vazio o container não fica com capability nenhuma"
+            "with an empty ceiling the container keeps no capability at all"
         );
     }
 
     #[test]
-    fn tecto_reduz_o_baseline_sem_erro_nenhum() {
+    fn the_ceiling_lowers_the_baseline_with_no_error() {
         // A pod that asks for NOTHING still gets the engine's default set; the
         // ceiling lowers it, and that is never an error.
         let c = CapCeiling::parse("CHOWN,NET_BIND_SERVICE,SYS_ADMIN", "", CAPS).unwrap();
@@ -442,16 +442,16 @@ mod tests {
                 "--cap-add",
                 "NET_BIND_SERVICE"
             ]),
-            "SYS_ADMIN está no tecto mas não no baseline — o tecto não CONCEDE nada"
+            "SYS_ADMIN is in the ceiling but not in the baseline — the ceiling GRANTS nothing"
         );
     }
 
     #[test]
-    fn modo_reject_nomeia_as_capabilities_negadas() {
+    fn reject_mode_names_the_denied_capabilities() {
         let c = CapCeiling::parse("default,NET_ADMIN", "reject", CAPS).unwrap();
         assert!(
             c.rejected(&s(&["NET_ADMIN"]), false, CAPS).is_empty(),
-            "NET_ADMIN está no tecto"
+            "NET_ADMIN is in the ceiling"
         );
         assert_eq!(
             c.rejected(
@@ -466,14 +466,14 @@ mod tests {
         assert!(denied.contains(&"SYS_ADMIN") && denied.contains(&"MKNOD"));
         assert!(
             !denied.contains(&"CHOWN") && !denied.contains(&"NET_ADMIN"),
-            "o que o tecto permite não aparece como negado"
+            "what the ceiling allows does not show up as denied"
         );
     }
 
     #[test]
-    fn modo_clamp_nao_recusa_e_corta_o_privileged() {
+    fn clamp_mode_does_not_reject_and_trims_the_privileged() {
         let c = CapCeiling::parse("default,NET_ADMIN", "clamp", CAPS).unwrap();
-        assert!(c.rejected(&[], true, CAPS).is_empty(), "clamp nunca recusa");
+        assert!(c.rejected(&[], true, CAPS).is_empty(), "clamp never rejects");
         let args = c.cap_args(&[], &[], true, CAPS).unwrap();
         assert_eq!(args[0], "--cap-drop");
         assert_eq!(args[1], "ALL");
@@ -484,18 +484,18 @@ mod tests {
         assert!(added.contains(&"NET_ADMIN"));
         assert!(
             !added.contains(&"SYS_ADMIN") && !added.contains(&"SYS_MODULE"),
-            "um privileged cortado não pode manter SYS_ADMIN/SYS_MODULE: {added:?}"
+            "a trimmed privileged cannot keep SYS_ADMIN/SYS_MODULE: {added:?}"
         );
     }
 
     /// `cap_drop` from the pod still applies THROUGH the ceiling: the workload
     /// asking for less than the bound must get less, not the bound.
     #[test]
-    fn cap_drop_do_pod_continua_a_valer_por_baixo_do_tecto() {
+    fn pod_cap_drop_still_applies_beneath_the_ceiling() {
         let c = CapCeiling::parse("default", "clamp", CAPS).unwrap();
         let args = c.cap_args(&[], &s(&["CHOWN"]), false, CAPS).unwrap();
         let added: Vec<&str> = args[2..].chunks(2).map(|p| p[1].as_str()).collect();
-        assert!(!added.contains(&"CHOWN"), "o pod pediu para largar CHOWN");
+        assert!(!added.contains(&"CHOWN"), "the pod asked to drop CHOWN");
         assert!(added.contains(&"SETUID"));
     }
 
@@ -505,7 +505,7 @@ mod tests {
     /// The first version of this test asserted the intuitive-but-wrong behavior
     /// and the code had been written to match it.
     #[test]
-    fn privileged_ignora_o_cap_drop_como_no_motor() {
+    fn privileged_ignores_cap_drop_as_in_the_engine() {
         let c = CapCeiling::parse("CHOWN,NET_ADMIN", "clamp", CAPS).unwrap();
         assert_eq!(
             c.cap_args(&[], &s(&["ALL"]), true, CAPS),
@@ -523,7 +523,7 @@ mod tests {
     /// The clamp must be expressible as engine flags: what we emit has to resolve
     /// back to exactly the mask we intended, or the ceiling would be advisory.
     #[test]
-    fn os_flags_emitidos_resolvem_para_o_conjunto_pretendido() {
+    fn the_emitted_flags_resolve_to_the_intended_set() {
         let c = CapCeiling::parse("default,NET_ADMIN", "clamp", CAPS).unwrap();
         let args = c
             .cap_args(&s(&["SYS_ADMIN", "NET_ADMIN"]), &[], false, CAPS)
@@ -537,11 +537,11 @@ mod tests {
             match flag.as_str() {
                 "--cap-add" => add.push(val),
                 "--cap-drop" => drop.push(val),
-                other => panic!("flag inesperada {other}"),
+                other => panic!("unexpected flag {other}"),
             }
         }
         let got = CAPS.resolve_cap_keep(&drop, &add);
-        let want = CAPS.default_kept_mask() | (1u64 << 12); // + NET_ADMIN, sem SYS_ADMIN
+        let want = CAPS.default_kept_mask() | (1u64 << 12); // + NET_ADMIN, without SYS_ADMIN
         assert_eq!(
             got,
             want,

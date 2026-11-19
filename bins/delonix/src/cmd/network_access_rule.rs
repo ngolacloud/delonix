@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn defaults_de_action_e_proto() {
+    fn defaults_of_action_and_proto() {
         let s = spec("target: web\ndirection: ingress\nport: '8080'\n");
         assert!(s.action.is_none());
         assert!(s.proto.is_none());
@@ -421,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn target_direction_port_sao_obrigatorios() {
+    fn target_direction_port_are_mandatory() {
         assert!(
             serde_yaml::from_str::<NetworkAccessRuleSpec>("direction: ingress\nport: '80'\n")
                 .is_err()
@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_dir_mapeia_ingress_egress_e_recusa_o_resto() {
+    fn resolve_dir_maps_ingress_egress_and_rejects_the_rest() {
         let d = doc(
             "apiVersion: networking.delonix.io/v1alpha1\nkind: NetworkAccessRule\nmetadata: { name: a }\nspec: { target: web, direction: ingress, port: '80' }\n",
         );

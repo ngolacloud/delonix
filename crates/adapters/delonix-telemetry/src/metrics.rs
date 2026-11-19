@@ -241,19 +241,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn encode_rende_formato_prometheus_e_conta() {
+    fn encode_renders_prometheus_format_and_counts() {
         inc_container_created();
         let out = encode();
         // build_info always present + the container metric (TYPE without `_total`, the
         // sample WITH `_total`, as OpenMetrics requires).
         assert!(
             out.contains("delonix_build_info{version="),
-            "build_info em falta:\n{out}"
+            "build_info missing:\n{out}"
         );
         assert!(out.contains("# TYPE delonix_cri_containers_created counter"));
         assert!(
             out.contains("delonix_cri_containers_created_total"),
-            "contador em falta:\n{out}"
+            "counter missing:\n{out}"
         );
         // Prometheus format ends with `# EOF`.
         assert!(out.trim_end().ends_with("# EOF"));

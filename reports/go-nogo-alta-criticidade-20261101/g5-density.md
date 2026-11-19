@@ -1,51 +1,51 @@
-# G5 — densidade: a curva de attach vs. nº de containers
+# G5 — density: the attach curve vs. number of containers
 
-> **Data:** 2026-11-03. **Âmbito:** o G5 do plano NO-GO→GO — medir se a latência
-> de attach cresce com a densidade do nó (a suspeita de que os dois dumps `nft`
-> do caminho de attach, O(N) no nº de namespaces, degradam a escala). **Medir
-> ANTES de otimizar** — a disciplina do repo.
+> **Date:** 2026-11-03. **Scope:** the plan's NO-GO→GO G5 — measure whether attach
+> latency grows with node density (the suspicion that the two `nft` dumps on the
+> attach path, O(N) in the number of namespaces, degrade scale). **Measure BEFORE
+> optimising** — the repo's discipline.
 
-## Montagem
+## Setup
 
-`scripts/bench_density.sh --tiers 1,10,25,50,100 --samples 8 --force`. Rampa de
-containers busybox numa rede-bancada; em cada patamar, 8 attaches de prova
-cronometrados (`run -d` + `rm`). **NÃO PUBLICÁVEL** por desenho: o nó tinha 2
-containers alheios (o `sd-pg` do dono) e carga 4–5 (caixa partilhada). O que
-importa aqui é a **forma** da curva, robusta ao ruído, não os números absolutos.
+`scripts/bench_density.sh --tiers 1,10,25,50,100 --samples 8 --force`. A ramp of
+busybox containers on a bench network; at each tier, 8 timed probe attaches
+(`run -d` + `rm`). **NOT PUBLISHABLE** by design: the node had 2 unrelated
+containers (the owner's `sd-pg`) and load 4–5 (shared box). What matters here is
+the **shape** of the curve, robust to noise, not the absolute numbers.
 
-## A curva (attach p50, ms)
+## The curve (attach p50, ms)
 
-| containers vivos | 1 | 10 | 25 | 50 | 100 |
+| live containers | 1 | 10 | 25 | 50 | 100 |
 |---|---|---|---|---|---|
 | **attach p50 (ms)** | 193 | 202 | 206 | 196 | **215** |
 | attach p99 (ms) | 654 | 1846 | 1424 | 483 | 1150 |
 
-## Leitura
+## Reading
 
-**A p50 é PLANA**: 193 → 215 ms de 1 a 100 containers (~11 %, dentro do ruído de
-uma caixa a load 4–5). A p99 salta (654…1846…483…1150) mas **sem tendência** — é
-a contenção da máquina partilhada, não um efeito de densidade (se fosse O(N),
-subiria de forma monótona). **A latência de attach NÃO cresce com a densidade até
-100 containers.**
+**p50 is FLAT**: 193 → 215 ms from 1 to 100 containers (~11%, within the noise of
+a box at load 4–5). p99 jumps around (654…1846…483…1150) but **with no trend** — it
+is the contention of the shared machine, not a density effect (if it were O(N), it
+would rise monotonically). **Attach latency does NOT grow with density up to 100
+containers.**
 
-## Conclusão — NÃO otimizar (e porquê a suspeita não se confirma)
+## Conclusion — do NOT optimise (and why the suspicion does not hold)
 
-A suspeita era que `drop_from_every_ns_set` (`infra.rs`, um `nft list sets` por
-attach/detach) e os `nft -a list chain fwdeny` fossem O(N) e degradassem a escala.
-A curva mostra que **não degradam na prática**: o `list sets` conta **namespaces**,
-não containers, e um workload típico tem poucos namespaces (os 100 containers
-estavam no namespace `default` → ~1 ns-set). O custo de attach é dominado pelo
-fixo (~20-25 `fork`+`exec` de `ip`/`sysctl`/`nft` + prep da rootfs), não pelos
-dumps.
+The suspicion was that `drop_from_every_ns_set` (`infra.rs`, one `nft list sets`
+per attach/detach) and the `nft -a list chain fwdeny` were O(N) and degraded
+scale. The curve shows they **do not degrade in practice**: `list sets` counts
+**namespaces**, not containers, and a typical workload has few namespaces (the 100
+containers were in the `default` namespace → ~1 ns-set). The attach cost is
+dominated by the fixed part (~20-25 `fork`+`exec` of `ip`/`sysctl`/`nft` + rootfs
+prep), not by the dumps.
 
-**Otimizar o `drop_from_every_ns_set`/`fwdeny` seria resolver um não-problema** —
-e ao custo de mexer no datapath de rede/segurança. O "medir primeiro" poupou
-exatamente essa troca má. O alvo fica **documentado mas não tocado**; se um dia um
-workload com MUITOS namespaces mostrar a curva a subir, a otimização (atacar a
-ns-set específica em vez do dump) tem aqui o ponto de partida.
+**Optimising `drop_from_every_ns_set`/`fwdeny` would be solving a non-problem** —
+and at the cost of touching the network/security datapath. "Measure first" saved
+exactly that bad trade. The target stays **documented but untouched**; if one day a
+workload with MANY namespaces shows the curve rising, the optimisation (attack the
+specific ns-set instead of the dump) has its starting point here.
 
-## O que FICA por medir (nó dedicado)
+## What REMAINS to measure (dedicated node)
 
-A curva PUBLICÁVEL (nó ocioso e dedicado, sem containers alheios, até um tecto de
-degradação com SLOs) continua a precisar do nó dedicado — mas a **forma** já é
-conhecida e tranquilizadora. Reprodutível: `scripts/bench_density.sh`.
+The PUBLISHABLE curve (idle, dedicated node, no unrelated containers, up to a
+degradation ceiling with SLOs) still needs the dedicated node — but the **shape**
+is already known and reassuring. Reproducible: `scripts/bench_density.sh`.

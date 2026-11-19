@@ -172,7 +172,7 @@ fn auth_from_env() -> Option<Auth> {
 
 #[ignore = "needs DELONIX_PROXMOX_TEST_URL and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
-fn cria_arranca_e_destroi_contra_um_no_real() {
+fn create_start_and_destroy_against_a_real_node() {
     let t = target().expect(NEEDS_TARGET);
     let storage =
         std::env::var("DELONIX_PROXMOX_TEST_STORAGE").unwrap_or_else(|_| "local-lvm".into());
@@ -290,16 +290,16 @@ fn cria_arranca_e_destroi_contra_um_no_real() {
         "deleting a snapshot the VM no longer has must be refused"
     );
 
-    // Só parar: o `stop` PÁRA e não remove, desde que os dois verbos foram
-    // separados (era o `vm stop` a apagar o disco). O domínio continua definido.
+    // Stop only: `stop` STOPS and does not remove, now that the two verbs were
+    // split (it used to be `vm stop` deleting the disk). The domain stays defined.
     b.stop(vmdir, &vm).expect("stop");
     assert!(
         !b.is_running(&vm),
-        "a VM tem de ficar parada depois do stop"
+        "the VM must stay stopped after stop"
     );
     assert!(
         b.client().config(vmid).is_ok(),
-        "o `stop` REMOVEU a VM — parar e destruir são verbos diferentes"
+        "`stop` REMOVED the VM — stopping and destroying are different verbs"
     );
 
     // `resume` is the path `vm start` takes for a record with a handle: it
@@ -384,19 +384,19 @@ fn cria_arranca_e_destroi_contra_um_no_real() {
         "a task failed for a reason other than the node's lock: {entries:?}"
     );
 
-    // E agora destruir, provando que o nó deixou de a ter: uma VM deixada para
-    // trás depois de um `delonix vm rm` é um órfão que ninguém procura.
+    // And now destroy, proving the node no longer has it: a VM left behind
+    // after a `delonix vm rm` is an orphan nobody looks for.
     //
-    // A asserção é a CONFIG deixar de existir, e não `!is_running`, que era o
-    // que estava aqui: `is_running` é falso para uma VM destruída E para uma
-    // apenas parada, por isso não conseguia distinguir as duas — exactamente o
-    // que este bloco diz que prova. Com o `stop` a deixar de destruir, o teste
-    // passou a deixar a VM no nó e a passar na mesma; medido, duas corridas
-    // deixaram dois órfãos (`dlxlive*`, stopped) no nó real.
+    // The assertion is that the CONFIG stops existing, not `!is_running`, which
+    // is what used to be here: `is_running` is false for a destroyed VM AND for
+    // a merely stopped one, so it could not tell the two apart — exactly what
+    // this block claims to prove. With `stop` no longer destroying, the test
+    // started leaving the VM on the node and passing anyway; measured, two runs
+    // left two orphans (`dlxlive*`, stopped) on the real node.
     b.destroy(vmdir, &vm).expect("destroy");
     assert!(
         b.client().config(vmid).is_err(),
-        "a VM continua definida no nó depois do destroy — é um órfão"
+        "the VM is still defined on the node after destroy — it is an orphan"
     );
 
     // A record this backend did not create is refused rather than acted on.
@@ -875,24 +875,25 @@ fn a_deleted_vm_comes_back_from_its_own_backup() {
     );
 }
 
-/// `ip()` ATRAVÉS do backend, contra um convidado com o agente REAL a correr.
+/// `ip()` THROUGH the backend, against a guest with the REAL agent running.
 ///
-/// O teste acima cria uma VM sem sistema operativo, logo sem agente: ali `ip()`
-/// devolver `None` é o comportamento certo e não prova nada sobre o caminho
-/// feliz — que era, até aqui, o único por exercitar do trait inteiro.
+/// The test above creates a VM with no operating system, hence no agent: there
+/// `ip()` returning `None` is the right behaviour and proves nothing about the
+/// happy path — which was, until now, the only one of the whole trait left
+/// unexercised.
 ///
-/// Aponta para uma VM preparada à parte (`DELONIX_PROXMOX_TEST_AGENT_VMID`) com
-/// o `qemu-guest-agent` instalado e DUAS NICs, porque é o segundo NIC que
-/// levanta a única pergunta que uma NIC só não levanta: qual dos endereços sai.
+/// Points at a VM prepared separately (`DELONIX_PROXMOX_TEST_AGENT_VMID`) with
+/// `qemu-guest-agent` installed and TWO NICs, because it is the second NIC that
+/// raises the one question a single NIC does not: which of the addresses comes out.
 ///
-/// Como se prepara uma, se for preciso repetir: arrancar a appliance
-/// `proxmox-ve:9.1` deste repo sobre um overlay, importar uma cloud image
-/// (`download-url` com `content=import` + `qm set --scsi0 …,import-from=…`),
-/// dar-lhe `--net0`/`--net1` e um drive de cloud-init, e lá dentro
+/// How to prepare one, if it needs repeating: boot this repo's
+/// `proxmox-ve:9.1` appliance over an overlay, import a cloud image
+/// (`download-url` with `content=import` + `qm set --scsi0 …,import-from=…`),
+/// give it `--net0`/`--net1` and a cloud-init drive, and inside it
 /// `apt install qemu-guest-agent`.
 #[ignore = "needs DELONIX_PROXMOX_TEST_URL, DELONIX_PROXMOX_TEST_AGENT_VMID and a reachable Proxmox node: cargo test -p delonix-provider-proxmox --test live -- --ignored"]
 #[test]
-fn o_ip_vem_do_agente_de_um_convidado_a_serio() {
+fn the_ip_comes_from_the_agent_of_a_real_guest() {
     let t = target().expect(NEEDS_TARGET);
     let vmid = need("DELONIX_PROXMOX_TEST_AGENT_VMID");
     let b = backend(&t).expect("connect");
@@ -909,14 +910,14 @@ fn o_ip_vem_do_agente_de_um_convidado_a_serio() {
     );
     let ip = b
         .ip(&vm)
-        .expect("o agente está vivo — `ip()` tinha de devolver um endereço");
+        .expect("the agent is alive — `ip()` had to return an address");
     eprintln!("  ip() = {ip}");
     assert!(!ip.starts_with("127."), "loopback: {ip}");
     assert!(
         !ip.starts_with("169.254."),
-        "link-local (DHCP falhado): {ip}"
+        "link-local (DHCP failed): {ip}"
     );
-    assert!(ip.parse::<std::net::Ipv4Addr>().is_ok(), "não é IPv4: {ip}");
+    assert!(ip.parse::<std::net::Ipv4Addr>().is_ok(), "not IPv4: {ip}");
 }
 
 /// `agent_ping` against a guest that has none — the ordinary case, and the

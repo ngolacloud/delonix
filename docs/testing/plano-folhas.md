@@ -1,217 +1,227 @@
-# Plano de casos por folha
+# Per-leaf case plan
 
-> **O que este documento é.** Que casos cada folha deve ter, e o que conta como
-> prova de cada um. É o contrato que o `scripts/folhas_gate.py` impõe sobre o
-> `folhas.tsv`.
+> **What this document is.** Which cases every leaf should have, and what
+> counts as proof of each one. It is the contract `scripts/folhas_gate.py`
+> enforces over `folhas.tsv`.
 >
-> **Porque não são 538 blocos escritos à mão.** Porque isso seria uma mentira
-> em duas direcções: o bloco do `container ls` e o do `vm image push` seriam
-> idênticos e ninguém os leria, e as 538 cópias envelheceriam sem ninguém dar
-> por isso — exactamente o que aconteceu ao «EXECUTA 91 — 37 %» que viveu um mês
-> num comentário do `e2e.sh`. Logo: **regras de aplicabilidade por superfície**,
-> que o gate pode verificar, e **blocos próprios só onde o caso é próprio**.
+> **Why it is not 538 hand-written blocks.** Because that would be a lie in
+> two directions: the `container ls` block and the `vm image push` block
+> would be identical and no one would read them, and the 538 copies would
+> age without anyone noticing — exactly what happened to the «RUNS 91 —
+> 37%» that lived for a month in an `e2e.sh` comment. Hence: **applicability
+> rules per surface**, which the gate can verify, and **dedicated blocks
+> only where the case is genuinely its own**.
 
-## Os doze casos, e o que conta como prova
+## The twelve cases, and what counts as proof
 
-| # | caso | o que conta como prova — e o que NÃO conta |
+| # | case | what counts as proof — and what does NOT |
 |---|---|---|
-| 1 | **Caminho feliz** | o efeito no estado real: kernel, cgroup, netns, nftables, ficheiros do state root, a resposta do provider. **Não** o exit code sozinho |
-| 2 | **Entrada inválida** | `../`, `/`, unicode, vazio, limites; CIDR e referências malformadas → código `DX-` estável, exit code documentado, **e nenhum efeito** |
-| 3 | **Não encontrado / conflito** | inexistente, duplicado, apagar em uso → a CLASSE da recusa (3 parado / 4 inexistente / 5 conflito), não só «falhou» |
-| 4 | **Idempotência** | 2.º `apply` sem alterações; `rm` do já apagado com resultado documentado; `Idempotency-Key` repetida → a MESMA resposta |
-| 5 | **Concorrência sem daemon** | dois processos no mesmo recurso: um ganha, o outro falha limpo; ledger e locks coerentes (ADR-0076) |
-| 6 | **Interrupção** | SIGINT e SIGKILL a meio de cada mutação; a corrida seguinte recupera ou limpa; **zero** veth, bridges, regras, montagens, cgroups, processos ou discos órfãos |
-| 7 | **Rootless vs root** | a mesma folha nos dois modos, com as diferenças esperadas escritas |
-| 8 | **Saída** | `-o json`/`yaml`/tabela com esquema estável contra `docs/schema/v1`; `--help` coerente com `docs/comandos` |
-| 9 | **Isolamento** | uma namespace do motor não vê nem mexe noutra |
-| 10 | **Segurança** | seccomp/AppArmor/userns como declarado; scan e SBOM; assinatura verificada quando a política a exige |
-| 11 | **Provider em falha** | timeout, TLS inválido, 4xx/5xx, **redirect nunca seguido**, resposta truncada → erro claro e **nada meio-criado** |
-| 12 | **Upgrade** | estado escrito pela versão anterior lido pela actual |
+| 1 | **Happy path** | the effect on real state: kernel, cgroup, netns, nftables, state-root files, the provider's response. **Not** the exit code alone |
+| 2 | **Invalid input** | `../`, `/`, unicode, empty, limits; malformed CIDRs and references → a stable `DX-` code, documented exit code, **and no effect** |
+| 3 | **Not found / conflict** | nonexistent, duplicate, delete-while-in-use → the CLASS of the refusal (3 stopped / 4 nonexistent / 5 conflict), not just «it failed» |
+| 4 | **Idempotency** | a 2nd `apply` with no changes; `rm` of something already deleted with a documented result; a repeated `Idempotency-Key` → the SAME response |
+| 5 | **Daemonless concurrency** | two processes on the same resource: one wins, the other fails cleanly; ledger and locks consistent (ADR-0076) |
+| 6 | **Interruption** | SIGINT and SIGKILL mid-mutation; the next run recovers or cleans up; **zero** orphan veths, bridges, rules, mounts, cgroups, processes or disks |
+| 7 | **Rootless vs root** | the same leaf in both modes, with the expected differences written down |
+| 8 | **Output** | `-o json`/`yaml`/table with a schema stable against `docs/schema/v1`; `--help` consistent with `docs/comandos` |
+| 9 | **Isolation** | one engine namespace neither sees nor touches another |
+| 10 | **Security** | seccomp/AppArmor/userns as declared; scan and SBOM; signature verified when policy requires it |
+| 11 | **Provider failure** | timeout, invalid TLS, 4xx/5xx, **redirect never followed**, truncated response → a clear error and **nothing half-created** |
+| 12 | **Upgrade** | state written by the previous version read by the current one |
 
-## Aplicabilidade por superfície
+## Applicability by surface
 
-`●` obrigatório · `○` obrigatório só se a folha mutar estado · `—` não aplicável
+`●` required · `○` required only if the leaf mutates state · `—` not applicable
 
-| superfície | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+| surface | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | CLI | ● | ● | ● | ○ | ○ | ○ | ● | ● | ○ | ○ | ○ | ○ |
-| Node API (gRPC e REST) | ● | ● | ● | ● | ○ | ○ | — | ● | ● | ○ | ○ | ○ |
+| Node API (gRPC and REST) | ● | ● | ● | ● | ○ | ○ | — | ● | ● | ○ | ○ | ○ |
 | Mgmt API | ● | ● | ● | ○ | ○ | ○ | — | ● | ○ | ● | — | ○ |
 | MCP | ● | ● | ● | ○ | — | — | — | ● | ○ | ● | — | — |
 | CRI | ● | ● | ● | ○ | ○ | ○ | ● | — | ● | ● | — | ○ |
-| Kinds (× verbo) | ● | ● | ● | ● | ○ | ○ | ○ | ● | ● | ○ | ○ | ● |
+| Kinds (× verb) | ● | ● | ● | ● | ○ | ○ | ○ | ● | ● | ○ | ○ | ● |
 | Providers (op) | ● | ● | ● | ● | ○ | ○ | — | — | — | ○ | ● | — |
 
-Três decisões dentro desta tabela, e a razão de cada uma:
+Three decisions baked into this table, and the reason for each:
 
-- **Caso 7 não se aplica às APIs.** O servidor herda o modo de quem o arrancou;
-  testá-lo por rota seria medir o mesmo processo duas vezes. Mede-se uma vez
-  por servidor, não por folha.
-- **Caso 11 é obrigatório para os providers e não aplicável ao mgmt/MCP**, que
-  não falam com nada remoto — fazem shell-out para a própria CLI.
-- **Caso 4 é obrigatório no Node API** porque é a única superfície que honra
-  `Idempotency-Key` (`service.rs:595`). No mgmt é `○` e hoje seria sempre
-  falso: a string não existe no crate.
+- **Case 7 does not apply to the APIs.** The server inherits the mode of
+  whoever started it; testing it per route would mean measuring the same
+  process twice. It is measured once per server, not per leaf.
+- **Case 11 is required for the providers and not applicable to mgmt/MCP**,
+  which talk to nothing remote — they shell out to the CLI itself.
+- **Case 4 is required on the Node API** because it is the only surface that
+  honors `Idempotency-Key` (`service.rs:595`). On mgmt it is `○` and would
+  always be false today: the string does not exist in the crate.
 
-## Os três trabalhos estruturais — antes de qualquer folha
+## The three structural pieces of work — before any leaf
 
-Estes não são folhas; são a razão pela qual superfícies inteiras estão em `C`.
-Cada um converte dezenas de células de uma vez, e fazê-los primeiro é o que
-torna o resto barato.
+These are not leaves; they are the reason whole surfaces sit at `C`. Each one
+converts dozens of cells at once, and doing them first is what makes the
+rest cheap.
 
-### E1 — a perna gRPC não existe em corrida real
+### E1 — the gRPC leg does not exist in a real run
 
-A bateria é toda `curl --unix-socket`; não há `grpcurl` nem cliente gRPC em
-`scripts/` ou `tests/`. **57 folhas** (cada RPC mapeada) não têm a codificação
-gRPC medida. Um bloco de bateria que fale gRPC contra o mesmo socket converte-as
-em conjunto.
+The battery is all `curl --unix-socket`; there is no `grpcurl` or gRPC
+client in `scripts/` or `tests/`. **57 leaves** (each mapped RPC) do not
+have the gRPC encoding measured. A battery block that speaks gRPC against
+the same socket converts them all at once.
 
-### E2 — o `test_state()` do mgmt aponta para `/bin/false`
+### E2 — mgmt's `test_state()` points at `/bin/false`
 
-`delonix-mgmt/src/lib.rs:1470`. Logo **nenhuma** rota de shell-out tem caminho
-de sucesso testado em lado algum: 7 rotas (`run`, `rm`, `action`, `pull`,
-`build`, `networks`, `rate`) só têm o ramo da recusa. Trocar por um binário real
-num root isolado converte as sete. Decisão do dono (2026-10-18): **fazer**.
+`delonix-mgmt/src/lib.rs:1470`. So **no** shell-out route has its success
+path tested anywhere: 7 routes (`run`, `rm`, `action`, `pull`, `build`,
+`networks`, `rate`) only have the refusal branch tested. Swapping in a real
+binary in an isolated root converts the seven. Owner decision (2026-10-18):
+**do it**.
 
-### E3 — não existe `tools/call` no repositório
+### E3 — there is no `tools/call` in the repository
 
-As 15 ferramentas MCP nunca correram pelo protocolo. Um único cliente de teste
-que faça `initialize` + `tools/call` converte **15 folhas** e fecha a lacuna de
-não haver ratchet sobre a lista (que o `folhas_gate.py` agora já guarda).
+The 15 MCP tools have never run through the protocol. A single test client
+that does `initialize` + `tools/call` converts **15 leaves** and closes the
+gap of having no ratchet over the list (which `folhas_gate.py` now keeps).
 
-## As folhas da CLI — blocos próprios
+## The CLI's leaves — dedicated blocks
 
-**Actualizado a 2026-10-20.** Das 19 originais, **nove** são agora classe `A`:
-as quatro que eram `B` sem bloqueio de host (`net l4guard set/clear`, `system
-boot enable/disable`) e as cinco que o `socat` destrancou (`net netns
-exec/detach/firewall/publish/unpublish`). **Já não há nenhuma `B` na CLI.** As
-**10** que restam são todas `E` — esperam infra-estrutura, por ordem do
-`lab-requisitos.md`.
+**Updated on 2026-10-20.** Of the original 19, **nine** are now class `A`:
+the four that were `B` with no host blocker (`net l4guard set/clear`,
+`system boot enable/disable`) and the five `socat` unlocked (`net netns
+exec/detach/firewall/publish/unpublish`). **There is no longer any `B` on
+the CLI.** The **10** left are all `E` — waiting on infrastructure, in the
+order set by `lab-requisitos.md`.
 
-> **2026-10-22, depois do merge de `origin/main`.** O trace commitado passou a
-> ser o de `6dc31582` (2026-10-21), anterior aos checks deste ramo, por isso
-> `net l4guard set/clear` e `system boot enable/disable` estão em **B** no
-> `folhas.tsv` até o trace ser regravado de uma corrida da bateria — os checks
-> continuam no `scripts/e2e.sh`, e a classe do gate é a do trace, nunca a da
-> tabela. `vm pause`/`unpause` estão em **A** por esse mesmo trace.
-> No mesmo dia o trace foi regravado da bateria corrida sobre o merge
-> (`fa34383b`, `PASS=1577 FAIL=0 SKIP=14`, 272 de 280), e as quatro voltaram a **A**.
+> **2026-10-22, after the merge of `origin/main`.** The committed trace
+> became the one from `6dc31582` (2026-10-21), earlier than this branch's
+> checks, so `net l4guard set/clear` and `system boot enable/disable` sit at
+> **B** in `folhas.tsv` until the trace is re-recorded from a battery run —
+> the checks remain in `scripts/e2e.sh`, and the gate's class is the
+> trace's, never the table's. `vm pause`/`unpause` are at **A** by that same
+> trace.
+> On the same day the trace was re-recorded from the battery run over the
+> merge (`fa34383b`, `PASS=1577 FAIL=0 SKIP=14`, 272 of 280), and all four
+> went back to **A**.
 
-Atenção ao que `A` significa aqui, porque é fácil ler a promoção como trabalho
-fechado: a corrida de 2026-10-20 (`2663c846`, `PASS=1340 FAIL=0`) provou o
-**caso 1** de cada uma — o efeito — e não a matriz completa. Os casos
-2/3/4/6/8/9 abaixo continuam em dívida, e é por isso que estes blocos ficam.
+Mind what `A` means here, because it is easy to read the promotion as
+finished work: the 2026-10-20 run (`2663c846`, `PASS=1340 FAIL=0`) proved
+**case 1** of each one — the effect — not the full matrix. Cases 2/3/4/6/8/9
+below remain outstanding, which is why these blocks stay.
 
-### `net netns exec` · `net netns detach` — **A** (caso 1 provado a 2026-10-20)
+### `net netns exec` · `net netns detach` — **A** (case 1 proven on 2026-10-20)
 
-O `net netns attach` **já é executado**, e `up`/`down`/`gc`/`status` também.
-Casos: 1 (o comando corre dentro da netns certa — compara `ip netns identify` ou
-o inode de `/proc/self/ns/net` com o do container; o `detach` devolve veth e
-endereço ao pool), 2 (nome com `../`, netns inexistente), 3 (`detach` duas
-vezes → classe 4), 6 (SIGKILL a meio do `attach` não deixa veth órfão —
-`net-lifecycle-leaks.sh` já tem o instrumento), 8 (`-o json`).
+`net netns attach` is **already run**, and so are `up`/`down`/`gc`/`status`.
+Cases: 1 (the command runs inside the right netns — compare `ip netns
+identify` or the `/proc/self/ns/net` inode with the container's; `detach`
+returns the veth and address to the pool), 2 (name with `../`, nonexistent
+netns), 3 (`detach` twice → class 4), 6 (SIGKILL mid-`attach` leaves no
+orphan veth — `net-lifecycle-leaks.sh` already has the instrument), 8
+(`-o json`).
 
-### `net netns firewall` · `net netns publish` · `net netns unpublish` — **A** (caso 1 provado a 2026-10-20)
+### `net netns firewall` · `net netns publish` · `net netns unpublish` — **A** (case 1 proven on 2026-10-20)
 
-Casos: 1 (a regra **aparece** no `nft list ruleset` e o DNAT encaminha de
-facto; `unpublish` leva a regra **e** o hostfwd do slirp), 2 (spec inválida:
-`abc:80`, porta 0, porta 70000, protocolo desconhecido → `DX-` estável), 3
-(`unpublish` de uma porta não publicada), 4 (publicar a mesma porta duas vezes),
-6 (SIGKILL entre o `add_hostfwd` e o DNAT não deixa meio-publicado), 9 (a regra
-de uma namespace não afecta outra).
+Cases: 1 (the rule **shows up** in `nft list ruleset` and the DNAT actually
+forwards; `unpublish` removes the rule **and** slirp's hostfwd), 2 (invalid
+spec: `abc:80`, port 0, port 70000, unknown protocol → a stable `DX-`), 3
+(`unpublish` of an unpublished port), 4 (publishing the same port twice), 6
+(SIGKILL between `add_hostfwd` and the DNAT leaves nothing half-published),
+9 (one namespace's rule does not affect another).
 
-### `net l4guard set` · `net l4guard clear` — **A** (caso 1 provado a 2026-10-20)
+### `net l4guard set` · `net l4guard clear` — **A** (case 1 proven on 2026-10-20)
 
-O `net l4guard status` já corre. Casos: 1 (o guard **existe** no ruleset com as
-duas contagens, e o `status` lê-as de volta), 2 (`set 0 0`, negativos, não
-numéricos), 4 (`set` duas vezes = actualiza, não duplica; `clear` duas vezes),
-6 (SIGKILL no `set` não deixa meio-guard).
+`net l4guard status` already runs. Cases: 1 (the guard **exists** in the
+ruleset with both counters, and `status` reads them back), 2 (`set 0 0`,
+negatives, non-numeric), 4 (`set` twice = update, not duplicate; `clear`
+twice), 6 (SIGKILL during `set` leaves no half-guard).
 
-### `system boot enable` · `system boot disable` — **A** (caso 1 provado a 2026-10-20), com precaução
+### `system boot enable` · `system boot disable` — **A** (case 1 proven on 2026-10-20), with a caution
 
-**A precaução é o caso:** escrevem units de utilizador e activam linger, fora do
-`DELONIX_ROOT`. A corrida tem de redirigir `XDG_CONFIG_HOME` para o root
-isolado e provar que **nada** apareceu em `~/.config/systemd/user` — senão
-viola «cada execução deixa o host como o encontrou».
-Casos: 1 (a unit existe, com o `Restart=` da política do container), 2
-(`--restart` inválido), 3 (`disable` sem nada instalado), 4 (`enable` duas
-vezes), 1-bis (units obsoletas de containers que já não existem são removidas).
+**The caution is the case itself:** they write user units and enable
+linger, outside `DELONIX_ROOT`. The run has to redirect `XDG_CONFIG_HOME` to
+the isolated root and prove that **nothing** showed up in
+`~/.config/systemd/user` — otherwise it violates «every run leaves the host
+as it found it».
+Cases: 1 (the unit exists, with the container policy's `Restart=`), 2
+(invalid `--restart`), 3 (`disable` with nothing installed), 4 (`enable`
+twice), 1-bis (stale units for containers that no longer exist are removed).
 
-### `vm pause` · `vm unpause` — **E** (imagem); **A** no trace de `6dc31582` (2026-10-21)
+### `vm pause` · `vm unpause` — **E** (image); **A** on the `6dc31582` trace (2026-10-21)
 
-Reais nos três backends; o default do trait falha fechado de propósito.
-Casos: 1 (a VM fica `Paused` **e** o VMM continua vivo com a memória — distingue
-de `stop`; o `unpause` devolve-a a `Running`), 3 (`pause` de uma VM parada →
-recusa nomeada; `unpause` de uma que não está em pausa), 7 (os dois modos), 12.
+Real on all three backends; the trait's default fails closed on purpose.
+Cases: 1 (the VM becomes `Paused` **and** the VMM stays alive holding the
+memory — distinguishing it from `stop`; `unpause` returns it to `Running`),
+3 (`pause` of a stopped VM → a named refusal; `unpause` of one that is not
+paused), 7 (both modes), 12.
 
 ### `image push` · `image sign` — **E** (registry)
 
-Casos: 1 (o manifesto **está** no registry e o digest bate; a assinatura fica ao
-lado e o `image verify` aceita-a), 2 (referência malformada, tag `latest` sob
-política que a proíbe), 3 (push de imagem inexistente), 4 (push duas vezes =
-mesmo digest; `sign` sem `--force` não re-assina), 10 (a chave privada **nunca**
-é impressa — só o caminho da pública), 11 (registry a dar 500, TLS inválido,
-**redirect não seguido**, resposta truncada).
+Cases: 1 (the manifest **is** in the registry and the digest matches; the
+signature sits alongside and `image verify` accepts it), 2 (malformed
+reference, `latest` tag under a policy that forbids it), 3 (push of a
+nonexistent image), 4 (push twice = same digest; `sign` without `--force`
+does not re-sign), 10 (the private key is **never** printed — only the
+public one's path), 11 (registry returning 500, invalid TLS, **redirect not
+followed**, truncated response).
 
 ### `vm image pull` · `vm image push` · `vm image ls-remote` — **E** (registry)
 
-Casos: 1, 2 (source malformada), 3 (tag inexistente), 4, 11 (os mesmos cinco
-modos de falha do registry).
+Cases: 1, 2 (malformed source), 3 (nonexistent tag), 4, 11 (the same five
+registry failure modes).
 
-### `vm image build` — **E** (rede)
+### `vm image build` — **E** (network)
 
-Casos: 1 (a imagem resultante arranca), 2 (`VMfile` inválido), 6 (SIGKILL a meio
-não deixa disco meio-construído no store).
+Cases: 1 (the resulting image boots), 2 (invalid `VMfile`), 6 (SIGKILL
+mid-way leaves no half-built disk in the store).
 
-### `cluster create` — **E** (imagem `kindest/node`)
+### `cluster create` — **E** (`kindest/node` image)
 
-Casos: 1 (o apiserver responde e `kubectl get nodes` dá `Ready`), 2
-(`--workers` negativo, `--control-planes 2` sem LB → a recusa que o `--help`
-promete), 3 (dois `create` com o mesmo `--name`), 6 (SIGKILL a meio não deixa
-nós nem kubeconfig órfãos).
+Cases: 1 (the apiserver answers and `kubectl get nodes` returns `Ready`), 2
+(negative `--workers`, `--control-planes 2` without an LB → the refusal
+`--help` promises), 3 (two `create`s with the same `--name`), 6 (SIGKILL
+mid-way leaves no orphan nodes or kubeconfig).
 
-### `cluster kubeadm` — **E** (golden + VMs)
+### `cluster kubeadm` — **E** (golden image + VMs)
 
-Os mesmos, sobre VMs em vez de containers, mais: a rede própria do cluster é
-criada **e removida** pelo `cluster destroy`, e uma rede nomeada por quem chama
-**nunca** é removida.
+The same ones, over VMs instead of containers, plus: the cluster's own
+network is created **and** removed by `cluster destroy`, and a network named
+by the caller is **never** removed.
 
-## As restantes superfícies — o que o gate exige, por classe
+## The remaining surfaces — what the gate requires, by class
 
-- **`D` (29 no Node API, 6 no mgmt, 2 no CRI, 23 em Kinds):** enquanto a decisão
-  do dono não aterrar em código, o caso obrigatório é o **3** sobre a recusa —
-  que ela é a recusa certa (`501 DX-6001` / `grpc-status 12` / `DX-6302`) e não
-  um 404 nem um 500. Decisão de 2026-10-18: implementar as 29 do contrato de
-  nó; até lá, a recusa é o que se prova.
-- **`C` (15 + 19 + 10 + 5 + 8):** o caso em falta é o **1** na camada que falta
-  — a maioria resolve-se com E1, E2 e E3 acima, não folha a folha.
-- **`E` (10 na CLI, 8 em Kinds):** nada a fazer até a infra-estrutura existir. O
-  gate aceita-as **com a razão escrita**, e o `lab-requisitos.md` nomeia a peça.
+- **`D` (29 on the Node API, 6 on mgmt, 2 on CRI, 23 in Kinds):** until the
+  owner's decision lands in code, the required case is **3** on the refusal
+  — that it is the right refusal (`501 DX-6001` / `grpc-status 12` /
+  `DX-6302`) and not a 404 or a 500. 2026-10-18 decision: implement the 29 of
+  the node contract; until then, the refusal is what gets proven.
+- **`C` (15 + 19 + 10 + 5 + 8):** the missing case is **1** at the layer
+  that is missing — most of it is solved by E1, E2 and E3 above, not leaf by
+  leaf.
+- **`E` (10 on the CLI, 8 in Kinds):** nothing to do until the
+  infrastructure exists. The gate accepts them **with the reason written
+  down**, and `lab-requisitos.md` names the missing piece.
 
-## Ordem de trabalho e estimativa
+## Work order and estimate
 
-| # | trabalho | folhas convertidas | estimativa |
+| # | work | leaves converted | estimate |
 |---|---|---:|---|
-| 1 | E3 — cliente `tools/call` para o MCP | 15 | 1 sessão |
-| 2 | ~~As folhas `B` da CLI (`net netns`, `l4guard`, `system boot`)~~ — **FEITO 2026-10-20** (`87992e4f`): 9 folhas, não 7, porque as cinco do `net netns` estavam em `E` e não em `B` | ~~9~~ | — |
-| 3 | E2 — `test_state()` com binário real | 7 | 1 sessão |
-| 4 | E1 — a perna gRPC na bateria | 57 | 1–2 sessões |
-| 5 | Registry local → as 5 folhas de push/pull | 5 | 1 sessão |
-| 6 | Imagem de VM → `vm pause`/`unpause` | 2 | 1 sessão |
-| 7 | Os 7 defeitos achados (ver o inventário) | — | 1–2 sessões |
-| 8 | **As 29 RPCs do contrato de nó** (decisão do dono) | 29 | **semanas** |
-| 9 | As 40 operações do mgmt a sério (decisão do dono) | 32 | 2–3 sessões |
-| 10 | Kinds: os 9 sem `apply` em corrida real | ~45 células | 2–3 sessões |
+| 1 | E3 — `tools/call` client for the MCP | 15 | 1 session |
+| 2 | ~~The CLI's `B` leaves (`net netns`, `l4guard`, `system boot`)~~ — **DONE 2026-10-20** (`87992e4f`): 9 leaves, not 7, because the five `net netns` ones were at `E`, not `B` | ~~9~~ | — |
+| 3 | E2 — `test_state()` with a real binary | 7 | 1 session |
+| 4 | E1 — the gRPC leg in the battery | 57 | 1–2 sessions |
+| 5 | Local registry → the 5 push/pull leaves | 5 | 1 session |
+| 6 | VM image → `vm pause`/`unpause` | 2 | 1 session |
+| 7 | The 7 defects found (see the inventory) | — | 1–2 sessions |
+| 8 | **The 29 node-contract RPCs** (owner decision) | 29 | **weeks** |
+| 9 | The 40 mgmt operations for real (owner decision) | 32 | 2–3 sessions |
+| 10 | Kinds: the 9 with no `apply` in a real run | ~45 cells | 2–3 sessions |
 
-O passo 2 já está dentro do total: **341/538 (63,4 %)** a 2026-10-20
-(**349/550** a 2026-10-22, depois do merge de `origin/main` — ver a nota acima
-sobre as quatro folhas que voltaram a `B`). Os passos
-que faltam de 1 a 7 levam-no a cerca de **427/538 (79 %)** sem uma linha de
-funcionalidade nova. Os passos 8 a 10 são projecto, não sessão, e o 8 é o maior
-de todos: quatro serviços inteiros.
+Step 2 is already in the total: **341/538 (63.4%)** as of 2026-10-20
+(**349/550** as of 2026-10-22, after the merge of `origin/main` — see the
+note above about the four leaves that went back to `B`). Steps 1 through 7
+that remain take it to about **427/538 (79%)** with no new line of
+functionality. Steps 8 to 10 are projects, not sessions, and 8 is the
+biggest of all: four entire services.
 
-**Nota de honestidade sobre o 8 e o 9.** Foram decididos a 2026-10-18 na forma
-maximal («implementar as 29», «as 40 a sério»). Nenhum dos dois cabe no
-time-box de 45 min por folha que o plano usa para o resto, e nenhum cabe nesta
-sessão. Entram como **contrato próprio**, não como alargamento silencioso
-deste.
+**An honesty note about 8 and 9.** They were decided on 2026-10-18 in their
+maximal form («implement the 29», «the 40 for real»). Neither fits the
+45-minute-per-leaf time-box the plan uses for the rest, and neither fits in
+this session. They go in as their **own contract**, not a silent extension
+of this one.

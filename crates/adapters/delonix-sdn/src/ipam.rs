@@ -228,22 +228,22 @@ fn probe_free(
     preferred: &str,
     used: &std::collections::HashSet<&str>,
 ) -> Option<String> {
-    // Sonda LINEAR sobre o espaço de hosts do prefixo, a partir do preferido —
-    // o mesmo que a versão anterior fazia, mas sobre o prefixo real em vez de um
-    // /16 assumido. Num /16 percorre exactamente os mesmos 65536 candidatos.
+    // LINEAR probe over the prefix's host space, starting at the preferred one —
+    // the same thing the previous version did, but over the real prefix instead
+    // of an assumed /16. In a /16 it walks exactly the same 65536 candidates.
     let net = crate::Cidr::parse(prefix)?;
-    let inicio = crate::Cidr::parse_addr(preferred).unwrap_or(net.base);
-    let tamanho = net.size();
-    // O ciclo é sobre o TAMANHO do prefixo e não sobre um 0x10000 fixo: num /22
-    // dar 65536 voltas seria percorrer 64× o mesmo espaço, e num /8 pararia a
-    // meio e reportaria «cheio» com endereços livres de sobra — o erro mais
-    // caro que este ciclo poderia ter.
-    for k in 0..tamanho {
-        // Envolve DENTRO do prefixo: sair dele e voltar a entrar produziria
-        // candidatos de outra rede, que o `valid_ip_in_subnet` recusaria em
-        // silêncio, gastando o ciclo inteiro sem nunca encontrar nada.
-        let desloc = (inicio.wrapping_sub(net.base).wrapping_add(k)) % tamanho;
-        let cand = crate::Cidr::fmt_u32(net.base + desloc);
+    let start = crate::Cidr::parse_addr(preferred).unwrap_or(net.base);
+    let size = net.size();
+    // The loop runs over the prefix's SIZE, not a fixed 0x10000: in a /22, taking
+    // 65536 turns would walk the same space 64×, and in a /8 it would stop halfway
+    // and report "full" with addresses to spare — the costliest mistake this loop
+    // could make.
+    for k in 0..size {
+        // Wraps INSIDE the prefix: stepping out and back in would produce
+        // candidates of another network, which `valid_ip_in_subnet` would refuse
+        // silently, burning the whole loop without ever finding anything.
+        let offset = (start.wrapping_sub(net.base).wrapping_add(k)) % size;
+        let cand = crate::Cidr::fmt_u32(net.base + offset);
         if crate::valid_ip_in_subnet(prefix, &cand)
             && !crate::in_vm_dhcp_pool(prefix, &cand)
             && !used.contains(cand.as_str())
@@ -355,8 +355,8 @@ pub fn lookup(prefix: &str, id: &str) -> Option<String> {
 /// Frees `id`'s lease in `prefix`'s `/16` (on detach). Best-effort and
 /// idempotent. Under `flock`.
 pub fn release(prefix: &str, id: &str) {
-    // Idem: um release destravado pode reescrever o mapa por cima de um
-    // allocate concorrente e ressuscitar um lease já libertado.
+    // Same reason: an unlocked release can rewrite the map over a concurrent
+    // allocate and resurrect a lease that was already freed.
     let Some(_lock) = IpamLock::acquire() else {
         tracing::error!(
             prefix = %prefix, container_id = %id,
@@ -461,18 +461,18 @@ fn migrate_stray_files() {
 
 /// The `/16` prefix (`a.b`) of an IP `a.b.c.d` — to free the lease on detach
 /// from the known IP, without the caller having to pass the prefix.
-/// A CHAVE do registo de leases para um endereço.
+/// The lease-registry KEY for an address.
 ///
-/// **Procura, não calcula.** O `prefix_of` deriva `10.210` dos dois primeiros
-/// octetos, e isso só funciona enquanto toda a rede for um /16 — num /22 ou num
-/// /28 dois octetos não identificam rede nenhuma, e libertar um lease com a
-/// chave errada deixa o endereço marcado como usado PARA SEMPRE (o container
-/// desaparece, o lease fica, e a rede vai-se enchendo sem nada a explicar).
+/// **Looks up, does not compute.** `prefix_of` derives `10.210` from the first
+/// two octets, and that only works while every network is a /16 — in a /22 or a
+/// /28 two octets identify no network at all, and freeing a lease with the wrong
+/// key leaves the address marked used FOREVER (the container vanishes, the lease
+/// stays, and the network fills up with nothing to explain it).
 ///
-/// Por isso vai à lista de redes e devolve a chave daquela que CONTÉM o
-/// endereço. Só quando nenhuma o contém — uma rede já removida, um IP de outra
-/// era — cai para os dois octetos, que é o que sempre fez e continua a ser a
-/// resposta certa para um registo legado.
+/// So it goes to the network list and returns the key of the one that CONTAINS
+/// the address. Only when none contains it — a network already removed, an IP
+/// from another era — does it fall back to the two octets, which is what it
+/// always did and remains the right answer for a legacy registry.
 pub fn key_for_ip(ip: &str) -> String {
     if let Some(addr) = crate::Cidr::parse_addr(ip) {
         for def in crate::infra::network_list() {
@@ -486,13 +486,13 @@ pub fn key_for_ip(ip: &str) -> String {
     prefix_of(ip)
 }
 
-/// A chave de registo de um prefixo.
+/// The registry key of a prefix.
 ///
-/// Um `10.x/16` continua a ser `10.x` — **os ficheiros de lease que existem no
-/// disco estão indexados assim**, e mudar a chave faria o motor deixar de ver os
-/// leases de todas as redes actuais de uma só vez: cada container reiniciado
-/// receberia um endereço novo, e os antigos ficariam ocupados por ninguém.
-/// Qualquer outro prefixo usa o CIDR, que é a única forma que o descreve.
+/// A `10.x/16` stays `10.x` — **the lease files that exist on disk are indexed
+/// that way**, and changing the key would make the engine stop seeing the leases
+/// of every current network all at once: each restarted container would get a
+/// new address, and the old ones would stay occupied by nobody. Any other prefix
+/// uses the CIDR, which is the only form that describes it.
 pub fn registry_key(prefix: &str) -> String {
     match crate::Cidr::parse(prefix) {
         Some(c) if c.len == 16 && (c.base >> 24) == 10 => {
@@ -654,8 +654,8 @@ pub fn prefix_of(ip: &str) -> String {
 #[cfg(test)]
 mod tests {
 
-    /// **Esgotar um prefixo por inteiro** — a prova anti-colisão que um /16
-    /// nunca dá, porque ninguém enche 65 mil endereços num teste.
+    /// **Exhaust a whole prefix** — the anti-collision proof a /16 never gives,
+    /// because nobody fills 65 thousand addresses in a test.
     ///
     /// A /28 has 16 addresses and 13 usable: 2 of them are the VM DHCP pool
     /// (`crate::vm_dhcp_pool`), so the probe must return the other 11, all
@@ -663,48 +663,48 @@ mod tests {
     /// instead of repeating one (a silent collision: two containers on one IP)
     /// or handing out one from outside.
     #[test]
-    fn esgotar_um_28_da_13_enderecos_distintos_e_depois_nada() {
+    fn exhausting_a_28_gives_13_distinct_addresses_then_none() {
         let cidr = "192.168.1.0/28";
         let net = crate::Cidr::parse(cidr).unwrap();
-        let mut usados: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
         let (_, pool) = crate::vm_dhcp_pool(cidr).unwrap();
         let for_containers = 13 - pool as usize;
         for i in 0..for_containers {
-            let refs: std::collections::HashSet<&str> = usados.iter().map(String::as_str).collect();
-            let preferido = crate::derive_ip_in(cidr, &format!("{i:08x}"));
-            let ip = probe_free(cidr, &preferido, &refs)
-                .unwrap_or_else(|| panic!("sem endereço à {i}.ª volta, com {} usados", refs.len()));
+            let refs: std::collections::HashSet<&str> = used.iter().map(String::as_str).collect();
+            let preferred = crate::derive_ip_in(cidr, &format!("{i:08x}"));
+            let ip = probe_free(cidr, &preferred, &refs)
+                .unwrap_or_else(|| panic!("no address on turn {i}, with {} used", refs.len()));
             let a = crate::Cidr::parse_addr(&ip).unwrap();
-            assert!(net.contains(a), "{ip} fora do prefixo");
+            assert!(net.contains(a), "{ip} outside the prefix");
             assert_ne!(a, net.base);
             assert_ne!(a, net.base + 1);
             assert_ne!(a, net.last());
             assert!(!crate::in_vm_dhcp_pool(cidr, &ip), "{ip} is in the VM pool");
-            assert!(usados.insert(ip.clone()), "REPETIU {ip}");
+            assert!(used.insert(ip.clone()), "REPEATED {ip}");
         }
-        assert_eq!(usados.len(), 11);
-        // E agora está mesmo cheio.
-        let refs: std::collections::HashSet<&str> = usados.iter().map(String::as_str).collect();
+        assert_eq!(used.len(), 11);
+        // And now it really is full.
+        let refs: std::collections::HashSet<&str> = used.iter().map(String::as_str).collect();
         assert_eq!(
             probe_free(cidr, "192.168.1.5", &refs),
             None,
-            "devolveu um endereço de um /28 cheio"
+            "handed out an address from a full /28"
         );
     }
 
-    /// A sonda percorre o espaço do PREFIXO, e não 0x10000 fixo.
+    /// The probe walks the PREFIX's space, not a fixed 0x10000.
     ///
-    /// Com o ciclo antigo, um /8 parava a meio e reportava «cheio» com milhões
-    /// de endereços livres; e num /22 dava 64 voltas ao mesmo espaço. Aqui
-    /// verifica-se o que importa: a partir de um preferido perto do FIM, a sonda
-    /// envolve para o princípio em vez de desistir.
+    /// With the old loop, a /8 stopped halfway and reported "full" with millions
+    /// of free addresses; and in a /22 it took 64 turns around the same space.
+    /// Here we check what matters: starting from a preferred one near the END, the
+    /// probe wraps around to the start instead of giving up.
     #[test]
-    fn a_sonda_envolve_dentro_do_prefixo_em_vez_de_sair_ou_desistir() {
+    fn the_probe_wraps_inside_the_prefix_instead_of_leaving_or_giving_up() {
         let cidr = "192.168.1.0/28";
-        // tudo ocupado excepto o .2 (o primeiro utilizável)
-        let ocupados: Vec<String> = (3..=14).map(|i| format!("192.168.1.{i}")).collect();
-        let refs: std::collections::HashSet<&str> = ocupados.iter().map(String::as_str).collect();
-        // parte do fim: só encontra se envolver.
+        // everything taken except .2 (the first usable one)
+        let taken: Vec<String> = (3..=14).map(|i| format!("192.168.1.{i}")).collect();
+        let refs: std::collections::HashSet<&str> = taken.iter().map(String::as_str).collect();
+        // start from the end: only found if it wraps.
         assert_eq!(
             probe_free(cidr, "192.168.1.14", &refs).as_deref(),
             Some("192.168.1.2")
@@ -716,15 +716,14 @@ mod tests {
     /// Isolates the registry in a tmpdir (via `DELONIX_ROOT`) so as not to touch the
     /// user's real store. Serialized by a process lock — this module's tests
     /// share the global `DELONIX_ROOT` env var.
-    /// `DELONIX_ROOT` é uma variável de ambiente GLOBAL ao processo: todo o
-    /// teste que lhe mexa tem de partilhar ESTE mutex.
+    /// `DELONIX_ROOT` is a process-GLOBAL environment variable: every test that
+    /// touches it has to share THIS mutex.
     ///
-    /// BUG apanhado pela suite completa: o teste de fail-closed adicionado na
-    /// v0.38.1 trazia um `static LOCK` PRÓPRIO, o que não serializa nada — dois
-    /// mutexes distintos deixam os testes correr em paralelo, e o `DELONIX_ROOT`
-    /// só-leitura que ele instala vazava para um `allocate` concorrente, que
-    /// falhava com ENOENT. Flaky, e por isso passou despercebido na corrida em
-    /// que foi introduzido.
+    /// BUG caught by the full suite: the fail-closed test added in v0.38.1 brought
+    /// its OWN `static LOCK`, which serializes nothing — two distinct mutexes let
+    /// the tests run in parallel, and the read-only `DELONIX_ROOT` it installs
+    /// leaked into a concurrent `allocate`, which failed with ENOENT. Flaky, and
+    /// so it went unnoticed in the run that introduced it.
     fn with_root<T>(f: impl FnOnce() -> T) -> T {
         // The lock is now crate-wide (`crate::testenv`): `infra`'s tests write
         // the same variable, and a mutex private to this module serialized
@@ -748,7 +747,7 @@ mod tests {
     }
 
     #[test]
-    fn ids_que_colidiam_no_hash_recebem_ips_distintos() {
+    fn ids_that_collided_in_the_hash_get_distinct_ips() {
         with_root(|| {
             // "deadbeef1234" and "deadbeef9999" derive the SAME preferred IP (they share
             // the first 8 hex) — this was exactly the old allocator's collision.
@@ -757,26 +756,26 @@ mod tests {
             assert_eq!(a, crate::derive_ip_in("10.88", "deadbeef1234"));
             assert_ne!(
                 a, b,
-                "a sondagem tem de dar IPs distintos a ids que colidem no hash"
+                "probing must give distinct IPs to ids that collide in the hash"
             );
             assert!(crate::valid_ip_in_subnet("10.88", &b));
         });
     }
 
     #[test]
-    fn allocate_e_idempotente_e_lookup_ve_o_lease() {
+    fn allocate_is_idempotent_and_lookup_sees_the_lease() {
         with_root(|| {
             let a1 = allocate("10.88", "cafe1234").unwrap();
             let a2 = allocate("10.88", "cafe1234").unwrap();
-            assert_eq!(a1, a2, "o mesmo id devolve sempre o mesmo IP");
+            assert_eq!(a1, a2, "the same id always returns the same IP");
             assert_eq!(lookup("10.88", "cafe1234").as_deref(), Some(a1.as_str()));
             // looking up an id with no lease creates nothing and returns None.
-            assert_eq!(lookup("10.88", "naoexiste"), None);
+            assert_eq!(lookup("10.88", "doesnotexist"), None);
         });
     }
 
     #[test]
-    fn release_liberta_o_ip_para_reuso() {
+    fn release_frees_the_ip_for_reuse() {
         with_root(|| {
             let ip = allocate("10.88", "deadbeef1234").unwrap();
             // a second colliding id got a probed IP (!= ip).
@@ -819,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn muitos_ids_zero_colisoes() {
+    fn many_ids_zero_collisions() {
         // The original bug: by the birthday paradox, a collision in a /16 became likely at
         // ~300 containers and nearly certain at ~600. We allocate 2000 ids (>3× that
         // threshold) and require ALL IPs distinct and valid — the proof that the
@@ -831,15 +830,15 @@ mod tests {
             for i in 0..2000u32 {
                 let id = format!("{:08x}dead", i.wrapping_mul(2_654_435_761)); // spreads
                 let ip = allocate("10.88", &id).unwrap();
-                assert!(crate::valid_ip_in_subnet("10.88", &ip), "IP inválido {ip}");
-                assert!(seen.insert(ip.clone()), "COLISÃO no IP {ip} (id {id})");
+                assert!(crate::valid_ip_in_subnet("10.88", &ip), "invalid IP {ip}");
+                assert!(seen.insert(ip.clone()), "COLLISION on IP {ip} (id {id})");
             }
             assert_eq!(seen.len(), 2000);
         });
     }
 
     #[test]
-    fn multi_homing_lease_por_rede_e_release_isolado() {
+    fn multi_homing_lease_per_network_and_isolated_release() {
         // A multi-homed container has a lease in EACH /16 (primary network + extra),
         // in the respective prefix file. Disconnecting the extra network
         // (`detach_extra_container`, which now receives the ip) must free ONLY the
@@ -855,12 +854,12 @@ mod tests {
             assert_eq!(
                 lookup("10.204", id),
                 None,
-                "lease da rede extra tem de sair"
+                "the extra network's lease must go"
             );
             assert_eq!(
                 lookup("10.88", id).as_deref(),
                 Some(primary.as_str()),
-                "o lease da rede primária NÃO pode ser afetado"
+                "the primary network's lease must NOT be affected"
             );
         });
     }
@@ -875,7 +874,7 @@ mod tests {
     /// infallible `acquire()` makes this test fail: `allocate` would return
     /// `Ok(ip)` from an unlocked path.
     #[test]
-    fn allocate_recusa_quando_nao_consegue_trancar_o_registo() {
+    fn allocate_refuses_when_it_cannot_lock_the_registry() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = crate::testenv::TempRoot::new();
         let dir = tmp.path();
@@ -892,7 +891,7 @@ mod tests {
                 let msg = format!("{e}");
                 assert!(
                     msg.contains("same IP to two containers"),
-                    "o erro tem de nomear a consequência, não só 'falhou': {msg}"
+                    "the error must name the consequence, not just 'failed': {msg}"
                 );
             }
             // Root ignores the mode bits, so the lock opens fine and the
@@ -902,16 +901,16 @@ mod tests {
                 assert!(
                     // SAFETY: `geteuid` takes no arguments and has no preconditions.
                     unsafe { libc::geteuid() } == 0,
-                    "allocate devolveu {ip} sem conseguir trancar o registo — é este o bug"
+                    "allocate returned {ip} without being able to lock the registry — this is the bug"
                 );
-                eprintln!("aviso: a correr como root, os bits de permissão não se aplicam — asserção saltada");
+                eprintln!("warning: running as root, the permission bits do not apply — assertion skipped");
             }
         }
         tmp.close();
     }
 
     #[test]
-    fn prefix_of_extrai_o_16() {
+    fn prefix_of_extracts_the_16() {
         assert_eq!(prefix_of("10.88.3.7"), "10.88");
         assert_eq!(prefix_of("10.200.255.254"), "10.200");
     }
@@ -921,7 +920,7 @@ mod tests {
     /// would repeat exactly the race `infra::reap_orphan_refs` already exists
     /// to survive: a container mid-creation has no Store record yet.
     #[test]
-    fn primeira_observacao_orfa_nunca_e_reclamada_de_imediato() {
+    fn first_orphan_sighting_is_never_reclaimed_immediately() {
         with_root(|| {
             let ip = allocate("10.88", "orfao0001").unwrap();
             let live = std::collections::HashSet::new();
@@ -939,7 +938,7 @@ mod tests {
     /// without a real sleep: the 1st call records the candidate, and its
     /// timestamp is aged past the window by hand before the 2nd call.
     #[test]
-    fn lease_orfao_alem_da_graca_e_reclamado_na_segunda_chamada() {
+    fn orphan_lease_past_grace_is_reclaimed_on_the_second_call() {
         with_root(|| {
             allocate("10.88", "orfao0002").unwrap();
             let live = std::collections::HashSet::new();
@@ -967,7 +966,7 @@ mod tests {
     /// — even having been seen orphaned before, and even if its clock (were
     /// it consulted) had already crossed the window.
     #[test]
-    fn candidato_que_reaparece_vivo_nunca_e_reclamado() {
+    fn candidate_that_reappears_alive_is_never_reclaimed() {
         with_root(|| {
             let ip = allocate("10.88", "revive0001").unwrap();
             let empty = std::collections::HashSet::new();
@@ -1001,7 +1000,7 @@ mod tests {
 
     /// A live lease never enters the candidate list, call after call.
     #[test]
-    fn lease_vivo_nunca_e_tocado() {
+    fn live_lease_is_never_touched() {
         with_root(|| {
             let ip = allocate("10.88", "vivo0001").unwrap();
             let mut live = std::collections::HashSet::new();
@@ -1012,7 +1011,7 @@ mod tests {
             assert_eq!(lookup("10.88", "vivo0001").as_deref(), Some(ip.as_str()));
             assert!(
                 load_reap_candidates().is_empty(),
-                "um id vivo nunca deve aparecer como candidato"
+                "a live id must never appear as a candidate"
             );
         });
     }

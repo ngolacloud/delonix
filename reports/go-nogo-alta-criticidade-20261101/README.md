@@ -1,75 +1,77 @@
-# GO/NO-GO — Delonix vs Docker/Podman em produção de ALTA CRITICIDADE
+# GO/NO-GO — Delonix vs Docker/Podman in HIGH-CRITICALITY production
 
-> **Data:** 2026-11-01. **Âmbito:** decidir se o Delonix é GO ou NO-GO como
-> substituto do Docker/Podman em ambientes de **alta criticidade computacional**
-> onde os dois já são opções provadas. **Não** avalia uso em dev/CI/edge (ver §5).
+> **Date:** 2026-11-01. **Scope:** decide whether Delonix is GO or NO-GO as a
+> replacement for Docker/Podman in **computationally high-criticality** environments
+> where both are already proven options. Does **not** assess use in dev/CI/edge (see §5).
 >
-> **Método.** Síntese de quatro varreduras à evidência do próprio repositório
-> (segurança/auditorias, matriz de capacidades, defeitos/estabilização, maturidade
-> operacional) cruzada com verificação pontual no código. **Aviso de método, e
-> pesa no veredicto:** quase toda a evidência do repo é **auto-produzida** (revisão
-> adversarial por agente, nunca pentest externo) e **datada** (medida em linhas
-> v0.x–v3.1.0/5.1.1). Um comprador de alta criticidade exigiria medição
-> independente — que é precisamente o item 1 do portão (§6).
+> **Method.** Synthesis of four sweeps of the repository's own evidence
+> (security/audits, capability matrix, defects/stabilisation, operational
+> maturity) cross-checked against spot verification in the code. **Method caveat,
+> and it weighs on the verdict:** almost all of the repo's evidence is
+> **self-produced** (adversarial agent review, never an external pentest) and
+> **dated** (measured on v0.x–v3.1.0/5.1.1 lines). A high-criticality buyer would
+> require independent measurement — which is precisely item 1 of the gate (§6).
 >
-> **Fontes:** `docs/COMPARACAO-DOCKER-PODMAN.md`, `docs/comparacao-medida.md`,
+> **Sources:** `docs/COMPARACAO-DOCKER-PODMAN.md`, `docs/comparacao-medida.md`,
 > `docs/AUDITORIA-E2E.md`, `docs/cri-conformance.md`,
 > `docs/providers/capability-matrix.md`, `reports/capability-ceiling-20261027.md`,
 > `reports/production-readiness/v3.1.0/*`, `reports/release-campaign-*`,
 > `docs/RELATORIO-PRE-PRODUCAO.md`, `VERSIONING.md`, `MAINTAINERS.md`,
-> `GOVERNANCE.md`, + verificação directa em `crates/adapters/delonix-oci/src/overlay.rs`.
+> `GOVERNANCE.md`, + direct verification in `crates/adapters/delonix-oci/src/overlay.rs`.
 
-## Veredicto
+## Verdict
 
-**NO-GO** como substituto do Docker/Podman em alta criticidade, **hoje**. GO
-**condicional** para nichos single-node sem failover (§5). O portão para virar GO
-está em §6 e no [plano](plano-no-go-para-go.md).
+**NO-GO** as a Docker/Podman replacement in high criticality, **today**.
+**Conditional** GO for single-node niches without failover (§5). The gate to
+become GO is in §6 and in the [plan](plano-no-go-para-go.md).
 
-A barra de "alta criticidade onde Docker/Podman já são opções" é: fiabilidade
-provada, HA/failover, garantia de segurança **externa**, suportabilidade e upgrade
-seguro. O Delonix fica atrás do incumbente battle-tested em **todas**.
+The bar for "high criticality where Docker/Podman are already options" is: proven
+reliability, HA/failover, **external** security assurance, supportability and
+safe upgrade. Delonix lags the battle-tested incumbent on **all** of them.
 
-## Matriz de decisão
+## Decision matrix
 
-| Dimensão | Veredicto | Evidência-chave |
+| Dimension | Verdict | Key evidence |
 |---|---|---|
-| **Segurança** | ⚠️ Honesta, **não assegurada externamente** | Engenharia fail-closed; fugas fail-open fechadas (asseveradas no CHANGELOG, não re-auditadas). Todas as auditorias são **AI-adversarial internas, nunca pentest externo**. Cadeia de fornecimento fraca: **G-020** 0/20 Actions SHA-pinned; sem `cargo-audit`/trivy no CI; scanner CVE **sem feed real** (`delonix-scanner/src/lib.rs:371`); assinatura/SLSA/SBOM "por desenho", não verificados contra artefactos (`supply-chain.md`). Whiteout OCI (achado #1) **verificado CORRIGIDO no código** (`overlay.rs:185-221`, `safe_rel` + canonicalização confinada) — o `AUDITORIA-E2E.md` é que está desactualizado. |
-| **Fiabilidade** | ❌ **LAB/PILOT READY** | Veredicto formal auto-atribuído LAB READY; single-node rootless CLI = PILOT (`release-verdict.md`). **9 P1 abertos**; **sem release publicada** (`CHANGELOG` 0.x "[Não lançado]"); padrão **fail-open rc=0** histórico (anti-spoof/secrets/reaper — vários já corrigidos); `compose up` não reinicia serviço parado (DEF-003); `stack apply` diz "unchanged" com `command` alterado (DEF-002); CRI **84/104** (≈13/20 falhas são ambiente/rootless); migração ao vivo **NO-GO** (ADR-0031); densidade/escala **não medida**. |
-| **Capacidades** | ⚠️ 181/271 (66,8%), tecto 247 — re-medido no commit atual 2026-11-02 (era 180/270@5.1.1: `net.ipv6` passou a `supported`, ADR-0082) | ≥ Docker/Podman em ciclo-de-vida single-node/pods/CRI/rede-rootless; **único** em container+microVM+CRI num motor. Falta: **orquestração multi-nó + HA** (VM HA/replicação = `requires-external-component`; overlay inter-nó não provado E2E), compose completo (`profiles`/`extends`/multi-ficheiro), log drivers, BuildKit (`ssh`/`cache`/multi-arch push), **GPU/CDI por provar em HW real**, `--format` Go-template. |
-| **Operacional** | ❌ Imaturo | Single-node por desenho (frota → `delonix-paas`, ADR-0010); **sem HA, sem Helm/Terraform/Ansible, sem SLA**; **1 mantenedor** (BDFL; ~2735 commits de uma pessoa, `MAINTAINERS.md`/`GOVERNANCE.md`); pré-1.0 (minors podem partir CLI/API/schema, `VERSIONING.md`); **upgrade/rollback NÃO TESTADO** (`release-verdict.md`), sem hot-patch de supervisores vivos (`RELATORIO-PRE-PRODUCAO.md:116`); observabilidade forte-no-desenho mas limitada (daemonless; tracing do motor não ligado; `/metrics` do mgmt congelado por ADR-0041). |
+| **Security** | ⚠️ Honest, **not externally assured** | Fail-closed engineering; fail-open leaks closed (asserted in the CHANGELOG, not re-audited). All audits are **internal AI-adversarial, never an external pentest**. Weak supply chain: **G-020** 0/20 Actions SHA-pinned; no `cargo-audit`/trivy in CI; CVE scanner **with no real feed** (`delonix-scanner/src/lib.rs:371`); signing/SLSA/SBOM "by design", not verified against artefacts (`supply-chain.md`). OCI whiteout (finding #1) **verified FIXED in the code** (`overlay.rs:185-221`, `safe_rel` + confined canonicalisation) — it is `AUDITORIA-E2E.md` that is out of date. |
+| **Reliability** | ❌ **LAB/PILOT READY** | Formal self-assigned verdict LAB READY; single-node rootless CLI = PILOT (`release-verdict.md`). **9 open P1s**; **no published release** (`CHANGELOG` 0.x "[Unreleased]"); historical **fail-open rc=0** pattern (anti-spoof/secrets/reaper — several already fixed); `compose up` does not restart a stopped service (DEF-003); `stack apply` reports "unchanged" with a changed `command` (DEF-002); CRI **84/104** (≈13/20 failures are environment/rootless); live migration **NO-GO** (ADR-0031); density/scale **not measured**. |
+| **Capabilities** | ⚠️ 181/271 (66.8%), ceiling 247 — re-measured at the current commit 2026-11-02 (was 180/270@5.1.1: `net.ipv6` moved to `supported`, ADR-0082) | ≥ Docker/Podman for single-node lifecycle/pods/CRI/rootless-networking; **unique** in combining container+microVM+CRI in one engine. Missing: **multi-node orchestration + HA** (VM HA/replication = `requires-external-component`; inter-node overlay not proven E2E), full compose (`profiles`/`extends`/multi-file), log drivers, BuildKit (`ssh`/`cache`/multi-arch push), **GPU/CDI unproven on real HW**, `--format` Go-template. |
+| **Operational** | ❌ Immature | Single-node by design (fleet → `delonix-paas`, ADR-0010); **no HA, no Helm/Terraform/Ansible, no SLA**; **1 maintainer** (BDFL; ~2735 commits from one person, `MAINTAINERS.md`/`GOVERNANCE.md`); pre-1.0 (minors may break CLI/API/schema, `VERSIONING.md`); **upgrade/rollback NOT TESTED** (`release-verdict.md`), no hot-patch of live supervisors (`RELATORIO-PRE-PRODUCAO.md:116`); observability strong-in-design but limited (daemonless; engine tracing not wired; mgmt `/metrics` frozen by ADR-0041). |
 
-## Desqualificadores (cada um basta sozinho)
+## Disqualifiers (each one is sufficient on its own)
 
-1. **Upgrade/rollback não testado** + impossível corrigir supervisores em execução sem recriar containers.
-2. **Sem HA / multi-nó não provado E2E** — se o ambiente exige failover, não existe.
-3. **Sem garantia de segurança independente** — nenhum pentest externo; cadeia de fornecimento não-pinada/não-verificada (o pipeline que produz releases "de confiança" é o elo mais fraco).
-4. **Pré-release** (0.1.0 não lançada), **1 mantenedor**, **sem SLA**, breaking-changes permitidos em 0.x.
-5. **Escala/densidade não medida** — o caminho de attach faz dumps `nft` que crescem com o nº de containers; tudo medido em nó vazio.
+1. **Upgrade/rollback not tested** + impossible to patch running supervisors without recreating containers.
+2. **No HA / multi-node not proven E2E** — if the environment requires failover, it does not exist.
+3. **No independent security assurance** — no external pentest; unpinned/unverified supply chain (the pipeline that produces "trusted" releases is the weakest link).
+4. **Pre-release** (0.1.0 not released), **1 maintainer**, **no SLA**, breaking changes allowed in 0.x.
+5. **Scale/density not measured** — the attach path does `nft` dumps that grow with the number of containers; everything measured on an empty node.
 
-## A favor — genuíno e medido
+## In favour — genuine and measured
 
-Não é "Docker com menos features". Diferenciais **reais e medidos**: reconfiguração
-a quente sem mudar PID; daemonless ~2,3–3,5× menos latência no default (91 vs
-208/268 ms); **rede rootless governada** (incl. IPv6 dual-stack por omissão com
-política v6 por-workload — único dos três, ver `docs/comparacao-medida.md` §IPv6);
-container+microVM+CRI num só motor (kubelet real, `kindest/node` a `Ready`);
-segurança mais estrita por omissão (NNP sempre + check fail-closed); tectos de
-recursos obrigatórios (Docker/Podman deixam memória sem tecto).
+It is not "Docker with fewer features". **Real and measured** differentiators:
+hot reconfiguration without changing PID; daemonless ~2.3–3.5× lower latency on the
+default (91 vs 208/268 ms); **governed rootless networking** (incl. IPv6 dual-stack
+by default with per-workload v6 policy — the only one of the three, see
+`docs/comparacao-medida.md` §IPv6); container+microVM+CRI in a single engine (real
+kubelet, `kindest/node` `Ready`); stricter security by default (NNP always +
+fail-closed check); mandatory resource ceilings (Docker/Podman leave memory
+uncapped).
 
-## §5 — Onde SERIA GO (condicional)
+## §5 — Where it WOULD BE GO (conditional)
 
-Single-node, **sem requisito de failover**, imagens confiáveis, operador que aceita
-pré-1.0 e auto-suporte: **dev/CI, edge single-node, labs rootless-first,
-nó-k8s-sem-Docker**. Aí é PILOT credível e por vezes superior ao incumbente.
+Single-node, **no failover requirement**, trusted images, operator who accepts
+pre-1.0 and self-support: **dev/CI, single-node edge, rootless-first labs,
+k8s-node-without-Docker**. There it is a credible PILOT and sometimes superior to
+the incumbent.
 
-## §6 — Portão para virar GO em alta criticidade
+## §6 — Gate to become GO in high criticality
 
-Os 6 pontos cujo fecho vira o veredicto. Plano detalhado em
+The 6 points whose closure turns the verdict. Detailed plan in
 [plano-no-go-para-go.md](plano-no-go-para-go.md).
 
-1. **Segurança externa** — pentest externo da linha atual + SHA-pin dos Actions + feed CVE real + avaliar rootful/SELinux.
-2. **Release validada** — tag com CI verde + e2e/chaos/critest corridos NA tag (não o processo da v5.1.1).
-3. **Upgrade/rollback** — testados E2E + história de hot-patch de supervisores vivos.
-4. **HA/multi-nó** — provado E2E, OU failover excluído de âmbito e tecto single-node documentado.
-5. **Escala/densidade** — medida até um tecto declarado com SLOs.
-6. **Evidência actual** — re-medir o stale na versão que efetivamente envia.
+1. **External security** — external pentest of the current line + SHA-pin the Actions + real CVE feed + evaluate rootful/SELinux.
+2. **Validated release** — tag with green CI + e2e/chaos/critest run ON the tag (not the v5.1.1 process).
+3. **Upgrade/rollback** — tested E2E + hot-patch history of live supervisors.
+4. **HA/multi-node** — proven E2E, OR failover excluded from scope and single-node ceiling documented.
+5. **Scale/density** — measured up to a declared ceiling with SLOs.
+6. **Current evidence** — re-measure the stale data on the version actually shipped.

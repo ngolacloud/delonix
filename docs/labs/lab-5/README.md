@@ -1,112 +1,112 @@
-# Lab 5 — Uma microVM a sério
+# Lab 5 — A real microVM
 
-> **Identificador:** `lab-5` · **Nível:** intermédio · **Jornada:** primeiro contacto
+> **Identifier:** `lab-5` · **Level:** intermediate · **Journey:** first contact
 
-## Objectivo concreto
+## Concrete objective
 
-Provar o **ciclo de vida completo** de uma microVM com o mesmo CLI dos
-containers: criar a partir de uma imagem local, chegar a `Running` com IP, tirar
-um **checkpoint de sistema** (memória + disco) com a VM **a correr**, voltar
-atrás com `restore`, e desmontar com `vm destroy` **sem deixar órfãos**. A prova
-é funcional — lida de `vm ls -o json`, não de um exit-code solto.
+Prove the **complete lifecycle** of a microVM with the same CLI as
+containers: create from a local image, reach `Running` with an IP, take
+a **system checkpoint** (memory + disk) with the VM **running**, roll
+back with `restore`, and tear down with `vm destroy` **leaving no orphans**. The proof
+is functional — it reads from `vm ls -o json`, not a loose exit code.
 
-## Conhecimentos prévios
+## Prerequisite knowledge
 
-Terminal Linux e noção de VM. Os Labs 1–4 (containers) ajudam mas não são
-obrigatórios.
+Linux terminal and a notion of VMs. Labs 1–4 (containers) help but are not
+required.
 
-## Versão e ambiente testados
+## Tested version and environment
 
-> **Baseline histórica (linha 5.1.x):** os valores abaixo foram medidos na linha antiga e **ainda não foram re-medidos na linha 0.1.0 actual**.
+> **Historical baseline (5.1.x line):** the values below were measured on the old line and **have not yet been re-measured on the current 0.1.0 line**.
 
-`delonix 5.1.1`, Linux com libvirt, execução rootless. Validado a 2026-10-24
-(ciclo `create → Running+IP → snapshot a correr → restore → destroy`, positivo
-`EXIT=0`; modos de falha «VM nunca arrancou», «sem IP» e «snapshot/restore
-falhou» comprovados a dar `EXIT=1`).
+`delonix 5.1.1`, Linux with libvirt, rootless execution. Validated on 2026-10-24
+(cycle `create → Running+IP → snapshot while running → restore → destroy`, positive
+`EXIT=0`; failure modes "VM never booted", "no IP", and "snapshot/restore
+failed" confirmed to yield `EXIT=1`).
 
-## Recursos mínimos
+## Minimum resources
 
-Uma **imagem de VM local** (ex.: `k8s-golden`, ~634 MiB) — o arnês escolhe uma
-de `vm image ls` para não descarregar GiB. O overlay por-VM ronda ~350 MiB.
+A **local VM image** (e.g. `k8s-golden`, ~634 MiB) — the harness picks one
+from `vm image ls` so as not to download GiBs. The per-VM overlay is around ~350 MiB.
 
-## Privilégios e acessos necessários
+## Required privileges and access
 
-Nenhum `sudo` para o caminho rootless libvirt deste host.
+No `sudo` for this host's rootless libvirt path.
 
-## Duração estimada
+## Estimated duration
 
-~10–20 segundos com a imagem em cache (dominado pelo arranque e pelo DHCP).
+~10–20 seconds with the image cached (dominated by boot and DHCP).
 
-## Correção de documentação que este lab trouxe
+## Documentation correction this lab brought
 
-O texto antigo do Lab 5 tinha **dois erros** que o teste ao vivo expôs e que aqui
-ficam corrigidos:
+The old Lab 5 text had **two errors** that the live test exposed and that are
+now fixed here:
 
-- o teardown é **`vm destroy <nome>`**, não `delonix delete vms <nome>` (este
-  último erra `DX-4000 no such resource kind 'vms'`);
-- um snapshot de uma VM **parada não falha** — é **disk-only** (suportado). O que
-  `vm stop` faz *undefine* é o **domínio em execução**; disco, record e snapshots
-  persistem.
+- teardown is **`vm destroy <name>`**, not `delonix delete vms <name>` (the
+  latter errors with `DX-4000 no such resource kind 'vms'`);
+- a snapshot of a **stopped** VM does **not** fail — it is **disk-only** (supported). What
+  `vm stop` *undefines* is the **running domain**; disk, record, and snapshots
+  persist.
 
-## Ficheiros de preparação
+## Preparation files
 
-Nenhum ficheiro externo. O arnês está nesta pasta:
+No external files. The harness lives in this folder:
 
-| Ficheiro | Fase |
+| File | Phase |
 |---|---|
-| `prepare.sh` | garante binário + imagem de VM local; destrói restos |
-| `run.sh`     | `create` → espera Running+IP → `snapshot create` (a correr) → `restore` |
-| `verify.sh`  | asserção do ciclo de vida e do teardown sem órfãos |
-| `cleanup.sh` | `vm destroy` idempotente (o verify já destrói no passo D) |
-| `lab.sh`     | orquestrador `prepare → run → verify → cleanup` |
+| `prepare.sh` | ensures binary + local VM image; destroys leftovers |
+| `run.sh`     | `create` → waits for Running+IP → `snapshot create` (while running) → `restore` |
+| `verify.sh`  | asserts the lifecycle and teardown with no orphans |
+| `cleanup.sh` | idempotent `vm destroy` (verify already destroys it at step D) |
+| `lab.sh`     | orchestrator `prepare → run → verify → cleanup` |
 
-## Como correr
+## How to run
 
 ```bash
-# com o delonix no PATH (instalação normal):
+# with delonix on the PATH (normal install):
 bash docs/labs/lab-5/lab.sh
 
-# apontando a um binário específico (ex.: build local):
-DELONIX=/caminho/para/delonix bash docs/labs/lab-5/lab.sh
+# pointing at a specific binary (e.g. a local build):
+DELONIX=/path/to/delonix bash docs/labs/lab-5/lab.sh
 ```
 
-> Nota: o `verify` destrói a VM no passo D (é a asserção de teardown). Para
-> explorar a VM (`vm console`/`vm ssh`), corre só `prepare.sh` + `run.sh` e pára
-> antes do `verify`.
+> Note: `verify` destroys the VM at step D (it is the teardown assertion). To
+> explore the VM (`vm console`/`vm ssh`), run only `prepare.sh` + `run.sh` and stop
+> before `verify`.
 
-## Passos (o que `run.sh` faz) e porquê
+## Steps (what `run.sh` does) and why
 
-1. `vm create lab5vm --disk <imagem>` — um overlay por-VM a partir da imagem
-   local (fixada para ser reproduzível e não descarregar GiB).
-2. Espera `Running` com IPv4 (cloud-init/DHCP demora) — lido de `vm ls -o json`.
-3. `vm snapshot create lab5vm limpa` **com a VM a correr** → checkpoint de
-   **memória + disco**.
-4. `vm snapshot restore lab5vm limpa` — volta ao checkpoint.
+1. `vm create lab5vm --disk <image>` — a per-VM overlay from the local
+   image (pinned to be reproducible and not download GiBs).
+2. Waits for `Running` with IPv4 (cloud-init/DHCP takes time) — read from `vm ls -o json`.
+3. `vm snapshot create lab5vm clean` **with the VM running** → checkpoint of
+   **memory + disk**.
+4. `vm snapshot restore lab5vm clean` — rolls back to the checkpoint.
 
-## Checkpoints / asserções de sucesso (o que `verify.sh` exige)
+## Checkpoints / success assertions (what `verify.sh` requires)
 
-- **A** — a VM está **`Running`** com **IPv4** válido (retry; distingue «nunca
-  Running» de «Running sem IP»).
-- **B** — o snapshot `limpa` aparece em `vm snapshot ls` (checkpoint vivo).
-- **C** — depois do `restore`, a VM volta a `Running` com IP.
-- **D** — `vm destroy` remove tudo e **não deixa órfãos**: `describe vm` deixa de
-  resolver (`DX-4501`) e a VM sai do `vm ls`. Falha em voz alta se algo ficar
-  para trás.
+- **A** — the VM is **`Running`** with a valid **IPv4** (retry; distinguishes "never
+  Running" from "Running without IP").
+- **B** — the `clean` snapshot appears in `vm snapshot ls` (live checkpoint).
+- **C** — after `restore`, the VM returns to `Running` with an IP.
+- **D** — `vm destroy` removes everything and **leaves no orphans**: `describe vm` no longer
+  resolves (`DX-4501`) and the VM drops out of `vm ls`. Fails loudly if anything is left
+  behind.
 
-## Limpeza
+## Cleanup
 
-`cleanup.sh` faz `vm destroy` da VM se ainda existir (idempotente — o `verify` já
-a destrói no passo D). **Não** remove as imagens de VM locais (outros labs
-reutilizam-nas).
+`cleanup.sh` runs `vm destroy` on the VM if it still exists (idempotent — `verify` already
+destroys it at step D). It does **not** remove the local VM images (other labs
+reuse them).
 
-## Resultado aprendido
+## Lesson learned
 
-Uma microVM tem o mesmo ciclo de vida de um container, pelo mesmo CLI, com uma
-diferença de peso: o snapshot com a VM a correr é um **checkpoint de sistema**
-(memória + disco), não só o disco. E o teardown correto — `vm destroy` — leva
-disco, snapshots e record de uma vez, sem deixar órfãos.
+A microVM has the same lifecycle as a container, through the same CLI, with one
+significant difference: a snapshot taken while the VM is running is a **system checkpoint**
+(memory + disk), not just the disk. And the correct teardown — `vm destroy` — takes
+disk, snapshots, and record in one go, leaving no orphans.
 
-## Próximo lab
+## Next lab
 
-**Lab 6 — A tua própria imagem de VM, com VMfile** (construir uma qcow2 à tua
-medida).
+**Lab 6 — Your own VM image, with a VMfile** (build a custom-tailored
+qcow2).

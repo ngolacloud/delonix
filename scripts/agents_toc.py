@@ -78,7 +78,7 @@ def section_titles(text: str) -> list[str]:
 
 def render_toc(titles: list[str]) -> str:
     seen: dict[str, int] = {}
-    lines = [BEGIN, "", f"## Índice ({len(titles)} secções)", ""]
+    lines = [BEGIN, "", f"## Index ({len(titles)} sections)", ""]
     for title in titles:
         anchor = github_slug(title, seen)
         lines.append(f"- [{title}](#{anchor})")

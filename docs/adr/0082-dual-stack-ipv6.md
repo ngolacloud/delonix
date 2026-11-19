@@ -1,63 +1,63 @@
-# ADR-0082 — Dual-stack IPv6 (plano faseado)
+# ADR-0082 — Dual-stack IPv6 (phased plan)
 
-**Estado:** Proposto (Fase 1 — design). **Data:** 2026-11-01.
-**Relaciona:** a recusa deliberada actual em `delonix-sdn/src/infra.rs`
+**Status:** Proposed (Phase 1 — design). **Date:** 2026-11-01.
+**Relates to:** the current deliberate refusal in `delonix-sdn/src/infra.rs`
 (`ipv6_sdn_enabled`, `disable_ipv6_argv`, `ingress_v6_refusal_ruleset`).
 
-## Contexto
+## Context
 
-Hoje o IPv6 está **desligado de propósito**, em duas camadas: (1) `disable_ipv6`
-(sysctl) em cada netns de container; (2) `table ip6 <ingress> forward drop` no
-holder. `DELONIX_ENABLE_IPV6=1` é um escape **inseguro e ruidoso**.
+Today IPv6 is **deliberately disabled**, in two layers: (1) `disable_ipv6`
+(sysctl) in each container netns; (2) `table ip6 <ingress> forward drop` in the
+holder. `DELONIX_ENABLE_IPV6=1` is an **unsafe and noisy** escape hatch.
 
-A razão é uma **invariante de segurança**, não falta de trabalho: **todo o
-firewall é `table ip` (só-IPv4)** — `ingress`, `egress`, `policy deny`,
-isolamento por namespace, `kind: Dependency` e o guard L4 são todos IPv4. Um
-endereço v6 (ULA derivável do v4) contornaria **todas** essas políticas.
+The reason is a **security invariant**, not missing work: **the whole
+firewall is `table ip` (IPv4 only)** — `ingress`, `egress`, `policy deny`,
+namespace isolation, `kind: Dependency`, and the L4 guard are all IPv4. A
+v6 address (a ULA derivable from v4) would bypass **all** of these policies.
 
-### Descoberta que fixa o faseamento (2026-11-01)
+### Finding that fixes the phasing (2026-11-01)
 
-Não há atalho "ligar só uma fatia":
-- **Nem o host-mode via slirp** é seguro ligar isoladamente: a política de
-  **egress** também é `table ip` (v4), por isso v6 egress (mesmo via slirp NAT)
-  **contornaria `egress: deny`** — exfiltração sobre v6.
-- O **firewall v6 precisa de endereços v6** para escrever as regras (`ip6 saddr/
-  daddr`), e esses endereços vêm do IPAM (hoje só v4).
+There is no shortcut to "turn on just one slice":
+- **Not even host-mode via slirp is safe to enable in isolation**: **egress**
+  policy is also `table ip` (v4), so v6 egress (even via slirp NAT)
+  **would bypass `egress: deny`** — exfiltration over v6.
+- The **v6 firewall needs v6 addresses** to write its rules (`ip6 saddr/
+  daddr`), and those addresses come from IPAM (today v4 only).
 
-**INVARIANTE (não negociável):** nenhum caminho de v6 (ingress OU egress, host-
-mode OU bridge) é ligado antes de o firewall dual-family cobrir v6. O default
-mantém-se v6-OFF em cada fase até a Fase 4.
+**INVARIANT (non-negotiable):** no v6 path (ingress OR egress, host-
+mode OR bridge) is enabled before the dual-family firewall covers v6. The
+default stays v6-OFF in every phase until Phase 4.
 
-## Decisão — alvo e fases
+## Decision — target and phases
 
-**Alvo** (já nomeado pelo próprio código): migrar o firewall de `table ip` para
-**`table inet`** (dual-family v4+v6), com **IPAM v6 (ULA `fd00::/8`)** e **sets
-v6** a par dos `ipv4_addr`. Executar por fases, cada uma commit+teste próprios, e
-**v6 só fica realmente ligado na Fase 4**, com prova live.
+**Target** (already named by the code itself): migrate the firewall from `table ip` to
+**`table inet`** (dual-family v4+v6), with **v6 IPAM (ULA `fd00::/8`)** and **v6
+sets** alongside the `ipv4_addr` ones. Execute in phases, each with its own commit and
+tests, and **v6 is only really enabled in Phase 4**, with live proof.
 
-| Fase | Âmbito | Ficheiros | Prova | Liga v6? |
+| Phase | Scope | Files | Proof | Enables v6? |
 |---|---|---|---|---|
-| **1 — Design** (esta) | Invariante + plano + alvo `table inet` | `docs/adr/0082` | revisão | não |
-| **2 — IPAM v6 (ULA)** | Derivação determinística de um ULA por `(rede,id)`, a par do `derive_ip_in` v4; registo dual-stack por rede | `delonix-sdn/src/{lib.rs,ipam.rs}` | unit (ULA estável, sem colisão, dentro do /64) — **inerte** (nada o consome ainda) | não |
-| **3 — Firewall dual-family** | `table ip`→`table inet`; cada regra ganha o par `ip6 saddr/daddr`; sets `ipv6_addr` a par dos `ipv4_addr`; egress+ingress+policy+namespace+Dependency cobrem v6; remover `ingress_v6_refusal` (substituído por filtragem real) | `delonix-sdn/src/{policy_nft.rs,infra.rs}` | unit (ruleset dual rende verdicts golden p/ v4 **e** v6); v4 byte-idêntico ao actual (sem regressão) | não (sets v6 vazios até a 4) |
-| **4 — Datapath + habilitar** | Parar `disable_ipv6` quando a rede é dual-stack; atribuir o ULA na netns; gateway/RA v6 na bridge; slirp `--enable-ipv6` (host-mode); opt-in por rede (`network create --ipv6`) | `delonix-sdn/src/{infra.rs,lib.rs}`, `bins/.../cmd/{network.rs,container.rs}` | **live**: container numa rede dual-stack recebe v4+v6, `egress: deny` bloqueia v6, isolamento de namespace vale em v6 | **SIM** |
-| **5 — Contratos** | `--ip` v6, publicação de portas v6, DNS interno AAAA, `provider matrix` `net.ipv6`→supported (c/ evidência) | `delonix-sdn`, `delonix-node-api`, docs | live + gate de capacidade | sim |
+| **1 — Design** (this one) | Invariant + plan + `table inet` target | `docs/adr/0082` | review | no |
+| **2 — v6 IPAM (ULA)** | Deterministic derivation of a ULA per `(network,id)`, alongside the v4 `derive_ip_in`; dual-stack record per network | `delonix-sdn/src/{lib.rs,ipam.rs}` | unit (stable ULA, no collision, within the /64) — **inert** (nothing consumes it yet) | no |
+| **3 — Dual-family firewall** | `table ip`→`table inet`; every rule gains the `ip6 saddr/daddr` pair; `ipv6_addr` sets alongside `ipv4_addr`; egress+ingress+policy+namespace+Dependency cover v6; remove `ingress_v6_refusal` (replaced by real filtering) | `delonix-sdn/src/{policy_nft.rs,infra.rs}` | unit (dual ruleset renders golden verdicts for v4 **and** v6); v4 byte-identical to current (no regression) | no (v6 sets empty until phase 4) |
+| **4 — Datapath + enable** | Stop `disable_ipv6` when the network is dual-stack; assign the ULA in the netns; v6 gateway/RA on the bridge; slirp `--enable-ipv6` (host-mode); opt-in per network (`network create --ipv6`) | `delonix-sdn/src/{infra.rs,lib.rs}`, `bins/.../cmd/{network.rs,container.rs}` | **live**: a container on a dual-stack network gets v4+v6, `egress: deny` blocks v6, namespace isolation holds for v6 | **YES** |
+| **5 — Contracts** | v6 `--ip`, v6 port publishing, internal AAAA DNS, `provider matrix` `net.ipv6`→supported (with evidence) | `delonix-sdn`, `delonix-node-api`, docs | live + capability gate | yes |
 
-## Consequências
+## Consequences
 
-- Até à Fase 4 o comportamento observável **não muda** (v6 OFF); as Fases 2–3
-  são fundação inerte + testada → zero risco de regressão de segurança.
-- A capacidade `net.ipv6` **só** vira `supported` na Fase 4/5, com prova live de
-  que egress/ingress/isolamento valem em v6 — nunca antes (senão era o escape
-  inseguro actual com outro nome).
-- `DELONIX_ENABLE_IPV6=1` (escape inseguro) é **removido** quando a Fase 4
-  entregar v6 filtrado.
-- Custo: a Fase 3 (`table inet`) toca o caminho quente do firewall — exige que
-  o output v4 fique byte-idêntico (os testes golden de `policy_nft` são o guarda).
+- Through Phase 4, observable behavior **does not change** (v6 OFF); Phases 2–3
+  are inert, tested foundation → zero security regression risk.
+- The `net.ipv6` capability **only** turns `supported` in Phase 4/5, with live proof
+  that egress/ingress/isolation hold for v6 — never before (otherwise it would be
+  today's unsafe escape hatch with another name).
+- `DELONIX_ENABLE_IPV6=1` (the unsafe escape hatch) is **removed** once Phase 4
+  delivers filtered v6.
+- Cost: Phase 3 (`table inet`) touches the firewall's hot path — it requires the
+  v4 output to stay byte-identical (the `policy_nft` golden tests are the guard).
 
-## Porque NÃO foi feito mais nesta sessão
+## Why no more was done in this session
 
-A Fase 1 é design por integridade: ligar v6 em qualquer fatia antes da Fase 3/4
-reintroduziria exactamente o buraco que a recusa actual fecha (v6 sem política de
-egress). O primeiro código seguro é a Fase 2 (IPAM v6, inerte). Não se finge
-"IPv6 suportado" com uma mudança parcial não-filtrada.
+Phase 1 is design, for integrity's sake: enabling v6 in any slice before Phase 3/4
+would reintroduce exactly the hole the current refusal closes (v6 with no egress
+policy). The first safe code is Phase 2 (v6 IPAM, inert). "IPv6 supported" is not
+faked with a partial, unfiltered change.

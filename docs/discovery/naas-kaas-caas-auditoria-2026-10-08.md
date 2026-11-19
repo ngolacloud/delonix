@@ -22,8 +22,8 @@ Each was produced by an independent pass that read the **current code** (grep, `
 real function signatures, existing tests) and used `AGENTS.md`'s ~9,000 lines of history
 only as a map of where to look — never as a substitute for checking the code, because this
 repo's own history is full of entries correcting exactly that mistake. Every "PASS
-medido" claim below cites the test or `e2e.sh` section that proves it; every "PASS por
-leitura" is explicitly a weaker claim (code reads as correct, no dedicated test found in
+measured" claim below cites the test or `e2e.sh` section that proves it; every "PASS by
+reading" is explicitly a weaker claim (code reads as correct, no dedicated test found in
 this pass); every "GAP" names the file and function.
 
 ---
@@ -832,7 +832,7 @@ python3 scripts/arch_fitness.py (after 4.7, 4.8)                              �
 
 Each fix's regression test was individually reverted and re-run to confirm it fails
 without the fix (documented in the test's own comment and in §4 above), per this repo's
-own "prova medida, não afirmada" discipline — never trusting that a new assertion catches
+own "measured proof, not asserted proof" discipline — never trusting that a new assertion catches
 what it claims to without having watched it fail first.
 
 **Live, on the real host** (§4.6): `cluster kubeadm --control-plane 1 --workers 0` with
@@ -854,8 +854,8 @@ of ADR-0040, not something to improvise under an unrelated task). What this audi
 and leaves written down, for whoever does that work next:
 
 - The async-operation contract (`operations::begin/finish/replay`) is production-quality
-  and already handles exactly the case the brief's §9 asks for ("consulta do estado após
-  timeout antes de repetir operações") — it just needs to be the mechanism EVERY mutating
+  and already handles exactly the case the brief's §9 asks for ("query the state after a
+  timeout before repeating operations") — it just needs to be the mechanism EVERY mutating
   RPC uses, not 2 of 22.
 - `GetHealth`/`GetCapacity`/`WatchEvents` on `NodeService` are `UNIMPLEMENTED`, with the
   ADR-0042 phase that is supposed to bring them named in the response itself — not a silent

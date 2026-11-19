@@ -1,116 +1,121 @@
-# 53 — P1b: spike do `delonix-launcher` e do holder de rede (ADR-0040)
+# 53 — P1b: spike of the `delonix-launcher` and the network holder (ADR-0040)
 
-**Data:** 2026-09-16 · **Base:** `fix/p0-findings` (`636ccaf1`, v3.1.0 +64 commits) ·
-**Veredicto: GO com uma condição** — o holder de rede tem de criar os seus namespaces
-dentro do próprio processo.
+**Date:** 2026-09-16 · **Base:** `fix/p0-findings` (`636ccaf1`, v3.1.0 +64 commits) ·
+**Verdict: GO with one condition** — the network holder must create its namespaces
+inside its own process.
 
-## A pergunta
+## The question
 
-O ADR-0040 (D2.4) separa o executável `delonix` em binários com um papel cada, e quer que
-**só** o `delonix-launcher` e o `delonix-netns-holder` precisem de criar user namespaces.
-Num Ubuntu com `kernel.apparmor_restrict_unprivileged_userns=1`, isso significa um perfil
-AppArmor com `userns` nesses dois caminhos e **nenhum** na CLI. A pergunta do portão P1b:
-isso funciona, ou a restrição parte o motor por dentro?
+ADR-0040 (D2.4) splits the `delonix` executable into binaries with one role each, and
+wants **only** `delonix-launcher` and `delonix-netns-holder` to need to create user
+namespaces. On an Ubuntu with `kernel.apparmor_restrict_unprivileged_userns=1`, that means
+an AppArmor profile with `userns` on those two paths and **none** on the CLI. The P1b
+gate question: does this work, or does the restriction break the engine from within?
 
-## Como se mediu
+## How it was measured
 
-- VM `p1b-launcher` criada pelo próprio motor a partir da `delonix-vm-base:ubuntu-24.04`
-  (libvirt, 2 vCPU, 2 GiB), raiz de estado isolada no host.
-- No convidado: Ubuntu 24.04.4 LTS, kernel 6.8.0-136-generic,
+- VM `p1b-launcher` created by the engine itself from `delonix-vm-base:ubuntu-24.04`
+  (libvirt, 2 vCPU, 2 GiB), state root isolated on the host.
+- Inside the guest: Ubuntu 24.04.4 LTS, kernel 6.8.0-136-generic,
   `kernel.apparmor_restrict_unprivileged_userns = 1`, AppArmor parser 4.0.1,
-  util-linux 2.39.3, uidmap 4.13. Utilizador sem privilégio (`delonix`, subuid
+  util-linux 2.39.3, uidmap 4.13. Unprivileged user (`delonix`, subuid
   `100000:65536`).
-- **O mesmo binário** (build desta árvore, sem símbolos) instalado em três caminhos:
-  `/opt/p1b/delonix` (sem perfil, faz de CLI), `/opt/p1b/delonix-launcher` e
-  `/opt/p1b/delonix-netns-holder`. O AppArmor autoriza por caminho, por isso três cópias
-  do mesmo ficheiro são a forma honesta de isolar a variável.
-- A matriz (`53_P1B_LAUNCHER_SPIKE/matrix.sh`) corre as operações que criam namespaces:
-  `container run`, `run -d`, `exec`, `cp` num container parado (re-exec `__ovlhold`),
-  `rm` (re-exec `__rmtree`) e o pin de rede (`net netns up`). Cada caminho tem a sua raiz.
-- Duas corridas, com o output em bruto guardado ao lado deste ficheiro: sem perfis
-  (`matrix-base.txt`), e com perfis `unconfined + userns` só para o launcher e o holder
-  (`matrix-profiles.txt`). Controlo: o `/usr/local/bin/delonix` que a imagem traz, com o
-  perfil que o `install.sh` escreve.
+- **The same binary** (built from this tree, no symbols) installed on three paths:
+  `/opt/p1b/delonix` (no profile, acts as CLI), `/opt/p1b/delonix-launcher` and
+  `/opt/p1b/delonix-netns-holder`. AppArmor authorises by path, so three copies of the
+  same file are the honest way to isolate the variable.
+- The matrix (`53_P1B_LAUNCHER_SPIKE/matrix.sh`) runs the namespace-creating operations:
+  `container run`, `run -d`, `exec`, `cp` on a stopped container (re-exec `__ovlhold`),
+  `rm` (re-exec `__rmtree`) and the network pin (`net netns up`). Each path has its own
+  root.
+- Two runs, with the raw output stored alongside this file: without profiles
+  (`matrix-base.txt`), and with `unconfined + userns` profiles only for the launcher and
+  the holder (`matrix-profiles.txt`). Control: the `/usr/local/bin/delonix` the image
+  ships, with the profile `install.sh` writes.
 
-## O que se mediu
+## What was measured
 
-| Operação | CLI sem `userns` | Launcher com `userns` |
+| Operation | CLI without `userns` | Launcher with `userns` |
 |---|---|---|
 | `image load` | rc=0 | rc=0 |
 | `container run --net none` | **rc=126** `failed to prepare the rootfs: EPERM` | rc=0 |
 | `container run -d` + `exec` | run **rc=0**, exec rc=3 `container is not running` | rc=0 / rc=0 |
-| `container cp` de um parado (`__ovlhold`) | **rc=1** `__ovlhold unshare: EPERM` | rc=0 |
+| `container cp` on a stopped one (`__ovlhold`) | **rc=1** `__ovlhold unshare: EPERM` | rc=0 |
 | `container rm` (`__rmtree`) | rc=0 | rc=0 |
-| `net netns up` (pin) | **rc=1** `timeout waiting for the netns holder` | rc=1 `control socket: No such file` — **não é o AppArmor**, ver «Correcção» |
+| `net netns up` (pin) | **rc=1** `timeout waiting for the netns holder` | rc=1 `control socket: No such file` — **not AppArmor**, see «Correction» |
 
-1. **Launcher: GO.** Com o perfil só no caminho do launcher, tudo o que cria namespaces
-   para containers passa — incluindo os re-execs `__ovlhold`/`__rmtree`, que re-executam
-   `current_exe()` e por isso herdam o caminho, e com ele o perfil. O mesmo binário noutro
-   caminho, sem perfil, é recusado. A separação do D2.4 é viável.
-2. **Holder: NÃO na divisão do D2.4, e a prova que aqui estava era a errada** (ver
-   «Correcção», abaixo). O pin arranca com `Command::new("unshare") --user --map-root-user
-   --net --mount -- <exe> netns pin` (`delonix-net/src/infra.rs`, `start_pin`), e quem cria
-   o user namespace é o **`/usr/bin/unshare`**. Isso só passa enquanto o CHAMADOR tem um
-   perfil com `userns`, porque um perfil `unconfined` é herdado no `exec`; um chamador sem
-   perfil faz o `unshare(1)` cair no `unprivileged_userns` e o `mount` é negado. Dar
-   `userns` ao `/usr/bin/unshare` abriria user namespaces a qualquer utilizador e anularia
-   a restrição — não é opção.
-3. **O caminho que funciona já está provado pelo launcher:** um binário com perfil que
-   chama `unshare(2)` e `newuidmap` DENTRO do próprio processo (o `reexec_mapped` faz
-   exactamente isso) passa. A condição do GO é o holder fazer o mesmo.
-4. **Upgrade in-place (lido no código, sem VM):** o pin é reconhecido pelo par `netns pin`
-   no argv e pelas variáveis de ambiente que o motor fixa (`argv_matches`,
-   `env_names_this_root`), nunca pelo nome do binário — e já há precedente de aceitar a
-   grafia antiga (`is_pre_split_holder`, `netns holder`, anterior à v0.42.0). Um
-   `delonix-netns-holder` reconhece um pin arrancado por `delonix netns pin` desde que
-   mantenha essa regra; é um teste puro quando o binário existir.
+1. **Launcher: GO.** With the profile only on the launcher's path, everything that
+   creates namespaces for containers passes — including the `__ovlhold`/`__rmtree`
+   re-execs, which re-exec `current_exe()` and so inherit the path, and with it the
+   profile. The same binary on another path, without a profile, is refused. D2.4's split
+   is viable.
+2. **Holder: NOT per the D2.4 split, and the proof here was the wrong one** (see
+   «Correction», below). The pin starts with `Command::new("unshare") --user
+   --map-root-user --net --mount -- <exe> netns pin` (`delonix-net/src/infra.rs`,
+   `start_pin`), and it is **`/usr/bin/unshare`** that creates the user namespace. This
+   only passes while the CALLER has a profile with `userns`, because an `unconfined`
+   profile is inherited on `exec`; a caller without a profile makes the `unshare(1)` hit
+   `unprivileged_userns` and the `mount` is denied. Giving `userns` to `/usr/bin/unshare`
+   would open user namespaces to any user and void the restriction — not an option.
+3. **The path that works is already proven by the launcher:** a binary with a profile
+   that calls `unshare(2)` and `newuidmap` INSIDE its own process (`reexec_mapped` does
+   exactly this) passes. The condition for GO is the holder doing the same.
+4. **In-place upgrade (read in the code, no VM):** the pin is recognised by the `netns
+   pin` pair in the argv and by the environment variables the engine sets
+   (`argv_matches`, `env_names_this_root`), never by the binary's name — and there is
+   already precedent for accepting the old spelling (`is_pre_split_holder`, `netns
+   holder`, prior to v0.42.0). A `delonix-netns-holder` recognises a pin started by
+   `delonix netns pin` as long as it keeps that rule; it is a pure test once the binary
+   exists.
 
-## Correcção (2026-09-16, depois do spike)
+## Correction (2026-09-16, after the spike)
 
-A linha do pin na coluna do launcher **foi mal lida**. A saída em bruto
-(`matrix-profiles.txt`) diz `control socket: No such file or directory`, não um timeout do
-holder: a matriz punha `DELONIX_NET_RUNTIME_DIR` em `/run/user/<uid>/…`, e o control monta
-um tmpfs em `/run` dentro do mount namespace do pin, o que esconde o socket. É um defeito
-próprio, independente do AppArmor.
+The pin line in the launcher column **was misread**. The raw output
+(`matrix-profiles.txt`) says `control socket: No such file or directory`, not a holder
+timeout: the matrix set `DELONIX_NET_RUNTIME_DIR` to `/run/user/<uid>/…`, and the control
+process mounts a tmpfs on `/run` inside the pin's mount namespace, which hides the socket.
+It is its own defect, independent of AppArmor.
 
-Remedido na mesma imagem, com a restrição a 1 (`pin-matrix.sh`, saída em
-`pin-matrix-result.txt`): binário da base (`unshare(1)`) e binário com o pin a criar os
-namespaces no próprio processo, cada um num caminho com perfil e noutro sem, e a pasta de
-runtime em `/tmp` e em `/run`.
+Remeasured on the same image, with the restriction set to 1 (`pin-matrix.sh`, output in
+`pin-matrix-result.txt`): the base binary (`unshare(1)`) and the binary with the pin
+creating namespaces in its own process, each on one path with a profile and another
+without, and the runtime folder in `/tmp` and in `/run`.
 
-| Binário | Perfil no caminho | `/tmp` | `/run` |
+| Binary | Profile on path | `/tmp` | `/run` |
 |---|---|---|---|
-| base, `unshare(1)` | sim | **UP** (456 ms) | `control socket: No such file` |
-| pin no próprio processo | sim | **UP** (393 ms) | `control socket: No such file` |
-| base, `unshare(1)` | não | timeout de 5 s | timeout de 5 s |
-| pin no próprio processo | não | recusa em ~170 ms com a razão (`mount … EACCES`) | igual |
+| base, `unshare(1)` | yes | **UP** (456 ms) | `control socket: No such file` |
+| pin in its own process | yes | **UP** (393 ms) | `control socket: No such file` |
+| base, `unshare(1)` | no | 5 s timeout | 5 s timeout |
+| pin in its own process | no | refused in ~170 ms with the reason (`mount … EACCES`) | same |
 
-O audit explica a primeira linha: nas corridas com perfil não há nenhum `userns_create`
-transitado para `unprivileged_userns` — o `unshare(1)` herdou o perfil do chamador. Nas
-corridas sem perfil há, com `comm="unshare"`. Portanto:
+The audit explains the first line: in the runs with a profile there is no
+`userns_create` landing on `unprivileged_userns` — `unshare(1)` inherited the caller's
+profile. In the runs without a profile there is, with `comm="unshare"`. Therefore:
 
-- **Com a CLI e o holder no mesmo caminho com perfil (o `install.sh` de hoje), o `unshare(1)`
-  funciona.** O spike não mostrou o contrário.
-- **A condição do D2.4 mantém-se, por outra razão:** com o perfil só no holder, o chamador
-  não tem perfil, e o `unshare(1)` que ele lança cai no `unprivileged_userns` — medido na
-  linha «sem perfil». Tem de ser o executável do holder a chamar `unshare(2)`.
-- **A pasta de runtime debaixo de `/run` parte o control** em qualquer binário. Fica
-  registado como defeito à parte.
+- **With the CLI and the holder on the same profiled path (today's `install.sh`),
+  `unshare(1)` works.** The spike did not show the contrary.
+- **D2.4's condition still holds, for a different reason:** with the profile only on the
+  holder, the caller has no profile, and the `unshare(1)` it launches hits
+  `unprivileged_userns` — measured in the «no profile» line. It has to be the holder's
+  own executable calling `unshare(2)`.
+- **A runtime folder under `/run` breaks control** on any binary. Recorded as a separate
+  defect.
 
-## Achado lateral
+## Side finding
 
-**`container run -d` responde rc=0 com o container morto.** Com a restrição activa e sem
-perfil, o init do container morre a preparar o rootfs (`EPERM`), o `run -d` devolve o id e
-**sai 0**, e só o `exec` seguinte diz `container is not running`. O `AGENTS.md` já o
-registava como decisão por tomar («um run -d cujo init morre a montar continua a reportar
-o que reportava»); aqui está medido num host real com uma causa comum. Merece correcção
-própria: um script ou CI lê este `0` como sucesso.
+**`container run -d` reports rc=0 with a dead container.** With the restriction active
+and no profile, the container's init dies preparing the rootfs (`EPERM`), `run -d`
+returns the id and **exits 0**, and only the following `exec` says `container is not
+running`. `AGENTS.md` already recorded this as a decision pending («a `run -d` whose init
+dies while mounting keeps reporting what it reported»); here it is measured on a real host
+with a common cause. Deserves its own fix: a script or CI reading this `0` as success.
 
-## Não validado
+## Not validated
 
-- A criação no próprio processo foi escrita depois (branch `fix/holder-in-process-userns`)
-  e medida na tabela da «Correcção», mas **com a CLI e o pin no mesmo caminho**: a divisão
-  em dois executáveis ainda não existe.
-- `--net <rede-custom>` e pods (precisam do holder) não foram medidos.
-- Só rootless, só libvirt, só Ubuntu 24.04. A imagem dourada usada é de 2026-08-12.
-- Build de debug (sem símbolos), não uma release.
+- In-process creation was written afterwards (branch `fix/holder-in-process-userns`) and
+  measured in the «Correction» table, but **with the CLI and the pin on the same path**:
+  the split into two executables does not exist yet.
+- `--net <custom-network>` and pods (which need the holder) were not measured.
+- Rootless only, libvirt only, Ubuntu 24.04 only. The golden image used is from
+  2026-08-12.
+- Debug build (no symbols), not a release.

@@ -25,27 +25,27 @@ pub fn default_net() -> String {
     "host".to_string()
 }
 
-/// Valida uma entrada `--add-host`, no formato `name:ip` (o do Docker).
+/// Validates an `--add-host` entry, in the `name:ip` format (Docker's).
 ///
-/// Devolve `(nome, ip)` normalizados, ou o erro a mostrar. Validar AQUI, na
-/// fronteira, e não no sítio onde o ficheiro é escrito: uma entrada má tem de
-/// falhar antes de o contentor existir, não ser descartada em silêncio no
-/// arranque seguinte (a armadilha que este repo já converteu em erro para
-/// `--security-opt seccomp=`, `-v :z` e `--network-alias`).
+/// Returns the normalized `(name, ip)`, or the error to show. Validate HERE, at
+/// the boundary, and not where the file is written: a bad entry must fail before
+/// the container exists, never be dropped in silence on the next start (the trap
+/// this repo has already turned into an error for `--security-opt seccomp=`,
+/// `-v :z` and `--network-alias`).
 ///
-/// O `\n` é o ponto central: sem o recusar, uma entrada injecta linhas
-/// arbitrárias no `/etc/hosts`, o que — combinado com um symlink plantado
-/// pela imagem — dava escrita de conteúdo escolhido fora do rootfs.
+/// The `\n` is the crux: without refusing it, an entry injects arbitrary lines
+/// into `/etc/hosts` which — combined with a symlink planted by the image —
+/// gave a write of chosen content outside the rootfs.
 ///
-/// Só a forma `name:ip`. A forma `name=ip` foi tentada e removida: como o
-/// `:` é procurado primeiro, `db=2001:db8::1` partia em `db=2001` + `db8::1`
-/// e escrevia uma entrada errada sem uma palavra. O Docker não a aceita.
+/// Only the `name:ip` form. The `name=ip` form was tried and removed: because
+/// the `:` is looked for first, `db=2001:db8::1` split into `db=2001` + `db8::1`
+/// and wrote a wrong entry without a word. Docker does not accept it.
 pub fn parse_add_host(entry: &str) -> std::result::Result<(String, String), String> {
-    // Parte no PRIMEIRO `:`, como o Docker (`SplitN(..., 2)`). O nome nunca
-    // contém `:` (a whitelist LDH abaixo garante-o), logo tudo o que vem
-    // depois é o endereço — e é assim que um IPv6 (`db:2001:db8::1`) fica
-    // inteiro. Com `rsplit_once` partia-se no último `:` e o IPv6 saía
-    // truncado; foi o teste que o apanhou.
+    // Split on the FIRST `:`, like Docker (`SplitN(..., 2)`). The name never
+    // contains `:` (the LDH whitelist below guarantees it), so everything after
+    // it is the address — and that is how an IPv6 (`db:2001:db8::1`) stays
+    // whole. With `rsplit_once` the split happened on the last `:` and the IPv6
+    // came out truncated; the test is what caught it.
     let Some((name, addr)) = entry.split_once(':') else {
         return Err(format!("invalid --add-host '{entry}': expected 'name:ip'"));
     };
@@ -56,10 +56,10 @@ pub fn parse_add_host(entry: &str) -> std::result::Result<(String, String), Stri
     if name.len() > 253 {
         return Err(format!("invalid --add-host '{entry}': name too long"));
     }
-    // Whitelist LDH. O `.` É permitido aqui — ao contrário de
-    // `valid_container_name`, que o recusa porque um nome de contentor entra
-    // no DNS PARTILHADO do holder e podia sequestrar um domínio para o nó
-    // inteiro. Isto escreve-se só no `/etc/hosts` do próprio contentor.
+    // LDH whitelist. The `.` IS allowed here — unlike `valid_container_name`,
+    // which refuses it because a container name enters the holder's SHARED DNS
+    // and could hijack a domain for the whole node. This is written only into
+    // the container's own `/etc/hosts`.
     if !name
         .bytes()
         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
@@ -68,9 +68,9 @@ pub fn parse_add_host(entry: &str) -> std::result::Result<(String, String), Stri
             "invalid --add-host '{entry}': name may only contain letters, digits, '.', '-' and '_'"
         ));
     }
-    // O endereço é PARSEADO, não copiado. É o que torna a injecção
-    // estruturalmente impossível deste lado — o mesmo que o Docker faz ao
-    // guardar um `netip.Addr` em vez de uma string.
+    // The address is PARSED, not copied. That is what makes injection
+    // structurally impossible on this side — the same thing Docker does by
+    // storing a `netip.Addr` rather than a string.
     let ip: std::net::IpAddr = addr
         .parse()
         .map_err(|_| format!("invalid --add-host '{entry}': '{addr}' is not an IP address"))?;
@@ -93,8 +93,8 @@ pub struct HostAlias {
 }
 
 impl HostAlias {
-    /// k8s (`{ip, hostnames[]}`) → docker (`name:ip`), validado pelo mesmo
-    /// parser do `--add-host`. Uma entrada k8s com N nomes vira N entradas.
+    /// k8s (`{ip, hostnames[]}`) → docker (`name:ip`), validated by the same
+    /// `--add-host` parser. A k8s entry with N names becomes N entries.
     pub fn to_add_host(&self) -> std::result::Result<Vec<String>, String> {
         let mut out = Vec::with_capacity(self.hostnames.len());
         for name in &self.hostnames {
@@ -273,16 +273,16 @@ pub struct PodHostPath {
 }
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct PodEmptyDir {
-    // Nota interna (deliberadamente `//` e não `///`): um doc-comment aqui é
-    // publicado como `description` em `docs/schema/v1/delonix.json` e é o texto que
-    // o IDE de quem escreve o manifesto mostra. Superfície de utilizador, portanto
-    // — EN e sobre o COMPORTAMENTO, nunca sobre as entranhas. O gate
-    // `o_schema_publicado_esta_em_dia_com_o_codigo` apanhou-o na primeira versão,
-    // que tinha aqui uma nota em PT sobre `#[allow(dead_code)]`.
+    // Internal note (deliberately `//` and not `///`): a doc-comment here is
+    // published as `description` in `docs/schema/v1/delonix.json` and is the text
+    // the manifest author's IDE shows. User surface, therefore — EN and about the
+    // BEHAVIOUR, never about the internals. The gate
+    // `the_published_schema_is_up_to_date_with_the_code` caught it in the first version,
+    // which had a PT note here about `#[allow(dead_code)]`.
     //
-    // O campo era `#[allow(dead_code)]` — é assim que um campo aceite-e-ignorado
-    // passa despercebido: o `warn_unknown_fields` deixa-o entrar por estar no
-    // schema, e ninguém o lê. Agora é lido em `pod_to_run_opts`, para avisar.
+    // The field was `#[allow(dead_code)]` — that is how an accepted-and-ignored
+    // field slips by unnoticed: `warn_unknown_fields` lets it in because it is in
+    // the schema, and nobody reads it. It is now read in `pod_to_run_opts`, to warn.
     /// `""` (default) or `"Memory"`. This engine always backs an `emptyDir` with
     /// tmpfs (host RAM); Kubernetes uses node disk unless `Memory` is set, so a
     /// manifest that omits this gets a warning. Prefer a named volume for large
@@ -374,9 +374,9 @@ pub fn pod_to_run_opts(
     Ok(opts)
 }
 
-/// `hostAliases` (k8s) → `--add-host` (docker), validado. Partilhado pelo
-/// `kind: Container` na forma de pod e por cada membro de um `kind: Pod`, para
-/// as duas formas não poderem divergir.
+/// `hostAliases` (k8s) → `--add-host` (docker), validated. Shared by the
+/// `kind: Container` pod shape and by each member of a `kind: Pod`, so the two
+/// shapes cannot diverge.
 pub fn pod_add_host(aliases: &[HostAlias]) -> Result<Vec<String>> {
     let mut out = Vec::new();
     for a in aliases {
@@ -409,9 +409,9 @@ pub fn pod_member_run_opts(
     // member, which holds the shared PID namespace, gets none and keeps its
     // own).
     let share_process_namespace = pod.share_process_namespace;
-    // Os membros partilham a netns, por isso partilham também as entradas de
-    // `/etc/hosts` do pod — mas cada um tem rootfs próprio, logo é preciso
-    // escrevê-las em cada um.
+    // The members share the netns, so they also share the pod's `/etc/hosts`
+    // entries — but each has its own rootfs, so they must be written into every
+    // one.
     let add_host = pod_add_host(&pod.host_aliases)?;
     let mut out = Vec::with_capacity(pod.containers.len());
     for (i, c) in pod.containers.into_iter().enumerate() {
@@ -531,18 +531,18 @@ pub fn container_to_run_opts(
         } else if let Some(src) = &vol.source {
             volumes.push(format!("{}:{}{ro}", src, m.mount_path));
         } else if let Some(ed) = &vol.empty_dir {
-            // **Aqui um `emptyDir` é SEMPRE tmpfs, e no k8s não é.** Lá, `medium`
-            // ausente ou `""` significa disco do nó, e só `medium: Memory` é RAM.
-            // Um manifesto importado que use `emptyDir` como scratch de build ou de
-            // upload — vários GiB é vulgar — passa a consumir RAM do HOST, e o
-            // campo que exprime a diferença era `#[allow(dead_code)]`: aceite e
-            // deitado fora.
+            // **Here an `emptyDir` is ALWAYS tmpfs, and in k8s it is not.** There,
+            // `medium` absent or `""` means node disk, and only `medium: Memory`
+            // is RAM. An imported manifest that uses `emptyDir` as build or upload
+            // scratch — several GiB is common — starts consuming HOST RAM, and the
+            // field that expresses the difference was `#[allow(dead_code)]`:
+            // accepted and thrown away.
             //
-            // Avisar em vez de mudar o comportamento, e a escolha é deliberada:
-            // passar a disco exigia um directório por container com ciclo de vida
-            // próprio (quando se apaga? no `rm`? no `stop`?), que é desenho a
-            // merecer a sua sessão — e mudá-lo por arrasto partiria quem hoje conta
-            // com a semântica actual. O que não pode ficar é o silêncio.
+            // Warn instead of changing the behaviour, and the choice is deliberate:
+            // going to disk would require a per-container directory with a lifecycle
+            // of its own (when is it deleted? on `rm`? on `stop`?), which is design
+            // that deserves its own session — and changing it by drift would break
+            // whoever relies on today's semantics. What cannot stay is the silence.
             match ed.medium.as_deref() {
                 Some("Memory") => {}
                 Some("") | None => notices.push(Notice::new(

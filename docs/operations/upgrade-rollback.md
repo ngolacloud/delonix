@@ -1,106 +1,107 @@
-# Runbook — upgrade e rollback do motor Delonix
+# Runbook — upgrading and rolling back the Delonix engine
 
-> **Âmbito:** substituir o binário do motor (`delonix`) num nó com carga VIVA, e
-> voltar atrás, sem perder containers nem estado. Fecha o ponto G3 do plano
-> NO-GO→GO. O comportamento aqui descrito é **medido**, não afirmado — a prova
-> executável é `scripts/e2e_upgrade_rollback.sh` (17 asserções, verde em
-> 2026-11-02). O que ainda falta prova está dito em [Limites](#limites).
+> **Scope:** replacing the engine binary (`delonix`) on a node with LIVE load,
+> and rolling back, without losing containers or state. Closes point G3 of the
+> NO-GO→GO plan. The behaviour described here is **measured**, not claimed —
+> the executable proof is `scripts/e2e_upgrade_rollback.sh` (17 assertions,
+> green on 2026-11-02). What is still unproven is stated in [Limits](#limits).
 
-## O modelo mental: daemonless
+## The mental model: daemonless
 
-O Delonix não tem um daemon central. Um `delonix run -d` deixa um processo
-**supervisor** vivo, lançado a partir do binário **daquele instante**, e cada
-invocação seguinte da CLI fala com ele pelo estado em disco e sockets de
-controlo. Consequências diretas para um upgrade:
+Delonix has no central daemon. A `delonix run -d` leaves a **supervisor**
+process alive, launched from the binary **of that instant**, and every
+subsequent CLI invocation talks to it via state on disk and control sockets.
+Direct consequences for an upgrade:
 
-- Um supervisor em execução continua a correr o código com que **nasceu**,
-  mesmo depois de o binário em disco mudar. O ficheiro novo é um inode novo; o
-  processo antigo fica agarrado ao inode antigo, ainda mapeado em memória.
-- Não há "reiniciar o daemon" para atualizar. O que muda é (1) o binário em
-  disco e (2) a CLI que a partir daí gere os containers antigos.
+- A running supervisor keeps running the code it was **born** with, even after
+  the binary on disk changes. The new file is a new inode; the old process
+  stays attached to the old inode, still mapped into memory.
+- There is no "restart the daemon" to upgrade. What changes is (1) the binary
+  on disk and (2) the CLI that from then on manages the old containers.
 
-## Procedimento de upgrade (com carga viva)
+## Upgrade procedure (with live load)
 
-**Regra de ouro: substituir o binário por RENAME atómico, nunca por `cp` em
-cima.** Medido: um `cp` por cima de um ELF mapeado por um supervisor vivo falha
-com **`ETXTBSY` (Text file busy)** — o kernel recusa reescrever um executável em
-uso. Um rename troca o nome por um inode novo e não toca no inode antigo, por
-isso nunca bate em `ETXTBSY` e os supervisores vivos sobrevivem.
+**Golden rule: replace the binary by an atomic RENAME, never by `cp` on top.**
+Measured: a `cp` on top of an ELF mapped by a live supervisor fails with
+**`ETXTBSY` (Text file busy)** — the kernel refuses to rewrite an executable in
+use. A rename swaps the name for a new inode and does not touch the old inode,
+so it never hits `ETXTBSY` and live supervisors survive.
 
-Os gestores de pacotes fazem isto por si: `dpkg`, `rpm` e o `install(1)` instalam
-por rename. A armadilha é só o upgrade **manual** com `cp`/`cat >`.
+Package managers do this on their own: `dpkg`, `rpm` and `install(1)` install
+via rename. The trap is only a **manual** upgrade with `cp`/`cat >`.
 
 ```sh
-# 1. Põe o binário novo AO LADO do atual, no MESMO filesystem (rename só é
-#    atómico dentro de um filesystem).
-install -m 0755 delonix-novo /usr/local/bin/.delonix.novo     # ou cp para um .tmp ao lado
+# 1. Put the new binary NEXT TO the current one, on the SAME filesystem
+#    (rename is only atomic within a filesystem).
+install -m 0755 delonix-new /usr/local/bin/.delonix.new     # or cp to a .tmp alongside
 
-# 2. Troca atomicamente. Os containers vivos NÃO são tocados.
-mv -f /usr/local/bin/.delonix.novo /usr/local/bin/delonix
+# 2. Swap atomically. Live containers are NOT touched.
+mv -f /usr/local/bin/.delonix.new /usr/local/bin/delonix
 
-# 3. A partir daqui, toda a CLI é a versão nova. Confirma e reconcilia.
+# 3. From here on, every CLI invocation is the new version. Confirm and reconcile.
 delonix --version
-delonix ps                 # os containers nascidos sob a versão antiga continuam Up
+delonix ps                 # containers born under the old version are still Up
 ```
 
-O que sobrevive à troca, medido:
+What survives the swap, measured:
 
-| Facto | Resultado |
+| Fact | Result |
 |---|---|
-| Container `-d` vivo | continua `Up`, **mesmo id** (não é recriado) |
-| `exec`/`logs` pela CLI nova sobre container antigo | funcionam |
-| `stop` → `start` pela CLI nova | reconcilia; a camada gravável (estado) persiste |
-| Redes criadas antes | sobrevivem |
+| Live `-d` container | stays `Up`, **same id** (not recreated) |
+| `exec`/`logs` via the new CLI over an old container | work |
+| `stop` → `start` via the new CLI | reconciles; the writable layer (state) persists |
+| Previously created networks | survive |
 
 ## Rollback
 
-Simétrico: rename do binário antigo de volta. Os supervisores continuam a ser os
-mesmos processos (nunca morreram), por isso o rollback do binário é instantâneo e
-a CLI antiga retoma a gestão com o estado intacto.
+Symmetric: rename the old binary back. The supervisors remain the same
+processes (they never died), so the binary rollback is instant and the old CLI
+resumes management with intact state.
 
 ```sh
-mv -f /usr/local/bin/delonix.v-anterior /usr/local/bin/delonix
+mv -f /usr/local/bin/delonix.v-previous /usr/local/bin/delonix
 delonix --version
-delonix ps                 # tudo continua Up, estado preservado
+delonix ps                 # everything still Up, state preserved
 ```
 
-Guarda sempre a versão anterior ao lado antes de um upgrade:
+Always keep the previous version alongside before an upgrade:
 
 ```sh
-cp -a /usr/local/bin/delonix /usr/local/bin/delonix.v-anterior
+cp -a /usr/local/bin/delonix /usr/local/bin/delonix.v-previous
 ```
 
-## Validar num nó antes de confiar
+## Validating on a node before trusting it
 
 ```sh
-# Mecanismo (uma só versão): sobrevivência + gestão + reconciliação + rollback.
+# Mechanism (one version only): survival + management + reconciliation + rollback.
 scripts/e2e_upgrade_rollback.sh
 
-# Compatibilidade CRUZADA de versões (quando houver uma tag anterior):
-scripts/e2e_upgrade_rollback.sh --old /caminho/para/delonix-vN
+# CROSS-version compatibility (when there is an earlier tag):
+scripts/e2e_upgrade_rollback.sh --old /path/to/delonix-vN
 ```
 
-O formato de estado EM DISCO entre versões é coberto, à parte, por
+The on-disk state format between versions is covered, separately, by
 `scripts/e2e_state_upgrade.sh`.
 
-## Limites
+## Limits
 
-O que está **provado** (mecanismo): substituir o binário por rename com carga
-viva, a sobrevivência dos containers, a gestão pelo binário novo, a
-reconciliação por stop/start, e o rollback.
+What is **proven** (mechanism): replacing the binary by rename with live load,
+container survival, management by the new binary, reconciliation via
+stop/start, and rollback.
 
-O que **falta** provar, e não se deve afirmar até lá:
+What **remains** to be proven, and should not be claimed until then:
 
-- **Compatibilidade de código entre versões diferentes** — o binário novo a LER
-  estado/sockets escritos por uma versão antiga. O harness já aceita `--old
-  <tag-anterior>` e passa a medir isto sem mais nada; falta uma tag anterior
-  compilada para apontar.
-- **Hot-patch de um supervisor vivo** — NÃO existe. Um supervisor corre o código
-  com que nasceu até ser recriado. Uma correção de segurança no caminho de
-  supervisão só chega a um container existente quando ele for recriado (parar +
-  arrancar recria o processo a partir do binário corrente). Planear o upgrade de
-  um nó crítico como "rename do binário (containers sobrevivem) + recriação
-  faseada dos que precisam do código novo no supervisor".
-- **Rollback a meio de um `apply`** — um `kind:` apply que falha a meio não tem
-  hoje rollback transacional (`docs/discovery/47_IAC_REVISAO.md:400`). Até existir,
-  tratar um `apply` falhado como estado a reconciliar manualmente, não a desfazer.
+- **Code compatibility across different versions** — the new binary READING
+  state/sockets written by an old version. The harness already accepts `--old
+  <previous-tag>` and starts measuring this with nothing else needed; what is
+  missing is a compiled earlier tag to point at.
+- **Hot-patching a live supervisor** — does NOT exist. A supervisor runs the
+  code it was born with until it is recreated. A security fix in the
+  supervision path only reaches an existing container when it is recreated
+  (stop + start recreates the process from the current binary). Plan a
+  critical node's upgrade as "rename the binary (containers survive) +
+  phased recreation of whichever need the new supervisor code".
+- **Rollback mid-`apply`** — a `kind:` apply that fails partway has no
+  transactional rollback today (`docs/discovery/47_IAC_REVISAO.md:400`). Until
+  it exists, treat a failed `apply` as state to reconcile manually, not to
+  undo.

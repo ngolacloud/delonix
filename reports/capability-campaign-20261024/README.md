@@ -1,21 +1,21 @@
-# Campanha de conformidade de capacidades — baseline v5.1.1
+# Capability conformance campaign — baseline v5.1.1
 
-Objectivo: tratar individualmente todas as entradas parciais, não implementadas, não suportadas, dependentes de componentes externos ou indisponíveis no host da matriz de capacidades do delonix-runtime, implementando suporte real (backend + contratos públicos + testes) onde tecnicamente aplicável — sem alterar apenas etiquetas e sem mexer contadores artificialmente.
+Objective: handle individually every partial, not-implemented, unsupported, external-component-dependent or host-unavailable entry in the delonix-runtime capability matrix, implementing real support (backend + public contracts + tests) wherever technically applicable — without merely changing labels and without artificially moving counters.
 
-## Checkpoint retomável
+## Resumable checkpoint
 
-| campo | valor |
+| field | value |
 |---|---|
 | Baseline | `v5.1.1` = `a0da90f50abccb8d80a14136263d549dce257837` |
-| Branch de trabalho | `develop` (descendente linear da baseline, +258/−0) |
-| Catálogo | 1.4.0 · Engine 5.1.1 |
-| Fonte-de-verdade | `matrix-structured.json` (515 entradas, lossless) |
-| Sprint actual | **Sprint 1 em curso** — auditoria §4 + reclassificação A1–A3 + 1.ª promoção real (OOM) a supported |
-| Próximo | Sprint 1 — riscos restantes: namespaces partilhados por identidade de processo, restauro de snapshot com dados; depois candidatos B (CH bridge/ip.observed, net.apply.rollback) |
+| Working branch | `develop` (linear descendant of the baseline, +258/−0) |
+| Catalog | 1.4.0 · Engine 5.1.1 |
+| Source of truth | `matrix-structured.json` (515 entries, lossless) |
+| Current sprint | **Sprint 1 in progress** — §4 audit + A1–A3 reclassification + 1st real promotion (OOM) to supported |
+| Next | Sprint 1 — remaining risks: namespaces shared by process identity, snapshot restore with data; then candidates B (CH bridge/ip.observed, net.apply.rollback) |
 
-## Métricas antes/depois (medido @ develop)
+## Before/after metrics (measured @ develop)
 
-| estado | relatório | pós-reconciliação (0894caf9) | agora (b6aa53ff) |
+| state | report | post-reconciliation (0894caf9) | now (b6aa53ff) |
 |---|---|---|---|
 | supported | 103 | 112 | **164** |
 | partial | 93 | 86 | 52 |
@@ -25,120 +25,122 @@ Objectivo: tratar individualmente todas as entradas parciais, não implementadas
 | unavailable-on-host | 3 | 3 | 3 |
 | proved/applicable (N2) | — | 112/273 | **164/270 (60.7%)** |
 
-Frente de hardware (`c29dd401`): este host TEM o hardware (IOMMU 17 grupos+vfio, swtpm+/dev/tpm0, pool hugepages 4096×2M, RTX 2000 Ada+nvidia-ctk). **`vm.memory.hugepages` libvirt+CH →supported** (HugePages_Free desce exatamente a RAM do guest, provado live). Mas **tpm/pci-passthrough/gpu-cdi ficam partial honestos — bloqueio mudou de "sem hardware" para "precisa de ROOT"**: modprobe nvidia (gpu), pertença de grupo swtpm (tpm), vfio-bind (pci) — todos exigem root que a sandbox nega; CH tpm reclassificado unsupported→not-impl (CH v52 tem `--tpm` mas o lifecycle do swtpm não está ligado).
+Hardware front (`c29dd401`): this host HAS the hardware (IOMMU 17 groups+vfio, swtpm+/dev/tpm0, hugepages pool 4096×2M, RTX 2000 Ada+nvidia-ctk). **`vm.memory.hugepages` libvirt+CH →supported** (HugePages_Free drops by exactly the guest's RAM, proved live). But **tpm/pci-passthrough/gpu-cdi stay honestly partial — the blocker shifted from "no hardware" to "needs ROOT"**: modprobe nvidia (gpu), swtpm group membership (tpm), vfio-bind (pci) — all require root that the sandbox denies; CH tpm reclassified unsupported→not-impl (CH v52 has `--tpm` but the swtpm lifecycle is not wired up).
 
-Par `4e769bf0`: rede linux `net.nat.snat` (SNAT observado no fio: origem=uplink, 0 com IP interno) + `net.l7-proxy` (HTTP encaminhado pelo proxy, 404 sem rota) →supported. Proxmox rede §11: **0 promoções** (toda a prova exige switch GLOBAL do datacenter — firewall OFF, SDN é `PUT /cluster/sdn` global; §11 proíbe), **4 reclass honestas** (macvlan/encrypted-overlay/ipam/dns do engine → unsupported-by-provider; vlan/vxlan/routes/rate-limit ficam not-impl = lacuna do adapter) → applicable 273→269.
+Pair `4e769bf0`: linux network `net.nat.snat` (SNAT observed on the wire: source=uplink, 0 with an internal IP) + `net.l7-proxy` (HTTP forwarded by the proxy, 404 without a route) →supported. Proxmox network §11: **0 promotions** (all proof requires a GLOBAL datacenter switch — firewall OFF, SDN is a global `PUT /cluster/sdn`; §11 forbids it), **4 honest reclassifications** (macvlan/encrypted-overlay/ipam/dns of the engine → unsupported-by-provider; vlan/vxlan/routes/rate-limit stay not-impl = adapter gap) → applicable 273→269.
 
-Trio paralelo (b/c/d, `9bc5e13e`): **rede §10** — 6 promoções (net.static-ip, net.dns, firewall.default-deny/source-filtering/egress-policy, net.packet-capture) provadas com tráfego permitido+negado e contadores nft; net.verify.dataplane fica not-impl honesto (feature ADR-0059). **storage §12** — sem root nesta sessão → arnês e2e root-gated pronto + detalhes honestos; lvm/zfs/btrfs ficam partial (falta privilégio, não implementação). **migração VM §7** — 2.º nó montado (sshd userspace, DELONIX_ROOT separado), cold A→B provado cross-host + bug ssh `$HOME` corrigido; live fica not-impl honesto (precisa 2 libvirtd + copy-storage-all).
+Parallel trio (b/c/d, `9bc5e13e`): **network §10** — 6 promotions (net.static-ip, net.dns, firewall.default-deny/source-filtering/egress-policy, net.packet-capture) proved with allowed+denied traffic and nft counters; net.verify.dataplane stays honestly not-impl (ADR-0059 feature). **storage §12** — no root in this session → root-gated e2e harness ready + honest details; lvm/zfs/btrfs stay partial (privilege missing, not implementation). **VM migration §7** — 2nd node brought up (userspace sshd, separate DELONIX_ROOT), cold A→B proved cross-host + `$HOME` ssh bug fixed; live stays honestly not-impl (needs 2 libvirtd + copy-storage-all).
 
-Nota de integridade: no caminho até aqui o `vm.snapshot-memory` (libvirt) foi DEMOVIDO supported→partial de propósito (RAM não observável sem guest com SO) — baixar a métrica por honestidade é progresso (§5/§17); depois `metrics.prometheus` subiu com prova real.
+Integrity note: along the way `vm.snapshot-memory` (libvirt) was deliberately DEMOTED supported→partial (RAM not observable without a guest with an OS) — lowering the metric for honesty is progress (§5/§17); afterwards `metrics.prometheus` rose with real proof.
 
-Separação do progresso (§17): 1 promoção real a supported (OOM, com teste live + evidência), 3 reclassificações de causa corrigidas (A1–A3), 2 lacunas completadas em classificação (lvm/zfs-btrfs: backend já existia, agora partial honesto). Sem promoção falsa — cada +1 em supported tem evidência verificada.
+Progress separation (§17): 1 real promotion to supported (OOM, with a live test + evidence), 3 cause-corrected reclassifications (A1–A3), 2 gaps completed in classification (lvm/zfs-btrfs: backend already existed, now honestly partial). No false promotion — every +1 in supported has verified evidence.
 
-## Histórico de commits da campanha
+## Campaign commit history
 
-- `0894caf9` docs — Sprint 0 reconciliação (baseline, matriz 515, diff explicado, plano).
-- `e082a275` docs — Sprint 1 proposta de reclassificação verificada (auditoria §4, 2 especialistas).
-- `8cd5c63b` fix — aplica A1–A3: libvirt `vm.migration.live` unsupported→not-implemented; linux `storage.lvm-thin`/`storage.zfs-btrfs` not-implemented→partial.
-- `34f7afd5` docs — marca A1–A3 aplicadas no checkpoint.
-- `b6aa53ff` feat — **`container.oom-detection` partial→supported (§9)**: `scen_oom` reforçado para asserir `crash_reason=oom_killed` (distingue OOM de término não-OOM); provado ao vivo. supported 112→113.
-- `560939e0` docs — checkpoint pós-OOM.
-- `fe3f529e` feat — **`pod.shared-ipc-uts` partial→supported (§9)**: novo `scen_pod_shared_ipc_uts` prova por IDENTIDADE que 2 membros de um pod leem a mesma `/proc/self/ns/{ipc,uts}` e um container fora lê outra; provado ao vivo. supported 113→114. Confirmado em paralelo que `pod.shared-pid` é genuinamente not-implemented (membros recebem `CLONE_NEWPID`; `shareProcessNamespace` não ligado) — feature de Sprint 2+.
+- `0894caf9` docs — Sprint 0 reconciliation (baseline, 515-entry matrix, diff explained, plan).
+- `e082a275` docs — Sprint 1 verified reclassification proposal (§4 audit, 2 specialists).
+- `8cd5c63b` fix — applies A1–A3: libvirt `vm.migration.live` unsupported→not-implemented; linux `storage.lvm-thin`/`storage.zfs-btrfs` not-implemented→partial.
+- `34f7afd5` docs — marks A1–A3 as applied in the checkpoint.
+- `b6aa53ff` feat — **`container.oom-detection` partial→supported (§9)**: `scen_oom` strengthened to assert `crash_reason=oom_killed` (distinguishes OOM from a non-OOM termination); proved live. supported 112→113.
+- `560939e0` docs — post-OOM checkpoint.
+- `fe3f529e` feat — **`pod.shared-ipc-uts` partial→supported (§9)**: new `scen_pod_shared_ipc_uts` proves by IDENTITY that 2 members of a pod read the same `/proc/self/ns/{ipc,uts}` and a container outside reads a different one; proved live. supported 113→114. Confirmed in parallel that `pod.shared-pid` is genuinely not-implemented (members receive `CLONE_NEWPID`; `shareProcessNamespace` not wired) — a Sprint 2+ feature.
 
 - `d8f7390b` fix — `net.apply.rollback` not-impl→unsupported (§4.6, ADR-0059).
-- `8838a15d`+`d8ff1c2b` feat+merge — **`pod.shared-pid` not-impl→supported (§9)**: implementa `shareProcessNamespace` (join do PID ns do infra feito no *pai* antes do `clone`, pois `setns(CLONE_NEWPID)` só afeta filhos; `PidnsGuard` restaura). Cenário `scen_pod_shared_pid` prova por identidade + visibilidade de processos. Feito em worktree paralela, provado ao vivo.
-- `ca2d7d88`+`bcc2e47e` fix+merge — **CH `vm.ip.observed` unsupported→partial (§4)**: observação por ARP (`--wait`→`sdn_reachable`) validada ao vivo (guest respondeu ARP), mas o IP reportado continua computado do MAC (não lido de lease/agent) → partial honesto, não supported. Feito em worktree paralela.
+- `8838a15d`+`d8ff1c2b` feat+merge — **`pod.shared-pid` not-impl→supported (§9)**: implements `shareProcessNamespace` (joining the infra PID ns done in the *parent* before the `clone`, since `setns(CLONE_NEWPID)` only affects children; `PidnsGuard` restores). Scenario `scen_pod_shared_pid` proves by identity + process visibility. Done in a parallel worktree, proved live.
+- `ca2d7d88`+`bcc2e47e` fix+merge — **CH `vm.ip.observed` unsupported→partial (§4)**: observation by ARP (`--wait`→`sdn_reachable`) validated live (guest answered ARP), but the reported IP is still computed from the MAC (not read from a lease/agent) → honestly partial, not supported. Done in a parallel worktree.
 
-Integração: as duas frentes paralelas correram cada uma na sua worktree off develop; integradas em série com regeneração única da matriz/ratchet (115/274); worktrees e branches limpas. develop ganhou também, em paralelo (dono), 2 fixes CRI (`91771918`, `7fbd385f`).
+Integration: the two parallel fronts each ran in their own worktree off develop; integrated serially with a single matrix/ratchet regeneration (115/274); worktrees and branches cleaned. develop also gained, in parallel (owner), 2 CRI fixes (`91771918`, `7fbd385f`).
 
-- `85c308c9`+`2bbc1cb7` feat+merge — **restauro de snapshot com DADOS (libvirt)** §7/§14: nova secção e2e escreve `DADO-ORIGINAL-v1`→snapshot→corrompe→restore→relê o original (8/8 PASS live). `vm.snapshot-disk`/`vm.snapshot-restore` ganham evidência de recuperação real; `vm.snapshot-memory` DEMOVIDO supported→partial (RAM não observável sem guest com SO). Worktree paralela.
-- `2b857465`+`387eefea` fix+merge — CH `vm.network.bridge`: razão corrigida (§13); mantém-se `unsupported-by-provider` por ser decisão arquitetural espelhada (CH rootless→SDN; libvirt→host bridge), não incapacidade do VMM. Sem mudança de estado. Worktree paralela.
+- `85c308c9`+`2bbc1cb7` feat+merge — **snapshot restore with DATA (libvirt)** §7/§14: a new e2e section writes `DADO-ORIGINAL-v1`→snapshot→corrupts→restore→re-reads the original (8/8 PASS live). `vm.snapshot-disk`/`vm.snapshot-restore` gain real recovery evidence; `vm.snapshot-memory` DEMOTED supported→partial (RAM not observable without a guest with an OS). Parallel worktree.
+- `2b857465`+`387eefea` fix+merge — CH `vm.network.bridge`: reason corrected (§13); stays `unsupported-by-provider` as it is a mirrored architectural decision (CH rootless→SDN; libvirt→host bridge), not a VMM limitation. No state change. Parallel worktree.
 
-- `9b35fffd`+`e28ea711` feat+merge — **cobertura CRI de `shareProcessNamespace`**: `lifecycle.rs` lê `namespace_options.pid==POD`, persiste `SandboxRec.shared_pid` e liga `pod_shared_pid`+`pod_infra_pid` (pid-âncora = 1.º membro vivo) nos membros SDN nativos. 95 testes delonix-cri + 2 novos. Matriz intocada (cobertura; já era supported via CLI). Provado por teste de unidade da decisão (não por pod CRI real — precisaria de kubelet).
-- `288b0f48`+`9a2ca746` feat+merge — **`metrics.prometheus` partial→supported (§14)**: os gauges por-container eram só de contenção (throttling/PSI); acrescentei `workload_cpu_usage_seconds_total` + `workload_memory_current_bytes` (sempre presentes no cgroup v2). Scrape live provou as séries por container (mem 331776 B). supported 114→115.
+- `9b35fffd`+`e28ea711` feat+merge — **CRI coverage of `shareProcessNamespace`**: `lifecycle.rs` reads `namespace_options.pid==POD`, persists `SandboxRec.shared_pid` and wires `pod_shared_pid`+`pod_infra_pid` (anchor pid = 1st live member) on the native SDN members. 95 delonix-cri tests + 2 new. Matrix untouched (coverage; it was already supported via the CLI). Proved by a unit test of the decision (not by a real CRI pod — that would need kubelet).
+- `288b0f48`+`9a2ca746` feat+merge — **`metrics.prometheus` partial→supported (§14)**: the per-container gauges were only about contention (throttling/PSI); I added `workload_cpu_usage_seconds_total` + `workload_memory_current_bytes` (always present in cgroup v2). A live scrape proved the per-container series (mem 331776 B). supported 114→115.
 
-- `e6624da7`+`d6f024c4` feat+merge — **PID partilhado em `--net host`/CNI**: provado empiricamente ao vivo que é IMPOSSÍVEL rootless (`setns(CLONE_NEWPID)` exige `CAP_SYS_ADMIN` na userns dona da pid ns; userns irmã nem abre `ns/pid`). Em vez de silêncio, `lifecycle.rs` passa a RECUSAR com erro accionável (nomeia o fix: largar hostNetwork). pod.shared-pid mantém-se supported pelo caminho nativo. CNI rootless (`DELONIX_CNI=1`) não afetado. Matriz intocada.
-- `ad2e7358`+`cb89aee6` feat+merge — **`host.capacity` not-impl→supported (§4/§9/§14)**: o reporte já existia (`node.rs:362 capacity()`, servido em `/v1/node/capacity`, e2e-testado) — só a classificação estava errada. Live: allocatable < total (CPU 17000/20000 millis; mem 53/62 GiB) confirma que reflete o cgroup delegado rootless, não a máquina. supported 115→116.
+- `e6624da7`+`d6f024c4` feat+merge — **shared PID under `--net host`/CNI**: proved empirically live that it is IMPOSSIBLE rootless (`setns(CLONE_NEWPID)` requires `CAP_SYS_ADMIN` in the userns that owns the pid ns; a sibling userns cannot even open `ns/pid`). Instead of silence, `lifecycle.rs` now REFUSES with an actionable error (naming the fix: drop hostNetwork). pod.shared-pid stays supported through the native path. Rootless CNI (`DELONIX_CNI=1`) unaffected. Matrix untouched.
+- `ad2e7358`+`cb89aee6` feat+merge — **`host.capacity` not-impl→supported (§4/§9/§14)**: the reporting already existed (`node.rs:362 capacity()`, served at `/v1/node/capacity`, e2e-tested) — only the classification was wrong. Live: allocatable < total (CPU 17000/20000 millis; mem 53/62 GiB) confirms it reflects the rootless delegated cgroup, not the machine. supported 115→116.
 
-- `b3323619`+`ba25af84` feat+merge — **`provider.events` partial→supported (§14)**: `WatchEvents` já estava servido (stream com tail incremental); provado ao vivo (`system events --follow` captou um `secret/remove` externo; teste de integração gRPC novo). supported→+1.
-- `f210ee3f`+`4b092a0c` feat+merge — **`vm.cloud-init` partial→supported (§7)**: guest declara `DataSourceNoCloud [seed=/dev/vdb]`, marcador `write_files` + hostname aplicados; lidos do disco com guestfish (e2e 5/5 PASS). supported→+1.
-- `af3cb654` docs — regenera matriz combinada (118/274, 43.1%).
-- `fe6093ad` chore(lang) — **reconciliação lang_ratchet**: a campanha introduziu 16 comentários + 2 nomes de teste em pt-AO; o gate é um ratchet só-descendente (código em inglês). Traduzidos → inglês; lang_ratchet verde (3181/1044/116). Comportamento/evidência intactos.
+- `b3323619`+`ba25af84` feat+merge — **`provider.events` partial→supported (§14)**: `WatchEvents` was already served (stream with incremental tail); proved live (`system events --follow` captured an external `secret/remove`; new gRPC integration test). supported→+1.
+- `f210ee3f`+`4b092a0c` feat+merge — **`vm.cloud-init` partial→supported (§7)**: guest declares `DataSourceNoCloud [seed=/dev/vdb]`, `write_files` marker + hostname applied; read off the disk with guestfish (e2e 5/5 PASS). supported→+1.
+- `af3cb654` docs — regenerates the combined matrix (118/274, 43.1%).
+- `fe6093ad` chore(lang) — **lang_ratchet reconciliation**: the campaign introduced 16 comments + 2 test names in pt-AO; the gate is a descendant-only ratchet (code in English). Translated → English; lang_ratchet green (3181/1044/116). Behaviour/evidence intact.
 
-### Constrangimento de ambiente
-Disco do host a **99–100%** (~12G livres após limpeza de worktrees). Cada build release custa ~2–3G de churn; o próximo trabalho build-pesado tem risco de ENOSPC. Mitigado removendo worktrees concluídas; a resolução de fundo é do dono (libertar disco).
+### Environment constraint
+Host disk at **99–100%** (~12G free after cleaning up worktrees). Each release build costs ~2–3G of churn; the next build-heavy work risks ENOSPC. Mitigated by removing finished worktrees; the underlying resolution is the owner's (free up disk).
 
-- `5519a696`+`1b337766`+`9b00e60d` feat+merge — **`metrics.network.per-workload` partial→supported (§14)**: `/metrics` passa a exportar `workload_network_receive_bytes_total`/`workload_network_transmit_bytes_total` por-container (lidos na netns), cache populada pelo refresh de fundo (reads de netns fora do scrape inline). Scrape live: rx=2306/tx=524 batem com `/proc/net/dev`. Código em inglês (lição lang_ratchet); lang verde. supported 118→119.
+- `5519a696`+`1b337766`+`9b00e60d` feat+merge — **`metrics.network.per-workload` partial→supported (§14)**: `/metrics` now exports `workload_network_receive_bytes_total`/`workload_network_transmit_bytes_total` per container (read in the netns), cache populated by the background refresh (netns reads outside the inline scrape). Live scrape: rx=2306/tx=524 match `/proc/net/dev`. Code in English (lang_ratchet lesson); lang green. supported 118→119.
 
-- `23984c3f`+merge — **libvirt `vm.hotplug.disk.add` partial→supported (§7 flagship)**: 4 níveis provados ao vivo num guest Ubuntu 24.04 cloud-init — aceite → `domblklist` (vdc) → detectado no guest (`lsblk vdc`) → **R/W real** (`HOTPLUG-RW-PROOF-v1` escrito+relido, lido por guestfish). Poller in-guest plantado por cloud-init (sem agente/rede). supported→+1.
-- `6e206c14`+merge — **proxmox `vm.snapshot.persistent` partial→supported (§7)**: provado ao vivo contra o nó pve real (PVE 9.2.2, 192.168.30.117) — snapshot sobrevive a stop/start; VM efémera destruída, zero mudanças globais/destrutivas (§11). supported→+1.
-- `cc28a39f` docs — regenera matriz (121/274, 44.2%).
+- `23984c3f`+merge — **libvirt `vm.hotplug.disk.add` partial→supported (§7 flagship)**: 4 levels proved live on an Ubuntu 24.04 cloud-init guest — accepted → `domblklist` (vdc) → detected in the guest (`lsblk vdc`) → **real R/W** (`HOTPLUG-RW-PROOF-v1` written+re-read, read by guestfish). In-guest poller planted by cloud-init (no agent/network). supported→+1.
+- `6e206c14`+merge — **proxmox `vm.snapshot.persistent` partial→supported (§7)**: proved live against the real pve node (PVE 9.2.2, 192.168.30.117) — the snapshot survives a stop/start; ephemeral VM destroyed, zero global/destructive changes (§11). supported→+1.
+- `cc28a39f` docs — regenerates the matrix (121/274, 44.2%).
 
-- `bfd626e1`+merge — **libvirt `vm.hotplug.nic.add` partial→supported (§7)**: 4 níveis ao vivo — aceite → `domiflist` (vnet na rede nova) → detectado (`enp7s0` no guest) → **tráfego real** (ping 4/4 ao gateway pela NIC nova, rx/tx a subir). supported→+1.
-- `448ddfb9`+merge — **proxmox `vm.snapshot.memory` partial→supported (§7)**: live contra o nó pve — o nó confirma `vmstate = local-lvm:vm-100-state-ram1` (RAM guardada). VM efémera destruída, §11 ok. supported→+1.
-- `a42af347` docs — regenera matriz (123/274, 44.9%).
+- `bfd626e1`+merge — **libvirt `vm.hotplug.nic.add` partial→supported (§7)**: 4 levels live — accepted → `domiflist` (vnet on the new network) → detected (`enp7s0` in the guest) → **real traffic** (ping 4/4 to the gateway through the new NIC, rx/tx rising). supported→+1.
+- `448ddfb9`+merge — **proxmox `vm.snapshot.memory` partial→supported (§7)**: live against the pve node — the node confirms `vmstate = local-lvm:vm-100-state-ram1` (RAM saved). Ephemeral VM destroyed, §11 ok. supported→+1.
+- `a42af347` docs — regenerates the matrix (123/274, 44.9%).
 
-- `144c4d4e`+merge — **libvirt `vm.hotplug.cpu.add` + `vm.hotplug.memory.add` partial→supported (§7)**: 4 níveis no guest — CPU nproc 2→3 (cpuN online); memória MemTotal 917896→1966472 KB (+1 GiB, blocos online). supported→+2.
-- `426455a9`+merge — **proxmox `host.capacity` not-impl→supported (§9)**: GET puro `/nodes/{node}/status` (cpus 4, mem 16.7G, rootfs 19.5G); §11-limpo (sem criar nada no nó). supported→+1.
-- `c46b1661` docs — regenera matriz (126/274, 46.0%).
+- `144c4d4e`+merge — **libvirt `vm.hotplug.cpu.add` + `vm.hotplug.memory.add` partial→supported (§7)**: 4 levels in the guest — CPU nproc 2→3 (cpuN online); memory MemTotal 917896→1966472 KB (+1 GiB, blocks online). supported→+2.
+- `426455a9`+merge — **proxmox `host.capacity` not-impl→supported (§9)**: pure GET `/nodes/{node}/status` (cpus 4, mem 16.7G, rootfs 19.5G); §11-clean (nothing created on the node). supported→+1.
+- `c46b1661` docs — regenerates the matrix (126/274, 46.0%).
 
-- `d915b2ea`+merge — **linux `firewall.icmp-type` + `firewall.logging` not-impl→supported (§10)**: lowering nftables de `meta l4proto icmp [icmp type N]` + `log prefix ... limit rate 10/s`. Live: icmp type 8 permitido 3/3, type 13 bloqueado 0/3 (contadores); logging 40→5 logados (rate-limit observável). supported→+2.
-- `2b4d4494`+merge — **libvirt `vm.clone` + `vm.template` not-impl→supported (§7)**: clone independente (`qemu-img convert -U`, disco standalone, UUID/MAC/seed próprios; corrigido bug `<backingStore>` auto-referente que impedia o arranque); template marca VM congelada (start recusa DX-1501, instancia por clone). CLI `vm clone`/`vm template` nova com todos os gates CLI/docs/folhas/pt.po atualizados. supported→+2.
-- `73650bd2` docs — regenera matriz (130/274, 47.4%).
+- `d915b2ea`+merge — **linux `firewall.icmp-type` + `firewall.logging` not-impl→supported (§10)**: nftables lowering of `meta l4proto icmp [icmp type N]` + `log prefix ... limit rate 10/s`. Live: icmp type 8 allowed 3/3, type 13 blocked 0/3 (counters); logging 40→5 logged (rate-limit observable). supported→+2.
+- `2b4d4494`+merge — **libvirt `vm.clone` + `vm.template` not-impl→supported (§7)**: independent clone (`qemu-img convert -U`, standalone disk, own UUID/MAC/seed; fixed a self-referencing `<backingStore>` bug that prevented boot); template marks a frozen VM (start refuses DX-1501, instantiates by clone). New `vm clone`/`vm template` CLI with all CLI/docs/leaves/pt.po gates updated. supported→+2.
+- `73650bd2` docs — regenerates the matrix (130/274, 47.4%).
 
-- `d915b2ea`+merge — **linux `firewall.icmp-type`+`firewall.logging` not-impl→supported (§10)**: nftables `icmp type N` + `log prefix limit rate`; tráfego permitido 3/3 / negado 0/3, logging 40→5 (rate-limit observável por contador). supported→+2.
-- `2b4d4494`+merge — **libvirt `vm.clone`+`vm.template` not-impl→supported (§7)**: clone independente (disco standalone, UUID/MAC próprios; corrigido bug `<backingStore>`); template recusa start (DX-1501). CLI nova + gates CLI/docs/folhas/pt.po atualizados. supported→+2.
-- `53c2bdee`+merge — **CH `vm.hotplug.disk.add`+`vm.hotplug.nic.add` not-impl→supported (§7)**: API `/vm.add-disk`/`/vm.add-net`, provado no guest (vdc mkfs+R/W; ens6 DHCP+ping, 8/8). Corrigiu raw-ReadOnly + alias default→ingress; fecha taps no stop. supported→+2.
-- `8b6048e1`+merge — **libvirt 5 partials VM→supported (§7)**: `disks.extra`, `nics.extra`, `cpu.model` (topologia exacta no guest), `restart` (boot id muda), `migration.cold` (flatten+import local); `restart-policy.native` fica partial honesto (sem `<panic>`). supported→+5.
-- `17560f3b` docs — regenera matriz (**137/274, 50.0%**).
+- `d915b2ea`+merge — **linux `firewall.icmp-type`+`firewall.logging` not-impl→supported (§10)**: nftables `icmp type N` + `log prefix limit rate`; traffic allowed 3/3 / denied 0/3, logging 40→5 (rate-limit observable by counter). supported→+2.
+- `2b4d4494`+merge — **libvirt `vm.clone`+`vm.template` not-impl→supported (§7)**: independent clone (standalone disk, own UUID/MAC; fixed `<backingStore>` bug); template refuses start (DX-1501). New CLI + CLI/docs/leaves/pt.po gates updated. supported→+2.
+- `53c2bdee`+merge — **CH `vm.hotplug.disk.add`+`vm.hotplug.nic.add` not-impl→supported (§7)**: API `/vm.add-disk`/`/vm.add-net`, proved in the guest (vdc mkfs+R/W; ens6 DHCP+ping, 8/8). Fixed raw-ReadOnly + default→ingress alias; closes taps on stop. supported→+2.
+- `8b6048e1`+merge — **libvirt 5 VM partials→supported (§7)**: `disks.extra`, `nics.extra`, `cpu.model` (exact topology in the guest), `restart` (boot id changes), `migration.cold` (flatten+local import); `restart-policy.native` stays honestly partial (no `<panic>`). supported→+5.
+- `17560f3b` docs — regenerates the matrix (**137/274, 50.0%**).
 
-## Compatibilidade VM (domínios vm-compute/protection/mobility/console)
+## VM compatibility (vm-compute/protection/mobility/console domains)
 
-| provider | supported/aplicável | % |
+| provider | supported/applicable | % |
 |---|---|---|
 | cloud-hypervisor | 26/36 | 72.2 % |
 | libvirt | 33/45 | 73.3 % |
 | proxmox | 30/37 | 81.1 % |
 | **TOTAL VM** | **89/118** | **75.4 %** |
 
-Par `193f9461`: CH `vm.backup.disk/restore` →supported (ciclo de recuperação de dados ORIGINAL→CHANGED→ORIGINAL, guestfish); libvirt `vm.guest-agent` re-confirmado supported (agent 8.2.2 live); CH `vm.guest-agent` not-impl→unsupported-by-provider (CH v52 sem virtio-serial `org.qemu.guest_agent.0` — sai do denominador, daí 274→273).
+Pair `193f9461`: CH `vm.backup.disk/restore` →supported (data recovery cycle ORIGINAL→CHANGED→ORIGINAL, guestfish); libvirt `vm.guest-agent` re-confirmed supported (agent 8.2.2 live); CH `vm.guest-agent` not-impl→unsupported-by-provider (CH v52 has no virtio-serial `org.qemu.guest_agent.0` — leaves the denominator, hence 274→273).
 
-Par `18fdf6fd`: CH `vm.hotplug.cpu/memory.add` →supported (nproc 1→2, MemTotal +512M no guest; removes ficam not-impl honestos por risco §7); proxmox `vm.console.serial/vnc` →supported (handshake websocket 101 completo via termproxy/vncproxy).
+Pair `18fdf6fd`: CH `vm.hotplug.cpu/memory.add` →supported (nproc 1→2, MemTotal +512M in the guest; removes stay honestly not-impl by §7 risk); proxmox `vm.console.serial/vnc` →supported (websocket 101 handshake completed via termproxy/vncproxy).
 
-Par `993c7ae0`: proxmox `vm.hotplug.disk/nic.add` (anexo a quente a VM a correr, `refuse_pending`) + libvirt `vm.hotplug.disk/nic.remove` (remoção cooperativa segura — disco em uso não sai; registo só perde o device após o guest o largar) →supported.
+Pair `993c7ae0`: proxmox `vm.hotplug.disk/nic.add` (hot attach to a running VM, `refuse_pending`) + libvirt `vm.hotplug.disk/nic.remove` (safe cooperative removal — a disk in use does not leave; the record only loses the device once the guest releases it) →supported.
 
-Último par (`2622eb07`): CH `vm.cpu.pinning` (bug de affinity do CH v52 corrigido), `vm.antispoof`, `vm.console.serial` →supported; libvirt `vm.console.serial`/`vnc` (RFB handshake), `vm.backup.disk`/`restore` (recuperação de dados) →supported. CH `vm.ip.observed` e `vm.migration.cold`, libvirt `vm.backup.quiesced` e `vm.raw-definition` ficam partial honestos (IP computado≠observado; cold-migrate precisa 2º host; quiesce precisa guest-agent; raw-def é fronteira de segurança).
+Last pair (`2622eb07`): CH `vm.cpu.pinning` (CH v52 affinity bug fixed), `vm.antispoof`, `vm.console.serial` →supported; libvirt `vm.console.serial`/`vnc` (RFB handshake), `vm.backup.disk`/`restore` (data recovery) →supported. CH `vm.ip.observed` and `vm.migration.cold`, libvirt `vm.backup.quiesced` and `vm.raw-definition` stay honestly partial (IP computed≠observed; cold-migrate needs a 2nd host; quiesce needs a guest-agent; raw-def is a security boundary).
 
-Tecto realista < 100% neste host: ~8-10 células hardware-gated (pci-passthrough/tpm/hugepages/guest-agent) ficam partial honestas até haver hardware. Resto do caminho: mais partials backend-completos (CH antispoof/cpu.pinning/console; libvirt console/backup/raw-definition) + hotplug.remove (com cuidado §7) + proxmox hotplug add/console.
+Realistic ceiling < 100% on this host: ~8-10 hardware-gated cells (pci-passthrough/tpm/hugepages/guest-agent) stay honestly partial until there is hardware. Remaining path: more backend-complete partials (CH antispoof/cpu.pinning/console; libvirt console/backup/raw-definition) + hotplug.remove (with §7 care) + proxmox hotplug add/console.
 
-## Verificado correcto-como-está (NÃO reperseguir — read-only, sem promoção falsa)
+## Verified correct-as-is (DO NOT re-chase — read-only, no false promotion)
 
-- **CH/libvirt `host.capacity` = not-implemented** está CERTO. HostHealth é o único host-level que os providers VM expõem (teste libvirt:5149). `host.capacity` para um provider VM significaria capacidade VM-alocável do hipervisor (vCPU/RAM para VMs), distinta da capacidade cgroup-delegada de containers que o `/v1/node/capacity` reporta (a que o linux promoveu). Não é o mesmo número → não é mimetizável.
-- **CH/libvirt `provider.events` = not-implemented** está CERTO. Confirmado por grep: nenhum `events::emit(..., "vm", ...)` existe — as ações de VM não escrevem no log de eventos; só o linux (container/volume/stack/pod/security) emite. Por isso linux `provider.events` é supported e os VM não.
+- **CH/libvirt `host.capacity` = not-implemented** is RIGHT. HostHealth is the only host-level thing the VM providers expose (libvirt:5149 test). `host.capacity` for a VM provider would mean the hypervisor's VM-allocatable capacity (vCPU/RAM for VMs), distinct from the cgroup-delegated container capacity that `/v1/node/capacity` reports (the one linux promoted). Not the same number → not mimicable.
+- **CH/libvirt `provider.events` = not-implemented** is RIGHT. Confirmed by grep: no `events::emit(..., "vm", ...)` exists — VM actions do not write to the event log; only linux (container/volume/stack/pod/security) emits. That is why linux `provider.events` is supported and the VM ones are not.
 
-## Próximas frentes (fila)
+## Next fronts (queue)
 
-1. `provider.async-operations` (linux not-impl; proxmox partial — job handle) (`lifecycle.rs` lê `namespace_options.pid==POD` e injeta `pod_infra_pid`) — hoje pod.shared-pid/ipc-uts são provados pelo caminho público CLI `pod create`; extensão consistente.
-2. Restauro de snapshot com dados (§7/§14): provar recuperabilidade, não só criação.
-3. Candidatos B restantes: CH `vm.network.bridge` (adapter ignora `net_mode`).
-4. Frentes com ambiente dedicado: Proxmox via nó `pve`, rede multi-node, storage, GPU (sem hardware → pendente).
+1. `provider.async-operations` (linux not-impl; proxmox partial — job handle) (`lifecycle.rs` reads `namespace_options.pid==POD` and injects `pod_infra_pid`) — today pod.shared-pid/ipc-uts are proved through the public CLI path `pod create`; a consistent extension.
+2. Snapshot restore with data (§7/§14): prove recoverability, not just creation.
+3. Remaining candidates B: CH `vm.network.bridge` (adapter ignores `net_mode`).
+4. Fronts with a dedicated environment: Proxmox via the `pve` node, multi-node network, storage, GPU (no hardware → pending).
 
-## Ficheiros
+## Files
 
-- `00-baseline-reconciliation.md` — baseline fixada, matriz regenerada, diff vs relatório explicado, modelo do catálogo, limite OpenStack.
-- `01-sprint-plan.md` — plano por sprint/frente, especialistas, critério de promoção (#16), ambientes autorizados.
-- `matrix-structured.json` — importação estruturada das 515 entradas (chave `provider|capability`).
-- `matrix-declared-5.1.1-descendant.md` — snapshot da matriz declarada regenerada do binário.
+- `00-baseline-reconciliation.md` — fixed baseline, regenerated matrix, diff vs report explained, catalog model, OpenStack boundary.
+- `01-sprint-plan.md` — plan by sprint/front, specialists, promotion criterion (#16), authorized environments.
+- `matrix-structured.json` — structured import of the 515 entries (key `provider|capability`).
+- `matrix-declared-5.1.1-descendant.md` — snapshot of the declared matrix regenerated from the binary.
 
-## Como regenerar a matriz
+## How to regenerate the matrix
 
 ```sh
-delonix provider matrix              # vista declarada (Markdown, == docs/providers/capability-matrix.md)
-delonix provider ls -o json          # vista medida neste host (JSON)
+delonix provider matrix              # declared view (Markdown, == docs/providers/capability-matrix.md)
+delonix provider ls -o json          # view measured on this host (JSON)
 delonix provider describe <prov> -o json
 ```
 
-## Totais (reconciliados)
+## Totals (reconciled)
 
 supported 112 · partial 86 · not-implemented 72 · unsupported-by-provider 230 · requires-external-component 12 · unavailable-on-host 3 = **515**.
-Accionáveis (partial+not-implemented): **158**.
+Actionable (partial+not-implemented): **158**.
+</content>
+</invoke>

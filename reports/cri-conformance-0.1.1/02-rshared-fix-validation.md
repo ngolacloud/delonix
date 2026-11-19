@@ -1,55 +1,55 @@
-# `rshared` (ADR-0093) — implementado e validado (2026-11-09)
+# `rshared` (ADR-0093) — implemented and validated (2026-11-09)
 
-VM golden `delonix-vm-k8s:1.36` (libvirt, 4 vCPU/4G, ubuntu 24.04), motor release
-`scp`'d como root, CNI bridge+host-local+portmap, `DELONIX_CRI_CAP_CEILING=all`.
+Golden VM `delonix-vm-k8s:1.36` (libvirt, 4 vCPU/4G, ubuntu 24.04), release engine
+`scp`'d as root, CNI bridge+host-local+portmap, `DELONIX_CRI_CAP_CEILING=all`.
 
-## Spec em foco — PASSA
+## Spec in focus — PASSES
 
 ```
 FOCUS="mount with 'rshared'"  → SUCCESS! -- 1 Passed | 0 Failed | 121 Skipped
 ```
 
 `mount with 'rshared' should support propagation from host to container and vice
-versa` passa: um `mount --bind /etc <ponto>` feito DENTRO do container aparece no
-host (metade container→host, que faltava). Confirmado também à mão, comparando
-`/proc/self/mountinfo` do container e do host:
+versa` passes: a `mount --bind /etc <point>` done INSIDE the container shows up on the
+host (the container→host half that was missing). Also confirmed by hand, comparing
+the container's and the host's `/proc/self/mountinfo`:
 
 ```
-# origem no host
+# source on the host
 91 … /tmp/rs/src /tmp/rs/src … shared:1
-# dentro do container o volume é PEER (shared:1, sem master:)
+# inside the container the volume is a PEER (shared:1, no master:)
 … /tmp/rs/src /mnt/rs … shared:1
-… /etc /mnt/rs/sub … shared:3        ← submount criado no container
-# no host, apareceu:
-… /etc /tmp/rs/src/sub … shared:3    ← propagou container→host ✅
+… /etc /mnt/rs/sub … shared:3        ← submount created in the container
+# on the host, it appeared:
+… /etc /tmp/rs/src/sub … shared:3    ← propagated container→host ✅
 ```
 
-## Suite completa
+## Full suite
 
-| Harness | Passed/103 | Notas |
+| Harness | Passed/103 | Notes |
 |---|---|---|
-| mínimo (só CNI) | 90/103 | 9 AppArmor (securityfs não montado) + seccomp-nil + OOM + streaming/rede |
-| + securityfs + `DELONIX_CRI_SECCOMP_NIL=unconfined` | **99/103** | fecha AppArmor + seccomp-nil |
+| minimal (CNI only) | 90/103 | 9 AppArmor (securityfs not mounted) + seccomp-nil + OOM + streaming/network |
+| + securityfs + `DELONIX_CRI_SECCOMP_NIL=unconfined` | **99/103** | closes AppArmor + seccomp-nil |
 
-**`rshared` passa em ambas** (não está entre as falhas). Das 4 a 99/103, uma é
-flaky e três são ambiente/streaming — nenhuma é o motor nem `rshared`. Re-corrida
-focada das 4: `6 Passed | 3 Failed`:
+**`rshared` passes in both** (it is not among the failures). Of the 4 at 99/103, one is
+flaky and three are environment/streaming — none is the engine nor `rshared`. Focused
+re-run of the 4: `6 Passed | 3 Failed`:
 
-- `should support network` — **passou na re-corrida** (a 1ª falha foi um erro de
-  **unpack de layer**, `libgcrypt.so…tmp`, corrida de extração na imagem
-  `hostnet-nginx`): FLAKY, não determinística;
-- `OOMKilled` — reporte via cgroup2-memory (o baseline marcou-o flaky/por-confirmar);
-- `portforward in host network` — rede/hostNetwork;
+- `should support network` — **passed on the re-run** (the 1st failure was a layer
+  **unpack error**, `libgcrypt.so…tmp`, an extraction race on the `hostnet-nginx`
+  image): FLAKY, non-deterministic;
+- `OOMKilled` — report via cgroup2-memory (the baseline marked it flaky/to-be-confirmed);
+- `portforward in host network` — network/hostNetwork;
 - `exec with tty=true and stdin=true` — streaming (exit-code `-1`).
 
-São as mesmas classes que a campanha baseline resolveu com o harness completo para
-chegar a 102/103 (com `rshared` como única falha de **motor** restante). Com
-`rshared` agora fechado, o motor não tem gap de conformidade de propagação de mount;
-as restantes dependem do ambiente/harness de rede+streaming+OOM, não deste fix.
+These are the same classes the baseline campaign resolved with the full harness to
+reach 102/103 (with `rshared` as the only remaining **engine** failure). With
+`rshared` now closed, the engine has no mount-propagation conformance gap;
+the rest depend on the network+streaming+OOM environment/harness, not on this fix.
 
-## Implementação
+## Implementation
 
 `crates/adapters/delonix-linux/src/lib.rs` (`setup_rootfs`, `detach_old_root`,
 `enclosing_mount_point`, `per_mount_propagation`, `root_propagation`,
-`rshared_allowed`), gate em `spawn` (`Error::BidirectionalNeedsPrivileged`,
-DX-1117). Ver ADR-0093 para o mecanismo medido e porquê de cada passo.
+`rshared_allowed`), gate in `spawn` (`Error::BidirectionalNeedsPrivileged`,
+DX-1117). See ADR-0093 for the measured mechanism and the reason for each step.

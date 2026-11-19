@@ -1,14 +1,14 @@
-//! O resumo de firewall reposto depois de o `Net` sair do motor.
+//! The firewall summary restored after `Net` left the engine.
 //!
-//! Testa o PARSER, não o holder: a leitura em si é um verbo read-only do
-//! protocolo de controlo e exige um netns de pé; o que erra é a interpretação
-//! das linhas do `nft`, e isso testa-se com listagens reais.
+//! Tests the PARSER, not the holder: the read itself is a read-only verb of the
+//! control protocol and needs a netns up; what gets it wrong is the
+//! interpretation of the `nft` lines, and that is tested with real listings.
 
 use delonix_sdn::infra::{parse_dnat, parse_set_elements};
 
-/// Uma listagem `nft list chain` como o holder a devolve, com o prefixo de
-/// handle que o `-a` acrescenta.
-const CADEIA: &str = r#"
+/// An `nft list chain` listing as the holder returns it, with the handle prefix
+/// that `-a` adds.
+const CHAIN: &str = r#"
 table ip dlxing {
 	chain pre {
 		type nat hook prerouting priority dstnat; policy accept;
@@ -21,22 +21,22 @@ table ip dlxing {
 "#;
 
 #[test]
-fn extrai_as_publicacoes_e_o_protocolo_certo() {
-    let r = parse_dnat(CADEIA);
-    assert_eq!(r.len(), 3, "devia apanhar as três regras de dnat: {r:?}");
+fn extracts_the_publications_and_the_right_protocol() {
+    let r = parse_dnat(CHAIN);
+    assert_eq!(r.len(), 3, "should catch the three dnat rules: {r:?}");
 
     assert_eq!(r[0].proto, "tcp");
     assert_eq!(r[0].host_port, "8080");
     assert_eq!(r[0].to, "10.200.0.5:80");
 
-    // O UDP é o caso que a versão anterior errava: ela lia o protocolo do INÍCIO
-    // da linha (`starts_with("udp")`), e numa listagem indentada — ou com o
-    // prefixo do `-a` — o início é espaço ou `iif`, portanto dava `tcp` a tudo.
-    // Um resumo que troca UDP por TCP manda quem depura procurar o problema no
-    // protocolo errado.
+    // UDP is the case the previous version got wrong: it read the protocol from
+    // the START of the line (`starts_with("udp")`), and in an indented listing —
+    // or with the `-a` prefix — the start is whitespace or `iif`, so it gave
+    // `tcp` to everything. A summary that swaps UDP for TCP sends whoever is
+    // debugging to look for the problem under the wrong protocol.
     assert_eq!(
         r[1].proto, "udp",
-        "o protocolo lê-se do match, não do início"
+        "the protocol is read from the match, not from the start"
     );
     assert_eq!(r[1].host_port, "5353");
     assert_eq!(r[1].to, "10.200.0.9:53");
@@ -45,24 +45,24 @@ fn extrai_as_publicacoes_e_o_protocolo_certo() {
 }
 
 #[test]
-fn linhas_sem_dnat_sao_ignoradas() {
-    // A cadeia tem regras que não são publicações (`ct state … accept`), e a
-    // política. Nenhuma pode aparecer como porto publicado.
+fn lines_without_dnat_are_ignored() {
+    // The chain has rules that are not publications (`ct state … accept`), and
+    // the policy. None may show up as a published port.
     assert!(parse_dnat("ct state established,related accept").is_empty());
     assert!(parse_dnat("type nat hook prerouting priority dstnat; policy accept;").is_empty());
     assert!(parse_dnat("").is_empty());
 }
 
 #[test]
-fn regra_truncada_nao_vira_publicacao_meia() {
-    // Sem porto, ou sem destino, não há regra — melhor não mostrar do que
-    // mostrar um porto publicado para lado nenhum.
+fn a_truncated_rule_does_not_become_a_half_publication() {
+    // With no port, or no destination, there is no rule — better to show nothing
+    // than to show a port published to nowhere.
     assert!(parse_dnat("iif \"tap0\" tcp dnat to 10.200.0.5:80").is_empty());
     assert!(parse_dnat("iif \"tap0\" tcp dport 8080 dnat to ").is_empty());
 }
 
 #[test]
-fn extrai_os_bloqueados_do_conjunto() {
+fn extracts_the_blocked_from_the_set() {
     let set = r#"
 table ip dlxing {
 	set blocked {
@@ -75,9 +75,9 @@ table ip dlxing {
 }
 
 #[test]
-fn conjunto_vazio_ou_ausente_da_lista_vazia() {
-    // Um conjunto sem elementos é a forma NORMAL de «ninguém bloqueado» — não
-    // pode ser confundido com uma leitura falhada.
+fn empty_or_absent_set_gives_an_empty_list() {
+    // A set with no elements is the NORMAL form of "nobody blocked" — it must not
+    // be confused with a failed read.
     assert!(
         parse_set_elements("table ip dlxing {\n\tset blocked {\n\t\ttype ipv4_addr\n\t}\n}")
             .is_empty()

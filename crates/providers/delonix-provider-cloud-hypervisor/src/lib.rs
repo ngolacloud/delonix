@@ -315,12 +315,12 @@ pub fn cloud_hypervisor_report(host: &CloudHypervisorHost) -> ProviderReport {
                 detail: "`available()` checks the binary; `provider ls` additionally probes /dev/kvm and the firmware",
             },
             C::ResourceReadback => bin(S::Supported {
-                evidence: "check:CH: ls nomeia-o",
+                evidence: "check:CH: ls names it",
             }),
             C::Events => S::NotImplemented,
             C::AsyncOperations => S::NotImplemented,
             C::VmCreate => bin(S::Supported {
-                evidence: "e2e:vm: os mesmos snapshots no backend cloud-hypervisor",
+                evidence: "e2e:vm: the same snapshots on the cloud-hypervisor backend",
             }),
             C::VmStart => bin(S::Supported {
                 evidence: "check:CH: vm start",
@@ -350,7 +350,7 @@ pub fn cloud_hypervisor_report(host: &CloudHypervisorHost) -> ProviderReport {
                 evidence: "live:scripts/vm-native-ch-clone.sh",
             }),
             C::VmResizeCold => bin(S::Supported {
-                evidence: "check:CH: vm resize --vcpus 2 com a VM parada",
+                evidence: "check:CH: vm resize --vcpus 2 with the VM stopped",
             }),
             // CPU add is proven live end to end (the guest's `nproc` rises
             // after `vm update --vcpus`): the hypervisor `vm.resize` succeeds
@@ -403,7 +403,7 @@ pub fn cloud_hypervisor_report(host: &CloudHypervisorHost) -> ProviderReport {
                 reason: "one tap on the SDN; `extraNics` are refused for this backend",
             },
             C::VmDiskResize => bin(S::Supported {
-                evidence: "check:CH: o overlay cresceu para exactamente 1 GiB",
+                evidence: "check:CH: the overlay grew to exactly 1 GiB",
             }),
             C::VmPciPassthrough => bin(S::Partial {
                 detail: "each `cfg.devices` path becomes `--device path=<sysfs>` (VFIO); not proved live — binding a device to vfio-pci needs root and a host device spare to detach, and none is on the test host",
@@ -485,7 +485,7 @@ pub fn cloud_hypervisor_report(host: &CloudHypervisorHost) -> ProviderReport {
             },
             C::StoragePools => S::NotImplemented,
             C::VmSnapshotDisk => bin(S::Supported {
-                evidence: "check:CH: create com a VM parada",
+                evidence: "check:CH: create with the VM stopped",
             }),
             C::VmSnapshotMemory => S::UnsupportedByProvider {
                 reason: "`vm.snapshot` of the VMM saves memory without the disk, which cannot be restored consistently; refused by design",
@@ -494,10 +494,10 @@ pub fn cloud_hypervisor_report(host: &CloudHypervisorHost) -> ProviderReport {
                 evidence: "check:CH: restore",
             }),
             C::VmSnapshotDelete => bin(S::Supported {
-                evidence: "check:CH: rm com a VM parada",
+                evidence: "check:CH: rm with the VM stopped",
             }),
             C::VmSnapshotPersistent => bin(S::Supported {
-                evidence: "check:CH: ls nomeia-o",
+                evidence: "check:CH: ls names it",
             }),
             C::VmBackupDisk => bin(S::Supported {
                 // #16: proved by DATA recovery, not an exit code. `backup create
@@ -906,7 +906,7 @@ impl VmBackend for CloudHypervisorBackend {
     }
 
     fn is_running(&self, vm: &Vm) -> bool {
-        // Mesma pergunta que o `stop`: vivo E ainda o nosso.
+        // Same question as `stop`: alive AND still ours.
         vm.pid.is_some_and(|p| safe_to_signal(p, vm.pid_starttime))
     }
 
@@ -2482,7 +2482,7 @@ mod tests {
     /// where it does not, it is `false`. (Assumes the stable `KVM_API_VERSION`
     /// 12, true on every kernel since 2.6.22.)
     #[test]
-    fn kvm_usable_concorda_com_a_abertura_real_do_dispositivo() {
+    fn kvm_usable_agrees_with_really_opening_the_device() {
         let can_open = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -2491,7 +2491,7 @@ mod tests {
         assert_eq!(
             kvm_usable(),
             can_open,
-            "a sonda nativa de KVM deve concordar com a abertura real de /dev/kvm"
+            "the native KVM probe must agree with really opening /dev/kvm"
         );
     }
 
@@ -2553,7 +2553,7 @@ mod tests {
     }
 
     #[test]
-    fn o_edk2_vem_antes_do_hypervisor_fw_na_procura_de_firmware() {
+    fn edk2_comes_before_hypervisor_fw_in_the_firmware_search() {
         // The order IS the fix. A host that has both (the installer fetches
         // both) and picks `hypervisor-fw` boots none of this project's images
         // in Cloud Hypervisor — measured, see DEFAULT_CH_FIRMWARES. The failure
@@ -2595,7 +2595,7 @@ mod tests {
         assert!(!super::disk_looks_corrupt(&path));
     }
     #[test]
-    fn quiet_captura_o_stderr_sem_o_prefixo_error() {
+    fn quiet_captures_stderr_without_the_error_prefix() {
         // `virsh` prefixes each line with `error: ` — the composed message must
         // not repeat that, nor leak the raw stderr to the terminal.
         let err = super::quiet("sh", &["-c", "echo 'error: boom' >&2; exit 1"]).unwrap_err();
@@ -2691,25 +2691,25 @@ mod tests {
         }
     }
     #[test]
-    fn le_a_lista_de_snapshots_do_qemu_img_info() {
-        // Output REAL capturado neste host (`qemu-img info -U` de um overlay de
-        // uma VM CH a correr) — não a forma do manual. O bloco acaba na secção
-        // seguinte, e a linha de cabeçalho não é um snapshot chamado "TAG".
+    fn reads_the_snapshot_list_from_qemu_img_info() {
+        // REAL output captured on this host (`qemu-img info -U` of an overlay of
+        // a running CH VM) — not the manual's shape. The block ends at the next
+        // section, and the header line is not a snapshot named "TAG".
         let out = "\
 image: /x/dev.qcow2
 file format: qcow2
 Snapshot list:
 ID        TAG               VM SIZE                DATE     VM CLOCK     ICOUNT
 1         manual1               0 B 2026-08-12 16:44:30 00:00:00.000          0
-2         antes-do-upgrade    2 MiB 2026-08-12 16:45:00 00:00:09.012
+2         before-the-upgrade  2 MiB 2026-08-12 16:45:00 00:00:09.012
 Format specific information:
     compat: 1.1
 ";
         assert_eq!(
             super::parse_qemu_snapshot_list(out),
-            vec!["manual1".to_string(), "antes-do-upgrade".to_string()]
+            vec!["manual1".to_string(), "before-the-upgrade".to_string()]
         );
-        // Sem snapshots não há bloco nenhum — lista vazia, nunca um erro.
+        // With no snapshots there is no block at all — empty list, never an error.
         assert!(super::parse_qemu_snapshot_list("image: /x\nfile format: qcow2\n").is_empty());
     }
     /// BUG-VM-001: a clean, freshly-created qcow2 must never read as
@@ -2965,17 +2965,17 @@ Format specific information:
     }
 }
 
-/// Identidade do PID antes de matar o VMM — a assimetria que faltava fechar.
+/// PID identity before killing the VMM — the asymmetry that was left to close.
 ///
-/// O lado dos containers guarda TODOS os sinais com `safe_to_signal` (dezasseis
-/// pontos de chamada); o das VMs matava por `pid > 0`, e o registo nem sequer
-/// levava o `starttime` contra o qual comparar.
+/// The container side guards EVERY signal with `safe_to_signal` (sixteen call
+/// sites); the VM side killed on `pid > 0`, and the record did not even carry
+/// the `starttime` to compare against.
 #[cfg(test)]
-mod tests_identidade_do_vmm {
+mod tests_vmm_identity {
     use super::*;
     use delonix_compute::vm::{adopt_pid_starttime, argv_is_vmm_for};
 
-    fn vm_com(pid: Option<i32>, st: Option<u64>) -> Vm {
+    fn vm_with(pid: Option<i32>, st: Option<u64>) -> Vm {
         let mut vm = Vm::new(
             "t".into(),
             "d".into(),
@@ -2992,32 +2992,32 @@ mod tests_identidade_do_vmm {
         vm
     }
 
-    /// O achado: um registo que nomeia um pid RECICLADO não pode disparar.
+    /// The finding: a record naming a RECYCLED pid must not fire.
     #[test]
-    fn um_pid_reciclado_nao_e_sinalizavel() {
-        let eu = std::process::id() as i32;
-        // vivo, mas o starttime não é o nosso — é o que um pid reciclado parece.
-        assert_eq!(vmm_to_signal(&vm_com(Some(eu), Some(1))), None);
+    fn a_recycled_pid_is_not_signalable() {
+        let me = std::process::id() as i32;
+        // alive, but the starttime is not ours — what a recycled pid looks like.
+        assert_eq!(vmm_to_signal(&vm_with(Some(me), Some(1))), None);
     }
 
     #[test]
-    fn o_nosso_vmm_continua_a_ser_sinalizavel() {
-        let eu = std::process::id() as i32;
-        let st = proc_starttime(eu);
-        assert!(st.is_some(), "o /proc deste processo tem de ser legível");
-        assert_eq!(vmm_to_signal(&vm_com(Some(eu), st)), Some(eu));
+    fn our_vmm_stays_signalable() {
+        let me = std::process::id() as i32;
+        let st = proc_starttime(me);
+        assert!(st.is_some(), "this process's /proc must be readable");
+        assert_eq!(vmm_to_signal(&vm_with(Some(me), st)), Some(me));
     }
 
-    /// Registos anteriores a este campo não podem deixar de parar.
+    /// Records older than this field must not fail to stop.
     #[test]
-    fn um_registo_antigo_sem_starttime_mantem_o_comportamento() {
-        let eu = std::process::id() as i32;
-        assert_eq!(vmm_to_signal(&vm_com(Some(eu), None)), Some(eu));
+    fn an_old_record_without_starttime_keeps_the_behaviour() {
+        let me = std::process::id() as i32;
+        assert_eq!(vmm_to_signal(&vm_with(Some(me), None)), Some(me));
     }
 
-    /// A adopção só pode acontecer com a identidade provada por OUTRO meio.
+    /// Adoption can only happen with identity proven by ANOTHER means.
     #[test]
-    fn a_adopcao_exige_o_api_socket_no_argv() {
+    fn adoption_requires_the_api_socket_in_argv() {
         let sock = "/tmp/dlx/v.sock".to_string();
         let vmm = vec![
             "/usr/bin/cloud-hypervisor".to_string(),
@@ -3026,41 +3026,41 @@ mod tests_identidade_do_vmm {
         ];
         assert!(argv_is_vmm_for(&vmm, &sock));
 
-        // O MESMO binário, a servir OUTRA VM — é o caso que um pid reciclado
-        // dentro da mesma frota produz, e é o que não pode ser adoptado.
-        assert!(!argv_is_vmm_for(&vmm, "/tmp/dlx/outra.sock"));
-        // Um processo qualquer que por acaso nomeie o socket.
+        // The SAME binary, serving ANOTHER VM — the case a recycled pid within
+        // the same fleet produces, and the one that must not be adopted.
+        assert!(!argv_is_vmm_for(&vmm, "/tmp/dlx/other.sock"));
+        // Any process that happens to name the socket.
         assert!(!argv_is_vmm_for(
             &["/bin/cat".to_string(), sock.clone()],
             &sock
         ));
-        // Um registo sem api-socket não tem token nenhum: nunca adopta.
+        // A record with no api-socket has no token at all: never adopts.
         assert!(!argv_is_vmm_for(&vmm, ""));
     }
 
-    /// Um registo que JÁ tem starttime nunca é reescrito — carimbar por cima
-    /// seria trocar uma prova por um palpite.
+    /// A record that ALREADY has a starttime is never rewritten — stamping over
+    /// it would trade a proof for a guess.
     #[test]
-    fn a_adopcao_nao_toca_num_registo_ja_carimbado() {
-        let mut vm = vm_com(Some(std::process::id() as i32), Some(12345));
+    fn adoption_does_not_touch_an_already_stamped_record() {
+        let mut vm = vm_with(Some(std::process::id() as i32), Some(12345));
         assert!(!adopt_pid_starttime(&mut vm));
         assert_eq!(vm.pid_starttime, Some(12345));
     }
 
-    /// Este processo de teste não é um cloud-hypervisor: a adopção recusa.
+    /// This test process is not a cloud-hypervisor: adoption refuses.
     #[test]
-    fn nao_adopta_um_pid_vivo_que_nao_e_o_vmm() {
-        let mut vm = vm_com(Some(std::process::id() as i32), None);
+    fn does_not_adopt_a_live_pid_that_is_not_the_vmm() {
+        let mut vm = vm_with(Some(std::process::id() as i32), None);
         vm.api_socket = "/tmp/dlx/v.sock".into();
         assert!(!adopt_pid_starttime(&mut vm));
-        assert_eq!(vm.pid_starttime, None, "não carimbar sem prova");
+        assert_eq!(vm.pid_starttime, None, "do not stamp without proof");
     }
 
     #[test]
-    fn sem_pid_nao_ha_nada_a_sinalizar() {
-        assert_eq!(vmm_to_signal(&vm_com(None, None)), None);
-        // pid morto (o 0 nunca é sinalizável por este caminho)
-        assert_eq!(vmm_to_signal(&vm_com(Some(0), None)), None);
+    fn with_no_pid_there_is_nothing_to_signal() {
+        assert_eq!(vmm_to_signal(&vm_with(None, None)), None);
+        // dead pid (0 is never signalable by this path)
+        assert_eq!(vmm_to_signal(&vm_with(Some(0), None)), None);
     }
 }
 

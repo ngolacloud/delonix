@@ -1,17 +1,19 @@
-//! Round-trip gRPC REAL contra o servidor CRI — o gap que o `AGENTS.md` declarava.
+//! A REAL gRPC round-trip against the CRI server — the gap `AGENTS.md` declared.
 //!
-//! O que estava escrito lá: «Não validado com um kubelet/`crictl` real (nenhum
-//! dos dois existe neste host, e `build_client(false)` no `build.rs` não gera
-//! stubs de cliente gRPC): o caminho gRPC está coberto pelo teste do
-//! `create_container` real + `cap_flags`/`cap_args`, e a camada tonic são três
-//! linhas de `blocking(...)`».
+//! What was written there: «Not validated against a real kubelet/`crictl`
+//! (neither exists on this host, and `build_client(false)` in `build.rs` does not
+//! generate gRPC client stubs): the gRPC path is covered by the real
+//! `create_container` test + `cap_flags`/`cap_args`, and the tonic layer is three
+//! lines of `blocking(...)`».
 //!
-//! «São três linhas» é uma razão para achar que funciona, não uma medição. Este
-//! teste mede: sobe o servidor num socket unix, fala com ele pelo cliente
-//! gerado, e confirma que o `Status` chega com as condições preenchidas.
+//! «It is three lines» is a reason to believe it works, not a measurement. This
+//! test measures: it brings the server up on a unix socket, talks to it through
+//! the generated client, and confirms that `Status` arrives with the conditions
+//! populated.
 //!
-//! O custo de gerar o cliente foi medido antes de o ligar: **3,5 s** de build no
-//! crate. É o preço de deixar de deduzir a camada de transporte.
+//! The cost of generating the client was measured before wiring it in: **3.5 s**
+//! of build in the crate. That is the price of no longer deducing the transport
+//! layer.
 
 use delonix_cri::cri::runtime_service_client::RuntimeServiceClient;
 use delonix_cri::cri::{
@@ -213,15 +215,15 @@ fn short_sock() -> (tempfile::TempDir, String) {
 }
 
 #[tokio::test]
-async fn o_status_chega_pelo_transporte_grpc_a_serio() {
+async fn status_arrives_over_the_real_grpc_transport() {
     let (_sock_dir, sock) = short_sock();
     let base_dir = tempfile::tempdir().unwrap();
     let base = base_dir.path().to_path_buf();
 
-    // O servidor corre numa thread própria (o `serve_blocking` tem o seu runtime).
+    // The server runs on its own thread (`serve_blocking` has its own runtime).
     let s = sock.clone();
     let b = base.clone();
-    let servidor = std::thread::spawn(move || {
+    let server = std::thread::spawn(move || {
         let _ = delonix_cri::serve_blocking(
             b,
             std::sync::Arc::new(NoImages),
@@ -234,7 +236,7 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
         );
     });
 
-    // Esperar por CONDIÇÃO, nunca por tempo.
+    // Wait for a CONDITION, never for time.
     for _ in 0..100 {
         if std::path::Path::new(&sock).exists() {
             break;
@@ -243,39 +245,39 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
     }
     assert!(
         std::path::Path::new(&sock).exists(),
-        "o servidor não chegou a criar o socket"
+        "the server never created the socket"
     );
 
-    // Um socket que ACEITA não é um servidor que RESPONDE — daí a chamada real.
+    // A socket that ACCEPTS is not a server that ANSWERS — hence the real call.
     let mut cli = connect(&sock).await;
 
     let v = cli
         .version(VersionRequest::default())
         .await
-        .expect("Version pelo transporte gRPC")
+        .expect("Version over the gRPC transport")
         .into_inner();
     assert!(
         !v.runtime_name.is_empty(),
-        "o Version tem de nomear o runtime"
+        "Version must name the runtime"
     );
 
     let st = cli
         .status(StatusRequest { verbose: false })
         .await
-        .expect("Status pelo transporte gRPC")
+        .expect("Status over the gRPC transport")
         .into_inner()
         .status
-        .expect("StatusResponse.status preenchido");
+        .expect("StatusResponse.status populated");
 
-    // As duas condições que o kubelet lê para decidir se o nó serve.
-    let tipos: Vec<&str> = st.conditions.iter().map(|c| c.r#type.as_str()).collect();
+    // The two conditions the kubelet reads to decide whether the node serves.
+    let types: Vec<&str> = st.conditions.iter().map(|c| c.r#type.as_str()).collect();
     assert!(
-        tipos.contains(&"RuntimeReady"),
-        "faltou RuntimeReady: {tipos:?}"
+        types.contains(&"RuntimeReady"),
+        "RuntimeReady missing: {types:?}"
     );
     assert!(
-        tipos.contains(&"NetworkReady"),
-        "faltou NetworkReady: {tipos:?}"
+        types.contains(&"NetworkReady"),
+        "NetworkReady missing: {types:?}"
     );
     let rr = st
         .conditions
@@ -284,7 +286,7 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
         .unwrap();
     assert!(
         rr.status,
-        "chegámos aqui pelo gRPC, logo o runtime respondeu — RuntimeReady tem de ser true"
+        "we got here over gRPC, so the runtime answered — RuntimeReady must be true"
     );
 
     // `ListMetricDescriptors`/`ListPodSandboxMetrics` — real gRPC round-trip,
@@ -301,12 +303,12 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
         .descriptors;
     assert!(
         !descriptors.is_empty(),
-        "o runtime tem de declarar pelo menos um descritor de métrica"
+        "the runtime must declare at least one metric descriptor"
     );
     let names: Vec<&str> = descriptors.iter().map(|d| d.name.as_str()).collect();
     assert!(
         names.contains(&"container_cpu_usage_core_nanoseconds"),
-        "faltou o descritor de CPU por container: {names:?}"
+        "the per-container CPU descriptor is missing: {names:?}"
     );
 
     let pod_metrics = cli
@@ -321,16 +323,16 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
     );
 
     drop(cli);
-    // O servidor não tem paragem limpa (é um `serve_blocking`); o processo de
-    // teste termina e leva-o. Não se faz `join`, que penduraria.
-    drop(servidor);
+    // The server has no clean shutdown (it is a `serve_blocking`); the test
+    // process ends and takes it down. No `join`, which would hang.
+    drop(server);
 }
 
 /// The connector the two tests share: a socket that ACCEPTS is not a server
 /// that ANSWERS, so every assertion here goes over a real channel.
 async fn connect(sock: &str) -> RuntimeServiceClient<tonic::transport::Channel> {
     let s = sock.to_owned();
-    let canal = tonic::transport::Endpoint::try_from("http://[::]:50051")
+    let channel = tonic::transport::Endpoint::try_from("http://[::]:50051")
         .unwrap()
         .connect_with_connector(tower::service_fn(move |_| {
             let p = s.clone();
@@ -342,7 +344,7 @@ async fn connect(sock: &str) -> RuntimeServiceClient<tonic::transport::Channel> 
         }))
         .await
         .expect("connecting to the server's unix socket");
-    RuntimeServiceClient::new(canal)
+    RuntimeServiceClient::new(channel)
 }
 
 /// ADR-0074 D1: a `hostPort` this node cannot publish is refused from

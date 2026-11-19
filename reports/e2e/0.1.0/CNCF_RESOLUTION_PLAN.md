@@ -1,146 +1,148 @@
-# Plano de resolução dos gaps CNCF — Delonix
+# CNCF gap resolution plan — Delonix
 
-> Deriva de `CNCF_ACCEPTANCE_MASTER.md` (2026-11-12). Ordenação por **retorno
-> para a admissão CNCF**, não por área numérica. Cada onda declara dependências,
-> esforço, reutilização de código existente e critério de «feito» (efeito
-> verificável, não «compila»). GAP IDs alinhados com `BACKLOG.md`.
+> Derives from `CNCF_ACCEPTANCE_MASTER.md` (2026-11-12). Ordered by **return
+> towards CNCF admission**, not by area number. Each wave declares dependencies,
+> effort, reuse of existing code and a «done» criterion (a verifiable effect,
+> not «it compiles»). GAP IDs aligned with `BACKLOG.md`.
 
-## Princípio de ordenação
+## Ordering principle
 
-1. **Admissão primeiro, qualidade técnica depois.** A área 7 (governança) é o
-   único bloqueador *de entrada*; corre em paralelo a tudo porque é decisão do
-   dono, não código.
-2. **Maior ROI de código = supply-chain** (3+4): um único primitivo (anexo
-   in-toto/OCI) destranca quase duas áreas reutilizando `sbom_spdx`+`sign.rs`+
-   `registry.rs`.
-3. **Barato antes de caro.** Área 8 (policy sobre OSV já existente) e área 2
-   (kube interop) antes da área 5 (build multi-arch, XL).
-4. **Não degradar invariantes** (rootless-first, fail-closed, contratos
-   CLI/JSON/schema) — cada onda testa comportamento + nota de migração.
+1. **Admission first, technical quality after.** Area 7 (governance) is the
+   only *entry* blocker; it runs in parallel to everything because it is the
+   owner's decision, not code.
+2. **Highest code ROI = supply-chain** (3+4): a single primitive (the
+   in-toto/OCI attachment) unlocks almost two areas at once by reusing
+   `sbom_spdx`+`sign.rs`+`registry.rs`.
+3. **Cheap before expensive.** Area 8 (policy over the already-existing OSV) and
+   area 2 (kube interop) before area 5 (multi-arch build, XL).
+4. **Do not degrade invariants** (rootless-first, fail-closed, CLI/JSON/schema
+   contracts) — each wave tests behaviour + a migration note.
 
-## Onda 0 — Governança (área 7) — DESTRANCA A ADMISSÃO · paralela
+## Wave 0 — Governance (area 7) — UNLOCKS ADMISSION · parallel
 
-Decisão do dono, não engenharia de motor. Sem isto, nenhuma onda abaixo muda o
-veredicto de entrada.
+Owner's decision, not engine engineering. Without it, no wave below moves the
+entry verdict.
 
-| Item | Acção | Done |
+| Item | Action | Done |
 |---|---|---|
-| GAP-0014a | Tornar o repo **público** (Apache-2.0 limpo, headers, DCO/CLA) | repo público + LICENSE/NOTICE auditados |
-| GAP-0014b | Governança neutra documentada (`GOVERNANCE.md`+`MAINTAINERS.md` com papéis reais, processo de decisão) | docs com ≥2 maintainers e processo |
-| GAP-0014c | Releases assinadas + reproduzíveis (`release_verify.py`, cosign/PGP, SBOM anexado) | release v0.1.x assinada e verificável |
-| GAP-0014d | Sinais de comunidade (security policy viva, roadmap público, CoC enforcement) | SECURITY.md + roadmap públicos |
+| GAP-0014a | Make the repo **public** (clean Apache-2.0, headers, DCO/CLA) | public repo + audited LICENSE/NOTICE |
+| GAP-0014b | Documented neutral governance (`GOVERNANCE.md`+`MAINTAINERS.md` with real roles, decision process) | docs with ≥2 maintainers and a process |
+| GAP-0014c | Signed + reproducible releases (`release_verify.py`, cosign/PGP, attached SBOM) | signed, verifiable v0.1.x release |
+| GAP-0014d | Community signals (live security policy, public roadmap, CoC enforcement) | public SECURITY.md + roadmap |
 
-> **Gate de admissão:** até a Onda 0 fechar, o estado continua **NO-GO** para
-> Sandbox, independentemente do resto.
+> **Admission gate:** until Wave 0 closes, the state remains **NO-GO** for
+> Sandbox, regardless of the rest.
 
-## Onda 1 — Âncora supply-chain (áreas 3+4) — MAIOR ROI DE CÓDIGO
+## Wave 1 — Supply-chain anchor (areas 3+4) — HIGHEST CODE ROI
 
-### 1A · GAP-0009 — anexo in-toto/OCI de attestations · **Compl. M** · dep. —
-O pivô. Entrega a área 4 quase inteira e metade da 3 de uma vez.
-- **Reutiliza:** `sbom_spdx()` (SPDX pronto), `sign.rs` (chave+assinatura),
-  `registry.rs::push_signature` (push de artefacto OCI no mesmo repo).
-- **Implementar:** embrulhar o SPDX num **in-toto Statement cru** (`_type:
+### 1A · GAP-0009 — in-toto/OCI attachment of attestations · **Compl. M** · dep. —
+The pivot. It delivers almost all of area 4 and half of area 3 at once.
+- **Reuses:** `sbom_spdx()` (SPDX ready), `sign.rs` (key+signature),
+  `registry.rs::push_signature` (push of an OCI artefact in the same repo).
+- **Implement:** wrap the SPDX in a **raw in-toto Statement** (`_type:
   https://in-toto.io/Statement/v1`, `predicateType: https://spdx.dev/Document`);
-  publicar manifest `artifactType=application/vnd.docker.attestation.manifest.v1+json`
-  com `subject=<imagem>`, layer `application/vnd.in-toto+json` + annotation
-  `in-toto.io/predicate-type`; referenciar no index com `platform=unknown/unknown`
-  + annotations `vnd.docker.reference.type=attestation-manifest`/`.digest`.
-- **CLI:** `delonix build --sbom`; `delonix image sbom <ref>` exporta SPDX.
-- **Done:** `cosign verify-attestation` / `docker buildx imagetools inspect` lê a
-  attestation anexada; round-trip `push→pull→verify` contra registry local.
+  publish a `artifactType=application/vnd.docker.attestation.manifest.v1+json`
+  manifest with `subject=<image>`, an `application/vnd.in-toto+json` layer + an
+  `in-toto.io/predicate-type` annotation; reference it in the index with
+  `platform=unknown/unknown` + `vnd.docker.reference.type=attestation-manifest`/`.digest`
+  annotations.
+- **CLI:** `delonix build --sbom`; `delonix image sbom <ref>` exports SPDX.
+- **Done:** `cosign verify-attestation` / `docker buildx imagetools inspect`
+  reads the attached attestation; `push→pull→verify` round-trip against a local
+  registry.
 
-### 1B · GAP-0008 — provenance SLSA no build · **Compl. L** · dep. 1A
-- **Reutiliza:** o anexo da 1A; `build.rs` já conhece base/materials/steps.
-- **Implementar:** instrumentar o build para emitir predicate
-  `https://slsa.dev/provenance/v1` (`buildType`, `buildDefinition{externalParameters,
-  resolvedDependencies com checksum}`, `runDetails{builder.id, metadata}`); flag
-  `--provenance mode=min|max` (default max, como BuildKit). `byproducts` pode
-  ficar vazio (o próprio BuildKit não o preenche).
-- **Done:** imagem construída traz provenance v1 verificável; `mode=min` omite
-  valores de build-args/secrets, `mode=max` inclui Dockerfile+sourcemaps.
+### 1B · GAP-0008 — SLSA provenance in the build · **Compl. L** · dep. 1A
+- **Reuses:** the 1A attachment; `build.rs` already knows base/materials/steps.
+- **Implement:** instrument the build to emit a
+  `https://slsa.dev/provenance/v1` predicate (`buildType`, `buildDefinition{externalParameters,
+  resolvedDependencies with checksum}`, `runDetails{builder.id, metadata}`); a
+  `--provenance mode=min|max` flag (default max, like BuildKit). `byproducts` may
+  stay empty (BuildKit itself does not fill it).
+- **Done:** the built image carries a verifiable provenance v1; `mode=min` omits
+  build-args/secrets values, `mode=max` includes Dockerfile+sourcemaps.
 
-## Onda 2 — Scanning maduro (área 8) · **Compl. M** · dep. — (1A ajuda GAP-0017)
+## Wave 2 — Mature scanning (area 8) · **Compl. M** · dep. — (1A helps GAP-0017)
 
-- **GAP-0013** — `policy` declarativa + `scan compare` + gating CI. Alavanca o
-  OSV+`--fail-on` já existentes; adicionar ficheiro de policy (severidade por
-  pacote/CVE allowlist) e `delonix scan compare <imgA> <imgB>` (delta de CVEs).
-- **GAP-0017** (lente Podman) — trust de assinatura por policy: estender
-  `delonix-security/policy.rs` com regras por registo/repo (sigstore+chave),
-  aplicadas no `pull`/`run`. Reusa o formato de attestation da Onda 1.
-- **Done:** `delonix scan --policy p.json` falha o CI conforme regras; `run`
-  recusa imagem não-assinada sob policy.
+- **GAP-0013** — declarative `policy` + `scan compare` + CI gating. Leverages the
+  already-existing OSV+`--fail-on`; add a policy file (severity per
+  package/CVE allowlist) and `delonix scan compare <imgA> <imgB>` (CVE delta).
+- **GAP-0017** (Podman lens) — signature trust via policy: extend
+  `delonix-security/policy.rs` with per-registry/repo rules (sigstore+key),
+  applied at `pull`/`run`. Reuses the Wave 1 attestation format.
+- **Done:** `delonix scan --policy p.json` fails CI per the rules; `run` refuses
+  an unsigned image under policy.
 
-## Onda 3 — Interop Kubernetes (completa a área 2) · **Compl. L** · dep. —
+## Wave 3 — Kubernetes interop (completes area 2) · **Compl. L** · dep. —
 
-- **GAP-0015** — `delonix kube play <k8s.yaml>` corre Pod/Deployment em
-  `apiVersion: v1`/`apps/v1`; `delonix kube generate <ref>` emite YAML k8s válido.
-  Maior diferencial CNCF do Podman (k8s é o centro do ecossistema). Conversor
-  k8s↔envelope em `delonix-compute`.
-- **Done:** round-trip `generate → play` de um pod de 2 membros; YAML aceite por
+- **GAP-0015** — `delonix kube play <k8s.yaml>` runs a Pod/Deployment in
+  `apiVersion: v1`/`apps/v1`; `delonix kube generate <ref>` emits valid k8s YAML.
+  Podman's biggest CNCF differentiator (k8s is the centre of the ecosystem). A
+  k8s↔envelope converter in `delonix-compute`.
+- **Done:** `generate → play` round-trip of a 2-member pod; YAML accepted by
   `kubectl --dry-run=client`.
 
-> A conformância CRI do motor (área 2) **já está** em 103/103 — esta onda fecha a
-> dimensão de *interop*, não a de conformância.
+> The engine's CRI conformance (area 2) **is already** at 103/103 — this wave
+> closes the *interop* dimension, not the conformance one.
 
-## Onda 4 — Convergência Compose (área 6) · **Compl. M–L** · dep. —
+## Wave 4 — Compose convergence (area 6) · **Compl. M–L** · dep. —
 
-- **Interpolação `${VAR}`/`.env`** (o maior gap, normativo) — passe de
-  substituição antes do parse: `$V`, `${V}`, `${V:-def}`, `${V-def}`, `${V:?err}`,
-  `${V?err}`, nested, escape `$$`; auto-load de `./.env`. Novo módulo antes de
-  `serde_yaml`.
-- **GAP-0005** — `compose up` reinicia serviço parado (semântica de ciclo de vida).
-- **GAP-0011** — implementar a cauda longa de ~35 atributos por procura
-  (prioridade: `pull_policy`, `cgroup_parent`, `pids_limit`, `oom_*`, `gpus`,
-  `blkio_config`); `include` top-level.
-- **Reframe do alvo (M-DOC):** o critério de «100%» da área 6 passa a **validar
-  contra `compose-spec.json` + paridade `compose-go`** (não há suite). Corrigir
+- **`${VAR}`/`.env` interpolation** (the largest gap, normative) — a
+  substitution pass before parsing: `$V`, `${V}`, `${V:-def}`, `${V-def}`,
+  `${V:?err}`, `${V?err}`, nested, `$$` escape; auto-load of `./.env`. A new
+  module before `serde_yaml`.
+- **GAP-0005** — `compose up` restarts a stopped service (lifecycle semantics).
+- **GAP-0011** — implement the long tail of ~35 attributes on demand (priority:
+  `pull_policy`, `cgroup_parent`, `pids_limit`, `oom_*`, `gpus`, `blkio_config`);
+  top-level `include`.
+- **Target reframe (M-DOC):** the «100%» criterion for area 6 becomes **validate
+  against `compose-spec.json` + `compose-go` parity** (there is no suite). Fix
   `BACKLOG.md`.
-- **Done:** ficheiros Docker Compose reais com `${VAR}` sobem sem edição; `up`
-  reinicia parados; schema-validation verde.
+- **Done:** real Docker Compose files with `${VAR}` come up without editing; `up`
+  restarts stopped ones; schema validation green.
 
-## Onda 5 — Build cloud-native (área 5) · **Compl. L–XL** · dep. —
+## Wave 5 — Cloud-native build (area 5) · **Compl. L–XL** · dep. —
 
-Menor peso de *admissão* (é tier Incubating, não Sandbox); fazer depois.
+Lowest *admission* weight (it is Incubating tier, not Sandbox); do it later.
 
-- **GAP-0010a** — cache distribuído `--cache-to/--cache-from type=registry` +
-  `mode=min|max`. Reusa `registry.rs` (push/pull de blobs + mount cross-repo U6);
-  falta a tag de cache + serialização dos modos. **Compl. L.**
-- **GAP-0010b** — `--platform a,b` → **emitir `ImageIndex`**. `registry.rs` já
-  *descodifica* index; falta a direcção de *escrita* (montar index de N builds
-  por arch). **Compl. XL.**
-- **GAP-0016** — `delonix generate systemd/Quadlet` p/ workloads do utilizador
-  (reusa `serve.rs`). **Compl. M.**
-- **Done:** `--cache-to/from` round-trip entre dois builds; índice multi-arch
-  `imagetools inspect` mostra amd64+arm64; unit systemd funcional.
+- **GAP-0010a** — distributed cache `--cache-to/--cache-from type=registry` +
+  `mode=min|max`. Reuses `registry.rs` (blob push/pull + cross-repo mount U6);
+  the cache tag + mode serialisation is missing. **Compl. L.**
+- **GAP-0010b** — `--platform a,b` → **emit an `ImageIndex`**. `registry.rs`
+  already *decodes* an index; the *write* direction is missing (assembling an
+  index from N per-arch builds). **Compl. XL.**
+- **GAP-0016** — `delonix generate systemd/Quadlet` for user workloads (reuses
+  `serve.rs`). **Compl. M.**
+- **Done:** `--cache-to/from` round-trip between two builds; a multi-arch index
+  `imagetools inspect` shows amd64+arm64; a working systemd unit.
 
-## Onda 6 — Linhagem de runtime (área 1) · **Compl. XL** · dep. BUGs CRI (fechados)
+## Wave 6 — Runtime lineage (area 1) · **Compl. XL** · dep. CRI BUGs (closed)
 
-- **GAP-0012** — ADR de linhagem (posicionar o runtime Rust face a containerd/runc;
-  justificar o caminho próprio) + correr suites OCI image/runtime/distribution
-  para prova documentada. A conformância CRI (103/103) já é insumo.
-- **Done:** ADR publicada + relatório de suites OCI verdes anexado.
+- **GAP-0012** — a lineage ADR (position the Rust runtime against containerd/runc;
+  justify the own path) + run the OCI image/runtime/distribution suites for
+  documented proof. CRI conformance (103/103) is already an input.
+- **Done:** published ADR + attached report of green OCI suites.
 
-## Mapa de ondas → áreas → veredicto
+## Waves → areas → verdict map
 
-| Onda | Áreas | Esforço | Move o veredicto de admissão? |
+| Wave | Areas | Effort | Moves the admission verdict? |
 |---|---|---|---|
-| 0 Governança | 7 | decisão | **SIM — destranca o NO-GO** |
-| 1 Supply-chain | 3+4 | M→L | sinal técnico forte p/ Sandbox |
-| 2 Scanning | 8 | M | reforça supply-chain |
-| 3 Kube interop | 2 | L | k8s = centro CNCF |
-| 4 Compose | 6 | M–L | correcção visível |
-| 5 Build | 5 | L–XL | tier Incubating |
-| 6 Linhagem | 1 | XL | narrativa/prova |
+| 0 Governance | 7 | decision | **YES — unlocks the NO-GO** |
+| 1 Supply-chain | 3+4 | M→L | strong technical signal for Sandbox |
+| 2 Scanning | 8 | M | reinforces supply-chain |
+| 3 Kube interop | 2 | L | k8s = CNCF centre |
+| 4 Compose | 6 | M–L | visible correctness |
+| 5 Build | 5 | L–XL | Incubating tier |
+| 6 Lineage | 1 | XL | narrative/proof |
 
-**Sequência recomendada:** Onda 0 em paralelo (dono) **+** Ondas 1→2→3 (código,
-maior retorno) → 4 → 5 → 6. A admissão depende da 0; a *competitividade* técnica
-sobe monotonicamente com 1→6.
+**Recommended sequence:** Wave 0 in parallel (owner) **+** Waves 1→2→3 (code,
+highest return) → 4 → 5 → 6. Admission depends on 0; technical
+*competitiveness* rises monotonically with 1→6.
 
-## Como executar (harness)
+## How to execute (harness)
 
-Cada GAP vira um prompt de sessão conduzido pela skill `delonix-backlog-driver`
-(escolhe o próximo item por dependência→tier→peso CNCF→WIP cap) e validado pela
-skill `delonix-runtime-e2e-quality` antes de fechar. Um worktree por onda a
-partir de `develop`; contratos em `.claude/sessions/`. As Ondas 1–2 (supply-chain)
-tocam `delonix-oci`+`delonix-scanner`+`delonix-security` — declarar ownership
-desses crates para evitar edições concorrentes.
+Each GAP becomes a session prompt driven by the `delonix-backlog-driver` skill
+(it picks the next item by dependency→tier→CNCF weight→WIP cap) and validated by
+the `delonix-runtime-e2e-quality` skill before closing. One worktree per wave off
+`develop`; contracts in `.claude/sessions/`. Waves 1–2 (supply-chain) touch
+`delonix-oci`+`delonix-scanner`+`delonix-security` — declare ownership of those
+crates to avoid concurrent edits.

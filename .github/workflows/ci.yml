@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main, develop]
 
-# Uma execução por ref — cancela a anterior ainda a correr (poupa runners).
+# One run per ref — cancels the previous one still running (saves runners).
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -16,14 +16,14 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # ---- Estilo: rustfmt tem de estar aplicado (ver .git-blame-ignore-revs) ----
+  # ---- Style: rustfmt must be applied (see .git-blame-ignore-revs) ----
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # rustup honra o rust-toolchain.toml (canal + componentes rustfmt/clippy).
-      - name: Instala toolchain fixada
+      # rustup honours rust-toolchain.toml (channel + rustfmt/clippy components).
+      - name: Install the pinned toolchain
         run: rustup show
       - run: cargo fmt --all --check
 
@@ -121,7 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Instala toolchain fixada
+      - name: Install the pinned toolchain
         run: rustup show
       - name: Layer direction, foundation purity and the debt ratchets
         run: python3 scripts/arch_fitness.py
@@ -218,28 +218,28 @@ jobs:
       - name: The doc generator's command groups match the binary
         run: PATH="$PWD/target/release:$PATH" python3 scripts/docs_command_gate.py
 
-  # ---- Lint: clippy a falhar em QUALQUER warning (gate estrito) ----
+  # ---- Lint: clippy failing on ANY warning (strict gate) ----
   clippy:
     name: clippy -D warnings
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # `delonix-cri` compila os .proto do CRI via prost/tonic — precisa de protoc.
+      # `delonix-cri` builds the CRI .proto through prost/tonic — needs protoc.
       - uses: ./.github/actions/protoc
-      - name: Instala toolchain fixada
+      - name: Install the pinned toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-  # ---- Testes: a suite toda (os testes que exigem privilégio auto-skipam) ----
+  # ---- Tests: the whole suite (the tests that require privilege auto-skip) ----
   test:
     name: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # `delonix-cri` compila os .proto do CRI via prost/tonic — precisa de protoc.
+      # `delonix-cri` builds the CRI .proto through prost/tonic — needs protoc.
       - uses: ./.github/actions/protoc
-      - name: Instala toolchain fixada
+      - name: Install the pinned toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --workspace --locked
@@ -284,7 +284,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/protoc
-      - name: Instala toolchain fixada
+      - name: Install the pinned toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - name: Build the delonix binary from this checkout
@@ -341,15 +341,15 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/protoc
-      - name: Instala toolchain fixada
+      - name: Install the pinned toolchain
         run: rustup show
-      - name: Arquitectura do runner
+      - name: Runner architecture
         run: test "$(uname -m)" = aarch64
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: cargo build --workspace --locked
       - run: cargo test --workspace --locked --no-fail-fast
 
-  # ---- Supply-chain: advisories RUSTSEC + licenças + fontes (ver deny.toml) ----
+  # ---- Supply-chain: RUSTSEC advisories + licenses + sources (see deny.toml) ----
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
@@ -359,29 +359,30 @@ jobs:
         with:
           command: check advisories licenses sources
 
-  # ---- Supply-chain: toda a Action de terceiros tem de estar pinada a um SHA ----
+  # ---- Supply-chain: every third-party Action must be pinned to a SHA ----
   #
-  # G-020 (security-assessment): uma tag flutuante (`@v4`) deixa um atacante que
-  # comprometa a tag injectar código no pipeline que PRODUZ as releases "de
-  # confiança" — o elo mais fraco da cadeia. Esta guarda recusa qualquer `uses:`
-  # externo que não seja um SHA de 40 hex; `./.github/actions/*` (local, versionado
-  # connosco) é a única excepção. Mantém o 20/20 que não regride sozinho.
+  # G-020 (security-assessment): a floating tag (`@v4`) lets an attacker who
+  # compromises the tag inject code into the pipeline that PRODUCES the
+  # "trusted" releases — the weakest link in the chain. This guard rejects any
+  # external `uses:` that is not a 40-hex SHA; `./.github/actions/*` (local,
+  # versioned with us) is the only exception. Holds the 20/20 that does not
+  # regress on its own.
   actions-pinned:
     name: actions-pinned
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Toda a Action externa pinada a SHA
+      - name: Every external Action pinned to a SHA
         run: |
           bad=$(grep -rhnE '^\s*(-\s*)?uses:' .github/workflows/ \
             | grep -vE 'uses:\s*\./' \
             | grep -vE 'uses:\s*[^@]+@[0-9a-f]{40}(\s|$|#)' || true)
           if [ -n "$bad" ]; then
-            echo "::error::Action(s) de terceiros sem SHA pin (G-020):"
+            echo "::error::Third-party Action(s) without a SHA pin (G-020):"
             echo "$bad"
             exit 1
           fi
-          echo "ok — toda a Action externa está pinada a um SHA de 40 hex"
+          echo "ok — every external Action is pinned to a 40-hex SHA"
 
   # ---- Fuzz: hand-written parsers fed with attacker-influenceable input ----
   #
@@ -539,91 +540,92 @@ jobs:
       - run: cargo build --release --locked -p delonix-bin
       - run: python3 scripts/release_verify.py
 
-  # ---- O site e os exemplos: gerados do binário, e por isso verificáveis ----
+  # ---- The site and the examples: generated from the binary, hence verifiable ----
   #
-  # Duas classes de falha que só se descobriam à mão, e ambas já aconteceram:
+  # Two classes of failure that could only be found by hand, and both have
+  # already happened:
   #
-  #  1. `docs/gen.py` rebenta a MEIO (uma lista PT/EN que divergiu no tamanho,
-  #     por exemplo) e deixa o site PARCIALMENTE escrito — com a página velha no
-  #     lugar e nada a dizê-lo. Aqui falha alto.
-  #  2. O site commitado deixa de ser o gerado. É o mesmo contrato que o
-  #     `docs/schema/v1/delonix.json` já tem em teste (ADR-0007): se a fonte é o
-  #     código, o publicado tem de bater com o que ela produz.
+  #  1. `docs/gen.py` blows up HALFWAY (a PT/EN list that diverged in length,
+  #     for example) and leaves the site PARTIALLY written — with the old page
+  #     in place and nothing to say so. Here it fails loudly.
+  #  2. The committed site stops being the generated one. It is the same
+  #     contract `docs/schema/v1/delonix.json` already has under test (ADR-0007):
+  #     if the source is the code, the published must match what it produces.
   #
-  # E os `examples/` passam pelo `--dry-run` e pelo `validate` do binário desta
-  # árvore — um exemplo publicado é o que as pessoas copiam. O `--dry-run` apanha
-  # um Kind depreciado e um erro de parsing; o `validate` apanha uma referência
-  # cruzada que não resolve. **Um campo desconhecido fica de fora**, e é medido,
-  # não suposto: o `warn_unknown_fields` só corre no apply REAL, e um apply real
-  # em CI criaria recursos — a verificação promete o que faz.
+  # And the `examples/` go through this tree's binary `--dry-run` and `validate`
+  # — a published example is what people copy. `--dry-run` catches a deprecated
+  # Kind and a parse error; `validate` catches a cross-reference that does not
+  # resolve. **An unknown field stays out**, and it is measured, not assumed:
+  # `warn_unknown_fields` only runs on a REAL apply, and a real apply in CI would
+  # create resources — the check promises what it does.
   docs:
     name: generated docs and valid examples
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/protoc
-      - name: Instala toolchain fixada
+      - name: Install the pinned toolchain
         run: rustup show
       - run: cargo build --release --locked -p delonix-bin
-      - name: Dependências do gerador
+      - name: Generator dependencies
         # `gen.py`'s `c4_page`/`architecture_page` render ARCHITECTURE.md with
         # the `markdown` module. Without it the generator dies with
         # ModuleNotFoundError and this job fails on a missing dependency rather
         # than on anything about the docs — which is what happened here.
         run: python3 -m pip install --break-system-packages -r scripts/docs-requirements.txt
-      - name: Regenera o site
+      - name: Regenerate the site
         run: python3 docs/gen.py
       # The contributor handbook site (docs/handbook/<lang>/) is generated from
       # docs/dev/; publishing it hand-edited or stale would show readers pages
       # that no longer match the Markdown they review.
       - name: Contributor handbook site matches docs/dev
         run: python3 scripts/dev_docs_site.py --check
-      - name: O site publicado tem de ser o gerado
+      - name: The published site must be the generated one
         run: |
           if ! git diff --quiet -- docs/; then
-            echo "::error::docs/ está desactualizado — corre 'python3 docs/gen.py' e commita."
+            echo "::error::docs/ is out of date — run 'python3 docs/gen.py' and commit."
             git --no-pager diff --stat -- docs/
             exit 1
           fi
-      - name: As manpages geram, e o roff é válido
-        # As páginas NÃO são commitadas: são geradas pelo binário (`delonix man
-        # --dir`, que é o que o `install.sh` corre) a partir da mesma árvore
-        # `clap::Command` que serve o `--help`. Commitá-las era uma segunda
-        # cópia da superfície da CLI, e a única com nada a vigiá-la.
+      - name: The manpages generate, and the roff is valid
+        # The pages are NOT committed: they are generated by the binary (`delonix
+        # man --dir`, which is what `install.sh` runs) from the same
+        # `clap::Command` tree that serves `--help`. Committing them would be a
+        # second copy of the CLI surface, and the only one with nothing watching it.
         #
-        # O que se verifica aqui é o que pode partir em silêncio: um escape roff
-        # errado não falha a geração — a linha simplesmente DESAPARECE da página
-        # renderizada. Por isso o `groff -z`, que só imprime avisos, com `-ww`
-        # (todos) e o resultado tratado como erro.
+        # What is checked here is what can break silently: a wrong roff escape
+        # does not fail generation — the line simply DISAPPEARS from the rendered
+        # page. Hence `groff -z`, which only prints warnings, with `-ww` (all) and
+        # the result treated as an error.
         run: |
           sudo apt-get install -y groff-base
           ./target/release/delonix man --dir /tmp/dlxman --index
           n=$(ls /tmp/dlxman/man1/*.1 | wc -l)
-          echo "geradas $n páginas"
-          [ "$n" -ge 200 ] || { echo "::error::só $n páginas — a árvore não foi percorrida"; exit 1; }
+          echo "generated $n pages"
+          [ "$n" -ge 200 ] || { echo "::error::only $n pages — the tree was not walked"; exit 1; }
           rc=0
           for f in /tmp/dlxman/man1/*.1; do
-            out=$(groff -mandoc -ww -z "$f" 2>&1) || { echo "::error file=$f::groff falhou"; rc=1; }
-            if [ -n "$out" ]; then echo "::error file=$f::roff inválido"; echo "$out" | head -5; rc=1; fi
+            out=$(groff -mandoc -ww -z "$f" 2>&1) || { echo "::error file=$f::groff failed"; rc=1; }
+            if [ -n "$out" ]; then echo "::error file=$f::invalid roff"; echo "$out" | head -5; rc=1; fi
           done
           exit $rc
-      - name: Nenhum exemplo depreciado, e todas as referências resolvem
+      - name: No deprecated example, and every reference resolves
         run: |
           rc=0
-          # Os exemplos estão agrupados por grupo de API em subpastas (compute/,
-          # networking/, …), logo percorre-se a árvore, não um glob plano. `_labs/`
-          # é podado: contém laboratórios, cloud-init e um compose que não são
-          # manifestos deste motor.
+          # The examples are grouped by API group into subfolders (compute/,
+          # networking/, …), so the tree is walked, not a flat glob. `_labs/`
+          # is pruned: it holds labs, cloud-init and a compose that are not
+          # manifests of this engine.
           while IFS= read -r f; do
-            # o cloud-config da VM de validação NFS não é um manifesto Delonix
+            # the cloud-config of the NFS validation VM is not a Delonix manifest
             head -1 "$f" | grep -q '^#cloud-config' && continue
             out=$(./target/release/delonix stack apply -f "$f" --dry-run 2>&1) || {
-              echo "::error file=$f::$f não passa no --dry-run"; echo "$out" | head -5; rc=1; continue; }
+              echo "::error file=$f::$f does not pass --dry-run"; echo "$out" | head -5; rc=1; continue; }
             if echo "$out" | grep -iq deprecated; then
-              echo "::error file=$f::$f usa uma forma depreciada"
+              echo "::error file=$f::$f uses a deprecated form"
               echo "$out" | grep -i deprecated; rc=1
             fi
             vout=$(./target/release/delonix stack validate -f "$f" 2>&1) || {
-              echo "::error file=$f::$f não passa no validate"; echo "$vout" | head -5; rc=1; }
+              echo "::error file=$f::$f does not pass validate"; echo "$vout" | head -5; rc=1; }
           done < <(find examples -path examples/_labs -prune -o -name '*.yaml' -print | sort)
           exit $rc

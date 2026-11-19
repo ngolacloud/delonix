@@ -1,14 +1,14 @@
-# HA multi-nó — `delonix cluster create --control-planes 3` (0.1.2)
+# HA multi-node — `delonix cluster create --control-planes 3` (0.1.2)
 
-Parte (c) da campanha: prova de **alta disponibilidade multi-nó** em rootless, sem
-VMs e sem Docker — kind-mode (os nós são containers no próprio motor Delonix).
+Part (c) of the campaign: proof of **multi-node high availability** in rootless mode, without
+VMs and without Docker — kind-mode (the nodes are containers in the Delonix engine itself).
 
-## Ambiente
-- Motor `delonix 0.1.2` (release), host rootless, root isolado (`/tmp/dlxha`).
-- Comando: `delonix cluster create --name ha012 --control-planes 3`.
-- Imagens: `kindest/node:v1.37.0` (nós) + `haproxy:lts-alpine` (load balancer).
+## Environment
+- Engine `delonix 0.1.2` (release), rootless host, isolated root (`/tmp/dlxha`).
+- Command: `delonix cluster create --name ha012 --control-planes 3`.
+- Images: `kindest/node:v1.37.0` (nodes) + `haproxy:lts-alpine` (load balancer).
 
-## O que subiu (reproduzível)
+## What came up (reproducible)
 ```
 ✓ Provisioning the HAProxy load balancer ⚖️ 4.8s
 ✓ Starting control-plane (kubeadm init) 🕹️ 1m30s
@@ -17,7 +17,7 @@ VMs e sem Docker — kind-mode (os nós são containers no próprio motor Deloni
 cluster "ha012" ready (HA)
 ```
 
-## Verificação (de dentro do cluster)
+## Verification (from inside the cluster)
 
 **3 control-planes Ready:**
 ```
@@ -27,35 +27,35 @@ ha012-control-plane2   Ready    control-plane   v1.37.0
 ha012-control-plane3   Ready    control-plane   v1.37.0
 ```
 
-**etcd empilhado com quorum de 3 membros** (`etcdctl member list`):
+**stacked etcd with a 3-member quorum** (`etcdctl member list`):
 ```
 240d31b144fc1d03, started, ha012-control-plane3, ...:2380, ...:2379
 3e868f92e46e4a94, started, ha012-control-plane2, ...:2380, ...:2379
 9cf0ef4b1f69551a, started, ha012-control-plane,  ...:2380, ...:2379
 ```
 
-**HAProxy VIP** (endpoint estável à frente dos 3 CPs):
+**HAProxy VIP** (stable endpoint in front of the 3 CPs):
 ```
 haproxy:lts-alpine  Up  127.0.0.1:6443->6443/tcp  ha012-external-load-balancer
 ```
 
-4 containers no total (3 nós + 1 load balancer).
+4 containers in total (3 nodes + 1 load balancer).
 
 ## Teardown
 `cluster destroy ha012 --force` → `cluster 'ha012' removed (4 node(s))`; 0 clusters,
-0 containers, 0 resíduos.
+0 containers, no residue.
 
-## Veredicto
-**HA multi-nó PROVADO em rootless.** `cluster create --control-planes 3` entrega um
-plano de controlo Kubernetes de **3 réplicas Ready**, com **etcd empilhado em quorum
-de 3** e um **HAProxy como VIP** — tudo em kind-mode (containers no motor), sem VMs
-nem Docker, no perfil rootless deste host. Complementa o single-nó (Parte 2) e o
-HA multi-nó já provado noutras sessões por via kubeadm/VMs.
+## Verdict
+**Multi-node HA PROVEN in rootless mode.** `cluster create --control-planes 3` delivers a
+Kubernetes control plane of **3 Ready replicas**, with **stacked etcd in a 3-member
+quorum** and an **HAProxy as VIP** — all in kind-mode (containers in the engine), without VMs
+or Docker, on this host's rootless profile. It complements the single-node case (Part 2) and
+the multi-node HA already proven in other sessions via kubeadm/VMs.
 
-## Fica para follow-up (exigem VM rootful)
-`cluster kubeadm` (provisão de VMs + bootstrap), CRIU (`container checkpoint`/
-`restore`/`clone`), e `bucket inspect`/`rm` (S3 vivo).
+## Left for follow-up (require a rootful VM)
+`cluster kubeadm` (VM provisioning + bootstrap), CRIU (`container checkpoint`/
+`restore`/`clone`), and `bucket inspect`/`rm` (live S3).
 
-## Artefactos
-- `ha-create.log` — a corrida do bring-up HA (marcos).
-- `evidence.jsonl` — registo lab-ephemeral.
+## Artefacts
+- `ha-create.log` — the HA bring-up run (milestones).
+- `evidence.jsonl` — lab-ephemeral record.

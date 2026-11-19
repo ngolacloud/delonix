@@ -2520,34 +2520,34 @@ mod tests {
     }
 
     #[test]
-    fn dir_has_content_e_falso_para_um_caminho_que_nao_existe() {
+    fn dir_has_content_is_false_for_a_path_that_does_not_exist() {
         let (_tmp, dir) = scratch();
         assert!(
             !dir_has_content(&dir),
-            "um caminho inexistente não tem conteúdo"
+            "a nonexistent path has no content"
         );
     }
 
     #[test]
-    fn dir_has_content_e_falso_para_um_directorio_vazio() {
+    fn dir_has_content_is_false_for_an_empty_directory() {
         let (_tmp, dir) = scratch();
         std::fs::create_dir_all(&dir).unwrap();
         assert!(!dir_has_content(&dir));
     }
 
     #[test]
-    fn dir_has_content_e_verdadeiro_assim_que_ha_uma_entrada() {
+    fn dir_has_content_is_true_as_soon_as_there_is_one_entry() {
         let (_tmp, dir) = scratch();
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("ja-tem-algo"), "x").unwrap();
+        std::fs::write(dir.join("already-has-something"), "x").unwrap();
         assert!(dir_has_content(&dir));
     }
 
-    /// Um directório vazio continua a receber o scaffold INTEIRO — o caso
-    /// coberto desde sempre, e o que não pode regredir com a chegada do modo
-    /// de adopção.
+    /// An empty directory still gets the WHOLE scaffold — the case that has
+    /// always been covered, and the one that must not regress now that adoption
+    /// mode exists.
     #[test]
-    fn scaffold_num_directorio_vazio_escreve_o_projecto_completo() {
+    fn scaffold_in_an_empty_directory_writes_the_complete_project() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2564,24 +2564,24 @@ mod tests {
         assert!(dir.join("delonix-manifest.yaml").exists());
         assert!(
             dir.join("src/index.ts").exists(),
-            "o scaffold completo tem de escrever o código de exemplo também"
+            "the complete scaffold must write the example code too"
         );
         assert!(dir.join("package.json").exists());
         assert!(
             dir.join(".github/workflows/ci.yml").exists(),
-            "um scaffold novo já nasce com CI/CD pronto"
+            "a fresh scaffold is born with CI/CD ready"
         );
     }
 
-    /// Um directório com um projecto REAL já lá dentro só recebe o Delonixfile,
-    /// o manifesto e o dockerignore — nunca o código de exemplo do template,
-    /// que colidiria com (ou ficaria sem uso ao lado de) o código verdadeiro.
+    /// A directory with a REAL project already inside only gets the Delonixfile,
+    /// the manifest and the dockerignore — never the template's example code,
+    /// which would collide with (or sit unused next to) the real code.
     #[test]
-    fn adopcao_num_projecto_existente_so_escreve_o_glue() {
+    fn adoption_in_an_existing_project_only_writes_the_glue() {
         let (_tmp, dir) = scratch();
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("package.json"), "{}").unwrap();
-        std::fs::write(dir.join("server.js"), "// o código real do utilizador").unwrap();
+        std::fs::write(dir.join("server.js"), "// the user's real code").unwrap();
         let o = InitOpts {
             dir: dir.clone(),
             name: "app".into(),
@@ -2598,24 +2598,24 @@ mod tests {
         assert!(dir.join(".dockerignore").exists());
         assert!(
             !dir.join("src").exists(),
-            "adopção nunca escreve o código de exemplo do template"
+            "adoption never writes the template's example code"
         );
         assert!(
             !dir.join("README.md").exists(),
-            "adopção nunca escreve o README do template"
+            "adoption never writes the template's README"
         );
-        // O código real do utilizador sobrevive intacto.
+        // The user's real code survives intact.
         assert_eq!(
             std::fs::read_to_string(dir.join("server.js")).unwrap(),
-            "// o código real do utilizador"
+            "// the user's real code"
         );
     }
 
-    /// Re-correr `init` sobre o SEU PRÓPRIO scaffold anterior (agora não-vazio)
-    /// tem de mudar para adopção — nunca voltar a despejar o código de exemplo
-    /// por cima de edições que o utilizador já tenha feito.
+    /// Re-running `init` over its OWN earlier scaffold (now non-empty) has to
+    /// switch to adoption — never dump the example code again over edits the
+    /// user may already have made.
     #[test]
-    fn re_correr_init_sobre_o_proprio_output_muda_para_adopcao() {
+    fn re_running_init_over_its_own_output_switches_to_adoption() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2632,7 +2632,7 @@ mod tests {
         render_template("node", &o, false).unwrap();
         assert!(
             !dir.join("src").exists(),
-            "a segunda passagem não pode recriar o código de exemplo"
+            "the second pass must not recreate the example code"
         );
     }
 
@@ -2644,18 +2644,18 @@ mod tests {
     /// declares a version — this proves the guard survives even so, for
     /// whatever future template doesn't.
     #[test]
-    fn v_recusa_num_template_sem_versao() {
+    fn v_refused_on_a_template_without_a_version() {
         let err = resolve_version("future-template", Some("1.2.3"), "", "").unwrap_err();
         assert!(
             err.to_string().contains("has no version parameter"),
-            "erro inesperado: {err}"
+            "unexpected error: {err}"
         );
     }
 
     /// Without `-v`, a template with no default (`""`) just gets `""` back —
     /// no refusal, because nothing was explicitly asked for.
     #[test]
-    fn sem_v_e_sem_default_nao_e_erro() {
+    fn no_v_and_no_default_is_not_an_error() {
         assert_eq!(
             resolve_version("future-template", None, "", "").unwrap(),
             ""
@@ -2669,7 +2669,7 @@ mod tests {
     /// test process never opens the interactive menu, so `chosen` stays
     /// `None` deterministically here.
     #[test]
-    fn v_sem_t_nenhum_e_recusado_antes_de_gerar_seja_o_que_for() {
+    fn v_with_no_t_at_all_is_refused_before_generating_anything() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2684,9 +2684,9 @@ mod tests {
         let err = init(Target::Container, &o).unwrap_err();
         assert!(
             err.to_string().contains("needs a template to apply it to"),
-            "erro inesperado: {err}"
+            "unexpected error: {err}"
         );
-        assert!(!dir.exists(), "não devia ter gerado nada");
+        assert!(!dir.exists(), "should not have generated anything");
     }
 
     /// The `odoo` template substitutes `__TEMPLATE_VERSION__` with the `-v`
@@ -2694,7 +2694,7 @@ mod tests {
     /// `.pylintrc`/`.pylintrc-mandatory` (`valid-odoo-versions=<version>`)
     /// and `config/odoo.conf`, not just the README.
     #[test]
-    fn odoo_com_v_substitui_a_versao_em_todos_os_ficheiros() {
+    fn odoo_with_v_substitutes_the_version_in_every_file() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2710,20 +2710,20 @@ mod tests {
         let delonixfile = std::fs::read_to_string(dir.join("Delonixfile")).unwrap();
         assert!(
             delonixfile.contains("FROM odoo:18.0"),
-            "Delonixfile não referenciou a versão pedida:\n{delonixfile}"
+            "Delonixfile did not reference the requested version:\n{delonixfile}"
         );
         let pylintrc = std::fs::read_to_string(dir.join(".pylintrc")).unwrap();
         assert!(pylintrc.contains("valid-odoo-versions=18.0"));
         assert!(
             !delonixfile.contains("__TEMPLATE_VERSION__"),
-            "token não substituído"
+            "token not substituted"
         );
     }
 
     /// Without `-v`, the `odoo` template falls back to `template.meta`'s own
     /// default version — the token must never survive by anyone's omission.
     #[test]
-    fn odoo_sem_v_usa_a_versao_por_omissao() {
+    fn odoo_without_v_uses_the_default_version() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2739,7 +2739,7 @@ mod tests {
         let delonixfile = std::fs::read_to_string(dir.join("Delonixfile")).unwrap();
         assert!(
             !delonixfile.contains("__TEMPLATE_VERSION__"),
-            "sem -v, a versão por omissão do template.meta tem de preencher o token:\n{delonixfile}"
+            "without -v, template.meta's default version must fill the token:\n{delonixfile}"
         );
         assert!(
             delonixfile.contains("FROM odoo:20.0"),
@@ -2998,7 +2998,7 @@ mod tests {
     }
 
     #[test]
-    fn nginx_httpd_haproxy_com_v_fixam_a_tag_da_imagem() {
+    fn nginx_httpd_haproxy_with_v_pin_the_image_tag() {
         for (tpl, from_prefix) in [
             ("nginx", "FROM nginx:"),
             ("httpd", "FROM httpd:"),
@@ -3019,11 +3019,11 @@ mod tests {
             let delonixfile = std::fs::read_to_string(dir.join("Delonixfile")).unwrap();
             assert!(
                 delonixfile.contains(&format!("{from_prefix}9.9-alpine")),
-                "{tpl}: Delonixfile não fixou a tag pedida:\n{delonixfile}"
+                "{tpl}: Delonixfile did not pin the requested tag:\n{delonixfile}"
             );
             assert!(
                 !delonixfile.contains("__TEMPLATE_VERSION__"),
-                "{tpl}: token não substituído"
+                "{tpl}: token not substituted"
             );
         }
     }

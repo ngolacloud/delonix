@@ -1,25 +1,25 @@
-# 04 — Imagens: inspect, build, push/pull por digest, integridade
+# 04 — Images: inspect, build, push/pull by digest, integrity
 
-SUT: `delonix 5.1.1` @ `bca34f6c3`, rootless. Registry local: `registry:2` em `127.0.0.1:5000`.
+SUT: `delonix 5.1.1` @ `bca34f6c3`, rootless. Local registry: `registry:2` on `127.0.0.1:5000`.
 
-| # | Caso | Comando | Verificação independente | Observado | Estado |
+| # | Case | Command | Independent verification | Observed | State |
 |---|---|---|---|---|---|
-| IMAGE-1 | inspect/digest | `image describe` / `image history` | — | ID `sha256:4ac41adb…`, 1 layer `sha256:bd5db2d0…`, config (Cmd/User/Env) | **PASSOU** |
-| IMAGE-2 | build | `build -t relc-img:v1 <dir>` (Dockerfile `FROM ubuntu:22.04` + RUN + CMD) | correr o resultado | build OK (RUN+package), `run` imprime `relc-layer-1792753040` | **PASSOU** |
-| IMAGE-3a | push p/ registry local | `image tag` + `push 127.0.0.1:5000/relc-img:v1` | HTTP ao registry | push OK; **digest do delonix == `Docker-Content-Digest` do registry** (`sha256:4056b726…`) | **PASSOU** |
-| IMAGE-3b | pull por digest + integridade | `pull …@sha256:4056b726…` após `rmi` local | correr e comparar conteúdo | recupera id `4ac41adbafec`; `run` imprime **`relc-layer-1792753040` idêntico** | **PASSOU** |
+| IMAGE-1 | inspect/digest | `image describe` / `image history` | — | ID `sha256:4ac41adb…`, 1 layer `sha256:bd5db2d0…`, config (Cmd/User/Env) | **PASSED** |
+| IMAGE-2 | build | `build -t relc-img:v1 <dir>` (Dockerfile `FROM ubuntu:22.04` + RUN + CMD) | run the result | build OK (RUN+package), `run` prints `relc-layer-1792753040` | **PASSED** |
+| IMAGE-3a | push to local registry | `image tag` + `push 127.0.0.1:5000/relc-img:v1` | HTTP to the registry | push OK; **delonix digest == registry `Docker-Content-Digest`** (`sha256:4056b726…`) | **PASSED** |
+| IMAGE-3b | pull by digest + integrity | `pull …@sha256:4056b726…` after local `rmi` | run and compare content | recovers id `4ac41adbafec`; `run` prints **identical `relc-layer-1792753040`** | **PASSED** |
 
-## Observações
+## Observations
 
-- **Integridade por digest confirmada ponta-a-ponta:** o digest do manifesto que o
-  `push` reportou bate exactamente com o que o registry devolve em
-  `Docker-Content-Digest`, e um `pull` por esse digest (depois de apagar a cópia local)
-  recupera conteúdo byte-idêntico (a camada `RUN` baked). Isto satisfaz §7
-  "push seguido de pull deve recuperar o artefacto esperado por digest".
-- Registries `http` em `127.0.0.1` são aceites sem flag extra (localhost tratado como inseguro por default) — razoável.
-- **Parity note (não defeito):** `delonix rmi` aceita **um** `<IMAGE>` (docker `rmi` é variádico). Para lote: `image rm`/`image prune`. Diferença de superfície, documentada.
-- Superfície de imagens rica e coerente: `describe/history/sbom/scan/verify/sign/export/save/load/tag/prune/apply`. Não testados nesta ronda: `scan`/`sbom`/`sign`/`verify` (cobertos em §16 security — adiados, ver riscos).
+- **End-to-end digest integrity confirmed:** the manifest digest that `push`
+  reported matches exactly what the registry returns in
+  `Docker-Content-Digest`, and a `pull` by that digest (after deleting the local copy)
+  recovers byte-identical content (the baked `RUN` layer). This satisfies §7
+  "push followed by pull must recover the expected artefact by digest".
+- `http` registries on `127.0.0.1` are accepted without an extra flag (localhost treated as insecure by default) — reasonable.
+- **Parity note (not a defect):** `delonix rmi` accepts **one** `<IMAGE>` (docker `rmi` is variadic). For batches: `image rm`/`image prune`. A surface difference, documented.
+- Rich and coherent image surface: `describe/history/sbom/scan/verify/sign/export/save/load/tag/prune/apply`. Not tested this round: `scan`/`sbom`/`sign`/`verify` (covered under §16 security — deferred, see risks).
 
-## Limpeza
+## Cleanup
 
-`relc-registry` container removido; imagens `relc-img` (todas as formas, incl. a puxada por digest) removidas; **porta 5000 libertada**; `kaeso-*` preservados; `registry:2` fica em cache (reutilizável, não é órfão).
+`relc-registry` container removed; `relc-img` images (all forms, incl. the one pulled by digest) removed; **port 5000 freed**; `kaeso-*` preserved; `registry:2` stays cached (reusable, not an orphan).

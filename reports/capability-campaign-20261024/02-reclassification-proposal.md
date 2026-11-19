@@ -1,61 +1,61 @@
-# Sprint 1 — Proposta de reclassificação (auditoria §4)
+# Sprint 1 — Reclassification proposal (audit §4)
 
-Data: 2026-10-24. Frente read-only do Sprint 1. Dois auditores especializados (compute; rede/storage/gateway) cruzaram as 350 entradas partial/not-implemented/unsupported dos 5 providers contra o código dos adapters e a documentação oficial. **Reclassificar não conta como funcionalidade implementada** (mandato §13) — é correcção da causa (§4). A aplicação em código fica para uma worktree off develop (ver efeitos-cascata no fim); este documento é a proposta verificada.
+Date: 2026-10-24. Read-only front of Sprint 1. Two specialist auditors (compute; network/storage/gateway) cross-checked the 350 partial/not-implemented/unsupported entries of the 5 providers against the adapter code and the official documentation. **Reclassifying does not count as implemented functionality** (mandate §13) — it is a fix of the root cause (§4). Applying it in code is left for a worktree off develop (see cascade effects at the end); this document is the verified proposal.
 
-Resultado global: a matriz está bem construída. Dos ~350 estados negativos, só **3 têm fundamento alto para mudar de estado** (todos auto-verificados abaixo), mais um punhado de confiança média/textual que exige prova live antes de mexer.
+Overall result: the matrix is well built. Of the ~350 negative states, only **3 have a strong basis to change state** (all self-verified below), plus a handful of medium/textual confidence that require live proof before being touched.
 
-> **APLICADO em `8cd5c63b`**: A1, A2 e A3 integrados em develop com gates verdes (libvirt 71/0, volume 38/0, não-drift da matriz, espelho node-api, ratchet 112/274, arch-fitness). Matriz publicada regenerada. B/C/D continuam pendentes para Sprint 2.
+> **APPLIED in `8cd5c63b`**: A1, A2 and A3 integrated into develop with green gates (libvirt 71/0, volume 38/0, matrix no-drift, node-api mirror, ratchet 112/274, arch-fitness). Published matrix regenerated. B/C/D remain pending for Sprint 2.
 
-## A. Confiança ALTA — verificado directamente nesta sessão
+## A. HIGH confidence — verified directly in this session
 
 ### A1. libvirt | `vm.migration.live` : `unsupported-by-provider` → `not-implemented`
-- **Causa §4.1**: limitação arquitectural do engine tratada como ausência upstream.
-- **Código** (`crates/providers/delonix-provider-libvirt/src/lib.rs`, arm `C::VmMigrationLive`): `reason: "ADR-0031: needs shared VM storage or a privileged libvirt daemon listening on the network; neither is a default of this engine"`. A própria razão descreve **caminhos existentes** (storage partilhado *ou* daemon privilegiado) — a capacidade é do libvirt, o que falta é o engine montá-la.
-- **Fonte oficial**: libvirt.org/migration.html — migração ao vivo sem storage partilhado é suportada via `--copy-storage-all` desde libvirt 1.0.3.
-- **Contraste que valida o critério**: o mesmo capability no cloud-hypervisor (`S::UnsupportedByProvider`, "CH migrates memory only, never the disk") **mantém-se correcto** — bate à letra com `docs/live_migration.md` do CH; aí é limite real do provider. A reclassificação é só do libvirt.
-- **Nota**: `not-implemented` é mais honesto que `unsupported-by-provider`; alternativa defensável = `requires-external-component { component: "shared/replicated VM storage (ADR-0031)" }`, coerente com o irmão `C::VmReplication` que já usa esse estado. Decidir na aplicação consoante se o engine pretende suportar `--copy-storage-all` nativamente (→ not-implemented) ou exigir storage externo (→ requires-external).
+- **Cause §4.1**: an architectural limitation of the engine treated as an upstream absence.
+- **Code** (`crates/providers/delonix-provider-libvirt/src/lib.rs`, arm `C::VmMigrationLive`): `reason: "ADR-0031: needs shared VM storage or a privileged libvirt daemon listening on the network; neither is a default of this engine"`. The reason itself describes **existing paths** (shared storage *or* privileged daemon) — the capability belongs to libvirt, what is missing is the engine wiring it up.
+- **Official source**: libvirt.org/migration.html — live migration without shared storage is supported via `--copy-storage-all` since libvirt 1.0.3.
+- **Contrast that validates the criterion**: the same capability on cloud-hypervisor (`S::UnsupportedByProvider`, "CH migrates memory only, never the disk") **remains correct** — it matches `docs/live_migration.md` of CH exactly; there it is a genuine provider limit. The reclassification is for libvirt only.
+- **Note**: `not-implemented` is more honest than `unsupported-by-provider`; a defensible alternative = `requires-external-component { component: "shared/replicated VM storage (ADR-0031)" }`, consistent with the sibling `C::VmReplication` that already uses that state. Decide during application depending on whether the engine intends to support `--copy-storage-all` natively (→ not-implemented) or require external storage (→ requires-external).
 
 ### A2. linux | `storage.lvm-thin` : `not-implemented` → `partial`
-- **Causa §4.4**: not-implemented quando já está implementado e ligado ao caminho público.
-- **Código**: `crates/adapters/delonix-volume/src/provider_report.rs:101` → `C::StorageLvmThin => S::NotImplemented`. Mas o driver existe (`crates/providers/delonix-provider-lvm/src/lib.rs`, 621 linhas, testes próprios), é **registado no arranque** (`bins/delonix-runtime-bin/src/cmd/storage_pool.rs:134` via `register_drivers()`), está na **allowlist** (`crates/contexts/delonix-storage/src/allowlist.rs:47` — `("lvm-thin","P4")`) e serve alocação de volumes pelo comando público `storage pool`. Teste de arquitectura `every_pool_driver_the_allowlist_accepts_is_registered` (`storage_pool.rs:1090`) prova o encadeamento.
-- **Estado correcto** = `partial` com limite escrito: *"driver implementado, registado e aceite pela allowlist; sem prova e2e num pool LVM-thin real (scripts/e2e.sh só exercita o driver `dir`)"*. Não é `supported` (falta evidência live — critério #16).
+- **Cause §4.4**: not-implemented when it is already implemented and wired to the public path.
+- **Code**: `crates/adapters/delonix-volume/src/provider_report.rs:101` → `C::StorageLvmThin => S::NotImplemented`. But the driver exists (`crates/providers/delonix-provider-lvm/src/lib.rs`, 621 lines, own tests), is **registered at startup** (`bins/delonix-runtime-bin/src/cmd/storage_pool.rs:134` via `register_drivers()`), is on the **allowlist** (`crates/contexts/delonix-storage/src/allowlist.rs:47` — `("lvm-thin","P4")`) and serves volume allocation through the public `storage pool` command. The architecture test `every_pool_driver_the_allowlist_accepts_is_registered` (`storage_pool.rs:1090`) proves the chaining.
+- **Correct state** = `partial` with a written limit: *"driver implemented, registered and accepted by the allowlist; no e2e proof on a real LVM-thin pool (scripts/e2e.sh only exercises the `dir` driver)"*. It is not `supported` (missing live evidence — criterion #16).
 
 ### A3. linux | `storage.zfs-btrfs` : `not-implemented` → `partial`
-- **Causa §4.4**: idêntica a A2.
-- **Código**: `provider_report.rs:102` → `C::StorageZfsBtrfs => S::NotImplemented`. Drivers em `delonix-provider-zfs/src/lib.rs` (477 linhas) e `delonix-provider-btrfs/src/lib.rs` (498 linhas), ambos registados (`storage_pool.rs:125,130`), na allowlist (`("btrfs","P2")`, `("zfs","P3")`), com testes unitários.
-- **Estado correcto** = `partial` com o mesmo limite ("sem prova e2e em pool real").
+- **Cause §4.4**: identical to A2.
+- **Code**: `provider_report.rs:102` → `C::StorageZfsBtrfs => S::NotImplemented`. Drivers in `delonix-provider-zfs/src/lib.rs` (477 lines) and `delonix-provider-btrfs/src/lib.rs` (498 lines), both registered (`storage_pool.rs:125,130`), on the allowlist (`("btrfs","P2")`, `("zfs","P3")`), with unit tests.
+- **Correct state** = `partial` with the same limit ("no e2e proof on a real pool").
 
-## B. Confiança MÉDIA — exige verificação live antes de mexer (candidatos a Sprint 2, não a reclassificação cega)
+## B. MEDIUM confidence — requires live verification before being touched (candidates for Sprint 2, not blind reclassification)
 
-| provider\|capability | actual → proposto | causa | o que verificar antes |
+| provider\|capability | current → proposed | cause | what to verify first |
 |---|---|---|---|
-| cloud-hypervisor\|`vm.network.bridge` | unsupported → not-implemented | §4.1 — adapter ignora `net_mode` (nunca lido); libvirt implementa o mesmo modelo tap+bridge como partial | confirmar que o tap do CH é de facto indiferente à bridge e que só falta fiação SDN |
-| cloud-hypervisor\|`vm.ip.observed` | unsupported → partial | §4.1/§4.5 — caminho ARP `--wait` já existe (`lib.rs:471`), exercitado em `vm.antispoof` | confirmar que o resultado do ARP é escrito no campo "IP observado" que `vm show`/`ls` lê, e não isolado no anti-spoof |
-| linux\|`net.apply.rollback` | not-implemented → unsupported-by-provider | §4.3/§4.6 — `nft -f` substitui o ruleset atomicamente; nada fica staged (ADR-0059) → rollback é inaplicável, não pendente. Coerente com `net.apply.staged` já unsupported | confirmar leitura de ADR-0059 §152/§248 e decisão de produto |
-| linux\|`volume.webdav` | unavailable-on-host (state mantém) — justificação partilhada com NFS/CIFS tecnicamente duvidosa | §4.1 — `mount.davfs` é FUSE (helper setuid `fusermount`), não precisa de `CAP_SYS_ADMIN` como NFS/CIFS | confirmar no host se `mount -t davfs` monta rootless; se sim, separar a justificação de WebDAV das de NFS/CIFS |
+| cloud-hypervisor\|`vm.network.bridge` | unsupported → not-implemented | §4.1 — adapter ignores `net_mode` (never read); libvirt implements the same tap+bridge model as partial | confirm that the CH tap is indeed indifferent to the bridge and that only SDN wiring is missing |
+| cloud-hypervisor\|`vm.ip.observed` | unsupported → partial | §4.1/§4.5 — ARP `--wait` path already exists (`lib.rs:471`), exercised in `vm.antispoof` | confirm that the ARP result is written to the "observed IP" field that `vm show`/`ls` reads, and not isolated in the anti-spoof |
+| linux\|`net.apply.rollback` | not-implemented → unsupported-by-provider | §4.3/§4.6 — `nft -f` replaces the ruleset atomically; nothing is staged (ADR-0059) → rollback is inapplicable, not pending. Consistent with `net.apply.staged` already unsupported | confirm reading of ADR-0059 §152/§248 and product decision |
+| linux\|`volume.webdav` | unavailable-on-host (state kept) — justification shared with NFS/CIFS technically dubious | §4.1 — `mount.davfs` is FUSE (setuid helper `fusermount`), does not need `CAP_SYS_ADMIN` like NFS/CIFS | confirm on the host whether `mount -t davfs` mounts rootless; if so, separate the WebDAV justification from the NFS/CIFS ones |
 
-## C. Precisão textual (não muda `state`, melhora a honestidade da interface — mandato §13)
+## C. Textual precision (does not change `state`, improves interface honesty — mandate §13)
 
-- **proxmox | `net.gateway.*`** (bloco firewall ~`lib.rs:7131`): o texto "the node's SDN has no perimeter filter of its own" é factualmente falso — o PVE tem Datacenter Firewall com política de perímetro por omissão. A decisão de não a gerir (administração, ADR-0049 D3) pode manter-se, mas o texto deve dizer "existe, o engine não lhe toca por desenho", não negar a existência.
-- **proxmox | `vm.raw-definition`** (unsupported, ADR-0049 D6): existe `args:` cru no `qm`/API (análogo parcial ao `libvirtXml` que o libvirt expõe como partial). Âmbito genuinamente diferente — manter unsupported mas rever se a razão deve citar a decisão D6 em vez de negar o mecanismo.
+- **proxmox | `net.gateway.*`** (firewall block ~`lib.rs:7131`): the text "the node's SDN has no perimeter filter of its own" is factually false — PVE has a Datacenter Firewall with a default perimeter policy. The decision not to manage it (administration, ADR-0049 D3) can stand, but the text should say "it exists, the engine does not touch it by design", not deny its existence.
+- **proxmox | `vm.raw-definition`** (unsupported, ADR-0049 D6): raw `args:` exists in `qm`/API (a partial analogue to the `libvirtXml` that libvirt exposes as partial). Genuinely different scope — keep it unsupported but review whether the reason should cite decision D6 instead of denying the mechanism.
 
-## D. Confirmações negativas úteis (NÃO são erros — parecem-no à primeira vista)
+## D. Useful negative confirmations (NOT errors — they look like them at first sight)
 
-- hotplug `*.remove` (cpu/mem/disk/nic) CH+libvirt `not-implemented`: upstream suporta (CH `/vm.remove-device`), mas o adapter não tem o código → `not-implemented` correcto.
-- proxmox `vm.console.serial`/`vnc` `not-implemented`: API tem `termproxy`/`vncproxy`, adapter não os chama → correcto.
-- proxmox `net.vlan/vxlan/ipam/dns/routes`, firewall `logging/icmp-type` `not-implemented`: SDN/firewall PVE suporta tudo, adapter não liga (`sdn.rs:26-32` documenta-o) → `not-implemented` é a semântica exacta; candidatos a Sprint 2.
-- opnsense `net.vlan/vxlan/ipv6/rate-limit/capture` `unsupported-by-provider`: o catálogo mede o tecido de rede dos *workloads* do engine, não a config administrativa da appliance → categoria diferente, correcto.
-- opnsense `nat.one-to-one/multi-wan/vpn/dns/dhcp`, `firewall.icmp-type` `not-implemented`: API suporta, adapter não toca → gaps reais de Sprint 2.
-- linux `net.ipv6` unsupported: recusa de segurança escrita e deliberada (`infra.rs:3645`), não confusão → correcto (mandato §10: não activar IPv6 só removendo bloqueio).
-- linux `firewall.icmp-type`/`logging` not-implemented: `policy_nft.rs:73` recusa na lowering apesar de nftables suportar → ausência real do engine, `not-implemented` correcto; Sprint 2 (com limites de logging, mandato §10).
+- hotplug `*.remove` (cpu/mem/disk/nic) CH+libvirt `not-implemented`: upstream supports it (CH `/vm.remove-device`), but the adapter lacks the code → `not-implemented` correct.
+- proxmox `vm.console.serial`/`vnc` `not-implemented`: the API has `termproxy`/`vncproxy`, the adapter does not call them → correct.
+- proxmox `net.vlan/vxlan/ipam/dns/routes`, firewall `logging/icmp-type` `not-implemented`: PVE SDN/firewall supports everything, the adapter does not wire it (`sdn.rs:26-32` documents it) → `not-implemented` is the exact semantics; candidates for Sprint 2.
+- opnsense `net.vlan/vxlan/ipv6/rate-limit/capture` `unsupported-by-provider`: the catalogue measures the network fabric of the engine's *workloads*, not the appliance's administrative config → different category, correct.
+- opnsense `nat.one-to-one/multi-wan/vpn/dns/dhcp`, `firewall.icmp-type` `not-implemented`: the API supports it, the adapter does not touch it → real Sprint 2 gaps.
+- linux `net.ipv6` unsupported: a written, deliberate security refusal (`infra.rs:3645`), not confusion → correct (mandate §10: do not enable IPv6 just by removing the block).
+- linux `firewall.icmp-type`/`logging` not-implemented: `policy_nft.rs:73` refuses at lowering despite nftables supporting it → a real absence in the engine, `not-implemented` correct; Sprint 2 (with logging limits, mandate §10).
 
-## Efeitos-cascata da aplicação em código (porque precisa de worktree + gates)
+## Cascade effects of applying it in code (why it needs a worktree + gates)
 
-Aplicar A1–A3 toca `provider_report.rs` e `libvirt/src/lib.rs` (3 arms), e dispara:
-1. **Matriz publicada**: `docs/providers/capability-matrix.md` tem de ser regenerado (`delonix provider matrix > …`) — teste `the_published_matrix_is_the_generated_one` falha senão.
-2. **Ratchet de células** (`scripts/capability_baseline.json`): A1 (unsupported→not-implemented) **aumenta `applicable` em 1** (273→274) porque not-implemented conta como aplicável; A2/A3 não mexem em `applicable` (partial e not-implemented ambos aplicáveis) nem em `proved` (nenhum vira supported). É preciso `scripts/capability_ratchet.py --update` **no mesmo commit**.
-3. **Contagens**: not-implemented 72→69, partial 86→88, unsupported 230→229. `proved`/supported inalterado (não há promoção falsa — coerente com §17: progresso não é só reduzir negativos).
-4. **Cópia espelho** do conjunto de providers em `crates/interfaces/delonix-node-api/src/providers.rs` (teste `the_declared_providers_are_the_published_matrix`).
-5. **Tradução pt.po** se alguma razão/limite novo tiver texto apresentado ao utilizador.
+Applying A1–A3 touches `provider_report.rs` and `libvirt/src/lib.rs` (3 arms), and triggers:
+1. **Published matrix**: `docs/providers/capability-matrix.md` must be regenerated (`delonix provider matrix > …`) — the test `the_published_matrix_is_the_generated_one` fails otherwise.
+2. **Cell ratchet** (`scripts/capability_baseline.json`): A1 (unsupported→not-implemented) **increases `applicable` by 1** (273→274) because not-implemented counts as applicable; A2/A3 do not change `applicable` (partial and not-implemented both applicable) nor `proved` (none becomes supported). `scripts/capability_ratchet.py --update` is required **in the same commit**.
+3. **Counts**: not-implemented 72→69, partial 86→88, unsupported 230→229. `proved`/supported unchanged (no false promotion — consistent with §17: progress is not only about reducing negatives).
+4. **Mirror copy** of the provider set in `crates/interfaces/delonix-node-api/src/providers.rs` (test `the_declared_providers_are_the_published_matrix`).
+5. **pt.po translation** if any new reason/limit has text presented to the user.
 
-Conclusão: A1–A3 são uma frente de código pequena, verificável e de baixo risco — primeira a aplicar quando houver slot de WIP. B/C/D entram no Sprint 2 (implementação/validação), não aqui.
+Conclusion: A1–A3 are a small, verifiable, low-risk code front — the first to apply when a WIP slot opens. B/C/D enter Sprint 2 (implementation/validation), not here.

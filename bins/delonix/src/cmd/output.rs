@@ -309,7 +309,7 @@ impl Table {
         debug_assert_eq!(
             cells.len(),
             self.headers.len(),
-            "linha com aridade diferente do cabeçalho"
+            "row with a different arity than the header"
         );
         self.rows.push(cells);
     }
@@ -391,22 +391,22 @@ fn display_width(s: &str) -> usize {
 /// **Without a tag** (`repo@sha256:…`) the digest is the ONLY identification
 /// left — there it's shortened, but never thrown away: `repo@sha256:7416a61b`.
 pub fn display_ref(reference: &str) -> String {
-    let Some((antes, digest)) = reference.split_once("@sha256:") else {
+    let Some((before, digest)) = reference.split_once("@sha256:") else {
         return reference.to_string();
     };
     // `repo:tag@sha256:…` → the tag identifies; the digest is noise in the table.
     // Careful: a `:` in the host with a port (`reg:5000/img`) is not a tag — the
     // tag comes after the LAST '/'.
-    let tem_tag = antes
+    let has_tag = before
         .rsplit('/')
         .next()
-        .map(|ultimo| ultimo.contains(':'))
+        .map(|last| last.contains(':'))
         .unwrap_or(false);
-    if tem_tag {
-        return antes.to_string();
+    if has_tag {
+        return before.to_string();
     }
-    let curto: String = digest.chars().take(8).collect();
-    format!("{antes}@sha256:{curto}")
+    let short: String = digest.chars().take(8).collect();
+    format!("{before}@sha256:{short}")
 }
 
 /// Truncates with an ellipsis (`…`) if it exceeds `max` — for COMMAND/PORTS,
@@ -1407,12 +1407,12 @@ impl Progress {
             '✗' => paint(color::RED, "✗"),
             other => other.to_string(),
         };
-        // O ícone é OPCIONAL desde que o `build` passou a abrir um passo por
-        // instrução: `RUN apt-get …  1.0s` com dois espaços a meio lê-se como
-        // desalinhamento, e uma instrução de Dockerfile não tem emoji que a
-        // descreva melhor do que o próprio texto. Um `format!` condicional em vez
-        // de um espaço fixo — o mesmo cuidado que a `Table` já tem em medir as
-        // colunas pelo conteúdo em vez de as fixar.
+        // The icon is OPTIONAL now that `build` opens one step per instruction:
+        // `RUN apt-get …  1.0s` with two spaces in the middle reads as
+        // misalignment, and a Dockerfile instruction has no emoji that describes
+        // it better than the text itself does. A conditional `format!` instead of
+        // a fixed space — the same care the `Table` already takes measuring its
+        // columns by content rather than fixing them.
         let icon = if self.icon.is_empty() {
             String::new()
         } else {
@@ -1496,52 +1496,52 @@ mod namespace_cell_tests {
 #[cfg(test)]
 mod tests {
 
-    /// Uma listagem fica mais rica por RESPONDER a mais perguntas, não por
-    /// carregar mais colunas: num host sem passthrough e sem nós de cluster, o
-    /// `GPU` e o `ROLE` são duas colunas inteiras de traços, e a largura que
-    /// ocupam é largura que as úteis não têm.
+    /// A listing gets richer by ANSWERING more questions, not by carrying more
+    /// columns: on a host with no passthrough and no cluster nodes, `GPU` and
+    /// `ROLE` are two full columns of dashes, and the width they take is width the
+    /// useful ones do not get.
     #[test]
-    fn uma_coluna_sem_nada_a_dizer_desaparece_da_tabela() {
+    fn a_column_with_nothing_to_say_disappears_from_the_table() {
         let mut t = Table::new(&["NAME", "IMAGE", "ROLE", "GPU"]);
         t.row(vec!["a".into(), "alpine".into(), "-".into(), "-".into()]);
         t.row(vec!["b".into(), "debian".into(), "-".into(), "".into()]);
         let out = t.drop_uninformative().render_all();
         assert!(out.contains("IMAGE"), "{out}");
-        assert!(!out.contains("ROLE"), "coluna só de traços ficou: {out}");
-        assert!(!out.contains("GPU"), "coluna vazia ficou: {out}");
+        assert!(!out.contains("ROLE"), "a column of only dashes stayed: {out}");
+        assert!(!out.contains("GPU"), "an empty column stayed: {out}");
 
-        // Uma linha que diga alguma coisa segura a coluna inteira.
+        // A row that says something holds the whole column.
         let mut t = Table::new(&["NAME", "ROLE"]);
         t.row(vec!["a".into(), "-".into()]);
         t.row(vec!["b".into(), "worker".into()]);
         assert!(t.drop_uninformative().render_all().contains("ROLE"));
     }
 
-    /// Duas regras que a impedem de surpreender: a identidade nunca cai, e uma
-    /// tabela VAZIA não deita nada fora — sem linhas não há prova de que uma
-    /// coluna seja inútil, e o cabeçalho é a única coisa que um `ls` sem
-    /// resultados tem para dizer.
+    /// Two rules that keep it from surprising anyone: the identity never drops,
+    /// and an EMPTY table drops nothing — with no rows there is no evidence a
+    /// column is useless, and the header is the only thing an `ls` with no results
+    /// has to say.
     #[test]
-    fn a_primeira_coluna_e_uma_tabela_vazia_nunca_perdem_colunas() {
+    fn the_first_column_and_an_empty_table_never_lose_columns() {
         let mut t = Table::new(&["NAME", "ROLE"]);
         t.row(vec!["-".into(), "-".into()]);
         let out = t.drop_uninformative().render_all();
-        assert!(out.contains("NAME"), "a coluna de identidade caiu: {out}");
+        assert!(out.contains("NAME"), "the identity column dropped: {out}");
 
-        let vazia = Table::new(&["NAME", "ROLE", "GPU"]).drop_uninformative();
-        let out = vazia.render_all();
+        let empty = Table::new(&["NAME", "ROLE", "GPU"]).drop_uninformative();
+        let out = empty.render_all();
         for c in ["NAME", "ROLE", "GPU"] {
-            assert!(out.contains(c), "{c} caiu numa tabela sem linhas: {out}");
+            assert!(out.contains(c), "{c} dropped on a table with no rows: {out}");
         }
     }
 
-    /// O alinhamento à direita é guardado por ÍNDICE, e largar uma coluna
-    /// renumera as que ficam — sem reescrever esses índices, o alinhamento
-    /// passa em silêncio para a coluna vizinha, que é o género de defeito que
-    /// só se vê quando os números ficam tortos numa tabela larga.
+    /// The right alignment is kept by INDEX, and dropping a column renumbers the
+    /// ones that remain — without rewriting those indices the alignment silently
+    /// shifts to the neighbouring column, the kind of defect you only see when the
+    /// numbers go crooked in a wide table.
     #[test]
-    fn largar_uma_coluna_nao_desloca_o_alinhamento_para_a_vizinha() {
-        // VCPUS (idx 3) é a alinhada; a IMAGE (idx 1) vai cair.
+    fn dropping_a_column_does_not_shift_the_alignment_to_the_neighbour() {
+        // VCPUS (idx 3) is the aligned one; IMAGE (idx 1) is going to drop.
         let mut t = Table::new(&["NAME", "IMAGE", "BACKEND", "VCPUS"]).right_align(3);
         t.row(vec!["a".into(), "-".into(), "libvirt".into(), "4".into()]);
         t.row(vec!["bb".into(), "-".into(), "libvirt".into(), "16".into()]);
@@ -1549,10 +1549,10 @@ mod tests {
         assert_eq!(
             t.right,
             vec![2],
-            "o índice não foi renumerado: {:?}",
+            "the index was not renumbered: {:?}",
             t.right
         );
-        // E o efeito visível: os números alinham à direita entre si.
+        // And the visible effect: the numbers align to the right against each other.
         let out = t.render_all();
         assert!(out.contains(" 4") && out.contains("16"), "{out}");
     }
@@ -1560,7 +1560,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tabela_mede_pela_celula_mais_larga() {
+    fn table_measures_by_the_widest_cell() {
         let mut t = Table::new(&["A", "B"]);
         t.row(vec!["um-nome-bem-comprido".into(), "x".into()]);
         t.row(vec!["curto".into(), "y".into()]);
@@ -1571,15 +1571,15 @@ mod tests {
     }
 
     #[test]
-    fn ultima_coluna_sem_padding_a_direita() {
+    fn last_column_has_no_right_padding() {
         let mut t = Table::new(&["A", "B"]);
         t.row(vec!["a".into(), "b".into()]);
         let line = t.render(&t.rows[0], &t.widths());
-        assert!(!line.ends_with(' '), "linha com espaços no fim: {line:?}");
+        assert!(!line.ends_with(' '), "line with trailing spaces: {line:?}");
     }
 
     #[test]
-    fn truncate_respeita_o_maximo() {
+    fn truncate_respects_the_maximum() {
         assert_eq!(truncate("abcdef", 4), "abc…");
         assert_eq!(truncate("abc", 4), "abc");
         // Counts chars, not bytes — otherwise an accent would truncate too early.
@@ -1587,7 +1587,7 @@ mod tests {
     }
 
     #[test]
-    fn idade_estilo_docker() {
+    fn age_docker_style() {
         assert_eq!(fmt_age_secs(3), "3 seconds ago");
         assert_eq!(fmt_age_secs(90), "About a minute ago");
         assert_eq!(fmt_age_secs(600), "10 minutes ago");
@@ -1596,7 +1596,7 @@ mod tests {
     }
 
     #[test]
-    fn nenhum_balde_imprime_um_plural_em_falso() {
+    fn no_bucket_prints_a_false_plural() {
         // Regression: a real `image ls` showed "1 weeks ago" for a 7-day image.
         // No duration can produce "1 <plural>" — in docker the weeks/months/
         // years buckets all start at 2, by construction.
@@ -1621,7 +1621,7 @@ mod tests {
             let d = fmt_duration_secs(s);
             assert!(
                 !d.starts_with("1 ") || d == "1 second",
-                "plural em falso para {s}s: {d:?}"
+                "false plural for {s}s: {d:?}"
             );
         }
         // And the bucket limits, to the letter of docker.
@@ -1633,22 +1633,23 @@ mod tests {
     }
 
     #[test]
-    fn idade_com_relogio_no_futuro_nao_faz_underflow() {
+    fn age_with_a_clock_in_the_future_does_not_underflow() {
         // `created_unix` in the future (clock corrected backwards) used to give
         // a u64 underflow → "584 million years ago".
-        let futuro = now_unix() + 3600;
-        assert_eq!(fmt_age(futuro), "Less than a second ago");
+        let future = now_unix() + 3600;
+        assert_eq!(fmt_age(future), "Less than a second ago");
     }
 
     #[test]
-    fn locale_reconhece_variantes_pt() {
+    fn locale_recognizes_pt_variants() {
         // The translation itself lives in the catalog (`cmd::po`); here it's
         // only the locale.
         set_lang("en");
         assert!(!is_pt());
         set_lang("pt");
         assert!(is_pt());
-        // pt_AO and variants count as pt; anything else = en (safe default).
+        // The pt locale and its regional spellings count as pt; anything else =
+        // en (safe default).
         set_lang("pt_AO");
         assert!(is_pt());
         set_lang("fr");
@@ -1657,14 +1658,14 @@ mod tests {
     }
 
     #[test]
-    fn tamanhos_legiveis() {
+    fn readable_sizes() {
         assert_eq!(fmt_size(512), "512 B");
         assert_eq!(fmt_size(1536), "1.5 KiB");
         assert_eq!(fmt_size(2 * 1024 * 1024 * 1024), "2.00 GiB");
     }
 
     #[test]
-    fn display_ref_corta_o_digest_quando_ha_tag() {
+    fn display_ref_cuts_the_digest_when_there_is_a_tag() {
         // The case that motivated this: a kindest/node pinned by digest.
         assert_eq!(
             display_ref("kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a"),
@@ -1680,7 +1681,7 @@ mod tests {
     }
 
     #[test]
-    fn display_ref_sem_tag_encurta_o_digest_mas_nao_o_deita_fora() {
+    fn display_ref_without_a_tag_shortens_the_digest_but_does_not_drop_it() {
         // `repo@sha256:…` — the digest is the ONLY identification; it's
         // shortened, not removed (otherwise two different images would end up
         // with the same name).
@@ -1691,7 +1692,7 @@ mod tests {
     }
 
     #[test]
-    fn display_ref_nao_confunde_porta_do_registo_com_tag() {
+    fn display_ref_does_not_confuse_the_registry_port_with_a_tag() {
         // `reg:5000/img@sha256:…` — the `:5000` is the host port, NOT a tag.
         // The tag, if any, comes after the last '/'. Here there is none →
         // shorten the digest.
