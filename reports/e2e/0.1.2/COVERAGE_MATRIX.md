@@ -1,29 +1,29 @@
-# COVERAGE_MATRIX.md — cobertura da superfície pública `delonix 0.1.2`
+# COVERAGE_MATRIX.md — coverage of the `delonix 0.1.2` public surface
 
-Cobertura separada por eixo (secção 5 do prompt mestre), contra o binário
-entregue `0.1.2 @ b72edeed`. Fonte: `cli-tree.sh` (inventário), `e2e.sh`
-(execução, `e2e-results.jsonl`), `cli_exec_ratchet.py` (execução sob asserção).
+Coverage split per axis (section 5 of the master prompt), against the delivered
+binary `0.1.2 @ b72edeed`. Source: `cli-tree.sh` (inventory), `e2e.sh`
+(execution, `e2e-results.jsonl`), `cli_exec_ratchet.py` (execution under assertion).
 
-## Eixo 1 — caminhos canónicos (folhas invocáveis)
+## Axis 1 — canonical paths (invocable leaves)
 
-| Métrica | Total | Nota |
+| Metric | Total | Note |
 |---|---|---|
-| Descobertos (parser real) | **366 folhas** / 413 comandos / 78 grupos | `cli-tree.sh --count` |
-| Aplicáveis (perfil rootless+lab) | 366 | todos os grupos são alcançáveis no host |
-| Com destino mapeado (gate) | **366** | `cli-tree.sh --gate` verde; 0 folhas órfãs |
-| Executados sob asserção | **272 (74,3 %)** | `cli_exec_ratchet.py`, == baseline, `rc=0` |
-| Ajuda verificada (`--help`) | **366 (100 %)** | a bateria checa o `--help` de cada folha por construção |
-| Aprovados (perfil rootless) | ver §4 | 1735 PASS / 22 FAIL(triadas) / 35 SKIP |
+| Discovered (real parser) | **366 leaves** / 413 commands / 78 groups | `cli-tree.sh --count` |
+| Applicable (rootless+lab profile) | 366 | all groups are reachable on the host |
+| With mapped target (gate) | **366** | `cli-tree.sh --gate` green; 0 orphan leaves |
+| Executed under assertion | **272 (74.3 %)** | `cli_exec_ratchet.py`, == baseline, `rc=0` |
+| Help verified (`--help`) | **366 (100 %)** | the battery checks the `--help` of each leaf by construction |
+| Approved (rootless profile) | see §4 | 1735 PASS / 22 FAIL(triaged) / 35 SKIP |
 
-> **Ressalva do numerador (documentada no arnês):** o ratchet **sub-conta** —
-> uma folha invocada por dentro de uma função de shell não resolve a folha. Por
-> isso `exec`, `logs`, `kill`, `cp`, `port` aparecem a 0 % embora a bateria os
-> exercite (ex.: a regressão BUG-0008 corre `exec … id` e passa). O 74,3 % é
-> piso, não tecto.
+> **Numerator caveat (documented in the harness):** the ratchet **undercounts** —
+> a leaf invoked from inside a shell function does not resolve the leaf. That is
+> why `exec`, `logs`, `kill`, `cp`, `port` appear at 0 % even though the battery
+> exercises them (e.g. the BUG-0008 regression runs `exec … id` and passes). The 74.3 % is
+> a floor, not a ceiling.
 
-## Eixo 2 — cobertura de execução por grupo (top)
+## Axis 2 — execution coverage per group (top)
 
-| Grupo | exec/folhas | % | Grupo | exec/folhas | % |
+| Group | exec/leaves | % | Group | exec/leaves | % |
 |---|---|---|---|---|---|
 | net | 36/36 | 100 | vm | 33/39 | 84.6 |
 | system | 20/20 | 100 | cluster | 19/22 | 86.4 |
@@ -35,40 +35,40 @@ entregue `0.1.2 @ b72edeed`. Fonte: `cli-tree.sh` (inventário), `e2e.sh`
 | compose/gitops/serve/workload/mcp/config | 100 | | pod | 6/19 | 31.6† |
 | oci-runtime | 0/5 | 0‡ | bucket | 0/3 | 0‡ |
 
-† `pod`/`image` baixos: muitas folhas exercitadas por helper de shell (sub-contagem).
-‡ `oci-runtime`/`bucket`: exercitados por `--help` mas sem execução com efeito
-asserida no perfil rootless (oci-runtime exige bundle; bucket exige backend S3).
+† `pod`/`image` low: many leaves exercised via a shell helper (undercount).
+‡ `oci-runtime`/`bucket`: exercised via `--help` but without effect-asserted
+execution in the rootless profile (oci-runtime requires a bundle; bucket requires an S3 backend).
 
-## Eixo 3 — contratos funcionais por família (secção 2 do prompt)
+## Axis 3 — functional contracts per family (section 2 of the prompt)
 
-| Família | Cenários-chave exercitados | Veredicto rootless |
+| Family | Key scenarios exercised | Rootless verdict |
 |---|---|---|
-| Contentores/pods/OCI | ciclo de vida id+nome, sinais, TTY, exec, cp, logs, port, freezer, pod netns partilhada | ✅ PASS |
-| VM / compute híbrido | CH create/start/snapshot/resize, inventário conjunto, namespaces | ✅ PASS (root curto) |
-| Imagens/registry/segredos | build FROM+RUN, cache, digest, save/load, commit, login, secret cifrado | ✅ PASS |
-| Rede/armazenamento | porta publicada, DNS interno, L3, IPAM multi-homed, volume bytes/mount, hosts | ✅ PASS |
-| Kubernetes/protocolos | **cluster create→Ready (kind-mode)**, serve docker-api/cri, mcp negociação | ✅ PASS (KaaS); CRI-root ⛔ |
-| IaC/workflows | plan/apply/diff/drift/delete idempotentes, GitOps, compose, wait, 33 Kinds | ✅ PASS |
-| Operação/experiência | backup/restore, completion, man, dashboard(PTY), init, policy, version, events | ✅ PASS |
+| Containers/pods/OCI | id+name lifecycle, signals, TTY, exec, cp, logs, port, freezer, shared pod netns | ✅ PASS |
+| VM / hybrid compute | CH create/start/snapshot/resize, joint inventory, namespaces | ✅ PASS (short root) |
+| Images/registry/secrets | build FROM+RUN, cache, digest, save/load, commit, login, encrypted secret | ✅ PASS |
+| Network/storage | published port, internal DNS, L3, multi-homed IPAM, volume bytes/mount, hosts | ✅ PASS |
+| Kubernetes/protocols | **cluster create→Ready (kind-mode)**, serve docker-api/cri, mcp negotiation | ✅ PASS (KaaS); CRI-root ⛔ |
+| IaC/workflows | idempotent plan/apply/diff/drift/delete, GitOps, compose, wait, 33 Kinds | ✅ PASS |
+| Operation/experience | backup/restore, completion, man, dashboard(PTY), init, policy, version, events | ✅ PASS |
 
-## Eixo 4 — aliases e parâmetros/variantes
+## Axis 4 — aliases and parameters/variants
 
-- **Aliases:** `ps`/`container ls`, `images`/`image ls`, etc. — cobertos no
-  inventário (classes do `cli-tree`); `ls -q/-a` tinha divergência (GAP-0019),
-  **fechada pelo dono em `9ec12592`** durante a ronda.
-- **Parâmetros:** casos positivo/negativo, default-quando-omitido, rejeição e
-  limites são exercitados pela bateria (ex.: `--restart always:2` recusado;
-  `--disk-size 0` recusado no parser; enums de `restartPolicy`
-  Always/OnFailure/Never normalizados). Variantes condicionadas por build não se
-  aplicam (um só artefacto de release).
+- **Aliases:** `ps`/`container ls`, `images`/`image ls`, etc. — covered in the
+  inventory (`cli-tree` classes); `ls -q/-a` had a divergence (GAP-0019),
+  **closed by the owner in `9ec12592`** during the round.
+- **Parameters:** positive/negative cases, default-when-omitted, rejection and
+  limits are exercised by the battery (e.g. `--restart always:2` refused;
+  `--disk-size 0` refused in the parser; `restartPolicy` enums
+  Always/OnFailure/Never normalised). Build-conditioned variants do not
+  apply (a single release artefact).
 
-## Eixo 5 — perfis (governação de gate, H07)
+## Axis 5 — profiles (gate governance, H07)
 
-| Perfil | Descoberto | Aplicável | Mapeado | Executado | Aprovado |
+| Profile | Discovered | Applicable | Mapped | Executed | Approved |
 |---|---|---|---|---|---|
-| **pr-rootless** | 366 | 366 | 366 | 272 (+help 100%) | ✅ gates de merge APROVAM |
+| **pr-rootless** | 366 | 366 | 366 | 272 (+help 100%) | ✅ merge gates APPROVE |
 | **lab-ephemeral** | — | VM/KaaS/CRI/rootful | — | VM-CH ✅, KaaS ✅ | ◑ critest/rootful BLOCKED |
-| **release** | — | critest/chaos/cargo-test | — | — | ⛔ fora de âmbito (sem tag) |
+| **release** | — | critest/chaos/cargo-test | — | — | ⛔ out of scope (no tag) |
 
-Evidência estruturada: `evidence.jsonl` (6 registos, validam contra
+Structured evidence: `evidence.jsonl` (6 records, validate against
 `docs/dev/evidence-schema.md`).

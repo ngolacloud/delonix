@@ -1,46 +1,46 @@
-# B1 — Baseline OCI Runtime Spec (Track B do plano de conformidade)
+# B1 — OCI Runtime Spec Baseline (Track B of the conformance plan)
 
-**Data:** 2026-10-24 · **Binário:** `delonix 5.1.1 @ ee615f3b` · **Validador:** `oci-runtime-tool`
-`v0.9.1-0.20261017-bd3b0bd` (de `@master`; o `@latest`/v0.9.0 não compila sob Go 1.25) ·
+**Date:** 2026-10-24 · **Binary:** `delonix 5.1.1 @ ee615f3b` · **Validator:** `oci-runtime-tool`
+`v0.9.1-0.20261017-bd3b0bd` (from `@master`; `@latest`/v0.9.0 does not compile under Go 1.25) ·
 **runc:** 1.5.2 · rootless, host kernel 7.0, cgroup v2.
 
-## Método
+## Method
 
 1. `delonix image export alpine <bundle>` → `config.json` + `rootfs/`.
-2. `oci-runtime-tool validate --path <bundle>` (validação estrutural+semântica contra o runtime-spec).
-3. `runc --root <tmp> run` do bundle, tal-e-qual, rootless (prova de interop).
+2. `oci-runtime-tool validate --path <bundle>` (structural + semantic validation against the runtime-spec).
+3. `runc --root <tmp> run` of the bundle, as-is, rootless (interop proof).
 
-Reproduzível; nenhuma suite upstream estava instalada no host (como o `oci-conformance.md` já notava).
+Reproducible; no upstream suite was installed on the host (as `oci-conformance.md` already noted).
 
-## Resultado
+## Result
 
-| Verificação | Resultado |
+| Check | Result |
 |---|---|
-| Estrutura do `config.json` vs runtime-spec | **CONFORME** — `Bundle validation succeeded` (com a string de versão em 1.3.0) |
-| `runc run` do bundle exportado, rootless, as-is | **FALHA** — `rootless container requires user namespaces` |
+| `config.json` structure vs runtime-spec | **CONFORMANT** — `Bundle validation succeeded` (with the version string at 1.3.0) |
+| `runc run` of the exported bundle, rootless, as-is | **FAILS** — `rootless container requires user namespaces` |
 
-`config.json` emitido: `ociVersion 1.0.2`, `process.user {0,0}`, namespaces
-`pid/network/ipc/uts/mount/cgroup` (**sem user**), `capabilities.bounding` = 6 (conjunto reduzido),
-**sem `uidMappings`/`gidMappings`**, **sem secção `seccomp`**.
+`config.json` emitted: `ociVersion 1.0.2`, `process.user {0,0}`, namespaces
+`pid/network/ipc/uts/mount/cgroup` (**no user**), `capabilities.bounding` = 6 (reduced set),
+**no `uidMappings`/`gidMappings`**, **no `seccomp` section**.
 
-## Gaps encontrados (entram no Track B)
+## Gaps found (entering Track B)
 
-| ID | Gap | Impacto | Esforço |
+| ID | Gap | Impact | Effort |
 |---|---|---|---|
-| **GAP-RT-1** | `ociVersion` emitido é **1.0.2** (spec corrente 1.2/1.3); ferramentas que fixam a versão corrente recusam o bundle | ferramentas OCI modernas não validam o bundle sem bump manual | baixo — carimbar versão corrente + campos novos exigidos |
-| **GAP-RT-2** | export **não emite `uidMappings`/user-ns** — bundle é root-only; `runc run` rootless falha | o bundle não é portátil para runtime rootless (runc/crun) sem edição | médio — `image export --rootless` que injecta o mapping subuid |
-| **GAP-RT-3** | export **não leva `seccomp`** — o perfil do Delonix não viaja para o bundle; um `runc` do bundle corre sem seccomp | perda de endurecimento ao sair do motor | médio — serializar o perfil para o config |
-| **GAP-RT-4** | o Delonix **não expõe um CLI estilo runc** (`create/start/state/kill/delete <bundle>`) — é produtor de bundles + init próprio, não um runtime drop-in | não pode ser medido pela *validation suite* do `runtime-tools` nem substituir runc/crun diretamente | alto — um `delonix oci-runtime` shim sobre o init |
+| **GAP-RT-1** | emitted `ociVersion` is **1.0.2** (current spec 1.2/1.3); tools that pin the current version reject the bundle | modern OCI tools do not validate the bundle without a manual bump | low — stamp the current version + newly required fields |
+| **GAP-RT-2** | export **does not emit `uidMappings`/user-ns** — bundle is root-only; rootless `runc run` fails | the bundle is not portable to a rootless runtime (runc/crun) without editing | medium — `image export --rootless` that injects the subuid mapping |
+| **GAP-RT-3** | export **does not carry `seccomp`** — Delonix's profile does not travel to the bundle; a `runc` of the bundle runs without seccomp | loss of hardening when leaving the engine | medium — serialize the profile into the config |
+| **GAP-RT-4** | Delonix **does not expose a runc-style CLI** (`create/start/state/kill/delete <bundle>`) — it is a producer of bundles + its own init, not a drop-in runtime | cannot be measured by the `runtime-tools` *validation suite* nor replace runc/crun directly | high — a `delonix oci-runtime` shim over the init |
 
-## Conclusão de B1
+## B1 conclusion
 
-- **Positivo:** a forma do bundle que o Delonix produz é **estruturalmente conforme** ao runtime-spec
-  (o validador só tropeçou na string de versão).
-- A **conformidade de comportamento do runtime próprio do Delonix** continua coberta pelo E2E/caos,
-  **não** pelo `runtime-tools` — porque este exige um CLI runc-style que o Delonix não tem (GAP-RT-4).
-  Fechar GAP-RT-4 (um shim `oci-runtime`) é o que permitiria correr a *validation suite* upstream
-  contra o próprio Delonix e dar um número comparável ao do runc/crun.
-- Próximo em Track B: **B2 (mount propagation `rshared`/`rslave`)**, que também fecha 3 falhas do CRI.
+- **Positive:** the shape of the bundle Delonix produces is **structurally conformant** to the runtime-spec
+  (the validator only tripped on the version string).
+- The **behavioural conformance of Delonix's own runtime** remains covered by E2E/chaos,
+  **not** by `runtime-tools` — because the latter requires a runc-style CLI that Delonix does not have (GAP-RT-4).
+  Closing GAP-RT-4 (an `oci-runtime` shim) is what would allow running the upstream *validation suite*
+  against Delonix itself and giving a number comparable to runc/crun's.
+- Next in Track B: **B2 (mount propagation `rshared`/`rslave`)**, which also closes 3 CRI failures.
 
 ## Repro
 

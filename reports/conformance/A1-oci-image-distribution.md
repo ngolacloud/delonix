@@ -1,60 +1,60 @@
-# A1 — OCI Image + Distribution (Track A) · interop entre motores
+# A1 — OCI Image + Distribution (Track A) · interop between engines
 
-**Data:** 2026-10-24 · **Binário:** `delonix 5.1.1 @ ee615f3b` (com GAP-RT-1 fix) ·
-docker 29.9.2 · podman 4.9.3 · registry `registry:2` local em `127.0.0.1:5000`.
+**Date:** 2026-10-24 · **Binary:** `delonix 5.1.1 @ ee615f3b` (with GAP-RT-1 fix) ·
+docker 29.9.2 · podman 4.9.3 · registry `registry:2` local at `127.0.0.1:5000`.
 
-> A ferramenta `oci-image-tool` (`opencontainers/image-tools`) **não compila** (breakage clássico
-> `Sirupsen/logrus` vs `sirupsen/logrus`; projeto abandonado). Em vez de um validador morto, o teste
-> real de "igual ao Docker/Podman como imagem OCI" é a **interop entre motores**: empurrar com um,
-> puxar/correr com os outros. Mais forte do que um schema-check e sem colisão com o CRI.
+> The `oci-image-tool` tool (`opencontainers/image-tools`) **does not compile** (the classic
+> `Sirupsen/logrus` vs `sirupsen/logrus` breakage; abandoned project). Instead of a dead validator, the
+> real test of "same as Docker/Podman as an OCI image" is the **interop between engines**: push with one,
+> pull/run with the others. Stronger than a schema check and with no collision with CRI.
 
-## Matriz de interop (push → pull/run)
+## Interop matrix (push → pull/run)
 
-| Origem → destino | Resultado | Evidência |
+| Source → destination | Result | Evidence |
 |---|---|---|
-| **delonix → docker** | **PASSOU** | digest idêntico `sha256:3cc8f85a…`; `docker run` → `RELC-OCI-7f3a` |
-| **delonix → podman** | **FALHOU** | `unsupported docker v2s2 media type: "application/vnd.oci.image.layer.v1.tar"` |
-| **docker → delonix** | **PASSOU** | `delonix pull` + `run` da imagem empurrada pelo docker → `delonix-ran-docker-image-OK` |
+| **delonix → docker** | **PASSED** | identical digest `sha256:3cc8f85a…`; `docker run` → `RELC-OCI-7f3a` |
+| **delonix → podman** | **FAILED** | `unsupported docker v2s2 media type: "application/vnd.oci.image.layer.v1.tar"` |
+| **docker → delonix** | **PASSED** | `delonix pull` + `run` of the image pushed by docker → `delonix-ran-docker-image-OK` |
 
-## GAP-OCI-IMG-1 — manifesto híbrido não-conforme no push
+## GAP-OCI-IMG-1 — non-conformant hybrid manifest on push
 
-O manifesto que o `delonix push` produz mistura esquemas:
+The manifest that `delonix push` produces mixes schemas:
 
 ```
 manifest mediaType: application/vnd.docker.distribution.manifest.v2+json   (Docker schema-2)
 config  mediaType: application/vnd.docker.container.image.v1+json          (Docker)
-layer   mediaType: application/vnd.oci.image.layer.v1.tar                  (OCI, NÃO comprimido)
+layer   mediaType: application/vnd.oci.image.layer.v1.tar                  (OCI, NOT compressed)
 ```
 
-Um manifesto **Docker schema-2** exige **layers Docker** (`application/vnd.docker.image.rootfs.diff.tar.gzip`).
-O Delonix põe um **layer OCI dentro de um manifesto Docker** — o `docker` (tolerante) aceita, o
-`podman`/`containers-image` (estrito, correcto) recusa. Liga ao gap conhecido "layers de build não
-comprimidos" (`.tar`, não `.tar+gzip`).
+A **Docker schema-2** manifest requires **Docker layers** (`application/vnd.docker.image.rootfs.diff.tar.gzip`).
+Delonix puts an **OCI layer inside a Docker manifest** — `docker` (tolerant) accepts it, while
+`podman`/`containers-image` (strict, correct) rejects it. This ties in with the known gap of "uncompressed
+build layers" (`.tar`, not `.tar+gzip`).
 
-**Impacto:** imagens empurradas pelo Delonix **não são puxáveis por podman/skopeo/containers-image** —
-quebra interop com metade do ecossistema. (O `pull` do Delonix está bem: consome manifestos Docker
-standard sem problema — ver linha docker→delonix.)
+**Impact:** images pushed by Delonix **cannot be pulled by podman/skopeo/containers-image** —
+breaks interop with half the ecosystem. (Delonix's `pull` is fine: it consumes standard Docker manifests
+without trouble — see the docker→delonix row.)
 
-**Correcção (duas vias limpas):**
-- **(a) Emitir um manifesto OCI** `application/vnd.oci.image.manifest.v1+json` + config
-  `application/vnd.oci.image.config.v1+json` + layers OCI — coerente com o layer `.tar` já usado; é o
-  alvo moderno e correcto. **Recomendada.**
-- **(b) Emitir um manifesto Docker v2s2 a sério** com layers `…diff.tar.gzip` (implica comprimir os
-  layers — fecha também o gap da compressão).
+**Fix (two clean options):**
+- **(a) Emit an OCI manifest** `application/vnd.oci.image.manifest.v1+json` + config
+  `application/vnd.oci.image.config.v1+json` + OCI layers — consistent with the `.tar` layer already in use; it is the
+  modern, correct target. **Recommended.**
+- **(b) Emit a real Docker v2s2 manifest** with `…diff.tar.gzip` layers (implies compressing the
+  layers — also closes the compression gap).
 
-### Correcção APLICADA (via a), ainda NÃO verificada
+### Fix APPLIED (via a), NOT yet verified
 
-`crates/adapters/delonix-oci/src/registry.rs` `push_to_registry` (~2334): o push passou de
-`docker_manifest(...)` + `DOCKER_MANIFEST_MEDIA_TYPE` para
-`to_oci_manifest(&docker_manifest(...))` + `MediaType::ImageManifest.as_ref()` — reutilizando a
-função OCI **que já existia** (usada pelo registry interno e pelo Proxmox). Os blobs de config/layer
-são os mesmos (image id inalterado; só muda o digest do manifesto). Mesmo padrão dos outros dois
-pushes OCI do ficheiro (linhas 2490, 2578), logo alta confiança de que compila.
+`crates/adapters/delonix-oci/src/registry.rs` `push_to_registry` (~2334): the push went from
+`docker_manifest(...)` + `DOCKER_MANIFEST_MEDIA_TYPE` to
+`to_oci_manifest(&docker_manifest(...))` + `MediaType::ImageManifest.as_ref()` — reusing the
+OCI function **that already existed** (used by the internal registry and by Proxmox). The config/layer blobs
+are the same (image id unchanged; only the manifest digest changes). Same pattern as the other two
+OCI pushes in the file (lines 2490, 2578), hence high confidence that it compiles.
 
-**Estado:** aplicado, **por compilar/testar** — adiado porque o disco está a **9.8G (99%)** com a
-sessão CRI do dono a consumir; um build a frio (removi `target/debug`) encheria o `/`.
+**Status:** applied, **to be compiled/tested** — deferred because the disk is at **9.8G (99%)** with the
+owner's CRI session consuming it; a cold build (I removed `target/debug`) would fill `/`.
 
-**Verificar quando houver disco:**
+**Verify when disk is available:**
 ```bash
 cargo build --release -p delonix-runtime-bin          # incremental
 delonix run -d --name r -p 5000:5000 registry:2
@@ -64,15 +64,15 @@ docker pull 127.0.0.1:5000/x:1                        # continua a passar
 # + inspeccionar o manifesto: mediaType=application/vnd.oci.image.manifest.v1+json
 ```
 
-## Distribution-spec (nota de âmbito)
+## Distribution-spec (scope note)
 
-A suite `distribution-spec` conformance testa um **registry** (servidor). O Delonix é **cliente**
-(pull/push) — o seu `internal_registry.rs` é scaffolding sem CLI. Logo a conformância server-side é
-**N/A** para o Delonix-como-cliente; o que importa (e foi medido) é a interop de cliente acima.
+The `distribution-spec` conformance suite tests a **registry** (server). Delonix is a **client**
+(pull/push) — its `internal_registry.rs` is scaffolding without a CLI. So server-side conformance is
+**N/A** for Delonix-as-client; what matters (and was measured) is the client interop above.
 
-## Veredicto A1
+## A1 verdict
 
-- **Pull do Delonix: conforme** (consome Docker e OCI).
-- **Push do Delonix: NÃO conforme** (GAP-OCI-IMG-1) — é o único bloqueio real de interop de imagem
-  com o podman, e tem correcção clara (emitir manifesto OCI). Entra como a próxima tarefa do Track A.
-- RT-1 (ociVersion 1.3.0) já fecha a validação do bundle de runtime (`oci-runtime-tool` → success).
+- **Delonix pull: conformant** (consumes Docker and OCI).
+- **Delonix push: NOT conformant** (GAP-OCI-IMG-1) — it is the only real blocker for image interop
+  with podman, and it has a clear fix (emit an OCI manifest). It becomes the next Track A task.
+- RT-1 (ociVersion 1.3.0) already closes the runtime bundle validation (`oci-runtime-tool` → success).

@@ -1,60 +1,60 @@
-# critest 103/103 limpo — prova ponta-a-ponta (2026-11-10)
+# critest 103/103 clean — end-to-end proof (2026-11-10)
 
-Fecha a campanha de conformância CRI: numa VM golden rootful+CNI, o `critest
-v1.36.0` passa a **suite completa `103 Passed | 0 Failed`**, com o spec `rshared`
-(ADR-0093) verde. Confirma, numa corrida única e sem retries, o que as fixes
-`rshared` (`a7f8c01f`), barreira de cgroup OOM (`ba1eca84`) e scratch de unpack
-concorrente (`6092ca89`) prometiam isoladamente.
+Closes the CRI conformance campaign: on a golden rootful+CNI VM, `critest
+v1.36.0` passes the **full suite `103 Passed | 0 Failed`**, with the `rshared` spec
+(ADR-0093) green. It confirms, in a single run with no retries, what the `rshared`
+fix (`a7f8c01f`), the OOM cgroup barrier (`ba1eca84`) and the concurrent-unpack
+scratch (`6092ca89`) promised individually.
 
-## Ambiente medido
+## Measured environment
 
-| Eixo | Valor |
+| Axis | Value |
 |---|---|
-| Motor | `delonix` + `delonix-cri` compilados da MESMA árvore `feat/cri-conformance-rootful` @ `8353c302` (release) |
+| Engine | `delonix` + `delonix-cri` compiled from the SAME tree `feat/cri-conformance-rootful` @ `8353c302` (release) |
 | VM | `delonix vm create crit-vm --disk delonix-vm-k8s:1.36 --vcpus 4 --memory 4G` (libvirt, 192.168.122.243, ubuntu 24.04, kernel 6.8.0-142) |
 | Suite | `critest`/`crictl` **v1.36.0** |
-| Modo | **rootful + CNI** (bridge+host-local 10.88.0.0/16 + portmap), cgroup v2 c/ `memory` delegado |
-| Env servidor | `DELONIX_CRI_CAP_CEILING=all`, `DELONIX_CNI=1`, `CNI_PATH=/opt/cni/bin`, `DELONIX_CRI_SECCOMP_NIL=unconfined` |
-| AppArmor | 2 perfis de teste carregados no nó (`apparmor_parser`), securityfs montado |
+| Mode | **rootful + CNI** (bridge+host-local 10.88.0.0/16 + portmap), cgroup v2 with `memory` delegated |
+| Server env | `DELONIX_CRI_CAP_CEILING=all`, `DELONIX_CNI=1`, `CNI_PATH=/opt/cni/bin`, `DELONIX_CRI_SECCOMP_NIL=unconfined` |
+| AppArmor | 2 test profiles loaded on the node (`apparmor_parser`), securityfs mounted |
 
-Harness: `scratchpad/vm-critest.sh` (derivado de `scripts/critest.sh` — mesma
-definição de perfis AppArmor, + delegação cgroup2, CNI e seccomp-nil).
+Harness: `scratchpad/vm-critest.sh` (derived from `scripts/critest.sh` — same
+AppArmor profile definition, + cgroup2 delegation, CNI and seccomp-nil).
 
-## 1. Spec `rshared` em foco — PASSA
+## 1. The `rshared` spec in focus — PASSES
 
 ```
 FOCUS="mount with 'rshared'"  → SUCCESS! -- 1 Passed | 0 Failed | 121 Skipped
 ```
 
 `mount with 'rshared' should support propagation from host to container and vice
-versa`: um `mount --bind` feito DENTRO do container aparece no host (a metade
-container→host que faltava). É a entrega do ADR-0093.
+versa`: a `mount --bind` done INSIDE the container shows up on the host (the
+container→host half that was missing). This is the delivery of ADR-0093.
 
-## 2. Suite completa — 103/103 limpo
+## 2. Full suite — 103/103 clean
 
 ```
 Ran 103 of 122 Specs in 184.548 seconds
 SUCCESS! -- 103 Passed | 0 Failed | 0 Pending | 19 Skipped   (rc=0)
 ```
 
-Três corridas completas, consecutivas, na mesma VM:
+Three full, consecutive runs on the same VM:
 
-| Corrida | Resultado | Única falha |
+| Run | Result | Only failure |
 |---|---|---|
-| 1 | 102 Passed \| 1 Failed | attach-"hello" (interferência, ver §3) |
-| 2 | 102 Passed \| 1 Failed | attach-"hello" (idem) |
+| 1 | 102 Passed \| 1 Failed | attach-"hello" (interference, see §3) |
+| 2 | 102 Passed \| 1 Failed | attach-"hello" (same) |
 | **3** | **103 Passed \| 0 Failed** | — |
 
-`rshared` passa nas **três** (nunca está entre as falhas). O número oscila
-102↔103 exactamente como a campanha documentou — e a única variância é o spec de
-attach, nunca um spec do motor.
+`rshared` passes in **all three** (it is never among the failures). The number
+oscillates 102↔103 exactly as the campaign documented — and the only variance is the
+attach spec, never an engine spec.
 
-## 3. A oscilação 102↔103 é um async-leak do ginkgo, não um gap do motor
+## 3. The 102↔103 oscillation is a ginkgo async-leak, not an engine gap
 
-Nas corridas 1 e 2 a falha é reportada contra um spec `[k8s.io] Image Manager …
-[Conformance] [Serial]` cujo próprio *Timeline* completa todos os passos (Pull,
-Check, Get status, Remove, Remove by ID, Check empty) sem erro. O que falha,
-enxertado por cima, é:
+In runs 1 and 2 the failure is reported against a spec `[k8s.io] Image Manager …
+[Conformance] [Serial]` whose own *Timeline* completes every step (Pull,
+Check, Get status, Remove, Remove by ID, Check empty) without error. What fails,
+grafted on top, is:
 
 ```
 [FAILED] in [It] - pkg/validate/streaming.go:317
@@ -62,24 +62,24 @@ enxertado por cima, é:
 The stdout of attach should be hello — Expected <string>: "" to equal "hello"
 ```
 
-Isto é o padrão clássico de **assertion assíncrona com fuga** do ginkgo: o spec de
-**attach** anterior arranca um `Eventually(stdout=="hello", 60s)`, o seu `It`
-retorna, e o timeout dispara 60 s depois — **durante** o `[Serial]` seguinte, a
-quem o ginkgo atribui a falha (daí a vítima migrar: corrida 1 = "digest", corrida
-2 = "tag"). Provas de que é interferência, não conformidade:
+This is the classic ginkgo **leaked asynchronous assertion** pattern: the earlier
+**attach** spec starts an `Eventually(stdout=="hello", 60s)`, its `It`
+returns, and the timeout fires 60 s later — **during** the following `[Serial]`, to
+which ginkgo attributes the failure (hence the victim migrates: run 1 = "digest", run
+2 = "tag"). Proof that this is interference, not conformance:
 
-- **attach isolado → `1 Passed | 0 Failed`** (`FOCUS=attach`, 0,576 s);
-- a vítima `[Serial]` passa sempre que não é precedida pelo attach (corrida 3);
-- bate com a caracterização anterior da campanha (OOM-race: «1 interferência
-  attach-hello, passa isolada 5/5»; concurrent-unpack: «102/103 ×2, a 1 falha
-  varia e passa 3/3 isolada»).
+- **attach in isolation → `1 Passed | 0 Failed`** (`FOCUS=attach`, 0.576 s);
+- the `[Serial]` victim always passes when it is not preceded by the attach (run 3);
+- it matches the campaign's earlier characterization (OOM-race: "1 attach-hello
+  interference, passes in isolation 5/5"; concurrent-unpack: "102/103 ×2, the 1 failure
+  varies and passes 3/3 in isolation").
 
-Nenhuma das três corridas acusou unpack-race (`.tmp`), OOM ou falha de `rshared`.
+None of the three runs showed an unpack-race (`.tmp`), OOM or `rshared` failure.
 
-## 4. Gate de privilégio — `rshared` nunca ligado em rootless
+## 4. Privilege gate — `rshared` never enabled in rootless
 
 - **Unit** (`mount_propagation_tests`, `delonix-linux`): `rshared_allowed(true,false)=true`
-  e `false` para rootless e para não-privilegiado; 10/10 verdes.
+  and `false` for rootless and for non-privileged; 10/10 green.
 - **Live, rootless (host, uid 1000):**
 
 ```
@@ -90,14 +90,14 @@ Kubernetes `mountPropagation: Bidirectional`) is refused: this engine is rootles
 rootful node.
 ```
 
-Recusa nomeada (`Error::BidirectionalNeedsPrivileged`, DX-1117), com a alternativa
-`rslave` — nunca um degrade silencioso para slave.
+A named refusal (`Error::BidirectionalNeedsPrivileged`, DX-1117), with the `rslave`
+alternative — never a silent degrade to slave.
 
-## Veredicto
+## Verdict
 
-- **103/103 limpo, numa corrida única sem retries** (corrida 3), rootful+CNI.
-- `rshared` (ADR-0093) conforme e **atrás de privilégio**: verde em VM rootful,
-  recusado com razão em rootless.
-- O motor não tem gap de conformância remanescente; a oscilação 102↔103 é um
-  artefacto de atribuição assíncrona do ginkgo no spec de attach, provado por
-  passagem isolada.
+- **103/103 clean, in a single run with no retries** (run 3), rootful+CNI.
+- `rshared` (ADR-0093) conformant and **behind privilege**: green on a rootful VM,
+  refused with a reason in rootless.
+- The engine has no remaining conformance gap; the 102↔103 oscillation is an
+  artefact of ginkgo's asynchronous attribution in the attach spec, proven by
+  isolated passage.

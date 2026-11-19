@@ -165,7 +165,7 @@ untrusted network as-is.
 | Monitoring — Zabbix | `Admin` | `delonix-admin` | `http://<ip>/` |
 | Monitoring — Grafana | `admin` | `delonix-admin` | `http://<ip>:3000/` |
 | GLPI | `glpi` | `delonix-admin` | `http://<ip>/` (the vendor's `tech`, `normal` and `post-only` sample accounts are switched off) |
-| Wazuh | `admin` (indexer/dashboard), `wazuh` (API) | **gerada no 1.º arranque** — em `/root/wazuh-passwords.txt` | `https://<ip>/` |
+| Wazuh | `admin` (indexer/dashboard), `wazuh` (API) | **generated on first boot** — in `/root/wazuh-passwords.txt` | `https://<ip>/` |
 | FreePBX 17 | `admin` | **given at creation or generated on first boot** — in `/root/freepbx-admin.txt` (0600); the AMI secret is regenerated too | `http://<ip>/admin/` |
 
 The monitoring image does not ship the vendor's own default (Zabbix's is
@@ -186,7 +186,7 @@ broken image. It is also why `verify-boot.sh` leaves it out.
 **TrueNAS was proved on :80, but `kind: Volume` provisioning talks to :443.**
 The appliance's factory certificate is not verifiable from anywhere else, so
 that path needs `insecureTLS: true` — or a certificate you install yourself.
-See `examples/storage/volume.yaml` (cenário provision).
+See `examples/storage/volume.yaml` (the provision scenario).
 
 The Proxmox and TrueNAS passwords are set by the answer file / RPC call, so
 changing them for your own builds is an edit to `answer-*.toml` or the
@@ -582,45 +582,44 @@ image still carried the build VM's hostname.
 second machine reporting to this GLPI, and upgrades from a database created by
 another GLPI version.
 
-## Wazuh 4.14.7 — SIEM/XDR, também não é uma appliance
+## Wazuh 4.14.7 — SIEM/XDR, also not an appliance
 
-`build-wazuh.sh` → `verify-wazuh.sh`. Manager, indexer, dashboard e filebeat
-numa só VM, todos em 4.14.7-1 (filebeat 7.10.2-2), fixados e em *hold*. A chave
-de assinatura do repositório tem de bater com a impressão digital documentada, e
-cada artefacto auxiliar do fabricante é verificado por sha256.
+`build-wazuh.sh` → `verify-wazuh.sh`. Manager, indexer, dashboard and filebeat
+on a single VM, all at 4.14.7-1 (filebeat 7.10.2-2), pinned and on *hold*. The
+repository's signing key must match the documented fingerprint, and each of the
+vendor's auxiliary artefacts is verified by sha256.
 
-**Esta imagem não leva nenhum segredo, e é a diferença que importa.** O
-instalador do Wazuh cria uma CA privada e logins por omissão; uma imagem que os
-trouxesse daria a todos os clones a mesma CA e a mesma password de admin — num
-produto de segurança, o pior default possível. O `wazuh-first-boot` (uma unit
-`oneshot`) gera na própria VM, no primeiro arranque: a CA e os certificados, o
-par TLS do `authd`, as passwords (ferramenta do fabricante; ficam em
-`/root/wazuh-passwords.txt`, modo 600) e a password de registo de agentes
-(`/root/wazuh-agent-enrolment-password`). Demora alguns minutos.
+**This image carries no secret, and that is the difference that matters.** The
+Wazuh installer creates a private CA and default logins; an image that brought
+them along would give every clone the same CA and the same admin password — in a
+security product, the worst possible default. `wazuh-first-boot` (a `oneshot`
+unit) generates, on the VM itself, at first boot: the CA and the certificates,
+the `authd` TLS pair, the passwords (the vendor's tool; they land in
+`/root/wazuh-passwords.txt`, mode 600) and the agent-enrolment password
+(`/root/wazuh-agent-enrolment-password`). It takes a few minutes.
 
-| Porta | Serviço | Exposição |
+| Port | Service | Exposure |
 |---|---|---|
-| 443 | dashboard | rede |
-| 1514 | eventos dos agentes | rede |
-| 1515 | registo de agentes (com password) | rede |
-| 55000 | API do manager | rede |
-| 9200 | indexer | **só loopback** |
+| 443 | dashboard | network |
+| 1514 | agent events | network |
+| 1515 | agent enrolment (with a password) | network |
+| 55000 | manager API | network |
+| 9200 | indexer | **loopback only** |
 
-Requisitos: 4 vCPU e 8 GiB (o *heap* do indexer está fixado a 2 GiB).
+Requirements: 4 vCPU and 8 GiB (the indexer's *heap* is pinned to 2 GiB).
 
-`verify-wazuh.sh` (23 checks) prova, contra o disco ANTES de arrancar, que a
-imagem não traz certificados, passwords nem `authd.pass`; e, depois do primeiro
-arranque, que os quatro serviços estão activos, que o indexer só escuta em
-loopback, que `admin/admin` e `wazuh/wazuh` são recusados e as passwords geradas
-aceites, que o registo de um agente com password errada é recusado, e — o ponto
-de um SIEM — que um evento de autenticação falhada vira um alerta no indexer.
-Apanhou três defeitos da primeira versão: a ferramenta de passwords só aceita
-`-au/-ap` com `-A` (senão imprime o help e o 1.º arranque falha), o manager não
-arranca sem o par TLS do `authd`, e um check de loopback que não reconhecia
-`[::ffff:127.0.0.1]`.
+`verify-wazuh.sh` (23 checks) proves, against the disk BEFORE boot, that the
+image carries no certificates, passwords or `authd.pass`; and, after first boot,
+that the four services are active, that the indexer listens only on loopback,
+that `admin/admin` and `wazuh/wazuh` are refused and the generated passwords
+accepted, that enrolling an agent with the wrong password is refused, and — the
+point of a SIEM — that a failed-authentication event becomes an alert in the
+indexer. It caught three defects in the first version: the password tool only
+accepts `-au/-ap` together with `-A` (otherwise it prints the help and the first
+boot fails), the manager does not start without the `authd` TLS pair, and a
+loopback check that did not recognise `[::ffff:127.0.0.1]`.
 
-**Não provado:** um agente real a registar-se e a reportar, a interface no
-browser, os feeds de vulnerabilidades (precisam de internet) e o modo cluster.
-Os certificados são emitidos para `127.0.0.1`: para agentes noutras máquinas
-verificarem o dashboard ou o manager pelo nome, é preciso regenerá-los com o
-endereço real.
+**Not proven:** a real agent enrolling and reporting, the browser interface, the
+vulnerability feeds (they need the internet) and cluster mode. The certificates
+are issued for `127.0.0.1`: for agents on other machines to verify the dashboard
+or the manager by name, they must be regenerated with the real address.

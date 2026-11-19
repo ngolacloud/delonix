@@ -1,30 +1,30 @@
-# Relatório de documentação — Delonix Runtime (`cebf895`)
+# Documentation report — Delonix Runtime (`cebf895`)
 
-## Cobertura medida (§81)
+## Measured coverage (§81)
 
-Só itens `pub` fora de módulos de teste. «Documentado» = `///` imediatamente
-acima (saltando atributos e linhas vazias).
+Only `pub` items outside test modules. "Documented" = `///` immediately
+above (skipping attributes and blank lines).
 
-| Tipo | Total | Documentados | Cobertura |
+| Type | Total | Documented | Coverage |
 |---|---|---|---|
-| `trait` | 2 | 2 | **100,0 %** |
-| `struct` | 161 | 141 | **87,6 %** |
-| `fn` | 848 | 722 | **85,1 %** |
-| `enum` | 68 | 40 | **58,8 %** |
-| `mod` | 111 | 1 | 0,9 % |
+| `trait` | 2 | 2 | **100.0 %** |
+| `struct` | 161 | 141 | **87.6 %** |
+| `fn` | 848 | 722 | **85.1 %** |
+| `enum` | 68 | 40 | **58.8 %** |
+| `mod` | 111 | 1 | 0.9 % |
 
-Crate-level `//!` (§68): **13 de 13** crates com `lib.rs` têm documentação de
-crate nas primeiras 3 linhas.
+Crate-level `//!` (§68): **13 of 13** crates with a `lib.rs` have crate
+documentation in the first 3 lines.
 
-## DOC-0001 — ~~Enums a 58,8 % é o buraco real~~ — **RETIRADO** (era MEDIUM)
+## DOC-0001 — ~~Enums at 58.8 % is the real gap~~ — **WITHDRAWN** (was MEDIUM)
 
-**Corrigido a 2026-08-29, ao executar o item.** O número estava certo e a
-leitura estava errada.
+**Fixed on 2026-08-29, while executing the item.** The number was right and the
+reading was wrong.
 
-Dos 28 enums públicos sem doc, **27 são enums `*Cmd` do clap** — `NamespaceCmd`,
-`VmCmd`, `StackCmd`, `SchemaCmd`, … — e **um** é de domínio (`Decision`, em
-`crates/delonix-runtime-bin/src/cmd/backup.rs`). Os `*Cmd` têm **todas as
-variantes documentadas**, porque cada `///` é o texto que sai no `--help`:
+Of the 28 public enums without docs, **27 are clap `*Cmd` enums** — `NamespaceCmd`,
+`VmCmd`, `StackCmd`, `SchemaCmd`, … — and **one** is a domain enum (`Decision`, in
+`crates/delonix-runtime-bin/src/cmd/backup.rs`). The `*Cmd` enums have **every
+variant documented**, because each `///` is the text that shows up in `--help`:
 
 ```rust
 #[derive(Subcommand)]
@@ -36,57 +36,57 @@ pub enum NamespaceCmd {
 }
 ```
 
-Um `///` no enum por cima disto não acrescenta nada a ninguém: é exactamente a
-caça à percentagem que o DOC-0002, duas secções abaixo, diz para não fazer.
-As duas secções foram escritas no mesmo passe e contradiziam-se.
+A `///` on the enum above this adds nothing for anyone: it is exactly the
+percentage-chasing that DOC-0002, two sections down, says not to do.
+The two sections were written in the same pass and contradicted each other.
 
-A frase «um enum público é o sítio onde se declara o significado semântico de um
-estado do domínio» é verdadeira em geral e **falsa para esta amostra**: a
-cobertura de 58,8 % é dominada por encanamento de CLI.
+The sentence "a public enum is where you declare the semantic meaning of a
+domain state" is true in general and **false for this sample**: the 58.8 %
+coverage is dominated by CLI plumbing.
 
-**O que fica:** documentar o `Decision` — o único enum de domínio da lista.
-Fica também a lição de método: uma cobertura por categoria não diz o que a
-categoria CONTÉM, e neste repo `enum` quer dizer «subcomando» 27 vezes em 28.
+**What remains:** document `Decision` — the only domain enum in the list.
+The method lesson also remains: coverage by category does not say what the
+category CONTAINS, and in this repo `enum` means "subcommand" 27 times out of 28.
 
-## DOC-0002 — 110 `pub mod` sem doc — INFO, não corrigir por corrigir
+## DOC-0002 — 110 `pub mod` without docs — INFO, do not fix for the sake of it
 
-67 dos 110 estão em `crates/delonix-runtime-bin/src/cmd/mod.rs` e são linhas
-`pub mod x;` de declaração. Pôr `/// Módulo de X.` em cima de cada uma sobe a
-percentagem e não acrescenta nada — é exactamente o que §81 avisa («do not
-optimize purely for percentage»). Recomendação: **ignorar esta linha do
-placar**; documentar um módulo só quando o nome não chegar.
+67 of the 110 are in `crates/delonix-runtime-bin/src/cmd/mod.rs` and are
+`pub mod x;` declaration lines. Putting `/// Module for X.` above each one raises
+the percentage and adds nothing — it is exactly what §81 warns against ("do not
+optimize purely for percentage"). Recommendation: **ignore this scoreboard
+line**; document a module only when the name is not enough.
 
-Se se quiser um número honesto, a cobertura de itens que interessam
-(struct+enum+trait+fn) é **1 079 de 1 079 analisados → 905 documentados = 83,9 %**.
+If an honest number is wanted, the coverage of items that matter
+(struct+enum+trait+fn) is **1,079 of 1,079 analysed → 905 documented = 83.9 %**.
 
-## DOC-0003 — 58 blocos `unsafe` sem comentário SAFETY — MEDIUM (§17)
+## DOC-0003 — 58 `unsafe` blocks without a SAFETY comment — MEDIUM (§17)
 
-Método: `unsafe {` sem a palavra `SAFETY` nas 6 linhas anteriores.
+Method: `unsafe {` without the word `SAFETY` in the 6 preceding lines.
 
-Concentrados em `delonix-cri/src/spdy.rs`, `delonix-cri/src/streaming.rs` e
-`delonix-runtime-bin/src/cmd/container.rs`, e quase todos são FFI de uma linha:
+Concentrated in `delonix-cri/src/spdy.rs`, `delonix-cri/src/streaming.rs` and
+`delonix-runtime-bin/src/cmd/container.rs`, and almost all are one-line FFI:
 
 ```rust
 unsafe { libc::close(slave) };
 unsafe { libc::kill(pid as i32, libc::SIGKILL) };
 ```
 
-Julgamento: §17 diz «todo o bloco `unsafe` **não trivial**». `libc::close(fd)`
-é trivial e não merece seis linhas de justificação. Mas `libc::kill(pid, …)`
-**não é trivial** — depende do invariante de que o PID ainda é do processo que
-se julga estar a matar (senão mata-se um PID reciclado), e esse invariante não
-está escrito em lado nenhum.
+Judgement: §17 says "every **non-trivial** `unsafe` block". `libc::close(fd)`
+is trivial and does not deserve six lines of justification. But `libc::kill(pid, …)`
+**is not trivial** — it depends on the invariant that the PID still belongs to the
+process you believe you are killing (otherwise you kill a recycled PID), and that
+invariant is written down nowhere.
 
-Recomendação afinada: exigir SAFETY nos `kill`/`read`/`write` sobre fds e PIDs
-capturados; deixar os `close` de fd local em paz. Nota positiva: onde o repo
-escreve SAFETY, escreve-o bem — `delonix-runtime/src/lib.rs:2590` documenta o
-handshake do pipe de userns em três linhas claras.
+Refined recommendation: require SAFETY on `kill`/`read`/`write` over captured fds
+and PIDs; leave the local-fd `close` calls alone. Positive note: where the repo
+writes SAFETY, it writes it well — `delonix-runtime/src/lib.rs:2590` documents the
+userns pipe handshake in three clear lines.
 
-## DOC-0004 — Qualidade dos comentários — **PASSA, e acima da média** (§12)
+## DOC-0004 — Comment quality — **PASSES, and above average** (§12)
 
-Amostragem em `delonix-vm/src/lib.rs`, `delonix-net/src/infra.rs` e
-`delonix-runtime/src/lib.rs`: os comentários explicam **porquê**, com o custo
-medido ao lado, que é o que §12 pede e quase nunca se vê.
+Sampled in `delonix-vm/src/lib.rs`, `delonix-net/src/infra.rs` and
+`delonix-runtime/src/lib.rs`: the comments explain **why**, with the measured
+cost alongside, which is what §12 asks for and is rarely seen.
 
 ```rust
 // Measured, and it cost hours: every Proxmox appliance image (the vendor's
@@ -97,16 +97,17 @@ medido ao lado, que é o que §12 pede e quase nunca se vê.
 /// 2 GiB on libvirt and Cloud Hypervisor and 1 GiB on Proxmox, silently. Same
 ```
 
-Zero comentários a repetir sintaxe encontrados na amostra.
+Zero comments that merely repeat syntax found in the sample.
 
-## DOC-0005 — 3 453 comentários em português — LOW (§13)
+## DOC-0005 — 3,453 comments in Portuguese — LOW (§13)
 
-Contra §13 («all technical comments must be written in English»), é a maior
-dívida por volume do repositório inteiro. Contra o valor prático: são
-comentários **bons** — explicam porquê, com evidência — apenas na língua errada.
+Against §13 ("all technical comments must be written in English"), it is the
+largest debt by volume in the entire repository. Against practical value: they
+are **good** comments — they explain why, with evidence — just in the wrong
+language.
 
-O risco real não é estilístico: é que um agente de código que trabalhe em inglês
-lê 3 453 explicações de invariantes numa língua que pode não pesar bem, e o
-`AGENTS.md` não o avisa disso. Recomendação de custo baixo: uma linha no
-`AGENTS.md` a dizer que comentários históricos estão em PT e que **os novos se
-escrevem em inglês** — que é o que o ratchet já impõe na prática.
+The real risk is not stylistic: it is that a code agent working in English
+reads 3,453 invariant explanations in a language it may not weigh well, and
+`AGENTS.md` does not warn it of this. Low-cost recommendation: one line in
+`AGENTS.md` saying that historical comments are in PT and that **new ones are
+written in English** — which is what the ratchet already enforces in practice.

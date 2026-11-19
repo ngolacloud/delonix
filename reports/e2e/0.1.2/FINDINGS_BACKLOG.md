@@ -1,98 +1,98 @@
 # FINDINGS_BACKLOG.md — 0.1.2 (@b72edeed)
 
-Achados **novos** desta ronda de regressão do CLI. Numeração continua a de 0.1.1
-(último GAP-0027). Reproduzidos ao vivo, host rootless, 2026-11-18. Doutrina: só o
-efeito verificado conta. **0 regressões de binário**; o que segue é 1 GAP de
-consistência, 1 achado de robustez do arnês, e dívida de staleness da bateria.
+**New** findings from this CLI regression round. Numbering continues from 0.1.1
+(last GAP-0027). Reproduced live, rootless host, 2026-11-18. Doctrine: only the
+verified effect counts. **0 binary regressions**; what follows is 1 consistency
+GAP, 1 harness robustness finding, and battery staleness debt.
 
 ---
 
-## GAP-0028 — VM com o mesmo nome noutra namespace: coexiste (não conflito)
+## GAP-0028 — VM with the same name in another namespace: coexists (not a conflict)
 
-> **RESOLVIDO 2026-11-18 (`119221e7`) — reclassificado como staleness da bateria.**
-> Investigação a fundo: o motor indexa o registo de VM por namespace
-> (`vms_root` → `vms/<ns>/<nome>.json`, port do catálogo ADR-0086) e expõe `vm
-> move-namespace` (#982/#999) — **VMs são objectos namespaced por desenho actual**.
-> Provado ao vivo: `apply` em teamA e teamB ambos `ensured`, registos distintos
-> `vms/teamA/nsvm.json` + `vms/teamB/nsvm.json`, cada ns vê a sua. O conflito(5)
-> era a regra ANTIGA (ADR-0069, registo node-único `vms/<nome>.json`), superseded
-> quando as VMs passaram a namespaced; o teste e2e é que ficou para trás. Fix: a
-> secção passa a asserir a coexistência namespaced (não conflito). **Pendente ao
-> dono:** reconciliar a cláusula de VM do ADR-0069 (drift de doc).
+> **RESOLVED 2026-11-18 (`119221e7`) — reclassified as battery staleness.**
+> In-depth investigation: the engine indexes the VM registry by namespace
+> (`vms_root` → `vms/<ns>/<nome>.json`, port of the ADR-0086 catalogue) and exposes `vm
+> move-namespace` (#982/#999) — **VMs are namespaced objects by current design**.
+> Proven live: `apply` in teamA and teamB both `ensured`, distinct registries
+> `vms/teamA/nsvm.json` + `vms/teamB/nsvm.json`, each ns seeing its own. The conflict(5)
+> was the OLD rule (ADR-0069, single-node registry `vms/<nome>.json`), superseded
+> when VMs became namespaced; it is the e2e test that lagged behind. Fix: the
+> section now asserts namespaced coexistence (not conflict). **Pending on the
+> owner:** reconcile the VM clause of ADR-0069 (doc drift).
 
-- **Comportamento (OBSOLETO — registo histórico do achado):** `stack apply` de uma `VirtualMachine` com o mesmo
-  nome noutra namespace **é aceite** (`rc=0`, `vm/<nome>: ensured`), em vez de
-  recusado como conflito.
-- **Esperado:** paridade com o fix #824 (`3de5db5c`, "nome de container repetido
-  noutra namespace é conflito, não 'já existe'") — que a 0.1.2 aplicou a
-  **containers** mas **não** a `VirtualMachine`. A bateria `e2e.sh` já espera
-  `exit 5` ("o mesmo nome noutra namespace é um conflito (5)") e observa `rc=0`.
-- **Porquê importa:** inconsistência de modelo entre container e VM no mesmo
-  motor; dois objectos VM com o mesmo nome em namespaces diferentes podem colidir
-  em recursos nomeados por nome nu (cf. `boot.rs:398/:415`, nomes por prefixo sem
-  tenant — ligado a D2 do PLATFORM_EVAL 0.1.1).
-- **Reprodução:** `stack apply` do mesmo `VirtualMachine` em `teamA` e depois
-  `teamB` → o segundo é `ensured`, não recusado.
-- **Aceitação:** aplicar a mesma normalização/verificação de conflito de nome
-  cross-namespace a VMs; `e2e.sh` "o mesmo nome noutra namespace é um conflito"
-  passa a PASS. Teste em `delonix-compute`/`stack`.
-- **Dependências:** reusa o caminho do #824. **Complexidade:** S. **Tier:** B (rootless).
-
----
-
-## H-1 (achado de arnês) — `e2e.sh`/VM sensível ao comprimento de `DELONIX_ROOT`
-
-> **RESOLVIDO 2026-11-18 (`119221e7`).** `ch_usable()` passa a exigir `ch_sockfits`
-> (orçamento `len(DELONIX_ROOT)+50 <= 107`); quando o root é fundo demais, as 11
-> secções CH viram **SKIP** com razão em `ch_missing` em vez de 6+ FAIL espúrios.
-> Provado: root curto (21B) corre, root longo (121B) SKIP. O binário já guardava
-> (`SUN_PATH_MAX=107`); isto fecha só a armadilha de medição no arnês.
-
-- **Observado:** com `DELONIX_ROOT` longo (caminho-scratch da sessão), **toda** a
-  secção de cloud-hypervisor da bateria falha com `error[DX-1506] … socket path …
-  is 143 bytes, a UNIX socket path is limited to 107 bytes` — 6 FAILs espúrios na
-  1ª corrida. O binário **diagnostica correctamente**; o problema é do arnês, que
-  não acautela o limite AF_UNIX de 107 bytes ao escolher o root de isolamento.
-- **Esperado:** o caminho do socket do VMM (`<DELONIX_ROOT>/vms/<nome>.sock`)
-  devia ser robusto a roots longos (hash/encurtamento do nome, ou socket num
-  `XDG_RUNTIME_DIR` curto), **ou** a bateria devia recusar/avisar quando o root
-  escolhido mais o nome de VM mais longo excede 107 bytes — em vez de produzir
-  FAILs que se lêem como regressão.
-- **Impacto:** armadilha de medição — contaminou a 1ª corrida; qualquer runner de
-  CI/lab com um root profundo (p. ex. caminhos de workspace de agente) herda-a.
-- **Reprodução:** `DELONIX_ROOT=<caminho longo> delonix vm create x --backend
-  cloud-hypervisor --disk d.qcow2` → DX-1506; com root curto → `✓ VM started`.
-- **Aceitação:** o VMM socket sobrevive a `DELONIX_ROOT` longo (ou a bateria
-  encurta/avisa). Documentado na skill E2E (preflight). **Tier:** B.
+- **Behaviour (OBSOLETE — historical record of the finding):** `stack apply` of a `VirtualMachine` with the same
+  name in another namespace **is accepted** (`rc=0`, `vm/<nome>: ensured`), instead of
+  being refused as a conflict.
+- **Expected:** parity with fix #824 (`3de5db5c`, "a repeated container name
+  in another namespace is a conflict, not 'already exists'") — which 0.1.2 applied to
+  **containers** but **not** to `VirtualMachine`. The `e2e.sh` battery already expects
+  `exit 5` ("the same name in another namespace is a conflict (5)") and observes `rc=0`.
+- **Why it matters:** model inconsistency between container and VM in the same
+  engine; two VM objects with the same name in different namespaces can collide
+  on resources named by bare name (cf. `boot.rs:398/:415`, names by prefix without
+  tenant — linked to D2 of PLATFORM_EVAL 0.1.1).
+- **Reproduction:** `stack apply` of the same `VirtualMachine` in `teamA` and then
+  `teamB` → the second is `ensured`, not refused.
+- **Acceptance:** apply the same cross-namespace name-conflict
+  normalisation/check to VMs; the `e2e.sh` "the same name in another namespace is a conflict"
+  becomes PASS. Test in `delonix-compute`/`stack`.
+- **Dependencies:** reuses the #824 path. **Complexity:** S. **Tier:** B (rootless).
 
 ---
 
-## Dívida de staleness da bateria `e2e.sh` (binário correcto, asserção envelhecida)
+## H-1 (harness finding) — `e2e.sh`/VM sensitive to the length of `DELONIX_ROOT`
 
-Não são defeitos do motor — a bateria é que carrega expectativas anteriores à
-0.1.2. Cada uma chumba a bateria sem um achado por trás; devem reconciliar-se
-para o gate voltar a verde num lab apropriado.
+> **RESOLVED 2026-11-18 (`119221e7`).** `ch_usable()` now requires `ch_sockfits`
+> (budget `len(DELONIX_ROOT)+50 <= 107`); when the root is too deep, the 11
+> CH sections turn to **SKIP** with a reason in `ch_missing` instead of 6+ spurious FAILs.
+> Proven: short root (21B) runs, long root (121B) SKIP. The binary already guarded
+> (`SUN_PATH_MAX=107`); this only closes the measurement trap in the harness.
 
-| Check da bateria | Observado (0.1.2) | Expectativa stale | Acção |
+- **Observed:** with a long `DELONIX_ROOT` (the session's scratch path), **the whole**
+  cloud-hypervisor section of the battery fails with `error[DX-1506] … socket path …
+  is 143 bytes, a UNIX socket path is limited to 107 bytes` — 6 spurious FAILs on the
+  1st run. The binary **diagnoses correctly**; the problem is the harness, which
+  does not guard against the AF_UNIX limit of 107 bytes when choosing the isolation root.
+- **Expected:** the VMM socket path (`<DELONIX_ROOT>/vms/<nome>.sock`)
+  should be robust to long roots (hash/shorten the name, or socket under a short
+  `XDG_RUNTIME_DIR`), **or** the battery should refuse/warn when the chosen root
+  plus the longest VM name exceeds 107 bytes — instead of producing
+  FAILs that read as a regression.
+- **Impact:** measurement trap — it contaminated the 1st run; any CI/lab runner
+  with a deep root (e.g. agent workspace paths) inherits it.
+- **Reproduction:** `DELONIX_ROOT=<long path> delonix vm create x --backend
+  cloud-hypervisor --disk d.qcow2` → DX-1506; with a short root → `✓ VM started`.
+- **Acceptance:** the VMM socket survives a long `DELONIX_ROOT` (or the battery
+  shortens/warns). Documented in the E2E skill (preflight). **Tier:** B.
+
+---
+
+## Staleness debt of the `e2e.sh` battery (correct binary, aged assertion)
+
+These are not engine defects — the battery is the one carrying expectations from before
+0.1.2. Each one fails the battery with no finding behind it; they should be reconciled
+so the gate goes green again in an appropriate lab.
+
+| Battery check | Observed (0.1.2) | Stale expectation | Action |
 |---|---|---|---|
-| `vm resize --disk-size 0 recusa (1)` / `CH: --disk-size 0 recusa (1)` | clap recusa a `rc=2` com mensagem útil | `rc=1` (recusa de domínio) | actualizar expectativa p/ `2` (recusa no parser é correcta) |
-| `delete de um NetworkGateway recusado termina` / `… apaga-se sem provider` | `DX-4000 no such kind 'networkgateways'` (`rc=4`) | kind existente | o catálogo 0.1.2 tem `Gateway` + `Router.networkGateways` (campo); o teste usa um kind inexistente — corrigir o kind ou remover/xfail |
-| `métricas: GET /metrics devolve OpenMetrics…` | `# TYPE delonix_build info` + `delonix_build_info{version="0.1.2"} 1` (OpenMetrics `info`) | grep por `^# TYPE delonix_build_info ` | ajustar o grep à linha `# TYPE delonix_build info` (tipo `info` é mais correcto; liga ao fix de telemetria 0.1.2) |
-| `cluster kube generate: … is 4` | `DX-1000` (`rc=1`) p/ "no such pod or container" | `rc=4` (not-found) | decidir: mapear not-found→`4`, ou corrigir a expectativa p/ `1` |
-| `cluster network profiles: a row per profile` | "no support level is reported" | linha por perfil | reconciliar formato de saída |
-| `system monitor --no-stream: … counting the running containers` | `1 containers, — active connections (conntrack)` | "1 containers" exacto | grep tolera o sufixo de conntrack (`—` em rootless, medido-não-disponível) |
+| `vm resize --disk-size 0 recusa (1)` / `CH: --disk-size 0 recusa (1)` | clap refuses with `rc=2` with a useful message | `rc=1` (domain refusal) | update expectation to `2` (refusal in the parser is correct) |
+| `delete de um NetworkGateway recusado termina` / `… apaga-se sem provider` | `DX-4000 no such kind 'networkgateways'` (`rc=4`) | existing kind | the 0.1.2 catalogue has `Gateway` + `Router.networkGateways` (field); the test uses a non-existent kind — fix the kind or remove/xfail |
+| `métricas: GET /metrics devolve OpenMetrics…` | `# TYPE delonix_build info` + `delonix_build_info{version="0.1.2"} 1` (OpenMetrics `info`) | grep for `^# TYPE delonix_build_info ` | adjust the grep to the line `# TYPE delonix_build info` (the `info` type is more correct; links to the 0.1.2 telemetry fix) |
+| `cluster kube generate: … is 4` | `DX-1000` (`rc=1`) for "no such pod or container" | `rc=4` (not-found) | decide: map not-found→`4`, or fix the expectation to `1` |
+| `cluster network profiles: a row per profile` | "no support level is reported" | a row per profile | reconcile the output format |
+| `system monitor --no-stream: … counting the running containers` | `1 containers, — active connections (conntrack)` | exact "1 containers" | grep tolerates the conntrack suffix (`—` under rootless, measured-not-available) |
 
-### Lacunas de ambiente (BLOCKED, não dívida) — precisam de VM rootful
-CRI default-caps, landlock+tmpfs, mounts privilegiados `/sys` (on-top/rshared),
-`net netns firewall/publish` (nft-no-netns), slirp-flaky, `vm --require` (probe
-de capacidade libvirt). Todas mediriam num lab rootful + CNI; o host é rootless
-sem sudo. → `evidence.jsonl` perfil `lab-ephemeral`.
+### Environment gaps (BLOCKED, not debt) — need a rootful VM
+CRI default-caps, landlock+tmpfs, privileged `/sys` mounts (on-top/rshared),
+`net netns firewall/publish` (nft-no-netns), slirp-flaky, `vm --require` (libvirt
+capability probe). All would measure in a rootful lab + CNI; the host is rootless
+without sudo. → `evidence.jsonl` `lab-ephemeral` profile.
 
 ---
 
-## Carregado da 0.1.1 (confirmado ainda aberto em `b72edeed`, parte já fechado em `9ec12592`)
-- **GAP-0019** (`vm ls` só `-A`) e **GAP-0027** (build-cache sem GC): observados
-  abertos nesta ronda; **o dono fechou-os** em `9ec12592`
-  (`fix/cli-ls-parity-and-buildcache-prune`) durante a campanha.
-- GAP-0018/0020..0026 e KRN/NAT: ver `reports/e2e/0.1.1/` — fora do âmbito desta
-  ronda de regressão (sem re-verificação dirigida).
+## Carried over from 0.1.1 (confirmed still open in `b72edeed`, partly already closed in `9ec12592`)
+- **GAP-0019** (`vm ls` only `-A`) and **GAP-0027** (build-cache without GC): observed
+  open in this round; **the owner closed them** in `9ec12592`
+  (`fix/cli-ls-parity-and-buildcache-prune`) during the campaign.
+- GAP-0018/0020..0026 and KRN/NAT: see `reports/e2e/0.1.1/` — out of scope for this
+  regression round (no targeted re-verification).

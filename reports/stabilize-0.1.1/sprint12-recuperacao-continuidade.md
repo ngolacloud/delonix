@@ -1,129 +1,129 @@
-# §12 — Recuperação e Continuidade — Delonix 0.1.0 (candidato v0.1.1)
+# §12 — Recovery and Continuity — Delonix 0.1.0 (candidate v0.1.1)
 
-- Binário: `target/release/delonix` 0.1.0, commit 8ab783dd7 (+39 commits), construído 2026-10-29.
-- Host: rootless, state root `~/.local/share/delonix`. Disco a 99% (11G livres) — nada construído.
-- Providers vivos: cloud-hypervisor v52, libvirt 10/QEMU 8.2.2, linux. proxmox/opnsense NotConfigured (fora de âmbito).
-- Recursos de teste criados com prefixo `s12-` e **todos removidos no fim** (confirmado: sem containers/volumes/records s12; 3 containers do dono intactos; `git status` limpo).
+- Binary: `target/release/delonix` 0.1.0, commit 8ab783dd7 (+39 commits), built 2026-10-29.
+- Host: rootless, state root `~/.local/share/delonix`. Disk at 99% (11G free) — nothing built.
+- Live providers: cloud-hypervisor v52, libvirt 10/QEMU 8.2.2, linux. proxmox/opnsense NotConfigured (out of scope).
+- Test resources created with prefix `s12-` and **all removed at the end** (confirmed: no s12 containers/volumes/records; the owner's 3 containers intact; `git status` clean).
 
-Classes usadas: **implementado** / **testado-a-passar** / **testado-a-falhar** / **mecanismo-existe-não-exercitado** / **ausente**.
+Classes used: **implemented** / **tested-passing** / **tested-failing** / **mechanism-exists-not-exercised** / **absent**.
 
 ---
 
-## Mecanismos encontrados no código (mapa)
+## Mechanisms found in the code (map)
 
-| Mecanismo | Localização | Nota |
+| Mechanism | Location | Note |
 |---|---|---|
-| Reconciliação de estado de container | `crates/adapters/delonix-linux/src/lib.rs:10991` `reconcile_status` | Running+pid morto→Crashed; Running+frozen→Paused; Paused+thawed→Running. Usa `safe_to_signal(pid, pid_starttime)` para fechar a janela de reuso de PID. Reconcilia em **memória**; só grava se o chamador gravar. |
-| Chamadores de reconcile | node-api (`containers.rs:138`, `container_ops.rs`), mgmt (`dashstats.rs`), cri, mcp | `records()`/`list_in` reconciliam na leitura mas **não persistem** (daemonless — ninguém vivo para gravar). |
-| Supervisor daemonless | o próprio `delonix run -d` fica vivo a vigiar o init | Ao morte do init, reap + **persiste** estado terminal em disco. |
-| Reconciliação de VM | `crates/contexts/delonix-compute/src/vm.rs:2049` `adopt_pid_starttime`, `status_reconciles_a_vm_whose_backend_stopped_it` | Adoção por pid+starttime; não exercitado ao vivo (evitei VMs pesadas). |
-| Escrita atómica durável | `crates/contexts/delonix-node/src/atomic.rs` `write_atomic_mode` | tmp único por escritor (`pid.seq`) → `sync_all` → `rename` → fsync do dir. Modo posto na criação (anti-TOCTOU). |
-| Store de records (O_EXCL) | `crates/adapters/delonix-state/src/store.rs:162,867` `create_new(true)` | Criação exclusiva para idempotência/replay. |
-| Idempotência de operações | `crates/interfaces/delonix-node-api/src/operations.rs:8` | `request_id`→`r-<id>` criado exclusivamente; pedido repetido devolve a resposta anterior. |
-| Publicação atómica de camada / cura de cache | `crates/adapters/delonix-oci/src/overlay.rs:298` `publish_layer_dir` + marcador `.extracted` (="ok") | Dir de camada parcial/envenenado (sem `.extracted`) é **substituído** por swap atómico; exemplo medido ao vivo (kindest/node preso em 3 entradas). Relação directa com F-1. |
-| Guard de versão entre binários | `crates/contexts/delonix-node/src/dispatch.rs` `check_version` (`DELONIX_DISPATCH_VERSION`) | Recusa um servidor (CRI/node-api/MCP) de outra release ao lado do `delonix`. |
-| Backup por-recurso | CLI `delonix backup create/inspect/restore/schedule/remove` | Archive tar.gz com record + DADOS dos volumes; campo `Format: 1`, `Written by: delonix 0.1.0`. |
-| Snapshot do nó inteiro | CLI `delonix system snapshot create/restore` | Registries, IPAM, secrets, PKI, log de eventos. Não exercitado. |
-| Persistência de arranque | CLI `delonix system boot enable/status/disable` | Unidades systemd user para containers voltarem após reboot. **Desactivado por omissão.** |
-| Forward-compat de records | `crates/contexts/delonix-compute/src/record.rs:483` `#[serde(default)]` | Migração aditiva por serde; **sem** versão de schema explícita nem gate de downgrade nos records. |
-| Detecção de corrupção | `cred_vault.rs` `CorruptMasterKey`; `sdn` `NetworkRecordCorrupted`; `vm_error.rs` `DiskCorrupted` (via `qemu-img check`) | Mecanismos existem; não corrompi estado vivo do dono. |
+| Container state reconciliation | `crates/adapters/delonix-linux/src/lib.rs:10991` `reconcile_status` | Running+pid dead→Crashed; Running+frozen→Paused; Paused+thawed→Running. Uses `safe_to_signal(pid, pid_starttime)` to close the PID-reuse window. Reconciles in **memory**; only persists if the caller persists. |
+| reconcile callers | node-api (`containers.rs:138`, `container_ops.rs`), mgmt (`dashstats.rs`), cri, mcp | `records()`/`list_in` reconcile on read but **do not persist** (daemonless — nobody alive to persist). |
+| Daemonless supervisor | `delonix run -d` itself stays alive watching the init | On init death, reaps + **persists** terminal state to disk. |
+| VM reconciliation | `crates/contexts/delonix-compute/src/vm.rs:2049` `adopt_pid_starttime`, `status_reconciles_a_vm_whose_backend_stopped_it` | Adoption by pid+starttime; not exercised live (I avoided heavy VMs). |
+| Durable atomic write | `crates/contexts/delonix-node/src/atomic.rs` `write_atomic_mode` | Unique tmp per writer (`pid.seq`) → `sync_all` → `rename` → dir fsync. Mode set at creation (anti-TOCTOU). |
+| Record store (O_EXCL) | `crates/adapters/delonix-state/src/store.rs:162,867` `create_new(true)` | Exclusive creation for idempotency/replay. |
+| Operation idempotency | `crates/interfaces/delonix-node-api/src/operations.rs:8` | `request_id`→`r-<id>` created exclusively; a repeated request returns the previous response. |
+| Atomic layer publish / cache healing | `crates/adapters/delonix-oci/src/overlay.rs:298` `publish_layer_dir` + `.extracted` marker (="ok") | A partial/poisoned layer dir (without `.extracted`) is **replaced** by atomic swap; measured live example (kindest/node stuck in 3 entries). Directly related to F-1. |
+| Cross-binary version guard | `crates/contexts/delonix-node/src/dispatch.rs` `check_version` (`DELONIX_DISPATCH_VERSION`) | Refuses a server (CRI/node-api/MCP) from another release alongside `delonix`. |
+| Per-resource backup | CLI `delonix backup create/inspect/restore/schedule/remove` | tar.gz archive with record + volume DATA; field `Format: 1`, `Written by: delonix 0.1.0`. |
+| Whole-node snapshot | CLI `delonix system snapshot create/restore` | Registries, IPAM, secrets, PKI, event log. Not exercised. |
+| Boot persistence | CLI `delonix system boot enable/status/disable` | systemd user units so containers come back after reboot. **Disabled by default.** |
+| Record forward-compat | `crates/contexts/delonix-compute/src/record.rs:483` `#[serde(default)]` | Additive migration via serde; **no** explicit schema version nor downgrade gate on records. |
+| Corruption detection | `cred_vault.rs` `CorruptMasterKey`; `sdn` `NetworkRecordCorrupted`; `vm_error.rs` `DiskCorrupted` (via `qemu-img check`) | Mechanisms exist; I did not corrupt the owner's live state. |
 
 ---
 
-## Tabela item → classe → evidência → veredicto
+## Item → class → evidence → verdict table
 
-### Item 1 — Morte do processo Delonix / do holder → reconcilia? duplica?
-**Classe: testado-a-passar.**
+### Item 1 — Death of the Delonix process / the holder → does it reconcile? duplicate?
+**Class: tested-passing.**
 
-- **1a — matar o init (SIGKILL):**
-  `delonix run -d --name s12-kill busybox:1.36 sh -c 'while true; do sleep 5; done'` → PID init 3369761, supervisor (`delonix run -d`) 3369760.
-  `kill -9 3369761` → supervisor **também saiu** e **persistiu em disco** `status=Crashed pid=None` (ficheiro `containers/<id>.json`). `delonix ps -a` mostra `Dead`. Sem processos busybox órfãos (`pgrep -af "while true"` vazio), sem leaf de cgroup `*72a65*`.
-- **1b — matar só o supervisor:**
-  `kill -9 <supervisor>` → init `sh` **sobrevive**, reparenta (ppid 2434), `ps` continua `Up`, record em disco `Running pid=<init>`. reconcile_status continua correcto.
-  Em seguida `kill -9 <init>` (sem supervisor) → `ps -a` mostra `Exited (unknown)`, disco `Crashed pid=None`; `delonix start s12-sup` recupera → `Up`, `restarts=1`, novo pid, disco `Running`.
+- **1a — kill the init (SIGKILL):**
+  `delonix run -d --name s12-kill busybox:1.36 sh -c 'while true; do sleep 5; done'` → init PID 3369761, supervisor (`delonix run -d`) 3369760.
+  `kill -9 3369761` → supervisor **also exited** and **persisted to disk** `status=Crashed pid=None` (file `containers/<id>.json`). `delonix ps -a` shows `Dead`. No orphan busybox processes (`pgrep -af "while true"` empty), no cgroup leaf `*72a65*`.
+- **1b — kill only the supervisor:**
+  `kill -9 <supervisor>` → init `sh` **survives**, reparents (ppid 2434), `ps` still `Up`, record on disk `Running pid=<init>`. reconcile_status remains correct.
+  Then `kill -9 <init>` (no supervisor) → `ps -a` shows `Exited (unknown)`, disk `Crashed pid=None`; `delonix start s12-sup` recovers → `Up`, `restarts=1`, new pid, disk `Running`.
 
-**Veredicto:** reconcilia em todos os casos; **sem duplicação**; recuperação por `start` funciona. Ressalva cosmética: o mesmo estado Crashed aparece como `Dead` (1a) e `Exited (unknown)` (1b). `crash_reason` vem `null` numa das mortes (conhecido — leaf some antes de ler).
+**Verdict:** reconciles in every case; **no duplication**; recovery via `start` works. Cosmetic caveat: the same Crashed state appears as `Dead` (1a) and `Exited (unknown)` (1b). `crash_reason` comes back `null` in one of the deaths (known — leaf disappears before it can be read).
 
-### Item 2 — Reinício do host
-**Classe: simulado (perda de supervisor) testado-a-passar + mecanismo-existe-não-exercitado (reboot real).**
+### Item 2 — Host restart
+**Class: simulated (loss of supervisor) tested-passing + mechanism-exists-not-exercised (real reboot).**
 
-- `delonix system boot status` → `mode: rootless (user units + linger)`, `dir: ~/.config/systemd/user`, **`(no boot units — run delonix system boot enable)`**. Ou seja: a persistência de arranque EXISTE mas está **desligada**; após reboot real os containers **não** voltam sem `boot enable`.
-- Reboot real **não executado** (instrução). A perda de supervisor (Item 1b) é o análogo exercitável: a carga sobrevive à perda do seu supervisor e a vista recupera por reconcile; `start` relança.
+- `delonix system boot status` → `mode: rootless (user units + linger)`, `dir: ~/.config/systemd/user`, **`(no boot units — run delonix system boot enable)`**. In other words: boot persistence EXISTS but is **off**; after a real reboot containers do **not** come back without `boot enable`.
+- Real reboot **not performed** (instruction). Loss of supervisor (Item 1b) is the exercisable analogue: the workload survives the loss of its supervisor and the view recovers via reconcile; `start` relaunches.
 
-**Veredicto:** mecanismo presente, **inactivo por omissão** (ver bloqueio P2-2). Reboot real por exercitar.
+**Verdict:** mechanism present, **inactive by default** (see block P2-2). Real reboot not yet exercised.
 
-### Item 3 — Resposta perdida / provider indisponível / credencial revogada (timeout ≠ falha remota)
-**Classe: testado-a-passar (parcial) + mecanismo-existe.**
+### Item 3 — Lost response / provider unavailable / revoked credential (timeout ≠ remote failure)
+**Class: tested-passing (partial) + mechanism-exists.**
 
-- Registry inalcançável: `delonix create --name s12-badimg does-not-exist-registry.invalid/nope:0` → `error[DX-9401] registry error: error sending request...` com hint. `delonix ps -a` **sem** registo órfão s12-badimg.
-- Timeout/resposta perdida ≠ falha remota: `operations.rs` — `request_id`→`r-<request_id>` criado exclusivamente (O_EXCL); o mesmo pedido reenviado devolve a resposta anterior em vez de re-executar. Mecanismo presente; exercitado indirectamente pelo caminho de replay de `delete`.
-- Credencial revogada / vault: `CorruptMasterKey` detectado quando o ficheiro de chave tem tamanho errado (`cred_vault.rs`). **Não** corrompi o vault vivo do dono.
-- proxmox/opnsense NotConfigured → fora de âmbito.
+- Unreachable registry: `delonix create --name s12-badimg does-not-exist-registry.invalid/nope:0` → `error[DX-9401] registry error: error sending request...` with hint. `delonix ps -a` **without** an orphan s12-badimg record.
+- Timeout/lost response ≠ remote failure: `operations.rs` — `request_id`→`r-<request_id>` created exclusively (O_EXCL); the same request resent returns the previous response instead of re-executing. Mechanism present; exercised indirectly through the `delete` replay path.
+- Revoked credential / vault: `CorruptMasterKey` detected when the key file has the wrong size (`cred_vault.rs`). I did **not** corrupt the owner's live vault.
+- proxmox/opnsense NotConfigured → out of scope.
 
-**Veredicto:** comportamento honesto na indisponibilidade; idempotência protege contra dupla-execução por resposta perdida. Revogação de credencial remota por exercitar (providers fora de âmbito).
+**Verdict:** honest behaviour on unavailability; idempotency protects against double-execution from a lost response. Remote credential revocation not yet exercised (providers out of scope).
 
-### Item 4 — Falha parcial de criação → estado órfão?
-**Classe: testado-a-passar.**
+### Item 4 — Partial creation failure → orphan state?
+**Class: tested-passing.**
 
-- Create com imagem inalcançável (acima) → falha limpa, **sem** record órfão.
-- `atomic.rs`: escrita por tmp único + fsync + rename + fsync do dir → um create interrompido a meio deixa um `.tmp`, **nunca** um record rasgado/corrompido.
-- Extracção de camada interrompida: `overlay.rs publish_layer_dir` + marcador `.extracted` ("ok") distingue extracção completa de parcial e **substitui** por swap atómico dirs parciais/envenenados.
+- Create with an unreachable image (above) → clean failure, **no** orphan record.
+- `atomic.rs`: write via unique tmp + fsync + rename + dir fsync → a create interrupted midway leaves a `.tmp`, **never** a torn/corrupted record.
+- Interrupted layer extraction: `overlay.rs publish_layer_dir` + `.extracted` marker ("ok") distinguishes complete from partial extraction and **replaces** partial/poisoned dirs via atomic swap.
 
-**Veredicto:** sem órfãos observados; desenho anti-corrupção/atómico presente e documentado (medido ao vivo no passado).
+**Verdict:** no orphans observed; anti-corruption/atomic design present and documented (measured live in the past).
 
-### Item 5 — Storage indisponível; concorrência; limpeza interrompida
-**Classe: MISTA — testado-a-passar (rm concorrente) / testado-a-FALHAR (create concorrente mesmo nome) / mecanismo-existe-não-exercitado (storage indisponível, prune interrompido).**
+### Item 5 — Storage unavailable; concurrency; interrupted cleanup
+**Class: MIXED — tested-passing (concurrent rm) / tested-FAILING (concurrent create same name) / mechanism-exists-not-exercised (storage unavailable, interrupted prune).**
 
-- **rm concorrente, mesmo recurso (a correr):** `delonix rm s12-sup & delonix rm s12-sup & wait` → **ambos** a mesma recusa `[DX-5101] conflict: container ... is running (use --force)`. Container intacto. Sem estado parcial.
-- **force-rm concorrente:** `rm -f & rm -f & wait` → um remove (`44289cc...`), o outro `[DX-4101] no such container`. Sem double-free, sem processos órfãos (`pgrep -af 44289cc` vazio).
-- **create concorrente mesmo nome (FALHA):** `delonix run -d --name s12-race ... & delonix run -d --name s12-race ... & wait` → **ambos** sucederam, criando DOIS containers `default/s12-race` (ids `dcf6617...` e `96fda7b...`, confirmado por `ps -a`). A resolução por nome ficou **permanentemente partida**: `delonix container describe s12-race` → `error[DX-1000] invalid argument: this name exists in several namespaces — qualify it as <namespace>/<name>: s12-race (default/s12-race, default/s12-race)` (texto enganador: é o MESMO namespace). Endereçável só por ID. Um 3.º `run` sequencial recusa correctamente (`DX-5000 ... already in use ... by container 96fda7bf41b7`), confirmando que a guarda é sequencial e a janela é a corrida (TOCTOU). O mecanismo atómico de reserva existe no código (ficheiros `<nome>.claim` com O_EXCL em `container-names/`, usados pelo caminho de stack/apply) mas o caminho `run --name` **não o usa**. Recuperável: `rm -f <id> <id>` limpou ambos (eventos `die exit=137` + `remove` por id).
-- **storage indisponível / prune interrompido:** não exercitado (exigiria injecção de falha no fs de estado / SIGINT cronometrado num prune). Mecanismo-existe-não-exercitado.
+- **Concurrent rm, same resource (running):** `delonix rm s12-sup & delonix rm s12-sup & wait` → **both** the same refusal `[DX-5101] conflict: container ... is running (use --force)`. Container intact. No partial state.
+- **Concurrent force-rm:** `rm -f & rm -f & wait` → one removes (`44289cc...`), the other `[DX-4101] no such container`. No double-free, no orphan processes (`pgrep -af 44289cc` empty).
+- **Concurrent create same name (FAILURE):** `delonix run -d --name s12-race ... & delonix run -d --name s12-race ... & wait` → **both** succeeded, creating TWO `default/s12-race` containers (ids `dcf6617...` and `96fda7b...`, confirmed by `ps -a`). Name resolution became **permanently broken**: `delonix container describe s12-race` → `error[DX-1000] invalid argument: this name exists in several namespaces — qualify it as <namespace>/<name>: s12-race (default/s12-race, default/s12-race)` (misleading text: it is the SAME namespace). Addressable only by ID. A 3rd sequential `run` refuses correctly (`DX-5000 ... already in use ... by container 96fda7bf41b7`), confirming the guard is sequential and the window is the race (TOCTOU). The atomic reservation mechanism exists in the code (`<name>.claim` files with O_EXCL in `container-names/`, used by the stack/apply path) but the `run --name` path **does not use it**. Recoverable: `rm -f <id> <id>` cleaned up both (events `die exit=137` + `remove` by id).
+- **Storage unavailable / interrupted prune:** not exercised (would require injecting a failure into the state fs / a timed SIGINT during a prune). Mechanism-exists-not-exercised.
 
-**Veredicto:** concorrência de remoção sólida; **concorrência de criação por nome tem corrida (P2)**; storage-down e prune-interrompido por exercitar.
+**Verdict:** removal concurrency solid; **name-based creation concurrency has a race (P2)**; storage-down and interrupted-prune not yet exercised.
 
-### Item 6 — Estado persistido: backup/restore, versão de schema, corrupção, downgrade
-**Classe: testado-a-passar (backup/restore) + mecanismo-existe (snapshot, corrupção) + LACUNA (versão de record/downgrade).**
+### Item 6 — Persisted state: backup/restore, schema version, corruption, downgrade
+**Class: tested-passing (backup/restore) + mechanism-exists (snapshot, corruption) + GAP (record version/downgrade).**
 
-- **Backup/restore por-recurso (round-trip PROVADO):**
-  `delonix volume create s12-vol`; `delonix run -d --name s12-bkp -v s12-vol:/data busybox ...` (escreve `/data/marker.txt=hello-s12`).
+- **Per-resource backup/restore (round-trip PROVEN):**
+  `delonix volume create s12-vol`; `delonix run -d --name s12-bkp -v s12-vol:/data busybox ...` (writes `/data/marker.txt=hello-s12`).
   `delonix backup create container s12-bkp --to <dir>` → archive `container-s12-bkp-...tar.gz (1.3 KiB)`, `volumes: s12-vol`.
   `delonix backup inspect` → `Kind: container`, `Format: 1`, `Written by: delonix 0.1.0`, `Volumes: s12-vol`.
-  Mutei: `exec s12-bkp sh -c 'echo CHANGED-AFTER-BACKUP > /data/marker.txt'`. `delonix backup restore <archive>` sem --force → **recusa**: `DX-1000 ... 's12-bkp' is running — stop it first, or pass --force`. Com `--force` → `volume s12-vol restored`, `container kept`, `started again`; `exec s12-bkp cat /data/marker.txt` → **`hello-s12`** (revertido).
-- **Snapshot do nó:** `delonix system snapshot create/restore` (registries, IPAM, secrets, PKI, eventos). Mecanismo-existe-não-exercitado.
-- **Versão de schema / downgrade:** backups carregam `Format: 1`. **Records de container NÃO têm versão explícita** — forward-compat aditiva por serde `#[serde(default)]`; downgrade tolerado (serde ignora campos desconhecidos) mas **sem gate/aviso de downgrade**. 
-- **Corrupção:** detecção presente — `CorruptMasterKey` (vault), `NetworkRecordCorrupted`, `DiskCorrupted` (qemu-img check). Não corrompido ao vivo.
-- **Rollback de binário ≠ rollback de estado (relação com F-1):**
-  - `dispatch.rs check_version` recusa misturar um servidor de outra release com o `delonix` instalado.
-  - F-1 (cache de camadas envenenada): neste binário a cura é o **marcador `.extracted` + swap atómico** de `publish_layer_dir` (a "época de formato" materializa-se como completo-vs-parcial), não um inteiro de época. Um binário que mude a semântica do formato fica protegido porque dirs antigos/parciais são **substituídos**, não servidos.
-  - **LACUNA**: não há carimbo de versão de estado nem política de downgrade nos records — recuar o BINÁRIO para um pré-0.1.0 sem campos é tolerado silenciosamente (perde semântica de campos novos), sem recusa nem aviso. Só os backups são versionados.
+  I mutated: `exec s12-bkp sh -c 'echo CHANGED-AFTER-BACKUP > /data/marker.txt'`. `delonix backup restore <archive>` without --force → **refuses**: `DX-1000 ... 's12-bkp' is running — stop it first, or pass --force`. With `--force` → `volume s12-vol restored`, `container kept`, `started again`; `exec s12-bkp cat /data/marker.txt` → **`hello-s12`** (reverted).
+- **Node snapshot:** `delonix system snapshot create/restore` (registries, IPAM, secrets, PKI, events). Mechanism-exists-not-exercised.
+- **Schema version / downgrade:** backups carry `Format: 1`. **Container records do NOT have an explicit version** — additive forward-compat via serde `#[serde(default)]`; downgrade tolerated (serde ignores unknown fields) but **without a downgrade gate/warning**.
+- **Corruption:** detection present — `CorruptMasterKey` (vault), `NetworkRecordCorrupted`, `DiskCorrupted` (qemu-img check). Not corrupted live.
+- **Binary rollback ≠ state rollback (relation to F-1):**
+  - `dispatch.rs check_version` refuses to mix a server from another release with the installed `delonix`.
+  - F-1 (poisoned layer cache): in this binary the healing is the **`.extracted` marker + atomic swap** of `publish_layer_dir` (the "format epoch" materializes as complete-vs-partial), not an epoch integer. A binary that changes the format semantics is protected because old/partial dirs are **replaced**, not served.
+  - **GAP**: there is no state version stamp nor downgrade policy on records — rolling the BINARY back to a pre-0.1.0 without fields is silently tolerated (loses new-field semantics), with no refusal nor warning. Only backups are versioned.
 
-**Veredicto:** backup/restore por-recurso sólido e provado; snapshot do nó e versão/downgrade de record são a fragilidade (ver P3).
-
----
-
-## Bloqueios
-
-- **P2-1 — Corrida de unicidade de nome em `run --name` concorrente (testado-a-falhar).** Dois creates concorrentes com o mesmo `namespace/name` ambos sucedem → dois containers homónimos; resolução por nome fica partida (`DX-1000`, texto enganador "several namespaces"), endereçável só por ID. Guarda sequencial (`DX-5000`) ok; falta a reserva atómica. Fix: usar no caminho `run/create` o mecanismo `.claim` O_EXCL que já existe (stack/apply). Recuperável por `rm <id>`. Severidade P2 (viola invariante de unicidade, degrada UX; não corrompe, não crasha).
-- **P2-2 — Persistência de arranque desligada por omissão (ressalva operacional).** `system boot status` = sem unidades; um reboot real **não** repõe os containers sem `system boot enable` prévio. Para um nó PaaS é um footgun. Fix: documentar/activar por omissão em perfil de nó.
-- **P3 — Sem versão de schema / gate de downgrade nos records de estado (observação).** Backups têm `Format:1`; records não têm carimbo nem política de downgrade. Rollback de binário sobre estado mais novo é silencioso. Recomendar carimbo de versão + recusa/aviso em downgrade.
-- **Cosmético** — o estado Crashed renderiza como `Dead` e como `Exited (unknown)` consoante o caminho; `crash_reason` por vezes `null`.
-
-**Nenhum P1 encontrado.**
+**Verdict:** per-resource backup/restore solid and proven; node snapshot and record version/downgrade are the fragility (see P3).
 
 ---
 
-## Por exercitar (honesto)
+## Blocks
 
-- Reboot real do host (instrução: não reiniciar). Só a perda de supervisor foi simulada.
-- Reconciliação de VM ao vivo (`adopt_pid_starttime`) — evitei VMs pesadas / disco a 99%.
-- Storage indisponível (ENOSPC / fs de estado read-only) — exigiria injecção de falha.
-- `rm`/`prune` interrompido a meio (SIGINT cronometrado).
-- `system snapshot create/restore` do nó inteiro — destrutivo/pesado, não corrido.
-- Corrupção real do vault / revogação de credencial de provider — destrutivo para o dono / providers fora de âmbito.
-- Restore de backup com `Format` incompatível — não forjei um `Format: 2`.
+- **P2-1 — Name-uniqueness race in concurrent `run --name` (tested-failing).** Two concurrent creates with the same `namespace/name` both succeed → two homonymous containers; name resolution breaks (`DX-1000`, misleading "several namespaces" text), addressable only by ID. Sequential guard (`DX-5000`) ok; the atomic reservation is missing. Fix: use the existing `.claim` O_EXCL mechanism (stack/apply) in the `run/create` path. Recoverable via `rm <id>`. Severity P2 (violates the uniqueness invariant, degrades UX; does not corrupt, does not crash).
+- **P2-2 — Boot persistence off by default (operational caveat).** `system boot status` = no units; a real reboot does **not** restore containers without a prior `system boot enable`. For a PaaS node this is a footgun. Fix: document/enable by default in the node profile.
+- **P3 — No schema version / downgrade gate on state records (observation).** Backups carry `Format:1`; records have neither a stamp nor a downgrade policy. Binary rollback over newer state is silent. Recommend a version stamp + refusal/warning on downgrade.
+- **Cosmetic** — the Crashed state renders as `Dead` and as `Exited (unknown)` depending on the path; `crash_reason` is sometimes `null`.
+
+**No P1 found.**
 
 ---
 
-## Veredicto §12: **PRONTO COM RESSALVAS**
+## Not yet exercised (honest)
 
-O núcleo de recuperação está sólido e **provado ao vivo**: reconcile de crash sem duplicação, recuperação por `start`, escrita atómica anti-corrupção, idempotência de operações, cura de cache de camadas por marcador+swap, e backup/restore por-recurso com round-trip de dados. Para fechar v0.1.1 em produção, resolver **P2-1** (corrida de nome) e decidir **P2-2** (persistência de arranque), e endereçar **P3** (versão/downgrade de estado). Sem P1.
+- Real host reboot (instruction: do not reboot). Only loss of supervisor was simulated.
+- Live VM reconciliation (`adopt_pid_starttime`) — I avoided heavy VMs / disk at 99%.
+- Storage unavailable (ENOSPC / read-only state fs) — would require fault injection.
+- `rm`/`prune` interrupted midway (timed SIGINT).
+- Whole-node `system snapshot create/restore` — destructive/heavy, not run.
+- Real vault corruption / provider credential revocation — destructive for the owner / providers out of scope.
+- Backup restore with an incompatible `Format` — I did not forge a `Format: 2`.
+
+---
+
+## §12 verdict: **READY WITH CAVEATS**
+
+The recovery core is solid and **proven live**: crash reconcile without duplication, recovery via `start`, anti-corruption atomic write, operation idempotency, layer-cache healing by marker+swap, and per-resource backup/restore with a data round-trip. To close v0.1.1 in production, resolve **P2-1** (name race) and decide **P2-2** (boot persistence), and address **P3** (state version/downgrade). No P1.

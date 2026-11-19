@@ -1,79 +1,79 @@
-# Relatório final — Campanha de testes reais dlxcamp-20261024
+# Final report — Real-test campaign dlxcamp-20261024
 
-Campanha de integração/fiabilidade que **precede** a avaliação de release. Não publicou nada.
+Integration/reliability campaign that **precedes** the release evaluation. It did not publish anything.
 
-## 1. Artefacto e estado exacto testados
-- Binário **compilado do próprio código** (não o instalado, que estava 45 commits atrás e sem verbos Docker na raiz).
-- Estado inicial `fix/stabilize-develop-after-merges` @ `257a0ee4` (working tree sujo, diff `c062d290`). O dono fez checkout para **`develop` @ `558e5f20`** a meio da campanha (operação concorrente — memória conhecida).
-- Binário final recompilado **limpo de develop `558e5f20`**: digest `350a6320e67cb0f80bb37e74fff4ebe24abd6976ff64afdabe16d9c77bc80d50`, `--version` = `delonix 5.1.1 · 558e5f201 (+258 commits) · built 2026-10-24`.
-- Delta do estado inicial para develop em código compilável = só `pt.po` (i18n) e `image.rs` dentro de `mod tests` (não entra no release) → **os resultados obtidos antes do checkout permanecem válidos** (runtime idêntico).
+## 1. Artefact and exact state tested
+- Binary **compiled from the code itself** (not the installed one, which was 45 commits behind and without Docker verbs at the root).
+- Initial state `fix/stabilize-develop-after-merges` @ `257a0ee4` (dirty working tree, diff `c062d290`). The owner checked out to **`develop` @ `558e5f20`** mid-campaign (concurrent operation — known memory).
+- Final binary recompiled **clean from develop `558e5f20`**: digest `350a6320e67cb0f80bb37e74fff4ebe24abd6976ff64afdabe16d9c77bc80d50`, `--version` = `delonix 5.1.1 · 558e5f201 (+258 commits) · built 2026-10-24`.
+- Delta from the initial state to develop in compilable code = only `pt.po` (i18n) and `image.rs` inside `mod tests` (does not enter the release) → **the results obtained before the checkout remain valid** (identical runtime).
 
-## 2. Ambientes e versões
+## 2. Environments and versions
 - Zorin OS 18.1 (Ubuntu noble), kernel 7.0.0-38-generic, x86_64, 20 vCPU, 62 GiB RAM.
-- Rootless (uid 1000); cgroup2 **delegado: cpu/memory/pids** (não cpuset/io).
-- Ferramentas: docker, podman, buildah, kind v-node 1.34.0, kubectl, kubeadm, virsh/qemu, cloud-hypervisor, mkcert, cloudflared, ngrok.
-- Imagens VM: `delonix-vm-base:ubuntu-24.04`, `k8s-golden`, appliance proxmox.
-- **Disco: bloqueio inicial de 5 GB resolvido** com `cargo clean` reversível do delonix-paas (+35 GB) após autorização; 27 GB no fim.
+- Rootless (uid 1000); cgroup2 **delegated: cpu/memory/pids** (not cpuset/io).
+- Tools: docker, podman, buildah, kind v-node 1.34.0, kubectl, kubeadm, virsh/qemu, cloud-hypervisor, mkcert, cloudflared, ngrok.
+- VM images: `delonix-vm-base:ubuntu-24.04`, `k8s-golden`, proxmox appliance.
+- **Disk: initial 5 GB blocker resolved** with a reversible `cargo clean` of delonix-paas (+35 GB) after authorization; 27 GB at the end.
 
-## 3. Cobertura de requisitos (SEPARADA da taxa de sucesso)
-37 casos na matriz, em 13 famílias.
-- **Cobertura executada (PASSOU+FALHOU+PARCIAL): 24/37 = 65%.**
-- **Não demonstrados: 13/37 = 35%** (9 NÃO EXECUTADO, 1 BLOQUEADO, 1 NÃO APLICÁVEL, + 2 parciais já contados na execução).
+## 3. Requirements coverage (SEPARATE from the success rate)
+37 cases in the matrix, across 13 families.
+- **Executed coverage (PASSED+FAILED+PARTIAL): 24/37 = 65%.**
+- **Not demonstrated: 13/37 = 35%** (9 NOT EXECUTED, 1 BLOCKED, 1 NOT APPLICABLE, + 2 partials already counted in the execution).
 
-## 4. Taxa de sucesso dos casos EXECUTADOS
-Dos 24 executados: **20 PASSOU · 1 FALHOU (lacuna) · 3 PARCIAL/com-defeito.**
-- Taxa de sucesso limpa = 20/24 = **83%**; com parciais a contar como não-pleno, 20/24.
-- (Não inflada: os 13 não-demonstrados estão listados explicitamente, não excluídos.)
+## 4. Success rate of the EXECUTED cases
+Of the 24 executed: **20 PASSED · 1 FAILED (gap) · 3 PARTIAL/defective.**
+- Clean success rate = 20/24 = **83%**; counting partials as non-full, 20/24.
+- (Not inflated: the 13 not demonstrated are explicitly listed, not excluded.)
 
-## 5. Percursos completos demonstrados ponta-a-ponta
-- **Container rootless**: run→ps→exec→logs→stop(gracioso)→start→rm, com processo e cgroup verificados no SO; porta publicada + HTTP externo real; bind mount `:ro`; limites cpu/mem efectivos na hierarquia.
-- **Troca de porta a quente** (distintivo): porta trocada sem reiniciar o processo (pid inalterado).
-- **Rede/scope**: DNS interno, comunicação por nome, egress; isolamento entre namespaces nomeados (ping 100% loss); `default` partilhado por design.
-- **IaC**: validate/plan/apply/idempotência/destroy de um Pod.
-- **VM nos dois backends** (libvirt + Cloud Hypervisor): create→guest vivo por SSH (cloud-init done, vcpu/mem efectivos)→stop/start/restart→destroy sem órfãos; VMs do dono intactas.
-- **Cluster Kubernetes (kind-mode, sem Docker)**: control-plane Ready v1.34.0 → Deployment nginx + Service → **tráfego pod→service por nome DNS e por ClusterIP** → destroy limpo.
-- **Túnel público pinggy**: URL `https://…free.pinggy.net` serviu a origem sintética pela internet.
-- **init+template `go`**: projecto gerado → `go build` + `go test` verdes; segredos gerados; compose válido offline.
-- **GC seguro**: dry-run distingue em-uso/declarado/debris sem destruir nada do dono.
+## 5. Complete end-to-end flows demonstrated
+- **Rootless container**: run→ps→exec→logs→stop(graceful)→start→rm, with process and cgroup verified in the OS; published port + real external HTTP; bind mount `:ro`; effective cpu/mem limits in the hierarchy.
+- **Hot port swap** (distinctive): port swapped without restarting the process (pid unchanged).
+- **Network/scope**: internal DNS, communication by name, egress; isolation between named namespaces (ping 100% loss); `default` shared by design.
+- **IaC**: validate/plan/apply/idempotency/destroy of a Pod.
+- **VM on both backends** (libvirt + Cloud Hypervisor): create→guest alive over SSH (cloud-init done, vcpu/mem effective)→stop/start/restart→destroy with no orphans; the owner's VMs intact.
+- **Kubernetes cluster (kind-mode, no Docker)**: control-plane Ready v1.34.0 → nginx Deployment + Service → **pod→service traffic by DNS name and by ClusterIP** → clean destroy.
+- **Public pinggy tunnel**: URL `https://…free.pinggy.net` served the synthetic origin over the internet.
+- **init+template `go`**: project generated → `go build` + `go test` green; secrets generated; compose valid offline.
+- **Safe GC**: dry-run distinguishes in-use/declared/debris without destroying anything of the owner's.
 
-## 6. Defeitos e severidade
-| ID | Sev | Resumo |
+## 6. Defects and severity
+| ID | Sev | Summary |
 |----|-----|--------|
-| DEF-002 | P2 | `stack plan`/`apply` diz "unchanged" ao alterar `command` de um Pod — não converge nem sinaliza (convergência declarativa incompleta; `--replace` resolve) |
-| DEF-003 | P2 | `tunnel expose` deixa `ssh -R` órfão ao matar o pai — exposição pública persiste até SIGKILL |
-| ACHADO-1 | P3 | `run` sem flag de limite de PIDs (lacuna de paridade Docker, §7) |
-| DEF-001 | P3 | `--help` de `--namespace` não documenta a excepção do `default` partilhado (ADR-0011) |
+| DEF-002 | P2 | `stack plan`/`apply` says "unchanged" when changing a Pod's `command` — it neither converges nor signals (incomplete declarative convergence; `--replace` resolves it) |
+| DEF-003 | P2 | `tunnel expose` leaves `ssh -R` orphaned when the parent is killed — public exposure persists until SIGKILL |
+| ACHADO-1 | P3 | `run` without a PIDs-limit flag (Docker parity gap, §7) |
+| DEF-001 | P3 | `--help` of `--namespace` does not document the shared `default` exception (ADR-0011) |
 
-Nenhum defeito P0/P1 (bloqueante) encontrado nos percursos executados.
+No P0/P1 (blocking) defect found in the executed flows.
 
-## 7. Correcções e regressões
-- Nenhuma correcção de código aplicada (o âmbito priorizou execução/evidência; os defeitos ficam com repro mínima para correcção dirigida).
-- Falsos-positivos descartados por investigação (evitaram defeitos inexistentes): isolamento `default` (ADR-0011), exit-codes mascarados por `| tail`/`| head` (cpuset exit 69, strict exit 1), prova OOM mal-desenhada, drift de estado vs config, VM `permission denied` por falta de `-i`.
+## 7. Fixes and regressions
+- No code fix applied (the scope prioritized execution/evidence; the defects are left with minimal repro for a targeted fix).
+- False positives discarded through investigation (avoided non-existent defects): `default` isolation (ADR-0011), exit codes masked by `| tail`/`| head` (cpuset exit 69, strict exit 1), poorly-designed OOM proof, state-vs-config drift, VM `permission denied` due to missing `-i`.
 
-## 8. Limitações de compatibilidade
-- `--cpuset` e IO cgroup: controllers não delegados neste host (rootless) → recusa explícita e correcta (fail-closed), com fix documentado.
-- SSH direto host→guest não roteia em CH rootless (topologia slirp); a via é `delonix vm ssh` (confirmado na auditoria em memória).
+## 8. Compatibility limitations
+- `--cpuset` and IO cgroup: controllers not delegated on this host (rootless) → explicit and correct refusal (fail-closed), with a documented fix.
+- Direct SSH host→guest does not route in CH rootless (slirp topology); the way is `delonix vm ssh` (confirmed in the audit in memory).
 
-## 9. Desempenho (medições pontuais, NÃO capacidade absoluta)
+## 9. Performance (point measurements, NOT absolute capacity)
 - VM Cloud Hypervisor create→running: **7.8 s**; libvirt: **14 s**.
-- Cluster kind single-node até control-plane Ready: **~2 min** (coerente com a memória ~2m45s).
-- Container stop gracioso de PID1 sem handler: 10.3 s (grace→SIGKILL, = docker).
-- Build release incremental do estado: 7m16s (inicial) / 4m40s (develop).
+- kind single-node cluster to control-plane Ready: **~2 min** (consistent with the memory ~2m45s).
+- Graceful container stop of PID1 with no handler: 10.3 s (grace→SIGKILL, = docker).
+- Incremental release build of the state: 7m16s (initial) / 4m40s (develop).
 
-## 10. Estado da limpeza
-- **0** containers/redes/clusters/VMs `dlxcamp-*` restantes.
-- **0** processos órfãos (dlxcamp, ssh pinggy, cloud-hypervisor), **0** leaves cgroup, **0** ficheiros VM no disco.
-- Recursos do dono **intactos**: 10 imagens, 5 redes, VMs opnsense/pve92.
-- `cargo clean` do delonix-paas é reversível (recompila quando o dono voltar ao paas).
+## 10. Cleanup state
+- **0** `dlxcamp-*` containers/networks/clusters/VMs remaining.
+- **0** orphan processes (dlxcamp, ssh pinggy, cloud-hypervisor), **0** cgroup leaves, **0** VM files on disk.
+- Owner resources **intact**: 10 images, 5 networks, VMs opnsense/pve92.
+- The delonix-paas `cargo clean` is reversible (it recompiles when the owner returns to paas).
 
-## 11. Riscos ainda abertos (não demonstrados nesta campanha)
-- **KUBEADM offline + HA + kube-vip + CNI** (§13) — o percurso mais pesado, NÃO executado.
-- **API/MCP paridade REST/gRPC** (§18), **observabilidade/HTTPS/stress/SonarQube** (§16), **IMAGE build+push/pull por digest** (§7), **múltiplos clusters** (§14), **recuperação por kill do supervisor** (§19), **NETWORK-04 persistência pós-restart**, **túneis cloudflare/ngrok** — todos NÃO EXECUTADOS.
-- **Proxmox** (§10) BLOQUEADO (appliance desligado).
+## 11. Risks still open (not demonstrated in this campaign)
+- **KUBEADM offline + HA + kube-vip + CNI** (§13) — the heaviest flow, NOT executed.
+- **API/MCP REST/gRPC parity** (§18), **observability/HTTPS/stress/SonarQube** (§16), **IMAGE build+push/pull by digest** (§7), **multiple clusters** (§14), **recovery via supervisor kill** (§19), **NETWORK-04 persistence post-restart**, **cloudflare/ngrok tunnels** — all NOT EXECUTED.
+- **Proxmox** (§10) BLOCKED (appliance powered off).
 
-## 12. Recomendações para a avaliação de release
-1. Tratar **DEF-002** antes do release: a convergência declarativa silenciosamente incompleta é um risco operacional real (o operador confia num "unchanged" falso).
-2. Tratar **DEF-003**: exposição pública que sobrevive à paragem é um risco de segurança; ligar o ciclo de vida do `ssh -R` ao do processo pai e adicionar `tunnel stop`/`ls`.
-3. Corrigir os P3 (texto `--namespace`; avaliar flag de PIDs) — baixo custo.
-4. Agendar uma segunda ronda focada nos 35% não demonstrados, com prioridade a **kubeadm offline** e **API/MCP**, que são load-bearing para a proposta de valor.
-5. O núcleo (container/imagem/rede/scope/VM/cluster/init/túnel/GC) demonstrou-se **sólido e sem bloqueantes** nos percursos executados — base aceitável para avançar, condicionada aos dois P2.
+## 12. Recommendations for the release evaluation
+1. Address **DEF-002** before the release: silently incomplete declarative convergence is a real operational risk (the operator trusts a false "unchanged").
+2. Address **DEF-003**: public exposure that survives the stop is a security risk; tie the `ssh -R` lifecycle to that of the parent process and add `tunnel stop`/`ls`.
+3. Fix the P3s (`--namespace` text; evaluate a PIDs flag) — low cost.
+4. Schedule a second round focused on the 35% not demonstrated, prioritizing **kubeadm offline** and **API/MCP**, which are load-bearing for the value proposition.
+5. The core (container/image/network/scope/VM/cluster/init/tunnel/GC) proved **solid and without blockers** in the executed flows — an acceptable base to move forward, conditioned on the two P2s.
