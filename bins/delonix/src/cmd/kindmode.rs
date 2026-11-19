@@ -2381,7 +2381,10 @@ pub(crate) fn delete(images: &ImageStore, store: &Store, name: &str) -> Result<(
     let n = nodes.len().to_string();
     println!(
         "{}",
-        super::po::tf("cluster '{name}' removed ({n} node(s))", &[("name", name), ("n", &n)])
+        super::po::tf(
+            "cluster '{name}' removed ({n} node(s))",
+            &[("name", name), ("n", &n)]
+        )
     );
     Ok(())
 }

@@ -27,9 +27,7 @@ use super::util::state_root;
 use delonix_model::{exitcode, Result};
 use delonix_oci::ImageStore;
 use delonix_state::Store;
-use delonix_warm::{
-    root_env, serve_parked, ContainerPlane, StartOutcome, StartRequest, WarmPool,
-};
+use delonix_warm::{root_env, serve_parked, ContainerPlane, StartOutcome, StartRequest, WarmPool};
 use std::ffi::OsString;
 use std::os::unix::io::RawFd;
 use std::path::{Path, PathBuf};
@@ -239,16 +237,17 @@ fn run_poolbench(image: &str, runs: usize, size: usize, net: &str) -> Result<()>
 /// before the bench. Mirrors `infra::join_argv` minus its trailing
 /// `ip netns exec <netns>` (the runner enters the container netns per start).
 fn isolated_runner_prefix() -> Result<Vec<OsString>> {
-    let pin = delonix_sdn::infra::status().holder_pid.ok_or_else(|| {
-        delonix_model::Error::Runtime {
-            context: "warm isolated",
-            message: super::po::t(
-                "no network holder is up to park warm runners in — create the network \
+    let pin =
+        delonix_sdn::infra::status()
+            .holder_pid
+            .ok_or_else(|| delonix_model::Error::Runtime {
+                context: "warm isolated",
+                message: super::po::t(
+                    "no network holder is up to park warm runners in — create the network \
                  and start one isolated container first",
-            )
-            .into(),
-        }
-    })?;
+                )
+                .into(),
+            })?;
     Ok([
         "nsenter",
         "-t",
@@ -296,6 +295,9 @@ fn append_bench(phase: &str, wall_us: u128) {
         .append(true)
         .open(s.as_ref())
     {
-        let _ = writeln!(f, "{{\"role\":\"bench\",\"phase\":\"{phase}\",\"wall_us\":{wall_us}}}");
+        let _ = writeln!(
+            f,
+            "{{\"role\":\"bench\",\"phase\":\"{phase}\",\"wall_us\":{wall_us}}}"
+        );
     }
 }

@@ -87,6 +87,7 @@ pub use delonix_stack::revision;
 pub mod codes;
 #[cfg(test)]
 mod fuzz_smoke;
+pub mod prespawn;
 pub mod scaffold;
 pub mod scan;
 pub mod schema;
@@ -112,7 +113,6 @@ pub mod vmbridge;
 pub mod vmfile;
 pub mod vmimage;
 pub mod vmspec;
-pub mod prespawn;
 pub mod volume;
 pub mod warmpool;
 pub mod workload;

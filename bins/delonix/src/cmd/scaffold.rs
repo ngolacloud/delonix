@@ -382,7 +382,10 @@ fn subst(s: &str, o: &InitOpts, module: &str, plan: &Plan, version: &str) -> Str
         .replace("__TLS_PORT__", plan.tls_port.as_deref().unwrap_or(""))
         .replace("__PORT__", &plan.port)
         .replace("__TEMPLATE_VERSION__", version)
-        .replace(super::distroless::REGISTRY_TOKEN, &super::distroless::registry())
+        .replace(
+            super::distroless::REGISTRY_TOKEN,
+            &super::distroless::registry(),
+        )
 }
 
 /// An optional key of a template's `template.meta` (`tls=`, `open=`, `login=`,
@@ -2565,10 +2568,7 @@ mod tests {
     #[test]
     fn dir_has_content_is_false_for_a_path_that_does_not_exist() {
         let (_tmp, dir) = scratch();
-        assert!(
-            !dir_has_content(&dir),
-            "a nonexistent path has no content"
-        );
+        assert!(!dir_has_content(&dir), "a nonexistent path has no content");
     }
 
     #[test]

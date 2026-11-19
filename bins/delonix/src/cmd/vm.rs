@@ -6790,11 +6790,7 @@ mod tests {
             !meta.uses_cloud_init(),
             "without this the appliance accepts hostname/sshKeys again and gains a seed it never reads"
         );
-        assert_eq!(
-            meta.default_vcpus,
-            Some(2),
-            "and the image's defaults too"
-        );
+        assert_eq!(meta.default_vcpus, Some(2), "and the image's defaults too");
 
         // A qcow2 that is NOT the store's still resolves to itself, with no
         // metadata — it is what is known about it, and it is honest to say so.
@@ -6802,7 +6798,10 @@ mod tests {
         std::fs::write(&outside, b"").unwrap();
         let (disk, meta) = super::resolve_image_ref(&store, &outside.to_string_lossy());
         assert_eq!(disk, outside.to_string_lossy());
-        assert!(meta.is_none(), "nothing on this host says what this disk is");
+        assert!(
+            meta.is_none(),
+            "nothing on this host says what this disk is"
+        );
     }
 
     /// The refusal the CLI already did, now from the manifest too — and naming

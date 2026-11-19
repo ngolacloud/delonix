@@ -6621,10 +6621,10 @@ pub(crate) fn cmd_exec(
                          // container itself sees it, which is the only view that works whether the
                          // rootfs is an overlay or the legacy flat copy. A numeric `-u` never reaches
                          // this at all.
-    // `-u` resolves BOTH the uid/gid and the supplementary groups the image's
-    // `/etc/group` grants that user (getgrouplist), so `exec -u` matches
-    // docker/podman — which list a dozen groups for `exec -u 0` where delonix
-    // showed none. The rootfs is read once (it is the same `/proc/<pid>/root`).
+                         // `-u` resolves BOTH the uid/gid and the supplementary groups the image's
+                         // `/etc/group` grants that user (getgrouplist), so `exec -u` matches
+                         // docker/podman — which list a dozen groups for `exec -u 0` where delonix
+                         // showed none. The rootfs is read once (it is the same `/proc/<pid>/root`).
     let (user_override, user_groups) = match user {
         Some(u) => {
             let root = container_fs_root(images, &c)?;
@@ -9267,8 +9267,10 @@ mod tests {
         assert!(plain.pod.is_none());
 
         // `--pod` + a custom `--net` → refused (mutually exclusive).
-        let clash =
-            super::run_opts_from_args(parse(&["run", "--net", "mynet", "--pod", "wp", "busybox"]), false);
+        let clash = super::run_opts_from_args(
+            parse(&["run", "--net", "mynet", "--pod", "wp", "busybox"]),
+            false,
+        );
         assert!(
             clash.is_err(),
             "--pod with an explicit --net <network> must be refused, not silently ignored"

@@ -1507,7 +1507,10 @@ mod tests {
         t.row(vec!["b".into(), "debian".into(), "-".into(), "".into()]);
         let out = t.drop_uninformative().render_all();
         assert!(out.contains("IMAGE"), "{out}");
-        assert!(!out.contains("ROLE"), "a column of only dashes stayed: {out}");
+        assert!(
+            !out.contains("ROLE"),
+            "a column of only dashes stayed: {out}"
+        );
         assert!(!out.contains("GPU"), "an empty column stayed: {out}");
 
         // A row that says something holds the whole column.
@@ -1531,7 +1534,10 @@ mod tests {
         let empty = Table::new(&["NAME", "ROLE", "GPU"]).drop_uninformative();
         let out = empty.render_all();
         for c in ["NAME", "ROLE", "GPU"] {
-            assert!(out.contains(c), "{c} dropped on a table with no rows: {out}");
+            assert!(
+                out.contains(c),
+                "{c} dropped on a table with no rows: {out}"
+            );
         }
     }
 

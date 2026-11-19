@@ -1964,7 +1964,8 @@ mod tests {
         .expect("build spec");
 
         let json = serde_json::to_vec(&spec).expect("serialize");
-        let parsed: Spec = serde_json::from_slice(&json).expect("round-trip through the canonical type");
+        let parsed: Spec =
+            serde_json::from_slice(&json).expect("round-trip through the canonical type");
 
         // GAP-RT-2: the default (non-rootless) bundle has NO user namespace and
         // NO id mappings — it is a real-root bundle.

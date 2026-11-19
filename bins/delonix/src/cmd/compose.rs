@@ -5046,10 +5046,7 @@ services:
         assert_eq!(out.len(), 1);
         let (host, cont) = out[0].split_once(':').unwrap();
         assert_eq!(cont, "80");
-        assert!(
-            host.parse::<u16>().is_ok(),
-            "non-numeric host port: {host}"
-        );
+        assert!(host.parse::<u16>().is_ok(), "non-numeric host port: {host}");
 
         let bare_long = vec![ComposePort::Long {
             target: StringOrNum::Num(443),

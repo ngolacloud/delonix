@@ -47,11 +47,20 @@ pub(crate) struct Flavour {
 /// its tag stripped), which is what [`fallback_for`] matches against.
 pub(crate) const FLAVOURS: &[Flavour] = &[
     // Static binaries (Go built with CGO_ENABLED=0).
-    Flavour { suffix: "static-debian12:nonroot", fallback: "alpine:3.24" },
+    Flavour {
+        suffix: "static-debian12:nonroot",
+        fallback: "alpine:3.24",
+    },
     // glibc + libgcc/libstdc++ (Rust, C/C++).
-    Flavour { suffix: "cc-debian12:nonroot", fallback: "debian:trixie-slim" },
+    Flavour {
+        suffix: "cc-debian12:nonroot",
+        fallback: "debian:trixie-slim",
+    },
     // Generic apps that only need glibc + CA roots.
-    Flavour { suffix: "base-debian12:nonroot", fallback: "debian:trixie-slim" },
+    Flavour {
+        suffix: "base-debian12:nonroot",
+        fallback: "debian:trixie-slim",
+    },
     // NOTE — Node AND Python have NO fallback on purpose: their interpreter path
     // diverges between the distroless image and the conventional base, and a
     // base swap cannot rewrite the command.
@@ -150,7 +159,10 @@ mod tests {
             Some("alpine:3.24")
         );
         // Python is excluded like Node (interpreter path diverges) — not-found surfaces.
-        assert_eq!(fallback_for("gcr.io/distroless/python3-debian12:nonroot"), None);
+        assert_eq!(
+            fallback_for("gcr.io/distroless/python3-debian12:nonroot"),
+            None
+        );
         // An arbitrary image is never swapped.
         assert_eq!(fallback_for("alpine:3.20"), None);
         assert_eq!(fallback_for("docker.io/library/nginx:1.27"), None);
@@ -158,7 +170,10 @@ mod tests {
         assert_eq!(fallback_for("gcr.io/distroless/java21-debian12"), None);
         // Node is deliberately excluded (the ENTRYPOINT path diverges between
         // distroless and node:*-slim) — a not-found must surface, not fall back.
-        assert_eq!(fallback_for("gcr.io/distroless/nodejs22-debian12:nonroot"), None);
+        assert_eq!(
+            fallback_for("gcr.io/distroless/nodejs22-debian12:nonroot"),
+            None
+        );
     }
 
     #[test]
