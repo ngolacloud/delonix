@@ -10600,6 +10600,14 @@ pub struct ExecOverrides<'a> {
     /// (`-t`): a detached exec never allocates one. Always `false` for the CRI
     /// and the health monitor, which need the exit code.
     pub detach: bool,
+    /// `exec --privileged`: run THIS command with the full capability set and
+    /// with seccomp/AppArmor unconfined, as an explicit opt-in for pointed
+    /// debugging of a NON-privileged container. It is OR-ed with the container's
+    /// own `privileged`, never subtracted: a `false` here keeps the reduced
+    /// default exactly as before (the CRI, the health monitor and the dashboard
+    /// all pass `false`), and it changes NOTHING about the container or any other
+    /// exec — only this one process is elevated. Docker `exec --privileged`.
+    pub privileged: bool,
 }
 
 pub fn exec(container: &Container, argv: &[String], tty: bool) -> Result<i32> {
@@ -10909,14 +10917,20 @@ pub fn exec_with(
                     // CAP_NET_ADMIN), and debugging a Kind node from inside (`nft`,
                     // `iptables`) gave "Operation not permitted" even though the init
                     // had the caps. Docker/podman: `exec` inherits the container's profile.
-                    let exec_keep = if container.privileged {
+                    // `exec --privileged` (`overrides.privileged`) elevates THIS
+                    // call to the full set on top of the container's own profile —
+                    // OR-ed, never subtracted, so a non-privileged container keeps
+                    // its reduced default for every exec that does NOT pass the
+                    // flag. Docker `exec --privileged`.
+                    let effective_privileged = container.privileged || overrides.privileged;
+                    let exec_keep = if effective_privileged {
                         all_caps_mask()
                     } else {
                         resolve_cap_keep(&container.cap_drop, &container.cap_add)
                     };
                     drop_capabilities(exec_keep); // same confinement
                     let exec_unconf =
-                        container.privileged || container.seccomp.as_deref() == Some("unconfined");
+                        effective_privileged || container.seccomp.as_deref() == Some("unconfined");
                     // The `exec` mirrors the container's profile, like it
                     // mirrors its capabilities: a process that could run inside
                     // the container must not be more permitted just because it
@@ -10960,7 +10974,12 @@ pub fn exec_with(
                         v
                     };
                     apply_env(&container.name, &exec_env);
-                    if let Some(p) = &container.apparmor {
+                    // `exec --privileged` drops MAC confinement for this call too,
+                    // the same way it drops the seccomp filter and the cap limit —
+                    // otherwise an AppArmor profile would still gate the elevated
+                    // command. Skipped ONLY when the flag was passed; a normal exec
+                    // still inherits the container's profile, fail-closed.
+                    if let (false, Some(p)) = (effective_privileged, &container.apparmor) {
                         // Same MAC confinement as the init process, and equally
                         // fatal: an `exec` that silently escapes the container's
                         // profile is a hole in the confinement of a container
