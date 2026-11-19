@@ -16,12 +16,18 @@
 # relator emparelha-as (parent imediatamente antes do bench) e dá
 # pre_spawn = wall − spawn_total para cada fase.
 #
-#   scripts/warm_profile.sh [--runs N] [--size M] [--image REF] [--bin PATH] [--out DIR]
+#   scripts/warm_profile.sh [--runs N] [--size M] [--image REF] [--net NAME] [--bin PATH] [--out DIR]
+#
+# `--net NAME` benches the ISOLATED path (line 4b of the profile): the +322 ms
+# per-container `pre_spawn` the warm plane is aimed at. The script creates the
+# network and brings the holder up BEFORE the bench, so the measurement is the
+# start cost, not the one-time plane bring-up. Default `host` = line 4a.
 set -uo pipefail
 
 RUNS=20
 SIZE=4
 IMAGE=alpine
+NET=host
 BIN="${BIN:-$(cd "$(dirname "$0")/.." && pwd)/target/release/delonix}"
 OUT=""
 while [[ $# -gt 0 ]]; do
@@ -29,9 +35,10 @@ while [[ $# -gt 0 ]]; do
     --runs) RUNS="$2"; shift 2 ;;
     --size) SIZE="$2"; shift 2 ;;
     --image) IMAGE="$2"; shift 2 ;;
+    --net) NET="$2"; shift 2 ;;
     --bin) BIN="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
-    *) echo "uso: $0 [--runs N] [--size M] [--image REF] [--bin PATH] [--out DIR]"; exit 2 ;;
+    *) echo "uso: $0 [--runs N] [--size M] [--image REF] [--net NAME] [--bin PATH] [--out DIR]"; exit 2 ;;
   esac
 done
 [[ -x "$BIN" ]] || { echo "binário ausente: $BIN" >&2; exit 1; }
@@ -54,16 +61,24 @@ dlx() { env DELONIX_ROOT="$SANDBOX/root" DELONIX_NET_RUNTIME_DIR="$SANDBOX/run" 
 echo "== bancada ==" >&2
 echo "  bin: $BIN" >&2
 echo "  kernel: $(uname -r) | cpu: $NTHREADS threads, load1=$LOAD1" >&2
-echo "  versão: $(dlx --version 2>/dev/null | head -1) | runs: $RUNS/fase | pool: $SIZE | imagem: $IMAGE | out: $OUT" >&2
+echo "  versão: $(dlx --version 2>/dev/null | head -1) | runs: $RUNS/fase | pool: $SIZE | imagem: $IMAGE | net: $NET | out: $OUT" >&2
 
 echo "== aquecimento (pull+extracção de $IMAGE no root virgem) ==" >&2
 dlx container run --rm --net host "$IMAGE" true >/dev/null 2>&1
 
+# Via ISOLADA: criar a rede e levantar o holder ANTES do bench, para que a
+# medição seja só o custo de arranque (não a subida única do plano de rede).
+if [[ "$NET" != "host" && "$NET" != "none" ]]; then
+  echo "== rede isolada: criar '$NET' + aquecer o holder ==" >&2
+  dlx network create "$NET" >/dev/null 2>&1 || true
+  dlx container run --rm --net "$NET" "$IMAGE" true >/dev/null 2>&1
+fi
+
 JSONL="$OUT/warm.jsonl"; : > "$JSONL"
-echo "== bench (cold vs warm) ==" >&2
+echo "== bench (cold vs warm) net=$NET ==" >&2
 env DELONIX_PROFILE_SPAWN="$JSONL" DELONIX_ROOT="$SANDBOX/root" \
     DELONIX_NET_RUNTIME_DIR="$SANDBOX/run" \
-    "$BIN" __poolbench "$IMAGE" "$RUNS" "$SIZE" 2> "$OUT/bench.stderr"
+    "$BIN" __poolbench "$IMAGE" "$RUNS" "$SIZE" "$NET" 2> "$OUT/bench.stderr"
 sed -n '1,40p' "$OUT/bench.stderr" >&2
 
 echo >&2; echo "== relatório ==" >&2

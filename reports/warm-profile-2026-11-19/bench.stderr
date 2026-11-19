@@ -1,0 +1,52 @@
+== bench == image=alpine runs=12 pool-size=4 net=host
+== cold (fresh __apirun per run) ==
+delonix prespawn-profile [d9aee75e30a97835] total=0.70ms | policy_preflight=0.18ms claims=0.07ms resolve_rootfs=0.41ms record_net=0.03ms
+delonix spawn-profile [hoolo-uige-02 net=host] total=15.58ms | pre_clone=0.24ms clone=0.40ms cgroup=13.38ms net=0.00ms mounts=1.55ms
+delonix prespawn-profile [c8c99c2a9316e222] total=0.79ms | policy_preflight=0.18ms claims=0.17ms resolve_rootfs=0.42ms record_net=0.02ms
+delonix spawn-profile [katyavala-viana-86 net=host] total=6.00ms | pre_clone=0.33ms clone=0.43ms cgroup=3.49ms net=0.00ms mounts=1.75ms
+delonix prespawn-profile [aaeb986114ebf259] total=0.88ms | policy_preflight=0.16ms claims=0.16ms resolve_rootfs=0.54ms record_net=0.03ms
+delonix spawn-profile [katyavala-cunene-69 net=host] total=5.14ms | pre_clone=0.26ms clone=0.41ms cgroup=3.05ms net=0.00ms mounts=1.43ms
+delonix prespawn-profile [08f81ee68fd0b8d7] total=0.83ms | policy_preflight=0.20ms claims=0.23ms resolve_rootfs=0.38ms record_net=0.02ms
+delonix spawn-profile [hoolo-namibe-55 net=host] total=5.47ms | pre_clone=0.15ms clone=0.39ms cgroup=2.79ms net=0.00ms mounts=2.13ms
+delonix prespawn-profile [9e35dbf15ab8a572] total=0.84ms | policy_preflight=0.19ms claims=0.20ms resolve_rootfs=0.41ms record_net=0.03ms
+delonix spawn-profile [kitamba-kilamba-15 net=host] total=6.03ms | pre_clone=0.27ms clone=0.39ms cgroup=3.15ms net=0.00ms mounts=2.22ms
+delonix prespawn-profile [0280ecc8a77b8232] total=1.30ms | policy_preflight=0.22ms claims=0.46ms resolve_rootfs=0.58ms record_net=0.03ms
+delonix spawn-profile [mutu-lobito-14 net=host] total=6.31ms | pre_clone=0.26ms clone=0.41ms cgroup=3.33ms net=0.00ms mounts=2.30ms
+delonix prespawn-profile [33184b8517118433] total=0.84ms | policy_preflight=0.18ms claims=0.32ms resolve_rootfs=0.32ms record_net=0.02ms
+delonix spawn-profile [samakaka-catumbela-02 net=host] total=5.58ms | pre_clone=0.30ms clone=0.35ms cgroup=2.99ms net=0.00ms mounts=1.93ms
+delonix prespawn-profile [d42daa6ca6da354d] total=1.43ms | policy_preflight=0.31ms claims=0.48ms resolve_rootfs=0.61ms record_net=0.03ms
+delonix spawn-profile [mbandi-benguela-42 net=host] total=5.53ms | pre_clone=0.27ms clone=0.43ms cgroup=3.32ms net=0.00ms mounts=1.50ms
+delonix prespawn-profile [3c40fc100ab0aea2] total=0.96ms | policy_preflight=0.13ms claims=0.44ms resolve_rootfs=0.37ms record_net=0.02ms
+delonix spawn-profile [samakaka-talatona-11 net=host] total=5.84ms | pre_clone=0.26ms clone=0.24ms cgroup=2.94ms net=0.00ms mounts=2.40ms
+delonix prespawn-profile [4234b4b7354dbb5b] total=1.00ms | policy_preflight=0.14ms claims=0.39ms resolve_rootfs=0.45ms record_net=0.02ms
+delonix spawn-profile [nzinga-andulo-66 net=host] total=26.59ms | pre_clone=0.29ms clone=0.40ms cgroup=24.33ms net=0.00ms mounts=1.57ms
+delonix prespawn-profile [80fba892c3b79842] total=0.95ms | policy_preflight=0.15ms claims=0.46ms resolve_rootfs=0.32ms record_net=0.02ms
+delonix spawn-profile [nzinga-menongue-47 net=host] total=5.57ms | pre_clone=0.29ms clone=0.37ms cgroup=3.16ms net=0.00ms mounts=1.75ms
+delonix prespawn-profile [0539541729aeb514] total=1.09ms | policy_preflight=0.19ms claims=0.45ms resolve_rootfs=0.42ms record_net=0.02ms
+delonix spawn-profile [katyavala-camacupa-37 net=host] total=21.49ms | pre_clone=0.26ms clone=0.44ms cgroup=19.29ms net=0.00ms mounts=1.49ms
+== warm (pooled __poolrunner, image pre-resolved) ==
+delonix prespawn-profile [ba1c8b266578374f] total=1.54ms | policy_preflight=0.25ms claims=0.74ms resolve_rootfs=0.52ms record_net=0.03ms
+delonix spawn-profile [mutu-catumbela-54 net=host] total=6.64ms | pre_clone=0.29ms clone=0.33ms cgroup=3.67ms net=0.00ms mounts=2.34ms
+delonix prespawn-profile [05654a2a23ae1f41] total=1.64ms | policy_preflight=0.24ms claims=0.87ms resolve_rootfs=0.49ms record_net=0.04ms
+delonix spawn-profile [kiluanji-talatona-50 net=host] total=7.38ms | pre_clone=0.25ms clone=0.43ms cgroup=4.04ms net=0.00ms mounts=2.66ms
+delonix prespawn-profile [84dcb958ccd7c9a1] total=1.95ms | policy_preflight=0.23ms claims=1.06ms resolve_rootfs=0.62ms record_net=0.04ms
+delonix spawn-profile [hoolo-viana-55 net=host] total=7.55ms | pre_clone=0.37ms clone=0.41ms cgroup=4.18ms net=0.00ms mounts=2.59ms
+delonix prespawn-profile [c6fd9e9a6d921fd4] total=1.86ms | policy_preflight=0.33ms claims=0.91ms resolve_rootfs=0.59ms record_net=0.03ms
+delonix spawn-profile [nzinga-chinguar-55 net=host] total=15.90ms | pre_clone=0.30ms clone=0.40ms cgroup=12.49ms net=0.00ms mounts=2.71ms
+delonix prespawn-profile [871ba971fa3412fd] total=1.25ms | policy_preflight=0.17ms claims=0.61ms resolve_rootfs=0.45ms record_net=0.03ms
+delonix spawn-profile [kalandula-andulo-70 net=host] total=5.57ms | pre_clone=0.31ms clone=0.38ms cgroup=2.99ms net=0.00ms mounts=1.89ms
+delonix prespawn-profile [dbb743a413b0479a] total=2.06ms | policy_preflight=0.32ms claims=1.13ms resolve_rootfs=0.57ms record_net=0.04ms
+delonix spawn-profile [kalandula-catumbela-66 net=host] total=6.90ms | pre_clone=0.26ms clone=0.45ms cgroup=3.85ms net=0.00ms mounts=2.35ms
+delonix prespawn-profile [ace04d9a51e215b9] total=2.09ms | policy_preflight=0.29ms claims=1.11ms resolve_rootfs=0.64ms record_net=0.04ms
+delonix spawn-profile [mutu-cuando-17 net=host] total=23.88ms | pre_clone=0.24ms clone=0.49ms cgroup=20.81ms net=0.00ms mounts=2.34ms
+delonix prespawn-profile [c038e3ece4064312] total=1.85ms | policy_preflight=0.21ms claims=1.21ms resolve_rootfs=0.40ms record_net=0.02ms
+delonix spawn-profile [ekuikui-benguela-19 net=host] total=7.49ms | pre_clone=0.31ms clone=0.49ms cgroup=3.82ms net=0.00ms mounts=2.87ms
+delonix prespawn-profile [699597e68f50d7e1] total=1.64ms | policy_preflight=0.19ms claims=0.95ms resolve_rootfs=0.47ms record_net=0.02ms
+delonix spawn-profile [mutu-gabela-51 net=host] total=24.53ms | pre_clone=0.19ms clone=0.31ms cgroup=21.71ms net=0.00ms mounts=2.31ms
+delonix prespawn-profile [ffe6be5ef7189bcc] total=1.31ms | policy_preflight=0.19ms claims=0.75ms resolve_rootfs=0.34ms record_net=0.02ms
+delonix spawn-profile [ekuikui-huila-63 net=host] total=6.62ms | pre_clone=0.25ms clone=0.41ms cgroup=4.40ms net=0.00ms mounts=1.56ms
+delonix prespawn-profile [c279c8a4112270be] total=2.26ms | policy_preflight=0.22ms claims=1.48ms resolve_rootfs=0.51ms record_net=0.04ms
+delonix spawn-profile [mutu-chibia-11 net=host] total=7.72ms | pre_clone=0.36ms clone=0.71ms cgroup=4.53ms net=0.00ms mounts=2.12ms
+delonix prespawn-profile [71cbc7ea2388a2d2] total=1.86ms | policy_preflight=0.20ms claims=1.06ms resolve_rootfs=0.55ms record_net=0.04ms
+delonix spawn-profile [soba-cubango-27 net=host] total=7.09ms | pre_clone=0.29ms clone=0.43ms cgroup=4.35ms net=0.00ms mounts=2.01ms
+== done; records in DELONIX_PROFILE_SPAWN ==

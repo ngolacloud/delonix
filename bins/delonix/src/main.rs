@@ -2380,10 +2380,13 @@ fn main() {
     // emits the per-run wall to `DELONIX_PROFILE_SPAWN` so the pre_spawn drop can
     // be read against `reports/spawn-profile-2026-11-18/`. Not a public subcommand;
     // it orchestrates children but never forks a container itself.
-    if raw.len() == 5 && raw[1] == "__poolbench" {
+    if (raw.len() == 5 || raw.len() == 6) && raw[1] == "__poolbench" {
         let runs = raw[3].parse().unwrap_or(20);
         let size = raw[4].parse().unwrap_or(4);
-        cmd::warmpool::poolbench(&raw[2], runs, size); // never returns
+        // Optional 5th token: the network the benched containers run on. Absent
+        // ⇒ `host` (the original behaviour); a name ⇒ the ISOLATED path.
+        let net = raw.get(5).map(String::as_str).unwrap_or("host");
+        cmd::warmpool::poolbench(&raw[2], runs, size, net); // never returns
     }
     // Hidden verb for `pod port-forward` (see `cmd::pod::port_forward`): run
     // INSIDE the pod's netns via `join_argv`, with the accepted host-side
