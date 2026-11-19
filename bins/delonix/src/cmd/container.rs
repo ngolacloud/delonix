@@ -4287,43 +4287,71 @@ fn wait_until_healthy(
             c.name
         )));
     }
-    let Some(argv) = super::compose::image_health_argv(images, &c.image) else {
-        return Err(Error::Invalid(format!(
-            "--wait: image '{}' declares no HEALTHCHECK — nothing to wait for \
-             (add one to the image, or drop --wait)",
-            c.image
-        )));
+    // Where "healthy" comes from. A `--health-cmd`/`--health-http`/`--health-tcp`
+    // (or a `--health-interval` over an image HEALTHCHECK) built `c.health`, and a
+    // continuous monitor drives it, writing `health_state` — so watch THAT. An
+    // image HEALTHCHECK with no `--health-*` has no monitor, so probe it directly
+    // (the original behaviour). Neither source: there is nothing to wait for.
+    //
+    // THE BUG this fixes: `--wait` used to consult ONLY the image's HEALTHCHECK,
+    // so pairing it with a CLI `--health-*` was refused as "image declares no
+    // HEALTHCHECK" — even though that probe works and reaches `healthy`; it just
+    // lives on the monitor's `health_state`, not on the image.
+    enum WaitProbe {
+        Monitor,
+        Image(ProbeKind),
+    }
+    let source = if c.health.is_some() {
+        WaitProbe::Monitor
+    } else {
+        let Some(argv) = super::compose::image_health_argv(images, &c.image) else {
+            return Err(Error::Invalid(format!(
+                "--wait: '{}' has no health check — give one with --health-cmd, \
+                 --health-http or --health-tcp, or use an image that declares a \
+                 HEALTHCHECK (or drop --wait)",
+                c.name
+            )));
+        };
+        // Same self-limiting probe the monitor uses: one that hangs would
+        // otherwise pin `--wait` past its own deadline, the one thing the flag
+        // exists to prevent. The exec form (image `HEALTHCHECK ["CMD", …]`) runs
+        // with NO `/bin/sh` — joining it into a shell string lost its argv.
+        WaitProbe::Image(
+            if argv.len() == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
+                ProbeKind::Shell(argv[2].clone())
+            } else {
+                ProbeKind::Exec(argv)
+            },
+        )
     };
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
     let mut attempt: u32 = 0;
-    // Same self-limiting probe the monitor uses: one that hangs would otherwise
-    // pin `--wait` past its own deadline, the one thing the flag exists to
-    // prevent. The exec form (image `HEALTHCHECK ["CMD", …]`) now runs with NO
-    // `/bin/sh` — it used to be joined into a shell string and lost its argv.
-    let probe = if argv.len() == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
-        ProbeKind::Shell(argv[2].clone())
-    } else {
-        ProbeKind::Exec(argv)
-    };
     loop {
-        if run_probe(&c, &probe, 30) == 0 {
+        // Reload each round: the monitor writes `health_state` onto this record,
+        // and the liveness check below needs the current pid.
+        let cur = find(store, id)?;
+        let healthy = match &source {
+            WaitProbe::Monitor => {
+                cur.health_state.as_ref().map(|s| s.health) == Some(Health::Healthy)
+            }
+            WaitProbe::Image(probe) => run_probe(&cur, probe, 30) == 0,
+        };
+        if healthy {
             return Ok(());
         }
         // It died while we waited: saying "did not become healthy in 60s" would
         // hide the real cause, which is in the logs.
-        if let Ok(cur) = find(store, id) {
-            let dead = match cur.pid {
-                // SAFETY: kill(pid, 0) sends no signal — it only tests existence.
-                Some(p) => (unsafe { libc::kill(p, 0) } != 0),
-                None => true,
-            };
-            if dead {
-                return Err(Error::Invalid(format!(
-                    "--wait: container '{}' exited while waiting to become healthy \
-                     — see `delonix container logs {}`",
-                    cur.name, cur.name
-                )));
-            }
+        let dead = match cur.pid {
+            // SAFETY: kill(pid, 0) sends no signal — it only tests existence.
+            Some(p) => (unsafe { libc::kill(p, 0) } != 0),
+            None => true,
+        };
+        if dead {
+            return Err(Error::Invalid(format!(
+                "--wait: container '{}' exited while waiting to become healthy \
+                 — see `delonix container logs {}`",
+                cur.name, cur.name
+            )));
         }
         if std::time::Instant::now() >= deadline {
             return Err(Error::Invalid(format!(
