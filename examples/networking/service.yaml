@@ -18,11 +18,13 @@
 #     relabelled shows up without re-applying.
 #
 # PT: Campos spec: selector.matchLabels (AND lógico), port (porta do CONTAINER,
-#     nunca de host/VIP), type, vip, readiness, publish. Um selector vazio/sem
-#     match resolve para conjunto vazio — não é erro, mas o apply avisa.
+#     nunca de host/VIP), type, vip, readiness, publish. Um selector vazio, ou um
+#     que não casa com NENHUM workload declarado nem existente, é recusado pelo
+#     `stack validate` (nada responderá ao nome do Service).
 # EN: spec fields: selector.matchLabels (logical AND), port (the CONTAINER-side
-#     port, never a host/VIP port), type, vip, readiness, publish. An empty/no-match
-#     selector resolves to an empty set — not an error, but apply warns.
+#     port, never a host/VIP port), type, vip, readiness, publish. An empty selector,
+#     or one matching NO declared or existing workload, is refused by `stack validate`
+#     (nothing would answer the Service's name).
 #
 # PT: Aplicar:  delonix stack apply -f examples/networking/service.yaml
 # EN: Apply:    delonix stack apply -f examples/networking/service.yaml
