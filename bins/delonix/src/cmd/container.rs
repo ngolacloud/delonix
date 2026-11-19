@@ -1510,7 +1510,10 @@ pub struct RunArgs {
     /// The container resolves NO other container by name.
     #[arg(long = "knows-none")]
     knows_none: bool,
-    /// Join a pod's netns (`--net <network>`), sharing IP/ports.
+    /// Join an existing pod's shared netns (Podman `run --pod`): the container
+    /// gets the pod's IP and ports and reaches its peers on `127.0.0.1`. The pod
+    /// (declared with `kind: Pod`) defines the network, so do NOT combine with
+    /// `--net <network>`.
     #[arg(long, add = ArgValueCandidates::new(super::complete::pods))]
     pod: Option<String>,
     /// (internal) init PID of the pod's infra container — join its IPC/UTS
@@ -2229,6 +2232,35 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         namespace,
         expose,
     } = args;
+    // `--pod <name>` (imperative join, Podman parity). The flag carries the POD
+    // NAME, but every downstream user — `cmd_run`'s netns re-exec, the persisted
+    // record, `start` — treats the `pod` field as the pod's NETNS name, which is
+    // what `create_pod` stores (`pod_member_run_opts`). Translate once HERE, the
+    // only CLI entry point into `RunOpts` (`create_pod` builds its members
+    // through the domain helper, never this function), so the two paths agree.
+    // Before this, the join opened a netns named after the pod (`wp`) instead of
+    // the real one (`pod-wp`) and died with "Cannot open network namespace".
+    //
+    // A pod already defines its own network (`spec.network`), so `--pod` with an
+    // explicit `--net <network>` is a contradiction, not a combination: refuse it
+    // (Podman does the same) rather than let `--net` silently win — which it did,
+    // in the `custom_net` branch of `cmd_run` that returns BEFORE the pod branch,
+    // leaving the container on its own IP, never joined to the pod. `host` is the
+    // default a lone `--pod` carries (the member joins the pod's netns), so only
+    // a NON-default `--net` trips this.
+    let pod = match pod {
+        Some(name) => {
+            if net != "host" {
+                return Err(Error::Invalid(format!(
+                    "--pod and --net '{net}' are mutually exclusive: a pod already defines its \
+                     network (its `spec.network`). Run `--pod {name}` on its own — the container \
+                     joins the pod's shared netns, with the pod's IP and ports."
+                )));
+            }
+            Some(super::pod::pod_netns_name(&name))
+        }
+        None => None,
+    };
     // `-i` is accepted for Docker/Podman parity. A daemonless foreground `run`
     // INHERITS the operator's stdin, so keeping it open is already what the flag
     // asks — it records intent rather than switching a code path, the same
@@ -3421,8 +3453,12 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // the imperative path leaves: None + no members yet → this member becomes
     // the holder; None + a member exists → it finds and joins it.
     if opts.pod_infra_pid.is_none() {
-        if let Some(pn) = opts.pod.clone() {
-            opts.pod_infra_pid = super::pod::infra_pid_of(store, &pn);
+        if let Some(netns) = opts.pod.clone() {
+            // `opts.pod` is the pod's NETNS name (`pod-<name>`, normalized in
+            // `run_opts_from_args`); the membership lookup wants the pod NAME.
+            // Derive it back off the known prefix.
+            let pod_name = netns.strip_prefix("pod-").unwrap_or(&netns);
+            opts.pod_infra_pid = super::pod::infra_pid_of(store, pod_name);
         }
     }
     // The node's runtime policy, BEFORE anything is created or pulled. Same
@@ -4053,12 +4089,16 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
             // lands here: its netns is already up, so the join succeeds. A pod
             // that HAS members but still failed keeps the real error (it is a
             // genuine fault, not a typo'd name).
-            if joined.is_err() && !super::pod::exists(store, pn) {
+            // `pn` is the NETNS name (`pod-<name>`); the pod membership lookup
+            // and the message the operator reads both want the pod NAME they
+            // typed, so derive it back off the known prefix.
+            let pod_name = pn.strip_prefix("pod-").unwrap_or(pn);
+            if joined.is_err() && !super::pod::exists(store, pod_name) {
                 return Err(Error::Invalid(format!(
-                    "pod '{pn}' does not exist — nothing to join. Delonix pods are DECLARATIVE: \
+                    "pod '{pod_name}' does not exist — nothing to join. Delonix pods are DECLARATIVE: \
                      there is no `pod create --name`, and `run --pod` only JOINS an existing pod. \
                      Declare the pod and all its members in a `kind: Pod` manifest and create it \
-                     with `delonix pod create -f <file>`, then `run --pod {pn}` joins it \
+                     with `delonix pod create -f <file>`, then `run --pod {pod_name}` joins it \
                      (`delonix get pods` lists them)."
                 )));
             }
@@ -4247,43 +4287,71 @@ fn wait_until_healthy(
             c.name
         )));
     }
-    let Some(argv) = super::compose::image_health_argv(images, &c.image) else {
-        return Err(Error::Invalid(format!(
-            "--wait: image '{}' declares no HEALTHCHECK — nothing to wait for \
-             (add one to the image, or drop --wait)",
-            c.image
-        )));
+    // Where "healthy" comes from. A `--health-cmd`/`--health-http`/`--health-tcp`
+    // (or a `--health-interval` over an image HEALTHCHECK) built `c.health`, and a
+    // continuous monitor drives it, writing `health_state` — so watch THAT. An
+    // image HEALTHCHECK with no `--health-*` has no monitor, so probe it directly
+    // (the original behaviour). Neither source: there is nothing to wait for.
+    //
+    // THE BUG this fixes: `--wait` used to consult ONLY the image's HEALTHCHECK,
+    // so pairing it with a CLI `--health-*` was refused as "image declares no
+    // HEALTHCHECK" — even though that probe works and reaches `healthy`; it just
+    // lives on the monitor's `health_state`, not on the image.
+    enum WaitProbe {
+        Monitor,
+        Image(ProbeKind),
+    }
+    let source = if c.health.is_some() {
+        WaitProbe::Monitor
+    } else {
+        let Some(argv) = super::compose::image_health_argv(images, &c.image) else {
+            return Err(Error::Invalid(format!(
+                "--wait: '{}' has no health check — give one with --health-cmd, \
+                 --health-http or --health-tcp, or use an image that declares a \
+                 HEALTHCHECK (or drop --wait)",
+                c.name
+            )));
+        };
+        // Same self-limiting probe the monitor uses: one that hangs would
+        // otherwise pin `--wait` past its own deadline, the one thing the flag
+        // exists to prevent. The exec form (image `HEALTHCHECK ["CMD", …]`) runs
+        // with NO `/bin/sh` — joining it into a shell string lost its argv.
+        WaitProbe::Image(
+            if argv.len() == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
+                ProbeKind::Shell(argv[2].clone())
+            } else {
+                ProbeKind::Exec(argv)
+            },
+        )
     };
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
     let mut attempt: u32 = 0;
-    // Same self-limiting probe the monitor uses: one that hangs would otherwise
-    // pin `--wait` past its own deadline, the one thing the flag exists to
-    // prevent. The exec form (image `HEALTHCHECK ["CMD", …]`) now runs with NO
-    // `/bin/sh` — it used to be joined into a shell string and lost its argv.
-    let probe = if argv.len() == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
-        ProbeKind::Shell(argv[2].clone())
-    } else {
-        ProbeKind::Exec(argv)
-    };
     loop {
-        if run_probe(&c, &probe, 30) == 0 {
+        // Reload each round: the monitor writes `health_state` onto this record,
+        // and the liveness check below needs the current pid.
+        let cur = find(store, id)?;
+        let healthy = match &source {
+            WaitProbe::Monitor => {
+                cur.health_state.as_ref().map(|s| s.health) == Some(Health::Healthy)
+            }
+            WaitProbe::Image(probe) => run_probe(&cur, probe, 30) == 0,
+        };
+        if healthy {
             return Ok(());
         }
         // It died while we waited: saying "did not become healthy in 60s" would
         // hide the real cause, which is in the logs.
-        if let Ok(cur) = find(store, id) {
-            let dead = match cur.pid {
-                // SAFETY: kill(pid, 0) sends no signal — it only tests existence.
-                Some(p) => (unsafe { libc::kill(p, 0) } != 0),
-                None => true,
-            };
-            if dead {
-                return Err(Error::Invalid(format!(
-                    "--wait: container '{}' exited while waiting to become healthy \
-                     — see `delonix container logs {}`",
-                    cur.name, cur.name
-                )));
-            }
+        let dead = match cur.pid {
+            // SAFETY: kill(pid, 0) sends no signal — it only tests existence.
+            Some(p) => (unsafe { libc::kill(p, 0) } != 0),
+            None => true,
+        };
+        if dead {
+            return Err(Error::Invalid(format!(
+                "--wait: container '{}' exited while waiting to become healthy \
+                 — see `delonix container logs {}`",
+                cur.name, cur.name
+            )));
         }
         if std::time::Instant::now() >= deadline {
             return Err(Error::Invalid(format!(
@@ -9126,6 +9194,40 @@ mod runspec_single_builder_tests {
 
 #[cfg(test)]
 mod tests {
+    /// `--pod <name>` is the CLI's imperative pod join (Podman parity). The flag
+    /// carries the pod NAME, but the engine treats the `pod` field as the pod's
+    /// NETNS name everywhere downstream — so `run_opts_from_args` must translate
+    /// it (bug: the join opened a netns named after the pod, not `pod-<name>`,
+    /// and died). A pod owns its network, so pairing `--pod` with an explicit
+    /// `--net <network>` is refused rather than letting `--net` silently win.
+    #[test]
+    fn pod_flag_becomes_netns_name_and_refuses_an_explicit_net() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct T {
+            #[command(flatten)]
+            args: super::RunArgs,
+        }
+        let parse = |argv: &[&str]| T::try_parse_from(argv).unwrap().args;
+
+        // `--pod wp` alone → the pod's netns name, `pod-wp`.
+        let joined = super::run_opts_from_args(parse(&["run", "--pod", "wp", "busybox"]), false)
+            .expect("`--pod` alone is valid");
+        assert_eq!(joined.pod.as_deref(), Some("pod-wp"));
+
+        // No `--pod` → no pod membership.
+        let plain = super::run_opts_from_args(parse(&["run", "busybox"]), false).unwrap();
+        assert!(plain.pod.is_none());
+
+        // `--pod` + a custom `--net` → refused (mutually exclusive).
+        let clash =
+            super::run_opts_from_args(parse(&["run", "--net", "mynet", "--pod", "wp", "busybox"]), false);
+        assert!(
+            clash.is_err(),
+            "--pod with an explicit --net <network> must be refused, not silently ignored"
+        );
+    }
+
     /// Relative bind sources are anchored to the caller's CWD before the 2nd
     /// pass (which runs elsewhere); named volumes and absolute paths are not
     /// touched, and neither is the rest of the spec (`:ro`).
