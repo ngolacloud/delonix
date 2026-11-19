@@ -1,0 +1,102 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "schemaVersion": 39,
+  "title": "Delonix Runtime",
+  "tags": ["delonix", "runtime"],
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "10s",
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Containers running",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [{ "expr": "delonix_containers_running", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Containers total",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [{ "expr": "delonix_containers_total", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "VMs running",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [{ "expr": "delonix_vms_running", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Memory used (bytes)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "delonix_memory_bytes_used", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Unmeasured net containers",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "delonix_network_unmeasured_containers", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Aggregate network throughput (bytes/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "rate(delonix_network_rx_bytes[1m])", "legendFormat": "rx", "refId": "A" },
+        { "expr": "rate(delonix_network_tx_bytes[1m])", "legendFormat": "tx", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Storage usage by area (bytes)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "delonix_storage_bytes_images", "legendFormat": "images", "refId": "A" },
+        { "expr": "delonix_storage_bytes_volumes", "legendFormat": "volumes", "refId": "B" },
+        { "expr": "delonix_storage_bytes_vm_images", "legendFormat": "vm_images", "refId": "C" },
+        { "expr": "delonix_storage_bytes_containers", "legendFormat": "containers", "refId": "D" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-workload CPU usage (rate, cores)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "rate(delonix_workload_cpu_usage_seconds_total[1m])", "legendFormat": "{{name}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-workload memory (bytes)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "delonix_workload_memory_current_bytes", "legendFormat": "{{name}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "CRI events (created totals)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "delonix_cri_pod_sandboxes_created_total", "legendFormat": "pod sandboxes", "refId": "A" },
+        { "expr": "delonix_cri_containers_created_total", "legendFormat": "containers", "refId": "B" },
+        { "expr": "delonix_cri_images_pulled_total", "legendFormat": "images pulled", "refId": "C" }
+      ]
+    }
+  ]
+}

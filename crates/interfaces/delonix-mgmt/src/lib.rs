@@ -181,7 +181,38 @@ pub fn serve_blocking_with(
             base.clone(),
             Arc::clone(&engine),
         ));
-        serve_over_uds(uds, router(AppState { base, bin, engine })).await
+
+        let state = AppState { base, bin, engine };
+
+        // Prometheus `/metrics` over TCP (OPTIONAL): a dedicated HTTP listener
+        // enabled by `DELONIX_MGMT_METRICS_ADDR` (e.g. `0.0.0.0:9100`). The rich
+        // `/metrics` of this crate — the one that recomputes the resource gauges
+        // (containers/vms/memory/network/storage) and the per-workload series on
+        // every scrape — otherwise lives ONLY on the management unix socket, which
+        // Prometheus cannot scrape without a proxy; and the TCP `/metrics` of
+        // `delonix-cri` carries only the CRI event counters (its resource gauges
+        // read zero, nothing recomputes them in that process). This listener
+        // closes that gap: a single TCP endpoint with the WHOLE registry, gauges
+        // and all. It serves EXCLUSIVELY the `/metrics` route — never the
+        // management routes (exec/run/rm are arbitrary code execution and stay on
+        // the euid-checked unix socket). Off by default → no cost, no exposure.
+        if let Some(maddr) = std::env::var_os("DELONIX_MGMT_METRICS_ADDR") {
+            let maddr = maddr.to_string_lossy().into_owned();
+            let metrics_state = state.clone();
+            tokio::spawn(async move {
+                match tokio::net::TcpListener::bind(&maddr).await {
+                    Ok(l) => {
+                        eprintln!("delonix-mgmt: /metrics (Prometheus, full registry) at http://{maddr}/metrics");
+                        let _ = axum::serve(l, metrics_only_router(metrics_state)).await;
+                    }
+                    Err(e) => {
+                        eprintln!("delonix-mgmt: /metrics (TCP) bind failed on {maddr}: {e}");
+                    }
+                }
+            });
+        }
+
+        serve_over_uds(uds, router(state)).await
     })
 }
 
@@ -293,6 +324,18 @@ async fn serve_over_uds(uds: tokio::net::UnixListener, app: Router) -> Result<()
                 .await;
         });
     }
+}
+
+/// A router that serves ONLY `GET /metrics`, for the optional TCP listener
+/// gated by `DELONIX_MGMT_METRICS_ADDR`. Deliberately NOT [`router`]: the TCP
+/// surface must carry the Prometheus endpoint and nothing else — the management
+/// routes (exec/run/rm are arbitrary code execution) stay on the euid-checked
+/// unix socket. Same handler as the socket's `/metrics`, so the registry and the
+/// per-scrape recompute are identical on both surfaces.
+fn metrics_only_router(state: AppState) -> Router {
+    Router::new()
+        .route("/metrics", get(metrics))
+        .with_state(state)
 }
 
 /// The API routes. Exposed for tests (no socket, via `oneshot`).
@@ -1799,6 +1842,41 @@ mod tests {
         let body = String::from_utf8_lossy(&bytes);
         // The shared registry's `delonix_build_info` must always be present.
         assert!(body.contains("delonix_build_info"), "body: {body}");
+    }
+
+    /// The TCP `/metrics` listener (`DELONIX_MGMT_METRICS_ADDR`) must carry the
+    /// Prometheus endpoint and NOTHING else — the management routes
+    /// (exec/run/rm) stay on the euid-checked unix socket. Exercises the exact
+    /// router the production listener builds via `metrics_only_router`.
+    #[tokio::test]
+    async fn metrics_only_router_serves_metrics_but_not_management_routes() {
+        let (st, _d) = test_state();
+        let app = metrics_only_router(st);
+
+        // `/metrics` is served, with the full registry.
+        let resp = app
+            .clone()
+            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&bytes).contains("delonix_build_info"));
+
+        // Management routes are ABSENT: the arbitrary-code-execution surface
+        // must never ride on the TCP metrics port.
+        for uri in ["/v1/containers", "/v1/volumes", "/v1/dash"] {
+            let resp = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "{uri} must not be reachable on the metrics-only router"
+            );
+        }
     }
 
     #[tokio::test]
