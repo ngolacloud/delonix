@@ -1,0 +1,1 @@
+{"tool": "spiffe-spire", "mode": 1, "phase": "H0", "state": "NOT_TESTED", "privilege": "rootless", "notes": "Node mTLS uses an own CA (rustls/rcgen self-signed). No X.509-SVID / spiffe:// URI SAN yet, and no PID->workload attestation API. Acceptance: a lab SPIRE server issues the node certificate and the node API accepts it."}

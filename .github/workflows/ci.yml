@@ -563,6 +563,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Compatibility matrix matches tests/interop
+        # docs/compatibility.md is GENERATED from tests/interop/results/*.jsonl by
+        # scripts/gen_compatibility.py (pure stdlib, no build needed). This fails on a
+        # hand-edit, a stale matrix, a record that claims "compatible" (PASS) without a
+        # tool version + proof, or an artifact_ref that does not exist in the tree.
+        run: python3 scripts/gen_compatibility.py --check
       - uses: ./.github/actions/protoc
       - name: Install the pinned toolchain
         run: rustup show
