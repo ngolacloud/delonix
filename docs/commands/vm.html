@@ -402,7 +402,7 @@ nodes.</p>
 <p class='src-link'>📄 Implementação real em Rust: <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix-runtime-bin/src/cmd/vm.rs"><code>cmd/vm.rs</code></a></p>
 <div class='help'><div class='help-note lang-pt'>Saída real do binário (em inglês).</div><div class='help-note lang-en'>Real output of the binary (English).</div><pre><code>Usage: delonix vm &lt;COMMAND&gt;
 
-Commands:
+Lifecycle Commands:
   clone            Clone a VM into a new, independent one — its own disk, MAC and UUID (libvirt)
   cloud-init       Change a STOPPED VM&#x27;s cloud-init — hostname, user, SSH keys — for its next boot
   create           Create (or auto-recover) a VM
@@ -417,34 +417,40 @@ Commands:
   template         Mark a VM as a template: a frozen base for `vm clone`, which does not boot (libvirt)
   unpause          Resume a VM suspended with `pause`. Refuses a VM that is not paused
   update           Add vCPUs, memory, disks or NICs to a VM: live when it RUNS, for the next boot when STOPPED
+
+Inspect Commands:
   ls               List the VMs
+
+Interact Commands:
   console          Attach to the VM&#x27;s serial console (interactive terminal)
   ssh              SSH into a VM by NAME, or straight to an address
   vnc              Print the VNC address of a graphical VM (created with `--vnc`, libvirt)
+
+Configure Commands:
   default-backend  Get or set the default VM backend
+
+Networking Commands:
   bridge           EXPERIMENTAL (root): give a libvirt VM DIRECT IP reachability to a container SDN network
   reach            Which published ports a VM can actually reach, and how to fix the rest
   unbridge         Tear down a `vm bridge` (dry-run without `--apply`)
+
+Storage Commands:
   image            VM image management — build/pull/push/ls/rm/describe/import/convert/init/ls-remote
+
+Declarative Commands:
   apply            Apply the `kind: VirtualMachine` documents of a manifest
   init             Bootstrap a project with a VM manifest
+
+Maintenance Commands:
   prune            Reclaim the VM state directory: everything in it no VM record accounts for
   snapshot         Point-in-time snapshots of a VM (checkpoints in the VM&#x27;s own disk)
-  help             Print this message or the help of the given subcommand(s)
+
+Commands:
+  logs             Read the VM&#x27;s captured serial console — boot/kernel/systemd/app output
 
 Options:
   -h, --help
           Print help (see a summary with &#x27;-h&#x27;)
-
-COMMAND MAP:
-  Lifecycle    create · destroy · stop · start · restart · clone · template · migrate · pause · unpause · cloud-init · resize · update · move
-  Inspect      ls
-  Interact     console · ssh · vnc
-  Configure    default-backend
-  Networking   reach · bridge · unbridge
-  Storage      image
-  Declarative  init · apply
-  Maintenance  prune · snapshot
 
 EXAMPLES:
   # the official golden image, ready to boot without installing anything
@@ -541,20 +547,17 @@ SEE ALSO:
 <p class='intro'>libvirt: a snapshot of a RUNNING VM is a system checkpoint — memory + disk — and of a stopped one it is disk-only; either survives a <code>vm stop</code>/<code>vm start</code>. cloud-hypervisor: stopped VMs only, because the running vmm holds the disk exclusively and CH has no live disk-snapshot API — it says so instead of writing nothing.</p>
 <div class='help'><div class='help-note lang-pt'>Saída real do binário (em inglês).</div><div class='help-note lang-en'>Real output of the binary (English).</div><pre><code>Usage: delonix vm snapshot &lt;COMMAND&gt;
 
-Commands:
+Lifecycle Commands:
   create   Take a named snapshot (memory + disk if the VM is running, disk-only if it is stopped)
   restore  Revert the VM to a named snapshot
   rm       Delete a snapshot (its state in the disk goes with it)
+
+Inspect Commands:
   ls       List the VM&#x27;s snapshots
-  help     Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help
           Print help (see a summary with &#x27;-h&#x27;)
-
-COMMAND MAP:
-  Lifecycle  create · rm · restore
-  Inspect    ls
 
 EXAMPLES:
   # a checkpoint before an upgrade — of a RUNNING VM it takes the memory too
@@ -775,28 +778,27 @@ SEE ALSO:
 <p class='intro'>Everything about the DISK, never a running instance — one nested group instead of flat verbs, so <code>vm ls</code>/<code>vm rm</code> never have to answer &quot;an instance or an image?&quot; (<code>image vm</code> retired, folded in here together with the five verbs that were already flat directly under <code>vm</code> — <code>build</code>/<code>convert</code>/<code>ls-remote</code>/<code>pull</code>/<code>push</code> — which is why those five no longer have their own <code>VmCmd</code> variant; see AGENTS.md&#x27;s &quot;image vm → vm image&quot; section).</p>
 <div class='help'><div class='help-note lang-pt'>Saída real do binário (em inglês).</div><div class='help-note lang-en'>Real output of the binary (English).</div><pre><code>Usage: delonix vm image &lt;COMMAND&gt;
 
-Commands:
+Lifecycle Commands:
   pull       Pull a VM image from an OCI registry
   push       Publish a local VM image to an OCI registry (single-blob artifact)
   rm         Remove a local VM image (its disk and its metadata)
+
+Create Commands:
   build      Build a VM image
   import     Register an existing disk image under a name, so `vm create --disk &lt;name&gt;` and `vm image push` can use it
   init       Scaffold a `VMfile` (and a cloud-init) for building your own image
+
+Inspect Commands:
   describe   Human-readable detail of one or more VM images, `kubectl describe` style
   ls         List the local VM images
   ls-remote  List the tags available in a remote OCI repository
+
+Maintenance Commands:
   convert    Convert a VM disk between `qcow2` and `raw`
-  help       Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help
           Print help (see a summary with &#x27;-h&#x27;)
-
-COMMAND MAP:
-  Lifecycle    rm · push · pull
-  Create       import · init · build
-  Inspect      ls · describe · ls-remote
-  Maintenance  convert
 
 EXAMPLES:
   # what golden images this node already has
@@ -885,6 +887,11 @@ Options:
 
       --disk &lt;DISK&gt;
           Base disk (qcow2/raw) — becomes a per-VM overlay. Omit to use the local golden VM image (if there is exactly one; `vm image ls`)
+
+      --distro &lt;DISTRO&gt;
+          Base distro of the VM (semantic selector: `ubuntu`|`debian`|`rocky`|`fedora`). Without `--disk`/`--url-img` it picks the matching official `base` image and first checks the VM image repository is reachable; with `--disk` it cross-checks the resolved image&#x27;s own distro and refuses a mismatch
+          
+          [possible values: ubuntu, debian, rocky, fedora]
 
       --vcpus &lt;VCPUS&gt;
           vCPUs (default: 1, or the image&#x27;s `VCPUS` — see `HYPERVISOR`/`VCPUS` in `delonix vm image init` — when `--disk` names a local image)
@@ -985,6 +992,9 @@ Options:
       --rm-after &lt;DURATION&gt;
           Like `--rm`, but keep the stopped VM for this long first (`30s`, `10m`, `2h`, `1d`) so a proof of concept can be inspected or restarted before it goes
 
+      --capture-serial
+          Capture the serial console to a file for `delonix vm logs` (and log shippers) instead of keeping it interactive — `vm console` is then unavailable (one guest serial port)
+
   -h, --help
           Print help (see a summary with &#x27;-h&#x27;)
 
@@ -1030,7 +1040,10 @@ Options:
   -A, --all
           Also list the VMs that are not up (stopped or crashed).
           
-          Without it `ls` shows what is UP — running or paused — the same cut `docker ps` makes.
+          Without it `ls` shows what is UP — running or paused — the same cut `docker ps` makes. `-a` is accepted too, for `docker ps -a` parity.
+
+  -q, --quiet
+          Print only the VM names, one per line (to compose with `rm`/`stop`) — the VM analogue of `container ls -q`. Ignored with `-o json`
 
       --namespace &lt;NAMESPACE&gt;
           Show only the VMs of this isolation namespace (see `vm create --namespace`). Omit to list every namespace.

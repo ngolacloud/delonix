@@ -1051,6 +1051,9 @@ pub enum VmCmd {
         /// so a proof of concept can be inspected or restarted before it goes.
         #[arg(long = "rm-after", value_name = "DURATION")]
         rm_after: Option<String>,
+        /// Capture the serial console to a file for `delonix vm logs` (and log shippers) instead of keeping it interactive — `vm console` is then unavailable (one guest serial port).
+        #[arg(long = "capture-serial")]
+        capture_serial: bool,
     },
     /// VM image management — build/pull/push/ls/rm/describe/import/convert/init/ls-remote.
     ///
@@ -1131,6 +1134,20 @@ pub enum VmCmd {
         /// Key that detaches the console, as `^X` (default `^D`). Also settable via `$DELONIX_CONSOLE_ESCAPE`.
         #[arg(short = 'e', long = "escape")]
         escape: Option<String>,
+    },
+    /// Read the VM's captured serial console — boot/kernel/systemd/app output.
+    ///
+    /// Needs the VM created with `--capture-serial` (the file a log shipper
+    /// tails). Mirrors `container logs`: non-interactive, follows on `-f`.
+    Logs {
+        #[arg(add = ArgValueCandidates::new(super::complete::vms))]
+        name: String,
+        /// Follow the serial log as new lines arrive (Ctrl-C to stop).
+        #[arg(short = 'f', long = "follow")]
+        follow: bool,
+        /// Print only the last N lines of the existing log first.
+        #[arg(long = "tail", value_name = "N")]
+        tail: Option<usize>,
     },
     /// SSH into a VM by NAME, or straight to an address.
     ///
@@ -3554,6 +3571,7 @@ pub fn run(action: VmCmd) -> Result<()> {
             boot_timeout,
             rm,
             rm_after,
+            capture_serial,
         } => {
             // The node's runtime policy, BEFORE the image is resolved, fetched
             // or written — the same placement, and the same reason, as
@@ -3828,6 +3846,10 @@ pub fn run(action: VmCmd) -> Result<()> {
                 vnc,
                 static_ip: ip,
                 allow_mac_spoofing,
+                // Off by default so `vm console` stays interactive; `--capture-serial`
+                // redirects ttyS0 to a file instead, which `vm logs` and a log
+                // shipper read. One guest serial port, so it is one or the other.
+                serial_capture: capture_serial,
                 // Advanced libvirt knobs are declarative-only (`kind: VirtualMachine`), not CLI flags.
                 ..Default::default()
             };
@@ -4157,6 +4179,7 @@ pub fn run(action: VmCmd) -> Result<()> {
             Ok(())
         }
         VmCmd::Console { name, escape } => cmd_console(&base, &name, escape.as_deref()),
+        VmCmd::Logs { name, follow, tail } => cmd_vm_logs(&base, &name, follow, tail),
         VmCmd::Ssh {
             target,
             user,
@@ -5790,6 +5813,90 @@ fn print_vm_next_steps(
 }
 
 /// local tty (raw mode); libvirt: delegates to `virsh console` (which does it).
+/// `vm logs` — the non-interactive sibling of `vm console`: read the VM's
+/// captured serial console from its file. Requires the VM created with
+/// `--capture-serial` (console and capture are mutually exclusive — one guest
+/// serial port). Raw bytes, because the serial stream is not line-tagged like
+/// the CRI container log; a log shipper tails the same `<vmdir>/<name>.serial`.
+pub(crate) fn cmd_vm_logs(
+    base: &std::path::Path,
+    name: &str,
+    follow: bool,
+    tail: Option<usize>,
+) -> Result<()> {
+    use std::io::{Read, Seek, Write};
+    let (ns, bare) = name.split_once('/').unwrap_or(("default", name));
+    let vmdir = delonix_compute::vm::vms_root(base, ns);
+    let vm = delonix_vm::status(base, name)?;
+    let path = delonix_vm::serial_log_path(&vmdir, bare);
+    // A VM without capture has no file to read — and never will, so say how to
+    // get one instead of failing on a missing path. Mirrors the hint `vm
+    // console` prints in the opposite (capture-on) case.
+    if !vm.boot.serial_capture {
+        return Err(Error::Invalid(super::po::tf(
+            "VM '{name}' was not created with --capture-serial, so it keeps an interactive console and writes no serial log — recreate it with `delonix vm create {name} … --capture-serial`, or attach live with `delonix vm console {name}`",
+            &[("name", name)],
+        )));
+    }
+    let mut f = std::fs::File::open(&path).map_err(|e| {
+        // A system hypervisor (libvirt `qemu:///system`) writes the serial file
+        // as root 0600, so a rootless caller gets EACCES, not ENOENT — say which
+        // one, since the fix differs (wait vs. use a rootless backend / sudo).
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            Error::Invalid(super::po::tf(
+                "serial log of VM '{name}' at {path} is not readable by this user — the system hypervisor wrote it as root; recreate the VM on a rootless backend (`--backend cloud-hypervisor`) or read it with elevated privileges",
+                &[("name", name), ("path", &path.display().to_string())],
+            ))
+        } else {
+            Error::Invalid(super::po::tf(
+                "no serial log yet for VM '{name}' at {path} — it appears once the VM boots with capture on",
+                &[("name", name), ("path", &path.display().to_string())],
+            ))
+        }
+    })?;
+    let mut out = std::io::stdout();
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf)?;
+    if let Some(n) = tail {
+        // Serial is raw text (no CRI record), so `--tail` is a plain last-N-lines.
+        let text = String::from_utf8_lossy(&buf);
+        let lines: Vec<&str> = text.lines().collect();
+        let start = lines.len().saturating_sub(n);
+        for line in &lines[start..] {
+            println!("{line}");
+        }
+    } else {
+        out.write_all(&buf)?;
+    }
+    if !follow {
+        return Ok(());
+    }
+    // `-f`: the same poll-append loop `container logs -f` uses — reopen if the
+    // file shrinks (serial reset on reboot), end once the VM stops running.
+    let mut pos = f.stream_position()?;
+    loop {
+        out.flush().ok();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if len < pos {
+            f = std::fs::File::open(&path)?;
+            pos = 0;
+        }
+        if len > pos {
+            f.seek(std::io::SeekFrom::Start(pos))?;
+            buf.clear();
+            f.read_to_end(&mut buf)?;
+            pos += buf.len() as u64;
+            out.write_all(&buf)?;
+            continue;
+        }
+        let vm = delonix_vm::status(base, name)?;
+        if !matches!(vm.status, delonix_model::records::Status::Running) {
+            return Ok(());
+        }
+    }
+}
+
 pub(crate) fn cmd_console(base: &std::path::Path, name: &str, escape: Option<&str>) -> Result<()> {
     // The console/serial sockets live beside the record, in the VM's own
     // namespace directory (ADR-0086 D7). `name` may be qualified `ns/name`; the
