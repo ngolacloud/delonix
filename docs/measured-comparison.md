@@ -1,5 +1,15 @@
 # Docker × Podman × Delonix — measured comparison
 
+> **Default-network change (2026-11-19), read before the latency lines.** When this
+> page was measured the rootless Delonix default was `--net host` (shared host netns,
+> no network plane — the **91 ms** base of line 4a). The default is now **`--net
+> private`**: the container gets its own netns with a slirp4netns outbound uplink,
+> like Podman. So a bare `delonix run` today pays the per-container slirp cost — the
+> shape already measured for Podman (**268 ms**, the `slirp` column) and for Delonix
+> under `--net <network>` (line 4b, **216 ms**), NOT the 91 ms `host` figure. The
+> numbers below are kept as-measured; only the default they were taken under moved.
+> `--net host` still gives the old shared-netns behaviour when asked for explicitly.
+
 > **What this document is.** A table where **every line was run**, on all three
 > tools, on the same machine, on the same day. It does not decide who is better: it
 > shows what each one does, including where Delonix is **worse**.
@@ -72,7 +82,7 @@ is already the normal behaviour.
 
 **The SAFE configuration is the slow one, and the cost is in the cold start of the network plane.** The
 fair comparison is line 4b, not 4a: docker's `bridge` **already** gives the container its
-own netns and its own IP, and Delonix's `host` default does not. There, Delonix does
+own netns and its own IP, and Delonix's then-default `host` did not (the default is now `--net private`, which does). There, Delonix does
 **216 ms** versus docker's 208 — a technical tie, not the wide loss a first
 reading of this bench suggested (see the method note below). But line 4c shows where it hurts:
 when the network plane has to come up from scratch, **344 ms**, and docker/podman never
@@ -116,7 +126,7 @@ Two claims from that battery also did not survive:
    `run --help | grep -E '^\s+-i,'`. It measured the absence of a **flag** and concluded the absence
    of the **capability** — in the very document that promises every line was run.
 2. **The «two findings» were one.** The first said `--net host` with `-p` fails because the
-   combination is contradictory; it isn't — `--net host` is the **default** mode and `-p` over
+   combination is contradictory; it isn't — `--net host` was the **default** mode (now `--net private`) and `-p` over
    it is the normal, supported slirp-per-container path
    ([`container.rs:3466`](../crates/delonix-runtime-bin/src/cmd/container.rs)). What made
    `add_hostfwd` fail was the second finding: an orphaned `slirp4netns` holding the port. The
@@ -175,7 +185,7 @@ so it is not named.
    precisely the danger: with `--runs 1` the published number would be sixteen
    seconds. `bench.sh` now explicitly warms up all three.
 2. **The first measurement of line 4c did not measure line 4c.** It was done with
-   `--net host`, which is the default and **raises no network plane at all** — it gave
+   `--net host`, which WAS the default (now `--net private`) and **raises no network plane at all** — it gave
    74 ms against 63-78 for the control, i.e. it measured 4a three times. 4c needs
    `--net <custom-network>`, which is what forces the holder to come up.
 
