@@ -1815,6 +1815,8 @@ mod tui {
             timeout_secs: None,
             // The dashboard shell is interactive (attached pty), never detached.
             detach: false,
+            // The dashboard shell inherits the container's profile, never elevated.
+            privileged: false,
         };
         let _code = delonix_linux::exec_with(&c, &command, true, &overrides)?;
         Ok(())

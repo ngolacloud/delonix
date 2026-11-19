@@ -5567,6 +5567,9 @@ msgstr "Corre em segundo plano e imprime o id"
 msgid "Run the command in the background and return immediately."
 msgstr "Corre o comando em segundo plano e devolve imediatamente."
 
+msgid "Run this command with full capabilities (seccomp/AppArmor off) for this call only — does not change the container or other execs."
+msgstr "Corre este comando com todas as capacidades (seccomp/AppArmor desligados) só nesta chamada — não altera o container nem os outros exec."
+
 msgid "Run the process as this user: `uid[:gid]` or `name[:group]` (docker `--user`). Names are resolved in the image's `/etc/passwd`/`/etc/group`"
 msgstr "Corre o processo como este utilizador: `uid[:gid]` ou `nome[:grupo]` (o `--user` do docker). Os nomes resolvem-se no `/etc/passwd`/`/etc/group` da imagem"
 

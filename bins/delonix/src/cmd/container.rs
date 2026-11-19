@@ -1649,6 +1649,10 @@ pub struct ExecArgs {
     /// Default: the container's own configured user.
     #[arg(short = 'u', long = "user")]
     pub(crate) user: Option<String>,
+    /// Run this command with full capabilities (seccomp/AppArmor off) for this
+    /// call only — does not change the container or other execs.
+    #[arg(long)]
+    privileged: bool,
     #[arg(add = ArgValueCandidates::new(super::complete::containers))]
     id: String,
     /// Command + arguments. Omit it for the bash/sh fallback shell.
@@ -2571,6 +2575,7 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             env_file,
             workdir,
             user,
+            privileged,
             id,
             command,
         }) => cmd_exec(
@@ -2584,6 +2589,7 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             &env_file,
             workdir.as_deref(),
             user.as_deref(),
+            privileged,
             &command,
         ),
         ContainerCmd::Pause { ids } => for_each_id(&ids, |id| cmd_freeze(&store, id, true)),
@@ -6582,6 +6588,7 @@ pub(crate) fn cmd_exec(
     env_file: &[String],
     workdir: Option<&str>,
     user: Option<&str>,
+    privileged: bool,
     command: &[String],
 ) -> Result<()> {
     let c = find(store, id)?;
@@ -6674,6 +6681,10 @@ pub(crate) fn cmd_exec(
         // returns right after launching it (docker `exec -d`). Mutually
         // exclusive with `-i`/`-t`, enforced by clap at parse time.
         detach,
+        // `exec --privileged`: elevate THIS call's caps/seccomp/AppArmor only;
+        // OR-ed with the container's own `privileged`, never weakening the
+        // default (docker `exec --privileged`).
+        privileged,
     };
     let code = runtime::exec_with(&c, command, tty, &overrides)?;
     std::process::exit(code);
