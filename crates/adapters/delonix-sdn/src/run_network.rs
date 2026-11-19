@@ -233,17 +233,20 @@ pub struct LaunchAddresses {
 /// resolved by name in a pod, since the re-exec runs in the holder's mount
 /// namespace, where the host's `/etc/resolv.conf` does not exist.
 pub fn launch_addresses(l: &delonix_compute::launch::Launch) -> LaunchAddresses {
+    // `wants_slirp()` covers both `-p` and the default rootless uplink
+    // (`--net private`): either way the container lives behind the slirp and must
+    // use the slirp resolver/address, not the host's.
     let dns = match &l.custom_net {
         Some(n) => crate::infra::resolve_net(n).ok().map(|p| p.bridge_addr),
         None if l.pod => Some(crate::infra::INFRA_GATEWAY.to_string()),
-        None if !l.slirp_ports.is_empty() => Some(crate::SLIRP_DNS.to_string()),
+        None if l.wants_slirp() => Some(crate::SLIRP_DNS.to_string()),
         None => None,
     };
-    // /etc/hosts: the custom network's address, or the slirp's with `-p`.
+    // /etc/hosts: the custom network's address, or the slirp's (ports or default uplink).
     let hosts_ip = l
         .attached_ip
         .clone()
-        .or_else(|| (!l.slirp_ports.is_empty()).then(|| crate::SLIRP_IP.to_string()));
+        .or_else(|| l.wants_slirp().then(|| crate::SLIRP_IP.to_string()));
     LaunchAddresses { dns, hosts_ip }
 }
 

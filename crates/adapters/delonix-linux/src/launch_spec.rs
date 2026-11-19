@@ -34,10 +34,14 @@ pub fn run_spec<'h>(
         inherit_userns: l.inherit_userns(),
         log_path: l.log_path.clone(),
         mounts: l.mounts.clone(),
-        on_started: if l.slirp_ports.is_empty() {
-            None
-        } else {
+        // Attach slirp4netns whenever the new netns wants an uplink — published
+        // ports (`-p`) OR the default rootless outbound uplink (`--net private`).
+        // `--net none` wants a netns with NO connectivity, so it is excluded by
+        // `wants_slirp`. Gated on `new_netns` so the re-exec pass never re-attaches.
+        on_started: if l.new_netns() && l.wants_slirp() {
             Some(slirp_hook)
+        } else {
+            None
         },
         hosts_ip,
         dns,
@@ -81,6 +85,7 @@ mod tests {
     fn launch() -> Launch {
         Launch {
             slirp_ports: vec![],
+            rootless_uplink: false,
             rootfs: "/r".into(),
             mounts: vec![],
             detach: true,

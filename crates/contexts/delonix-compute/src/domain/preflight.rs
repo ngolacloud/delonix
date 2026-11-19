@@ -19,11 +19,12 @@ pub fn net_container_target(net: &str) -> Option<&str> {
     net.strip_prefix("container:").filter(|n| !n.is_empty())
 }
 
-/// The custom network a `--net` value names: `host`, `none` and
-/// `container:<name>` are the three built-in modes, anything else is a network.
-/// PURE.
+/// The custom network a `--net` value names: `private` (the rootless default),
+/// `host`, `none` and `container:<name>` are the built-in modes, anything else is
+/// a network. PURE.
 pub fn custom_net_name(net: &str) -> Option<String> {
-    (net != "host" && net != "none" && net_container_target(net).is_none()).then(|| net.to_string())
+    (net != "private" && net != "host" && net != "none" && net_container_target(net).is_none())
+        .then(|| net.to_string())
 }
 
 /// Refuses the flag combinations that cannot mean anything. PURE.
