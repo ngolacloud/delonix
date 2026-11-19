@@ -6,7 +6,7 @@ Pinned, not floating — reproducibility comes from the tags here plus
 
 | Service | Image (pinned) | Role | Profile | State |
 |---|---|---|---|---|
-| app | built from `Dockerfile` (node:24-slim) | the Next.js service | default | validated |
+| app | built from `Dockerfile` (distroless/nodejs22) | the Next.js service | default | validated |
 | redis | `redis:7.4-alpine` | read-through cache (`lib/server/cache`) | default | upstream-available |
 | rabbitmq | `rabbitmq:4.0-management-alpine` | `note.created` pub/sub (`lib/server/messaging`) | default | upstream-available |
 | sonarqube | `sonarqube:lts-community` | code quality | quality | upstream-available |
@@ -26,9 +26,10 @@ Validated on: 2026-10-22.
 (`output: "standalone"` in `next.config.ts`): stage one runs `next build` and
 `scripts/copy-static.mjs`, stage two carries only `.next/standalone` —
 `server.js`, the traced production `node_modules`, and the browser assets.
-`docker/entrypoint.sh` keeps `node` as PID 1 so SIGTERM reaches the ordered
-shutdown (`docs/adr/0003-shutdown.md`). It mirrors the `Delonixfile` used by
-`delonix build`; keep the two in step.
+The distroless runtime has no shell: `node` is the entrypoint
+(`/nodejs/bin/node`) and runs `server.js` as PID 1, so SIGTERM reaches the
+ordered shutdown (`docs/adr/0003-shutdown.md`). It mirrors the `Delonixfile`
+used by `delonix build`; keep the two in step.
 
 ## Cache and messaging
 

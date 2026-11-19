@@ -17916,3 +17916,27 @@ msgstr "anexa-a à imagem no seu registo como attestation in-toto"
 # container foreground de um delonix anterior à captura
 msgid "no logs for {name} at {path}: {err} (a container started in foreground by an older delonix wrote no log file — restart it to begin capturing)"
 msgstr "sem logs para {name} em {path}: {err} (um container arrancado em foreground por um delonix mais antigo não escrevia ficheiro de log — reinicia-o para começar a capturar)"
+
+# ---- distroless-por-omissão + vm --distro (sessão feat/distroless-default-vm-distro) ----
+
+msgid "distroless image {reference} not found; falling back to {fallback}"
+msgstr "imagem distroless {reference} não encontrada; a recorrer a {fallback}"
+
+msgid "--distro is ignored with --url-img (the URL is the image)"
+msgstr "--distro é ignorado com --url-img (o URL é a imagem)"
+
+msgid "--distro {want} does not match image '{disk}', which is {have}"
+msgstr "--distro {want} não corresponde à imagem '{disk}', que é {have}"
+
+msgid "--distro {want}: image '{disk}' records no distro, cannot verify"
+msgstr "--distro {want}: a imagem '{disk}' não regista distro, não é possível verificar"
+
+msgid "VM image repository '{repo}' is not reachable: {err} — check connectivity, or `delonix image login ghcr.io` for a private one"
+msgstr "o repositório de imagens de VM '{repo}' está inacessível: {err} — verifica a ligação, ou `delonix image login ghcr.io` se for privado"
+
+msgid "no '{distro}' image is published in '{repo}' — available tags: {tags}"
+msgstr "nenhuma imagem '{distro}' está publicada em '{repo}' — tags disponíveis: {tags}"
+
+msgid "Base distro of the VM (semantic selector: `ubuntu`|`debian`|`rocky`|`fedora`). Without `--disk`/`--url-img` it picks the matching official `base` image and first checks the VM image repository is reachable; with `--disk` it cross-checks the resolved image's own distro and refuses a mismatch"
+msgstr "Distro base da VM (selector semântico: `ubuntu`|`debian`|`rocky`|`fedora`). Sem `--disk`/`--url-img` escolhe a imagem `base` oficial correspondente e verifica primeiro que o repositório de imagens de VM está acessível; com `--disk` confronta a distro da própria imagem resolvida e recusa uma divergência"
+

@@ -930,6 +930,9 @@ pub enum VmCmd {
         /// local golden VM image (if there is exactly one; `vm image ls`).
         #[arg(long, add = ArgValueCandidates::new(super::complete::vm_images))]
         disk: Option<String>,
+        /// Base distro of the VM (semantic selector: `ubuntu`|`debian`|`rocky`|`fedora`). Without `--disk`/`--url-img` it picks the matching official `base` image and first checks the VM image repository is reachable; with `--disk` it cross-checks the resolved image's own distro and refuses a mismatch
+        #[arg(long, value_enum)]
+        distro: Option<super::vmimage::Distro>,
         /// vCPUs (default: 1, or the image's `VCPUS` — see `HYPERVISOR`/`VCPUS`
         /// in `delonix vm image init` — when `--disk` names a local image).
         #[arg(long)]
@@ -3520,6 +3523,7 @@ pub fn run(action: VmCmd) -> Result<()> {
             disk_size_gib,
             url_img,
             disk,
+            distro,
             vcpus,
             memory,
             vcpus_max,
@@ -3591,6 +3595,18 @@ pub fn run(action: VmCmd) -> Result<()> {
                 // say, so nothing else gets consulted — not the local store,
                 // not the official image.
                 (Some(url), _) => {
+                    // `--distro` is a selector for the OFFICIAL base image; a raw
+                    // URL IS the image, so the flag has nothing to select and is
+                    // not silently honoured — the harness forbids a flag that
+                    // looks applied but is not.
+                    if distro.is_some() {
+                        eprintln!(
+                            "{}",
+                            super::po::t(
+                                "--distro is ignored with --url-img (the URL is the image)"
+                            )
+                        );
+                    }
                     let store = super::vmimage::VmImageStore::open(super::util::state_root())?;
                     super::vmimage::download_url_base(&store, &url)?
                         .to_string_lossy()
@@ -3603,16 +3619,46 @@ pub fn run(action: VmCmd) -> Result<()> {
                     let store = super::vmimage::VmImageStore::open(super::util::state_root())?;
                     let (path, meta) = resolve_image_ref(&store, &d);
                     image_meta = meta;
+                    // `--distro` beside an explicit `--disk` is a GUARD, not a
+                    // selector: the disk already chose the image, so the flag
+                    // can only agree with what it actually is. A mismatch is a
+                    // mistake worth stopping (someone asked for Debian and
+                    // pointed at an Ubuntu disk); an image whose metadata does
+                    // not record a distro (pre-v0.17.0, or `vm pull`ed) cannot
+                    // be checked, so it warns instead of refusing.
+                    if let Some(want) = distro {
+                        match image_meta.as_ref().and_then(|m| m.distro.as_deref()) {
+                            Some(have) if have != want.as_str() => {
+                                return Err(Error::Invalid(super::po::tf(
+                                    "--distro {want} does not match image '{disk}', which is {have}",
+                                    &[("want", want.as_str()), ("disk", &d), ("have", have)],
+                                )));
+                            }
+                            Some(_) => {}
+                            None => eprintln!(
+                                "{}",
+                                super::po::tf(
+                                    "--distro {want}: image '{disk}' records no distro, cannot verify",
+                                    &[("want", want.as_str()), ("disk", &d)],
+                                )
+                            ),
+                        }
+                    }
                     path
                 }
                 (None, None) => {
                     let store = super::vmimage::VmImageStore::open(super::util::state_root())?;
-                    // Downloads the official golden when nothing is local — the
-                    // same helper `cluster kubeadm` uses. This path used to
-                    // fail with "run `vm image build` (or `pull`) first",
+                    // With `--distro` the flag selects the official `base` image
+                    // for that distro, after checking the VM image repository is
+                    // reachable. Without it, the single golden VM image is used
+                    // (the same helper `cluster kubeadm` uses) — this path used
+                    // to fail with "run `vm image build` (or `pull`) first",
                     // which is a research task for an image the project
                     // publishes so it never has to be built by hand.
-                    let tag = super::cluster::resolve_or_pull_vm_image(&store, None, None)?;
+                    let tag = match distro {
+                        Some(d) => super::vmimage::resolve_or_pull_base_for_distro(&store, d)?,
+                        None => super::cluster::resolve_or_pull_vm_image(&store, None, None)?,
+                    };
                     image_meta = store.get(&tag).ok();
                     store.qcow2_path(&tag).to_string_lossy().into_owned()
                 }
