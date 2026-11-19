@@ -1,6 +1,6 @@
 #cloud-config
-# lab-cli — o posto de trabalho. Não leva endereço fixo na placa do lab: é o
-# `lab-dhcp` que lho entrega, e é isso que este cliente serve para PROVAR.
+# lab-cli — the workstation. It gets no fixed address on the lab NIC: it's
+# `lab-dhcp` that hands it one, and that is exactly what this client is meant to PROVE.
 hostname: lab-cli
 fqdn: cli.lab.ngola
 
@@ -16,9 +16,9 @@ package_update: true
 packages:
   - smbclient
   - cifs-utils
-  # Sem isto, `mount -t nfs` falha com "you might need a /sbin/mount.<type>
-  # helper" — e o que se segue e pior que o erro: quem escreve no ponto de
-  # montagem passa a escrever no disco LOCAL, com ar de sucesso.
+  # Without this, `mount -t nfs` fails with "you might need a /sbin/mount.<type>
+  # helper" — and what follows is worse than the error: whoever writes to the mount
+  # point ends up writing to the LOCAL disk, looking like success.
   - nfs-common
   - bind9-dnsutils
 
@@ -34,8 +34,8 @@ write_files:
               macaddress: "52:54:00:5a:b0:13"
             set-name: lab0
             dhcp4: true
-            # A rota por omissão continua a ser a da eth0 (NAT), senão o
-            # cliente perdia a internet para uma LAN que ainda não encaminha.
+            # The default route stays the one on eth0 (NAT), otherwise the
+            # client would lose the internet to a LAN that does not route yet.
             dhcp4-overrides:
               use-routes: false
               use-dns: false

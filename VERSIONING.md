@@ -1,71 +1,71 @@
-# Versões e compatibilidade do Delonix
+# Delonix versioning and compatibility
 
-## Duas linhas de versão
+## Two version lines
 
-O produto renomeou-se de `delonix-runtime` para **Delonix** e **re-baseou o
-número de versão de propósito**:
+The product was renamed from `delonix-runtime` to **Delonix** and **deliberately
+re-based its version number**:
 
-| Linha | Versões | Estado |
+| Line | Versions | State |
 |---|---|---|
-| `delonix-runtime` | `v1.0.0` … `v5.1.1` (2026-08-29 … 2026-10-15) | **congelada** — histórico, não continua |
-| **Delonix** | `0.1.0` em diante | activa |
+| `delonix-runtime` | `v1.0.0` … `v5.1.1` (2026-08-29 … 2026-10-15) | **frozen** — historical, does not continue |
+| **Delonix** | `0.1.0` onward | active |
 
-`0.1.0 < 5.1.1` em SemVer puro. Isto é **intencional** — uma linha nova, não uma
-regressão. As ferramentas que comparam versões têm de o saber; ver abaixo.
+`0.1.0 < 5.1.1` in pure SemVer. This is **intentional** — a new line, not a
+regression. Tools that compare versions must know this; see below.
 
-## Política de compatibilidade (pré-1.0)
+## Compatibility policy (pre-1.0)
 
-Enquanto a linha Delonix estiver em `0.x` (antes de `1.0.0`):
+While the Delonix line is in `0.x` (before `1.0.0`):
 
-- **Patch** (`0.1.0 → 0.1.1`): sem mudanças incompatíveis de contrato.
-- **Minor** (`0.1.0 → 0.2.0`): **pode** quebrar contratos de CLI/API/JSON/schema;
-  cada quebra fica documentada no [CHANGELOG.md](CHANGELOG.md) como `BREAKING`.
-- A estabilização de API para SemVer estrito chega com `1.0.0`
-  (`docs/cli-stability.md` é o contrato que então se aplica).
+- **Patch** (`0.1.0 → 0.1.1`): no incompatible contract changes.
+- **Minor** (`0.1.0 → 0.2.0`): **may** break CLI/API/JSON/schema contracts;
+  each break is documented in the [CHANGELOG.md](CHANGELOG.md) as `BREAKING`.
+- API stabilization for strict SemVer arrives with `1.0.0`
+  (`docs/cli-stability.md` is the contract that applies from then on).
 
-**Contratos operacionais que NÃO mudam com a re-base** (eram estáveis na linha
-5.x e continuam): directórios de estado (`/var/lib/delonix`, `/etc/delonix`,
-`~/.local/share/delonix`), sockets (`/run/delonix-*.sock`), serviços systemd,
-variáveis de ambiente `DELONIX_*`, e os grupos de schema `*.delonix.io`
-(`config.delonix.io/v1`, `compute.delonix.io/v1alpha1`, …). Uma instalação 5.1.1
-mantém o seu estado ao passar para 0.1.0.
+**Operational contracts that do NOT change with the re-base** (they were stable
+on the 5.x line and continue): state directories (`/var/lib/delonix`,
+`/etc/delonix`, `~/.local/share/delonix`), sockets (`/run/delonix-*.sock`),
+systemd services, `DELONIX_*` environment variables, and the `*.delonix.io`
+schema groups (`config.delonix.io/v1`, `compute.delonix.io/v1alpha1`, …). A
+5.1.1 installation keeps its state when moving to 0.1.0.
 
-## O que a descida 5.1.1 → 0.1.0 toca (medido)
+## What the 5.1.1 → 0.1.0 downgrade touches (measured)
 
-| Mecanismo | Efeito da descida | Tratamento |
+| Mechanism | Downgrade effect | Handling |
 |---|---|---|
-| `scripts/version_gate.py` | Partia: `0.1.0 < 5.1.1` (tag contida) | **Resolvido** — portão consciente de linha; só compara dentro da linha e exige conter a `v5.*` mais recente. Testes em `scripts/test_version_gate.py`. |
-| `check_version` (`delonix-node/src/dispatch.rs`) | Igualdade exacta entre `delonix` e os binários-servidores co-instalados | Reconstruir **os 5 binários** (`delonix`, `-cri`, `-mcp`, `-mgmt`, `-node-api`) para `0.1.0` **em conjunto**. O `install.sh` já avisa de binários-irmãos de outra versão no PATH. |
-| `vmimage.rs` (`:4799`, `:4925`) | Descarrega `releases/download/v{version}/delonix-cri-*` | A release `v0.1.0` tem de existir com os 5 binários + `SHA256SUMS(.minisig)`. |
-| GitHub "latest release" | É por **data**, não SemVer | Uma instalação nova via `install.sh` (`VERSION=latest`) obtém `0.1.0` sem problema. |
-| `install.sh` aviso de migração | Match de **prefixo** (`0.64.*`), não ordenação | Inofensivo na descida. |
-| Comparadores SemVer de terceiros | Veriam `0.1.0 < 5.1.1` → não actualizam | **Transição explícita**: anunciar a nova linha/canal; não depender de auto-update por ordenação. Documentar o passo de migração. |
+| `scripts/version_gate.py` | Broke: `0.1.0 < 5.1.1` (tag contained) | **Resolved** — line-aware gate; it only compares within the line and requires containing the most recent `v5.*`. Tests in `scripts/test_version_gate.py`. |
+| `check_version` (`delonix-node/src/dispatch.rs`) | Exact equality between `delonix` and the co-installed server binaries | Rebuild **all 5 binaries** (`delonix`, `-cri`, `-mcp`, `-mgmt`, `-node-api`) to `0.1.0` **together**. `install.sh` already warns about sibling binaries of a different version in the PATH. |
+| `vmimage.rs` (`:4799`, `:4925`) | Downloads `releases/download/v{version}/delonix-cri-*` | The `v0.1.0` release must exist with the 5 binaries + `SHA256SUMS(.minisig)`. |
+| GitHub "latest release" | Is by **date**, not SemVer | A fresh installation via `install.sh` (`VERSION=latest`) obtains `0.1.0` without issue. |
+| `install.sh` migration warning | **Prefix** match (`0.64.*`), not ordering | Harmless on the downgrade. |
+| Third-party SemVer comparators | Would see `0.1.0 < 5.1.1` → do not update | **Explicit transition**: announce the new line/channel; do not rely on auto-update by ordering. Document the migration step. |
 
-## Regras de etiquetagem
+## Tagging rules
 
-- **Nunca** sobrescrever as tags `v1.*`…`v5.*` nem republicar releases imutáveis.
-- As tags da linha Delonix continuam no formato `v<ver>` (`v0.1.0`), porque
-  `release.yml` e `vmimage.rs` compõem `v{version}`.
-- A linha 5.x fica como releases históricas; a `v0.1.0` passa a ser a "latest"
-  por data.
+- **Never** overwrite the `v1.*`…`v5.*` tags or republish immutable releases.
+- The Delonix line tags remain in the `v<ver>` format (`v0.1.0`), because
+  `release.yml` and `vmimage.rs` compose `v{version}`.
+- The 5.x line stays as historical releases; `v0.1.0` becomes the "latest" by
+  date.
 
-## Checklist antes de etiquetar `v0.1.0`
+## Checklist before tagging `v0.1.0`
 
-1. Identidade renomeada e repositório em `github.com/ngolacloud/delonix` (URLs,
-   `repository`, imagem GHCR, Pages, workflows).
+1. Identity renamed and repository at `github.com/ngolacloud/delonix` (URLs,
+   `repository`, GHCR image, Pages, workflows).
 2. `Cargo.toml` `workspace.package.version = "0.1.0"`.
-3. `docs/releases/v0.1.0.md` escrito (o `version_gate.py` exige-o para abrir a
-   linha; `release.yml` publica-o).
-4. Os 5 binários reconstruídos a `0.1.0` (dispatch por igualdade exacta).
-5. `python3 scripts/version_gate.py` verde (abre a linha delonix em 0.1.0).
-6. `python3 scripts/release_verify.py` e o pipeline (`release.yml`) validados:
-   SHA256SUMS, SBOM SPDX, assinatura minisign, SLSA provenance.
-7. Testar instalação limpa e actualização de uma 5.1.1 existente (estado
-   preservado; binários co-instalados coerentes).
+3. `docs/releases/v0.1.0.md` written (`version_gate.py` requires it to open the
+   line; `release.yml` publishes it).
+4. The 5 binaries rebuilt to `0.1.0` (dispatch by exact equality).
+5. `python3 scripts/version_gate.py` green (opens the delonix line at 0.1.0).
+6. `python3 scripts/release_verify.py` and the pipeline (`release.yml`) validated:
+   SHA256SUMS, SBOM SPDX, minisign signature, SLSA provenance.
+7. Test a clean installation and an upgrade from an existing 5.1.1 (state
+   preserved; co-installed binaries coherent).
 
-## Nota de implementação
+## Implementation note
 
-`version_gate.line_of()` separa as linhas por major (0 = Delonix; 1..5 =
-`delonix-runtime`). Quando a linha Delonix se aproximar de `1.0.0`, este corte
-tem de ser revisto (as tags legadas `v1..v5` deixam de se distinguir por major) —
-ver o aviso no topo de `scripts/version_gate.py`.
+`version_gate.line_of()` separates the lines by major (0 = Delonix; 1..5 =
+`delonix-runtime`). When the Delonix line approaches `1.0.0`, this cutoff must
+be revisited (the legacy `v1..v5` tags can no longer be distinguished by major) —
+see the warning at the top of `scripts/version_gate.py`.

@@ -969,7 +969,7 @@ fn load_reconciled(
     // is CONCURRENT (the kubelet issues requests in parallel, each in a
     // `spawn_blocking`) and the CLI touches the same state. With the naive
     // pattern, two simultaneous reconciles lost writes — measured: 24 concurrent
-    // updates → 1 survivor (see `store::tests::update_concorrente_nao_perde_escritas`).
+    // updates → 1 survivor (see `store::tests::update_concurrent_does_not_lose_writes`).
     // The engine's port keeps that locked read-modify-write (R3h): the closure
     // runs under the same `flock`, so `reconcile_status` stays the one write the
     // CRI issues to the container store.
@@ -2260,8 +2260,8 @@ pub fn start_container(
 ) -> Result<Response<StartContainerResponse>, Status> {
     let mut rec: ContainerRec = read_rec(&ct_dir(base), &id)?;
     let sandbox = read_rec::<SandboxRec>(&sb_dir(base), &rec.sandbox_id).ok();
-    // O `--log-file` precisa que o directório exista ANTES de o motor abrir o
-    // ficheiro; é o único efeito lateral que sobra deste caminho.
+    // `--log-file` needs the directory to exist BEFORE the engine opens the
+    // file; it is the only side effect left over from this path.
     if !rec.log_path.is_empty() {
         if let Some(dir) = std::path::Path::new(&rec.log_path).parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -2545,19 +2545,19 @@ pub fn stop_container(
     id: String,
     timeout: i64,
 ) -> Result<Response<StopContainerResponse>, Status> {
-    // Cada paragem é REGISTADA, e não é cosmética: este caminho apagava as suas
-    // próprias pistas.
+    // Every stop is LOGGED, and it is not cosmetic: this path used to erase its
+    // own tracks.
     //
-    // Um `StopContainer` não deixava rasto nenhum no journal, só o SIGTERM do
-    // lado do container. A depurar um control-plane que não estabilizava
-    // (2026-08-17), um `journalctl -u delonix-cri | grep -i stop` devolvia
-    // ZERO — o que levou à conclusão errada de que «ninguém manda parar». O
-    // actor só apareceu por acidente, num `systemd-cgls` que mostrou um
-    // `delonix container stop cri-…` vivo dentro do cgroup do serviço.
+    // A `StopContainer` left no trace in the journal, only the SIGTERM on the
+    // container's side. Debugging a control-plane that would not stabilize
+    // (2026-08-17), a `journalctl -u delonix-cri | grep -i stop` returned ZERO —
+    // which led to the wrong conclusion that «nobody is asking it to stop». The
+    // actor only turned up by accident, in a `systemd-cgls` that showed a
+    // `delonix container stop cri-…` alive inside the service's cgroup.
     //
-    // Ausência de log lida como ausência de facto custou duas conclusões
-    // erradas na mesma investigação. Quem para um container do kubelet fica
-    // agora escrito, com o id e o prazo, do lado de quem o executa.
+    // Absence of a log read as absence of the fact cost two wrong conclusions in
+    // the same investigation. Whoever stops a kubelet container is now written
+    // down, with the id and the deadline, on the side that executes it.
     tracing::info!(
         container = %format!("cri-{id}"),
         grace_secs = timeout.max(0),
@@ -2584,7 +2584,7 @@ pub fn stop_container(
     if let Some(c) = load_reconciled(ops, rt, &id) {
         let alive = matches!(c.status, delonix_model::records::Status::Running) && c.is_live();
         if alive {
-            tracing::warn!(container = %format!("cri-{id}"), "ainda a correr depois do stop — o kubelet vai repetir");
+            tracing::warn!(container = %format!("cri-{id}"), "still running after stop — the kubelet will retry");
             return Err(Status::internal(format!(
                 "'cri-{id}' is still running after stop"
             )));
@@ -2598,8 +2598,9 @@ pub fn remove_container(
     ops: &dyn crate::ContainerOps,
     id: String,
 ) -> Result<Response<RemoveContainerResponse>, Status> {
-    // Registado pela mesma razão que o `StopContainer`: sem isto, a sequência
-    // stop→remove que o kubelet faz num pod em churn é invisível deste lado.
+    // Logged for the same reason as `StopContainer`: without this, the
+    // stop→remove sequence the kubelet runs on a churning pod is invisible on
+    // this side.
     tracing::info!(container = %format!("cri-{id}"), "CRI RemoveContainer");
     // ONLY delete the CRI record AFTER the runtime removes the container. Before,
     // the JSON was deleted even with a failed `rm -f` → leak of rootfs/subuid/netns
@@ -4398,17 +4399,17 @@ mod tests {
         .expect("no policy means no registry opinion");
     }
 
-    /// `hostNetwork: true` tem de virar REDE DO HOST no ARGV do motor.
+    /// `hostNetwork: true` must become HOST NETWORK in the engine's ARGV.
     ///
-    /// Este é o teste que faltava. Antes, o caminho `host_network` limitava-se
-    /// a NÃO passar `--pod`, e o container caía na rede por omissão com um
-    /// netns só dele — enquanto o `pod_sandbox_status` dizia ao kubelet que o
-    /// pod estava na rede do host. Medido numa golden 1.36: os static pods do
-    /// control-plane apareciam com `6443->6443`/`2381->2381` publicados, o
-    /// apiserver não alcançava o etcd em `127.0.0.1:2379` (netns diferente), o
-    /// kubelet matava-os e o `kubeadm init` ficava preso em
-    /// `wait-control-plane`. Nada disto falha a compilar nem falha um teste
-    /// unitário — só falha um cluster.
+    /// This is the test that was missing. Before, the `host_network` path merely
+    /// did NOT pass `--pod`, and the container fell back to the default network
+    /// with a netns of its own — while `pod_sandbox_status` told the kubelet the
+    /// pod was on the host network. Measured on a golden 1.36: the control-plane
+    /// static pods came up with `6443->6443`/`2381->2381` published, the
+    /// apiserver could not reach etcd at `127.0.0.1:2379` (different netns), the
+    /// kubelet killed them and `kubeadm init` got stuck in `wait-control-plane`.
+    /// None of this fails to compile nor fails a unit test — it only fails a
+    /// cluster.
     /// `kube-proxy` is privileged and writes to `/proc/sys/net/netfilter`. The
     /// kubelet sends `readonly_paths` with `/proc/sys` in it for EVERY
     /// container; deciding which to honour is the runtime's job, and for a
@@ -4627,7 +4628,7 @@ mod tests {
     }
 
     #[test]
-    fn host_network_vira_rede_do_host_e_nao_publica_portas() {
+    fn host_network_becomes_host_network_and_publishes_no_ports() {
         let rec = ContainerRec {
             image: "registry.k8s.io/etcd:3.6.6-0".into(),
             sandbox_id: "sb1".into(),
@@ -4658,10 +4659,10 @@ mod tests {
         );
     }
 
-    /// O caminho normal (sem hostNetwork) não pode ter regredido: entra no
-    /// netns do sandbox e publica as portas do pod.
+    /// The normal path (without hostNetwork) must not have regressed: it enters
+    /// the sandbox netns and publishes the pod's ports.
     #[test]
-    fn sem_host_network_entra_no_netns_do_pod_e_publica() {
+    fn without_host_network_enters_the_pod_netns_and_publishes() {
         let rec = ContainerRec {
             image: "nginx".into(),
             sandbox_id: "sb2".into(),
@@ -4824,27 +4825,27 @@ mod tests {
     /// (`capabilities.add` and `privileged: true`), plus the cases that must still
     /// go through untouched.
     #[test]
-    fn create_container_recusa_o_que_o_tecto_do_no_proibe() {
+    fn create_container_refuses_what_the_node_ceiling_forbids() {
         let base_dir = tmp_base();
         let base = base_dir.path();
         let ceiling = crate::CapCeiling::parse("default,NET_ADMIN", "reject", RT).unwrap();
 
         let err = create_container(base, RT, req_with_caps(&["SYS_ADMIN"], false), ceiling)
-            .expect_err("SYS_ADMIN está acima do tecto");
+            .expect_err("SYS_ADMIN is above the ceiling");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
         assert!(
             err.message().contains("SYS_ADMIN"),
-            "o erro tem de nomear a capability negada: {}",
+            "the error has to name the denied capability: {}",
             err.message()
         );
 
         let err = create_container(base, RT, req_with_caps(&[], true), ceiling)
-            .expect_err("privileged pede tudo, o tecto não dá tudo");
+            .expect_err("privileged asks for everything, the ceiling does not give everything");
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
 
         // Within the ceiling → created normally.
         create_container(base, RT, req_with_caps(&["NET_ADMIN"], false), ceiling)
-            .expect("NET_ADMIN está no tecto");
+            .expect("NET_ADMIN is in the ceiling");
         // No ceiling → a privileged pod is created exactly as before.
         create_container(
             base,
@@ -4852,11 +4853,11 @@ mod tests {
             req_with_caps(&[], true),
             crate::CapCeiling::unlimited(),
         )
-        .expect("sem tecto nada muda");
+        .expect("with no ceiling nothing changes");
         // `clamp` mode never refuses; the reduction happens at start.
         let clamp = crate::CapCeiling::parse("default", "clamp", RT).unwrap();
         create_container(base, RT, req_with_caps(&["SYS_ADMIN"], true), clamp)
-            .expect("clamp corta, não recusa");
+            .expect("clamp trims, does not refuse");
     }
 
     /// A node nobody configured (no `DELONIX_CRI_CAP_CEILING`) still bounds what a
@@ -4957,7 +4958,7 @@ mod tests {
     /// premise of shipping this is that a node that configures nothing sees no
     /// change at all.
     #[test]
-    fn cap_flags_sem_tecto_sao_exactamente_os_de_sempre() {
+    fn cap_flags_without_a_ceiling_are_exactly_the_usual_ones() {
         let unlimited = crate::CapCeiling::unlimited();
 
         let plain = ContainerRec::default();
@@ -4980,7 +4981,7 @@ mod tests {
         assert_eq!(
             cap_flags(&asks, unlimited, "x", RT),
             ["--cap-add", "NET_ADMIN", "--cap-drop", "CHOWN"],
-            "o prefixo CAP_ é retirado, tal como sempre foi"
+            "the CAP_ prefix is stripped, as it always was"
         );
     }
 
@@ -4989,7 +4990,7 @@ mod tests {
     /// engine's `cap_add ALL` branch would hand back every capability and the
     /// ceiling would be decorative.
     #[test]
-    fn cap_flags_com_tecto_substituem_o_cap_add_all_do_privileged() {
+    fn cap_flags_with_a_ceiling_replace_the_privileged_cap_add_all() {
         let ceiling = crate::CapCeiling::parse("CHOWN,NET_ADMIN", "clamp", RT).unwrap();
         let privileged = ContainerRec {
             privileged: true,
@@ -5011,7 +5012,7 @@ mod tests {
             !flags
                 .chunks(2)
                 .any(|p| p[0] == "--cap-add" && p[1] == "ALL"),
-            "um `--cap-add ALL` sobrevivente anularia o tecto por inteiro"
+            "a surviving `--cap-add ALL` would void the ceiling entirely"
         );
     }
 
@@ -5020,7 +5021,7 @@ mod tests {
     /// implicit default was lowered (which happens on EVERY container start on a
     /// node with a ceiling, and would drown the log).
     #[test]
-    fn ceiling_reduces_so_avisa_quando_um_pedido_explicito_foi_cortado() {
+    fn ceiling_reduces_only_warns_when_an_explicit_request_was_trimmed() {
         let capped = vec![
             "--cap-drop".to_string(),
             "ALL".to_string(),
@@ -5036,7 +5037,7 @@ mod tests {
         };
         assert!(
             !ceiling_reduces(&capped, &asked_and_got),
-            "pediu CHOWN e recebeu CHOWN (o prefixo CAP_ não conta como diferença)"
+            "asked for CHOWN and got CHOWN (the CAP_ prefix does not count as a difference)"
         );
 
         let asked_and_lost = ContainerRec {
@@ -5119,7 +5120,7 @@ mod tests {
     }
 
     #[test]
-    fn crashed_container_reporta_137_nao_0() {
+    fn crashed_container_reports_137_not_0() {
         // Container marked `Running` in the store but with a DEAD pid — simulates a
         // not-yet-reconciled crash. Without the fix, delonix_exit returned None → the
         // kubelet saw exit 0 (Completed) and restartPolicy OnFailure did NOT restart.
@@ -5141,7 +5142,7 @@ mod tests {
         assert_eq!(
             delonix_exit(&so(tmp), RT, "abc"),
             Some(137),
-            "crash deve reportar 137, não 0"
+            "a crash should report 137, not 0"
         );
         assert_eq!(
             delonix_state(&so(tmp), RT, "abc"),
@@ -5164,7 +5165,7 @@ mod tests {
     /// instead of the real start time. Both are now persisted once and stay stable
     /// across repeated polls.
     #[test]
-    fn container_status_finished_at_e_started_at_sao_estaveis_entre_polls() {
+    fn container_status_finished_at_and_started_at_are_stable_across_polls() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let tmp = tmp_dir.path();
 
@@ -5197,11 +5198,11 @@ mod tests {
             .unwrap();
         assert_eq!(
             s1.started_at, real_started_at,
-            "started_at deve ser o valor persistido, não created_at"
+            "started_at should be the persisted value, not created_at"
         );
         assert_ne!(
             s1.finished_at, 0,
-            "um container Stopped tem de ter finished_at"
+            "a Stopped container must have a finished_at"
         );
 
         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -5212,7 +5213,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             s1.finished_at, s2.finished_at,
-            "finished_at não pode mudar entre polls sucessivos"
+            "finished_at must not change between successive polls"
         );
         assert_eq!(s1.started_at, s2.started_at);
     }
@@ -5352,7 +5353,7 @@ mod tests {
     ///
     /// Fails with the fix reverted: unfiltered, this returns all three.
     #[test]
-    fn list_containers_honra_o_filtro_de_sandbox_do_kubelet() {
+    fn list_containers_honours_the_kubelet_sandbox_filter() {
         let tmp_dir = base_with_two_pods();
         let tmp = tmp_dir.path();
         let got = list_containers(
@@ -5372,7 +5373,7 @@ mod tests {
         assert_eq!(
             ids,
             vec!["ctaaa1", "ctaaa2"],
-            "o filtro por sandbox devolveu containers de outro pod"
+            "the per-sandbox filter returned containers from another pod"
         );
     }
 
@@ -5380,7 +5381,7 @@ mod tests {
     /// this, closing the bug above would have broken `crictl ps` and the kubelet's own
     /// full-node sweep, which passes no filter at all.
     #[test]
-    fn sem_filtro_continua_a_listar_tudo() {
+    fn no_filter_still_lists_everything() {
         let tmp_dir = base_with_two_pods();
         let tmp = tmp_dir.path();
         assert_eq!(
@@ -5410,7 +5411,7 @@ mod tests {
     }
 
     #[test]
-    fn list_pod_sandbox_honra_o_id_e_o_estado() {
+    fn list_pod_sandbox_honours_the_id_and_the_state() {
         let tmp_dir = base_with_two_pods();
         let tmp = tmp_dir.path();
         let got = list_pod_sandbox(
@@ -5440,7 +5441,7 @@ mod tests {
         .unwrap()
         .into_inner()
         .items;
-        assert!(none.is_empty(), "o filtro de estado não foi aplicado");
+        assert!(none.is_empty(), "the state filter was not applied");
     }
 
     /// The kubelet compares `linux.namespaces.options.network` against what the pod asks
@@ -5495,7 +5496,7 @@ mod tests {
     /// `NODE` (carried separately by `host_pid`) must both stay OFF, or a pod would
     /// silently merge PID namespaces it never asked to.
     #[test]
-    fn wants_shared_pid_so_responde_sim_a_pod() {
+    fn wants_shared_pid_so_answers_yes_to_a_pod() {
         let mk = |pid| {
             Some(NamespaceOption {
                 pid,
@@ -5641,7 +5642,7 @@ mod tests {
     /// `label_selector` is a SUBSET match. Comparing whole maps would match nothing in
     /// practice, because a real container carries every label the kubelet set on it.
     #[test]
-    fn o_label_selector_e_subconjunto_e_nao_igualdade() {
+    fn the_label_selector_is_a_subset_not_equality() {
         let tmp_dir = base_with_two_pods();
         let tmp = tmp_dir.path();
         let got = list_containers(
@@ -5659,7 +5660,7 @@ mod tests {
         .unwrap()
         .into_inner()
         .containers;
-        assert_eq!(got.len(), 1, "esperava só o container 'etcd'");
+        assert_eq!(got.len(), 1, "expected only the 'etcd' container");
         assert_eq!(got[0].id, "ctaaa1");
     }
 

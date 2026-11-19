@@ -1,123 +1,125 @@
-# 58 — P4/D1,D8: `network`/`namespace` no Proxmox, confirmado ao vivo (ADR-0044)
+# 58 — P4/D1,D8: `network`/`namespace` on Proxmox, confirmed live (ADR-0044)
 
-**Data:** 2026-09-18 · **Base:** `origin/main` (`afbe4bfb`, v4.0.0 +8 commits) · **Alvo:**
-`pve92`, uma VM libvirt já existente neste host (Proxmox VE 9.2.2-6-pve, criada numa
-sessão anterior do ADR-0008), 192.168.122.220 · **Veredicto: o achado do D1 estava
-CERTO para `network`, e ERRADO para `namespace` — o próprio ADR-0044 media a sua
-Context contra um grep incompleto.**
+**Date:** 2026-09-18 · **Baseline:** `origin/main` (`afbe4bfb`, v4.0.0 +8 commits) · **Target:**
+`pve92`, a libvirt VM already existing on this host (Proxmox VE 9.2.2-6-pve, created in
+an earlier ADR-0008 session), 192.168.122.220 · **Verdict: D1's finding was
+CORRECT for `network`, and WRONG for `namespace` — ADR-0044 itself measured its
+Context against an incomplete grep.**
 
-## A pergunta
+## The question
 
-O item 5 dos spikes exigidos pelo ADR-0044 pede exactamente isto: correr
-`delonix vm create --backend proxmox --network <sdn-net> --namespace teamA` contra o
-`proxmox-ve:9.2` real e observar o que acontece de facto — a Context do ADR já tinha
-marcado a sua própria leitura estática como "should be confirmed live before anyone
+Item 5 of the spikes ADR-0044 requires asks exactly this: run
+`delonix vm create --backend proxmox --network <sdn-net> --namespace teamA` against the
+real `proxmox-ve:9.2` and observe what actually happens — the ADR's Context had
+already flagged its own static reading as "should be confirmed live before anyone
 treats it as more than a strong signal".
 
-## Como se mediu
+## How it was measured
 
-- `pve92` arrancada (estava `Stopped`), API confirmada com `root@pam`/`delonix-admin`
-  (as credenciais conhecidas dos appliances Proxmox deste repo — `answer-pve.toml`).
-  Nó chama-se `pve`, uma única bridge `vmbr0` ligada a `eth0` (que por sua vez está no
-  `virbr0`/192.168.122.0/24 do HOST, o mesmo NAT do libvirt — não há bridging nenhum
-  entre isto e a SDN rootless do delonix, que vive dentro do netns holder deste host).
-- Rede delonix própria para o spike (`p4spike-net`, `10.253.0.0/16`) — nunca uma rede de
-  produção já em uso.
+- `pve92` started (it was `Stopped`), API confirmed with `root@pam`/`delonix-admin`
+  (the known credentials for this repo's Proxmox appliances — `answer-pve.toml`).
+  The node is called `pve`, a single `vmbr0` bridge connected to `eth0` (which in turn
+  sits on the HOST's `virbr0`/192.168.122.0/24, the same libvirt NAT — there is no
+  bridging at all between this and delonix's rootless SDN, which lives inside this
+  host's holder netns).
+- Delonix's own network for the spike (`p4spike-net`, `10.253.0.0/16`) — never a
+  production network already in use.
 - `delonix vm create p4d5-proxmox-test --backend proxmox --disk local-lvm:2 --network
   p4spike-net --namespace teamA`.
 
-## O que se mediu
+## What was measured
 
-1. **`--namespace teamA` foi RECUSADO, antes de qualquer chamada à API**:
+1. **`--namespace teamA` was REFUSED, before any API call**:
    ```
    error invalid argument: namespace 'teamA' is not enforceable on the 'proxmox' backend:
    its VMs live on the host's libvirt bridge, outside the Delonix SDN, so nothing here can
    isolate them. Use `--backend cloud-hypervisor` (its VMs share the containers' SDN), or
    drop `--namespace`
    ```
-   `git blame` (`crates/adapters/delonix-vm/src/lib.rs`, `vm_namespace_supported`) situa
-   este guarda em **`c1ed34ec8`, 2026-08-05** — mais de um mês antes de o ADR-0044 ter
-   sido escrito. `vm_namespace_supported` devolve `true` só para `"cloud-hypervisor"`,
-   por isso a recusa vale para libvirt E para Proxmox, genericamente, a partir de
-   `delonix-vm::create_with` — não é código do `delonix-proxmox`, e por isso o `grep`
-   da Context do ADR (restrito a `crates/providers/delonix-proxmox/src/lib.rs`) nunca lhe
-   chegou. **O achado "nem lido nem recusado" estava certo sobre onde procurou e errado
-   na conclusão prática** — o gap que preocupava o ADR já estava fechado, só que um nível
-   acima de onde a busca olhou.
-2. **Sem `--namespace`, `--network p4spike-net` foi ACEITE e IGNORADO** — confirmado não
-   por leitura, mas pelo formulário HTTP real que o cliente envia (instrumentado com um
-   `eprintln!` temporário em `post_form`, revertido depois desta medição):
+   `git blame` (`crates/adapters/delonix-vm/src/lib.rs`, `vm_namespace_supported`) places
+   this guard at **`c1ed34ec8`, 2026-08-05** — more than a month before ADR-0044 was
+   written. `vm_namespace_supported` returns `true` only for `"cloud-hypervisor"`,
+   so the refusal applies to libvirt AND to Proxmox, generically, from
+   `delonix-vm::create_with` — it isn't `delonix-proxmox` code, which is why the ADR
+   Context's `grep` (restricted to `crates/providers/delonix-proxmox/src/lib.rs`) never
+   reached it. **The "neither read nor refused" finding was right about where it
+   looked and wrong in its practical conclusion** — the gap the ADR worried about was
+   already closed, just one level above where the search looked.
+2. **With no `--namespace`, `--network p4spike-net` was ACCEPTED and IGNORED** — confirmed not
+   by reading code, but by the actual HTTP form the client sends (instrumented with a
+   temporary `eprintln!` in `post_form`, reverted after this measurement):
    ```
    post_form /nodes/pve/qemu form=[("vmid","101"),("name","p4d5-proxmox-test3"),
    ("memory","1024"),("cores","1"),("ostype","l26"),("scsihw","virtio-scsi-single"),
    ("scsi0","local-lvm:2"),("net0","virtio,bridge=vmbr0"),("agent","1"),
    ("ipconfig0","ip=dhcp"),("ide2","local-lvm:cloudinit")]
    ```
-   `net0` é `bridge=vmbr0` — o DEFAULT do nó, nunca `p4spike-net` nem a bridge da SDN
-   (`dlxn…`). `delonix vm describe p4d5-proxmox-test3` mostra `Network: p4spike-net` no
-   registo LOCAL — o registo **mente sobre o que a VM realmente é**, porque
-   `net0_arg` (`crates/providers/delonix-proxmox/src/lib.rs`) só lê `cfg.bridge`, nunca
-   `cfg.network`. Confirmado: `grep -n "cfg\.network\b" crates/providers/delonix-proxmox`
-   continua zero hits nesta árvore, tal como a Context do ADR já tinha lido.
-3. **Achado lateral, não relacionado com D1/D8**: as duas primeiras tentativas (antes
-   desta) falharam com `400 {"errors":{"ipconfig0":"type check ('string') failed - got
-   ARRAY"}}` — o mesmo texto de um bug JÁ corrigido no código (o comentário em
-   `create_form` documenta-o e há teste, `the_create_sends_each_key_once`). Reproduzido
-   duas vezes, e depois de a VM `pve92` ter tido mais tempo para assentar (`pmxcfs`/
-   `pveproxy` completamente prontos), a MESMA chamada, com o MESMO binário, sem qualquer
-   mudança de código, teve sucesso — e o formulário instrumentado confirma que
-   `ipconfig0` aparece **uma única vez**. Não é o bug já documentado a repetir-se; é uma
-   corrida de arranque do próprio nó Proxmox aninhado, à parte deste ADR. Registado aqui
-   para quem repetir este spike não perder tempo a persegui-lo: esperar a API responder
-   não é esperar o nó estar pronto a validar SCHEMAS — os dois amadurecem em momentos
-   diferentes.
+   `net0` is `bridge=vmbr0` — the node's DEFAULT, never `p4spike-net` nor the SDN's
+   bridge (`dlxn…`). `delonix vm describe p4d5-proxmox-test3` shows `Network: p4spike-net`
+   in the LOCAL registry — the registry **lies about what the VM actually is**, because
+   `net0_arg` (`crates/providers/delonix-proxmox/src/lib.rs`) only reads `cfg.bridge`, never
+   `cfg.network`. Confirmed: `grep -n "cfg\.network\b" crates/providers/delonix-proxmox`
+   still returns zero hits on this tree, exactly as the ADR's Context had already read.
+3. **Side finding, unrelated to D1/D8**: the first two attempts (before
+   this one) failed with `400 {"errors":{"ipconfig0":"type check ('string') failed - got
+   ARRAY"}}` — the same text as a bug ALREADY fixed in the code (the comment in
+   `create_form` documents it and there's a test, `the_create_sends_each_key_once`). Reproduced
+   twice, and then, after the `pve92` VM had more time to settle (`pmxcfs`/
+   `pveproxy` fully ready), the SAME call, with the SAME binary, with no code
+   change whatsoever, succeeded — and the instrumented form confirms
+   `ipconfig0` appears **exactly once**. It isn't the already-documented bug
+   recurring; it's a startup race of the nested Proxmox node itself, unrelated to this
+   ADR. Logged here so whoever repeats this spike doesn't waste time chasing it: waiting
+   for the API to respond isn't the same as waiting for the node to be ready to validate
+   SCHEMAS — the two mature at different moments.
 
-## Interpretação, para D1 e D8
+## Interpretation, for D1 and D8
 
-- **D1's field-classification table fica correcta como está**: `network`/`namespace` são
-  universais por intenção (todo o provider anexa a ALGUMA rede e ALGUM domínio de
-  isolamento), e hoje o Proxmox não honra nenhum dos dois — um silenciosamente, o outro
-  com uma recusa explícita que já existe, só que num sítio diferente do que a Context
-  tinha mapeado.
-- **A "network"/"namespace" gap do D8 tem, na prática, DUAS metades com pesos
-  diferentes**: a de `namespace` já está fechada (fail-closed, com uma mensagem que nomeia
-  a alternativa) — D8 só precisa de **mover essa mesma recusa para dentro de
-  `refuse_unsupported`** quando `VmSpec`/`Extensions` existirem, não de a inventar. A de
-  `network` continua aberta e é a que exige uma decisão real: aceitar silenciosamente
-  «network: p4spike-net» sobre uma VM que fica em `vmbr0` é o "aceite e ignorado" que
-  este repo já corrigiu três vezes para outras flags — D8 tem de ou (a) fazer
-  `delonix-provider-proxmox` recusar `network` explicitamente quando não é `default`
-  (a via mais barata, e a que a topologia medida aqui recomenda: não há bridging entre a
-  SDN do delonix e a rede de um Proxmox remoto, e forjar um não é trabalho deste ADR), ou
-  (b) construir um mecanismo de bridging novo (o equivalente remoto do `vm bridge`
-  EXPERIMENTAL já existente para CH em libvirt) — o que é um ADR à parte, não uma linha
-  do D8.
-- **A topologia por si só já responde à pergunta de reachability que o item 5 do spike
-  pedia**, sem precisar de arrancar um SO convidado completo: `vmbr0` de `pve92` está
-  bridged ao SEU `eth0`, que está no `virbr0`/192.168.122.0/24 do HOST — a MESMA rede
-  onde `pve92` em si vive, e estruturalmente desligada da SDN rootless (`10.2xx.0.0/16`,
-  dentro do netns holder). Uma VM criada assim NUNCA estaria "isolada nem aberta" em
-  relação a um container delonix — estaria simplesmente noutra rede, sem caminho nenhum
-  entre as duas, com ou sem `--namespace`. Arrancar um convidado real só confirmaria essa
-  mesma ausência de caminho, já decidida pela cablagem.
+- **D1's field-classification table stays correct as it is**: `network`/`namespace` are
+  universal by intent (every provider attaches to SOME network and SOME
+  isolation domain), and today Proxmox honours neither — one silently, the other
+  with an explicit refusal that already exists, just in a different place than the
+  Context had mapped.
+- **The D8 "network"/"namespace" gap in practice has TWO halves with different
+  weight**: the `namespace` one is already closed (fail-closed, with a message that names
+  the alternative) — D8 just needs to **move that same refusal inside
+  `refuse_unsupported`** once `VmSpec`/`Extensions` exist, not invent it. The
+  `network` one stays open and is the one requiring a real decision: silently
+  accepting "network: p4spike-net" on a VM that ends up on `vmbr0` is the "accepted and
+  ignored" pattern this repo has already fixed three times for other flags — D8 must
+  either (a) make `delonix-provider-proxmox` explicitly refuse `network` when it isn't
+  `default` (the cheapest route, and the one the topology measured here recommends: there
+  is no bridging between delonix's SDN and a remote Proxmox's network, and forging one is
+  not this ADR's job), or (b) build a new bridging mechanism (the remote equivalent of
+  the already-existing EXPERIMENTAL `vm bridge` for CH on libvirt) — which is a separate
+  ADR, not a D8 line item.
+- **The topology by itself already answers the reachability question item 5 of the
+  spike asked**, with no need to boot a full guest OS: `pve92`'s `vmbr0` is
+  bridged to ITS OWN `eth0`, which sits on the HOST's `virbr0`/192.168.122.0/24 — the
+  SAME network `pve92` itself lives on, and structurally disconnected from the
+  rootless SDN (`10.2xx.0.0/16`, inside the holder netns). A VM created this way would
+  NEVER be "isolated nor open" relative to a delonix container — it would simply be on
+  another network, with no path at all between the two, with or without `--namespace`.
+  Booting a real guest would only confirm that same absence of a path, already decided
+  by the wiring.
 
 ## Proven vs not validated
 
-**Proven**: os dois comportamentos medidos acima (recusa de `namespace`, aceitação-e-
-ignorância de `network`), com o formulário HTTP real; a origem e a data do guarda de
-`namespace` via `git blame`; a topologia de rede de `pve92` via a própria API Proxmox
-(`/nodes/pve/network`); que o erro `ipconfig0`/ARRAY é transitório e não um defeito de
-código (reproduzido a falhar, depois a passar, mesmo binário, mesmo comando).
+**Proven**: the two behaviours measured above (`namespace` refusal, `network`
+accepted-and-ignored), with the real HTTP form; the origin and date of the `namespace`
+guard via `git blame`; `pve92`'s network topology via the Proxmox API itself
+(`/nodes/pve/network`); that the `ipconfig0`/ARRAY error is transient and not a code
+defect (reproduced failing, then passing, same binary, same command).
 
-**Not validated**: reachability de facto de um convidado a sério nesta rede (não
-necessário — a topologia já responde); o comportamento de um `network`/`namespace`
-REJEITADO explicitamente (D8 ainda não o implementa — hoje só `namespace` recusa,
-`network` não).
+**Not validated**: actual reachability of a real guest on this network (not
+necessary — the topology already answers it); the behaviour of a `network`/`namespace`
+explicitly REJECTED (D8 doesn't implement it yet — today only `namespace` refuses,
+`network` doesn't).
 
-## Limpeza
+## Cleanup
 
-`p4d5-proxmox-test*` removida (`delonix delete vm`), `p4spike-net` removida
-(`delonix network rm`), `pve92` reposta a `Stopped` — nada ficou de pé além do que já
-estava neste host antes deste spike. O `eprintln!` de depuração em `post_form`
-(`crates/providers/delonix-proxmox/src/lib.rs`) foi revertido no mesmo commit que este
-relatório — não faz parte do código final.
+`p4d5-proxmox-test*` removed (`delonix delete vm`), `p4spike-net` removed
+(`delonix network rm`), `pve92` returned to `Stopped` — nothing was left standing beyond
+what was already on this host before this spike. The debug `eprintln!` in `post_form`
+(`crates/providers/delonix-proxmox/src/lib.rs`) was reverted in the same commit as this
+report — it isn't part of the final code.

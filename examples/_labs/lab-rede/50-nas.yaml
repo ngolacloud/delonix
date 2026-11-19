@@ -1,20 +1,20 @@
-# lab-nas — TrueNAS SCALE, o armazenamento do laboratório
+# lab-nas — TrueNAS SCALE, the lab's storage
 #
-#   1) o disco de dados tem de existir ANTES do apply:
+#   1) the data disk must exist BEFORE the apply:
 #        mkdir -p ~/.local/share/delonix/vms/labdata
 #        qemu-img create -f qcow2 ~/.local/share/delonix/vms/labdata/nas-dados.qcow2 10G
 #   2) delonix stack apply -f 50-nas.yaml
 #
-# O disco de sistema da imagem tem 20 GiB e é só isso: sistema. O TrueNAS
-# recusa criar uma pool no disco onde está instalado, por isso um NAS sem um
-# segundo disco arranca, serve a interface e não consegue guardar nada — é o
-# `extraDisks` abaixo que o torna um NAS de facto.
+# The image's system disk is 20 GiB and that's all it is: system. TrueNAS
+# refuses to create a pool on the disk where it is installed, so a NAS without a
+# second disk boots, serves the interface and can't store anything — it's the
+# `extraDisks` below that makes it a NAS for real.
 #
-# NOTA (appliance por manifesto): o TrueNAS não corre cloud-init. A CLI recusa
-# `--hostname`/`--ssh-key` para um appliance; o manifesto ainda não faz essa
-# verificação e anexa-lhe um CD-ROM de seed que o guest ignora. Por isso não há
-# aqui `hostname:` nem `sshKeys:` — configura-se pela interface web, que é como
-# um appliance se configura.
+# NOTE (appliance via manifest): TrueNAS does not run cloud-init. The CLI refuses
+# `--hostname`/`--ssh-key` for an appliance; the manifest does not yet do that
+# check and attaches a seed CD-ROM that the guest ignores. That is why there is
+# no `hostname:` or `sshKeys:` here — you configure it via the web interface, which
+# is how an appliance is configured.
 apiVersion: delonix.io/v1
 kind: Vm
 metadata:
@@ -25,14 +25,14 @@ spec:
   memory: 4G
   backend: libvirt
   netMode: nat
-  # O disco de dados entra por `libvirtXmlOverlay` e não por `extraDisks`, e a
-  # razão é concreta: o TrueNAS recusa criar uma pool com discos sem número de
-  # série ("Disks have duplicate serial numbers: None (vda, vdb)"), e o
-  # `extraDisks` não tem campo para o definir. O overlay é o escape-hatch para
-  # exactamente este caso — XML cru, injectado antes de `</devices>`.
+  # The data disk is added via `libvirtXmlOverlay` and not via `extraDisks`, and
+  # the reason is concrete: TrueNAS refuses to create a pool with disks that have
+  # no serial number ("Disks have duplicate serial numbers: None (vda, vdb)"), and
+  # `extraDisks` has no field to set it. The overlay is the escape hatch for
+  # exactly this case — raw XML, injected before `</devices>`.
   #
-  # Fragmentos de XML NÃO são validados: podem nomear qualquer caminho do host.
-  # Só num manifesto de confiança.
+  # XML fragments are NOT validated: they can name any path on the host.
+  # Only in a trusted manifest.
   libvirtXmlOverlay:
     - |
       <disk type='file' device='disk'>

@@ -1,23 +1,23 @@
-# Storage e volumes sob falha — medido sobre `fa8c6297`
+# Storage and volumes under failure — measured against `fa8c6297`
 
-Estado isolado (`/tmp/dxs`), 2026-09-15. Log: `raw/storage-failure.txt`.
+Isolated state (`/tmp/dxs`), 2026-09-15. Log: `raw/storage-failure.txt`.
 
-| Cenário | Resultado | Estado |
+| Scenario | Result | State |
 |---|---|---|
-| `volume rm` com container a usar o volume | recusado («in use by container(s): c1 (running)»), dados intactos | PASS |
-| `backup create container c1` | arquivo 1,2 KiB com `volumes/v1` | PASS |
-| `backup restore` sobre container a correr sem `--force` | recusado com razão | PASS |
-| `backup inspect` de arquivo truncado a 50% | **rc=0**, lista volumes | PARTIAL (G-038) |
-| `backup restore --force` de arquivo truncado | rc=1 `failed to unpack …container.json`; **PID igual** (não reiniciou); dados actuais intactos | PASS (fail-closed) |
-| Restore válido depois de `stop` | `volume v1 restored`, dado original de volta | PASS |
-| Temporários de restore após falha | `/tmp/dxs/tmp` vazio | PASS |
-| Disk full (caos) | só o padrão tmp→fsync→rename; esgotamento real saltado | PARTIAL |
-| Write failure (caos) | rc=77, zero temporários | PASS |
-| Destroy de stack parcialmente aplicado (caos) | leva o órfão, poupa o alheio | PASS |
-| Snapshots de volume, quotas, sparse | — | NOT TESTED |
-| NFS/CIFS/TrueNAS | exige CAP_SYS_ADMIN / appliance | ENVIRONMENT BLOCKED |
-| Interrupção a meio do backup (SIGKILL) | — | NOT TESTED |
-| Symlink malicioso no volume durante backup | — | NOT TESTED |
+| `volume rm` with a container using the volume | refused («in use by container(s): c1 (running)»), data intact | PASS |
+| `backup create container c1` | 1.2 KiB archive with `volumes/v1` | PASS |
+| `backup restore` over a running container without `--force` | refused with a reason | PASS |
+| `backup inspect` of an archive truncated to 50% | **rc=0**, lists volumes | PARTIAL (G-038) |
+| `backup restore --force` of a truncated archive | rc=1 `failed to unpack …container.json`; **same PID** (did not restart); current data intact | PASS (fail-closed) |
+| Valid restore after `stop` | `volume v1 restored`, original data back | PASS |
+| Restore temporaries after a failure | `/tmp/dxs/tmp` empty | PASS |
+| Disk full (chaos) | only the tmp→fsync→rename pattern; real exhaustion skipped | PARTIAL |
+| Write failure (chaos) | rc=77, zero temporaries | PASS |
+| Destroy of a partially applied stack (chaos) | takes the orphan, spares what belongs to others | PASS |
+| Volume snapshots, quotas, sparse | — | NOT TESTED |
+| NFS/CIFS/TrueNAS | requires CAP_SYS_ADMIN / appliance | ENVIRONMENT BLOCKED |
+| Interruption mid-backup (SIGKILL) | — | NOT TESTED |
+| Malicious symlink in the volume during backup | — | NOT TESTED |
 
-Nenhuma operação irreversível foi observada a apresentar-se como transaccional: o restore falhado
-não mexeu no estado, e o `--force` só pára o recurso quando o arquivo é legível.
+No irreversible operation was observed presenting itself as transactional: the failed restore
+did not touch the state, and `--force` only stops the resource when the archive is readable.

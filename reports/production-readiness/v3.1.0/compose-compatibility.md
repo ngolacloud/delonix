@@ -1,36 +1,36 @@
-# Compatibilidade Compose — `delonix compose` (nativo) sobre `fa8c6297`
+# Compose compatibility — `delonix compose` (native) against `fa8c6297`
 
-Medição **estática** (`delonix compose config`, só parse e tradução, nada criado).
-A execução `compose up` ao vivo de aplicações reais: **NOT TESTED** nesta fase — a
-bateria E2E cobre `compose up/down/ps/logs` e passou (ver `raw/e2e-results.jsonl`).
+**Static** measurement (`delonix compose config`, parse and translation only, nothing created).
+Live `compose up` of real applications: **NOT TESTED** at this stage — the
+E2E battery covers `compose up/down/ps/logs` and passed (see `raw/e2e-results.jsonl`).
 
-## Allowlist (lida em `cmd/compose.rs`)
+## Allowlist (read in `cmd/compose.rs`)
 
-- Topo (7): `version name services networks volumes secrets configs`.
-- Serviço (28): `image build extends environment env_file ports volumes command entrypoint depends_on
+- Top level (7): `version name services networks volumes secrets configs`.
+- Service (28): `image build extends environment env_file ports volumes command entrypoint depends_on
   healthcheck restart networks labels working_dir user cap_add cap_drop privileged tmpfs extra_hosts
   deploy container_name hostname read_only profiles secrets configs`.
-- Recusados com razão: `include`, `extends.file`, `devices dns security_opt group_add logging network_mode pid ipc`,
+- Refused with a reason: `include`, `extends.file`, `devices dns security_opt group_add logging network_mode pid ipc`,
   secret/config `external: true`, `target ≠ source`.
 
-## Teste de chaves desconhecidas
+## Unknown-keys test
 
-| Caso | rc | Resultado |
+| Case | rc | Result |
 |---|---|---|
-| Controlo: `services.web.bogus_key` | 1 | **REJECTED** com mensagem clara |
-| `deploy.placement.constraints` | 0 | **IGNORED — BUG** (desaparece do render) |
-| `healthcheck.disable: true` | 0 | **IGNORED — BUG** (o bloco healthcheck desaparece do render) |
-| `volumes[].bind.propagation: rshared` | 0 | **IGNORED — BUG** (render: `/tmp:/data`, propagação perdida) |
+| Control: `services.web.bogus_key` | 1 | **REJECTED** with a clear message |
+| `deploy.placement.constraints` | 0 | **IGNORED — BUG** (disappears from the render) |
+| `healthcheck.disable: true` | 0 | **IGNORED — BUG** (the healthcheck block disappears from the render) |
+| `volumes[].bind.propagation: rshared` | 0 | **IGNORED — BUG** (render: `/tmp:/data`, propagation lost) |
 | `depends_on.<svc>.required: false` | 0 | **IGNORED — BUG** |
 | `deploy.resources.reservations` | 0 | **IGNORED — BUG** |
 
-Render de prova: `raw/compose-nested-config.txt`.
+Proof render: `raw/compose-nested-config.txt`.
 
-Causa-raiz (G-011): `check_unsupported_fields` verifica só o primeiro nível; os structs aninhados
-são desserializados por serde sem `deny_unknown_fields`, logo sub-chaves desconhecidas são
-descartadas em silêncio — a mesma classe de defeito que a allowlist do topo foi escrita para fechar.
+Root cause (G-011): `check_unsupported_fields` checks only the first level; the nested structs
+are deserialised by serde without `deny_unknown_fields`, so unknown sub-keys are
+silently discarded — the same class of defect the top-level allowlist was written to close.
 
-## Não validado
+## Not validated
 
-Comparação lado a lado com `docker compose`/`podman-compose`; aplicações NGINX, PostgreSQL,
-Redis, Odoo+PostgreSQL, multi-serviço com healthchecks, volumes persistentes e secrets.
+Side-by-side comparison with `docker compose`/`podman-compose`; NGINX, PostgreSQL,
+Redis, Odoo+PostgreSQL applications, multi-service with healthchecks, persistent volumes and secrets.

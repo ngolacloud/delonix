@@ -1,241 +1,241 @@
-# 62 — NaaS / Network Provider: Fase 0 e Fase 1 (auditoria antes de código)
+# 62 — NaaS / Network Provider: Phase 0 and Phase 1 (audit before code)
 
-Data: 2026-09-27. Base medida: `delonix-runtime` `origin/main` `a4d671a4` (v4.4.0 + 65),
-`delonix-paas` `origin/main` `15fd72e`. Documento canónico que rege isto:
-`PROMPT_MASTER_DELONIX_RUNTIME_NETWORK_PROVIDER_NAAS.md` (fornecido pelo dono, 2026-09-27).
+Date: 2026-09-27. Measured baseline: `delonix-runtime` `origin/main` `a4d671a4` (v4.4.0 + 65),
+`delonix-paas` `origin/main` `15fd72e`. Canonical document governing this:
+`PROMPT_MASTER_DELONIX_RUNTIME_NETWORK_PROVIDER_NAAS.md` (provided by the owner, 2026-09-27).
 
-Este documento cumpre a §42 desse prompt: inventário, fluxo real, ownership, capability matrix,
-bypasses, gaps P0–P3, primeiro incremento, comandos de validação e perguntas bloqueadoras.
-**Não há código neste passo.** Cada afirmação traz o sítio; «estático» quer dizer lido no
-código e ainda não reproduzido; «verificado» quer dizer medido.
+This document fulfils §42 of that prompt: inventory, real flow, ownership, capability matrix,
+bypasses, P0–P3 gaps, first increment, validation commands and blocking questions.
+**There is no code in this step.** Every statement carries its location; "static" means read in the
+code and not yet reproduced; "verified" means measured.
 
-## 0. Tradução do prompt para a fronteira deste repositório
+## 0. Translation of the prompt to this repository's boundary
 
-O prompt descreve um NaaS com tenant, IAM, quotas, billing, NetworkClass e aprovações. O
-`AGENTS.md` deste repositório proíbe o motor de conhecer um consumidor, um inquilino, um plano
-ou uma quota. As duas coisas conciliam-se assim, e é esta leitura que decide o que se
-refactora aqui:
+The prompt describes a NaaS with tenant, IAM, quotas, billing, NetworkClass and approvals. This
+repository's `AGENTS.md` forbids the engine from knowing a consumer, a tenant, a plan or a quota.
+The two things reconcile like this, and this is the reading that decides what gets refactored here:
 
-| Conceito do prompt | Onde vive | No vocabulário do motor |
+| Concept from the prompt | Where it lives | In the engine's vocabulary |
 |---|---|---|
-| API tenant, IAM, quotas, NetworkClass, aprovação, billing | control plane (outro repositório) | — (o motor não os conhece) |
-| NetworkServiceProfile, ProviderBinding persistido por recurso tenant | control plane | o motor devolve o **relatório de capacidades** e aceita um **alvo nomeado**; não escolhe por inquilino |
-| Contratos de provider por papel, capability discovery, validate/plan/apply/observe/verify | **motor** | portas em `delonix-sdn`/`delonix-compute`, Kinds de rede, `delonix provider` |
-| Compilador de política (IR → nft / Proxmox / OPNsense) | **motor** | `ContainerFw`/`FwRule`, `NetworkPolicy`, `NetworkAccessRule` |
-| IPAM transaccional de um nó | **motor** | `delonix-sdn::ipam` |
-| IPAM global, pools por região | control plane | — |
+| Tenant API, IAM, quotas, NetworkClass, approval, billing | control plane (other repository) | — (the engine doesn't know them) |
+| NetworkServiceProfile, ProviderBinding persisted per tenant resource | control plane | the engine returns the **capability report** and accepts a **named target**; it does not choose per tenant |
+| Provider contracts per role, capability discovery, validate/plan/apply/observe/verify | **engine** | ports in `delonix-sdn`/`delonix-compute`, network Kinds, `delonix provider` |
+| Policy compiler (IR → nft / Proxmox / OPNsense) | **engine** | `ContainerFw`/`FwRule`, `NetworkPolicy`, `NetworkAccessRule` |
+| Transactional IPAM for a single node | **engine** | `delonix-sdn::ipam` |
+| Global IPAM, per-region pools | control plane | — |
 
-Consequência prática: nenhuma sessão delegada a partir deste repositório escreve
-`tenant`, `NetworkClass` ou nomes de repositórios consumidores em `crates/`, `bins/` ou
-`proto/` (o `scripts/arch_fitness.py` recusa-o).
+Practical consequence: no session delegated from this repository writes
+`tenant`, `NetworkClass` or consuming-repository names into `crates/`, `bins/` or
+`proto/` (`scripts/arch_fitness.py` refuses it).
 
-## 1. Inventário dos componentes de rede
+## 1. Inventory of network components
 
-### 1.1 Motor (`delonix-runtime`)
+### 1.1 Engine (`delonix-runtime`)
 
-| Peça | Sítio | Papel |
+| Piece | Location | Role |
 |---|---|---|
-| holder (pin + control + slirp), veth/nft, DNS, DHCP, RA, NetDef, rotas, services | `crates/adapters/delonix-sdn/src/infra.rs` | dataplane rootless |
-| IPAM por prefixo | `delonix-sdn/src/ipam.rs` (`allocate` 157, `reserve` 213, `release` 255, `reap_orphan_leases` 398) | leases `id→ip` |
-| `NetworkStore`, slirp por container | `delonix-sdn/src/lib.rs` | registo declarativo |
-| CNI | `delonix-sdn/src/cni.rs` | rede de pod do CRI |
-| WireGuard, bpf | `delonix-sdn/src/{wg,bpf}.rs` | overlay cifrado, fluxos |
-| regras puras (`Cidr`, `bridge_name`, IPAM em prefixo) | `crates/foundation/delonix-net-rules` | sem dependências |
-| portas `NetworkProvider`, `VmNetwork` | `crates/contexts/delonix-compute/src/ports.rs:110,128` | attach/detach/publish/firewall |
-| porta `GatewayProvider` | `delonix-sdn/src/gateway.rs:126` | alias/regra/commit de perímetro |
-| porta `NetworkZoneProvider` | `delonix-sdn/src/network_zone.rs:66` | zona/VNet remota |
-| `VmBackend::apply_firewall/read_firewall` | `delonix-compute` (porta de VM) | firewall por VM remota |
+| holder (pin + control + slirp), veth/nft, DNS, DHCP, RA, NetDef, routes, services | `crates/adapters/delonix-sdn/src/infra.rs` | rootless dataplane |
+| Per-prefix IPAM | `delonix-sdn/src/ipam.rs` (`allocate` 157, `reserve` 213, `release` 255, `reap_orphan_leases` 398) | `id→ip` leases |
+| `NetworkStore`, slirp per container | `delonix-sdn/src/lib.rs` | declarative registry |
+| CNI | `delonix-sdn/src/cni.rs` | CRI pod network |
+| WireGuard, bpf | `delonix-sdn/src/{wg,bpf}.rs` | encrypted overlay, flows |
+| pure rules (`Cidr`, `bridge_name`, prefix IPAM) | `crates/foundation/delonix-net-rules` | no dependencies |
+| `NetworkProvider`, `VmNetwork` ports | `crates/contexts/delonix-compute/src/ports.rs:110,128` | attach/detach/publish/firewall |
+| `GatewayProvider` port | `delonix-sdn/src/gateway.rs:126` | perimeter alias/rule/commit |
+| `NetworkZoneProvider` port | `delonix-sdn/src/network_zone.rs:66` | remote zone/VNet |
+| `VmBackend::apply_firewall/read_firewall` | `delonix-compute` (VM port) | per-VM remote firewall |
 | OPNsense | `crates/providers/delonix-opnsense` | `GatewayProvider` (ADR-0051) |
-| Proxmox SDN + firewall de VM | `crates/providers/delonix-proxmox/src/{sdn,network_zone,vm_firewall}.rs` | `NetworkZoneProvider`, ADR-0052 |
-| libvirt | `crates/adapters/delonix-vm` (`ensure_libvirt_network`, `net-update`, nwfilter) | rede `default`, reservas DHCP |
-| catálogo de capacidades | `delonix-compute` `capability.rs` (ADR-0050) | `delonix provider ls/describe/matrix` |
-| Kinds de rede | `Network`, `NetworkRoute`, `NetworkPolicy`, `NetworkAccessRule`, `Dependency`, `Service`, `IPPool`, `HTTPRoute`, `Ingress`, `Gateway`, `NetworkGateway`, `NetworkZone` | `crates/contexts/delonix-stack/src/kinds.rs` |
-| API local | `crates/interfaces/delonix-mgmt/src/lib.rs:249-265` (`/v1/net/firewall`, `/egress`, `/attach-extra`) | congelada pelo ADR-0041 D4 |
-| OpenStack | **não existe código** — ADR-0039 `Proposed`; `type: openstack` é recusado em `providers_config.rs:570` | — |
+| Proxmox SDN + VM firewall | `crates/providers/delonix-proxmox/src/{sdn,network_zone,vm_firewall}.rs` | `NetworkZoneProvider`, ADR-0052 |
+| libvirt | `crates/adapters/delonix-vm` (`ensure_libvirt_network`, `net-update`, nwfilter) | `default` network, DHCP reservations |
+| capability catalogue | `delonix-compute` `capability.rs` (ADR-0050) | `delonix provider ls/describe/matrix` |
+| network Kinds | `Network`, `NetworkRoute`, `NetworkPolicy`, `NetworkAccessRule`, `Dependency`, `Service`, `IPPool`, `HTTPRoute`, `Ingress`, `Gateway`, `NetworkGateway`, `NetworkZone` | `crates/contexts/delonix-stack/src/kinds.rs` |
+| local API | `crates/interfaces/delonix-mgmt/src/lib.rs:249-265` (`/v1/net/firewall`, `/egress`, `/attach-extra`) | frozen by ADR-0041 D4 |
+| OpenStack | **no code exists** — ADR-0039 `Proposed`; `type: openstack` is refused in `providers_config.rs:570` | — |
 
-### 1.2 Control plane (`delonix-paas`, só leitura)
+### 1.2 Control plane (`delonix-paas`, read-only)
 
-| Peça | Sítio | Nota |
+| Piece | Location | Note |
 |---|---|---|
-| modelo NaaS e portas `NetworkProvider`/`NetworkBackend` | `crates/delonix-net-model/src/{provider,backend}.rs` | próprio, paralelo ao do motor |
-| API `/v2/net/*` | `delonix-api/src/netapi*`, registada em `ui/startup_reconcile.rs:544-576` | tenant |
-| store KV (bucket `net`) | `delonix-net-store/src/repo_core.rs:7` | desired state |
-| reconciliador | `net_reconciler.rs:55-130` (sem eleição de líder), `net_sweeper.rs` | |
-| adaptadores | `delonix-net-linux` (usa o motor v3.1.0), `delonix-net-libvirt` (virsh), `delonix-net-proxmox` (**órfão**), `delonix-image-proxmox` (2.º cliente Proxmox) | |
-| pin do motor | `Cargo.toml:50,82-90` → `rev 6680745` = **v3.1.0** | a v0.56.0 só num ramo local |
+| NaaS model and `NetworkProvider`/`NetworkBackend` ports | `crates/delonix-net-model/src/{provider,backend}.rs` | its own, parallel to the engine's |
+| `/v2/net/*` API | `delonix-api/src/netapi*`, registered in `ui/startup_reconcile.rs:544-576` | tenant |
+| KV store (`net` bucket) | `delonix-net-store/src/repo_core.rs:7` | desired state |
+| reconciler | `net_reconciler.rs:55-130` (no leader election), `net_sweeper.rs` | |
+| adapters | `delonix-net-linux` (uses the v3.1.0 engine), `delonix-net-libvirt` (virsh), `delonix-net-proxmox` (**orphaned**), `delonix-image-proxmox` (2nd Proxmox client) | |
+| engine pin | `Cargo.toml:50,82-90` → `rev 6680745` = **v3.1.0** | v0.56.0 only on a local branch |
 
-## 2. Fluxo real (hoje)
+## 2. Real flow (today)
 
 ```
-control plane /v2/net ──► reconciliar ──► NetworkProvider (env DELONIX_NET_PROVIDER, OnceLock)
-      │                                   └► delonix-net-linux ──► motor v3.1.0 infra::network_create
-      │                         e SEMPRE a seguir ► DelonixNetBackend (networks_subnets.rs:790)
-      ├─ compute_sched ──► delonix-net-libvirt (virsh, fixo, fora do funil)      [2.ª realização]
-      ├─ ui/* e overlay ──► delonix_net::infra::* directamente                 [bypass da porta]
-      └─ timer 30 s ──► reap_orphan_hostfwds(live só do store do control plane) [escritor concorrente]
+control plane /v2/net ──► reconcile ──► NetworkProvider (env DELONIX_NET_PROVIDER, OnceLock)
+      │                                   └► delonix-net-linux ──► engine v3.1.0 infra::network_create
+      │                         e ALWAYS right after ► DelonixNetBackend (networks_subnets.rs:790)
+      ├─ compute_sched ──► delonix-net-libvirt (virsh, fixed, outside the funnel)      [2nd realization]
+      ├─ ui/* and overlay ──► delonix_net::infra::* directly                 [port bypass]
+      └─ 30 s timer ──► reap_orphan_hostfwds(live only from the control plane's store) [concurrent writer]
 
-motor (CLI / stack apply / node API)
-      ├─ Kind Network ──► NetworkStore + NetDef ──► holder (bridge preguiçosa no 1.º attach)
-      ├─ NetworkPolicy/NAR/ingress/egress ──► registo do container (flock) ──► nft -f (atómico)
-      ├─ delonix-mgmt /v1/net/firewall ──► nft SEM registo                      [2.º escritor]
-      ├─ NetworkGateway ──► GatewayProvider (native recusa | OPNsense)
-      └─ NetworkZone ──► NetworkZoneProvider (Proxmox; escolhido pela CONTAGEM de providers)
+engine (CLI / stack apply / node API)
+      ├─ Kind Network ──► NetworkStore + NetDef ──► holder (lazy bridge on 1st attach)
+      ├─ NetworkPolicy/NAR/ingress/egress ──► container registry (flock) ──► nft -f (atomic)
+      ├─ delonix-mgmt /v1/net/firewall ──► nft WITHOUT registry                      [2nd writer]
+      ├─ NetworkGateway ──► GatewayProvider (native refuses | OPNsense)
+      └─ NetworkZone ──► NetworkZoneProvider (Proxmox; chosen by provider COUNT)
 ```
 
-> ⚠️ **Desenho / não implementado** — a env var `DELONIX_NET_PROVIDER` (acima) descreve
-> uma seleção de provider planeada; **0 leitores no código Rust a 2026-10-28**
-> (`grep` em `crates`/`src` = 0). Não a ler como funcionalidade real.
+> ⚠️ **Design / not implemented** — the env var `DELONIX_NET_PROVIDER` (above) describes
+> a planned provider selection; **0 readers in the Rust code as of 2026-10-28**
+> (`grep` under `crates`/`src` = 0). Do not read it as an actual feature.
 
-## 3. Ownership por recurso (um escritor, ou o conflito que existe)
+## 3. Ownership per resource (a single writer, or the conflict that exists)
 
-| Recurso | Escritor(es) hoje | Veredicto |
+| Resource | Writer(s) today | Verdict |
 |---|---|---|
-| regras nft por container | registo+nft (CLI/Kinds) **e** `delonix-mgmt` (só nft, só IP primário) | **conflito** — mgmt passa ao lado do registo |
-| hostfwds do slirp de ingress | motor **e** control plane (timer 30 s, lista parcial) | **conflito P0 cruzado** — a mesma classe do apagão documentado em `infra.rs` |
-| holder / tabelas `dlxing` | binário do motor **e** `delonix-engine` do control plane (re-exec como holder) | conflito se partilharem o root (não verificado) |
-| NetDef (`ingress/networks`) | `network_create` (com lock); `network_create_with_gateway`, `network_remove`, `update_netdef_egress` **sem lock** (o último no processo do holder) | **conflito interno** |
-| alocação de /16 | `NetworkStore::create` (10.200–254) e `infra::network_create` (10.201–254) não se vêem; `validate_subnet` aceita sobrepor 10.200/16 e 10.0.2/24 | **conflito interno** |
-| leases IPAM | `ipam` (flock) **e** DHCP de VM por hash de MAC fora do IPAM (`dhcp_lease_ip` 2400) | duas autoridades |
-| `httproute/manual.json`, `config.json` | `update_manual` read-modify-write sem lock; `fs::write` não atómico | race |
-| SDN do cluster Proxmox | `apply_sdn` (`PUT /cluster/sdn`) do motor **e** `delonix-net-proxmox` do control plane; ambos aplicam TUDO o que estiver pendente, incluindo edições de operador | conflito latente |
-| objectos OPNsense | motor; identidade = nome/descrição; `commit` aplica pendentes de terceiros | adopção por nome |
+| per-container nft rules | registry+nft (CLI/Kinds) **and** `delonix-mgmt` (nft only, primary IP only) | **conflict** — mgmt bypasses the registry |
+| slirp ingress hostfwds | engine **and** control plane (30 s timer, partial list) | **cross-cutting P0 conflict** — the same class as the outage already documented in `infra.rs` |
+| holder / `dlxing` tables | engine binary **and** control plane's `delonix-engine` (re-exec as holder) | conflict if they share root (not verified) |
+| NetDef (`ingress/networks`) | `network_create` (with lock); `network_create_with_gateway`, `network_remove`, `update_netdef_egress` **without lock** (the last in the holder process) | **internal conflict** |
+| /16 allocation | `NetworkStore::create` (10.200–254) and `infra::network_create` (10.201–254) don't see each other; `validate_subnet` accepts overlapping 10.200/16 and 10.0.2/24 | **internal conflict** |
+| IPAM leases | `ipam` (flock) **and** VM DHCP by MAC hash outside of IPAM (`dhcp_lease_ip` 2400) | two authorities |
+| `httproute/manual.json`, `config.json` | `update_manual` read-modify-write without lock; `fs::write` not atomic | race |
+| Proxmox cluster SDN | engine's `apply_sdn` (`PUT /cluster/sdn`) **and** control plane's `delonix-net-proxmox`; both apply EVERYTHING pending, including operator edits | latent conflict |
+| OPNsense objects | engine; identity = name/description; `commit` applies third-party pending changes | adoption by name |
 
-## 4. Capability matrix actual (papel × provider)
+## 4. Current capability matrix (role × provider)
 
-I = implementado e alcançável por Kind/CLI; P = parcial; L = só biblioteca + teste ao vivo; A = ausente.
+I = implemented and reachable via Kind/CLI; P = partial; L = library-only + live test; A = absent.
 
-| Papel | Linux nativo | Proxmox | OPNsense | libvirt | Cloud Hypervisor | OpenStack | CNI |
+| Role | Native Linux | Proxmox | OPNsense | libvirt | Cloud Hypervisor | OpenStack | CNI |
 |---|---|---|---|---|---|---|---|
-| fabric/overlay | P (VXLAN/WG, um nó) | L (fabrics, sdn.rs:1046-1317) | A | A | A | A | — |
-| segmento | I (bridge no holder) | I/P (`NetworkZone`: zona+VNet) | A | P (`default`, nat/bridge/user) | I (tap) | A | I (bridge CNI) |
-| porta | I (`NetworkProvider::attach`) | P (`net0`; VM→VNet não ligada) | A | P (extraNics só XML) | I | A | I |
-| IPAM | I | L (`create_sdn_ipam`, `vnet ips`) | A | P (`ip-dhcp-host`) | I (derivado do MAC) | A | I (host-local) |
+| fabric/overlay | P (VXLAN/WG, single node) | L (fabrics, sdn.rs:1046-1317) | A | A | A | A | — |
+| segment | I (bridge in the holder) | I/P (`NetworkZone`: zone+VNet) | A | P (`default`, nat/bridge/user) | I (tap) | A | I (CNI bridge) |
+| port | I (`NetworkProvider::attach`) | P (`net0`; VM→VNet not wired) | A | P (extraNics XML only) | I | A | I |
+| IPAM | I | L (`create_sdn_ipam`, `vnet ips`) | A | P (`ip-dhcp-host`) | I (derived from MAC) | A | I (host-local) |
 | subnet | P (`Cidr`) | L | A | A | A | A | — |
-| rota | I (`NetworkRoute`) | L (só leitura) | A | A | A | A | — |
-| gateway/perímetro | P (`native` recusa tudo) | A (excluído, ADR-0049 D3) | I (alias+regra, sem update) | A | A | A | — |
-| firewall por workload | I (nft) | I/P (`scope: vm`) | A | P (anti-spoof nwfilter) | P (anti-spoof no tap) | A | — |
-| NAT | I (masquerade, DNAT publish) | A | A | I (rede NAT) | via SDN | A | portmap não ligado em root |
-| LB | P (`Service` por DNS) | A | A | A | A | A | — |
+| route | I (`NetworkRoute`) | L (read-only) | A | A | A | A | — |
+| gateway/perimeter | P (`native` refuses everything) | A (excluded, ADR-0049 D3) | I (alias+rule, no update) | A | A | A | — |
+| per-workload firewall | I (nft) | I/P (`scope: vm`) | A | P (anti-spoof nwfilter) | P (anti-spoof on tap) | A | — |
+| NAT | I (masquerade, DNAT publish) | A | A | I (NAT network) | via SDN | A | portmap not wired as root |
+| LB | P (`Service` by DNS) | A | A | A | A | A | — |
 | DNS | P (`*.delonix.internal`) | L (`create_sdn_dns`) | A | A | A | A | — |
-| telemetria | P | L | A | A | P | A | — |
-| IPv6 | recusado por omissão (fail-closed) | — | — | — | — | — | — |
+| telemetry | P | L | A | A | P | A | — |
+| IPv6 | refused by default (fail-closed) | — | — | — | — | — | — |
 
-O catálogo (ADR-0050) **não tem** entradas `gateway.*`, `nat.*`, `lb.*`, `dns.*` além de `net.dns`,
-e o `ProviderKind` só conhece Compute/Network/Storage/Image. O OPNsense não aparece no
-`delonix provider ls`, e o `providers.yaml` (ADR-0054) não configura providers de rede.
+The catalogue (ADR-0050) **has no** `gateway.*`, `nat.*`, `lb.*`, `dns.*` entries besides `net.dns`,
+and `ProviderKind` only knows Compute/Network/Storage/Image. OPNsense does not appear in
+`delonix provider ls`, and `providers.yaml` (ADR-0054) does not configure network providers.
 
-## 5. Bypasses e duplicações
+## 5. Bypasses and duplications
 
-1. `delonix-mgmt /v1/net/firewall|egress|attach-extra` escreve nft sem o registo do container.
-2. Três clientes Proxmox no ecossistema (motor `delonix-proxmox`; control plane
-   `delonix-net-proxmox`, órfão, e `delonix-image-proxmox`, TLS sempre desligado).
-3. O control plane chama `infra::*` do motor directamente fora da sua própria porta (≥20 sítios).
-4. O control plane realiza a mesma rede duas vezes (provider **e** `DelonixNetBackend`; e libvirt
-   pelo `compute_sched`, sem delete).
-5. Duas portas `NetworkProvider` com o mesmo nome e contratos diferentes (motor e control plane).
-6. Funções públicas sem chamador em produção: `set_service_lb`/`clear_service_lb`,
+1. `delonix-mgmt /v1/net/firewall|egress|attach-extra` writes nft without the container registry.
+2. Three Proxmox clients in the ecosystem (engine's `delonix-proxmox`; control plane's
+   `delonix-net-proxmox`, orphaned, and `delonix-image-proxmox`, TLS always off).
+3. The control plane calls the engine's `infra::*` directly, outside its own port (≥20 sites).
+4. The control plane realizes the same network twice (provider **and** `DelonixNetBackend`; and
+   libvirt via `compute_sched`, with no delete).
+5. Two `NetworkProvider` ports with the same name and different contracts (engine and control plane).
+6. Public functions with no caller in production: `set_service_lb`/`clear_service_lb`,
    `import_iptables`, `alloc_ip`, `container_ip6`, `firewall_summary`, `network_routes_live`,
-   `create_with_base`; e toda a SDN Proxmox além de zona/VNet (subnet, IPAM, DNS, fabric, IPs).
+   `create_with_base`; and all of Proxmox SDN beyond zone/VNet (subnet, IPAM, DNS, fabric, IPs).
 
-## 6. Gaps priorizados
+## 6. Prioritized gaps
 
-### P0 — fail-open ou perda de isolamento
+### P0 — fail-open or loss of isolation
 
-| # | Achado | Sítio | Estado |
+| # | Finding | Location | State |
 |---|---|---|---|
-| P0-1 | **Egress da origem contornado.** `fwcont` faz `ip daddr vmap @fwmap` antes de `ip saddr vmap @fwmap`, e os elementos são `jump`. Um `accept` na chain do DESTINO termina a base chain e a chain da ORIGEM nunca é avaliada: um `egress deny` fica sem efeito para destinos que aceitam. | `infra.rs:775-778`, `4387` | estático, semântica nft confirmada; a reproduzir |
-| P0-2 | Regras não `nft_safe` são **saltadas em silêncio** no holder: um `deny` inválido desaparece e o tráfego cai na política (que pode ser `allow`). | `infra.rs:4112-4115` | verificado no código |
-| P0-3 | Isolamento de namespace é **aviso** e não erro na criação e no `start`. | `compute/network.rs:88`, `container.rs:3698` | estático |
-| P0-4 | `ingress rm/clear` que esvazia as regras faz `clear_firewall` e o container **perde o isolamento de namespace**. | `firewall.rs:656,1168` | estático |
-| P0-5 | Redes com CIDR fora de 10.200–10.254: o holder recusa `firewall`/`ns_set_join` (`is_ingress_ip`) e esses containers ficam **sem isolamento**. | `infra.rs:3825` | estático |
-| P0-6 | `delonix-mgmt` escreve firewall sem registo e só no IP primário — o próximo reapply desfaz, e o multi-homed fica aberto. | `mgmt/lib.rs:249-265,1098-1142` | estático |
-| P0-7 | (control plane) timer de 30 s a reapar hostfwds com lista parcial. | `delonix-paas startup_reconcile.rs:279-307` | estático; mesma classe do apagão já medido |
+| P0-1 | **Source egress bypassed.** `fwcont` does `ip daddr vmap @fwmap` before `ip saddr vmap @fwmap`, and the elements are `jump`. An `accept` in the DESTINATION chain terminates the base chain and the SOURCE chain is never evaluated: an `egress deny` has no effect for destinations that accept. | `infra.rs:775-778`, `4387` | static, nft semantics confirmed; to be reproduced |
+| P0-2 | Rules that aren't `nft_safe` are **silently skipped** in the holder: an invalid `deny` disappears and the traffic falls through to the policy (which may be `allow`). | `infra.rs:4112-4115` | verified in code |
+| P0-3 | Namespace isolation is a **warning**, not an error, on creation and on `start`. | `compute/network.rs:88`, `container.rs:3698` | static |
+| P0-4 | `ingress rm/clear` that empties the rules runs `clear_firewall` and the container **loses namespace isolation**. | `firewall.rs:656,1168` | static |
+| P0-5 | Networks with a CIDR outside 10.200–10.254: the holder refuses `firewall`/`ns_set_join` (`is_ingress_ip`) and those containers end up **without isolation**. | `infra.rs:3825` | static |
+| P0-6 | `delonix-mgmt` writes firewall rules without the registry and only on the primary IP — the next reapply undoes it, and multi-homed stays open. | `mgmt/lib.rs:249-265,1098-1142` | static |
+| P0-7 | (control plane) 30 s timer reaping hostfwds with a partial list. | `delonix-paas startup_reconcile.rs:279-307` | static; same class as the already-measured outage |
 
-### P1 — fugas, corridas, adopção por nome
+### P1 — leaks, races, adoption by name
 
-- IPAM: lease de rede CIDR gravado em `<cidr>.json` e libertado em `10.X.json` (`allocate` usa o
-  prefixo cru, `release` via `key_for_ip`→`registry_key`) → **fuga de lease**; `reserve` fail-open
-  (213); o stop liberta o lease contra a premissa do `restore_lease`; leases de redes extra não
-  libertados; DHCP de VM fora do IPAM.
-- NetDef sem lock em 3 escritores; dois alocadores de /16 que não se vêem.
-- `network rm` não recusa com containers ligados; `do_netdel` não tira `@dlxbr`/`@netpair` nem
-  pára o DHCP; `publish_port` e `vm_attach` sem rollback; `httproute` sem lock/atomicidade.
-- OPNsense: identidade por descrição (regra manual «adoptada» e depois apagada), `commit` aplica
-  pendentes de terceiros, sem update nem deriva de conteúdo.
-- Proxmox SDN: `apply_sdn` recarrega pendentes do operador; `ensure_*` adopta por nome.
-- Linha de controlo do holder: `ip`/`gateway` do `attach`, `burst` do `netrate`, campos do
-  `wg-up`/`wg-peer` sem validação; `cni::resolve_plugin` aceita `/` e `..`; `vm bridge
-  --vm-subnet` sem validação e sem verificar root antes do `--apply`.
+- IPAM: network CIDR lease written to `<cidr>.json` and released into `10.X.json` (`allocate` uses
+  the raw prefix, `release` via `key_for_ip`→`registry_key`) → **lease leak**; `reserve` fail-open
+  (213); stop releases the lease against the `restore_lease` premise; extra-network leases not
+  released; VM DHCP outside of IPAM.
+- NetDef with no lock across 3 writers; two /16 allocators that don't see each other.
+- `network rm` doesn't refuse with containers attached; `do_netdel` doesn't remove `@dlxbr`/`@netpair`
+  nor stops DHCP; `publish_port` and `vm_attach` have no rollback; `httproute` has no lock/atomicity.
+- OPNsense: identity by description (a manual rule "adopted" and then deleted), `commit` applies
+  third-party pending changes, no update and no content drift detection.
+- Proxmox SDN: `apply_sdn` reloads the operator's pending changes; `ensure_*` adopts by name.
+- Holder control line: `attach`'s `ip`/`gateway`, `netrate`'s `burst`, `wg-up`/`wg-peer` fields
+  without validation; `cni::resolve_plugin` accepts `/` and `..`; `vm bridge
+  --vm-subnet` without validation and without checking root before `--apply`.
 
-### P2 — contrato e capacidades
+### P2 — contract and capabilities
 
-- Sem portas por papel para IPAM/DNS/LB/subnet/fabric remotos; sem `plan`/`observe`/`verify`
-  uniforme; sem envelope de erro estável (`unsupported_capability`, `stale_plan`, `partial_apply`…).
-- Catálogo sem `gateway/nat/lb/dns`; OPNsense fora do catálogo e do `providers.yaml`;
-  `NetworkZoneProvider` escolhido por contagem e não por nome; node API não publica gateway/zona.
-- `NetworkGateway`/`NetworkZone` sem cobertura na bateria E2E.
-- ADR-0024 (`selector` na política) aceite e por implementar; ADR-0013 com IPAM/`Cidr` por ligar.
+- No per-role ports for remote IPAM/DNS/LB/subnet/fabric; no uniform `plan`/`observe`/`verify`;
+  no stable error envelope (`unsupported_capability`, `stale_plan`, `partial_apply`…).
+- Catalogue missing `gateway/nat/lb/dns`; OPNsense outside the catalogue and `providers.yaml`;
+  `NetworkZoneProvider` chosen by count rather than by name; node API doesn't publish gateway/zone.
+- `NetworkGateway`/`NetworkZone` not covered by the E2E battery.
+- ADR-0024 (`selector` in policy) accepted and not yet implemented; ADR-0013 with IPAM/`Cidr` not wired.
 
 ### P3
 
-- IPv6 (a recusa actual é correcta); OpenStack Neutron (ADR-0039 Proposed, zero código); LB real;
-  DNS autoritativo; topologia; SLOs.
+- IPv6 (the current refusal is correct); OpenStack Neutron (ADR-0039 Proposed, zero code); real LB;
+  authoritative DNS; topology; SLOs.
 
-## 7. Refactorização decidida por este documento, e a quem vai
+## 7. Refactoring decided by this document, and who it goes to
 
-Cada linha é uma sessão local, num worktree próprio em
-`~/workspace/ngolacloud/.worktrees/<repo>/<tarefa>`, um PR por sessão.
+Each row is a local session, in its own worktree under
+`~/workspace/ngolacloud/.worktrees/<repo>/<task>`, one PR per session.
 
-| Sessão | Repo | Âmbito | Precisa de aprovação antes de código? |
+| Session | Repo | Scope | Needs approval before code? |
 |---|---|---|---|
-| **S1 fail-closed do firewall** | motor | P0-1…P0-5: separar o dispatch em duas base chains (saída e entrada) para `accept` não ser terminal; recusar o ruleset inteiro quando uma regra não é `nft_safe`; isolamento de namespace como erro; `rm/clear` preserva o isolamento; isolamento em redes CIDR | não — corrige comportamento, não muda ownership |
-| **S2 IPAM e NetDef transaccionais** | motor | chave de lease única, `reserve` fail-closed, leases de redes extra, lock nos escritores do NetDef, um só alocador de /16, `validate_subnet` contra os prefixos reservados | não |
-| **S3 ciclo de vida e escritor único do dataplane** | motor | `network rm` com dependentes, `do_netdel` completo, rollback de `publish_port`/`vm_attach`, lock+atomicidade no `httproute`, `delonix-mgmt` a passar pelo registo ou a recusar (P0-6) | não para o motor; a rota do mgmt toca no ADR-0041 D4 — decidir recusar em vez de alargar |
-| **S4 superfície de privilégio** | motor | validar todos os tokens da linha de controlo do holder, `cni::resolve_plugin`, `vm bridge` | não |
-| **S5 contrato de provider de rede (ADR)** | motor | ADR novo: portas por papel, relatório de capacidades de rede/gateway, lifecycle validate/plan/apply/observe/verify, erros estáveis, selecção por nome, `providers.yaml` para providers de rede. **Só o ADR e o spike**; implementação depois de aceite | **sim** (muda fronteira) |
-| **S6 posse nos providers remotos** | motor | marca de posse imutável no OPNsense e na SDN Proxmox, recusa de adopção por nome, pré-condição «sem pendentes alheios» antes de `commit`/`apply_sdn`, E2E de `NetworkGateway`/`NetworkZone` | não; coordenar com a sessão activa «Proxmox API interface assessment» (worktree `sdn-rest`) |
-| **C1 escritor único no control plane** | control plane | P0-7, realização dupla, `compute_sched` fora do funil, binding não persistido, reconciliador sem líder, cliente Proxmox órfão/duplicado, pin do motor | **sim** (ownership) |
+| **S1 firewall fail-closed** | engine | P0-1…P0-5: split the dispatch into two base chains (egress and ingress) so `accept` isn't terminal; refuse the whole ruleset when a rule isn't `nft_safe`; namespace isolation as an error; `rm/clear` preserves isolation; isolation on CIDR networks | no — fixes behaviour, doesn't change ownership |
+| **S2 transactional IPAM and NetDef** | engine | single lease key, fail-closed `reserve`, extra-network leases, lock on NetDef writers, a single /16 allocator, `validate_subnet` against reserved prefixes | no |
+| **S3 lifecycle and single dataplane writer** | engine | `network rm` with dependents, complete `do_netdel`, rollback for `publish_port`/`vm_attach`, lock+atomicity in `httproute`, `delonix-mgmt` going through the registry or refusing (P0-6) | not for the engine; mgmt's route touches ADR-0041 D4 — decide to refuse rather than extend |
+| **S4 privilege surface** | engine | validate every holder control-line token, `cni::resolve_plugin`, `vm bridge` | no |
+| **S5 network provider contract (ADR)** | engine | new ADR: per-role ports, network/gateway capability report, validate/plan/apply/observe/verify lifecycle, stable errors, selection by name, `providers.yaml` for network providers. **ADR and spike only**; implementation after acceptance | **yes** (changes boundary) |
+| **S6 ownership on remote providers** | engine | immutable ownership marker on OPNsense and Proxmox SDN, refusal to adopt by name, "no third-party pending changes" precondition before `commit`/`apply_sdn`, E2E for `NetworkGateway`/`NetworkZone` | no; coordinate with the active "Proxmox API interface assessment" session (worktree `sdn-rest`) |
+| **C1 single writer in the control plane** | control plane | P0-7, double realization, `compute_sched` outside the funnel, unpersisted binding, leaderless reconciler, orphaned/duplicated Proxmox client, engine pin | **yes** (ownership) |
 
-Ordem: S1 e S4 primeiro (isolamento); S2 e S3 em paralelo (ficheiros diferentes: `ipam.rs`/NetDef
-contra `network.rs`/`httproute`/mgmt — **S2 e S3 tocam ambos `infra.rs`**, por isso S3 rebaseia
-sobre S2); S5 depois de S1 (o ADR cita o IR corrigido); S6 depois de S5 aceite na parte do
-contrato, mas a marca de posse pode começar já.
+Order: S1 and S4 first (isolation); S2 and S3 in parallel (different files: `ipam.rs`/NetDef
+versus `network.rs`/`httproute`/mgmt — **S2 and S3 both touch `infra.rs`**, so S3 rebases
+onto S2); S5 after S1 (the ADR cites the corrected IR); S6 after S5 is accepted on the
+contract side, but the ownership marker can start already.
 
-## 8. Primeiro incremento vertical proposto
+## 8. First proposed vertical increment
 
-«Rede privada isolada no provider Linux, fail-closed»: `kind: Network` + dois workloads em
-namespaces diferentes + `NetworkPolicy` de saída `deny` + `NetworkAccessRule` de entrada.
-Critério de saída: `stack apply` → `stack plan --detailed-exitcode` = 0; tráfego permitido passa,
-cross-namespace e o egress negado **não** passam (medido com pacotes, contadores nft lidos);
-`stack destroy` → zero leases, zero elementos `@fwmap`/`@dlxns`, zero NetDef. É exactamente o
-que S1+S2+S3 fecham, e passa a check da bateria (`scripts/e2e.sh`) e cenário de caos.
+"Isolated private network on the Linux provider, fail-closed": `kind: Network` + two workloads in
+different namespaces + egress `NetworkPolicy` set to `deny` + ingress `NetworkAccessRule`.
+Exit criterion: `stack apply` → `stack plan --detailed-exitcode` = 0; allowed traffic passes,
+cross-namespace and denied egress **don't** pass (measured with packets, nft counters read);
+`stack destroy` → zero leases, zero `@fwmap`/`@dlxns` elements, zero NetDef. This is exactly what
+S1+S2+S3 close out, and it passes the battery check (`scripts/e2e.sh`) and a chaos scenario.
 
-## 9. Comandos e ambientes de validação
+## 9. Validation commands and environments
 
 ```bash
 cargo test -p delonix-sdn -p delonix-net-rules -p delonix-opnsense -p delonix-proxmox -p delonix-compute
 python3 scripts/arch_fitness.py && python3 scripts/lang_ratchet.py
-OUT=/tmp/dlxn DELONIX_ROOT=$OUT/root DELONIX_NET_RUNTIME_DIR=$OUT/net scripts/e2e.sh   # os DOIS roots
-scripts/chaos.sh                                                                       # isolamento
+OUT=/tmp/dlxn DELONIX_ROOT=$OUT/root DELONIX_NET_RUNTIME_DIR=$OUT/net scripts/e2e.sh   # BOTH roots
+scripts/chaos.sh                                                                       # isolation
 ```
 
-Resultado medido nesta auditoria (worktree `naas-audit`, `RUSTC_WRAPPER=` vazio):
-**19 suites, 484 testes, 0 falhas, 0 ignorados** em `delonix-sdn`, `delonix-net-rules`,
-`delonix-opnsense`, `delonix-proxmox` e `delonix-compute` (unitários, failure-injection e
-doc-tests). Os testes ao vivo do Proxmox/OPNsense não foram corridos (precisam do
-lab). Nada disto prova P0-1: os testes existentes não medem egress cruzado com um destino que
-aceita, e é esse o primeiro teste que S1 escreve.
+Result measured in this audit (worktree `naas-audit`, empty `RUSTC_WRAPPER=`):
+**19 suites, 484 tests, 0 failures, 0 ignored** in `delonix-sdn`, `delonix-net-rules`,
+`delonix-opnsense`, `delonix-proxmox` and `delonix-compute` (unit, failure-injection and
+doc-tests). Live Proxmox/OPNsense tests were not run (they need the
+lab). None of this proves P0-1: the existing tests don't measure cross-egress against a destination
+that accepts, and that is the first test S1 writes.
 
-Ambientes: host de desenvolvimento com os dois roots isolados (nunca o root real — há produção
-viva); lab Proxmox `pve`/`pve2` e appliance OPNsense para S6; nenhum ambiente OpenStack existe.
+Environments: development host with the two isolated roots (never the real root — there is live
+production); Proxmox lab `pve`/`pve2` and an OPNsense appliance for S6; no OpenStack environment exists.
 
-## 10. Perguntas bloqueadoras
+## 10. Blocking questions
 
-1. **C1**: o control plane deve passar a consumir as portas do motor (e deixar os seus adaptadores
-   `delonix-net-*`), ou manter os seus e o motor fica só como dataplane de nó? Decide quem é o
-   escritor do SDN Proxmox e do OPNsense.
-2. **S3/mgmt**: as rotas de rede do `delonix-mgmt` recusam (fail-closed) até o `delonix-node-api`
-   as substituir, ou passam pelo registo? (ADR-0041 D4 congela a superfície.)
-3. **S5**: o relatório de capacidades de rede entra no catálogo existente (ADR-0050, novo
-   `ProviderKind::Gateway`) ou num documento separado por papel?
-4. **OpenStack**: fica fora até haver ambiente (recomendado), ou abre-se o spike do ADR-0039?
+1. **C1**: should the control plane start consuming the engine's ports (and drop its
+   `delonix-net-*` adapters), or keep its own and have the engine act purely as the node's dataplane?
+   This decides who is the writer for Proxmox SDN and OPNsense.
+2. **S3/mgmt**: do `delonix-mgmt`'s network routes refuse (fail-closed) until `delonix-node-api`
+   replaces them, or do they go through the registry? (ADR-0041 D4 freezes the surface.)
+3. **S5**: does the network capability report go into the existing catalogue (ADR-0050, new
+   `ProviderKind::Gateway`) or a separate per-role document?
+4. **OpenStack**: does it stay out until an environment exists (recommended), or does the ADR-0039
+   spike open up?

@@ -701,12 +701,12 @@ pub(crate) fn build_plan(docs: &[manifest::ManifestDoc], stack: &str) -> Result<
                 c.conditions.push(cond);
             }
         }
-        // O mesmo, para o Kind MAIS USADO — e onde a lacuna era maior: 43 campos
-        // de spec contra onze comparados. Num container já a correr, mudar `env`,
-        // `user`, `capAdd`, `readOnly` ou `command` dava «no changes» e
-        // `--detailed-exitcode` 0, ou seja um gate de deriva em CI verde por cima
-        // de deriva real. O raciocínio já estava escrito aqui em cima e aplicava-se
-        // só ao `Vm`; era o Container que precisava dele mais.
+        // Same thing, for the MOST USED Kind — and where the gap was widest: 43
+        // spec fields against eleven compared. On a container already running,
+        // changing `env`, `user`, `capAdd`, `readOnly` or `command` gave "no
+        // changes" and `--detailed-exitcode` 0, i.e. a drift gate green in CI on
+        // top of real drift. The reasoning was already written up above and
+        // applied only to `Vm`; the Container was the one that needed it most.
         if c.kind == k::CONTAINER && !recreated {
             if let Some(cond) =
                 super::container::unconverged_fields_condition(doc, created_containers.get(&c.name))
@@ -1490,18 +1490,18 @@ fn describe(file: Option<PathBuf>) -> Result<()> {
 
     // Kinds the manifest brings but the stack does not know how to apply: better
     // to say so than to ignore silently (the `apply` would also ignore them, without warning).
-    let desconhecidos: Vec<&str> = docs
+    let unknown: Vec<&str> = docs
         .iter()
         .map(|doc| doc.kind.as_str())
         .filter(|k| !super::kinds::in_stack(k))
         .collect();
-    if !desconhecidos.is_empty() {
+    if !unknown.is_empty() {
         println!();
         println!(
             "{}",
             super::po::tf(
                 "WARNING: kinds not supported by the stack (ignored by `apply`): {kinds}",
-                &[("kinds", &desconhecidos.join(", "))],
+                &[("kinds", &unknown.join(", "))],
             )
         );
     }
@@ -1964,7 +1964,7 @@ fn apply(
 ) -> Result<()> {
     // `--replace` is the flag that AUTHORIZES a destructive recreate, so a value
     // it cannot possibly match is refused here rather than ignored. Accepting
-    // `--replace lixo` in silence gives the illusion of having authorised
+    // `--replace junk` in silence gives the illusion of having authorised
     // something; the recreate is then refused downstream by `refuse_unallowed`,
     // and the error the user reads talks about the resource, never about the
     // typo they made. `all` and `<Kind>/<name>` are the two shapes that mean
@@ -3945,7 +3945,7 @@ fn validate(file: Option<PathBuf>, strict: bool) -> Result<()> {
     let self_target_count = self_targets.len();
     issues.extend(self_targets);
     // Fields the load has just warned about. Saying `OK` on the line after
-    // `unknown field 'resources.memoria' — ignored` was the engine contradicting
+    // `unknown field 'resources.ram' — ignored` was the engine contradicting
     // itself inside two lines: the reference graph WAS fine, and the manifest
     // still did not mean what it says. The count makes the verdict match what
     // was printed; `--strict` turns it into an exit code for a pipeline.
@@ -4233,19 +4233,19 @@ fn validate_graph_full(
 
     let mut issues = Vec::new();
 
-    // Uma rota nomeia DUAS redes, e nomear uma que não existe é o mesmo engano
-    // que o `vm init` cometia: um manifesto que se recusa a si próprio. Ambas
-    // as pontas são verificadas, e a mensagem diz QUAL delas falta.
+    // A route names TWO networks, and naming one that does not exist is the
+    // same mistake `vm init` used to make: a manifest that refuses itself. Both
+    // ends are checked, and the message says WHICH of them is missing.
     for doc in docs.iter().filter(|d| d.kind == k::NETWORK_ROUTE) {
         if let Ok(spec) = manifest::spec_of::<super::netroute::NetworkRouteSpec>(doc) {
-            for (lado, rede) in [("from", &spec.from), ("to", &spec.to)] {
-                if !networks.contains(rede) {
+            for (side, net) in [("from", &spec.from), ("to", &spec.to)] {
+                if !networks.contains(net) {
                     issues.push(super::po::tf(
                         "NetworkRoute '{name}' → {side} network '{net}' is not declared nor does it exist",
                         &[
                             ("name", &doc.metadata.name),
-                            ("side", lado),
-                            ("net", rede),
+                            ("side", side),
+                            ("net", net),
                         ],
                     ));
                 }
@@ -4888,14 +4888,14 @@ spec: { target: cc, direction: ingress, defaultPolicy: deny, rules: [] }
     /// level — and, like that one, the symptom hid because every `apply` is
     /// idempotent and converged by the wrong path.
     #[test]
-    fn hot_fields_sao_um_subconjunto_dos_comparados() {
+    fn hot_fields_are_a_subset_of_the_compared() {
         for (kind, compared) in compared_fields_table() {
             for hot in super::reconcile::hot_fields_for(kind) {
                 assert!(
                     compared.contains(hot),
-                    "{kind}: '{hot}' e hot mas nao esta nos campos comparados — \
-                     o braco do `converge` e inalcancavel e a mudanca no manifesto \
-                     e um no-op que reporta sucesso"
+                    "{kind}: '{hot}' is hot but is not in the compared fields — \
+                     the `converge` arm is unreachable and the manifest change \
+                     is a no-op that reports success"
                 );
             }
         }
@@ -5668,7 +5668,7 @@ spec:
     }
 
     #[test]
-    fn grafo_integro_nao_tem_problemas() {
+    fn healthy_graph_has_no_problems() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5694,12 +5694,12 @@ spec: { direction: ingress, target: web }
         );
         assert!(
             issues.is_empty(),
-            "esperava grafo íntegro, veio: {issues:?}"
+            "expected a healthy graph, got: {issues:?}"
         );
     }
 
     #[test]
-    fn network_por_declarar_e_sinalizada() {
+    fn undeclared_network_is_flagged() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5713,7 +5713,7 @@ spec: { image: nginx, network: fantasma }
     }
 
     #[test]
-    fn builtins_de_rede_nao_sao_referencias() {
+    fn network_builtins_are_not_references() {
         // host/none (container) and bridge (vm) are not a kind: Network.
         let issues = check(
             "\
@@ -5732,7 +5732,7 @@ spec: { disk: d, network: bridge }
     }
 
     #[test]
-    fn volume_nomeado_por_declarar_e_sinalizado_mas_bind_mount_nao() {
+    fn undeclared_named_volume_is_flagged_but_bind_mount_is_not() {
         // `/host/ok` (absolute) and `./relative` (relative) are the TWO forms
         // of bind mount `delonix_volume::VolumeStore::resolve_spec_in`
         // recognizes (`named = !starts_with('/') && !starts_with('.')`) — a
@@ -5752,7 +5752,7 @@ spec: { image: nginx, volumes: [\"semvolume:/x\", \"/host/ok:/y\", \"./addons:/z
     }
 
     #[test]
-    fn firewallpolicy_valida_target_como_ingress_egress() {
+    fn firewallpolicy_validates_target_like_ingress_egress() {
         // FirewallPolicy resolves the target the same way (scope-aware) as Ingress/Egress.
         let issues = check(
             "\
@@ -5777,7 +5777,7 @@ spec: { direction: egress, target: fantasma }
     }
 
     #[test]
-    fn firewallpolicy_direction_e_scope_incompativel_apanhados_no_validate() {
+    fn firewallpolicy_direction_and_incompatible_scope_caught_in_validate() {
         // invalid direction.
         let i = check(
             "apiVersion: delonix.io/v1\nkind: NetworkPolicy\nmetadata: { name: a }\nspec: { direction: sideways, target: x }\n",
@@ -5808,7 +5808,7 @@ spec: { direction: ingress, scope: network, target: n }
     }
 
     #[test]
-    fn egress_scope_network_valida_target_contra_redes() {
+    fn egress_scope_network_validates_target_against_networks() {
         // scope: network → the target must be a Network (not a container).
         let issues = check(
             "\
@@ -5836,7 +5836,7 @@ spec: { direction: egress, scope: network, target: rede-fantasma, defaultPolicy:
     }
 
     #[test]
-    fn ingress_target_inexistente_e_sinalizado() {
+    fn nonexistent_ingress_target_is_flagged() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5850,7 +5850,7 @@ spec: { direction: ingress, target: nao-existe }
     }
 
     #[test]
-    fn duplicado_no_manifesto_e_sinalizado() {
+    fn duplicate_in_the_manifest_is_flagged() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5869,7 +5869,7 @@ spec: {}
     }
 
     #[test]
-    fn vm_volumes_object_style_valida_a_referencia() {
+    fn vm_volumes_object_style_validates_the_reference() {
         // `Vm.volumes` are objects {name, mountPath} — the ref must be resolved.
         let issues = check(
             "\
@@ -5889,7 +5889,7 @@ spec: { disk: d, volumes: [ { name: dados, mountPath: /mnt/d }, { name: fantasma
     }
 
     #[test]
-    fn secret_por_declarar_e_sinalizado_em_container_e_storage() {
+    fn undeclared_secret_is_flagged_in_container_and_storage() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5900,30 +5900,30 @@ spec: { stringData: { password: x } }
 apiVersion: delonix.io/v1
 kind: Container
 metadata: { name: web }
-spec: { image: nginx, secret: [creds, fantasma] }
+spec: { image: nginx, secret: [creds, ghost] }
 ---
 apiVersion: delonix.io/v1
 kind: Volume
 metadata: { name: nas }
-spec: { nfs: { server: h, share: /s, passwordSecret: outro-fantasma } }
+spec: { nfs: { server: h, share: /s, passwordSecret: other-ghost } }
 ",
         );
-        // `creds` resolves; `fantasma` (container) and `outro-fantasma` (storage) do not.
+        // `creds` resolves; `ghost` (container) and `other-ghost` (storage) do not.
         assert_eq!(issues.len(), 2, "{issues:?}");
         assert!(
-            issues.iter().any(|i| i.contains("secret 'fantasma'")),
+            issues.iter().any(|i| i.contains("secret 'ghost'")),
             "{issues:?}"
         );
         assert!(
             issues
                 .iter()
-                .any(|i| i.contains("passwordSecret 'outro-fantasma'")),
+                .any(|i| i.contains("passwordSecret 'other-ghost'")),
             "{issues:?}"
         );
     }
 
     #[test]
-    fn storage_passwordsecret_sem_chave_password_e_sinalizado() {
+    fn storage_passwordsecret_without_password_key_is_flagged() {
         // The Secret exists but declares only `token` (inline) — the mount would read `password`.
         let issues = check(
             "\
@@ -5979,7 +5979,7 @@ spec: { type: cifs, server: h, share: /s, passwordSecret: creds }
     }
 
     #[test]
-    fn recurso_ja_existente_na_maquina_resolve_a_referencia() {
+    fn resource_already_on_the_machine_resolves_the_reference() {
         let d = docs(
             "\
 apiVersion: delonix.io/v1
@@ -6001,7 +6001,7 @@ spec: { image: nginx, network: prod-net }
     /// (`-f delonix-manifest.yaml`). So this one uses the relative form on
     /// purpose, which is the only form that proves anything.
     #[test]
-    fn stack_name_vem_do_directorio_mesmo_com_caminho_relativo() {
+    fn stack_name_comes_from_the_directory_even_with_a_relative_path() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("o-meu-projecto");
         std::fs::create_dir_all(&dir).unwrap();
@@ -6037,7 +6037,7 @@ spec: {}
     /// `manifest::load` expands a Stack into its children and the Stack document
     /// itself does not survive the load.
     #[test]
-    fn um_kind_stack_da_o_nome_e_ganha_ao_directorio() {
+    fn a_kind_stack_gives_the_name_and_wins_over_the_directory() {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("m.yaml");
         std::fs::write(
@@ -6179,7 +6179,7 @@ spec: {}
     /// time, so the two cannot drift apart — this test is what fixes that
     /// property, not just the current ordering.
     #[test]
-    fn a_ordem_de_remocao_e_a_inversa_da_de_criacao() {
+    fn removal_order_is_the_inverse_of_creation() {
         let mk = |kind: &str| super::reconcile::Change {
             kind: kind.to_string(),
             name: "x".into(),
@@ -6216,13 +6216,6 @@ spec: {}
         assert!(idx("Container") < idx("Pod"));
     }
 
-    /// **Perda silenciosa numa superfície de segurança.** O `apply_fw_doc`
-    /// SUBSTITUI as regras de uma direcção, por isso duas políticas para o mesmo
-    /// alvo+direcção fazem a segunda apagar as regras da primeira — e ambas
-    /// reportavam sucesso. Medido: o `stack validate` dizia «OK, todas as
-    /// referências resolvidas» para exactamente esse manifesto.
-    ///
-    /// Recusado e não fundido, ao contrário do `kind: Dependency`: uma
     /// A `kind: Pod` is a reference target like any other workload.
     ///
     /// Before this, `Pod` was recommended and unusable at the same time: with
@@ -6243,134 +6236,142 @@ spec: {}
         assert!(issues.is_empty(), "{issues:?}");
     }
 
-    /// Dependency declara o acesso de UM peer e várias somam-se; uma
-    /// FirewallPolicy declara o estado desejado INTEIRO de uma direcção,
-    /// `defaultPolicy` incluído, logo duas são duas respostas à mesma pergunta.
+    /// **Silent loss on a security surface.** `apply_fw_doc` REPLACES the rules
+    /// of a direction, so two policies for the same target+direction make the
+    /// second erase the first's rules — and both reported success. Measured:
+    /// `stack validate` said "OK, all references resolved" for exactly that
+    /// manifest.
+    ///
+    /// Refused and not merged, unlike `kind: Dependency`: a Dependency declares
+    /// ONE peer's access and several add up; a FirewallPolicy declares the WHOLE
+    /// desired state of a direction, `defaultPolicy` included, so two are two
+    /// answers to the same question.
     #[test]
-    fn duas_politicas_para_o_mesmo_alvo_e_direccao_sao_recusadas() {
+    fn two_policies_for_the_same_target_and_direction_are_refused() {
         let mk = |name: &str, dir: &str| -> super::manifest::ManifestDoc {
             serde_yaml::from_str(&format!(
                 "apiVersion: delonix.io/v1\nkind: NetworkPolicy\nmetadata: {{ name: {name} }}\nspec: {{ direction: {dir}, target: db }}\n"
             ))
             .unwrap()
         };
-        let dois = vec![mk("a", "ingress"), mk("b", "ingress")];
-        let issues = super::validate_graph_with(&dois, &[], &[], &["db".into()], &[]);
+        let two = vec![mk("a", "ingress"), mk("b", "ingress")];
+        let issues = super::validate_graph_with(&two, &[], &[], &["db".into()], &[]);
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(
             issues[0].contains("ingress") && issues[0].contains("db"),
             "{issues:?}"
         );
 
-        // Uma por DIRECÇÃO não colide — são estados desejados de coisas
-        // diferentes, e é assim que se escreve uma política completa.
-        let por_direccao = vec![mk("a", "ingress"), mk("b", "egress")];
+        // One per DIRECTION does not collide — they are desired states of
+        // different things, and that is how a complete policy is written.
+        let per_direction = vec![mk("a", "ingress"), mk("b", "egress")];
         assert!(
-            super::validate_graph_with(&por_direccao, &[], &[], &["db".into()], &[]).is_empty()
+            super::validate_graph_with(&per_direction, &[], &[], &["db".into()], &[]).is_empty()
         );
     }
 
-    /// Todos os Kinds convergentes da tabela — a fonte que o `converge_and_stamp`
-    /// e o `actual_of` também consultam.
-    fn convergentes() -> Vec<&'static str> {
+    /// Every convergent Kind in the table — the source that `converge_and_stamp`
+    /// and `actual_of` also consult.
+    fn convergent() -> Vec<&'static str> {
         crate::cmd::kinds::all()
             .filter(|f| f.converges)
             .map(|f| f.kind)
             .collect()
     }
 
-    /// **Três listas que têm de concordar, e que derivaram.** A coluna
-    /// `converges` decide TRÊS coisas — se o `actual_of` sonda a presença em vez
-    /// de usar o adaptador, se o `converge_and_stamp` aplica um Update, e se
-    /// carimba a posse — enquanto os braços do `match` em `desired_of` e a
-    /// tabela do `--fields` continuam escritos à parte.
+    /// **Three lists that must agree, and that drifted.** The `converges` column
+    /// decides THREE things — whether `actual_of` probes presence instead of
+    /// using the adapter, whether `converge_and_stamp` applies an Update, and
+    /// whether it stamps ownership — while the `match` arms in `desired_of` and
+    /// the `--fields` table are still written separately.
     ///
-    /// Aconteceu mesmo, quando isto era uma constante ao lado: o `Vm`, o
-    /// `FirewallPolicy` e o `ShareVolume` ganharam adaptador e ficaram de fora,
-    /// por isso o `converge_and_stamp` SALTAVA-OS. O sintoma escondeu-se porque o
-    /// `apply` de cada Kind continua a correr na cadeia antiga e é idempotente —
-    /// convergiam pelo caminho errado, e o resultado observado parecia certo.
+    /// It actually happened, back when this was a constant off to the side: `Vm`,
+    /// `FirewallPolicy` and `ShareVolume` gained an adapter and were left out, so
+    /// `converge_and_stamp` SKIPPED them. The symptom hid because each Kind's
+    /// `apply` still runs on the old chain and is idempotent — they converged by
+    /// the wrong path, and the observed result looked right.
     ///
-    /// A tabela única fecha a divergência entre as três CONSUMIDORAS; este teste
-    /// continua a ser preciso porque o `--fields` e o `desired_of` não saem dela.
+    /// The single table closes the divergence between the three CONSUMERS; this
+    /// test is still needed because `--fields` and `desired_of` are not derived
+    /// from it.
     #[test]
-    fn as_tres_listas_de_kinds_convergentes_concordam() {
-        // Tudo o que a tabela declara tem de ter uma linha no `--fields`...
-        let com_campos: Vec<&str> = compared_fields_table()
+    fn the_three_lists_of_convergent_kinds_agree() {
+        // Everything the table declares must have a row in `--fields`...
+        let with_fields: Vec<&str> = compared_fields_table()
             .into_iter()
             .map(|(k, _)| k)
             .collect();
-        for k in convergentes() {
+        for k in convergent() {
             assert!(
-                com_campos.contains(&k),
-                "{k} converge mas o `--fields` não diz que campos compara"
+                with_fields.contains(&k),
+                "{k} converges but `--fields` does not say which fields it compares"
             );
         }
-        // ...e o inverso: nada no `--fields` pode estar fora dela, senão a
-        // tabela promete uma comparação que o apply nunca faz.
-        for k in com_campos {
+        // ...and the inverse: nothing in `--fields` may be outside it, otherwise
+        // the table promises a comparison the apply never makes.
+        for k in with_fields {
             assert!(
                 crate::cmd::kinds::converges(k),
-                "o `--fields` lista {k} mas o converge_and_stamp salta-o"
+                "`--fields` lists {k} but converge_and_stamp skips it"
             );
         }
-        // E um Kind convergente nunca pode ter uma desculpa de não-convergência.
-        for k in convergentes() {
+        // And a convergent Kind can never have a non-convergence excuse.
+        for k in convergent() {
             assert_eq!(
                 super::not_converged_reason(k),
                 super::NOT_CONVERGED_GENERIC,
-                "{k} converge e ainda assim tem uma razão para não convergir"
+                "{k} converges and yet has a reason not to converge"
             );
         }
     }
 
-    /// Os Kinds do ciclo do stack sem presença observável — o `presence`
-    /// devolve-lhes `-`, e é essa a marca que o `wait` tem de ler como pronta.
+    /// The Kinds in the stack cycle with no observable presence — `presence`
+    /// returns `-` for them, and that is the marker `wait` has to read as ready.
     ///
-    /// Sai da coluna `presence` de `cmd::kinds` e já não de uma lista escrita
-    /// aqui: era a sexta lista paralela, e a que menos se via.
+    /// Comes from the `presence` column of `cmd::kinds` and no longer from a list
+    /// written here: it was the sixth parallel list, and the least visible one.
     ///
-    /// **O `NetworkRoute` não está entre eles**, e a razão é a mudança que o
-    /// trouxe para os convergentes: passou a ter registo próprio
-    /// (`infra::RouteDef`), logo passou a ter presença observável de verdade —
-    /// `yes`/`no`, com o estado vivo ao lado. Classificá-lo como declarativo faria
-    /// o `wait` dar por pronta uma rota que ainda não existe.
-    fn declarativos() -> Vec<&'static str> {
+    /// **`NetworkRoute` is not among them**, and the reason is the change that
+    /// brought it into the convergent set: it gained its own record
+    /// (`infra::RouteDef`), so it gained a genuinely observable presence —
+    /// `yes`/`no`, with the live state alongside. Classifying it as declarative
+    /// would make `wait` call a route that does not exist yet ready.
+    fn declarative() -> Vec<&'static str> {
         crate::cmd::kinds::all()
             .filter(|f| f.in_stack && f.presence == crate::cmd::kinds::Presence::Declarative)
             .map(|f| f.kind)
             .collect()
     }
 
-    /// **Um marcador de presença `-` não é «ausente».** O `wait` decidia
-    /// prontidão com `present == "yes"`, e os Kinds declarativos NUNCA dizem
-    /// `"yes"` — qualquer manifesto com um deles esgotava o `--timeout` inteiro
-    /// e saía com erro sobre uma stack inteiramente a correr.
+    /// **A `-` presence marker is not "absent".** `wait` decided readiness with
+    /// `present == "yes"`, and declarative Kinds NEVER say `"yes"` — any manifest
+    /// with one of them exhausted the whole `--timeout` and exited with an error
+    /// about a stack that was entirely running.
     ///
-    /// O `"?"` continua pendente de propósito: é também o que um erro de store
-    /// devolve, e dar «pronto» a um desconhecido é o mesmo defeito ao contrário.
+    /// `"?"` stays pending on purpose: it is also what a store error returns, and
+    /// calling an unknown "ready" is the same defect in reverse.
     #[test]
-    fn um_kind_declarativo_nao_fica_pendente_para_sempre() {
+    fn a_declarative_kind_does_not_stay_pending_forever() {
         assert_eq!(
-            declarativos().len(),
+            declarative().len(),
             4,
-            "a lista mudou — confirma o `presence`"
+            "the list changed — double-check `presence`"
         );
-        for k in declarativos() {
+        for k in declarative() {
             assert!(
                 !super::is_pending("-", k, "declarative"),
-                "{k} é declarativo e ficaria pendente para sempre"
+                "{k} is declarative and would stay pending forever"
             );
         }
-        // Ausente continua pendente — é o que o `wait` existe para esperar.
+        // Absent stays pending — that is what `wait` exists to wait for.
         assert!(super::is_pending("no", "Container", "-"));
         assert!(super::is_pending("no", "VirtualMachine", "-"));
-        // Presente é julgado pelo estado, como antes.
+        // Present is judged by state, as before.
         assert!(!super::is_pending("yes", "Container", "Running"));
         assert!(super::is_pending("yes", "Container", "Exited"));
         assert!(super::is_pending("yes", "Container", "unhealthy"));
         assert!(!super::is_pending("yes", "Volume", "-"));
-        // Desconhecido (store ilegível) NÃO é pronto.
+        // Unknown (unreadable store) is NOT ready.
         assert!(super::is_pending(
             "?",
             "Volume",
@@ -6435,85 +6436,85 @@ spec: {}
         assert!(super::digests_from_plan_file(&bad).is_err());
     }
 
-    /// Um Kind que o `apply` aplica tem de ter braço no `presence()`, senão cai
-    /// no `_ => ("?", "unsupported kind")` — que o `ls`/`describe` imprimem e o
-    /// `wait` conta como pendente para sempre. Aconteceu com o `NetworkRoute`,
-    /// que está no ciclo do stack e é aplicado desde que existe.
+    /// A Kind that `apply` applies must have an arm in `presence()`, otherwise it
+    /// falls into `_ => ("?", "unsupported kind")` — which `ls`/`describe` print
+    /// and `wait` counts as pending forever. It happened with `NetworkRoute`,
+    /// which is in the stack cycle and is applied as soon as it exists.
     ///
-    /// Sem I/O: `util::state_root()` só constrói um `PathBuf` e estes braços
-    /// nunca abrem store nenhum.
+    /// No I/O: `util::state_root()` only builds a `PathBuf` and these arms never
+    /// open any store.
     #[test]
-    fn todo_o_kind_declarativo_de_kinds_tem_braco_no_presence() {
+    fn every_declarative_kind_has_an_arm_in_presence() {
         let d = docs("apiVersion: delonix.io/v1\nkind: Network\nmetadata:\n  name: n1\nspec: {}\n");
         let doc = &d[0];
-        for k in declarativos() {
+        for k in declarative() {
             assert!(
                 crate::cmd::kinds::in_stack(k),
-                "{k} saiu do ciclo do stack — este teste deixou de dizer o que promete"
+                "{k} left the stack cycle — this test no longer says what it promises"
             );
             let (present, status) = super::presence(k, doc, &[]);
-            assert_eq!(present, "-", "{k}: presence devolveu {present}/{status}");
+            assert_eq!(present, "-", "{k}: presence returned {present}/{status}");
         }
     }
 
-    /// O inverso da asserção acima, e é o que faltava — foi por aqui que o
-    /// `kind: NetworkRoute` entrou.
+    /// The inverse of the assertion above, and the piece that was missing — this
+    /// is where `kind: NetworkRoute` slipped in.
     ///
-    /// Ele foi acrescentado ao ciclo do stack, ao `apply` e ao `validate_graph`,
-    /// ficou a NÃO convergir, e **nada falhou**: a razão genérica cobria-o.
-    /// O resultado é o pior dos dois mundos — o plano imprime-o com `!` e uma
-    /// frase que se lê como «ninguém chegou lá», quando o que estava a acontecer
-    /// era que uma EXCEPÇÃO ao isolamento entre redes não podia ser fechada pelo
-    /// manifesto que a abriu.
+    /// It was added to the stack cycle, to `apply` and to `validate_graph`, ended
+    /// up NOT converging, and **nothing failed**: the generic reason covered it.
+    /// The result is the worst of both worlds — the plan prints it with `!` and a
+    /// phrase that reads like "nobody got there", when what was actually happening
+    /// was that an EXCEPTION to network isolation could not be closed by the
+    /// manifest that opened it.
     ///
-    /// Ou o Kind converge, ou o obstáculo concreto está escrito. Não há terceira
-    /// hipótese, e é isso que este teste passa a exigir.
+    /// Either the Kind converges, or the concrete obstacle is written down. There
+    /// is no third option, and that is what this test now demands.
     #[test]
-    fn todo_kind_nao_convergente_tem_razao_especifica() {
+    fn every_non_convergent_kind_has_a_specific_reason() {
         for k in crate::cmd::kinds::stack_kinds().filter(|k| !crate::cmd::kinds::converges(k)) {
             assert_ne!(
                 super::not_converged_reason(k),
                 super::NOT_CONVERGED_GENERIC,
-                "{k} não converge e traz a razão genérica — \
-                 «não converge nesta versão» lê-se como «ninguém chegou lá». \
-                 Ou o Kind converge, ou escreve-se o obstáculo concreto em \
+                "{k} does not converge and carries the generic reason — \
+                 \"does not converge in this version\" reads like \"nobody got there\". \
+                 Either the Kind converges, or the concrete obstacle is written in \
                  `not_converged_reason`."
             );
         }
     }
 
-    /// Um Kind que converge tem de poder ser DESFEITO, ou dizer porque não.
+    /// A Kind that converges must be able to be TORN DOWN, or say why not.
     ///
-    /// O meio-buraco irmão do anterior: um Kind convergente e possuível entra no
-    /// plano, o `--prune` promete removê-lo, e o `destroy_one` cai no braço
-    /// genérico com «not implemented» **a meio de um destroy** — depois de já ter
-    /// removido os recursos anteriores na ordem de teardown. Um destroy que falha
-    /// a meio é pior que um que recusa à cabeça.
+    /// The half-hole sibling of the previous one: a convergent, ownable Kind
+    /// enters the plan, `--prune` promises to remove it, and `destroy_one` falls
+    /// into the generic arm with "not implemented" **halfway through a destroy** —
+    /// after already removing the earlier resources in teardown order. A destroy
+    /// that fails halfway is worse than one that refuses up front.
     #[test]
-    fn todo_kind_convergente_tem_teardown_ou_razao() {
-        for k in convergentes() {
-            let removivel = crate::cmd::kinds::has_teardown(k);
-            let tem_razao = super::no_teardown_reason(k).is_some();
+    fn every_convergent_kind_has_teardown_or_reason() {
+        for k in convergent() {
+            let removable = crate::cmd::kinds::has_teardown(k);
+            let has_reason = super::no_teardown_reason(k).is_some();
             assert!(
-                removivel || tem_razao,
-                "{k} converge mas o `destroy_one` não o remove nem diz porquê — \
-                 um `--prune` promete-o e o destroy recusa-o a meio"
+                removable || has_reason,
+                "{k} converges but `destroy_one` neither removes it nor says why — \
+                 a `--prune` promises it and the destroy refuses it halfway"
             );
             assert!(
-                !(removivel && tem_razao),
-                "{k} tem teardown E razão para não ter teardown — \
-                 as duas coisas não podem ser verdade"
+                !(removable && has_reason),
+                "{k} has teardown AND a reason for having none — \
+                 the two cannot both be true"
             );
         }
-        // E o inverso: nada se remove que não convirja, senão o teardown
-        // atravessa um Kind que o plano nunca nomeou.
+        // And the inverse: nothing is removed that does not converge, otherwise
+        // teardown crosses a Kind the plan never named.
         for k in crate::cmd::kinds::all()
             .filter(|f| f.teardown)
             .map(|f| f.kind)
         {
             assert!(
                 crate::cmd::kinds::converges(k),
-                "o teardown remove {k}, que não converge"
+                "teardown removes {k}, which does not converge"
             );
         }
     }

@@ -170,7 +170,7 @@ mod tests {
     /// by having a dedicated view struct; this one is the type itself, so the
     /// guard has to live here.
     #[test]
-    fn a_forma_serializada_e_um_contrato_publicado() {
+    fn the_serialized_shape_is_a_published_contract() {
         let e = Event {
             ts: 1,
             kind: "container".into(),
@@ -187,15 +187,15 @@ mod tests {
 
         // `detail` is the only optional one, and it has to VANISH rather than
         // serialize as null — a consumer distinguishes "no detail" by absence.
-        let sem = Event { detail: None, ..e };
+        let without = Event { detail: None, ..e };
         let v2: serde_json::Value =
-            serde_json::from_str(&serde_json::to_string(&sem).unwrap()).unwrap();
+            serde_json::from_str(&serde_json::to_string(&without).unwrap()).unwrap();
         assert!(v2.as_object().unwrap().get("detail").is_none());
     }
     use super::*;
 
     #[test]
-    fn emit_e_read_fazem_round_trip() {
+    fn emit_and_read_round_trip() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         emit(root, "container", "create", "abc123def456", "web", None);
@@ -217,7 +217,7 @@ mod tests {
     /// each with its own `OpenOptions`) append WITHOUT interleaving — each
     /// line remains valid JSON and none is lost.
     #[test]
-    fn emits_concorrentes_nao_se_entrelacam() {
+    fn concurrent_emits_do_not_interleave() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         const N: usize = 32;
@@ -229,7 +229,7 @@ mod tests {
                         "container",
                         "start",
                         &format!("id{i:04}"),
-                        &format!("nome-{i}"),
+                        &format!("name-{i}"),
                         None,
                     );
                 });
@@ -239,24 +239,24 @@ mod tests {
         assert_eq!(
             evs.len(),
             N,
-            "perderam-se ou corromperam-se eventos: {} de {N}",
+            "events were lost or corrupted: {} of {N}",
             evs.len()
         );
     }
 
     #[test]
-    fn read_from_continua_do_offset() {
+    fn read_from_continues_at_the_offset() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        emit(root, "container", "create", "a1", "um", None);
+        emit(root, "container", "create", "a1", "one", None);
         let (first, off) = read_from(root, 0);
         assert_eq!(first.len(), 1);
         // With no new events, returns nothing (this is what `-f` needs).
         let (none, off2) = read_from(root, off);
         assert!(none.is_empty());
-        emit(root, "container", "die", "a1", "um", None);
-        let (novos, _) = read_from(root, off2);
-        assert_eq!(novos.len(), 1);
-        assert_eq!(novos[0].action, "die");
+        emit(root, "container", "die", "a1", "one", None);
+        let (fresh, _) = read_from(root, off2);
+        assert_eq!(fresh.len(), 1);
+        assert_eq!(fresh[0].action, "die");
     }
 }

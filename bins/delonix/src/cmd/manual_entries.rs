@@ -1,17 +1,17 @@
-// Uma entrada por comando da CLI. GERADA a partir da árvore viva do binário
-// (`scratchpad/build_entries.py`) e do conteúdo editorial, mas é o ficheiro
-// COMMITADO que conta — a partir daqui edita-se à mão.
+// One entry per CLI command. GENERATED from the binary's live tree
+// (`scratchpad/build_entries.py`) and the editorial content, but it is the
+// COMMITTED file that counts — from here on it is edited by hand.
 //
-// `include!`d por `manual.rs` — à parte só por tamanho: aqui está o CONTEÚDO (o
-// que cada comando faz e como se usa), lá está o mecanismo que o aplica.
-// Misturá-los faria a revisão de uma frase de exemplo abrir 400 linhas de
-// renderização de texto.
+// `include!`d by `manual.rs` — split out only for size: here is the CONTENT
+// (what each command does and how it is used), there is the mechanism that
+// applies it. Mixing them would make reviewing one example sentence open 400
+// lines of text rendering.
 //
-// Regras, todas com teste em `manual::tests`:
-//   * um `path` tem de existir na CLI, e todo o comando da CLI tem de estar aqui
-//     COM pelo menos um exemplo (presente-mas-vazio é a falha que o teste caça);
-//   * cada exemplo TEM de invocar o comando que documenta;
-//   * o comentário é traduzido (`pt.po`), a linha de comando nunca.
+// Rules, all with a test in `manual::tests`:
+//   * a `path` has to exist in the CLI, and every CLI command has to be here
+//     WITH at least one example (present-but-empty is the failure the test hunts);
+//   * each example MUST invoke the command it documents;
+//   * the comment is translated (`pt.po`), the command line never.
 
 pub static ENTRIES: &[Entry] = &[
     Entry {

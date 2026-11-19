@@ -302,10 +302,10 @@ mod tests {
     }
 
     #[test]
-    fn sem_configuracao_nao_regista_nada_e_nao_se_queixa() {
+    fn with_no_configuration_nothing_is_registered_and_nothing_complains() {
         // No env var of ours is set in a plain `cargo test` run.
         if nonempty(std::env::var("DELONIX_PROXMOX_URL").ok()).is_some() {
-            eprintln!("SKIP: DELONIX_PROXMOX_URL esta definido neste ambiente");
+            eprintln!("SKIP: DELONIX_PROXMOX_URL is set in this environment");
             return;
         }
         assert!(register_proxmox().is_ok());
@@ -318,9 +318,9 @@ mod tests {
     /// node would otherwise have to guess which node to place VMs on, and
     /// guessing that is exactly what guardrail #2 keeps out of this repo.
     #[test]
-    fn um_alvo_incompleto_diz_o_que_falta() {
+    fn an_incomplete_target_says_what_is_missing() {
         if nonempty(std::env::var("DELONIX_PROXMOX_URL").ok()).is_some() {
-            eprintln!("SKIP: DELONIX_PROXMOX_URL esta definido neste ambiente");
+            eprintln!("SKIP: DELONIX_PROXMOX_URL is set in this environment");
             return;
         }
         let only_url = |key: &str| {
@@ -331,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn uma_variavel_exportada_mas_vazia_nao_conta_como_configurada() {
+    fn an_exported_but_empty_variable_does_not_count_as_configured() {
         assert!(nonempty(Some("   ".to_string())).is_none());
         assert!(nonempty(None).is_none());
         assert_eq!(nonempty(Some(" pve ".to_string())).as_deref(), Some("pve"));

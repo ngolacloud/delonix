@@ -18,7 +18,7 @@
   trait plus a `select_backend()` match — not a dynamic plugin system.
 - **Zero private dependencies.** No crate depends on `delonix-core`/`delonix-api`/
   `delonix-orchestrator`/`delonix-overlay` (the private `delonix-paas` monorepo). The
-  Regra de ouro holds — verified.
+  Golden Rule holds — verified.
 
 ## 2. Crate inventory
 
@@ -75,7 +75,7 @@ and are wired, built in the **daemonless idiom** (file/registry, not a backgroun
   dynamic-set byte sums.
 - **Secret Manager — `core/secret.rs` + `core/cred_vault.rs`.** Docker-style `--secret`/
   `--secret-files`. (This is the *runtime's* secret store — **not** a platform/SSO vault, per
-  the Regra de ouro.)
+  the Golden Rule.)
 - **Workload IP space — `core/workload_net.rs`.** A single shared constant for the ingress
   workload address range (`10.200–10.254`), owned by core so `delonix-sdn` and the tunnel guard
   can't drift apart. A hint of the future `Workload` abstraction, but today just an address range.

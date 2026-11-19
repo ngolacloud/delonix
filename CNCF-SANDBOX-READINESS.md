@@ -1,142 +1,146 @@
-# CNCF Sandbox — Fase A readiness (construir a comunidade antes de candidatar)
+# CNCF Sandbox — Phase A readiness (build the community before applying)
 
-> **O que esta ficha é.** O checklist accionável para levar o Delonix de
-> «projecto open-source de uma pessoa» a «candidato credível ao CNCF Sandbox»,
-> SEM candidatar prematuramente (uma candidatura solo sem tracção leva *defer* e
-> queima a primeira impressão no TOC).
+> **What this sheet is.** The actionable checklist for taking Delonix from a
+> "one-person open-source project" to a "credible CNCF Sandbox candidate",
+> WITHOUT applying prematurely (a solo application with no traction gets *deferred*
+> and burns the first impression with the TOC).
 >
-> **O que NÃO é.** A decisão de ceder a marca/domínio «Delonix» à Linux
-> Foundation (Fase B) — essa é uma decisão de negócio do dono, não um item de
-> checklist. Ver [GOVERNANCE.md](GOVERNANCE.md) e a secção «A decisão» no fim.
+> **What it is NOT.** The decision to hand over the "Delonix" trademark/domain to
+> the Linux Foundation (Phase B) — that is a business decision for the owner, not
+> a checklist item. See [GOVERNANCE.md](GOVERNANCE.md) and the "The decision"
+> section at the end.
 
-## Onde já estamos (não refazer)
+## Where we already are (do not redo)
 
-| Requisito Sandbox | Estado | Prova |
+| Sandbox requirement | Status | Proof |
 |---|---|---|
-| Repositório público | ✅ | `github.com/ngolacloud/delonix` (PUBLIC) |
-| Licença OSI | ✅ | Apache-2.0 ([LICENSE](LICENSE)) |
-| Código de Conduta | ◑ | Contributor Covenant 2.1 — falta linkar o CNCF CoC (item A4) |
-| Governança documentada | ✅ | [GOVERNANCE.md](GOVERNANCE.md) (BDFL honesto + caminho multi-maintainer + escape-valve) |
-| Supply-chain de releases | ◑ | o motor JÁ emite SBOM SPDX + proveniência SLSA + attestations OCI (campanha 2026-11) — falta *aplicá-lo às releases* (A1) |
+| Public repository | ✅ | `github.com/ngolacloud/delonix` (PUBLIC) |
+| OSI license | ✅ | Apache-2.0 ([LICENSE](LICENSE)) |
+| Code of Conduct | ◑ | Contributor Covenant 2.1 — the CNCF CoC link is missing (item A4) |
+| Documented governance | ✅ | [GOVERNANCE.md](GOVERNANCE.md) (honest BDFL + multi-maintainer path + escape valve) |
+| Release supply-chain | ◑ | the engine ALREADY emits an SPDX SBOM + SLSA provenance + OCI attestations (2026-11 campaign) — what's missing is *applying it to releases* (A1) |
 
-O baseline administrativo está quase todo feito. A Fase A é sobre **sinais de
-comunidade e vendor-neutrality**, que é o que o TOC pesa de facto.
+The administrative baseline is almost entirely done. Phase A is about **community
+signals and vendor-neutrality**, which is what the TOC actually weighs.
 
 ---
 
-## Checklist Fase A
+## Phase A checklist
 
-Cada item: **o quê · porquê (critério CNCF) · como · feito quando**.
+Each item: **what · why (CNCF criterion) · how · done when**.
 
-### A1 — Releases públicas, regulares, assinadas, com SBOM + proveniência
-- **Porquê:** o TOC olha para «o projecto faz releases?» e para a maturidade de
-  supply-chain. É o diferencial mais barato que temos — o motor já produz tudo.
-- **Como:**
-  1. Cadência: uma release menor a cada ~4–6 semanas, tag `vX.Y.Z` em `main`.
-  2. Cada release assinada (`cosign` ou o `image sign` nativo) + **SBOM e
-     proveniência anexados** usando o que a campanha entregou:
+### A1 — Public, regular, signed releases with SBOM + provenance
+- **Why:** the TOC looks at "does the project make releases?" and at
+  supply-chain maturity. It's the cheapest differentiator we have — the engine
+  already produces everything.
+- **How:**
+  1. Cadence: a minor release every ~4–6 weeks, tag `vX.Y.Z` on `main`.
+  2. Each release signed (`cosign` or the native `image sign`) + **SBOM and
+     provenance attached** using what the campaign delivered:
      `delonix build --provenance=max`, `delonix image sbom <ref> --attach`,
      `delonix image provenance <ref> --attach`.
-  3. `scripts/release_verify.py` no pipeline (assinatura + SBOM + attestations).
-  4. Notas de release geradas (CHANGELOG mantido).
-- **Feito quando:** ≥2 releases públicas assinadas com attestations verificáveis
-  por um terceiro (`cosign verify-attestation` / `oras discover`).
+  3. `scripts/release_verify.py` in the pipeline (signature + SBOM + attestations).
+  4. Generated release notes (CHANGELOG kept up to date).
+- **Done when:** ≥2 public signed releases with attestations verifiable by a
+  third party (`cosign verify-attestation` / `oras discover`).
 
-### A2 — DCO (Developer Certificate of Origin) em todos os PRs
-- **Porquê:** a CNCF exige proveniência de contribuição (DCO ou CLA); DCO é o
-  mais leve e o preferido.
-- **Como:** adicionar o GitHub App «DCO» ao repo; exigir `Signed-off-by:` em cada
-  commit; documentar em [CONTRIBUTING.md](CONTRIBUTING.md); `git commit -s`.
-- **Feito quando:** o check DCO é obrigatório e passa em todos os PRs novos.
+### A2 — DCO (Developer Certificate of Origin) on all PRs
+- **Why:** the CNCF requires contribution provenance (DCO or CLA); DCO is the
+  lightest and the preferred one.
+- **How:** add the "DCO" GitHub App to the repo; require `Signed-off-by:` on each
+  commit; document it in [CONTRIBUTING.md](CONTRIBUTING.md); `git commit -s`.
+- **Done when:** the DCO check is required and passes on every new PR.
 
-### A3 — `ADOPTERS.md` (sinal de uso real)
-- **Porquê:** o TOC pergunta «quem usa isto?». Zero adopters é o ponto mais fraco
-  de uma candidatura Sandbox.
-- **Como:** criar `ADOPTERS.md` listando usos reais — a própria NgolaCloud
-  (control-plane, workspace, mail) **conta** como adopter; idealmente ≥1 externo.
-  Formato: organização · caso de uso · desde quando · contacto público.
-- **Feito quando:** ≥2 adopters listados, ≥1 fora da NgolaCloud.
+### A3 — `ADOPTERS.md` (real-usage signal)
+- **Why:** the TOC asks "who uses this?". Zero adopters is the weakest point of a
+  Sandbox application.
+- **How:** create `ADOPTERS.md` listing real usages — NgolaCloud itself
+  (control-plane, workspace, mail) **counts** as an adopter; ideally ≥1 external.
+  Format: organization · use case · since when · public contact.
+- **Done when:** ≥2 adopters listed, ≥1 outside NgolaCloud.
 
-### A4 — Adoptar explicitamente o CNCF Code of Conduct
-- **Porquê:** a CNCF requer o seu CoC (ou um compatível que o linke).
-- **Como:** no [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), manter o Contributor
-  Covenant mas **acrescentar** a referência ao CNCF CoC
-  (`https://github.com/cncf/foundation/blob/main/code-of-conduct.md`) e o email
-  de reporte de conduta.
-- **Feito quando:** o CoC linka o da CNCF e nomeia um canal de reporte.
+### A4 — Explicitly adopt the CNCF Code of Conduct
+- **Why:** the CNCF requires its CoC (or a compatible one that links to it).
+- **How:** in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), keep the Contributor
+  Covenant but **add** the reference to the CNCF CoC
+  (`https://github.com/cncf/foundation/blob/main/code-of-conduct.md`) and the
+  conduct-reporting email.
+- **Done when:** the CoC links to the CNCF's and names a reporting channel.
 
-### A5 — Roadmap público
-- **Porquê:** o TOC quer ver direcção e que o projecto não é um despejo de código.
-- **Como:** `ROADMAP.md` (ou GitHub Projects público) com os marcos — reusar o
-  mapa das **8 áreas de valor CNCF** já medido
-  (`reports/cncf-acceptance-2026-11-12/report.md`): supply-chain ✅, interop k8s
-  ✅, falta build cloud-native (área 5), linhagem de runtime (área 1).
-- **Feito quando:** `ROADMAP.md` público, datado, ligado ao README.
+### A5 — Public roadmap
+- **Why:** the TOC wants to see direction and that the project is not a code dump.
+- **How:** `ROADMAP.md` (or a public GitHub Projects) with the milestones — reuse
+  the already-measured map of the **8 CNCF value areas**
+  (`reports/cncf-acceptance-2026-11-12/report.md`): supply-chain ✅, k8s interop
+  ✅, cloud-native build still missing (area 5), runtime lineage (area 1).
+- **Done when:** `ROADMAP.md` public, dated, linked from the README.
 
-### A6 — Um segundo maintainer de outra organização ⭐ (o sinal mais forte)
-- **Porquê:** é a prova nº 1 de que o projecto **não é cativo de um fornecedor**.
-  Um projecto de 1 maintainer/1 org é o motivo mais comum de *defer* no Sandbox.
-- **Como:** o [GOVERNANCE.md](GOVERNANCE.md) já descreve como adicionar um
-  maintainer (proposto em aberto, janela de objecção). Angariar alguém com track
-  record real (reviews/PRs), idealmente de fora da NgolaCloud; adicionar a
-  `MAINTAINERS.md` + `.github/CODEOWNERS` para a área que passa a possuir.
-- **Feito quando:** ≥2 maintainers em `MAINTAINERS.md`, ≥1 de outra org, com
-  ownership real (não cosmético).
+### A6 — A second maintainer from another organization ⭐ (the strongest signal)
+- **Why:** it's the #1 proof that the project is **not captive to a single
+  vendor**. A 1-maintainer/1-org project is the most common reason for a *defer*
+  in Sandbox.
+- **How:** [GOVERNANCE.md](GOVERNANCE.md) already describes how to add a
+  maintainer (proposed in the open, objection window). Recruit someone with a real
+  track record (reviews/PRs), ideally from outside NgolaCloud; add them to
+  `MAINTAINERS.md` + `.github/CODEOWNERS` for the area they take ownership of.
+- **Done when:** ≥2 maintainers in `MAINTAINERS.md`, ≥1 from another org, with
+  real ownership (not cosmetic).
 
-### A7 — Contribuidores e canais de comunidade abertos
-- **Porquê:** sinal de actividade e de que há *onde* a comunidade acontece.
-- **Como:** GitHub Issues + Discussions ligados; `good-first-issue`/`help-wanted`
-  etiquetados; um canal público (Slack CNCF `#delonix` quando aceite, ou um
-  Matrix/Discord entretanto); SLA informal de resposta documentado em
+### A7 — Open contributors and community channels
+- **Why:** a signal of activity and that there is *somewhere* the community
+  happens.
+- **How:** GitHub Issues + Discussions enabled; `good-first-issue`/`help-wanted`
+  labeled; a public channel (CNCF Slack `#delonix` once accepted, or a
+  Matrix/Discord in the meantime); an informal response SLA documented in
   CONTRIBUTING.
-- **Feito quando:** ≥3 PRs/issues de contribuidores externos fechados; canal
-  público ligado no README.
+- **Done when:** ≥3 PRs/issues from external contributors closed; public channel
+  linked in the README.
 
-### A8 — Security disclosure madura
-- **Porquê:** critério de maturidade; já temos [SECURITY.md](SECURITY.md).
-- **Como:** confirmar email/processo de disclosure privado, janela de resposta, e
-  (quando houver 2º maintainer) uma *security list* com ≥2 pessoas.
-- **Feito quando:** SECURITY.md nomeia processo + ≥2 contactos.
+### A8 — Mature security disclosure
+- **Why:** a maturity criterion; we already have [SECURITY.md](SECURITY.md).
+- **How:** confirm the private disclosure email/process, response window, and
+  (once there is a 2nd maintainer) a *security list* with ≥2 people.
+- **Done when:** SECURITY.md names a process + ≥2 contacts.
 
 ---
 
-## Scorecard de prontidão
+## Readiness scorecard
 
-| Item | Peso TOC | Estado |
+| Item | TOC weight | Status |
 |---|---|---|
-| A1 releases assinadas + SBOM/provenance | alto | ◑ motor pronto; falta pipeline |
-| A2 DCO | médio | ☐ |
-| A3 ADOPTERS.md | **alto** | ☐ |
-| A4 CNCF CoC | baixo | ◑ |
-| A5 ROADMAP público | médio | ☐ (medição já existe, falta publicar) |
-| A6 2º maintainer de outra org | **crítico** | ☐ |
-| A7 contribuidores/canais | alto | ☐ |
-| A8 security disclosure | baixo | ◑ |
+| A1 signed releases + SBOM/provenance | high | ◑ engine ready; pipeline missing |
+| A2 DCO | medium | ☐ |
+| A3 ADOPTERS.md | **high** | ☐ |
+| A4 CNCF CoC | low | ◑ |
+| A5 public ROADMAP | medium | ☐ (measurement already exists, publishing missing) |
+| A6 2nd maintainer from another org | **critical** | ☐ |
+| A7 contributors/channels | high | ☐ |
+| A8 security disclosure | low | ◑ |
 
-**Prontos para candidatar quando:** A1, A3, A5, A6, A7 fechados (os de peso
-alto/crítico). A4/A8 são rápidos; A2 é mecânico.
+**Ready to apply when:** A1, A3, A5, A6, A7 closed (the high/critical-weight
+ones). A4/A8 are quick; A2 is mechanical.
 
 ---
 
-## A decisão (Fase B — não é um item de checklist)
+## The decision (Phase B — not a checklist item)
 
-Mesmo com a Fase A toda verde, **a admissão exige transferir a marca «Delonix»,
-o nome e os domínios do projecto para a Linux Foundation** (regra CNCF desde
-2021). Isso é ceder o controlo exclusivo:
+Even with all of Phase A green, **admission requires transferring the "Delonix"
+trademark, the name and the project's domains to the Linux Foundation** (CNCF rule
+since 2021). That means giving up exclusive control:
 
-- **Queres o Delonix como produto da NgolaCloud** (controlo, monetização directa
-  sob a marca) → fica um projecto open-source teu, excelente, **não-CNCF**. É uma
-  escolha legítima; a Fase A fortalece-o na mesma.
-- **Queres o selo CNCF** (adopção, neutralidade, ecossistema) → doas o IP e abres
-  a governança. O teu GOVERNANCE.md já antecipa isto.
+- **You want Delonix as a NgolaCloud product** (control, direct monetization under
+  the brand) → it stays your open-source project, excellent, **non-CNCF**. It's a
+  legitimate choice; Phase A strengthens it all the same.
+- **You want the CNCF seal** (adoption, neutrality, ecosystem) → you donate the IP
+  and open up governance. Your GOVERNANCE.md already anticipates this.
 
-A Fase A **não compromete** nenhuma das duas — torna o projecto melhor em ambos
-os caminhos. A decisão da Fase B pode esperar até a Fase A estar feita.
+Phase A **does not compromise** either of the two — it makes the project better on
+both paths. The Phase B decision can wait until Phase A is done.
 
-## Diferenciação (o «porquê CNCF», que a candidatura vai exigir)
+## Differentiation (the "why CNCF", which the application will require)
 
-Guardado aqui porque o TOC pergunta sempre «porquê um runtime novo?»:
-container **e** microVM num só binário rootless/daemonless (ao contrário de
-Kata = containerd+QEMU), kernel-native em Rust fora da cadeia containerd, e o
-ângulo de **cloud soberana** para contextos de baixa conectividade/soberania de
-dados. É um diferencial de *missão* além do técnico — algo que o CNCF valoriza.
+Kept here because the TOC always asks "why a new runtime?":
+container **and** microVM in a single rootless/daemonless binary (unlike Kata =
+containerd+QEMU), kernel-native in Rust outside the containerd chain, and the
+**sovereign cloud** angle for low-connectivity/data-sovereignty contexts. It's a
+*mission* differentiator beyond the technical one — something the CNCF values.

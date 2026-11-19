@@ -282,21 +282,21 @@ fn prepare_local_overlay(
             bf,
             overlay.to_string_lossy().into_owned(),
         ];
-        // Tamanho pedido para o nó. O `qemu-img create` aceita-o depois do
-        // ficheiro e o guest cresce a raiz no arranque (growpart do cloud-init,
-        // medido). Sem isto o overlay herda o tamanho da base — que é
-        // deliberadamente o PISO da golden.
+        // Size requested for the node. `qemu-img create` takes it after the
+        // file and the guest grows the root on boot (cloud-init's growpart,
+        // measured). Without it the overlay inherits the base's size — which is
+        // deliberately the FLOOR of the golden.
         if let Some(gib) = disk_size_gib {
-            let pedido = u64::from(gib) * 1024 * 1024 * 1024;
-            // Um overlay não pode ser menor que o seu backing file: o
-            // `qemu-img` aceita-o em algumas versões e o resultado é uma VM que
-            // arranca e corrompe o filesystem. Recusar por nome e com os dois
-            // números é a diferença entre um erro e um mistério.
+            let requested = u64::from(gib) * 1024 * 1024 * 1024;
+            // An overlay cannot be smaller than its backing file: `qemu-img`
+            // accepts it on some versions and the result is a VM that boots and
+            // corrupts the filesystem. Refusing by name and with both numbers is
+            // the difference between an error and a mystery.
             if let Some(base_bytes) = disk_virtual_size_bytes(&disk_path) {
-                if pedido < base_bytes {
+                if requested < base_bytes {
                     return Err(super::Error::DiskTooSmall(format!(
-                        "--disk-size {gib}G é menor que a imagem base ({} GiB): um overlay qcow2 \
-                         não encolhe o seu backing file",
+                        "--disk-size {gib}G is smaller than the base image ({} GiB): a qcow2 \
+                         overlay does not shrink its backing file",
                         base_bytes / (1024 * 1024 * 1024)
                     )));
                 }
@@ -445,18 +445,18 @@ pub(crate) fn stable_cmd(prog: &str) -> Command {
 mod tests {
     use super::*;
 
-    /// REGRESSION: toda a ferramenta cujo OUTPUT este crate parseia tem de
-    /// correr com locale fixo.
+    /// REGRESSION: every tool whose OUTPUT this crate parses has to run with a
+    /// fixed locale.
     ///
-    /// `virsh` é um programa gettext (confirmado neste host: exporta
-    /// `bindtextdomain`/`dcgettext` e carrega `"shut off"` como msgid
-    /// traduzível), e o crate decide se um domínio está vivo comparando
-    /// `virsh domstate` com literais ingleses. Num host com os catálogos
-    /// instalados e `LANG=pt_PT`, uma VM a correr passa a reportar-se como
-    /// parada. Tirar o `.env("LC_ALL", "C")` do `stable_cmd` faz este teste
-    /// falhar.
+    /// `virsh` is a gettext program (confirmed on this host: it exports
+    /// `bindtextdomain`/`dcgettext` and carries `"shut off"` as a translatable
+    /// msgid), and the crate decides whether a domain is alive by comparing
+    /// `virsh domstate` against English literals. On a host with the catalogues
+    /// installed and `LANG=pt_PT`, a running VM starts reporting itself as
+    /// stopped. Removing the `.env("LC_ALL", "C")` from `stable_cmd` makes this
+    /// test fail.
     #[test]
-    fn stable_cmd_fixa_o_locale_para_o_output_ser_estavel() {
+    fn stable_cmd_fixes_the_locale_so_output_is_stable() {
         let cmd = stable_cmd("virsh");
         let envs: std::collections::HashMap<_, _> = cmd
             .get_envs()
@@ -470,31 +470,31 @@ mod tests {
         assert_eq!(
             envs.get("LC_ALL").and_then(|v| v.as_deref()),
             Some("C"),
-            "sem LC_ALL=C o `virsh domstate` responde traduzido e a comparação com \
-             \"running\"/\"shut off\" falha em silêncio"
+            "without LC_ALL=C, `virsh domstate` answers translated and the comparison against \
+             \"running\"/\"shut off\" fails silently"
         );
         assert_eq!(envs.get("LANG").and_then(|v| v.as_deref()), Some("C"));
     }
 
-    /// O tamanho virtual lê-se dos BYTES entre parênteses, não do número
-    /// humano: `2.2 GiB` é arredondado, e uma quota comparada com um número
-    /// arredondado é uma quota que deixa passar o que queria recusar.
+    /// The virtual size is read from the BYTES in parentheses, not the human
+    /// figure: `2.2 GiB` is rounded, and a quota compared against a rounded
+    /// number is a quota that lets through what it meant to refuse.
     #[test]
-    fn tamanho_virtual_le_se_dos_bytes_e_nao_do_numero_humano() {
+    fn virtual_size_is_read_from_the_bytes_not_the_human_figure() {
         let info = "image: g.qcow2\nfile format: qcow2\nvirtual size: 10 GiB (10737418240 bytes)\ndisk size: 690 MiB\n";
         assert_eq!(parse_qemu_virtual_size_bytes(info), Some(10_737_418_240));
 
-        // 2.2 GiB arredondado esconde 161 MiB — daí ler os bytes.
-        let arred = "virtual size: 2.2 GiB (2361393152 bytes)\n";
-        assert_eq!(parse_qemu_virtual_size_bytes(arred), Some(2_361_393_152));
+        // 2.2 GiB rounded hides 161 MiB — hence reading the bytes.
+        let rounded = "virtual size: 2.2 GiB (2361393152 bytes)\n";
+        assert_eq!(parse_qemu_virtual_size_bytes(rounded), Some(2_361_393_152));
 
-        // Sem os parênteses (formatos antigos), não se inventa um número.
+        // Without the parentheses (older formats), no number is invented.
         assert_eq!(parse_qemu_virtual_size_bytes("virtual size: 8 MiB\n"), None);
         assert_eq!(parse_qemu_virtual_size_bytes("file format: qcow2\n"), None);
     }
 
     #[test]
-    fn parse_qemu_format_extrai_formato_real() {
+    fn parse_qemu_format_extracts_the_real_format() {
         // Human output of `qemu-img info` for a `.img` that is qcow2 inside
         // (the core of the backing-format bug).
         let info = "image: jammy.img\nfile format: qcow2\nvirtual size: 2.2 GiB (2361393152 bytes)\ndisk size: 614 MiB\n";

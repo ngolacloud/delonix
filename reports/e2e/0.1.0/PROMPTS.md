@@ -1,42 +1,42 @@
-# PROMPTS de execução — backlog 0.1.0
+# Execution PROMPTS — 0.1.0 backlog
 
-Prompts prontos a colar numa sessão nova (cada um começa com `/escopo`). Um por
-frente. Regra transversal, **não-negociável**: um item só fecha quando existe um
-**teste de regressão automatizado** que falharia se o defeito voltasse — é isso
-que o impede de reaparecer no próximo `report.md`. Correcção sem teste = não
-fechado.
+Prompts ready to paste into a fresh session (each starts with `/escopo`). One per
+workstream. A cross-cutting, **non-negotiable** rule: an item only closes once an
+**automated regression test** exists that would fail if the defect came back — that
+is what stops it reappearing in the next `report.md`. A fix without a test = not
+closed.
 
-Convenções GitFlow: `fix/*` nasce de `main` (propaga a `develop`); `feat/*` e
-`chore/*` nascem de `develop`. Worktree próprio por frente (`/home/walter/dlx-wt/<nome>`).
-Tier: **B** = rootless (agente `delonix-builder-tester`); **D** = root/rootful-VM
-(precisa do dono/sudo/VM; o builder-tester NÃO pode).
+GitFlow conventions: `fix/*` branches from `main` (propagates to `develop`); `feat/*`
+and `chore/*` branch from `develop`. One worktree per workstream (`/home/walter/dlx-wt/<nome>`).
+Tier: **B** = rootless (agent `delonix-builder-tester`); **D** = root/rootful-VM
+(requires the owner/sudo/VM; the builder-tester CANNOT do it).
 
-## Gates transversais (OBRIGATÓRIOS — senão o CI fica vermelho)
+## Cross-cutting gates (MANDATORY — otherwise CI goes red)
 
-Revisão de alinhamento ao harness (skill `delonix-backlog-driver`):
+Harness-alignment review (skill `delonix-backlog-driver`):
 
-1. **Prompts que tocam a CLI** (9 `build --sbom`, 10 `build --provenance`,
-   11 `delonix scan`, 13 `delonix kube`, 15 `delonix generate systemd`) **TÊM de
-   cumprir os gates de CLI do repo**, ou falham o CI:
-   - nova folha/comando → linha em `docs/testing/folhas.tsv` + `scripts/cli-tree.sh --update`
-     + `arch_fitness` (cli_context_lines) + regen de `dev_docs`;
-   - flag clap nova → bate `ARG_HELP_PENDING` (classificar o help);
-   - texto de utilizador novo → código `DX-NNNN` + `pt.po` (3 textos) + ordem/dígitos;
-   - `cli_exec_ratchet` + `folhas_gate` + `lang_ratchet` verdes.
-   Cada prompt afectado deve incluir este passo no done-criteria.
+1. **Prompts that touch the CLI** (9 `build --sbom`, 10 `build --provenance`,
+   11 `delonix scan`, 13 `delonix kube`, 15 `delonix generate systemd`) **MUST
+   satisfy the repo's CLI gates**, or they fail CI:
+   - new leaf/command → line in `docs/testing/folhas.tsv` + `scripts/cli-tree.sh --update`
+     + `arch_fitness` (cli_context_lines) + regen of `dev_docs`;
+   - new clap flag → hits `ARG_HELP_PENDING` (classify the help);
+   - new user-facing text → `DX-NNNN` code + `pt.po` (3 strings) + order/digits;
+   - `cli_exec_ratchet` + `folhas_gate` + `lang_ratchet` green.
+   Each affected prompt must include this step in its done-criteria.
 
-2. **Base GitFlow dos BUGs de conformância (BUG-0003/04/05/06, GAP-0001/0003):**
-   a frente do dono trata-os em `feat/cri-conformance-rootful` (de develop), não em
-   `fix/` de main isolados. **Preferir juntar-se a essa frente** (coordenar com o
-   dono) a abrir `fix/` concorrentes sobre os mesmos ficheiros. Bugs fora da
-   conformância (BUG-0001) seguem `fix/` de main normalmente.
+2. **GitFlow base for the conformance BUGs (BUG-0003/04/05/06, GAP-0001/0003):**
+   the owner's workstream handles them in `feat/cri-conformance-rootful` (from develop),
+   not in isolated `fix/` branches off main. **Prefer joining that workstream**
+   (coordinate with the owner) over opening competing `fix/` branches on the same
+   files. Bugs outside conformance (BUG-0001) follow a normal `fix/` off main.
 
-3. **Não tocar a árvore suja do dono** — worktree próprio sempre; `reports/` só por
-   acrescento.
+3. **Do not touch the owner's dirty tree** — always use your own worktree; `reports/`
+   by append only.
 
 ---
 
-## Prompt 1 — BUG-0001 + M-TEST-03 · empacotamento `delonix-cri` [Tier B · `fix/` de main]
+## Prompt 1 — BUG-0001 + M-TEST-03 · packaging `delonix-cri` [Tier B · `fix/` off main]
 
 ```
 /escopo
@@ -68,7 +68,7 @@ Fora de âmbito: renomear o bin; mexer no ADR-0086.
 
 ---
 
-## Prompt 2 — M-TEST-02 · falso-positivo `stats` no harness [Tier B · `chore/` de develop]
+## Prompt 2 — M-TEST-02 · `stats` false-positive in the harness [Tier B · `chore/` off develop]
 
 ```
 /escopo
@@ -95,7 +95,7 @@ Fora de âmbito: mexer no código da CLI (não há bug lá).
 
 ---
 
-## Prompt 3 — BUG-0004 (+ desbloqueia GAP-0001, GAP-0003) · host-namespaces [Tier D · `fix/` de main]
+## Prompt 3 — BUG-0004 (+ unblocks GAP-0001, GAP-0003) · host-namespaces [Tier D · `fix/` off main]
 
 ```
 /escopo
@@ -128,7 +128,7 @@ Fora de âmbito: AppArmor, OOM, rshared (prompts próprios).
 
 ---
 
-## Prompt 4 — BUG-0003 · enforcement AppArmor [Tier D · `fix/` de main]
+## Prompt 4 — BUG-0003 · AppArmor enforcement [Tier D · `fix/` off main]
 
 ```
 /escopo
@@ -156,7 +156,7 @@ Fora de âmbito: host-ns, OOM, rshared.
 
 ---
 
-## Prompt 5 — BUG-0005 · mount propagation `rshared` [Tier D · `fix/` de main]
+## Prompt 5 — BUG-0005 · mount propagation `rshared` [Tier D · `fix/` off main]
 
 ```
 /escopo
@@ -182,7 +182,7 @@ Fora de âmbito: outros specs.
 
 ---
 
-## Prompt 6 — BUG-0006 · OOMKilled / exit 137 [Tier D · `fix/` de main]
+## Prompt 6 — BUG-0006 · OOMKilled / exit 137 [Tier D · `fix/` off main]
 
 ```
 /escopo
@@ -207,7 +207,7 @@ Fora de âmbito: outros specs.
 
 ---
 
-## Prompt 7 — GAP-0002 · ampliar o `differential` [Tier B · `feat/` de develop]
+## Prompt 7 — GAP-0002 · broaden the `differential` suite [Tier B · `feat/` off develop]
 
 ```
 /escopo
@@ -233,7 +233,7 @@ Fora de âmbito: implementar comandos em falta (isso é GAP-0007).
 
 ---
 
-## Prompt 8 — M-DOC-01 + M-DOC-04 · números reais e caminho rootful-VM [Tier B · `chore/` de develop]
+## Prompt 8 — M-DOC-01 + M-DOC-04 · real numbers and the rootful-VM path [Tier B · `chore/` off develop]
 
 ```
 /escopo
@@ -259,12 +259,12 @@ Fora de âmbito: correcções de código.
 
 ---
 
-# PROMPTS CNCF — 8 áreas de valor (GAP-0008..0014)
+# CNCF PROMPTS — 8 value areas (GAP-0008..0014)
 
-Fundamentação: `CNCF_GAP_DOCKER.md`. Supply-chain primeiro (maior peso). Já
-alinhado (não refazer): OSV no scanner, cosign/sigstore em `sign.rs`, rootless.
+Rationale: `CNCF_GAP_DOCKER.md`. Supply-chain first (highest weight). Already
+aligned (do not redo): OSV in the scanner, cosign/sigstore in `sign.rs`, rootless.
 
-## Prompt 9 — GAP-0009 · SBOM SPDX in-toto na imagem [CNCF 4 · Tier B · `feat/` de develop]
+## Prompt 9 — GAP-0009 · SPDX in-toto SBOM on the image [CNCF 4 · Tier B · `feat/` off develop]
 
 ```
 /escopo
@@ -289,7 +289,7 @@ Done-criteria:
 Fora de âmbito: SLSA provenance (GAP-0008, prompt próprio).
 ```
 
-## Prompt 10 — GAP-0008 · Provenance SLSA no build [CNCF 3 · Tier B · `feat/` de develop]
+## Prompt 10 — GAP-0008 · SLSA provenance on the build [CNCF 3 · Tier B · `feat/` off develop]
 
 ```
 /escopo
@@ -311,7 +311,7 @@ Done-criteria:
 Fora de âmbito: cache distribuído, multi-arch (GAP-0010).
 ```
 
-## Prompt 11 — GAP-0013 · Scanner policy + compare + CI gating [CNCF 8 · Tier B · `feat/` de develop]
+## Prompt 11 — GAP-0013 · Scanner policy + compare + CI gating [CNCF 8 · Tier B · `feat/` off develop]
 
 ```
 /escopo
@@ -334,7 +334,7 @@ Done-criteria:
 Fora de âmbito: trocar o backend OSV.
 ```
 
-## Prompt 12 — GAP-0011 · Convergir Compose Specification [CNCF 6 · Tier B · `feat/` de develop]
+## Prompt 12 — GAP-0011 · Converge on the Compose Specification [CNCF 6 · Tier B · `feat/` off develop]
 
 ```
 /escopo
@@ -353,7 +353,7 @@ Done-criteria:
 Fora de âmbito: directivas Swarm-only.
 ```
 
-## Prompt 13 — GAP-0015 · Interop Kubernetes YAML `kube play`/`generate` [CNCF 2 (Podman) · Tier B · `feat/` de develop]
+## Prompt 13 — GAP-0015 · Kubernetes YAML interop `kube play`/`generate` [CNCF 2 (Podman) · Tier B · `feat/` off develop]
 
 ```
 /escopo
@@ -375,7 +375,7 @@ Done-criteria:
 Fora de âmbito: Deployment/StatefulSet completos (fase 2).
 ```
 
-## Prompt 14 — GAP-0017 · Trust de assinatura por policy [CNCF 4/8 (Podman) · Tier B · `feat/` de develop]
+## Prompt 14 — GAP-0017 · Signature trust by policy [CNCF 4/8 (Podman) · Tier B · `feat/` off develop]
 
 ```
 /escopo
@@ -399,7 +399,7 @@ Done-criteria:
 Fora de âmbito: emissão de assinaturas (já em sign.rs).
 ```
 
-## Prompt 15 — GAP-0016 · Quadlet/systemd para workloads [CNCF 5 (Podman) · Tier B · `feat/` de develop]
+## Prompt 15 — GAP-0016 · Quadlet/systemd for workloads [CNCF 5 (Podman) · Tier B · `feat/` off develop]
 
 ```
 /escopo
@@ -421,39 +421,39 @@ Done-criteria:
 Fora de âmbito: socket-activation avançada.
 ```
 
-## Roadmap CNCF (prompts maiores / decisão)
+## CNCF roadmap (larger prompts / decision)
 
-- **GAP-0012** (CNCF 1+2, XL) — correr+publicar oci image-spec/distribution-spec/
-  runtime-spec conformance; CRI ≥95% (consome BUG-0003/04/05/06); **ADR**
-  «runtime próprio vs adoptar containerd». Abrir só depois dos BUGs CRI.
+- **GAP-0012** (CNCF 1+2, XL) — run+publish oci image-spec/distribution-spec/
+  runtime-spec conformance; CRI ≥95% (consumes BUG-0003/04/05/06); **ADR**
+  «own runtime vs adopting containerd». Open only after the CRI BUGs.
 - **GAP-0010** (CNCF 5, XL) — `--platform` multi-arch + `--cache-to/--cache-from
-  type=registry`; campanha própria.
-- **GAP-0014** (CNCF 7) — **decisão do dono**: tornar público + governança
-  (SECURITY.md, CODEOWNERS, política de release). Não é só código.
+  type=registry`; its own campaign.
+- **GAP-0014** (CNCF 7) — **owner's decision**: go public + governance
+  (SECURITY.md, CODEOWNERS, release policy). Not just code.
 
 ---
 
-## Roadmap paridade (prompts maiores — abrir quando priorizados)
+## Parity roadmap (larger prompts — open when prioritised)
 
-- **GAP-0004** (Docker Engine API completa, XL) — campanha multi-fase por família
-  de endpoints; medir contra um cliente real. Prompt próprio por família.
-- **GAP-0005** (Compose / DEF-003) — fechar DEF-003 + matriz de directivas.
-- **GAP-0006** (contextos / `system connection`) — **decisão ADR-0010 primeiro**:
-  confirmar WONT_FIX ou reabrir âmbito; não é dívida de código até decidido.
-- **GAP-0007** (36 comandos por-fazer) — depende de GAP-0002 para medir; depois
-  um prompt por família (image/volume/network prune …).
+- **GAP-0004** (full Docker Engine API, XL) — multi-phase campaign per endpoint
+  family; measure against a real client. Its own prompt per family.
+- **GAP-0005** (Compose / DEF-003) — close DEF-003 + directives matrix.
+- **GAP-0006** (contexts / `system connection`) — **ADR-0010 decision first**:
+  confirm WONT_FIX or reopen the scope; not code debt until decided.
+- **GAP-0007** (36 unimplemented commands) — depends on GAP-0002 to measure; then
+  one prompt per family (image/volume/network prune …).
 
-## Ordem de disparo (respeita dependências e WIP cap da `fila`)
+## Firing order (respects dependencies and the `fila`'s WIP cap)
 
-Paridade/CRI (ronda de testes):
-1. Prompt 1 (BUG-0001 + gate) · Prompt 2 (M-TEST-02) — Tier B, independentes.
-2. Prompt 3 (BUG-0004 → GAP-0001/0003) — Tier D, maior alavanca (+7 specs).
-3. Prompts 4, 5, 6 (AppArmor, rshared, OOM) — Tier D, paralelizáveis.
-4. Prompt 7 (differential) — Tier B, a qualquer momento.
-5. Prompt 8 (docs) — só depois de 3–6.
+Parity/CRI (test round):
+1. Prompt 1 (BUG-0001 + gate) · Prompt 2 (M-TEST-02) — Tier B, independent.
+2. Prompt 3 (BUG-0004 → GAP-0001/0003) — Tier D, biggest lever (+7 specs).
+3. Prompts 4, 5, 6 (AppArmor, rshared, OOM) — Tier D, parallelisable.
+4. Prompt 7 (differential) — Tier B, any time.
+5. Prompt 8 (docs) — only after 3–6.
 
-CNCF (supply-chain primeiro):
+CNCF (supply-chain first):
 6. Prompt 9 (SBOM in-toto) → Prompt 10 (SLSA provenance) — Tier B.
 7. Prompt 11 (scanner CI) — Tier B.
-8. Prompt 12 (Compose Spec) — depois de GAP-0005.
-9. GAP-0012 / GAP-0010 / GAP-0014 — roadmap/decisão.
+8. Prompt 12 (Compose Spec) — after GAP-0005.
+9. GAP-0012 / GAP-0010 / GAP-0014 — roadmap/decision.

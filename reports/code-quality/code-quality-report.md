@@ -1,47 +1,47 @@
-# Revisão de qualidade de código — Delonix Runtime
+# Code quality review — Delonix Runtime
 
 Skill: `delonix-code-quality-architecture`
-Repositório: `delonix-runtime`
-Commit medido: `cebf895` (= `origin/main`, 0 commits de atraso)
-Versão: `1.0.0`
-Data: 2026-08-29
+Repository: `delonix-runtime`
+Measured commit: `cebf895` (= `origin/main`, 0 commits behind)
+Version: `1.0.0`
+Date: 2026-08-29
 
-## Inventário medido
+## Measured inventory
 
-| Métrica | Valor |
+| Metric | Value |
 |---|---|
-| Crates no workspace | 14 (+ `delonix-runtime-bin`) |
-| Ficheiros `.rs` seguidos por git | 147 |
-| Linhas de Rust | ~138 500 |
-| Itens `pub` em produção analisados | 1 190 (161 struct, 68 enum, 2 trait, 848 fn, 111 mod) |
-| Identificadores marcados como PT pelo gate | 1 039 |
-| Comentários marcados como PT pelo gate | 3 453 |
+| Crates in the workspace | 14 (+ `delonix-runtime-bin`) |
+| `.rs` files tracked by git | 147 |
+| Lines of Rust | ~138,500 |
+| `pub` items in production analysed | 1,190 (161 struct, 68 enum, 2 trait, 848 fn, 111 mod) |
+| Identifiers flagged as PT by the gate | 1,039 |
+| Comments flagged as PT by the gate | 3,453 |
 
-## Portões automáticos — o que está VERDE, corrido agora
+## Automatic gates — what is GREEN, run now
 
-| Portão | Comando | Resultado |
+| Gate | Command | Result |
 |---|---|---|
-| Formatação (§89) | `cargo fmt --all --check` | **VERDE**, rc=0 |
-| Clippy (§87, §88) | `cargo clippy --workspace --all-targets` | **VERDE**, zero avisos |
-| Gate de língua (ratchet) | `python3 scripts/lang_ratchet.py` | **alinhado**, rc=0 |
+| Formatting (§89) | `cargo fmt --all --check` | **GREEN**, rc=0 |
+| Clippy (§87, §88) | `cargo clippy --workspace --all-targets` | **GREEN**, zero warnings |
+| Language gate (ratchet) | `python3 scripts/lang_ratchet.py` | **aligned**, rc=0 |
 
-Aviso de leitura: o gate de língua é um **ratchet**, não um tecto. «Alinhado»
-significa «a dívida não subiu», **não** significa «cumpre a Regra de Ouro §1».
+Reading caveat: the language gate is a **ratchet**, not a ceiling. "Aligned"
+means "the debt did not go up", it does **not** mean "it meets Golden Rule §1".
 
-## Placar
+## Scoreboard
 
-| Dimensão | Nota | Porquê |
+| Dimension | Score | Why |
 |---|---|---|
-| Conformidade com inglês (§1–§2) | **82/100** | Zero identificadores públicos em PT; residem 54 `let` locais + 985 nomes de teste + 3 453 comentários |
-| Qualidade de nomes (§4–§11) | **90/100** | Convenções Rust respeitadas (clippy verde); desconto pelos nomes locais em PT e por `util.rs` |
-| Documentação (§18–§23, §68) | **86/100** | 13/13 crates com `//!`; structs 87,6 %, fn 85,1 %; enums 58,8 % — mas ver DOC-0001, RETIRADO: 27 dos 28 são subcomandos do clap com as variantes documentadas |
-| Arquitectura (§26–§39) | **71/100** | Só **3 traits** em 138k linhas; `VmBackend` é um porto a sério, mas o resto é módulos concretos |
-| Tratamento de erro (§23–§24, §51) | **74/100** | 45 `.map_err(\|_\| …)` a perder causa; 12 `Result<_, String>`, 3 no caminho de segurança |
-| Legibilidade por agentes (§84) | **88/100** | `ARCHITECTURE.md` + `AGENTS.md` existem e são **testados** (`tests/architecture.rs`) |
+| English conformance (§1–§2) | **82/100** | Zero public identifiers in PT; 54 local `let` + 985 test names + 3,453 comments remain |
+| Naming quality (§4–§11) | **90/100** | Rust conventions respected (clippy green); discount for local PT names and for `util.rs` |
+| Documentation (§18–§23, §68) | **86/100** | 13/13 crates with `//!`; structs 87.6 %, fn 85.1 %; enums 58.8 % — but see DOC-0001, WITHDRAWN: 27 of 28 are clap subcommands with documented variants |
+| Architecture (§26–§39) | **71/100** | Only **3 traits** in 138k lines; `VmBackend` is a real port, but the rest is concrete modules |
+| Error handling (§23–§24, §51) | **74/100** | 45 `.map_err(\|_\| …)` losing the cause; 12 `Result<_, String>`, 3 on the security path |
+| Agent readability (§84) | **88/100** | `ARCHITECTURE.md` + `AGENTS.md` exist and are **tested** (`tests/architecture.rs`) |
 
-## Achados por severidade
+## Findings by severity
 
-| Severidade | Nº | Já fechados |
+| Severity | Count | Already closed |
 |---|---|---|
 | CRITICAL | 0 | — |
 | HIGH | 2 | **1** (ARCH-0002, PR #170) |
@@ -49,25 +49,25 @@ significa «a dívida não subiu», **não** significa «cumpre a Regra de Ouro 
 | LOW | 6 | — |
 | INFO | 3 | — |
 
-Dois achados foram corrigidos ainda durante esta auditoria, no PR
+Two findings were fixed during this audit, in PR
 [#170](https://github.com/angolardevops/delonix-runtime/pull/170):
-os 37 argumentos posicionais do `container_init` passaram a um tipo agrupado,
-e três `#[allow(clippy::too_many_arguments)]` que silenciavam a função errada
-foram removidos. O resto está no `refactoring-backlog.md`, priorizado.
+the 37 positional arguments of `container_init` moved to a grouped type,
+and three `#[allow(clippy::too_many_arguments)]` that silenced the wrong function
+were removed. The rest is in `refactoring-backlog.md`, prioritised.
 
-Detalhe em `architecture-report.md`, `naming-report.md`, `documentation-report.md`
-e `refactoring-backlog.md`.
+Detail in `architecture-report.md`, `naming-report.md`, `documentation-report.md`
+and `refactoring-backlog.md`.
 
-## O que NÃO foi validado (a segunda metade do relatório)
+## What was NOT validated (the second half of the report)
 
-- **Nenhum teste foi corrido.** Não se mediu cobertura, nem se validou nada ao vivo.
-- A cobertura de documentação foi medida por análise sintáctica própria
-  (`///` imediatamente acima do item), **não** por `cargo doc`. Itens documentados
-  com `/** */` contam como não documentados.
-- A classificação produção-vs-teste dos identificadores usa contagem de chavetas
-  a partir de `#[cfg(test)]`; ficheiros com macros que abram blocos podem
-  desalinhar (não foram encontrados casos, mas não foi provado exaustivamente).
-- **Não foi feita revisão de segurança.** Os achados de `unsafe` são de
-  *documentação* (§17), não de correcção.
-- Os outros repos do workspace (`delonix-paas`, `delonix-portal`, `delonix-admin`,
-  …) **não foram analisados**. Este relatório é só do motor.
+- **No tests were run.** Coverage was not measured, nor was anything validated live.
+- Documentation coverage was measured by our own syntactic analysis
+  (`///` immediately above the item), **not** by `cargo doc`. Items documented
+  with `/** */` count as not documented.
+- The production-vs-test classification of identifiers uses brace counting
+  from `#[cfg(test)]`; files with macros that open blocks may
+  misalign (no cases were found, but it was not proven exhaustively).
+- **No security review was done.** The `unsafe` findings are about
+  *documentation* (§17), not correctness.
+- The other repos in the workspace (`delonix-paas`, `delonix-portal`, `delonix-admin`,
+  …) were **not analysed**. This report is about the engine only.

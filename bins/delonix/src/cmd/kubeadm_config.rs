@@ -219,7 +219,7 @@ mod tests {
     /// The flat-flag path must stay the default: a `--config` that says
     /// nothing the flags already say is a second way to configure a cluster.
     #[test]
-    fn render_init_config_recusa_uma_config_que_nao_diz_nada_de_novo() {
+    fn render_init_config_rejects_a_config_that_says_nothing_new() {
         assert!(!needed(&cfg(&[], "iptables")));
         assert!(render_init_config(&cfg(&[], "iptables")).is_err());
         // Either reason on its own is enough to need one.
@@ -232,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn render_init_config_gera_2_documentos_separados_por_tracos() {
+    fn render_init_config_generates_2_documents_separated_by_dashes() {
         let etcd = [
             "https://10.0.1.1:2379".to_string(),
             "https://10.0.1.2:2379".to_string(),
@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn render_init_config_sem_k8s_version_omite_o_campo() {
+    fn render_init_config_without_k8s_version_omits_the_field() {
         let etcd = ["https://10.0.1.1:2379".to_string()];
         let mut c = cfg(&etcd, "iptables");
         c.k8s_version = None;

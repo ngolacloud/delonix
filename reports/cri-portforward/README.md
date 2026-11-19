@@ -1,108 +1,108 @@
-# CRI PortForward — conformância critest (A/B, mesma base)
+# CRI PortForward — critest conformance (A/B, same base)
 
-critest **v1.36.0**, `-ginkgo.focus "portforward"`, contra um `delonix-cri`
-isolado (WORK + `DELONIX_ROOT` próprios, holder de rede livre), host rootless.
-A/B na **mesma base** (`origin/main` @ `ab4751ac`): só muda o binário.
+critest **v1.36.0**, `-ginkgo.focus "portforward"`, against an isolated
+`delonix-cri` (its own WORK + `DELONIX_ROOT`, free network holder), rootless host.
+A/B on the **same base** (`origin/main` @ `ab4751ac`): only the binary changes.
 
-Specs em foco:
-- `runtime should support portforward [Conformance]` (netns normal)
+Specs in focus:
+- `runtime should support portforward [Conformance]` (normal netns)
 - `runtime should support portforward in host network`
 
-## Antes (binário de main, sem fix) — `before.log`
+## Before (main binary, without the fix) — `before.log`
 
 ```
 FAIL! -- 0 Passed | 2 Failed | 0 Pending | 120 Skipped
 ```
 
 - **in host network** → `error upgrading connection: unable to upgrade connection: pod sandbox has no live netns`.
-  Bug de código: um pod `hostNetwork` não tem infra/netns próprio, e o
-  `portforward_upgrade` exigia o pid do infra `pod-cri-<id>` (inexistente).
-- **[Conformance]** → falha ANTES do port-forward, no pré-requisito
-  «ensure the web server is serving»: `dial tcp 10.200.0.2:80: i/o timeout`
-  (networking.go:305). É alcance do **IP do pod** a partir do host — topologia
-  **rootless** (slirp não roteável do host), não o código de port-forward.
+  Code bug: a `hostNetwork` pod has no infra/netns of its own, and
+  `portforward_upgrade` required the pid of the `pod-cri-<id>` infra (which does not exist).
+- **[Conformance]** → fails BEFORE the port-forward, at the prerequisite
+  "ensure the web server is serving": `dial tcp 10.200.0.2:80: i/o timeout`
+  (networking.go:305). This is reaching the **pod IP** from the host — a **rootless**
+  topology (slirp not routable from the host), not the port-forward code.
 
-## Depois (binário com o fix) — `after.log`
+## After (binary with the fix) — `after.log`
 
 ```
 FAIL! -- 1 Passed | 1 Failed | 0 Pending | 120 Skipped
 ```
 
-- **in host network** → **PASSA** (verde). O forward passou a ligar em
-  `127.0.0.1:<port>` no netns do host (`PfNetns::Host`) em vez de `setns` a um
-  netns de pod que nunca existiu.
-- **[Conformance]** → continua a falhar no MESMO pré-requisito ambiental
-  (`dial 10.200.0.2:80 i/o timeout`), idêntico antes/depois — independente do
-  port-forward. Exercitar o caminho de dados do port-forward normal exige um
-  ambiente com IP de pod roteável (root/CNI ou nó kubeadm); fica fora deste fix.
+- **in host network** → **PASSES** (green). The forward now connects at
+  `127.0.0.1:<port>` in the host netns (`PfNetns::Host`) instead of doing `setns`
+  into a pod netns that never existed.
+- **[Conformance]** → still fails at the SAME environmental prerequisite
+  (`dial 10.200.0.2:80 i/o timeout`), identical before/after — independent of the
+  port-forward. Exercising the data path of the normal port-forward requires an
+  environment with a routable pod IP (root/CNI or a kubeadm node); that is out of scope for this fix.
 
-## O fix
+## The fix
 
 `crates/interfaces/delonix-cri/src/`:
-- `streaming.rs` — `portforward_upgrade` ramifica por `sandbox_is_host_network`:
-  host-network → `PfNetns::Host`; pod normal → pid do infra (erro "no live
-  netns" mantém-se para infra morto, que é o caso correcto).
-- `spdy.rs` — `PfNetns { Pid(i32), Host }` + `connect_pf`: `Host` liga directo,
-  `Pid` faz `setns` como antes.
+- `streaming.rs` — `portforward_upgrade` branches on `sandbox_is_host_network`:
+  host-network → `PfNetns::Host`; normal pod → infra pid (the "no live
+  netns" error is kept for a dead infra, which is the correct case).
+- `spdy.rs` — `PfNetns { Pid(i32), Host }` + `connect_pf`: `Host` connects directly,
+  `Pid` does `setns` as before.
 - `runtime_svc/lifecycle.rs` — `pub fn sandbox_is_host_network(base, id)`.
 
 ---
 
-## PortForward [Conformance] (netns normal) — A/B na via ROOT + CNI
+## PortForward [Conformance] (normal netns) — A/B on the ROOT + CNI path
 
-O spec `portforward [Conformance]` nunca ficava verde no host rootless porque
-falhava ANTES do port-forward, no pré-requisito «web server is serving» (o IP do
-pod não é roteável do host em slirp/pasta). Para o exercitar é preciso um ambiente
-com **IP de pod roteável**. Em CI falha DEPOIS do pré-requisito, no forward em si
-(`streaming.go`) — logo há um bug de código escondido atrás do ambiente.
+The `portforward [Conformance]` spec never went green on the rootless host because
+it failed BEFORE the port-forward, at the "web server is serving" prerequisite (the pod
+IP is not routable from the host under slirp/pasta). To exercise it you need an environment
+with a **routable pod IP**. In CI it fails AFTER the prerequisite, in the forward itself
+(`streaming.go`) — so there is a code bug hidden behind the environment.
 
-### Ambiente roteável (sem root no host)
+### Routable environment (no root on the host)
 
-Sudo e root no host estão vedados ao arnês. A via limpa: correr o `delonix-cri`
-como **root DENTRO de um container `--privileged`** (grupo `docker`), onde ele
-toma a via ROOT + CNI (bridge real, veth, IPAM `host-local`) e os IPs de pod são
-roteáveis na netns do container. Arnês: `scripts/critest-root-cni.sh` (base
-`ubuntu:24.04` p/ bater o glibc 2.39 do host; binários+critest+crictl+plugins CNI
-montados; conflist bridge+portmap; `DELONIX_ROOT` num **volume** p/ fugir ao
-overlay-on-overlay; dança de delegação de cgroup v2 p/ o controlador `memory`).
-A/B na **mesma base** (`cab3fcdf`): só muda o binário (o diff deste relatório).
+Sudo and root on the host are off-limits to the harness. The clean path: run `delonix-cri`
+as **root INSIDE a `--privileged` container** (`docker` group), where it
+takes the ROOT + CNI path (real bridge, veth, `host-local` IPAM) and pod IPs are
+routable in the container's netns. Harness: `scripts/critest-root-cni.sh` (base
+`ubuntu:24.04` to match the host's glibc 2.39; binaries+critest+crictl+CNI plugins
+mounted; bridge+portmap conflist; `DELONIX_ROOT` on a **volume** to escape
+overlay-on-overlay; cgroup v2 delegation dance for the `memory` controller).
+A/B on the **same base** (`cab3fcdf`): only the binary changes (the diff of this report).
 
-### Antes (sem o fix de named-netns) — `before-root-cni.log`
+### Before (without the named-netns fix) — `before-root-cni.log`
 
 ```
 FAIL! -- 0 Passed | 1 Failed | 0 Pending | 121 Skipped
 ```
 
-Pré-requisito **PASSA** (`the IP:port is http://10.88.0.2:80` → `check port
-mapping succeed` — IP de pod roteável, sem i/o timeout). O forward **FALHA**:
+Prerequisite **PASSES** (`the IP:port is http://10.88.0.2:80` → `check port
+mapping succeed` — routable pod IP, no i/o timeout). The forward **FAILS**:
 `start port forward` → `error upgrading connection: ... pod sandbox has no live
-netns` (`streaming.go:391`). É a falha de CI, reproduzida ao vivo.
+netns` (`streaming.go:391`). This is the CI failure, reproduced live.
 
-### Depois (com o fix) — `after-root-cni.log`
+### After (with the fix) — `after-root-cni.log`
 
 ```
 SUCCESS! -- 1 Passed | 0 Failed | 0 Pending | 121 Skipped
 ```
 
-O caminho de dados corre ponta-a-ponta: `start port forward` liga, e
+The data path runs end-to-end: `start port forward` connects, and
 `check if we can get nginx main page via localhost:12001` → `Check port forward
-URL ... succeed`. Os bytes atravessaram a netns nomeada do pod e voltaram.
+URL ... succeed`. The bytes crossed the pod's named netns and came back.
 
-### A causa-raiz e o fix
+### Root cause and the fix
 
-Na via **ROOT + CNI**, o sandbox é uma netns NOMEADA no host
-(`/run/netns/cri-<id>`, gravada em `SandboxRec.cni_netns`) e os containers do pod
-juntam-se a ela com `--net host` — **não existe infra `pod-cri-<id>`** com um pid.
-Mas o `portforward_upgrade` resolvia a netns SÓ pelo pid do infra
-(`pod_sandbox_pid`), que nessa via nunca existe → `CONFLICT "pod sandbox has no
-live netns"` para um pod perfeitamente vivo.
+On the **ROOT + CNI** path, the sandbox is a NAMED netns on the host
+(`/run/netns/cri-<id>`, recorded in `SandboxRec.cni_netns`) and the pod's containers
+join it with `--net host` — **there is no `pod-cri-<id>` infra** with a pid.
+But `portforward_upgrade` resolved the netns ONLY by the infra pid
+(`pod_sandbox_pid`), which on that path never exists → `CONFLICT "pod sandbox has no
+live netns"` for a perfectly live pod.
 
-- `spdy.rs` — `PfNetns` ganha `NsPath(PathBuf)`; `connect_in_netns` passa a abrir
-  um **caminho de netns** (`/proc/<pid>/ns/net` OU `/run/netns/cri-<id>`) e
-  `setns`-a nele; `connect_pf` mapeia `Pid`→`/proc/<pid>/ns/net`,
-  `NsPath`→o ficheiro nomeado, `Host`→directo. (`PfNetns` deixa de ser `Copy`.)
-- `lifecycle.rs` — `pub fn sandbox_cni_netns(base, id) -> Option<String>` lê o
-  `cni_netns` (vazio em toda a outra via).
-- `streaming.rs` — `portforward_upgrade` ramifica: host-network → `Host`; senão
-  `cni_netns` presente → `NsPath`; senão pid do infra (com o "no live netns" real
-  do infra morto intacto).
+- `spdy.rs` — `PfNetns` gains `NsPath(PathBuf)`; `connect_in_netns` now opens
+  a **netns path** (`/proc/<pid>/ns/net` OR `/run/netns/cri-<id>`) and
+  `setns`-es into it; `connect_pf` maps `Pid`→`/proc/<pid>/ns/net`,
+  `NsPath`→the named file, `Host`→direct. (`PfNetns` is no longer `Copy`.)
+- `lifecycle.rs` — `pub fn sandbox_cni_netns(base, id) -> Option<String>` reads
+  `cni_netns` (empty on every other path).
+- `streaming.rs` — `portforward_upgrade` branches: host-network → `Host`; else
+  `cni_netns` present → `NsPath`; else infra pid (with the real "no live netns"
+  of the dead infra left intact).

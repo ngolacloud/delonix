@@ -25,7 +25,7 @@ handbook pages are relative, so they work in both places.
 | Surface | What it is | How it stays true |
 |---|---|---|
 | `README.rst` | the project front page | hand-written, checked by `docs_cli_gate.py` |
-| `docs/*.html`, `docs/comandos/*.html` | the user site | **generated** by `docs/gen.py` from the binary's `--help` plus editorial text in the generator; checked by the `docs` CI job and at release time |
+| `docs/*.html`, `docs/commands/*.html` | the user site | **generated** by `docs/gen.py` from the binary's `--help` plus editorial text in the generator; checked by the `docs` CI job and at release time |
 | `docs/releases/v<version>.md` | release notes, one per tag | hand-written in the release commit; published as the GitHub Release body |
 | `docs/RELEASES.md` | the per-release feature appendix | **generated** by `scripts/gen-releases.sh` from `docs/releases/`; never edit by hand |
 | `ARCHITECTURE.md` | C4 architecture diagrams | hand-written, kept in step with the code; rendered into the site by `docs/gen.py` |

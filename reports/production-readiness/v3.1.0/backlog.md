@@ -1,41 +1,41 @@
-# Backlog priorizado — saído da auditoria de `fa8c6297`
+# Prioritised backlog — from the `fa8c6297` audit
 
-Cada item aponta para a linha da `gap-matrix.csv`. Nada aqui foi implementado.
+Each item points to the line in `gap-matrix.csv`. Nothing here has been implemented.
 
 ## P0
-Nenhum confirmado. **Reproduzir G-007** (forçar falha do mount tmpfs em teste de integração) — se
-confirmar escrita de segredos no upper, sobe a P0.
+None confirmed. **Reproduce G-007** (force the tmpfs mount failure in an integration test) — if it
+confirms secrets written to the upper layer, it rises to P0.
 
-## P1 — bloqueios de produção
-1. **G-008** anti-spoof fail-closed: `run_ok` → `run` com erro propagado nos três sítios; attach falha
-   se a regra não entrar. Teste: o shim nft desta auditoria (`raw/g008-nft-shim.sh`) como teste de
-   integração. Exige respawn do holder no rollout.
-2. **G-007 / G-026** `write_secret_files` fail-closed: segredos pedidos e não entregues → `run` falha.
-3. **G-029** Docker API: reconciliar estado antes de responder a `ps`/`inspect`.
-4. **G-027** `docker run -d` pendura — investigar o fluxo create+start+attach do CLI Go.
-5. **G-003** job de caos que falha em vez de `skipped` quando não pode correr.
-6. **G-036** (delonix-paas) usar `delonix_net::parse_publish` no reaper.
-7. **G-005** CRI: pull por digest e `Username` no image status (bugs); RunAsUserName; OOMKilled
-   (verificar `4a4d029f` sobre a release candidata).
-8. **G-024** bateria rootful numa VM descartável.
+## P1 — production blockers
+1. **G-008** fail-closed anti-spoof: `run_ok` → `run` with the error propagated in all three sites; attach fails
+   if the rule does not land. Test: this audit's nft shim (`raw/g008-nft-shim.sh`) as an integration
+   test. Requires respawning the holder on rollout.
+2. **G-007 / G-026** fail-closed `write_secret_files`: secrets requested and not delivered → `run` fails.
+3. **G-029** Docker API: reconcile state before responding to `ps`/`inspect`.
+4. **G-027** `docker run -d` hangs — investigate the create+start+attach flow of the Go CLI.
+5. **G-003** chaos job that fails instead of `skipped` when it cannot run.
+6. **G-036** (delonix-paas) use `delonix_net::parse_publish` in the reaper.
+7. **G-005** CRI: pull by digest and `Username` in image status (bugs); RunAsUserName; OOMKilled
+   (verify `4a4d029f` against the candidate release).
+8. **G-024** rootful battery on a throwaway VM.
 
-**Saiu desta lista:** **G-009** (masked/readonly paths e rlimits → fail-closed) está feito e
-medido — ver a linha `G-009` da `gap-matrix.csv`, agora `PASS`.
+**Left this list:** **G-009** (masked/readonly paths and rlimits → fail-closed) is done and
+measured — see the `G-009` line in `gap-matrix.csv`, now `PASS`.
 
 ## P2
-- G-011 Compose sub-chaves aninhadas desconhecidas → recusa.
-- G-033 tag+digest em conflito → recusa.
-- G-037 (paas) forwards sem registo de container fora do reaper.
+- G-011 unknown nested Compose sub-keys → refuse.
+- G-033 tag+digest in conflict → refuse.
+- G-037 (paas) forwards without container registration outside the reaper.
 - G-010 rro via `mount_setattr(AT_RECURSIVE)`.
-- G-012 Docker API: campos ignorados sem aviso.
-- G-020 pinar actions por SHA.
-- G-021 artefactos aarch64; verificar assinatura/provenance dos assets.
-- G-025 docs de conformidade regeneradas (um número, versão, data, comando).
-- G-028 `docker run --rm` sem órfãos.
-- G-030 `critest.sh` com os dois roots isolados e cleanup correcto.
-- G-031 log de erros gRPC no `delonix-cri`.
-- G-041 pause→Stopped (já em origin/main — confirmar na release).
-- G-002 testes live com skip explícito em vez de pass silencioso.
+- G-012 Docker API: fields ignored without warning.
+- G-020 pin actions by SHA.
+- G-021 aarch64 artefacts; verify signature/provenance of the assets.
+- G-025 conformance docs regenerated (one number, version, date, command).
+- G-028 `docker run --rm` with no orphans.
+- G-030 `critest.sh` with both roots isolated and correct cleanup.
+- G-031 gRPC error logging in `delonix-cri`.
+- G-041 pause→Stopped (already in origin/main — confirm in the release).
+- G-002 live tests with an explicit skip instead of a silent pass.
 
 ## P3
-G-014, G-015, G-016, G-017, G-018, G-034, G-035, G-038, G-039, G-042, G-004 (limiar do check), G-006, G-022.
+G-014, G-015, G-016, G-017, G-018, G-034, G-035, G-038, G-039, G-042, G-004 (check threshold), G-006, G-022.

@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
-"""Gate barato do site `docs/gen.py`: o binário e a documentação concordam no
-que existe, SEM gerar uma única página.
+"""Cheap gate for the `docs/gen.py` site: the binary and the documentation agree
+on what exists, WITHOUT generating a single page.
 
-Corre a asserção `contract_gate()` do próprio `docs/gen.py` (importado como
-módulo — só define dicts/funções e lê `sys.argv[1]`, não gera nada até alguém
-chamar `main()`), portanto lê o `GROUPS`/`GROUP_PATH`/`KINDS_DOC` REAIS, nunca uma
-segunda cópia que pudesse ela mesma derivar do ficheiro que devia verificar.
+Runs `docs/gen.py`'s own `contract_gate()` assertion (imported as a module — it
+only defines dicts/functions and reads `sys.argv[1]`, generating nothing until
+someone calls `main()`), so it reads the REAL `GROUPS`/`GROUP_PATH`/`KINDS_DOC`,
+never a second copy that could itself drift from the file it is meant to check.
 
-Apanha três derivas silenciosas (ver o docstring de `contract_gate()`):
+Catches three silent drifts (see `contract_gate()`'s docstring):
 
-  * um comando NOVO no COMMAND MAP do binário que `GROUPS` ainda não documenta
-    (descartado sem aviso do índice/cheatsheet pelo `if g in GROUPS`);
-  * uma página de topo em `GROUPS` que já não é um comando do binário (binário
-    stale, como o que não tinha `bucket`, ou comando removido);
-  * um `examples/<grupo>/<kind>.yaml` embebido em falta (hoje publica um bloco
-    `# (exemplo em falta: …)` em silêncio).
+  * a NEW command in the binary's COMMAND MAP that `GROUPS` does not yet document
+    (silently dropped from the index/cheatsheet by `if g in GROUPS`);
+  * a top-level page in `GROUPS` that is no longer a binary command (stale
+    binary, like the one that lacked `bucket`, or a removed command);
+  * a missing embedded `examples/<group>/<kind>.yaml` (today it silently
+    publishes a `# (missing example: …)` block).
 
-Relação com `scripts/docs_cli_gate.py`: aquele resolve CADA `delonix …` citado na
-documentação contra a árvore inteira do binário (`cli-tree.sh`) e precisa do
-binário em `target/`. Este é a fatia barata — um só `delonix --help` — e aceita
-um caminho de binário explícito, útil quando se gera contra uma árvore cujo
-`target/` vive noutro sítio (ex.: um worktree sem build próprio).
+Relation to `scripts/docs_cli_gate.py`: that one resolves EVERY `delonix …`
+cited in the documentation against the binary's entire tree (`cli-tree.sh`) and
+needs the binary in `target/`. This is the cheap slice — a single `delonix
+--help` — and accepts an explicit binary path, useful when generating against a
+tree whose `target/` lives elsewhere (e.g. a worktree with no build of its own).
 
-    python3 scripts/docs_command_gate.py                 # usa ./target/release|debug/delonix
-    python3 scripts/docs_command_gate.py /caminho/delonix  # binário explícito
+    python3 scripts/docs_command_gate.py                 # uses ./target/release|debug/delonix
+    python3 scripts/docs_command_gate.py /path/delonix     # explicit binary
 
-Sai 0 se baterem certo; 1 (com a divergência) caso contrário.
+Exits 0 if they match; 1 (with the divergence) otherwise.
 """
 
 from __future__ import annotations
@@ -44,13 +44,13 @@ def binary() -> str:
         if c.is_file():
             return str(c)
     sys.exit(
-        "sem binário: passa o caminho como argumento ou corre "
+        "no binary: pass the path as an argument or run "
         "`cargo build --release -p delonix-bin`"
     )
 
 
 def load_gen(bin_path: str):
-    # `docs/gen.py` lê `sys.argv[1]` para o caminho do binário no import.
+    # `docs/gen.py` reads `sys.argv[1]` for the binary path at import time.
     sys.argv = ["gen.py", bin_path]
     spec = importlib.util.spec_from_file_location(
         "delonix_docs_gen", ROOT / "docs" / "gen.py"
@@ -65,7 +65,7 @@ def main() -> int:
     bin_path = binary()
     gen = load_gen(bin_path)
     try:
-        gen.contract_gate()  # SystemExit com a divergência, se houver
+        gen.contract_gate()  # SystemExit with the divergence, if any
     except SystemExit as e:
         print(e, file=sys.stderr)
         return 1

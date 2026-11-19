@@ -1,100 +1,100 @@
-# Migrar para o Delonix (linha 0.x)
+# Migrating to Delonix (the 0.x line)
 
-O produto `delonix-runtime` passou a chamar-se **Delonix** e re-baseou a versão de
-`5.1.1` para `0.1.0` (uma linha nova, de propósito — ver [VERSIONING.md](VERSIONING.md)).
-Este guia tem duas partes: para quem **usa** o motor, e para quem **mantém** o repositório.
+The `delonix-runtime` product has been renamed to **Delonix** and re-based its version from
+`5.1.1` to `0.1.0` (a brand-new line, on purpose — see [VERSIONING.md](VERSIONING.md)).
+This guide has two parts: for those who **use** the engine, and for those who **maintain** the repository.
 
-## Para quem usa — `5.1.1` → `0.1.0`
+## For users — `5.1.1` → `0.1.0`
 
-**O que muda:** o nome e os endereços (repo, Pages, imagem GHCR), e o número de
-versão. O binário da CLI continua a chamar-se `delonix`.
+**What changes:** the name and the addresses (repo, Pages, GHCR image), and the
+version number. The CLI binary is still called `delonix`.
 
-**O que NÃO muda** (contratos operacionais estáveis na re-base):
-- Estado persistido: `/var/lib/delonix/`, rootless `~/.local/share/delonix`.
+**What does NOT change** (operational contracts kept stable across the re-base):
+- Persisted state: `/var/lib/delonix/`, rootless `~/.local/share/delonix`.
 - Config: `/etc/delonix/`. Sockets: `/run/delonix-{cri,mgmt,node}.sock`.
-- Serviços systemd, variáveis `DELONIX_*`, grupos de schema `*.delonix.io`.
-- A tua instalação mantém dados, imagens, volumes e configuração.
+- systemd services, `DELONIX_*` variables, `*.delonix.io` schema groups.
+- Your installation keeps its data, images, volumes and configuration.
 
-**Como actualizar:**
+**How to update:**
 ```
 curl -fsSL https://github.com/ngolacloud/delonix/releases/latest/download/install.sh | bash
 ```
-O "latest" do GitHub é por **data**, por isso resolve para `0.1.0` (não por ordem
-SemVer). Os **cinco binários** (`delonix`, `-cri`, `-mcp`, `-mgmt`, `-node-api`)
-têm de ficar todos na mesma versão — o motor recusa binários-irmãos desalinhados
-(`check_version` por igualdade exacta) e o `install.sh` avisa se encontrar um no
-PATH de outra versão.
+GitHub's "latest" is by **date**, so it resolves to `0.1.0` (not by SemVer
+ordering). The **five binaries** (`delonix`, `-cri`, `-mcp`, `-mgmt`, `-node-api`)
+must all stay on the same version — the engine rejects misaligned sibling binaries
+(`check_version` by exact equality) and `install.sh` warns if it finds one on the
+PATH from another version.
 
-**Auto-update:** uma ferramenta que compare versões por SemVer vê `0.1.0 < 5.1.1` e
-**não** actualiza sozinha — reinstala pelo `install.sh` acima. É uma transição de
-linha, anunciada, não uma actualização incremental.
+**Auto-update:** a tool that compares versions by SemVer sees `0.1.0 < 5.1.1` and
+will **not** update on its own — reinstall via the `install.sh` above. This is a
+line transition, announced, not an incremental update.
 
-**Rollback:** as releases `v1.*`…`v5.1.1` continuam publicadas (tags imutáveis,
-nunca sobrescritas); dá para voltar a uma delas.
+**Rollback:** the `v1.*`…`v5.1.1` releases remain published (immutable tags,
+never overwritten); you can roll back to one of them.
 
-## Para quem mantém — runbook da transferência GitHub
+## For maintainers — GitHub transfer runbook
 
-Transferir o repositório `angolardevops/delonix-runtime` → `ngolacloud/delonix`.
-**Preferir TRANSFERIR** (preserva histórico, issues, PRs, releases e redireccionamentos)
-em vez de recriar.
+Transfer the `angolardevops/delonix-runtime` → `ngolacloud/delonix` repository.
+**Prefer TRANSFERRING** (preserves history, issues, PRs, releases and redirects)
+over recreating.
 
-**Pré-voo (verificar ANTES):**
-- [ ] origem correcta; admin na origem e na org `ngolacloud`; nome `delonix` livre no destino.
-- [ ] branch protections / rulesets (main, develop) a recriar no destino.
+**Pre-flight (check BEFORE):**
+- [ ] correct source; admin on the source and on the `ngolacloud` org; `delonix` name free at the destination.
+- [ ] branch protections / rulesets (main, develop) to recreate at the destination.
 - [ ] Actions, environments, self-hosted runners.
-- [ ] secrets / OIDC / credenciais de publicação (minisign `MINISIGN_SECRET`, GHCR token).
-- [ ] packages e imagens GHCR; apps, webhooks, deploy keys.
-- [ ] GitHub Pages e domínio personalizado (há `.nojekyll`, sem CNAME hoje).
+- [ ] secrets / OIDC / publishing credentials (minisign `MINISIGN_SECRET`, GHCR token).
+- [ ] GHCR packages and images; apps, webhooks, deploy keys.
+- [ ] GitHub Pages and custom domain (there is a `.nojekyll`, no CNAME today).
 
-**Transferir:** Settings → *Transfer ownership* → `ngolacloud`, e renomear
-`delonix-runtime` → `delonix` (ou transferir já com o nome novo).
+**Transfer:** Settings → *Transfer ownership* → `ngolacloud`, and rename
+`delonix-runtime` → `delonix` (or transfer already under the new name).
 
-**Pós-transferência (VALIDAR — não assumir que os redireccionamentos bastam):**
-- [ ] `git remote set-url` + `clone` do novo endereço.
-- [ ] CI verde na nova org (permissões mínimas reconfiguradas).
-- [ ] downloads de release (assets por `v{version}`) e `SHA256SUMS(.minisig)`.
-- [ ] Pages na nova URL (`ngolacloud.github.io/delonix` ou domínio) e as
-      `schema/v1/*.json` a resolver.
+**Post-transfer (VALIDATE — do not assume the redirects are enough):**
+- [ ] `git remote set-url` + `clone` from the new address.
+- [ ] green CI on the new org (minimal permissions reconfigured).
+- [ ] release downloads (assets by `v{version}`) and `SHA256SUMS(.minisig)`.
+- [ ] Pages at the new URL (`ngolacloud.github.io/delonix` or domain) and the
+      `schema/v1/*.json` resolving.
 - [ ] GHCR `ghcr.io/ngolacloud/delonix`.
-- [ ] `vmimage.rs` baixa `delonix-cri` da release nova.
-- [ ] integrações externas re-apontadas.
+- [ ] `vmimage.rs` downloads `delonix-cri` from the new release.
+- [ ] external integrations re-pointed.
 
-**Só depois** completar a identidade e cortar a release:
-1. `scripts/rebrand.sh build-coupled` (constantes Rust, `gen.py`, `docs/dev`, proto `go_package`).
-2. rebuild dos 5 binários a `0.1.0` + `python3 docs/gen.py` + `scripts/dev_docs_site.py` + `buf generate`.
-3. `docs/releases/v0.1.0.md` + `scripts/version_gate.py` verde (abre a linha delonix).
+**Only then** complete the identity and cut the release:
+1. `scripts/rebrand.sh build-coupled` (Rust constants, `gen.py`, `docs/dev`, proto `go_package`).
+2. rebuild the 5 binaries at `0.1.0` + `python3 docs/gen.py` + `scripts/dev_docs_site.py` + `buf generate`.
+3. `docs/releases/v0.1.0.md` + `scripts/version_gate.py` green (opens the delonix line).
 4. `scripts/release_verify.py` + pipeline (`release.yml`): SHA256SUMS, SBOM, minisign, SLSA.
-5. etiquetar `v0.1.0` e publicar. Ver a checklist em [VERSIONING.md](VERSIONING.md#checklist-antes-de-etiquetar-v010).
+5. tag `v0.1.0` and publish. See the checklist in [VERSIONING.md](VERSIONING.md#checklist-before-tagging-v010).
 
-## Para quem contribui — renomes internos de crate (ADR-0040 R1)
+## For contributors — internal crate renames (ADR-0040 R1)
 
-A reestruturação do motor (ADR-0040) uniformizou nomes de **crate internos**
-(`publish = false`), sem tocar em nada exposto ao utilizador — binários, sockets,
-serviços systemd, `DELONIX_*`, grupos de schema e contratos CLI/API ficam iguais.
-Quem tem um branch por integrar reaponta os imports:
+The engine restructuring (ADR-0040) standardized **internal crate** names
+(`publish = false`), without touching anything exposed to the user — binaries, sockets,
+systemd services, `DELONIX_*`, schema groups and CLI/API contracts stay the same.
+Anyone with a branch to integrate re-points their imports:
 
-| Antes | Depois | Import Rust |
+| Before | After | Rust import |
 | --- | --- | --- |
 | `delonix-proxmox` | `delonix-provider-proxmox` | `delonix_provider_proxmox` |
 | `delonix-truenas` | `delonix-provider-truenas` | `delonix_provider_truenas` |
 | `delonix-opnsense` | `delonix-provider-opnsense` | `delonix_provider_opnsense` |
 | `delonix-powerdns` | `delonix-provider-powerdns` | `delonix_provider_powerdns` |
 | `delonix-security-runtime` | `delonix-security` | `delonix_security` |
-| `delonix-runtime-bin` (em `bins/delonix-runtime-bin`) | `delonix-bin` (em `bins/delonix`) | — (é um bin, sem lib) |
+| `delonix-runtime-bin` (in `bins/delonix-runtime-bin`) | `delonix-bin` (in `bins/delonix`) | — (it is a bin, no lib) |
 
-Movidos com `git mv` (o `git log --follow`/`blame` seguem). `scripts/arch_fitness.py`
-passa a recusar um crate em `providers/` sem o prefixo `delonix-provider-`. O
-binário **continua `delonix`** — só o nome do pacote e do directório mudaram
-(`delonix-bin` é o único em `bins/` cujo directório diverge do nome, A6a); quem
-invoca `cargo … -p delonix-runtime-bin` passa a `-p delonix-bin`.
+Moved with `git mv` (so `git log --follow`/`blame` keep tracking). `scripts/arch_fitness.py`
+now rejects a crate in `providers/` without the `delonix-provider-` prefix. The
+binary **is still `delonix`** — only the package name and the directory changed
+(`delonix-bin` is the only one in `bins/` whose directory diverges from its name, A6a); anyone
+invoking `cargo … -p delonix-runtime-bin` switches to `-p delonix-bin`.
 
-## Estado desta transição (2026-10-28)
+## Status of this transition (2026-10-28)
 
-- **Feito e integrado em `develop`:** identidade segura em config/docs
-  (`Cargo.toml`/`Makefile`/`README`/units/`sbom.py`), `version_gate` consciente de
-  linha + testes, política de compatibilidade (VERSIONING.md), CHANGELOG
-  consolidado, adendo ao ADR-0061, `scripts/rebrand.sh`.
-- **Pendente (dependente da transferência e do build de release):** `rebrand.sh
-  build-coupled`, regeneração das docs com a identidade nova, e a própria release
-  `0.1.0`. A transferência é uma operação externa irreversível num repo público
-  vivo (a cortar releases 5.x) — executar com os pré-voos satisfeitos.
+- **Done and integrated into `develop`:** safe identity in config/docs
+  (`Cargo.toml`/`Makefile`/`README`/units/`sbom.py`), line-aware `version_gate`
+  + tests, compatibility policy (VERSIONING.md), consolidated CHANGELOG,
+  addendum to ADR-0061, `scripts/rebrand.sh`.
+- **Pending (depends on the transfer and the release build):** `rebrand.sh
+  build-coupled`, regenerating the docs with the new identity, and the `0.1.0`
+  release itself. The transfer is an irreversible external operation on a live
+  public repo (while cutting 5.x releases) — run it with the pre-flights satisfied.

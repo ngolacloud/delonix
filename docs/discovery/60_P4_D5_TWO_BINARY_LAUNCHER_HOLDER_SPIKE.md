@@ -1,115 +1,119 @@
-# 60 — P4/D5: o par de binários launcher/holder, a sério (ADR-0044)
+# 60 — P4/D5: the launcher/holder binary pair, for real (ADR-0044)
 
-**Data:** 2026-09-19 · **Base:** `origin/main` (`fd11501a`, v4.0.0 +10 commits, o binário
-desta MESMA série de spikes) · **Alvo:** `p4d-launcher`, VM nova (libvirt, Ubuntu 24.04.4
-LTS, `delonix-vm-base:ubuntu-24.04`) — o mesmo ambiente do P1b, reconstruído do zero.
-**Veredicto: GO, com um achado que simplifica D2.4** — `--net <rede-custom>` não precisa do
-perfil do launcher, porque nunca cria o seu próprio userns.
+**Date:** 2026-09-19 · **Base:** `origin/main` (`fd11501a`, v4.0.0 +10 commits, the binary
+from this SAME spike series) · **Target:** `p4d-launcher`, new VM (libvirt, Ubuntu 24.04.4
+LTS, `delonix-vm-base:ubuntu-24.04`) — the same environment as P1b, rebuilt from scratch.
+**Verdict: GO, with a finding that simplifies D2.4** — `--net <custom-network>` does not need
+the launcher's profile, because it never creates its own userns.
 
-## A pergunta
+## The question
 
-O último dos cinco spikes do ADR-0044: "Repeat P1b's exact matrix with `delonix`,
+The last of the five spikes of ADR-0044: "Repeat P1b's exact matrix with `delonix`,
 `delonix-launcher` and `delonix-netns-holder` as three genuinely separate installed
 binaries — the gap the original spike's own «not validated» section names — and add
 `--net <custom>` and a pod to the matrix, neither of which P1b touched."
 
-O P1b (`53_P1B_LAUNCHER_SPIKE.md`) tinha medido isto: (1) com o CHAMADOR e o pin no MESMO
-caminho instalado, alternando só a presença do perfil AppArmor por operação; (2) sem
-`--net <custom>` nem pod, os dois casos que precisam mesmo do holder.
+P1b (`53_P1B_LAUNCHER_SPIKE.md`) had measured this: (1) with the CALLER and the pin on the
+SAME installed path, toggling only the presence of the AppArmor profile per operation; (2)
+without `--net <custom>` or a pod, the two cases that genuinely need the holder.
 
-## Como se mediu
+## How it was measured
 
-- VM nova (a do P1b já não existia — limpa por outra sessão), criada por
-  `delonix vm create --backend libvirt --disk delonix-vm-base:ubuntu-24.04`. Ambiente
-  confirmado idêntico ao P1b: Ubuntu 24.04.4 LTS, kernel 6.8.0-136-generic,
+- New VM (P1b's own no longer existed — cleaned up by another session), created by
+  `delonix vm create --backend libvirt --disk delonix-vm-base:ubuntu-24.04`. Environment
+  confirmed identical to P1b: Ubuntu 24.04.4 LTS, kernel 6.8.0-136-generic,
   `kernel.apparmor_restrict_unprivileged_userns=1`, `apparmor_parser` 4.x.
-- **Achado lateral, ao entrar**: `--ssh-key` não injectou a chave (o `authorized_keys`
-  ficou vazio, apesar da CLI imprimir "log in with the key you injected" — `AGENTS.md` já
-  tem um achado análogo catalogado, "uma capacidade que só existe...", mas este é novo e
-  fica registado aqui, não investigado a fundo — fora do âmbito deste spike). Acesso obtido
-  pela consola série (autologin, como o P1b também usou), injectando a chave à mão.
-- O binário desta MESMA série (`fd11501a`, com o spike de substituição já dentro) copiado
-  para o convidado e instalado em **três caminhos com hardlink** (`ln`, não `cp` — o disco
-  golden de 2,4 GiB não tinha espaço para três cópias de 282 MB; o AppArmor confina por
-  CAMINHO, não por inode, por isso o hardlink preserva exactamente a variável que o spike
-  testa): `/opt/p4d/delonix` (sem perfil), `/opt/p4d/delonix-launcher`,
+- **Side finding, on entry**: `--ssh-key` did not inject the key (the `authorized_keys`
+  file stayed empty, despite the CLI printing "log in with the key you injected" —
+  `AGENTS.md` already has an analogous finding catalogued, "a capability that only
+  exists...", but this one is new and is recorded here, not investigated in depth — out of
+  scope for this spike). Access obtained via the serial console (autologin, as P1b also
+  used), injecting the key by hand.
+- The binary from this SAME series (`fd11501a`, with the replacement spike already inside)
+  copied to the guest and installed in **three hardlinked paths** (`ln`, not `cp` — the
+  golden disk at 2.4 GiB had no room for three copies of 282 MB; AppArmor confines by
+  PATH, not by inode, so the hardlink preserves exactly the variable the spike tests):
+  `/opt/p4d/delonix` (no profile), `/opt/p4d/delonix-launcher`,
   `/opt/p4d/delonix-netns-holder`.
-- Dois perfis AppArmor, mesmo molde do `install.sh` (`profile <nome> <caminho>
-  flags=(unconfined) { userns, }`), um por caminho privilegiado — nenhum no `delonix` puro.
-  Confirmado que o perfil pré-existente do golden (`/etc/apparmor.d/delonix`, a apontar
-  para `/usr/local/bin/delonix`, de um install anterior) não interfere — caminho diferente.
-- Matriz do P1b repetida (agora com três caminhos GENUINAMENTE distintos, não um perfil
-  ligado/desligado no MESMO caminho) + as duas operações que faltavam.
+- Two AppArmor profiles, the same mould as `install.sh` (`profile <name> <path>
+  flags=(unconfined) { userns, }`), one per privileged path — none on bare `delonix`.
+  Confirmed that the golden image's pre-existing profile (`/etc/apparmor.d/delonix`,
+  pointing at `/usr/local/bin/delonix`, from an earlier install) does not interfere —
+  different path.
+- P1b's matrix repeated (now with three GENUINELY distinct paths, not one profile
+  toggled on/off at the SAME path) + the two operations that were missing.
 
-## O que se mediu
+## What was measured
 
-| Operação | `delonix` (sem perfil) | `delonix-launcher`/`delonix-netns-holder` (com perfil) |
+| Operation | `delonix` (no profile) | `delonix-launcher`/`delonix-netns-holder` (with profile) |
 |---|---|---|
 | `container run --net none` | `EPERM: failed to prepare the rootfs`, rc=126 | rc=0 |
-| `container run -d` + `exec` | *(não repetido — já coberto pelo P1b)* | rc=0 / rc=0, mesmo idioma |
-| `container cp` de um parado (`__ovlhold`) | *(idem)* | rc=0 |
-| `container rm` (`__rmtree`) | *(idem)* | rc=0 |
-| `net netns up` (pin) | erro **auto-explicativo** (novo desde o P1b — nomeia a causa E o remédio), rc=1 | rc=0 — `ps` confirma `/opt/p4d/delonix-netns-holder netns pin`/`netns control`, os DOIS processos a correrem do caminho certo |
-| **`container run --net <rede-custom>`** (NOVO) | **rc=0** — funciona SEM perfil (ver "Achado", abaixo) | rc=0, IP real na rede custom (`10.253.0.2/16`) |
-| **`pod create`** (NOVO) | `EPERM: failed to create the pod netns`, mesmo texto auto-explicativo do pin, rc=1 | rc=0 — `10.200.0.2`, netns partilhada, `exec` dentro do pod funciona |
+| `container run -d` + `exec` | *(not repeated — already covered by P1b)* | rc=0 / rc=0, same wording |
+| `container cp` on a stopped one (`__ovlhold`) | *(ditto)* | rc=0 |
+| `container rm` (`__rmtree`) | *(ditto)* | rc=0 |
+| `net netns up` (pin) | **self-explanatory** error (new since P1b — names both the cause AND the remedy), rc=1 | rc=0 — `ps` confirms `/opt/p4d/delonix-netns-holder netns pin`/`netns control`, BOTH processes running from the right path |
+| **`container run --net <custom-network>`** (NEW) | **rc=0** — works WITHOUT a profile (see "Finding", below) | rc=0, real IP on the custom network (`10.253.0.2/16`) |
+| **`pod create`** (NEW) | `EPERM: failed to create the pod netns`, same self-explanatory text as the pin, rc=1 | rc=0 — `10.200.0.2`, shared netns, `exec` inside the pod works |
 
-## Achado — `--net <rede-custom>` não precisa do perfil do launcher, e a razão está no
-próprio mecanismo já documentado
+## Finding — `--net <custom-network>` does not need the launcher's profile, and the reason
+is already written into the mechanism itself
 
-Medido, não hipotético: `delonix container run --net p4dnet alpine:3.20 echo hi` **teve
-sucesso sem qualquer perfil AppArmor**, atribuindo um IP real (`10.253.0.2/16`) — ao
-contrário de `--net none`, que falha sem o perfil.
+Measured, not hypothetical: `delonix container run --net p4dnet alpine:3.20 echo hi`
+**succeeded without any AppArmor profile at all**, assigning a real IP (`10.253.0.2/16`) —
+unlike `--net none`, which fails without the profile.
 
-A razão está já escrita no `AGENTS.md` deste repositório, secção "CLI" (`container run`):
-o re-exec de `--net <rede-custom>` corre `nsenter -t <holder_pid> -U -m -n … ip netns exec
-<netns>`, e a SEGUNDA passagem corre com `RunSpec.inherit_userns` — suprime
-`CLONE_NEWUSER`/`CLONE_NEWNET` e **herda** os namespaces do holder em vez de criar os seus
-próprios. `nsenter -U` para ENTRAR num userns já existente não é a mesma chamada que
-`unshare(CLONE_NEWUSER)` para CRIAR um — e é só a segunda que a regra `userns` do AppArmor
-medeia. Como o userns já existe (criado UMA vez, quando o holder arrancou — esse sim, com o
-perfil), juntar-se a ele não precisa de privilégio nenhum que o AppArmor negue.
+The reason is already written in this repository's `AGENTS.md`, "CLI" section (`container
+run`): the re-exec for `--net <custom-network>` runs `nsenter -t <holder_pid> -U -m -n …
+ip netns exec <netns>`, and this SECOND pass runs with `RunSpec.inherit_userns` — it
+suppresses `CLONE_NEWUSER`/`CLONE_NEWNET` and **inherits** the holder's namespaces instead
+of creating its own. `nsenter -U` to ENTER an already-existing userns is not the same call
+as `unshare(CLONE_NEWUSER)` to CREATE one — and it is only the second that AppArmor's
+`userns` rule mediates. Since the userns already exists (created ONCE, when the holder
+started — that creation DID need the profile), joining it needs no privilege that AppArmor
+would deny.
 
-**Isto simplifica o D2.4 real**: nem toda operação que hoje "cria namespaces" precisa do
-perfil do `delonix-launcher` — só as que criam um userns de RAIZ (`--net none`/rede
-por omissão, `pod create` — que cria a SUA PRÓPRIA netns do zero, confirmado pelo erro
-"failed to create the pod netns", diferente do erro do pin). Um container que se anexa a
-uma rede custom já existente, com o holder já de pé, vive inteiramente da CRIAÇÃO anterior
-do userns do holder. **Não corrigido nem construído aqui** — é um achado para quem desenhar
-a matriz de capabilities de D2.4/D3 a sério: a fronteira é "quem CRIA um namespace", não
-"quem toca em namespaces".
+**This simplifies the real D2.4**: not every operation that today "creates namespaces"
+needs the `delonix-launcher` profile — only those that create a userns from SCRATCH
+(`--net none`/default network, `pod create` — which creates ITS OWN netns from zero,
+confirmed by the "failed to create the pod netns" error, different from the pin's error).
+A container that attaches to an already-existing custom network, with the holder already
+up, lives entirely off the holder's PRIOR creation of the userns. **Not fixed nor built
+here** — it is a finding for whoever designs D2.4/D3's capability matrix for real: the
+boundary is "who CREATES a namespace", not "who touches namespaces".
 
-## Confirmações que batem certo com o P1b
+## Confirmations that match P1b
 
-- O launcher continua GO: toda a criação de namespaces PARA CONTAINERS passa com o perfil
-  só no seu caminho.
-- **A condição do holder está CONFIRMADA, agora com separação real**: os processos do pin/
-  control correm mesmo do binário `delonix-netns-holder`, não de uma cópia do `delonix`
-  a fingir ser holder — o `ps aux` prova-o pelo `/proc/<pid>/comm`/caminho do executável,
-  não pela leitura do código.
-- O erro do pin sem perfil MELHOROU desde o P1b: já não é um timeout genérico
-  ("waiting for the netns holder") nem o defeito do `/run` vs `/tmp` que o P1b teve de
-  corrigir por leitura — é uma mensagem que nomeia a causa (`kernel.
-  apparmor_restrict_unprivileged_userns=1`) e o remédio (`install.sh` escreve o perfil) —
-  a mesma classe de conserto que este repositório já tinha feito para outros erros de
-  privilégio.
+- The launcher remains GO: all namespace creation FOR CONTAINERS passes with the profile
+  only on its own path.
+- **The holder's condition is CONFIRMED, now with real separation**: the pin/control
+  processes run from the actual `delonix-netns-holder` binary, not from a copy of
+  `delonix` pretending to be the holder — `ps aux` proves it via `/proc/<pid>/comm`/the
+  executable's path, not by reading the code.
+- The pin error without a profile IMPROVED since P1b: it is no longer a generic timeout
+  ("waiting for the netns holder") nor the `/run` vs `/tmp` defect P1b had to fix by
+  reading — it is now a message that names the cause (`kernel.
+  apparmor_restrict_unprivileged_userns=1`) and the remedy (`install.sh` writes the
+  profile) — the same class of fix this repository had already applied to other privilege
+  errors.
 
 ## Proven vs not validated
 
-**Proven**: os três binários, em caminhos genuinamente distintos, com perfis
-independentes, convergem correctamente — incluindo os dois casos que o P1b nunca tocou;
-que `net netns up`/`pod create` precisam do perfil e `container run --net <custom>` não,
-com a razão mecânica já documentada noutro sítio deste repositório, agora confirmada ao
-vivo; que o erro sem perfil é hoje auto-explicativo nos dois caminhos que o exigem.
+**Proven**: the three binaries, on genuinely distinct paths, with independent profiles,
+converge correctly — including the two cases P1b never touched; that `net netns up`/
+`pod create` need the profile and `container run --net <custom>` does not, with the
+mechanical reason already documented elsewhere in this repository, now confirmed live;
+that the error without a profile is today self-explanatory on both paths that require it.
 
-**Not validated**: upgrade in-place com os TRÊS binários reais (P1b só leu o código para
-esta parte, ver o seu item 4; este spike também não o correu — precisava de uma versão
-ANTERIOR do binário instalada primeiro); um `delonix-launcher`/`delonix-netns-holder`
-como CRATES/`[[bin]]` targets DISTINTOS com dispatch próprio (este spike, como o P1b,
-usa três cópias hardlinked do MESMO binário — a divisão real de código é P4d, não este
-spike); libvirt CH não foi re-testado aqui (já coberto pelo spike nº1); Debian/Rocky/
-outras distros; root (só rootless).
+**Not validated**: in-place upgrade with the THREE real binaries (P1b only read the code
+for this part, see its item 4; this spike also did not run it — it would need an EARLIER
+version of the binary installed first); a `delonix-launcher`/`delonix-netns-holder` as
+DISTINCT crate/`[[bin]]` targets with their own dispatch (this spike, like P1b, uses three
+hardlinked copies of the SAME binary — the real code split is P4d, not this spike);
+libvirt CH was not re-tested here (already covered by spike #1); Debian/Rocky/other
+distros; root (rootless only).
 
-## Limpeza
+## Cleanup
 
-VM `p4d-launcher` destruída (`delonix delete vm`) — nada ficou no host além do que já lá
-estava. O estado dentro do convidado (rede `p4dnet`, pod, containers) morreu com a VM.
+VM `p4d-launcher` destroyed (`delonix delete vm`) — nothing was left on the host beyond
+what was already there. State inside the guest (network `p4dnet`, pod, containers) died
+with the VM.

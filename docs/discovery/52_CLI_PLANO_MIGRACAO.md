@@ -1,386 +1,386 @@
-# Plano de migração da CLI — das 243 folhas às 103 da especificação
+# CLI migration plan — from the 243 current leaves to the spec's 103
 
-Medido a 2026-08-27 contra o binário da fatia em curso (243 folhas), não contra
-a especificação lida por cima. O inventário da fase CLI-0 está no
-[51_CLI_INVENTARIO.md](51_CLI_INVENTARIO.md); este documento é o **sequenciamento**.
+Measured on 2026-08-27 against the binary of the slice in progress (243 leaves), not against
+the spec read from above. The CLI-0 phase inventory is in
+[51_CLI_INVENTARIO.md](51_CLI_INVENTARIO.md); this document is the **sequencing**.
 
-## 1. Os dois números, e o que os separa
+## 1. The two numbers, and what separates them
 
 | | |
 |---|---|
-| folhas hoje | **243** |
-| folhas que a especificação pede | **103** |
-| já na forma nova | **61** |
-| a especificação pede e não existe | **42** |
+| leaves today | **243** |
+| leaves the spec asks for | **103** |
+| already in the new form | **61** |
+| the spec asks for and does not exist | **42** |
 
-**A diferença de 140 folhas não é excesso de funcionalidade — é a mesma
-capacidade escrita várias vezes.** Quatro grupos (`net` 41, `image` 32,
-`container` 29, `vm` 28) são 130 folhas, mais de metade da árvore, e é aí que
-está quase toda a redução.
+**The 140-leaf gap is not excess functionality — it is the same capability written
+several times over.** Four groups (`net` 41, `image` 32, `container` 29, `vm` 28)
+are 130 leaves, more than half the tree, and that is where almost all of the
+reduction lies.
 
-**A contagem de "folhas hoje" já não é 243.** `scripts/cli_baseline.tsv`
-tem, a 2026-09-01, **249** — subiu com capacidade nova do B3/dia-2 (e o MCP),
-desceu com os cortes do B4-B9 abaixo; os dois movimentos não se cancelaram. A
-proporção "243→103" e o `57%`/`~80%` da secção 4 ficam por remedir — não se
-recalcularam aqui para não inventar um número sem contar folha a folha de
-novo.
+**The "leaves today" count is no longer 243.** `scripts/cli_baseline.tsv`
+has, as of 2026-09-01, **249** — it rose with new B3/day-2 capability (and MCP),
+fell with the B4-B9 cuts below; the two movements did not cancel out. The
+"243→103" ratio and the `57%`/`~80%` of section 4 remain un-remeasured — they were
+not recalculated here so as not to invent a number without counting leaf by
+leaf again.
 
-## 2. O que decide a ordem
+## 2. What decides the order
 
-Três restrições, e nenhuma é preferência:
+Three constraints, and none is a preference:
 
-**Um corte só é honesto quando o destino já faz o que a origem fazia.** Remover
-`network ls` antes de `get networks` cobrir a `Network` tira capacidade em vez de
-a arrumar. Portanto: **construir primeiro, cortar depois** — sempre.
+**A cut is only honest when the destination already does what the origin did.**
+Removing `network ls` before `get networks` covers `Network` removes capability
+instead of tidying it up. So: **build first, cut later** — always.
 
-**O que está declarado estável não se corta fora de um major.** O
-`docs/cli-stability.md` promete os atalhos de topo (`ps`, `run`, `exec`, `logs`,
-`rm`, `images`), os verbos de ciclo de vida do container, os exit codes e a saída
-JSON do `inspect`. Declara NÃO estáveis o `cluster`, `vm`, `pod`, `workload`,
-`storage`, `sharevolume` e `net` — e é essa lista que diz o que pode mover agora.
+**What is declared stable does not get cut outside of a major.** The
+`docs/cli-stability.md` promises the top-level shortcuts (`ps`, `run`, `exec`, `logs`,
+`rm`, `images`), the container lifecycle verbs, the exit codes and the `inspect`'s
+JSON output. It declares NOT stable the `cluster`, `vm`, `pod`, `workload`,
+`storage`, `sharevolume` and `net` — and it is that list that says what can move now.
 
-**O CI só corre em PR para a `main`.** PR empilhados não têm verificação
-nenhuma, e `0 checks` lê-se como `0 falhas`. Cada bloco vai a PR contra a `main`.
+**CI only runs on a PR against `main`.** Stacked PRs have no checks at all,
+and `0 checks` reads as `0 failures`. Every block goes to a PR against `main`.
 
-## 3. Os blocos, por ordem
+## 3. The blocks, in order
 
-### B1 — Verbos genéricos, o resto dos Kinds  ·  ADITIVO  ·  FECHADO
+### B1 — Generic verbs, the rest of the Kinds  ·  ADDITIVE  ·  CLOSED
 
-Levar o `get`/`describe`/`delete` de 9 para os 12 Kinds que têm estado próprio.
-**Medido de novo antes de tocar em código (2026-08-31)**: o texto original
-estava desactualizado em dois pontos — `describe` de `Secret` e `Image` já
-estavam wired (`SecretCmd::Inspect`/`ImageCmd::Describe`). Os gaps reais eram
-três: `NetworkRoute` (describe+delete), `NetworkPolicy` (get/describe/delete,
-o desenho por decidir) e o `describe` de `KubernetesCluster` (não existia
-NENHUMA função de describe por-cluster).
+Bringing `get`/`describe`/`delete` from 9 to the 12 Kinds that have their own state.
+**Re-measured before touching code (2026-08-31)**: the original text was
+outdated in two places — `describe` of `Secret` and `Image` were already wired
+(`SecretCmd::Inspect`/`ImageCmd::Describe`). The real gaps were three:
+`NetworkRoute` (describe+delete), `NetworkPolicy` (get/describe/delete, the
+design still to decide) and `describe` for `KubernetesCluster` (there was NO
+per-cluster describe function at all).
 
-**`NetworkPolicy` resolvido**: `get networkpolicies` passou a combinar as duas
-direcções por container numa só tabela (`firewall::list_all_policies`) — o
-`net ingress ls`/`net egress ls` continuam intocados, uma direcção de cada
-vez. Sem registo próprio (`FirewallPolicy` não persiste identidade de
-documento — mesma razão que levou o `NetworkAccessRule` a precisar de
-`origin`), a identidade endereçável por `describe`/`delete networkpolicies` é
-`<target>/<direction>` (ex.: `web/ingress`), não um nome de documento.
-`NetworkRoute` usa a mesma lógica já existente, `<from>-><to>`
-(`netroute::route_name`, a identidade que `stack plan` já imprimia).
+**`NetworkPolicy` resolved**: `get networkpolicies` now combines both
+directions per container into a single table (`firewall::list_all_policies`) —
+`net ingress ls`/`net egress ls` remain untouched, one direction at a time.
+With no registry of its own (`FirewallPolicy` does not persist document
+identity — the same reason that led `NetworkAccessRule` to need
+`origin`), the identity addressable by `describe`/`delete networkpolicies` is
+`<target>/<direction>` (e.g. `web/ingress`), not a document name.
+`NetworkRoute` uses the same already-existing logic, `<from>-><to>`
+(`netroute::route_name`, the identity `stack plan` already printed).
 
-**Fechou o critério de saída da CLI-2. Nada quebrou** — sem subcomando nativo
-novo em nenhum dos três Kinds, só parametrização dos verbos genéricos
-já existentes.
+**Closed CLI-2's exit criterion. Nothing broke** — no new native subcommand
+in any of the three Kinds, just parametrization of the already-existing
+generic verbs.
 
-### B2 — Renomeações que não tocam em contrato  ·  QUEBRA MENOR  ·  FECHADO
+### B2 — Renames that do not touch the contract  ·  MINOR BREAK  ·  CLOSED
 
-**Medido de novo antes de tocar em código (2026-08-31, agente `Explore` +
-leitura directa de `main.rs`/`scripts/cli_baseline.tsv`): as 9 renomeações já
-estavam TODAS feitas** — sessões anteriores já as tinham executado (dois
-comentários no código citam "B2 da reestruturação da CLI" explicitamente,
-`system.rs:258-263` e `system.rs:271-277`) e o documento nunca foi
-actualizado para o reflectir.
+**Re-measured before touching code (2026-08-31, `Explore` agent +
+direct reading of `main.rs`/`scripts/cli_baseline.tsv`): the 9 renames were
+ALL already done** — earlier sessions had already carried them out (two
+comments in the code cite "B2 of the CLI restructuring" explicitly,
+`system.rs:258-263` and `system.rs:271-277`) and the document was never
+updated to reflect it.
 
-| de | para | estado |
+| from | to | status |
 |---|---|---|
-| `dash` | `dashboard` (§22) | feito — `main.rs:339` |
-| `syntax <editor>` | `completion editor <editor>` (§21) | feito — `main.rs:59-73` |
-| `completion <shell>` | `completion shell <shell>` | feito, mesmo braço |
-| `namespace` | `system namespace` | feito — `system.rs:265` |
-| `net boot` | `system boot` | feito — `system.rs:271`, cita B2 no comentário |
-| `volumes` | `volume` | feito — `main.rs:144` |
-| `image ls` / `image rm` | `image list` / `image remove` | **revertido** em v2.0.0 (`docs/releases/v2.0.0.md`) — `image ls`/`image remove` são a forma canónica |
-| `schema print` | `manifest schema` | feito — `schema.rs`'s `SchemaCmd` já não está ligado a nenhum comando de topo |
-| `restore` (raiz) | `backup restore` | feito — `rbackup.rs:806`, documentado no AGENTS.md |
+| `dash` | `dashboard` (§22) | done — `main.rs:339` |
+| `syntax <editor>` | `completion editor <editor>` (§21) | done — `main.rs:59-73` |
+| `completion <shell>` | `completion shell <shell>` | done, same arm |
+| `namespace` | `system namespace` | done — `system.rs:265` |
+| `net boot` | `system boot` | done — `system.rs:271`, cites B2 in the comment |
+| `volumes` | `volume` | done — `main.rs:144` |
+| `image ls` / `image rm` | `image list` / `image remove` | **reverted** in v2.0.0 (`docs/releases/v2.0.0.md`) — `image ls`/`image remove` are the canonical form |
+| `schema print` | `manifest schema` | done — `schema.rs`'s `SchemaCmd` is no longer wired to any top-level command |
+| `restore` (root) | `backup restore` | done — `rbackup.rs:806`, documented in AGENTS.md |
 
-Corrigidas de caminho duas secções do `AGENTS.md` que ainda usavam as grafias
-antigas como título (`## delonix net boot` e `` `delonix volumes` `` na lista
-de comandos) — história preservada no corpo do texto, só o título/rótulo
-corrigido para a grafia actual.
+Fixed path in two `AGENTS.md` sections that still used the old spellings as a
+title (`## delonix net boot` and `` `delonix volumes` `` in the command
+list) — history preserved in the body text, only the title/label fixed to
+the current spelling.
 
-**Nenhum código tocado neste bloco — era só actualizar o registo.**
+**No code touched in this block — it was only a matter of updating the record.**
 
-### B3 — Capacidade nova: os grupos que não existem  ·  ADITIVO  ·  EM CURSO
+### B3 — New capability: the groups that do not exist  ·  ADDITIVE  ·  IN PROGRESS
 
-| grupo | folhas | natureza | estado |
+| group | leaves | nature | status |
 |---|---|---|---|
-| `backup` | 6 | consolida o `backup`/`restore` de raiz + `list`/`inspect`/`schedule`/`remove` | já feito antes deste plano (ver AGENTS.md) |
-| `diff` | 1 | as três faces (desired/last-applied/observed) de UM recurso nomeado | **FECHADO** — PR #200 |
-| `system metrics` | 1 | `DashSummary` cru, `-o json`/tabela | **FECHADO** — PR #201 |
-| `cluster` day-2 | 5 | `kubeconfig`/`health`/`upgrade`/`drain`/`uncordon` | `kubeconfig` já existia; **`health` FECHADO** — PR #202; `upgrade`/`drain`/`uncordon` por fazer — **a citação do ADR-0010 aqui era MÁ ATRIBUIÇÃO** (medido 2026-09-03): esse ADR recusa a API de gestão REMOTA (`delonix-mgmt` alcançável de fora do host); `drain`/`uncordon` não precisam sequer de SSH (`cluster kubeconfig` já cacheia localmente — são `kubectl --kubeconfig=<cache> drain/uncordon` directos) e `upgrade` reusa o MESMO `cmd/remote.rs::SshTarget` que `kubeadm_init`/`join` já usam. Nada bloqueado; por construir |
-| `config` | 5 | contextos — **precisa de ADR**, ver §5 | **`output` FECHADO** (local-only, sem ADR reaberto) — PR #203; `namespace` fica de fora de propósito, sem ponto de leitura único |
-| `system state` | — | — | **não se constrói** — já respondido por `system info` (ver plano da fatia 1) |
-| `pod` day-2 | 4 | `exec`/`attach`/`cp`/`port-forward` | `exec`/`attach`/`cp` já existiam antes deste plano; **`port-forward` FEITO** — PR #207 (por fundir) |
-| `vm` day-2 | 3 | `pause`/`resume`/`migrate` | **`pause`/`unpause` FEITO** — PR #206 (por fundir); **`migrate` FEITO** — stop-copy-start MVP (2026-09-03; ver nota abaixo), PR por fundir |
-| `network` | 2 | `diagnose`/`capture` (o `flow` existe em `net flow`) | `diagnose` já existia; **`capture` FEITO** — PR #208 (por fundir) |
-| `image sign` · `secret rotate` | 2 | | **`secret rotate` já estava FEITO** (PR #205, 2026-08-xx) — a citação aqui como "por fazer" era desactualizada, o mesmo padrão de má atribuição do B2/B4-B9; **`image sign` FEITO** — PR #209 (por fundir) |
+| `backup` | 6 | consolidates the root `backup`/`restore` + `list`/`inspect`/`schedule`/`remove` | already done before this plan (see AGENTS.md) |
+| `diff` | 1 | the three faces (desired/last-applied/observed) of ONE named resource | **CLOSED** — PR #200 |
+| `system metrics` | 1 | raw `DashSummary`, `-o json`/table | **CLOSED** — PR #201 |
+| `cluster` day-2 | 5 | `kubeconfig`/`health`/`upgrade`/`drain`/`uncordon` | `kubeconfig` already existed; **`health` CLOSED** — PR #202; `upgrade`/`drain`/`uncordon` still to build — **the ADR-0010 citation here was a MISATTRIBUTION** (measured 2026-09-03): that ADR refuses a REMOTE management API (`delonix-mgmt` reachable from outside the host); `drain`/`uncordon` do not even need SSH (`cluster kubeconfig` already caches it locally — they are plain `kubectl --kubeconfig=<cache> drain/uncordon`) and `upgrade` reuses the SAME `cmd/remote.rs::SshTarget` that `kubeadm_init`/`join` already use. Nothing blocked; still to build |
+| `config` | 5 | contexts — **needs an ADR**, see §5 | **`output` CLOSED** (local-only, without reopening the ADR) — PR #203; `namespace` stays out on purpose, with no single read point |
+| `system state` | — | — | **not built** — already answered by `system info` (see slice 1's plan) |
+| `pod` day-2 | 4 | `exec`/`attach`/`cp`/`port-forward` | `exec`/`attach`/`cp` already existed before this plan; **`port-forward` DONE** — PR #207 (to be merged) |
+| `vm` day-2 | 3 | `pause`/`resume`/`migrate` | **`pause`/`unpause` DONE** — PR #206 (to be merged); **`migrate` DONE** — stop-copy-start MVP (2026-09-03; see note below), PR to be merged |
+| `network` | 2 | `diagnose`/`capture` (`flow` exists as `net flow`) | `diagnose` already existed; **`capture` DONE** — PR #208 (to be merged) |
+| `image sign` · `secret rotate` | 2 | | **`secret rotate` was already DONE** (PR #205, 2026-08-xx) — citing it here as "to do" was outdated, the same misattribution pattern as B2/B4-B9; **`image sign` DONE** — PR #209 (to be merged) |
 
-**B3 fica ASSIM 100% coberto por código já escrito** (2026-09-03) — o que resta
-não é implementação, é revisão manual: `pod port-forward`/`vm pause`/`net
-capture`/`image sign`/`cluster upgrade+drain+uncordon`/`vm migrate` tocam
-todos infra-estrutura sensível (chave privada, captura de pacotes, execução
-remota, suspensão de VM) e ficam marcados para revisão antes do merge, mesmo
-padrão já usado nesta sessão.
+**B3 is THUS 100% covered by already-written code** (2026-09-03) — what remains
+is not implementation, it is manual review: `pod port-forward`/`vm pause`/`net
+capture`/`image sign`/`cluster upgrade+drain+uncordon`/`vm migrate` all touch
+sensitive infrastructure (private key, packet capture, remote execution,
+VM suspension) and are flagged for review before merge, the same pattern
+already used in this session.
 
-**Fatia 1 fechada (2026-08-31, PRs #200/#201/#202/#203)**: `diff`, `system
-metrics`, `cluster health` e `config` (só `output`) — a decisão de âmbito de
-cada um está no plano de execução dessa fatia, não repetida aqui. O `config`
-nasceu **local-only**, sem reabrir o ADR-0010. `cluster drain`/`uncordon` NÃO
-ficam pela mesma razão — ver a correcção na linha do `cluster` day-2 acima: a
-citação do ADR-0010 aí também era má atribuição, medida e corrigida a
-2026-09-03. O `diff` reaproveita o motor de diff de 3 vias que `stack plan`
-já tinha (`cmd/reconcile.rs::diff_fields`) — zero motor novo.
+**Slice 1 closed (2026-08-31, PRs #200/#201/#202/#203)**: `diff`, `system
+metrics`, `cluster health` and `config` (only `output`) — the scope decision for
+each one is in that slice's execution plan, not repeated here. `config`
+was born **local-only**, without reopening ADR-0010. `cluster drain`/`uncordon`
+do NOT stay for the same reason — see the correction on the `cluster` day-2
+line above: the ADR-0010 citation there was also a misattribution, measured and
+fixed on 2026-09-03. `diff` reuses the 3-way diff engine `stack plan`
+already had (`cmd/reconcile.rs::diff_fields`) — zero new engine.
 
-**`vm migrate` — o que foi medido antes de desenhar (2026-09-03).** Um
-spike confirmou: Cloud Hypervisor não tem NENHUM mecanismo de migração de
-disco (só memória/estado), e mesmo o caminho NBD do libvirt/QEMU (que existe
-e é maduro) exigiria `VmBackend::migrate` + alcançabilidade de rede entre
-hosts + gestão de convergência que este motor não tem — fica como ADR
-próprio, fora de âmbito. O que É viável e ficou construído: um MVP
-**stop-copy-start** (downtime real) — `vm stop` → achata o overlay num qcow2
-autónomo → `scp` para o alvo → `image vm import --appliance` (regista-o sem
-lhe atribuir um cloud-init novo, o disco já traz o seu próprio estado) →
-`vm create --disk <imagem-importada>` no alvo. **Bug real apanhado a
-desenhar, não a validar ao vivo**: `remote::ssh_run` embrulha SEMPRE o
-comando em `sudo -n bash -c` — correcto para `cluster apply` (instala
-pacotes de sistema), mas executar o PRÓPRIO `delonix` CLI assim corrê-lo-ia
-como ROOT no alvo, contra a raiz de estado ERRADA (`Store::default_root`
-bifurca por `geteuid()`) — invisível a um `vm ls` normal nesse host.
-Corrigido com `remote::ssh_run_as_user` (sem `sudo`), novo, ao lado do
-`ssh_run` existente.
+**`vm migrate` — what was measured before designing (2026-09-03).** A
+spike confirmed: Cloud Hypervisor has NO disk migration mechanism at all
+(only memory/state), and even the libvirt/QEMU NBD path (which exists and is
+mature) would require `VmBackend::migrate` + network reachability between
+hosts + convergence management this engine does not have — it remains its own
+ADR, out of scope. What IS feasible and got built: an MVP
+**stop-copy-start** (real downtime) — `vm stop` → flattens the overlay into a
+standalone qcow2 → `scp` to the target → `image vm import --appliance`
+(registers it without assigning it a new cloud-init, the disk already carries
+its own state) → `vm create --disk <imported-image>` on the target. **Real
+bug caught while designing, not while validating live**: `remote::ssh_run`
+ALWAYS wraps the command in `sudo -n bash -c` — correct for `cluster apply`
+(installs system packages), but running the `delonix` CLI ITSELF this way
+would run it as ROOT on the target, against the WRONG state root
+(`Store::default_root` branches on `geteuid()`) — invisible to a normal
+`vm ls` on that host. Fixed with `remote::ssh_run_as_user` (no `sudo`), new,
+alongside the existing `ssh_run`.
 
-**Nada por fazer nesta fatia — só por fundir.** O texto anterior aqui listava
-as quatro peças grandes como pendentes de desenho/implementação; todas têm
-código escrito e testado hoje (ver a tabela e as duas notas acima), à espera
-só de revisão manual antes do merge por tocarem infra-estrutura sensível.
+**Nothing left to do in this slice — only to be merged.** The previous text
+here listed the four big pieces as pending design/implementation; all have
+code written and tested today (see the table and the two notes above), waiting
+only for manual review before merge because they touch sensitive infrastructure.
 
-### B4–B9 — remedidos a 2026-09-01 (agente `Explore`, `origin/main` fresco)
+### B4–B9 — re-measured on 2026-09-01 (`Explore` agent, fresh `origin/main`)
 
-**Esta secção descrevia B4–B9 como blocos por começar, e estava errada.**
-Todos os seis já foram medidos e parcialmente executados — v0.68.0/v0.69.0
-(29-30/08) cortaram B4/B5/B6/B7, e a v1.0.0 (29/08) executou o B8 e **rejeitou**
-o B9 — tudo isto ANTES de o B1/B3 desta ronda sequer começarem (31/08 em
-diante). Quem leu esta secção por cima re-derivava conclusões já assentes, ou
-podia reabrir uma decisão já tomada (o B9). Números confirmados por leitura
-directa do código e dos commits, não pelo `docs/releases/*` sozinho.
+**This section described B4–B9 as blocks yet to start, and it was wrong.**
+All six had already been measured and partially executed — v0.68.0/v0.69.0
+(29-30/08) cut B4/B5/B6/B7, and v1.0.0 (29/08) executed B8 and **rejected**
+B9 — all of this BEFORE this round's B1/B3 had even begun (31/08 onward).
+Anyone reading this section at a glance would re-derive conclusions already
+settled, or could reopen an already-made decision (B9). Numbers confirmed by
+direct reading of the code and commits, not from `docs/releases/*` alone.
 
-### B4 — O colapso do `net`  ·  QUEBRA  ·  prometidas −41, entregues **−4**
+### B4 — The `net` collapse  ·  BREAK  ·  promised −41, delivered **−4**
 
-Os dois bloqueios que esta secção citava (`get networkpolicies`, `network
-diagnose`) estão fechados e confirmados reais — mas não eram o bloqueio a
-sério. **O bloqueio real, medido no v0.68.0**: `net ingress`/`net egress` são
-**incrementais** (`allow`/`deny` acrescentam uma regra, "o último comando
-ganha"), enquanto a única Kind declarativa que existia — `FirewallPolicy` —
-**substitui o estado inteiro de uma direcção** a cada apply, e recusa dois
-documentos para o mesmo (alvo, direcção). Duas chamadas incrementais não se
-tornam duas aplicações de `FirewallPolicy` sem a segunda apagar a primeira.
+The two blockers this section cited (`get networkpolicies`, `network
+diagnose`) are closed and confirmed real — but they were not the real
+blocker. **The real blocker, measured in v0.68.0**: `net ingress`/`net egress`
+are **incremental** (`allow`/`deny` add a rule, "last command wins"), while
+the only declarative Kind that existed — `FirewallPolicy` — **replaces the
+entire state of one direction** on every apply, and refuses two documents for
+the same (target, direction). Two incremental calls do not turn into two
+`FirewallPolicy` applications without the second erasing the first.
 
-Só **4 das 41** eram genuinamente duplicadas: `net tunnel ls/describe/rm` →
+Only **4 of the 41** were genuinely duplicated: `net tunnel ls/describe/rm` →
 `get/describe/delete gateways`, `net httproute ls` → `get httproutes`
-(`cmd/tunnel.rs`/`cmd/httproute.rs`, os `Ls`/`Describe`/`Rm` saíram dos enums
-com comentário a citar o B4). O `kind: NetworkAccessRule` (ADR-0028,
-31/08) nasceu justamente para reabrir este bloco — uma regra INCREMENTAL,
-por-documento, com `origin` para se poder remover sem apagar as dos outros —
-mas a colapsagem do `net ingress`/`net egress` sobre ela **não foi feita**; a
-própria ADR-0028 di-lo: "se vale a pena trocar 17 leaves imperativos por
-manifestos precisa da sua própria medição, não de uma suposição."
+(`cmd/tunnel.rs`/`cmd/httproute.rs`, the `Ls`/`Describe`/`Rm` left the enums
+with a comment citing B4). `kind: NetworkAccessRule` (ADR-0028,
+31/08) was born precisely to reopen this block — an INCREMENTAL,
+per-document rule, with `origin` so it can be removed without erasing other
+rules — but collapsing `net ingress`/`net egress` onto it **was not done**;
+ADR-0028 itself says so: "whether it is worth trading 17 imperative leaves
+for manifests needs its own measurement, not an assumption."
 
-**Falta no próprio número do plano**: `l4guard` (3 leaves — `set`/`clear`/
-`status`) nunca entrou na conta dos 41, e a ADR-0028 diz textualmente que é
-"um mecanismo diferente" — fora do alcance do `NetworkAccessRule`.
+**Missing from the plan's own number**: `l4guard` (3 leaves — `set`/`clear`/
+`status`) never entered the count of 41, and ADR-0028 says in so many words
+that it is "a different mechanism" — outside the scope of `NetworkAccessRule`.
 
-**As três decisões em aberto — RESOLVIDAS (`docs/adr/0029-net-ingress-egress-collapse.md`)**:
-(1) `net ingress/egress allow/deny` passam a escrever pela MESMA
-contabilidade do `NetworkAccessRule` (`origin` sintético derivado do
-`(dir, proto, port, src)`) — unifica os dois caminhos de mutação sem tirar
-nem uma folha da CLI nem mudar UX nenhuma; (2) `publish`/`unpublish` (DNAT)
-ficam FORA do `NetworkAccessRule` PERMANENTEMENTE — são outra grão (mapeamento
-de porta, não decisão allow/deny) e nunca deviam ter contado nas "−41"
-prometidas; (3) `net netns` fica VISÍVEL — é ferramenta de diagnóstico
-documentada como tal, não plumbing interna (essa já está oculta antes do
-clap). Nenhuma das três abre trabalho de corte de folhas novo — a única
-mudança de código é a fusão dos dois caminhos de mutação do ponto (1).
+**The three open decisions — RESOLVED (`docs/adr/0029-net-ingress-egress-collapse.md`)**:
+(1) `net ingress/egress allow/deny` will write through the SAME
+accounting as `NetworkAccessRule` (`origin` synthesized from the
+`(dir, proto, port, src)`) — unifies the two mutation paths without removing
+a single CLI leaf nor changing any UX; (2) `publish`/`unpublish` (DNAT)
+remain PERMANENTLY outside `NetworkAccessRule` — they are a different grain
+(port mapping, not an allow/deny decision) and should never have counted
+toward the promised "−41"; (3) `net netns` stays VISIBLE — it is a diagnostic
+tool documented as such, not internal plumbing (that is already hidden before
+clap). None of the three opens new leaf-cutting work — the only code change
+is merging the two mutation paths from point (1).
 
-### B5 — O colapso do armazenamento  ·  QUEBRA  ·  prometidas −22, entregues **−7**
+### B5 — The storage collapse  ·  BREAK  ·  promised −22, delivered **−7**
 
-`storage apply` saiu no v0.68.0 (idêntico byte-a-byte a `volume::apply`);
-`storage dash/inspect/rm` saíram no v1.1.0 ("colapsam no `volume` — duplicados
-genuínos, medidos campo a campo", `docs/releases/v1.1.0.md`; `volume inspect`
-ganhou `device`/`options` para não perder o que só o `storage inspect` tinha).
+`storage apply` shipped in v0.68.0 (byte-for-byte identical to `volume::apply`);
+`storage dash/inspect/rm` shipped in v1.1.0 ("collapse into `volume` — genuine
+duplicates, measured field by field", `docs/releases/v1.1.0.md`; `volume inspect`
+gained `device`/`options` so as not to lose what only `storage inspect` had).
 
-**O que resta (`storage create`/`ls` — 2 leaves; `sharevolume apply/ls/
-describe/rm/migrate` — 5 leaves) foi medido e não é duplicado**: `storage
-create` tem onboarding de credenciais NFS/CIFS/SMB/WebDAV que `volume create`
-não tem; `sharevolume` tem semântica de namespace/quota/storage-pai e um
-`migrate` sem equivalente nenhum nos verbos genéricos. Colapsar mais exige
-DESENHO novo (credenciais de rede dentro de `volume apply -f`, filtro
-`--network-only`/coluna `DEVICE` em `volume ls`, um lar para `migrate`), não
-apagar código.
+**What remains (`storage create`/`ls` — 2 leaves; `sharevolume` apply/ls/
+describe/rm/migrate — 5 leaves) was measured and is not duplicate**: `storage
+create` has NFS/CIFS/SMB/WebDAV credential onboarding that `volume create`
+does not have; `sharevolume` has namespace/quota/parent-storage semantics and
+a `migrate` with no equivalent in any generic verb. Collapsing further needs
+NEW design (network credentials inside `volume apply -f`, a `--network-only`
+filter/`DEVICE` column in `volume ls`, a home for `migrate`), not code
+deletion.
 
-### B6 — `image --vm` e o `build`  ·  QUEBRA  ·  prometidas −11, entregues **−1**
+### B6 — `image --vm` and `build`  ·  BREAK  ·  promised −11, delivered **−1**
 
-`vm build` (grupo de raiz) saiu no v0.69.0 — idêntico a `image --vm build`
-(a única diferença aparente, `-v/--verbose`, já era no-op nos dois: os dois
-leem `$DELONIX_VERBOSE` via `Progress::new()`).
+`vm build` (root group) shipped in v0.69.0 — identical to `image --vm build`
+(the only apparent difference, `-v/--verbose`, was already a no-op in both:
+both read `$DELONIX_VERBOSE` via `Progress::new()`).
 
-**Achado novo nesta remedição, ainda por cortar**: `image --vm build` (a
-flag antiga) e `image vm build` (o subcomando aninhado mais recente) são hoje
-**duas grafias da MESMA operação** — `ImageCmd::Vm` espelha `VmSub` 1:1
-(`image.rs`). Nenhuma release cortou uma das duas; é o duplicado barato que
-falta medir e fechar antes da parte cara deste bloco.
+**New finding in this re-measurement, still to cut**: `image --vm build` (the
+old flag) and `image vm build` (the more recent nested subcommand) are today
+**two spellings of the SAME operation** — `ImageCmd::Vm` mirrors `VmSub` 1:1
+(`image.rs`). No release cut either of the two; it is the cheap duplicate that
+remains to be measured and closed before this block's expensive part.
 
-`image build --type container|virtual-machine` **não existe e é desenho
-novo, não corte**: os flag-sets divergem a sério (`BuildArgs` é forma
-Dockerfile/Delonixfile; a variante VM tem ~18 flags próprias — distro,
-cloud-init, receita dourada — sem equivalente do lado container). O v0.69.0
-já mediu isto e concluiu que unificar sob um `--type` é engenharia nova, fora
-do âmbito de "só cortar duplicados".
+`image build --type container|virtual-machine` **does not exist and is NEW
+design, not a cut**: the flag sets genuinely diverge (`BuildArgs` is the
+Dockerfile/Delonixfile form; the VM variant has ~18 flags of its own —
+distro, cloud-init, golden recipe — with no container-side equivalent).
+v0.69.0 already measured this and concluded unifying under a `--type` is new
+engineering, outside the scope of "just cut duplicates".
 
-### B7 — Day-2 puro: `vm`, `cluster`, `pod`  ·  QUEBRA  ·  **FECHADO** — prometidas −25, entregues **−8**
+### B7 — Pure day-2: `vm`, `cluster`, `pod`  ·  BREAK  ·  **CLOSED** — promised −25, delivered **−8**
 
 `vm rm`/`vm describe`, `pod rm`/`pod describe`, `cluster ls`/`cluster delete`
-saíram no v0.69.0 — confirmados idênticos aos genéricos `get`/`describe`/
-`delete`, corpo extraído para uma função `pub(crate)` que o verbo genérico
-chama directamente.
+shipped in v0.69.0 — confirmed identical to the generic `get`/`describe`/
+`delete`, body extracted into a `pub(crate)` function the generic verb calls
+directly.
 
-**Fechado a 2026-09-03 com a disciplina que faltava: as 40 leaves reais dos
-três grupos (não as ~37 estimadas — a própria contagem nunca tinha sido
-recontada a partir dos `enum`s) medidas UMA A UMA contra o que `get`/
-`describe`/`delete` já cobrem**, não por julgamento de bloco. Achado: **38
-são IRREDUTÍVEIS** (a maioria já suspeitada, mas nunca confirmada leaf a
-leaf) e **2 eram cortáveis e tinham escapado à passagem anterior**:
+**Closed on 2026-09-03 with the discipline that was missing: the 40 real
+leaves of the three groups (not the ~37 estimated — the count itself had
+never been recounted from the `enum`s), measured ONE BY ONE against what
+`get`/`describe`/`delete` already cover**, not by block judgement. Found: **38
+are IRREDUCIBLE** (most already suspected, but never confirmed leaf by
+leaf) and **2 were cuttable and had slipped through the previous pass**:
 
-- **`vm status` — CORTADO, sem alias.** Duplicava `get vms` (mesma chamada,
-  `delonix_vm::list` → `status()` por VM) sem nome, e `describe vms <nome>`
-  com o nome — zero flag própria, zero diferença de dados.
-- **`pod ls` — CORTADO, sem alias, com um passo de "construir antes de
-  cortar" primeiro.** Só diferia de `get pods` por aceitar `--namespace`, que
-  o `get` genérico não tinha para NENHUMA Kind. Corrigido na origem: `delonix
-  get <kind> -n <namespace>` passou a existir (recusado, nunca ignorado em
-  silêncio, nas Kinds sem namespace — `Secret`, por exemplo), e só depois
-  `pod ls` foi removido, coerente com a regra §2 deste documento ("um corte
-  só é honesto quando o destino já faz o que a origem fazia").
+- **`vm status` — CUT, no alias.** Duplicated `get vms` (same call,
+  `delonix_vm::list` → `status()` per VM) with no name, and `describe vms <name>`
+  with the name — zero flag of its own, zero data difference.
+- **`pod ls` — CUT, no alias, with a "build before cutting" step first.**
+  It only differed from `get pods` by accepting `--namespace`, which the
+  generic `get` had for NO Kind. Fixed at the source: `delonix
+  get <kind> -n <namespace>` now exists (refused, never silently ignored,
+  on Kinds without a namespace — `Secret`, for example), and only afterward
+  was `pod ls` removed, consistent with this document's §2 rule ("a cut
+  is only honest when the destination already does what the origin did").
 
-**Os 38 restantes ficam, e agora com a razão escrita ao lado de cada um** (a
-tabela completa da auditoria fica fora deste documento — o resumo por
-categoria): sessões interactivas reais (`console`/`ssh`/`vnc`/`exec`/
-`attach`), efeitos colaterais que um verbo de leitura não pode ter
+**The remaining 38 stay, now with the reason written next to each one** (the
+full audit table lives outside this document — the summary by category):
+real interactive sessions (`console`/`ssh`/`vnc`/`exec`/
+`attach`), side effects a read verb cannot have
 (`stop`/`start`/`restart`/`bridge`/`unbridge`/`snapshot create`/`rm`/
-`restore`), I/O de rede ao vivo que um `get` recusa de propósito
-(`vm ls --ports`, `cluster health`), ou objectos sem Kind nenhuma
-(imagens de VM, snapshots, ficheiro de kubeconfig, `kube generate`,
-`vm default-backend`). `cluster kubeadm`/`kube`/`kubeconfig`/`health` ficam
-por esta última razão. `upgrade`/`drain`/`uncordon` não são candidatos de B7
-— são capacidade nova do B3 (ver a correcção na tabela do B3 acima: a
-citação do ADR-0010 era má atribuição).
+`restore`), live network I/O a `get` refuses on purpose
+(`vm ls --ports`, `cluster health`), or objects with no Kind at all
+(VM images, snapshots, kubeconfig file, `kube generate`,
+`vm default-backend`). `cluster kubeadm`/`kube`/`kubeconfig`/`health` stay
+for this last reason. `upgrade`/`drain`/`uncordon` are not B7 candidates
+— they are new B3 capability (see the correction in the B3 table above: the
+ADR-0010 citation was a misattribution).
 
-### B8 — Os atalhos de raiz e o `workload`  ·  QUEBRA DE CONTRATO  ·  **FECHADO na v1.0.0**
+### B8 — Root shortcuts and `workload`  ·  CONTRACT BREAK  ·  **CLOSED in v1.0.0**
 
-**Já não está bloqueado nem pendente — já aconteceu.** `ps`, `run`, `exec`,
-`logs`, `rm`, `images` saíram da raiz na v1.0.0 (29/08), corte limpo sem
-alias: a grafia antiga falha com `unrecognized subcommand`, nunca em
-silêncio. `docs/cli-stability.md` já não os lista como atalhos — regista a
-própria quebra e a tabela de migração (`ps`→`container ps`, etc.).
+**No longer blocked nor pending — it already happened.** `ps`, `run`, `exec`,
+`logs`, `rm`, `images` left the root in v1.0.0 (29/08), a clean cut with no
+alias: the old spelling fails with `unrecognized subcommand`, never silently.
+`docs/cli-stability.md` no longer lists them as shortcuts — it records the
+break itself and the migration table (`ps`→`container ps`, etc.).
 
-**`workload` foi avaliado e mantido de propósito**, não esquecido: é o único
-caminho que desambigua um Container e uma VM com o MESMO nome — `get`/
-`describe`/`delete` respondem por Kind, `workload` responde por nome através
-dos dois. Cortá-lo precisa de uma ADR sucessora que nomeie a perda; uma linha
-de plano não chega (`docs/releases/v1.0.0.md`).
+**`workload` was evaluated and kept on purpose**, not forgotten: it is the
+only path that disambiguates a Container and a VM with the SAME name —
+`get`/`describe`/`delete` answer by Kind, `workload` answers by name across
+both. Cutting it needs a successor ADR naming the loss; a plan line does not
+suffice (`docs/releases/v1.0.0.md`).
 
-### B9 — Exit codes colidentes  ·  **REJEITADO na v1.0.0, decisão fechada**
+### B9 — Colliding exit codes  ·  **REJECTED in v1.0.0, decision closed**
 
-`exitcode.rs` já tinha, à data desta proposta, um esquema fechado e
-exaustivamente testado (LSB: `3` não-corre, `4` não-existe, `5` conflito;
-`sysexits.h`: `69`/`74`/`77`/`124`) — construído DEPOIS do texto do B9, e o
-próprio módulo avalia e recusa o pedido literal: remapear `2/4/5` exigiria
-primeiro separar o `Error::Invalid` (643 sítios, duas classes distintas
-fundidas) em vez de um simples remap. Os exit codes já estavam na tabela
-*Estável* do `cli-stability.md` desde a v0.49.0. **Nada muda aqui** —
-decisão fechada, não uma pendência.
+`exitcode.rs` already had, as of this proposal's date, a closed and
+exhaustively tested scheme (LSB: `3` not-running, `4` not-found, `5` conflict;
+`sysexits.h`: `69`/`74`/`77`/`124`) — built AFTER the B9 text, and the
+module itself evaluates and refuses the literal request: remapping `2/4/5`
+would require first splitting `Error::Invalid` (643 sites, two distinct
+classes merged) rather than a simple remap. The exit codes had already been
+in `cli-stability.md`'s *Stable* table since v0.49.0. **Nothing changes
+here** — a closed decision, not a pending item.
 
-## 4. O que pode sair no próximo bump
+## 4. What can go out in the next bump
 
-**Esta secção ficou parcialmente ultrapassada pela execução (2026-08-31)**: o
-`config` e o `diff` — que aqui apareciam como "NÃO cabe" — já foram fechados na
-fatia 1 do B3, com âmbito reduzido (`config` só `output`, local-only, sem
-reabrir o ADR-0010). O texto original fica abaixo por registo do raciocínio,
-não como lista actual de pendências — essa está na tabela do B3, acima.
+**This section was partly overtaken by execution (2026-08-31)**: `config`
+and `diff` — which here appeared as "does NOT fit" — were already closed in
+B3's slice 1, with reduced scope (`config` only `output`, local-only, without
+reopening ADR-0010). The original text remains below as a record of the
+reasoning, not as the current pending list — that is in the B3 table, above.
 
-**B1 + B2 + parte do B3.** É o que não exige decisão nova nem quebra contrato
-publicado:
+**B1 + B2 + part of B3.** This is what needs no new decision nor breaks a
+published contract:
 
-* verbos genéricos nos 12 Kinds;
-* as nove renomeações;
-* o grupo `backup` consolidado;
+* generic verbs across the 12 Kinds;
+* the nine renames;
+* the consolidated `backup` group;
 * `system metrics`/`state`, `network diagnose`, `secret rotate`.
 
-Levaria a conformidade de **57% para ~80%**, e é uma **minor** (`0.67.0`) com
-nota de migração para as nove grafias renomeadas.
+It would take conformance from **57% to ~80%**, and is a **minor** (`0.67.0`)
+with a migration note for the nine renamed spellings.
 
-**O que NÃO cabia nesta leitura original:** o `config` (precisa de ADR), o
-`diff` (output novo), o day-2 de `pod`/`vm`/`cluster` (capacidade a sério), e
-todos os blocos de colapso — que dependem do B1/B3 estarem completos e, no
-caso do B8, de um major.
+**What did NOT fit in this original reading:** `config` (needs an ADR), `diff`
+(new output), `pod`/`vm`/`cluster` day-2 (real capability), and all the
+collapse blocks — which depend on B1/B3 being complete and, in B8's case, on
+a major.
 
-## 5. As três decisões que faltam
+## 5. The three decisions that remain
 
-**O `Service` — IMPLEMENTADO a 2026-09-05, `docs/adr/0032-service-kind-dns-round-robin.md`.**
-Selecciona um conjunto de containers por `matchLabels` (o mesmo primitivo que a
-ADR-0024 ainda desenha para `FirewallPolicy`, esse continua por construir) e
-publica-o como vários registos DNS `A`, round-robin, sob o nome interno já
-existente — sem VIP, sem dataplane novo, sem daemon. `delonix get/describe/
-delete services`, converge (`hot_fields`), `stack plan`/`apply`, e schema
-gerado. Validado ao vivo: selecção por labels, DNS multi-registo real
-(`nslookup` a devolver as duas IPs), isolamento por namespace (incluindo a
-excepção `default` = pública), selector vazio a avisar e não a falhar, e
-actualização a quente da porta. Fecha a contagem das «12 Kinds operáveis».
+**`Service` — IMPLEMENTED on 2026-09-05, `docs/adr/0032-service-kind-dns-round-robin.md`.**
+Selects a set of containers by `matchLabels` (the same primitive ADR-0024
+still designs for `FirewallPolicy`, which remains to be built) and publishes
+it as several round-robin DNS `A` records, under the already-existing
+internal name — no VIP, no new dataplane, no daemon. `delonix get/describe/
+delete services`, converges (`hot_fields`), `stack plan`/`apply`, and
+generated schema. Validated live: label selection, real multi-record DNS
+(`nslookup` returning both IPs), per-namespace isolation (including the
+`default` exception = public), empty selector warning rather than failing,
+and hot port updates. Closes the count of "12 operable Kinds".
 
-**O `config` e os contextos — FECHADO, confirmado no código.** O `config.rs`
-diz, no seu próprio comentário de módulo: uma preferência local pequena,
-nunca um contexto — o §16 quer `endpoint`/`identity`/`tls` num contexto, e é
-exactamente o que o ADR-0010 já recusou. `namespace` (o outro candidato do
-plano) fica de fora de propósito: ao contrário do `output`, não há um ponto
-de leitura único a que um default de namespace se prenda. `KNOWN_KEYS` tem
-uma chave só: `"output"`. O ADR-0010 continua `Status: Rejected
-(2026-08-10)` — "a API fica local, e essa é a resposta, não um adiamento."
+**`config` and contexts — CLOSED, confirmed in the code.** `config.rs`
+says, in its own module comment: a small local preference, never a context —
+§16 wants `endpoint`/`identity`/`tls` in a context, and that is exactly what
+ADR-0010 already rejected. `namespace` (the plan's other candidate) stays out
+on purpose: unlike `output`, there is no single read point for a namespace
+default to attach to. `KNOWN_KEYS` has a single key: `"output"`. ADR-0010
+remains `Status: Rejected (2026-08-10)` — "the API stays local, and that is
+the answer, not a deferral."
 
-**Quando é o major — já respondido pela EXECUÇÃO, não por um documento.** A
-v1.0.0 aconteceu a 29/08, ANTES de o B1 sequer ter sido fundido (31/08) — a
-pergunta desta secção («B4–B7 vão antes ou juntam-se ao major?») ficou sem
-objecto: o major já saiu, estreito e desacoplado, levando só a parte menos
-controversa do B8 (atalhos de raiz) e **rejeitando** o B9 (remap de exit
-codes). B4–B7 continuam a forma `0.x`, aditiva-e-medida, como se a decisão
-tivesse sido «sair o major cedo e estreito, continuar a colapsar o resto a
-seguir, aos poucos». Registado aqui como facto, não como pergunta em aberto.
+**When is the major — already answered by EXECUTION, not by a document.**
+v1.0.0 happened on 29/08, BEFORE B1 had even been merged (31/08) — this
+section's question ("do B4–B7 go before or join the major?") became moot:
+the major already shipped, narrow and decoupled, carrying only the least
+controversial part of B8 (root shortcuts) and **rejecting** B9 (exit code
+remap). B4–B7 remain `0.x` form, additive-and-measured, as if the decision
+had been "ship the major early and narrow, keep collapsing the rest
+afterward, gradually". Recorded here as fact, not as an open question.
 
-## 6. O que este plano não promete
+## 6. What this plan does not promise
 
-Não há estimativa de tempo. **B3 está agora 100% codificado** — o que falta
-é revisão, não implementação. `pod port-forward` (PR #207), `net capture`
+There is no time estimate. **B3 is now 100% coded** — what remains
+is review, not implementation. `pod port-forward` (PR #207), `net capture`
 (PR #208), `vm pause/unpause` (PR #206), `image sign` (PR #209),
-`cluster upgrade`/`drain`/`uncordon` e `vm migrate` (PRs por abrir/já abertos
-a 2026-09-03) têm código a aguardar revisão manual — todos tocam
-infra-estrutura sensível (chave privada, captura de pacotes, execução
-remota, suspensão de VM).
+`cluster upgrade`/`drain`/`uncordon` and `vm migrate` (PRs to be opened/already
+opened as of 2026-09-03) have code awaiting manual review — all touch
+sensitive infrastructure (private key, packet capture, remote execution,
+VM suspension).
 
-**`vm migrate` — investigado E construído a 2026-09-03.** Medido contra o
-`VmBackend` real e a documentação upstream do Cloud Hypervisor e do
-libvirt/QEMU: **live migration a sério fica fora de alcance** — o Cloud
-Hypervisor não tem mecanismo de migração de DISCO (só memória/estado), e
-mesmo o caminho NBD do libvirt/QEMU (que existe e é maduro) exigiria
-`VmBackend::migrate` + alcançabilidade de rede entre hosts + gestão de
-convergência que este código não tem — isso fica como ADR próprio, não como
-extensão incremental. O que ficou construído é o MVP **stop-copy-start**
-(downtime real, documentado como tal): `vm stop` → achata o overlay num
-qcow2 autónomo → `scp` para o alvo → `image vm import --appliance` (o disco
-já traz o seu próprio estado — uma passagem de cloud-init nova seria errada)
-→ `vm create --disk <imagem-importada>` no alvo. **Bug real fechado no
-desenho, não só na validação**: `remote::ssh_run` embrulha sempre o comando
-em `sudo -n bash -c` (correcto para `cluster apply`); corrê-lo assim contra
-o PRÓPRIO `delonix` CLI do alvo operaria a raiz de estado ERRADA
-(`Store::default_root` bifurca por `geteuid()`) — invisível a um `vm ls`
-normal aí. `remote::ssh_run_as_user` (sem sudo) fecha-o, novo ao lado do
-`ssh_run` existente.
+**`vm migrate` — investigated AND built on 2026-09-03.** Measured against
+the real `VmBackend` and the upstream Cloud Hypervisor and
+libvirt/QEMU documentation: **real live migration is out of reach** — Cloud
+Hypervisor has no DISK migration mechanism (only memory/state), and even the
+libvirt/QEMU NBD path (which exists and is mature) would require
+`VmBackend::migrate` + network reachability between hosts + convergence
+management this code does not have — that remains its own ADR, not an
+incremental extension. What got built is the **stop-copy-start** MVP
+(real downtime, documented as such): `vm stop` → flattens the overlay into a
+standalone qcow2 → `scp` to the target → `image vm import --appliance` (the
+disk already carries its own state — a new cloud-init pass would be wrong)
+→ `vm create --disk <imported-image>` on the target. **Real bug closed at
+design time, not only at validation**: `remote::ssh_run` always wraps the
+command in `sudo -n bash -c` (correct for `cluster apply`); running it this
+way against the target's own `delonix` CLI would operate on the WRONG
+state root (`Store::default_root` branches on `geteuid()`) — invisible to a
+normal `vm ls` there. `remote::ssh_run_as_user` (no sudo) closes it, new
+alongside the existing `ssh_run`.
 
-**`cluster upgrade`/`drain`/`uncordon` — já não estavam bloqueados, e estão
-construídos.** A citação do ADR-0010 era má atribuição (ver a correcção na
-secção do B3/B7 acima): `drain`/`uncordon` não precisam de SSH (kubeconfig
-já cacheado localmente); `upgrade` reusa o `SshTarget` que `kubeadm_init`/
-`join` já usam.
+**`cluster upgrade`/`drain`/`uncordon` — were never actually blocked, and
+are built.** The ADR-0010 citation was a misattribution (see the correction
+in the B3/B7 section above): `drain`/`uncordon` do not need SSH (kubeconfig
+already cached locally); `upgrade` reuses the `SshTarget` that `kubeadm_init`/
+`join` already use.

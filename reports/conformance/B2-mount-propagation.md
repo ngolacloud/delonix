@@ -1,45 +1,45 @@
-# B2 — Mount propagation (Track B · também fecha 3 falhas do CRI)
+# B2 — Mount propagation (Track B · also closes 3 CRI failures)
 
-**Data:** 2026-10-24 · **Binário:** `delonix 5.1.1 @ ee615f3b` · rootless.
+**Date:** 2026-10-24 · **Binary:** `delonix 5.1.1 @ ee615f3b` · rootless.
 
-## Resultado: JÁ IMPLEMENTADO e verificado efectivo ao nível do motor
+## Result: ALREADY IMPLEMENTED and verified effective at the engine level
 
-Os documentos datados (`paridade-docker-podman.md` "só `:ro`" e `cri-conformance.md` "3 falhas de
-mount-propagation") são de **v0.63.1** e estão **stale**. No binário atual a propagação funciona.
+The dated documents (`paridade-docker-podman.md` "only `:ro`" and `cri-conformance.md` "3 mount-propagation
+failures") are from **v0.63.1** and are **stale**. In the current binary propagation works.
 
-### Verificação ao vivo (mountinfo do container)
+### Live verification (container mountinfo)
 
-| Opção | Esperado | Observado | Estado |
+| Option | Expected | Observed | Status |
 |---|---|---|---|
-| `-v H:/mnt:rslave` | tag `master:` | `… /mnt rw,nosuid,nodev,relatime master:1` | **PASSOU** |
-| `-v H:/mnt:rshared` | tag `shared:` | `… /mnt … shared:1187 master:1` | **PASSOU** |
-| `-v H:/mnt:rprivate` | sem tags | `… /mnt rw,nosuid,nodev,relatime` (sem shared/master) | **PASSOU** |
-| `-v H:/mnt:zzz` (inválido) | erro explícito | `error[DX-1210] unsupported bind option ':zzz' — supported: …` | **PASSOU** (fail-closed) |
+| `-v H:/mnt:rslave` | `master:` tag | `… /mnt rw,nosuid,nodev,relatime master:1` | **PASSED** |
+| `-v H:/mnt:rshared` | `shared:` tag | `… /mnt … shared:1187 master:1` | **PASSED** |
+| `-v H:/mnt:rprivate` | no tags | `… /mnt rw,nosuid,nodev,relatime` (no shared/master) | **PASSED** |
+| `-v H:/mnt:zzz` (invalid) | explicit error | `error[DX-1210] unsupported bind option ':zzz' — supported: …` | **PASSED** (fail-closed) |
 
-### Código (atual)
+### Code (current)
 
-- `delonix-volume/src/lib.rs:1075-1083` parseia `rprivate`/`rslave`/`rshared` **e** os combos `ro,<prop>`.
-- `delonix-linux/src/lib.rs:1439-1455` aplica `MS_SLAVE`/`MS_SHARED`/`MS_PRIVATE` com `MS_REC` como um
-  `mount()` próprio (ordem correcta por regra do kernel — a propagação em chamada separada).
-- `delonix-cri/.../lifecycle.rs:3052-3056` traduz o CRI: `PropagationHostToContainer→rslave`,
-  `Bidirectional→rshared`, default→private (direcção segura).
+- `delonix-volume/src/lib.rs:1075-1083` parses `rprivate`/`rslave`/`rshared` **and** the `ro,<prop>` combos.
+- `delonix-linux/src/lib.rs:1439-1455` applies `MS_SLAVE`/`MS_SHARED`/`MS_PRIVATE` with `MS_REC` as its
+  own `mount()` call (correct order per kernel rule — propagation in a separate call).
+- `delonix-cri/.../lifecycle.rs:3052-3056` translates CRI: `PropagationHostToContainer→rslave`,
+  `Bidirectional→rshared`, default→private (safe direction).
 
-## CRI (os 3 specs): confirmação ADIADA — colisão com sessão concorrente
+## CRI (the 3 specs): confirmation DEFERRED — collision with concurrent session
 
-A confirmação via `critest` (os 3 specs de "Container Mount Propagation") **não foi corrida aqui**:
-o host tem uma **sessão concorrente do dono** num worktree `cri-image-repodigests-and-user` com
-`delonix-cri` + `critest` activos (partilham `/tmp/delonix-cri-critest-root.*` e socket). Um
-`critest FOCUS=propagation` daqui colidiu (timeout aos 300 s no setup) e arriscava interferir com a
-corrida dele. **Não se matou nenhum processo do dono.** Como o motor aplica a propagação (prova
-acima) e o caminho CRI traduz para a MESMA propagação, os 3 specs devem passar — mas o número fica
-para a **corrida de critest do Track C**, coordenada, sem colisão.
+Confirmation via `critest` (the 3 "Container Mount Propagation" specs) **was not run here**:
+the host has a **concurrent owner session** in a `cri-image-repodigests-and-user` worktree with
+`delonix-cri` + `critest` active (sharing `/tmp/delonix-cri-critest-root.*` and socket). A
+`critest FOCUS=propagation` from here collided (300 s timeout at setup) and risked interfering with his
+run. **No owner process was killed.** Since the engine applies propagation (proof
+above) and the CRI path translates to the SAME propagation, the 3 specs should pass — but the number is
+left for the **Track C critest run**, coordinated, without collision.
 
-> Nota: o worktree do dono (`cri-image-repodigests-and-user`) ataca precisamente o **C2** do plano
-> (Image Manager: repodigests + Uid/Username) — Track C já está parcialmente em curso por ele.
+> Note: the owner's worktree (`cri-image-repodigests-and-user`) attacks precisely the plan's **C2**
+> (Image Manager: repodigests + Uid/Username) — Track C is already partly under way by him.
 
-## Veredicto B2
+## B2 verdict
 
-- **Feito ao nível do motor**, verificado ao vivo. A dependência do **C4** (mount-propagation) do
-  Track C está satisfeita.
-- Pendente: o número do critest para os 3 specs, a obter numa corrida coordenada (o dono está a
-  correr critest agora).
+- **Done at the engine level**, verified live. The Track C **C4** dependency (mount-propagation) is
+  satisfied.
+- Pending: the critest number for the 3 specs, to be obtained in a coordinated run (the owner is
+  running critest now).

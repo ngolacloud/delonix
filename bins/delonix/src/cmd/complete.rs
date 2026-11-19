@@ -37,8 +37,8 @@ use clap_complete::engine::CompletionCandidate;
 
 use super::util::state_root;
 
-fn cands<I: IntoIterator<Item = String>>(nomes: I) -> Vec<CompletionCandidate> {
-    nomes.into_iter().map(CompletionCandidate::new).collect()
+fn cands<I: IntoIterator<Item = String>>(names: I) -> Vec<CompletionCandidate> {
+    names.into_iter().map(CompletionCandidate::new).collect()
 }
 
 /// Containers running **and** stopped: `start`/`rm` want the stopped ones, the
@@ -143,15 +143,15 @@ pub fn clusters() -> Vec<CompletionCandidate> {
     let Ok(store) = delonix_state::Store::open(state_root().join("containers")) else {
         return Vec::new();
     };
-    let mut nomes: Vec<String> = store
+    let mut names: Vec<String> = store
         .list()
         .unwrap_or_default()
         .into_iter()
         .filter_map(|c| c.labels.get("io.x-k8s.kind.cluster").cloned())
         .collect();
-    nomes.sort();
-    nomes.dedup();
-    cands(nomes)
+    names.sort();
+    names.dedup();
+    cands(names)
 }
 
 /// The clusters `cluster prune` can collect: state under `<root>/clusters`
@@ -236,15 +236,15 @@ pub fn pods() -> Vec<CompletionCandidate> {
     let Ok(store) = delonix_state::Store::open(state_root().join("containers")) else {
         return Vec::new();
     };
-    let mut nomes: Vec<String> = store
+    let mut names: Vec<String> = store
         .list()
         .unwrap_or_default()
         .into_iter()
         .filter_map(|c| c.labels.get(super::pod::POD_LABEL).cloned())
         .collect();
-    nomes.sort();
-    nomes.dedup();
-    cands(nomes)
+    names.sort();
+    names.dedup();
+    cands(names)
 }
 
 /// Golden/appliance VM images (`<root>/vm-images/`) — a store of its own,
@@ -269,19 +269,19 @@ pub fn tunnels() -> Vec<CompletionCandidate> {
 /// out loud, and a TAB that printed it twice would read as a bug in the list,
 /// not as the collision it is.
 pub fn workloads() -> Vec<CompletionCandidate> {
-    let mut nomes: Vec<String> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
     if let Ok(store) = delonix_state::Store::open(state_root().join("containers")) {
-        nomes.extend(store.list().unwrap_or_default().into_iter().map(|c| c.name));
+        names.extend(store.list().unwrap_or_default().into_iter().map(|c| c.name));
     }
-    nomes.extend(
+    names.extend(
         delonix_vm::list(&state_root())
             .unwrap_or_default()
             .into_iter()
             .map(|v| v.name),
     );
-    nomes.sort();
-    nomes.dedup();
-    cands(nomes)
+    names.sort();
+    names.dedup();
+    cands(names)
 }
 
 /// How a namespaced Kind's namespaces are found. Three Kinds keep a record this

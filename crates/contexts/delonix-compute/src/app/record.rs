@@ -945,8 +945,8 @@ impl Container {
             name,
             image,
             command,
-            // Sem grupo por omissão: um container avulso continua a pendurar
-            // directamente da base delegada, exactamente como antes.
+            // No group by default: a standalone container still hangs directly
+            // off the delegated base, exactly as before.
             cgroup_parent: None,
             kube_cgroup: None,
             pid: None,
@@ -1491,7 +1491,7 @@ mod tests {
     /// than hand-writing a legacy blob — a hand-written fixture drifts out of
     /// date the moment another field is added, and would stop testing anything.
     #[test]
-    fn registo_de_container_sem_annotations_continua_a_desserializar() {
+    fn a_container_record_without_annotations_still_deserializes() {
         let mut c = Container::new(
             "abc123".into(),
             "web".into(),
@@ -1511,11 +1511,11 @@ mod tests {
         assert_eq!(old.labels.get("delonix.io/stack").unwrap(), "web");
     }
 
-    /// Um registo de VM escrito antes destes campos tem de continuar a
-    /// desserializar — senão toda a VM de um host actualizado desaparece do
-    /// `vm ls` enquanto o disco continua lá.
+    /// A VM record written before these fields existed must still deserialize —
+    /// otherwise every VM on an upgraded host vanishes from `vm ls` while the
+    /// disk is still there.
     #[test]
-    fn registo_de_vm_sem_labels_continua_a_desserializar() {
+    fn a_vm_record_without_labels_still_deserializes() {
         let mut vm = Vm::new(
             "db".into(),
             "base.qcow2".into(),
@@ -1543,7 +1543,7 @@ mod tests {
     /// why `vm start` leaves such a VM alone instead of rebooting it with
     /// defaults it never asked for.
     #[test]
-    fn registo_de_vm_sem_a_forma_de_arranque_continua_a_desserializar() {
+    fn a_vm_record_without_the_boot_shape_still_deserializes() {
         let mut vm = Vm::new(
             "dev".into(),
             "base.qcow2".into(),
@@ -1568,7 +1568,7 @@ mod tests {
     /// the whole block is skipped when empty. Without this, every record on
     /// every host would gain twenty-one null/false keys for nothing.
     #[test]
-    fn a_forma_de_arranque_vazia_nao_e_escrita() {
+    fn an_empty_boot_shape_is_not_written() {
         let vm = Vm::new(
             "simples".into(),
             "base.qcow2".into(),
@@ -1583,7 +1583,7 @@ mod tests {
         let v: serde_json::Value = serde_json::to_value(&vm).unwrap();
         assert!(
             v.as_object().unwrap().get("boot").is_none(),
-            "a forma de arranque vazia não devia ser serializada: {v}"
+            "an empty boot shape should not be serialized: {v}"
         );
     }
 

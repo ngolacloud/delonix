@@ -920,7 +920,7 @@ mod tests {
     }
 
     #[test]
-    fn rmtree_apaga_a_arvore() {
+    fn rmtree_deletes_the_tree() {
         let tmp = tempfile::tempdir().unwrap();
         let d = tmp.path();
         std::fs::create_dir_all(d.join("a/b")).unwrap();
@@ -930,7 +930,7 @@ mod tests {
     }
 
     #[test]
-    fn rmtree_e_idempotente() {
+    fn rmtree_is_idempotent() {
         // The goal is "not being there" — deleting what no longer exists is
         // success, otherwise a repeated `container rm` would fail for no reason.
         let tmp = tempfile::tempdir().unwrap();
@@ -940,36 +940,33 @@ mod tests {
     }
 
     #[test]
-    fn volsnap_round_trip_preserva_conteudo() {
+    fn volsnap_round_trip_preserves_content() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         let data = base.join("_data");
         std::fs::create_dir_all(data.join("sub")).unwrap();
-        std::fs::write(data.join("sub/ficheiro"), b"conteudo").unwrap();
+        std::fs::write(data.join("sub/file"), b"content").unwrap();
         let tar = base.join("_snapshots/s1.tar.gz");
 
         volsnap_create(&data, &tar).unwrap();
-        assert!(tar.exists(), "o snapshot devia existir");
+        assert!(tar.exists(), "the snapshot should exist");
         // No .tmp left behind.
         assert!(!tar.with_extension("tar.gz.tmp").exists());
 
         // Touch _data and restore.
-        std::fs::write(data.join("sub/ficheiro"), b"estragado").unwrap();
-        std::fs::write(data.join("intruso"), b"a apagar").unwrap();
+        std::fs::write(data.join("sub/file"), b"corrupted").unwrap();
+        std::fs::write(data.join("intruder"), b"to delete").unwrap();
         volsnap_restore(&data, &tar).unwrap();
 
-        assert_eq!(
-            std::fs::read(data.join("sub/ficheiro")).unwrap(),
-            b"conteudo"
-        );
+        assert_eq!(std::fs::read(data.join("sub/file")).unwrap(), b"content");
         assert!(
-            !data.join("intruso").exists(),
-            "o restore tem de limpar o que não estava no snapshot"
+            !data.join("intruder").exists(),
+            "the restore has to clean out what was not in the snapshot"
         );
     }
 
     #[test]
-    fn volsnap_restore_mantem_o_proprio_data() {
+    fn volsnap_restore_keeps_the_data_dir_itself() {
         // `_data` may be mounted in a live container: the contents are cleared,
         // never the directory (otherwise the mount would point at a dead inode).
         let tmp = tempfile::tempdir().unwrap();
@@ -979,17 +976,17 @@ mod tests {
         std::fs::write(data.join("f"), b"v1").unwrap();
         let tar = base.join("s.tar.gz");
         volsnap_create(&data, &tar).unwrap();
-        let ino_antes = std::fs::metadata(&data).unwrap().rt_ino();
+        let ino_before = std::fs::metadata(&data).unwrap().rt_ino();
         volsnap_restore(&data, &tar).unwrap();
         assert_eq!(
-            ino_antes,
+            ino_before,
             std::fs::metadata(&data).unwrap().rt_ino(),
-            "o inode do _data mudou"
+            "the inode of _data changed"
         );
     }
 
     #[test]
-    fn buildtar_empacota_o_rootfs() {
+    fn buildtar_packs_the_rootfs() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
         let rootfs = base.join("rootfs");
@@ -999,34 +996,34 @@ mod tests {
         let out = base.join("layer.tar");
 
         buildtar(&rootfs, &out).unwrap();
-        assert!(out.exists(), "o tar devia existir");
+        assert!(out.exists(), "the tar should exist");
 
         // The tar contains the rootfs entries (verify by re-reading).
         let mut a = tar::Archive::new(std::fs::File::open(&out).unwrap());
-        let mut nomes: Vec<String> = a
+        let mut names: Vec<String> = a
             .entries()
             .unwrap()
             .map(|e| e.unwrap().path().unwrap().to_string_lossy().into_owned())
             .collect();
-        nomes.sort();
+        names.sort();
         assert!(
-            nomes.iter().any(|n| n.ends_with("etc/hostname")),
-            "faltou etc/hostname: {nomes:?}"
+            names.iter().any(|n| n.ends_with("etc/hostname")),
+            "etc/hostname missing: {names:?}"
         );
         assert!(
-            nomes.iter().any(|n| n.ends_with("app")),
-            "faltou app: {nomes:?}"
+            names.iter().any(|n| n.ends_with("app")),
+            "app missing: {names:?}"
         );
     }
 
     #[test]
-    fn volsnap_modo_invalido_e_erro_claro() {
+    fn volsnap_invalid_mode_is_a_clear_error() {
         let tmp = tempfile::tempdir().unwrap();
         let d = tmp.path();
-        let err = volsnap("destruir", d, &d.join("t.tar.gz")).unwrap_err();
+        let err = volsnap("destroy", d, &d.join("t.tar.gz")).unwrap_err();
         assert!(
             format!("{err}").contains("unknown mode"),
-            "erro pouco claro: {err}"
+            "unclear error: {err}"
         );
     }
 
@@ -1067,67 +1064,68 @@ mod migrate_tests {
     /// case it gets wrong loses a container's change. These are the four ways
     /// two files can differ while looking alike to a careless comparison.
     #[test]
-    fn same_entry_so_diz_igual_quando_tudo_bate() {
+    fn same_entry_only_says_equal_when_everything_matches() {
         let t = scratch();
-        let a = write(t.path(), "a/f", b"conteudo", 0o644);
-        let b = write(t.path(), "b/f", b"conteudo", 0o644);
+        let a = write(t.path(), "a/f", b"content0", 0o644);
+        let b = write(t.path(), "b/f", b"content0", 0o644);
         assert!(
             same_entry(&a, &b),
-            "mesmos bytes, modo e dono deviam ser iguais"
+            "same bytes, mode and owner should be equal"
         );
 
-        // Conteúdo diferente do MESMO tamanho — um comparador por len passaria.
-        let c = write(t.path(), "c/f", b"conteudX", 0o644);
+        // Different content of the SAME size — a comparator by len would pass.
+        let c = write(t.path(), "c/f", b"contentX", 0o644);
         assert!(
             !same_entry(&a, &c),
-            "bytes diferentes do mesmo tamanho não são iguais"
+            "different bytes of the same size are not equal"
         );
 
-        // Só o modo difere: o container fez chmod e essa mudança é dele.
-        let d = write(t.path(), "d/f", b"conteudo", 0o755);
+        // Only the mode differs: the container did a chmod and that change is its own.
+        let d = write(t.path(), "d/f", b"content0", 0o755);
         assert!(
             !same_entry(&a, &d),
-            "um chmod do container não pode ser apagado"
+            "a container's chmod must not be deleted"
         );
 
-        // Tamanhos diferentes.
-        let e = write(t.path(), "e/f", b"conteudo-maior", 0o644);
+        // Different sizes.
+        let e = write(t.path(), "e/f", b"content-larger", 0o644);
         assert!(!same_entry(&a, &e));
     }
 
-    /// Um symlink e um ficheiro regular com o mesmo nome NUNCA são a mesma
-    /// coisa — apagar o symlink da upper deixaria a lower a servir um ficheiro
-    /// onde o container pôs um link, e vice-versa.
+    /// A symlink and a regular file with the same name are NEVER the same thing
+    /// — deleting the symlink from the upper would leave the lower serving a file
+    /// where the container put a link, and vice versa.
     #[test]
-    fn same_entry_distingue_symlink_de_ficheiro() {
+    fn same_entry_distinguishes_symlink_from_file() {
         let t = scratch();
-        let f = write(t.path(), "a/f", b"alvo", 0o644);
+        let f = write(t.path(), "a/f", b"target", 0o644);
         let l = t.path().join("b/f");
         std::fs::create_dir_all(l.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink("alvo", &l).unwrap();
-        assert!(!same_entry(&f, &l), "symlink e ficheiro não são o mesmo");
+        std::os::unix::fs::symlink("target", &l).unwrap();
+        assert!(!same_entry(&f, &l), "a symlink and a file are not the same");
 
-        // Dois symlinks para alvos diferentes também não.
+        // Two symlinks to different targets are not either.
         let l2 = t.path().join("c/f");
         std::fs::create_dir_all(l2.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink("outro", &l2).unwrap();
+        std::os::unix::fs::symlink("other", &l2).unwrap();
         assert!(
             !same_entry(&l, &l2),
-            "symlinks com alvos diferentes não são iguais"
+            "symlinks with different targets are not equal"
         );
 
-        // O mesmo alvo, sim.
+        // The same target, yes.
         let l3 = t.path().join("d/f");
         std::fs::create_dir_all(l3.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink("alvo", &l3).unwrap();
+        std::os::unix::fs::symlink("target", &l3).unwrap();
         assert!(same_entry(&l, &l3));
     }
 
-    /// A guarda que faltava, e que custou um container real: um rootfs flat
-    /// VAZIO não é «o container apagou tudo». Sem isto, cada directório de
-    /// topo da lower vira um whiteout e a árvore fica destruída para sempre.
+    /// The guard that was missing, and that cost a real container: an EMPTY flat
+    /// rootfs is not «the container deleted everything». Without this, every
+    /// top-level directory of the lower turns into a whiteout and the tree is
+    /// destroyed forever.
     #[test]
-    fn um_rootfs_truncado_nao_migra() {
+    fn a_truncated_rootfs_does_not_migrate() {
         let t = scratch();
         let low = t.path().join("low");
         for d in ["usr", "etc", "bin"] {
@@ -1135,45 +1133,45 @@ mod migrate_tests {
         }
         let lowers = vec![low.clone()];
 
-        // Vazio: o caso medido em produção.
-        let vazio = t.path().join("vazio");
-        std::fs::create_dir_all(&vazio).unwrap();
+        // Empty: the case measured in production.
+        let empty = t.path().join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
         assert!(
-            !flat_looks_complete(&lowers, &vazio),
-            "um rootfs vazio nunca pode migrar"
+            !flat_looks_complete(&lowers, &empty),
+            "an empty rootfs can never migrate"
         );
 
-        // Truncado: tem parte, falta-lhe um directório de sistema.
-        let parcial = t.path().join("parcial");
-        std::fs::create_dir_all(parcial.join("usr")).unwrap();
-        std::fs::create_dir_all(parcial.join("etc")).unwrap();
+        // Truncated: has part of it, missing a system directory.
+        let partial = t.path().join("partial");
+        std::fs::create_dir_all(partial.join("usr")).unwrap();
+        std::fs::create_dir_all(partial.join("etc")).unwrap();
         assert!(
-            !flat_looks_complete(&lowers, &parcial),
-            "faltar um directório de topo da imagem é implausível, logo não migra"
+            !flat_looks_complete(&lowers, &partial),
+            "a top-level directory of the image missing is implausible, so it does not migrate"
         );
 
-        // Completo: migra, e um ficheiro apagado LÁ DENTRO continua a poder
-        // levar whiteout — a guarda é só ao nível de topo.
-        let cheio = t.path().join("cheio");
+        // Complete: migrates, and a file deleted INSIDE it can still carry a
+        // whiteout — the guard is only at the top level.
+        let full = t.path().join("full");
         for d in ["usr", "etc", "bin"] {
-            std::fs::create_dir_all(cheio.join(d)).unwrap();
+            std::fs::create_dir_all(full.join(d)).unwrap();
         }
-        assert!(flat_looks_complete(&lowers, &cheio));
-        std::fs::remove_file(cheio.join("etc/motd")).ok();
+        assert!(flat_looks_complete(&lowers, &full));
+        std::fs::remove_file(full.join("etc/motd")).ok();
         assert!(
-            flat_looks_complete(&lowers, &cheio),
-            "apagar um ficheiro dentro de /etc é normal e não bloqueia a migração"
+            flat_looks_complete(&lowers, &full),
+            "deleting a file inside /etc is normal and does not block the migration"
         );
     }
 
-    /// Um caminho que não existe nunca é "igual" — o valor por omissão tem de
-    /// ser NÃO apagar, senão um erro de I/O transitório apaga dados.
+    /// A path that does not exist is never "equal" — the default has to be NOT
+    /// deleting, otherwise a transient I/O error deletes data.
     #[test]
-    fn same_entry_falha_para_o_lado_seguro() {
+    fn same_entry_fails_to_the_safe_side() {
         let t = scratch();
         let a = write(t.path(), "a/f", b"x", 0o644);
-        assert!(!same_entry(&a, &t.path().join("nao/existe")));
-        assert!(!same_entry(&t.path().join("nao/existe"), &a));
+        assert!(!same_entry(&a, &t.path().join("does/not-exist")));
+        assert!(!same_entry(&t.path().join("does/not-exist"), &a));
     }
 }
 

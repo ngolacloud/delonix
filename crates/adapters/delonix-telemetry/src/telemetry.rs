@@ -192,7 +192,7 @@ mod tests {
     use super::normalise_traces_endpoint;
 
     #[test]
-    fn acrescenta_signal_path_a_base() {
+    fn appends_signal_path_to_the_base() {
         assert_eq!(
             normalise_traces_endpoint("http://localhost:4318"),
             "http://localhost:4318/v1/traces"
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn tolera_barra_final_na_base() {
+    fn tolerates_a_trailing_slash_on_the_base() {
         assert_eq!(
             normalise_traces_endpoint("http://localhost:4318/"),
             "http://localhost:4318/v1/traces"
@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn preserva_endpoint_ja_completo() {
+    fn preserves_an_already_complete_endpoint() {
         assert_eq!(
             normalise_traces_endpoint("http://collector:4318/v1/traces"),
             "http://collector:4318/v1/traces"

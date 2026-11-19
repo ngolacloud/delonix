@@ -1851,7 +1851,7 @@ mod tests {
     }
 
     #[test]
-    fn osv_converte_alpine_e_ignora_ecossistemas_nao_suportados() {
+    fn osv_converts_alpine_and_ignores_unsupported_ecosystems() {
         // An OSV feed: one Alpine vuln (convertible) + one npm (ignored).
         let feed = r#"{"vulns":[
           {
@@ -1878,7 +1878,7 @@ mod tests {
     }
 
     #[test]
-    fn osv_aceita_array_e_default_medium_sem_rotulo() {
+    fn osv_accepts_array_and_defaults_medium_without_a_label() {
         let feed = r#"[{
           "id":"CVE-1","details":"debian glibc",
           "affected":[{"package":{"ecosystem":"Debian:12","name":"libc6"},
@@ -1979,7 +1979,7 @@ mod tests {
         "ranges":[{"type":"SEMVER","events":[{"fixed":"1.3.0"}]}]}]}"#;
 
     #[test]
-    fn osv_zip_stored_converte_membros_json_e_ignora_nao_json() {
+    fn osv_zip_stored_converts_json_members_and_ignores_non_json() {
         let zip = build_zip(
             &[
                 ("CVE-2023-4567.json", OSV_ALPINE.as_bytes()),
@@ -1998,7 +1998,7 @@ mod tests {
     }
 
     #[test]
-    fn osv_zip_deflate_le_o_metodo_que_o_osv_usa() {
+    fn osv_zip_deflate_reads_the_method_osv_uses() {
         // DEFLATE (method 8) is what the real `all.zip` uses; the stored test
         // above would pass even if the inflate path were broken.
         let zip = build_zip(&[("CVE-2023-4567.json", OSV_ALPINE.as_bytes())], true);
@@ -2008,7 +2008,7 @@ mod tests {
     }
 
     #[test]
-    fn osv_zip_recusa_o_que_nao_e_zip() {
+    fn osv_zip_refuses_what_is_not_a_zip() {
         // A JSON feed, an HTML error page, an empty body: none is a zip, and
         // the reader says so (it does not silently return zero advisories).
         for bad in [&b"not a zip at all"[..], b"<html>502</html>", b"", b"PK"] {
@@ -2084,10 +2084,10 @@ mod tests {
     }
 
     #[test]
-    fn staleness_deteta_nunca_e_antigo() {
-        let dia = 86_400u64;
-        assert!(db_is_stale(None, 100 * dia, 30)); // never synced
-        assert!(db_is_stale(Some(0), 40 * dia, 30)); // 40 days > 30
-        assert!(!db_is_stale(Some(20 * dia), 40 * dia, 30)); // 20 days <= 30
+    fn staleness_detects_never_synced_and_old() {
+        let day = 86_400u64;
+        assert!(db_is_stale(None, 100 * day, 30)); // never synced
+        assert!(db_is_stale(Some(0), 40 * day, 30)); // 40 days > 30
+        assert!(!db_is_stale(Some(20 * day), 40 * day, 30)); // 20 days <= 30
     }
 }

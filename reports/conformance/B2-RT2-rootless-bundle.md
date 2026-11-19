@@ -1,22 +1,22 @@
-# GAP-RT-2 — bundle rootless exportável · CORRIGIDO + verificado
+# GAP-RT-2 — exportable rootless bundle · FIXED + verified
 
-**Data:** 2026-10-24 · **Binário:** `delonix 5.1.1` (árvore `ee615f3b` + fixes), rootless.
+**Date:** 2026-10-24 · **Binary:** `delonix 5.1.1` (tree `ee615f3b` + fixes), rootless.
 
-## O gap (de B1)
+## The gap (from B1)
 
-`delonix image export` produzia um bundle **sem mapeamentos uid/gid** (root-only); `runc`/`crun`
-recusavam-no rootless com `rootless container requires user namespaces`. Portável só como root.
+`delonix image export` produced a bundle **without uid/gid mappings** (root-only); `runc`/`crun`
+rejected it rootless with `rootless container requires user namespaces`. Portable only as root.
 
-## Correcção
+## Fix
 
-Nova flag **`image export --rootless`**: adiciona um **user namespace** e os mapeamentos
-uid/gid **deste utilizador**, espelhando o mapa que o próprio init do motor usa
-(`write_userns_maps`): container 0 → o nosso euid (1 id), depois container 1.. → os subuids
-delegados (`USERNS_UID_BASE`). Default continua a ser o bundle root (sem mapas). Ficheiros:
-`cmd/image.rs` (flag, `build_runtime_spec(rootless)`, aviso ajustado), reusa
+New flag **`image export --rootless`**: adds a **user namespace** and the uid/gid mappings
+**of this user**, mirroring the map that the engine's own init uses
+(`write_userns_maps`): container 0 → our euid (1 id), then container 1.. → the delegated
+subuids (`USERNS_UID_BASE`). The default is still the root bundle (no maps). Files:
+`cmd/image.rs` (flag, `build_runtime_spec(rootless)`, adjusted warning), reuses
 `delonix_linux::USERNS_UID_BASE/USERNS_RANGE`.
 
-## Verificado ao vivo (`image export --rootless alpine`)
+## Verified live (`image export --rootless alpine`)
 
 ```
 has user ns: True
@@ -26,29 +26,29 @@ oci-runtime-tool validate: Bundle validation succeeded
 runc --root <tmp> run  (rootless):  rc=0        ← era "requires user namespaces"
 ```
 
-Default (sem `--rootless`): sem user ns, sem mapas — inalterado.
+Default (without `--rootless`): no user ns, no maps — unchanged.
 
-## Testes e gates
+## Tests and gates
 
-- Teste `bundle_exportado_e_conformante_oci_runtime` estendido: default sem userns/mapas;
-  `--rootless` com userns + mapa container-0→euid-size-1 + container-1→`USERNS_UID_BASE`. **Passa.**
-- Gates verdes: `lang_ratchet` (2 strings novas → `pt.po` + baseline 114→116), `docs_cli_gate`,
-  `cli_exec_ratchet` (90.7%), `dev_docs --check`. **Sem gate pendente** para a flag nova.
+- Test `bundle_exportado_e_conformante_oci_runtime` extended: default without userns/maps;
+  `--rootless` with userns + map container-0→euid-size-1 + container-1→`USERNS_UID_BASE`. **Passes.**
+- Green gates: `lang_ratchet` (2 new strings → `pt.po` + baseline 114→116), `docs_cli_gate`,
+  `cli_exec_ratchet` (90.7%), `dev_docs --check`. **No pending gate** for the new flag.
 
-## Limitação documentada (follow-up)
+## Documented limitation (follow-up)
 
-`architectures` do seccomp e o mapa assumem o host de exportação (x86_64, subuid 100000:65536 de
-`/etc/subuid`). Um bundle para outra arquitectura/ outro `/etc/subuid` precisa de ler esses valores
-em vez da convenção `USERNS_*`. Pequeno; não bloqueia o caso comum.
+The seccomp `architectures` and the map assume the export host (x86_64, subuid 100000:65536 from
+`/etc/subuid`). A bundle for another architecture / another `/etc/subuid` needs to read those values
+instead of the `USERNS_*` convention. Small; does not block the common case.
 
-## Estado do Track B (runtime OCI)
+## Track B status (OCI runtime)
 
-| Gap | Estado |
+| Gap | Status |
 |---|---|
-| RT-1 ociVersion 1.3.0 | ✅ corrigido + validate OK |
-| RT-2 bundle rootless | ✅ corrigido + `runc run` rootless OK |
-| RT-3 seccomp no bundle | ✅ corrigido (política própria, 263 syscalls) |
-| B2 mount propagation | ✅ já existia (verificado) |
-| RT-4 CLI estilo runc (create/start/state/kill/delete) | ⬜ aberto (o que falta p/ correr a *validation suite* do runtime-tools contra o Delonix) |
+| RT-1 ociVersion 1.3.0 | ✅ fixed + validate OK |
+| RT-2 rootless bundle | ✅ fixed + `runc run` rootless OK |
+| RT-3 seccomp in bundle | ✅ fixed (own policy, 263 syscalls) |
+| B2 mount propagation | ✅ already existed (verified) |
+| RT-4 runc-style CLI (create/start/state/kill/delete) | ⬜ open (what is missing to run the runtime-tools *validation suite* against Delonix) |
 
-Tudo na branch `fix/campaign-defects-doctor-rm-compose`, **não empurrado**.
+Everything on branch `fix/campaign-defects-doctor-rm-compose`, **not pushed**.

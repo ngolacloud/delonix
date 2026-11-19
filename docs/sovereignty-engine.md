@@ -1,63 +1,62 @@
-# Soberania — a fatia que é do motor
+# Sovereignty — the slice that belongs to the engine
 
-> Medido: **2026-09-15**. Motor: `delonix` 3.1.0 (build de árvore, commit
-> `6a9e1fe5b` — ligeiramente atrás do `HEAD` desta medição; ver nota de método
-> no fim). Host: Linux 7.0.0, cgroup v2, backends `cloud-hypervisor` e
-> `libvirt` instalados.
+> Measured: **2026-09-15**. Engine: `delonix` 3.1.0 (tree build, commit
+> `6a9e1fe5b` — slightly behind the `HEAD` of this measurement; see the method
+> note at the end). Host: Linux 7.0.0, cgroup v2, `cloud-hypervisor` and
+> `libvirt` backends installed.
 
-Este documento não é "o relatório de soberania da N'GolaCloud" — é a fatia
-dele que o `delonix-runtime`, sozinho, num nó, consegue provar. As oito
-propriedades testáveis estão definidas em
-`ngolacloud-doutrina/references/soberania.md` (workspace da plataforma); quatro
-delas são deste motor, quatro são da plataforma por cima dele (residência,
-chaves, prova para o regulador, saída sem reféns do serviço gerido). Ler as
-duas metades como se fossem uma só é como um relatório de soberania se lê
-mais forte do que é.
+This document is not "N'GolaCloud's sovereignty report" — it is the slice of
+it that `delonix-runtime`, alone, on one node, can prove. The eight testable
+properties are defined in `ngolacloud-doutrina/references/soberania.md` (the
+platform's workspace); four of them belong to this engine, four belong to the
+platform above it (residency, keys, proof for the regulator, exit without
+hostage to the managed service). Reading the two halves as if they were one
+makes a sovereignty report read stronger than it is.
 
-A plataforma já tem trabalho substancial feito no exercício "WAN desligada" —
-cinco passagens, 2026-08-18, à escala do cluster inteiro
-(`ngolacloud-doutrina/references/soberania.md`). Este documento não o repete;
-mede a mesma propriedade um nível abaixo, no motor.
+The platform already has substantial work done on the "WAN unplugged"
+exercise — five passes, 2026-08-18, at the scale of the whole cluster
+(`ngolacloud-doutrina/references/soberania.md`). This document does not
+repeat it; it measures the same property one level down, at the engine.
 
-## Formato de reporte (`ngolacloud-doutrina` §"Ao reportar soberania")
+## Report format (`ngolacloud-doutrina` §"When reporting sovereignty")
 
 ```text
-Independência operacional (motor): PROVADA a 2026-09-15 —
-    container run/exec/stop de imagem já em cache: zero toque de rede.
-    vm create/boot de imagem já em cache (cloud-hypervisor): IP confirmado por
-    ARP, zero toque de rede. kubeadm init offline: por provar (razão: exigiria
-    SSH para dentro da VM e um 2º/3º nó, num host partilhado — não é gasto
-    justificável fora de uma sessão dedicada a isso).
-Estrangeiras (motor): arranque 0 (imagem local) · primeiro-uso 1 (ghcr.io,
-    golden VM/imagem) · kubeadm 0-1 (condicional a `--offline build`, não
-    re-validado nesta passagem) · build-de-imagem 6 (todas build-time)
-Chaves / cadeia de fornecimento: fora do âmbito desta passagem
-Saída do cliente: fora do âmbito desta passagem
+Operational independence (engine): PROVEN on 2026-09-15 —
+    container run/exec/stop of an already-cached image: zero network touch.
+    vm create/boot of an already-cached image (cloud-hypervisor): IP confirmed by
+    ARP, zero network touch. kubeadm init offline: unproven (reason: would require
+    SSH into the VM and a 2nd/3rd node, on a shared host — not a justifiable
+    expense outside a session dedicated to it).
+Foreign (engine): boot 0 (local image) · first-use 1 (ghcr.io,
+    golden VM/image) · kubeadm 0-1 (conditional on `--offline build`, not
+    re-validated on this pass) · image-build 6 (all build-time)
+Keys / supply chain: out of scope for this pass
+Client exit: out of scope for this pass
 ```
 
-## O ensaio: independência operacional, à escala do motor
+## The test: operational independence, at engine scale
 
-**Protocolo**: em vez de desligar a rede da máquina (host partilhado, com
-containers reais de outras sessões a correr — não é um laboratório, e um
-corte de rede a sério afectaria todos), o processo do motor correu inteiro
-dentro da SUA PRÓPRIA netns isolada (`unshare --user --net`, sem privilégio),
-com **zero interface além do loopback** e DNS a falhar por desenho — o mesmo
-efeito de "sem WAN" que um corte a sério teria, sem o custo de o fazer.
+**Protocol**: instead of cutting the machine's network (a shared host, with
+real containers from other sessions running — not a lab, and a real network
+cut would affect everyone), the engine's process ran entirely
+inside ITS OWN isolated netns (`unshare --user --net`, no privilege),
+with **zero interface besides loopback** and DNS failing by design — the same
+"no WAN" effect a real cut would have, without the cost of doing it.
 
 ```text
 $ unshare --user --map-root-user --net -- sh -c 'ip addr show; getent hosts docker.io'
 1: lo: <LOOPBACK> mtu 65536 qdisc noop state DOWN ...
-(nenhuma outra interface)
-getent hosts docker.io → falhou (sem DNS, como esperado)
+(no other interface)
+getent hosts docker.io → failed (no DNS, as expected)
 ```
 
 ### Container
 
-| Caso | Resultado |
+| Case | Result |
 |---|---|
-| `container run` de imagem **já em cache**, `--net none` | **rc=0** — `alpine 3.24.1` a responder dentro do container |
-| `container run` de imagem **já em cache**, rede SDN por omissão (a que normalmente teria uplink NAT para a internet) | **rc=0** — o container sobe e corre; a ausência de rota de saída não bloqueia o arranque |
-| `container run` de imagem **não cacheada** | **rc=1 em ~1s** — falha explícita a nomear o URL (`registry-1.docker.io/v2/...`), nunca um pendura |
+| `container run` of an **already-cached** image, `--net none` | **rc=0** — `alpine 3.24.1` responding inside the container |
+| `container run` of an **already-cached** image, default SDN network (which would normally have a NAT uplink to the internet) | **rc=0** — the container comes up and runs; the absence of an outbound route does not block startup |
+| `container run` of a **non-cached** image | **rc=1 in ~1s** — an explicit failure naming the URL (`registry-1.docker.io/v2/...`), never a hang |
 
 ### VM (cloud-hypervisor)
 
@@ -69,81 +68,82 @@ $ unshare --user --map-root-user --net -- \
 info vm 'sov-test' is up — ip 10.200.254.29
 ```
 
-`is up` aqui é o valor **confirmado por ARP** (`infra::sdn_reachable`), não o
-endereço calculado a partir do MAC que o `AGENTS.md` já documenta como a
-armadilha a evitar (ver a secção "O `--wait` de uma VM CH esperava por um
-número que já sabia") — a diferença entre "o motor disse que está de pé" e
-"provei que respondeu". Um qcow2 de 3,5 GiB (679 MiB reais em disco, imagem
-`delonix-vm-k8s:1.34`) arrancou, ganhou IP na SDN interna e respondeu, sem
-uma única rota de saída disponível no processo que o criou.
+`is up` here is the value **confirmed by ARP** (`infra::sdn_reachable`), not the
+address computed from the MAC that `AGENTS.md` already documents as the
+trap to avoid (see the section "The `--wait` of a CH VM was waiting for a
+number it already knew") — the difference between "the engine said it's up"
+and "I proved it responded". A 3.5 GiB qcow2 (679 MiB actually on disk, image
+`delonix-vm-k8s:1.34`) booted, got an IP on the internal SDN, and responded,
+with not a single outbound route available in the process that created it.
 
-**Achado lateral, sem relação com soberania, registado por disciplina de
-método**: a primeira tentativa falhou com `Fatal error: ... path must be
-shorter than SUN_LEN` — o caminho do `DELONIX_ROOT` de teste (sob um
-directório de scratchpad profundo) excedeu o limite do kernel para um socket
-Unix do Cloud Hypervisor. Corrigido usando um `DELONIX_ROOT` curto
-(`/tmp/sov`); não é um defeito do motor nem da rede.
+**Side finding, unrelated to sovereignty, recorded for method discipline**:
+the first attempt failed with `Fatal error: ... path must be
+shorter than SUN_LEN` — the test `DELONIX_ROOT` path (under a deep
+scratchpad directory) exceeded the kernel's length limit for a Cloud
+Hypervisor Unix socket. Fixed by using a short `DELONIX_ROOT`
+(`/tmp/sov`); not a defect in the engine or the network.
 
-**Ambiente limpo depois do ensaio**: `delete vm sov-test`, confirmado sem
-processo `cloud-hypervisor` residual, `DELONIX_ROOT` de teste removido.
+**Environment cleaned up after the test**: `delete vm sov-test`, confirmed no
+leftover `cloud-hypervisor` process, test `DELONIX_ROOT` removed.
 
-### O que NÃO foi provado nesta passagem, e porquê
+### What was NOT proven on this pass, and why
 
-`kubeadm init` propriamente dito não correu dentro da VM isolada. Exigiria
-SSH para dentro dela (mais um salto de rede dentro do isolamento a
-construir) e, mais relevante, um segundo/terceiro nó para um bootstrap de
-control-plane real — num host partilhado com carga de outras sessões, esse
-gasto de recursos não se justifica fora de uma sessão dedicada ao exercício.
+`kubeadm init` itself did not run inside the isolated VM. It would require
+SSH into it (one more network hop inside the isolation being
+built) and, more relevantly, a second/third node for a real
+control-plane bootstrap — on a shared host with load from other sessions,
+that resource expense isn't justified outside a session dedicated to the
+exercise.
 
-Fica como o próprio `AGENTS.md` já documenta (secção "Pré-semear as imagens
-do `kubeadm`"): um `vm image build --offline` fetcha as 7 imagens core do
-Kubernetes (apiserver, controller-manager, scheduler, etcd, coredns, pause)
-no HOST de build e injecta-as no `ImageStore` embutido no qcow2 — **se** a
-imagem golden publicada foi construída por esse caminho. A imagem usada neste
-ensaio (`delonix-vm-k8s:1.34`) foi obtida por `vm pull` de
-`ghcr.io/angolardevops/delonix-vm-k8s:1.34`, e o `pull` **não recupera
-metadados** que digam se a build de origem foi `--offline` (gap já
-documentado no `AGENTS.md`) — por isso esta linha fica **condicional**, não
-confirmada.
+It stays as `AGENTS.md` itself already documents (section "Pre-seeding
+`kubeadm`'s images"): a `vm image build --offline` fetches Kubernetes' 7
+core images (apiserver, controller-manager, scheduler, etcd, coredns, pause)
+on the build HOST and injects them into the `ImageStore` embedded in the
+qcow2 — **if** the published golden image was built through that path. The
+image used in this test (`delonix-vm-k8s:1.34`) was obtained by `vm pull`
+from `ghcr.io/angolardevops/delonix-vm-k8s:1.34`, and `pull` **does not
+recover metadata** saying whether the source build was `--offline` (a gap
+already documented in `AGENTS.md`) — so this line stays **conditional**, not
+confirmed.
 
-## A contagem de dependências estrangeiras (código, não estimativa)
+## The count of foreign dependencies (code, not estimate)
 
-Medido por leitura directa do código-fonte (`grep` de domínios/registos
-hardcoded em `crates/`), classificado pela mesma disciplina do
-`ngolacloud-doutrina` (build-time vs run-time; bloqueante vs degradável vs
-conveniência):
+Measured by direct source-code reading (`grep` of hardcoded domains/registries
+in `crates/`), classified by the same discipline as
+`ngolacloud-doutrina` (build-time vs run-time; blocking vs degradable vs
+convenience):
 
-| Caminho | Domínio(s) | Classe | Bloqueante? |
+| Path | Domain(s) | Class | Blocking? |
 |---|---|---|---|
-| **Arranque** (`container run`/`exec`/`stop` de imagem já local) | nenhum | — | **Não** — confirmado acima |
-| **Arranque** (`container run` sem a imagem em cache) | `registry-1.docker.io` (default quando o cliente não qualifica o registo) | run-time, **acção explícita do cliente** | Só se o cliente pedir uma imagem nova — não é um "chamar casa" automático do motor |
-| **Primeiro `vm pull`/`cluster kubeadm --vm-image` sem cache** | `ghcr.io/angolardevops/delonix-vm-*` | run-time, primeiro uso | **Sim**, para um nó a criar o PRIMEIRO cluster/VM; local depois disso |
-| **`kubeadm init`** | `registry.k8s.io` | run-time — condicional a `--offline build` da golden | Condicional ao modo de build; não garantido por omissão (ver secção acima) |
-| **Build de imagem golden** (`vm image build`) | `cloud-images.ubuntu.com`, `cloud.debian.org`, `dl.rockylinux.org`, `download.fedoraproject.org`, `pkgs.k8s.io`, `archive.ubuntu.com` | **build-time**, não run-time | Não — a doutrina já classifica build-time como fora da conta crítica |
-| **Firmware Cloud Hypervisor** (`install.sh`) | `github.com/cloud-hypervisor/edk2` (releases) | instalação do host, uma vez | Não — por-host, não por-VM |
+| **Boot** (`container run`/`exec`/`stop` of an already-local image) | none | — | **No** — confirmed above |
+| **Boot** (`container run` without the image cached) | `registry-1.docker.io` (default when the client doesn't qualify the registry) | run-time, **explicit client action** | Only if the client asks for a new image — not an automatic "phone home" by the engine |
+| **First `vm pull`/`cluster kubeadm --vm-image` with no cache** | `ghcr.io/angolardevops/delonix-vm-*` | run-time, first use | **Yes**, for a node creating its FIRST cluster/VM; local after that |
+| **`kubeadm init`** | `registry.k8s.io` | run-time — conditional on the golden image's `--offline build` | Conditional on the build mode; not guaranteed by default (see section above) |
+| **Golden image build** (`vm image build`) | `cloud-images.ubuntu.com`, `cloud.debian.org`, `dl.rockylinux.org`, `download.fedoraproject.org`, `pkgs.k8s.io`, `archive.ubuntu.com` | **build-time**, not run-time | No — the doctrine already classifies build-time as outside the critical count |
+| **Cloud Hypervisor firmware** (`install.sh`) | `github.com/cloud-hypervisor/edk2` (releases) | one-time host install | No — per-host, not per-VM |
 
-**O que isto não cobre**: dependências de build do próprio Rust (`crates.io`
-no `Cargo.lock`) — a doutrina já as classifica como build-time e fora da
-conta crítica (confirmado na varredura de 2026-08-18 da plataforma: 68
-ocorrências de `crates.io`, todas build). Não recontado aqui por já estar
-resolvido noutro sítio.
+**What this does not cover**: Rust's own build dependencies (`crates.io`
+in `Cargo.lock`) — the doctrine already classifies these as build-time and
+outside the critical count (confirmed in the platform's 2026-08-18 sweep: 68
+occurrences of `crates.io`, all build). Not recounted here as it's already
+resolved elsewhere.
 
-## Nota de método
+## Method note
 
-O binário usado (`target/release/delonix`, commit `6a9e1fe5b`) está
-ligeiramente atrás do `HEAD` usado para desenhar este ensaio (`e66ae8da`
-local / `adae8343` em `origin/main` no momento de escrever este documento) —
-ambos são commits de documentação (`AGENTS.md`), sem alteração de código de
-motor entre eles. Não foi feita uma reconstrução completa por ser um ensaio
-de propriedade estrutural (a rede é ou não é tocada), não uma validação de
-uma funcionalidade específica dessa janela de commits.
+The binary used (`target/release/delonix`, commit `6a9e1fe5b`) is
+slightly behind the `HEAD` used to design this test (`e66ae8da`
+local / `adae8343` on `origin/main` at the time of writing this document) —
+both are documentation commits (`AGENTS.md`), with no engine code change
+between them. A full rebuild was not done since this is a test of a
+structural property (whether the network is touched or not), not the
+validation of a specific feature within that commit window.
 
-## Ligações
+## Links
 
-- As oito propriedades e os dois exercícios completos:
-  `ngolacloud-doutrina/references/soberania.md` (workspace da plataforma).
-- O que falta para "arranque" fechar 100%: exercitar `kubeadm init` dentro de
-  uma VM isolada, e confirmar (ou negar) que uma golden `--offline` chega a
-  produzir um control-plane sem tocar `registry.k8s.io`.
-- Sovereignty como eixo de posicionamento contra AWS/GCP:
+- The eight properties and the two full exercises:
+  `ngolacloud-doutrina/references/soberania.md` (the platform's workspace).
+- What remains for "boot" to close at 100%: exercising `kubeadm init` inside
+  an isolated VM, and confirming (or denying) that an `--offline` golden image
+  actually produces a control plane without touching `registry.k8s.io`.
+- Sovereignty as a positioning axis against AWS/GCP:
   `delonix-engine/SKILL.md` §2.

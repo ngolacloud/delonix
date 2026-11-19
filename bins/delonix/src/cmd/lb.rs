@@ -74,7 +74,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_haproxy_cfg_gera_frontend_tcp_na_6443() {
+    fn build_haproxy_cfg_produces_tcp_frontend_on_6443() {
         let cfg = build_haproxy_cfg(&["10.0.0.1".to_string(), "10.0.0.2".to_string()]);
         assert!(cfg.contains("bind *:6443"));
         assert!(cfg.contains("mode tcp"));
@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn build_haproxy_cfg_gera_uma_linha_server_por_ip_control_plane() {
+    fn build_haproxy_cfg_produces_one_server_line_per_control_plane_ip() {
         let cfg = build_haproxy_cfg(&["10.0.0.1".into(), "10.0.0.2".into(), "10.0.0.3".into()]);
         assert!(cfg.contains("server cp1 10.0.0.1:6443 check"));
         assert!(cfg.contains("server cp2 10.0.0.2:6443 check"));
@@ -91,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn build_haproxy_cfg_com_2_backends_nao_inventa_um_terceiro() {
+    fn build_haproxy_cfg_with_2_backends_does_not_invent_a_third() {
         let cfg = build_haproxy_cfg(&["10.0.0.1".into(), "10.0.0.2".into()]);
         assert!(!cfg.contains("server cp3"));
     }

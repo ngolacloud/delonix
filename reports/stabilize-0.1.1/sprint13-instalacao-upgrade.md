@@ -1,52 +1,52 @@
-# §13 — Instalação, actualização, remoção e preservação de dados
+# §13 — Installation, upgrade, removal and data preservation
 
-**Candidato:** `delonix 0.1.0` @ `8ab783dd` (linha `stabilize/0.1.1`).
-**Data:** 2026-10-29. **Método:** inspecção de `install.sh`/`MIGRATION.md`/
-`Makefile` + validação determinística da lógica; o E2E de ambiente limpo fica
-marcado como pendente de VM/contentor descartável (não validado no host de dev).
+**Candidate:** `delonix 0.1.0` @ `8ab783dd` (line `stabilize/0.1.1`).
+**Date:** 2026-10-29. **Method:** inspection of `install.sh`/`MIGRATION.md`/
+`Makefile` + deterministic validation of the logic; the clean-environment E2E is
+marked as pending on a disposable VM/container (not validated on the dev host).
 
-## Resumo por item do §13
+## Summary by §13 item
 
-| Item | Estado | Evidência / nota |
+| Item | State | Evidence / note |
 |---|---|---|
-| Requisitos | ✅ coberto | `install.sh` detecta distro por `/etc/os-release` (apt/dnf/zypper/pacman) e instala deps de runtime só se faltarem |
-| Instalação | ✅ coberto | `install.sh` (binário+deps+config host); `--user` = binário rootless em `~/.local/bin` sem sudo |
-| Configuração | ✅ coberto | `providers.yaml` via `--vm-provider` (ADR-0054); um ficheiro existente **nunca** é reescrito |
-| Permissões | ✅ (root) | subuid/subgid, AppArmor, systemd — operações de root |
-| Inicialização | ✅ coberto | rootless-first, daemonless; rede «on demand» |
-| **Diagnóstico** | ✅ coberto | `delonix system doctor` + `delonix system info` (visto a reportar state root, modo, cgroup2) |
-| **Actualização** | ✅ + fix | `install.sh` re-corre; `check_version` impõe os 5 binários-irmãos na MESMA versão; **FIX** `dab971fe`: aviso 5.x→0.1.x à frente |
-| **Migração 5.x→0.1.x** | ✅ documentado + à frente | `MIGRATION.md` (latest-por-data=0.1.0; auto-update SemVer NÃO dispara→reinstalar; rollback p/ tags v5.* imutáveis); agora **avisado no upgrade** |
-| **Preservação de dados** | ✅ por construção | `install.sh` NÃO tem nenhum `rm` de `~/.local/share/delonix` nem `/var/lib/delonix` — só apaga temporários (l.144/1256). Upgrade só substitui binários. P3 protege contra downgrade silencioso de estado |
-| **Remoção (uninstall)** | ✅ RESOLVIDO | `install.sh --uninstall` (preserva dados por omissão; `--purge` remove estado/config; honra `--user`; desliga boot primeiro; nomeia a config de host partilhada). `bash -n` + lógica testada nos dois modos. Antes: só `make uninstall` (from-source) |
-| E2E ambiente limpo | ⚠️ PENDENTE de ambiente | Instalação completa (deps via package manager + systemd + subuid) exige distro suportada + root → **validar em VM/contentor descartável**, não no host de dev (§18: ausência de ambiente ≠ aprovação) |
+| Requirements | ✅ covered | `install.sh` detects the distro via `/etc/os-release` (apt/dnf/zypper/pacman) and installs runtime deps only if they are missing |
+| Installation | ✅ covered | `install.sh` (binary+deps+host config); `--user` = rootless binary in `~/.local/bin` without sudo |
+| Configuration | ✅ covered | `providers.yaml` via `--vm-provider` (ADR-0054); an existing file is **never** overwritten |
+| Permissions | ✅ (root) | subuid/subgid, AppArmor, systemd — root operations |
+| Initialization | ✅ covered | rootless-first, daemonless; on-demand networking |
+| **Diagnostics** | ✅ covered | `delonix system doctor` + `delonix system info` (observed reporting state root, mode, cgroup2) |
+| **Upgrade** | ✅ + fix | `install.sh` re-runs; `check_version` enforces the 5 sibling binaries on the SAME version; **FIX** `dab971fe`: 5.x→0.1.x warning surfaced up front |
+| **Migration 5.x→0.1.x** | ✅ documented + surfaced | `MIGRATION.md` (latest-by-date=0.1.0; SemVer auto-update does NOT trigger→reinstall; rollback to immutable v5.* tags); now **warned during upgrade** |
+| **Data preservation** | ✅ by construction | `install.sh` has NO `rm` of `~/.local/share/delonix` nor `/var/lib/delonix` — it only deletes temporaries (l.144/1256). Upgrade only replaces binaries. P3 guards against silent state downgrade |
+| **Removal (uninstall)** | ✅ RESOLVED | `install.sh --uninstall` (preserves data by default; `--purge` removes state/config; honours `--user`; disables boot first; names the shared host config). `bash -n` + logic tested in both modes. Before: only `make uninstall` (from-source) |
+| Clean-environment E2E | ⚠️ PENDING on environment | A full install (deps via package manager + systemd + subuid) requires a supported distro + root → **validate on a disposable VM/container**, not on the dev host (§18: absence of environment ≠ approval) |
 
-## Correcção aplicada (`dab971fe`)
+## Correction applied (`dab971fe`)
 
-`install.sh` só avisava na remoção de Kinds `0.64→0.65`. Adicionado um ramo
-`1.*|2.*|3.*|4.*|5.*)` à verificação de versão ANTES de substituir o binário:
-nomeia o re-base como deliberado (não downgrade), afirma a preservação de
-estado/imagens/volumes/config/sockets/serviços, lembra o alinhamento dos 5
-binários-irmãos, e aponta para `MIGRATION.md`. `bash -n` limpo; lógica do `case`
-exercitada para `5.1.1` (avisa re-base), `0.64.0` (avisa Kinds), `0.1.0`/vazio
-(sem aviso — instalação nova).
+`install.sh` only warned on the removal of Kinds `0.64→0.65`. A
+`1.*|2.*|3.*|4.*|5.*)` branch was added to the version check BEFORE replacing the
+binary: it names the re-base as deliberate (not a downgrade), asserts the
+preservation of state/images/volumes/config/sockets/services, reminds of the
+5 sibling binaries' alignment, and points to `MIGRATION.md`. `bash -n` clean;
+the `case` logic exercised for `5.1.1` (warns re-base), `0.64.0` (warns Kinds),
+`0.1.0`/empty (no warning — fresh install).
 
-## Ligação ao F-1 (cura no upgrade)
+## Link to F-1 (healing on upgrade)
 
-O percurso de upgrade tem um efeito de estado já provado nesta campanha: camadas
-de imagem desempacotadas por um binário pré-correcção são **curadas no 1.º uso**
-após o upgrade (época de formato `LAYER_EPOCH`, prova A/B live com rabbitmq). Ou
-seja, o upgrade do binário + primeiro uso reconcilia o estado em disco que o
-próprio upgrade não toca.
+The upgrade path has a state effect already proven in this campaign: image
+layers unpacked by a pre-fix binary are **healed on first use** after the upgrade
+(`LAYER_EPOCH` format epoch, live A/B proof with rabbitmq). That is, the binary
+upgrade + first use reconciles the on-disk state that the upgrade itself does not
+touch.
 
-## Gaps / acções recomendadas para o GO
+## Gaps / recommended actions for GO
 
-1. **Uninstall do operador:** dar ao `install.sh` um `--uninstall` (remove os 5
-   binários do `BIN_DIR`, preserva o state dir por omissão, com `--purge` opt-in
-   para o apagar), OU documentar o procedimento manual explícito. P3/baixa.
-2. **E2E de ambiente limpo:** correr `install.sh` numa VM/contentor de cada
-   distro suportada (apt/dnf/zypper/pacman): instalar → `system doctor` verde →
-   re-correr (upgrade, dados preservados) → remover. Bloqueia a afirmação
-   "instalação suportada em produção" até ser feito.
-3. **Nit de marca:** o cabeçalho do `--help` ainda diz «Delonix **Runtime**» —
-   alinhar com a identidade `Delonix`.
+1. **Operator uninstall:** give `install.sh` a `--uninstall` (removes the 5
+   binaries from `BIN_DIR`, preserves the state dir by default, with an opt-in
+   `--purge` to delete it), OR document the explicit manual procedure. P3/low.
+2. **Clean-environment E2E:** run `install.sh` on a VM/container of each
+   supported distro (apt/dnf/zypper/pacman): install → `system doctor` green →
+   re-run (upgrade, data preserved) → remove. Blocks the
+   "production-supported installation" claim until done.
+3. **Branding nit:** the `--help` header still says «Delonix **Runtime**» —
+   align with the `Delonix` identity.

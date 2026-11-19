@@ -1574,7 +1574,7 @@ mod tests {
     /// point of the field; `host`/`none` keep meaning the default bridge because a pod IS a
     /// shared netns and `host` is the field's own default.
     #[test]
-    fn o_spec_network_de_um_pod_escolhe_mesmo_a_rede() {
+    fn a_pods_spec_network_actually_picks_the_network() {
         assert_eq!(pod_network("kaeso-net"), "kaeso-net");
         assert_eq!(pod_network("  kaeso-net  "), "kaeso-net");
         for default_ish in ["", "host", "none"] {
@@ -1591,7 +1591,7 @@ mod tests {
     /// is what makes an unchanged pod diff to nothing; a different fallback
     /// would report drift forever.
     #[test]
-    fn o_membro_sem_nome_usa_o_mesmo_fallback_por_posicao() {
+    fn a_member_with_no_name_uses_the_same_fallback_by_position() {
         let doc: super::ManifestDoc = serde_yaml::from_str(
             "apiVersion: delonix.io/v1\nkind: Pod\nmetadata: { name: p }\nspec:\n  containers:\n    - image: nginx\n    - name: side\n      image: redis\n",
         )

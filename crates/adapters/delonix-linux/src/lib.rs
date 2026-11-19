@@ -7771,10 +7771,10 @@ fn setup_cgroup(c: &Container, pid: i32, io_dev: Option<&str>) -> Result<()> {
             // The warning is about the ENVIRONMENT (there is no cgroup delegation in this
             // session), not about this container — hence ONCE per process, and
             // silenceable via env when the caller already warned (see above).
-            let calado = std::env::var_os("DELONIX_NO_CGROUP_WARN").is_some();
-            if !calado {
-                static AVISO: std::sync::Once = std::sync::Once::new();
-                AVISO.call_once(|| {
+            let silenced = std::env::var_os("DELONIX_NO_CGROUP_WARN").is_some();
+            if !silenced {
+                static WARNED_ONCE: std::sync::Once = std::sync::Once::new();
+                WARNED_ONCE.call_once(|| {
                     eprintln!(
                         "delonix: warning — rootless WITHOUT cgroup delegation: memory/cpu/pids are\n\
                          \x20        NOT enforced (a fork-bomb or leak may affect the host). To get\n\
@@ -12976,10 +12976,10 @@ pub fn update_limits(
         // The question that separates the two cases is "is this container ALIVE?", and the
         // honest answer uses the same `safe_to_signal` as the rest of the engine (the
         // pid+starttime pair, so a recycled PID is not mistaken for alive).
-        let vivo = container
+        let alive = container
             .pid
             .is_some_and(|p| safe_to_signal(p, container.pid_starttime));
-        return Ok(if vivo {
+        return Ok(if alive {
             LimitUpdate::NotEnforced
         } else {
             LimitUpdate::Deferred
@@ -13682,11 +13682,11 @@ mod remove_tests {
 mod limit_update_tests {
     use super::*;
 
-    fn parado() -> Container {
+    fn stopped() -> Container {
         Container::new(
             "a".repeat(16),
             "lim".into(),
-            "/tmp/naoexiste".into(),
+            "/tmp/doesnotexist".into(),
             vec!["/bin/true".into()],
             "64M".into(),
         )
@@ -13700,13 +13700,13 @@ mod limit_update_tests {
     /// wrong was merging THIS with the opposite case (container ALIVE and with no cgroup, where
     /// the write did not happen and never will) and calling both "updated".
     #[test]
-    fn um_container_parado_adia_em_vez_de_mentir() {
-        let c = parado();
-        assert_eq!(c.pid, None, "o container de teste tem de estar parado");
+    fn a_stopped_container_defers_instead_of_lying() {
+        let c = stopped();
+        assert_eq!(c.pid, None, "the test container must be stopped");
         assert_eq!(
             update_limits(&c, Some("128M"), None).unwrap(),
             LimitUpdate::Deferred,
-            "sem processo, o limite aplica-se no próximo start — nunca «updated»"
+            "with no process, the limit applies on the next start — never \"updated\""
         );
     }
 
@@ -13719,9 +13719,9 @@ mod limit_update_tests {
     /// (pid+starttime pair) as the rest of the engine, so a PID RECYCLED by some other
     /// process is not mistaken for alive.
     #[test]
-    fn um_pid_obsoleto_nao_conta_como_vivo() {
-        let mut c = parado();
-        c.pid = Some(0x7FFF_FFFE); // fora do alcance de qualquer pid_max real
+    fn a_stale_pid_does_not_count_as_alive() {
+        let mut c = stopped();
+        c.pid = Some(0x7FFF_FFFE); // out of range of any real pid_max
         c.pid_starttime = Some(1);
         assert_eq!(
             update_limits(&c, Some("128M"), None).unwrap(),
@@ -13734,7 +13734,7 @@ mod limit_update_tests {
     /// not the liveness decision, which stays shared via `live_cgroup`.
     #[test]
     fn update_kube_resources_defers_on_a_stopped_container() {
-        let c = parado();
+        let c = stopped();
         let u = ResourceUpdate {
             memory: Some("128M"),
             ..Default::default()
@@ -13747,7 +13747,7 @@ mod limit_update_tests {
 
     #[test]
     fn update_kube_resources_does_not_mistake_a_stale_pid_for_alive() {
-        let mut c = parado();
+        let mut c = stopped();
         c.pid = Some(0x7FFF_FFFE);
         c.pid_starttime = Some(1);
         let u = ResourceUpdate {
@@ -13856,7 +13856,7 @@ mod tests {
 
         assert!(
             !root.exists(),
-            "a árvore inteira tem de desaparecer, não só o nível de topo"
+            "the whole tree must disappear, not just the top level"
         );
     }
 
@@ -14001,7 +14001,7 @@ mod tests {
     /// latter, four of them would be 100% of the machine and only the aggregate
     /// ceiling would catch it.
     #[test]
-    fn quatro_cargas_sem_limites_enchem_o_orcamento_e_nao_o_host() {
+    fn four_workloads_without_limits_fill_the_budget_and_not_the_host() {
         let host_mib = 32 * 1024u64;
         let reserve = 85u64; // host_reserve_pct default
         let pct = 25u64; // default_workload_pct default
@@ -14012,16 +14012,16 @@ mod tests {
         // 27795), so four shares land just under, never above.
         assert!(
             4 * share <= budget,
-            "4 x {share} = {} excede o orçamento de {budget}",
+            "4 x {share} = {} exceeds the budget of {budget}",
             4 * share
         );
         assert!(
             budget - 4 * share < budget / 100,
-            "perda de arredondamento acima de 1% do orçamento"
+            "rounding loss above 1% of the budget"
         );
         assert!(
             4 * share < host_mib,
-            "quatro cargas nunca podem somar o host inteiro"
+            "four workloads can never add up to the whole host"
         );
     }
 
@@ -14029,16 +14029,16 @@ mod tests {
     /// on a big host is 6.8 cores; if `default_cpus` ever returned that, this
     /// "safety feature" would have widened the default sevenfold.
     #[test]
-    fn default_de_cpu_nunca_afrouxa_o_historico() {
-        let cores: f64 = super::default_cpus().parse().expect("cpus parseável");
+    fn cpu_default_never_loosens_the_historical_value() {
+        let cores: f64 = super::default_cpus().parse().expect("parseable cpus");
         assert!(
             cores <= super::LEGACY_DEFAULT_CPUS,
-            "default_cpus() = {cores} — afrouxou acima do histórico de {}",
+            "default_cpus() = {cores} — loosened above the historical {}",
             super::LEGACY_DEFAULT_CPUS
         );
         assert!(
             cores >= super::MIN_DEFAULT_CPUS,
-            "default_cpus() = {cores} — abaixo do piso de {}",
+            "default_cpus() = {cores} — below the floor of {}",
             super::MIN_DEFAULT_CPUS
         );
     }
@@ -14047,28 +14047,28 @@ mod tests {
     /// `/proc/meminfo` is readable — every host that runs the tests — the derived
     /// value must be a real number, never cgroup-v2's word for "no ceiling".
     #[test]
-    fn default_de_memoria_nunca_e_max_num_host_legivel() {
+    fn memory_default_is_never_max_on_a_readable_host() {
         let v = super::default_memory_max();
-        assert_ne!(v, "max", "voltou ao default sem tecto");
-        assert!(v.ends_with('M'), "formato inesperado: {v}");
-        let mib: u64 = v.trim_end_matches('M').parse().expect("MiB parseável");
-        assert!(mib >= 64, "abaixo do piso de 64 MiB: {v}");
+        assert_ne!(v, "max", "fell back to the ceilingless default");
+        assert!(v.ends_with('M'), "unexpected format: {v}");
+        let mib: u64 = v.trim_end_matches('M').parse().expect("parseable MiB");
+        assert!(mib >= 64, "below the floor of 64 MiB: {v}");
         // And it must be a real fraction of the host, not the whole thing.
         assert!(
             super::parse_mem_bytes(&v) < super::host_mem_bytes(),
-            "o default ({v}) não pode ser o host inteiro"
+            "the default ({v}) cannot be the whole host"
         );
     }
 
     /// `DELONIX_DEFAULT_PCT` is clamped, so a typo cannot silently disable the
     /// ceiling — the exact failure mode the derived default exists to remove.
     #[test]
-    fn percentagem_invalida_cai_no_default_e_nao_desliga_o_tecto() {
-        for bad in ["0", "101", "-5", "vinte e cinco", ""] {
+    fn invalid_percentage_falls_back_to_default_and_does_not_disable_the_ceiling() {
+        for bad in ["0", "101", "-5", "twenty five", ""] {
             assert_eq!(
                 super::workload_pct_from(Some(bad)),
                 25,
-                "{bad:?} devia ter caído no default"
+                "{bad:?} should have fallen back to the default"
             );
         }
         assert_eq!(super::workload_pct_from(None), 25);
@@ -14081,7 +14081,7 @@ mod tests {
     /// Measured live before the fix: `/proc/interrupts` with 109 lines and
     /// `/sys/firmware` with 4 entries visible from inside the container.
     #[test]
-    fn os_defaults_de_masked_paths_cobrem_a_lista_do_runc() {
+    fn the_masked_paths_defaults_cover_runcs_list() {
         // The ones that leak kernel pointers (KASLR) and timing side-channels.
         for p in [
             "/proc/timer_list",
@@ -14093,14 +14093,14 @@ mod tests {
         ] {
             assert!(
                 super::DEFAULT_MASKED_PATHS.contains(&p),
-                "{p} tem de estar mascarado por omissão (o runc mascara-o)"
+                "{p} must be masked by default (runc masks it)"
             );
         }
         // Writing to these takes effect at the host level (IRQ affinity, PCI config).
         for p in ["/proc/irq", "/proc/bus", "/proc/sys"] {
             assert!(
                 super::DEFAULT_READONLY_PATHS.contains(&p),
-                "{p} tem de ser read-only por omissão"
+                "{p} must be read-only by default"
             );
         }
     }
@@ -14383,7 +14383,7 @@ mod tests {
             "a socket needs a file-shaped mount point"
         );
         // A source that is not there at all keeps the historical behaviour.
-        assert!(mount_point_should_be_dir(&dir.join("nao-existe")));
+        assert!(mount_point_should_be_dir(&dir.join("does-not-exist")));
     }
 
     /// Audit finding (MEDIUM): `bind_devices` built the destination by
@@ -14393,31 +14393,31 @@ mod tests {
     /// the exploit: a "host" file with content, outside the rootfs, must
     /// stay INTACT. Without the fix, it would end up with 0 bytes.
     #[test]
-    fn bind_devices_recusa_destino_que_escapa_o_rootfs() {
+    fn bind_devices_rejects_destination_that_escapes_the_rootfs() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         let rootfs = dir.join("rootfs");
         std::fs::create_dir_all(&rootfs).unwrap();
         // The "host file" the attacker wants to destroy (outside the rootfs).
-        let victim = dir.join("etc_crontab_do_host");
-        std::fs::write(&victim, b"* * * * * root /usr/bin/legitimo\n").unwrap();
+        let victim = dir.join("host_etc_crontab");
+        std::fs::write(&victim, b"* * * * * root /usr/bin/legit\n").unwrap();
         let before = std::fs::read(&victim).unwrap();
 
-        // `/dev/null:/../etc_crontab_do_host` → leaves the rootfs for the file above.
+        // `/dev/null:/../host_etc_crontab` → leaves the rootfs for the file above.
         super::bind_devices(
             "",
             rootfs.to_str().unwrap(),
-            &["/dev/null:/../etc_crontab_do_host".to_string()],
+            &["/dev/null:/../host_etc_crontab".to_string()],
         );
 
         let after = std::fs::read(&victim).unwrap();
         assert_eq!(
             before, after,
-            "o ficheiro do host FORA do rootfs foi modificado/truncado — traversal via --device"
+            "the host file OUTSIDE the rootfs was modified/truncated — traversal via --device"
         );
         assert!(
             !after.is_empty(),
-            "o ficheiro do host foi truncado para 0 bytes"
+            "the host file was truncated to 0 bytes"
         );
     }
 
@@ -14425,11 +14425,11 @@ mod tests {
     /// They are CHAR devices, so they pass the block-device filter — in root mode
     /// (the CRI/kubelet path) any one of them is a total compromise of the host.
     #[test]
-    fn bind_devices_recusa_dev_mem_kmem_e_port() {
+    fn bind_devices_rejects_dev_mem_kmem_and_port() {
         for d in ["/dev/mem", "/dev/kmem", "/dev/port"] {
             assert!(
                 super::is_forbidden_device(d),
-                "{d} tinha de ser recusado explicitamente"
+                "{d} had to be rejected explicitly"
             );
         }
         // A legitimate char device stays allowed (this is not a blind denylist).
@@ -14443,7 +14443,7 @@ mod tests {
     /// malformed (an invalid `/etc/hosts` breaks resolution ENTIRELY inside the
     /// container — losing one entry is preferable to losing the file).
     #[test]
-    fn write_etc_files_escreve_as_entradas_de_add_host() {
+    fn write_etc_files_writes_the_add_host_entries() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         std::fs::create_dir_all(dir.join("etc")).unwrap();
@@ -14471,10 +14471,10 @@ mod tests {
         // that makes the override win — as in Docker and Podman. The previous
         // version had it the other way round and the entry had no effect at all.
         let pos_extra = hosts.find("meet.kaeso.local").unwrap();
-        let pos_canonica = hosts.find("10.0.0.5\tapp").unwrap();
+        let pos_canonical = hosts.find("10.0.0.5\tapp").unwrap();
         assert!(
-            pos_extra < pos_canonica,
-            "o override do utilizador tem de vir primeiro"
+            pos_extra < pos_canonical,
+            "the user's override must come first"
         );
     }
 
@@ -14488,7 +14488,7 @@ mod tests {
     /// symlink target changes, the function followed the link (bug); if only the ctime of the
     /// link ITSELF changes, `lchown` was used correctly.
     #[test]
-    fn lchown_tree_nao_segue_symlinks() {
+    fn lchown_tree_does_not_follow_symlinks() {
         use std::os::unix::fs::MetadataExt;
 
         let tmp = tempfile::tempdir().unwrap();
@@ -14499,9 +14499,9 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
 
         let victim = outside.join("victim.txt");
-        std::fs::write(&victim, b"nao mexer").unwrap();
+        std::fs::write(&victim, b"do not touch").unwrap();
         let real_file = tree.join("sub").join("file.txt");
-        std::fs::write(&real_file, b"parte da arvore").unwrap();
+        std::fs::write(&real_file, b"part of the tree").unwrap();
         let link = tree.join("link_to_victim");
         std::os::unix::fs::symlink(&victim, &link).unwrap();
 
@@ -14521,15 +14521,15 @@ mod tests {
 
         assert_eq!(
             victim_ctime_before, victim_ctime_after,
-            "lchown_tree TOCOU no alvo do symlink fora da árvore — seguiu o link (regressão do bug chown-vs-lchown)"
+            "lchown_tree TOUCHED the symlink target outside the tree — it followed the link (regression of the chown-vs-lchown bug)"
         );
         assert!(
             link_ctime_after >= link_ctime_before,
-            "o próprio link devia ter sido processado (lchown sobre o link em si)"
+            "the link itself should have been processed (lchown on the link itself)"
         );
         assert!(
             file_ctime_after >= file_ctime_before,
-            "um ficheiro real dentro da árvore devia continuar a ser chown'd normalmente"
+            "a real file inside the tree should still be chown'd normally"
         );
     }
 
@@ -14670,7 +14670,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             ["--memory", "--memory-reservation", "--memory-swap"]
         );
         for c in ["cpu", "memory", "cpuset", "io", "pids"] {
-            assert!(!flags_of_controller(c).is_empty(), "{c} sem flags");
+            assert!(!flags_of_controller(c).is_empty(), "{c} without flags");
         }
         assert!(flags_of_controller("hugetlb").is_empty());
     }
@@ -14735,7 +14735,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         assert_eq!(
             user_service_base("/sys/fs/cgroup/user.slice/user-1000.slice/session-40.scope"),
             None,
-            "uma sessão SSH não tem fronteira de delegação alcançável"
+            "an SSH session has no reachable delegation boundary"
         );
 
         // outside the session tree (system service) → no escape.
@@ -14764,12 +14764,12 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// in place, what remains is to make VISIBLE the configurations where
     /// there is still no protection at all, instead of pretending they are fine.
     #[test]
-    fn so_avisa_quando_nao_ha_tecto_a_nivel_nenhum() {
+    fn only_warns_when_there_is_no_ceiling_at_any_level() {
         // No own limit AND no aggregate ceiling → this is the dangerous case.
         assert!(unprotected_memory("max", Some("max")));
         assert!(
             unprotected_memory("max", None),
-            "pai ilegível não é protecção"
+            "an unreadable parent is not protection"
         );
         assert!(unprotected_memory("", Some("max")));
         assert!(unprotected_memory("MAX", Some("max")), "case-insensitive");
@@ -14803,7 +14803,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// a container started with `-m 256M`. Removing either of the two
     /// writes in `try_delegated_base` makes this test fail.
     #[test]
-    fn leaf_delegada_fecha_o_swap_e_mata_o_cgroup_inteiro_no_oom() {
+    fn delegated_leaf_closes_swap_and_kills_the_whole_cgroup_on_oom() {
         let tmp = fake_base();
         let base = tmp.path();
         let c = Container::new(
@@ -14824,12 +14824,12 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         assert_eq!(
             std::fs::read_to_string(leaf.join("memory.swap.max")).unwrap(),
             "0",
-            "sem isto o limite de memória é só sobre a residente"
+            "without this the memory limit covers only the resident memory"
         );
         assert_eq!(
             std::fs::read_to_string(leaf.join("memory.oom.group")).unwrap(),
             "1",
-            "o OOM tem de matar o container inteiro, não um processo dele"
+            "the OOM must kill the whole container, not one process of it"
         );
     }
 
@@ -14841,7 +14841,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// under a systemd scope where delegation had failed, one for each
     /// container ever attempted there.
     #[test]
-    fn base_nao_delegavel_nao_deixa_leaf_orfa() {
+    fn non_delegable_base_leaves_no_orphan_leaf() {
         // A base with NO truly writable `cgroup.subtree_control`: the
         // leaf's `create_dir_all` succeeds, but enabling controllers
         // fails — exactly the case of a populated scope (no-internal-processes).
@@ -14858,7 +14858,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         std::fs::set_permissions(base.join("cgroup.subtree_control"), perm).unwrap();
 
         let c = Container::new(
-            "orfa01".into(),
+            "orphan01".into(),
             "t".into(),
             "img".into(),
             vec!["sh".into()],
@@ -14878,13 +14878,13 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             assert!(
                 // SAFETY: `geteuid` takes no arguments and has no preconditions.
                 unsafe { libc::geteuid() } == 0,
-                "a delegação devia ter falhado numa base só-leitura"
+                "delegation should have failed on a read-only base"
             );
             eprintln!("warning: running as root — orphan-leaf assertion skipped");
         } else {
             assert!(
                 !leaf.exists(),
-                "a leaf ficou órfã depois de a delegação falhar — é este o bug"
+                "the leaf was orphaned after delegation failed — this is the bug"
             );
         }
     }
@@ -14898,7 +14898,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// rootless containers on this host, had `memory.max=max`, `pids.max=max`,
     /// `cpu.max=max`.
     #[test]
-    fn a_base_propria_leva_tecto_agregado_dimensionado_ao_host() {
+    fn the_own_base_carries_an_aggregate_ceiling_sized_to_the_host() {
         let tmp = fake_base();
         let base = tmp.path();
         let bs = base.to_str().unwrap();
@@ -14909,10 +14909,10 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             .trim()
             .parse()
             .expect("memory.max must be a number, not `max`");
-        assert!(mem > 0, "o tecto agregado não pode ser zero");
+        assert!(mem > 0, "the aggregate ceiling cannot be zero");
         assert!(
             mem < host_mem_bytes(),
-            "o tecto ({mem}) tem de reservar memória para o HOST (total {})",
+            "the ceiling ({mem}) must reserve memory for the HOST (total {})",
             host_mem_bytes()
         );
 
@@ -14926,7 +14926,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         let cpu = std::fs::read_to_string(base.join("cpu.max")).unwrap();
         assert!(
             !cpu.starts_with("max"),
-            "cpu.max continuou sem tecto: {cpu:?}"
+            "cpu.max stayed ceilingless: {cpu:?}"
         );
         assert_eq!(
             std::fs::read_to_string(base.join("memory.swap.max"))
@@ -14943,23 +14943,23 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         // overlay/tmpfs (`maj == 0`), and there not writing is the correct behavior —
         // so the assertion only tightens when there is a device.
         match aggregate_io_max_value() {
-            Some(esperado) => {
-                let escrito = std::fs::read_to_string(base.join("io.max"))
+            Some(expected) => {
+                let written = std::fs::read_to_string(base.join("io.max"))
                     .expect("io.max must be written when there is a device");
-                assert_eq!(escrito, esperado);
-                let campos: Vec<&str> = escrito.split_whitespace().collect();
-                assert_eq!(campos.len(), 3, "forma `MAJ:MIN rbps=N wbps=N`: {escrito}");
+                assert_eq!(written, expected);
+                let fields: Vec<&str> = written.split_whitespace().collect();
+                assert_eq!(fields.len(), 3, "shape `MAJ:MIN rbps=N wbps=N`: {written}");
                 assert!(
-                    campos[0].split(':').count() == 2
-                        && campos[0].split(':').all(|n| n.parse::<u32>().is_ok()),
-                    "o primeiro campo tem de ser MAJ:MIN, veio `{}`",
-                    campos[0]
+                    fields[0].split(':').count() == 2
+                        && fields[0].split(':').all(|n| n.parse::<u32>().is_ok()),
+                    "the first field must be MAJ:MIN, got `{}`",
+                    fields[0]
                 );
-                assert!(campos[1].starts_with("rbps=") && campos[2].starts_with("wbps="));
+                assert!(fields[1].starts_with("rbps=") && fields[2].starts_with("wbps="));
             }
             None => assert!(
                 !base.join("io.max").exists(),
-                "sem dispositivo utilizável não se escreve io.max nenhum"
+                "with no usable device no io.max is written at all"
             ),
         }
     }
@@ -14968,22 +14968,22 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// A malformed line is rejected by cgroupfs with `EINVAL` and the write's
     /// `let _ =` swallows it — it would give back a ceiling that does not exist.
     #[test]
-    fn o_valor_do_tecto_agregado_de_io_tem_a_forma_que_o_cgroupfs_aceita() {
+    fn the_aggregate_io_ceiling_value_has_the_shape_cgroupfs_accepts() {
         // `if let` and not `match`: on a machine with no usable device there is
         // nothing to check — and that is exactly why the function returns
         // `Option` instead of fabricating a value.
         if let Some(v) = aggregate_io_max_value() {
             {
-                let campos: Vec<&str> = v.split_whitespace().collect();
-                assert_eq!(campos.len(), 3, "`MAJ:MIN rbps=N wbps=N`, veio `{v}`");
-                let (maj, min) = campos[0].split_once(':').expect("MAJ:MIN");
+                let fields: Vec<&str> = v.split_whitespace().collect();
+                assert_eq!(fields.len(), 3, "`MAJ:MIN rbps=N wbps=N`, got `{v}`");
+                let (maj, min) = fields[0].split_once(':').expect("MAJ:MIN");
                 assert!(maj.parse::<u32>().is_ok() && min.parse::<u32>().is_ok());
-                assert_ne!(maj, "0", "maj 0 é dispositivo virtual e não serve de tecto");
-                for (campo, prefixo) in [(campos[1], "rbps="), (campos[2], "wbps=")] {
-                    let n = campo.strip_prefix(prefixo).expect(prefixo);
+                assert_ne!(maj, "0", "maj 0 is a virtual device and is no use as a ceiling");
+                for (field, prefix) in [(fields[1], "rbps="), (fields[2], "wbps=")] {
+                    let n = field.strip_prefix(prefix).expect(prefix);
                     assert!(
                         n.parse::<u64>().map(|v| v > 0).unwrap_or(false),
-                        "`{campo}` tem de trazer um número positivo"
+                        "`{field}` must carry a positive number"
                     );
                 }
             }
@@ -14995,7 +14995,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// whose files stay `root:root`. Creating a child is possible in both —
     /// only the write to `cgroup.subtree_control` tells them apart.
     #[test]
-    fn delegated_base_usable_exige_subtree_control_gravavel() {
+    fn delegated_base_usable_requires_writable_subtree_control() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -15015,7 +15015,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         tmp.close().unwrap();
         assert!(
             readonly_rejected,
-            "um subtree_control não gravável tem de ser recusado — é o caso do SSH"
+            "a non-writable subtree_control must be rejected — this is the SSH case"
         );
     }
 
@@ -15413,7 +15413,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// container aborted with 126 — and the symptom was four unrelated seccomp
     /// specs failing, not anything naming NO_NEW_PRIVS.
     #[test]
-    fn confinement_ok_so_exige_no_new_privs_quando_foi_pedido() {
+    fn confinement_ok_only_requires_no_new_privs_when_requested() {
         let keep = (1u64 << 1) | (1u64 << 3);
         // Requested and absent → abort.
         assert!(
@@ -15459,7 +15459,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         for dangerous in [21u8, 16, 22, 27, 17, 19, 39] {
             assert!(
                 !crate::capabilities::KEPT_CAPS.contains(&dangerous),
-                "cap {dangerous} não devia ser mantida"
+                "cap {dangerous} should not be kept"
             );
         }
     }
@@ -15501,7 +15501,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         ] {
             assert!(
                 !allowed.contains(&nr),
-                "syscall {nr} perigoso NÃO devia estar na allowlist"
+                "dangerous syscall {nr} should NOT be on the allowlist"
             );
         }
         // common/essential: INSIDE the allowlist.
@@ -15516,7 +15516,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         ] {
             assert!(
                 allowed.contains(&nr),
-                "syscall {nr} essencial DEVIA estar na allowlist"
+                "essential syscall {nr} SHOULD be on the allowlist"
             );
         }
     }
@@ -15534,12 +15534,12 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// install as a fatal bootstrap check and exits 78 — the container never
     /// started. The same image reached `Process[es] is up` with the filter off.
     #[test]
-    fn seccomp_allowlist_permite_o_proprio_seccomp() {
+    fn seccomp_allowlist_permits_seccomp_itself() {
         let allowed = allowed_syscalls();
         assert!(
             allowed.contains(&libc::SYS_seccomp),
-            "sem `seccomp` na allowlist, nenhum payload se pode auto-sandboxar \
-             (Elasticsearch, Chrome, systemd-nspawn) — e falha de forma fatal"
+            "without `seccomp` on the allowlist, no payload can self-sandbox \
+             (Elasticsearch, Chrome, systemd-nspawn) — and it fails fatally"
         );
         // `prctl` goes with it: it is through `prctl` that the payload sets `no_new_privs`, which is
         // the condition for `seccomp` without CAP_SYS_ADMIN.
@@ -15624,7 +15624,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     }
 
     #[test]
-    fn sysctl_allowlist_so_aceita_namespaced() {
+    fn sysctl_allowlist_only_accepts_namespaced() {
         // namespaced (safe) → permitted, WITH an own netns and IPC ns.
         for k in [
             "net.ipv4.ip_forward",
@@ -15632,7 +15632,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             "kernel.sem",
             "fs.mqueue.msg_max",
         ] {
-            assert!(sysctl_namespaced(k, true, true), "{k} devia ser permitido");
+            assert!(sysctl_namespaced(k, true, true), "{k} should be permitted");
         }
         // global to the host / traversal → refused, regardless of namespaces.
         for k in [
@@ -15643,13 +15643,13 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         ] {
             assert!(
                 !sysctl_namespaced(k, true, true),
-                "{k} NÃO devia ser permitido"
+                "{k} should NOT be permitted"
             );
         }
     }
 
     #[test]
-    fn sysctl_net_star_recusado_sem_netns_propria() {
+    fn sysctl_net_star_refused_without_own_netns() {
         // BUG regression guard: `--net host` (or rootless custom-network,
         // which shares the ingress holder's netns) used to let `net.*`
         // sysctls through unconditionally — writing a GLOBAL knob of
@@ -15665,7 +15665,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     }
 
     #[test]
-    fn sysctl_ipc_recusado_sem_ipcns_propria() {
+    fn sysctl_ipc_refused_without_own_ipcns() {
         // BUG regression guard (ALTO #1), sibling of the `net.*` case:
         // `--host-ipc` (CRI `ipc: NODE`), or a pod member joining the infra's
         // IPC ns, shares the host's IPC namespace — so the IPC sysctls
@@ -15681,11 +15681,11 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         ] {
             assert!(
                 !sysctl_namespaced(k, true, false),
-                "{k} NÃO devia ser permitido sem IPC ns própria"
+                "{k} should NOT be permitted without an own IPC ns"
             );
             assert!(
                 sysctl_namespaced(k, true, true),
-                "{k} devia ser permitido com IPC ns própria"
+                "{k} should be permitted with an own IPC ns"
             );
         }
         // The net gate and the IPC gate are independent: an own netns does not
@@ -15696,7 +15696,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
 
     /// `euid 0` is not proof of real root, and this is the parse that decides.
     #[test]
-    fn initial_uid_map_reconhece_so_a_namespace_inicial() {
+    fn initial_uid_map_recognizes_only_the_initial_namespace() {
         use delonix_node as super_;
         // The initial namespace: identity map over the whole range.
         assert!(super_::initial_uid_map(
@@ -15720,25 +15720,25 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     }
 
     #[test]
-    fn uma_origem_de_bind_que_desapareceu_e_nomeada() {
+    fn a_bind_source_that_disappeared_is_named() {
         // Reproduces the case that showed up on a real host: a container with several
         // bind mounts stopped starting and the engine said only
         // `failed to prepare the rootfs: ENOENT` — for a condition it
         // knows. The logic is the same as the `setup_rootfs` preflight.
-        let existe = std::env::temp_dir();
-        let ausente = existe.join(format!("dlx-does-not-exist-{}", std::process::id()));
-        assert!(!ausente.exists(), "a premissa do teste");
+        let present = std::env::temp_dir();
+        let absent = present.join(format!("dlx-does-not-exist-{}", std::process::id()));
+        assert!(!absent.exists(), "the test's premise");
 
         let mounts = [
             Mount {
-                source: existe.to_string_lossy().into_owned(),
+                source: present.to_string_lossy().into_owned(),
                 target: "/a".into(),
                 readonly: false,
                 propagation: None,
                 optional: false,
             },
             Mount {
-                source: ausente.to_string_lossy().into_owned(),
+                source: absent.to_string_lossy().into_owned(),
                 target: "/b".into(),
                 readonly: true,
                 propagation: None,
@@ -15748,7 +15748,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             // container: a CDI spec names host paths (the persistenced socket,
             // firmware blobs) that come and go with a daemon.
             Mount {
-                source: ausente.to_string_lossy().into_owned(),
+                source: absent.to_string_lossy().into_owned(),
                 target: "/d".into(),
                 readonly: true,
                 propagation: None,
@@ -15762,19 +15762,19 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             })
             .map(|m| m.source.as_str())
             .collect();
-        assert_eq!(missing.len(), 1, "so o ausente NAO opcional conta");
+        assert_eq!(missing.len(), 1, "only the NON-optional absent one counts");
         assert!(missing[0].contains("dlx-does-not-exist"));
 
         // An EMPTY source is not a missing path — there are synthesized mounts
         // with no source, and treating them as absent would refuse valid containers.
-        let vazio = [Mount {
+        let empty = [Mount {
             source: String::new(),
             target: "/c".into(),
             readonly: false,
             propagation: None,
             optional: false,
         }];
-        assert!(vazio
+        assert!(empty
             .iter()
             .find(|m| !m.source.is_empty() && !std::path::Path::new(&m.source).exists())
             .is_none());
@@ -15847,7 +15847,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         );
         assert!(
             t.elapsed().as_millis() < 1_000,
-            "com o byte escrito devia devolver de imediato, demorou {:?}",
+            "with the byte written it should return immediately, took {:?}",
             t.elapsed()
         );
 
@@ -15869,7 +15869,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         );
         assert!(
             t.elapsed().as_millis() < 1_000,
-            "com EOF devia devolver de imediato, demorou {:?}",
+            "with EOF it should return immediately, took {:?}",
             t.elapsed()
         );
 
@@ -15883,13 +15883,13 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         let t = Instant::now();
         // The ceiling is never read as a failure: the container may still be mounting.
         assert_eq!(
-            wait_for_mounts_with(fds[0], "tecto", 120),
+            wait_for_mounts_with(fds[0], "ceiling", 120),
             MountWait::Unknown
         );
         let waited = t.elapsed();
         assert!(
             waited.as_millis() >= 100 && waited.as_millis() < 5_000,
-            "devia ter esperado ~120ms e desistido, esperou {waited:?}"
+            "should have waited ~120ms and given up, waited {waited:?}"
         );
         // SAFETY: `fds[1]` is the write end just created, closed once.
         unsafe { libc::close(fds[1]) };
@@ -16875,8 +16875,8 @@ mod spawn_step_tests {
             libc::close(err.0);
             libc::close(echo_out.1);
             libc::close(echo_err.1);
-            let o = b"ola stdout\n";
-            let e = b"ai stderr\n";
+            let o = b"hello stdout\n";
+            let e = b"oops stderr\n";
             assert_eq!(
                 libc::write(out.1, o.as_ptr().cast(), o.len()),
                 o.len() as isize
@@ -16900,12 +16900,12 @@ mod spawn_step_tests {
             (s_out, s_err)
         };
         waitpid(pid, None).unwrap();
-        assert_eq!(echoed_out, "ola stdout\n", "echo do stdout no fd 1, cru");
-        assert_eq!(echoed_err, "ai stderr\n", "echo do stderr no fd 2, cru");
+        assert_eq!(echoed_out, "hello stdout\n", "echo of stdout on fd 1, raw");
+        assert_eq!(echoed_err, "oops stderr\n", "echo of stderr on fd 2, raw");
         let file = std::fs::read_to_string(&log).unwrap();
         assert!(
-            file.contains("ola stdout\n") && file.contains("ai stderr\n"),
-            "o ficheiro leva os dois streams (não-CRI: merge sem tag): {file:?}"
+            file.contains("hello stdout\n") && file.contains("oops stderr\n"),
+            "the file carries both streams (non-CRI: merge without tag): {file:?}"
         );
     }
 

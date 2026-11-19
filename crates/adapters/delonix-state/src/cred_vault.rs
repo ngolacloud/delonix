@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn get_exists_remove_recusam_nomes_com_traversal() {
+    fn get_exists_remove_refuse_names_with_traversal() {
         // BUG regression guard: only `put` validated the name — `get`/
         // `exists`/`remove` built `<dir>/<name>.bin` from the raw name, an
         // arbitrary-file-read/delete primitive via `../../../etc/passwd`-style
@@ -331,7 +331,7 @@ mod tests {
         let as_str = String::from_utf8_lossy(&raw);
         assert!(
             !as_str.contains("PLAINTEXT-MARKER-123"),
-            "token vazou em claro no disco!"
+            "token leaked in cleartext on disk!"
         );
         // 0600 permissions
         let mode = fs::metadata(base.join("tunnels/cred/pinggy.bin"))
@@ -371,7 +371,7 @@ mod tests {
         let key_before = fs::read(base.join("tunnels/keyring.key")).unwrap();
         v.rotate_key().unwrap();
         let key_after = fs::read(base.join("tunnels/keyring.key")).unwrap();
-        assert_ne!(key_before, key_after, "a chave-mestra não rodou");
+        assert_ne!(key_before, key_after, "the master key did not rotate");
         // values remain readable with the new key
         assert_eq!(v.get("ngrok").unwrap().as_deref(), Some("tok-1"));
         assert_eq!(v.get("pinggy").unwrap().as_deref(), Some("tok-2"));

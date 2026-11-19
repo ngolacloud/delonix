@@ -1,106 +1,105 @@
-# 57 — P4/D5: spike do transporte do `LaunchSpec` (ADR-0044)
+# 57 — P4/D5: `LaunchSpec` transport spike (ADR-0044)
 
-**Data:** 2026-09-18 · **Base:** `origin/main` (`d16b2f69`, v4.0.0 +7 commits) ·
-**Veredicto: o fd ganha — fecha uma janela real que o ficheiro não consegue fechar por
-desenho, não por descuido.** Contrário ao que o ADR-0044 tinha por hipótese mais provável
+**Date:** 2026-09-18 · **Base:** `origin/main` (`d16b2f69`, v4.0.0 +7 commits) ·
+**Verdict: the fd wins — it closes a real window that the file cannot close by design,
+not by oversight.** Contrary to what ADR-0044 had assumed as the most likely hypothesis
 ("an fd needs to earn its added complexity against that baseline").
 
-## A pergunta
+## The question
 
-D5 deixa em aberto se um fd herdado (`memfd_create`/pipe, passado através de um `fork`)
-fecha uma janela real que o precedente já existente — ficheiro `0600` +
-`O_CREAT|O_EXCL` + nome único + `unlink` dos dois lados, o que `__apirun` já usa
-(`delonix-cri::write_run_spec`, `cmd/dockerapi.rs`) — não fecha. Se não fechar, o D5 fica
-com a forma do ficheiro, generalizada.
+D5 leaves open whether an inherited fd (`memfd_create`/pipe, passed through a `fork`)
+closes a real window that the already-existing precedent — a `0600` file +
+`O_CREAT|O_EXCL` + unique name + `unlink` on both sides, which `__apirun` already uses
+(`delonix-cri::write_run_spec`, `cmd/dockerapi.rs`) — does not close. If it does not,
+D5 stays shaped like the file, generalised.
 
-## Como se mediu
+## How it was measured
 
-Harness autónomo (`harness.rs`, sem depender de nenhum crate do `delonix-runtime` — só
-`std` + `libc`, que já é dependência do workspace via `delonix-linux`/`delonix-vm`/
-`delonix-sdn`/`delonix-state`, logo zero superfície de supply-chain nova), com quatro
-verbos: `write-file`/`read-file` (replica byte a byte o padrão de `write_run_spec`:
-directório `0700`, ficheiro `0600` com `create_new`, nome único, `unlink` dos dois
-lados) e `write-fd`/`read-fd` (`memfd_create` **sem** `MFD_CLOEXEC`, offset reposto a
-zero antes do `fork`, número do fd passado como um argumento de string — nunca o
-conteúdo, nunca um nome a procurar no `PATH`).
+A standalone harness (`harness.rs`, with no dependency on any `delonix-runtime` crate —
+only `std` + `libc`, which is already a workspace dependency via
+`delonix-linux`/`delonix-vm`/`delonix-sdn`/`delonix-state`, so zero new supply-chain
+surface), with four verbs: `write-file`/`read-file` (replicates `write_run_spec`'s
+pattern byte for byte: `0700` directory, `0600` file with `create_new`, unique name,
+`unlink` on both sides) and `write-fd`/`read-fd` (`memfd_create` **without**
+`MFD_CLOEXEC`, offset reset to zero before the `fork`, the fd number passed as a string
+argument — never the content, never a name to look up on `PATH`).
 
-1. **Correcção**: um par de cada, confirmando que o fd sobrevive a um `execve` REAL para
-   um binário diferente (não só um `fork` dentro do mesmo processo) — o ponto que D5
-   exige e que P1b nunca tinha medido para este mecanismo.
-2. **Concorrência**: 50 pares em paralelo de cada transporte, cada um com um payload
-   distinto e uma verificação própria (`checksum` FNV-1a comparado pelo ESCRITOR contra o
-   que o leitor devolveu) — sem depender de uma leitura humana do log.
-3. **Janela de crash**: o escritor morre (via `--die-after-write`) logo a seguir a
-   escrever, antes de gerar o leitor e antes do seu próprio `unlink` defensivo — a mesma
-   classe de falha que uma OOM-kill ou um `SIGKILL` externo provoca a qualquer processo.
-4. **Prova estrutural**: `strace -f -e trace=openat,open,unlink,unlinkat` sobre os dois
-   caminhos — não "por construção não deveria tocar em disco", mas as chamadas de sistema
-   reais.
+1. **Correctness**: one pair of each, confirming the fd survives a REAL `execve` into a
+   different binary (not just a `fork` within the same process) — the point D5 requires
+   and that P1b had never measured for this mechanism.
+2. **Concurrency**: 50 pairs in parallel of each transport, each with a distinct payload
+   and its own check (an FNV-1a `checksum` compared by the WRITER against what the
+   reader returned) — with no reliance on a human reading the log.
+3. **Crash window**: the writer dies (via `--die-after-write`) right after writing,
+   before spawning the reader and before its own defensive `unlink` — the same failure
+   class an OOM-kill or an external `SIGKILL` inflicts on any process.
+4. **Structural proof**: `strace -f -e trace=openat,open,unlink,unlinkat` over both
+   paths — not "by construction it shouldn't touch disk", but the real system calls.
 
-## O que se mediu
+## What was measured
 
-| | FICHEIRO (precedente) | FD (`memfd_create`) |
+| | FILE (precedent) | FD (`memfd_create`) |
 |---|---|---|
-| Correcção, 1 par | OK, 21 bytes | OK, 19 bytes, sobrevive a `execve` real |
-| Concorrência, 50 pares | **50/50 ok, 0 cross-talk, 0 leftovers** (`concurrency-50.txt`) | **50/50 ok, 0 cross-talk** |
-| Escritor morre logo após escrever | **Segredo de 32 bytes fica em disco, legível pelo dono, indefinidamente** (`crash-window.txt`) | **Zero traço em disco** — confirmado por varredura E por `strace` |
-| `openat`/`unlink` reais (`*.strace`) | `openat(..., O_WRONLY\|O_CREAT\|O_EXCL\|O_CLOEXEC, 0600)` + `unlink(...)` × 2 (o leitor e, depois, o escritor com `ENOENT` — a mesma corrida dupla que o `let _ =` do código real já tolera) | **Zero `openat`/`unlink` sobre qualquer caminho do payload** — só `/proc/self/maps` e `/dev/null` (bookkeeping do runtime Rust) |
+| Correctness, 1 pair | OK, 21 bytes | OK, 19 bytes, survives a real `execve` |
+| Concurrency, 50 pairs | **50/50 ok, 0 cross-talk, 0 leftovers** (`concurrency-50.txt`) | **50/50 ok, 0 cross-talk** |
+| Writer dies right after writing | **A 32-byte secret stays on disk, readable by its owner, indefinitely** (`crash-window.txt`) | **Zero trace on disk** — confirmed by a scan AND by `strace` |
+| Real `openat`/`unlink` (`*.strace`) | `openat(..., O_WRONLY\|O_CREAT\|O_EXCL\|O_CLOEXEC, 0600)` + `unlink(...)` × 2 (the reader, then the writer with `ENOENT` — the same double race the real code's `let _ =` already tolerates) | **Zero `openat`/`unlink` on any payload path** — only `/proc/self/maps` and `/dev/null` (the Rust runtime's own bookkeeping) |
 
-## Interpretação
+## Interpretation
 
-**O precedente de ficheiro já fecha a classe de risco que o próprio ADR-0044 tinha
-nomeado** ("a spec readable by another user" — TOCTOU de `chmod`, symlink attack): o
-`create_new` recusa um caminho pré-existente, o `0600` é atómico na criação, o
-directório `0700` impede sequer listar. Isso está correcto e não muda.
+**The file precedent already closes the risk class ADR-0044 itself had named** ("a spec
+readable by another user" — `chmod` TOCTOU, symlink attack): `create_new` refuses a
+pre-existing path, the `0600` is atomic at creation, the `0700` directory even prevents
+listing. That is correct and does not change.
 
-**Mas há uma SEGUNDA classe de risco que nenhuma forma de "escrever bem" um ficheiro
-consegue fechar**: entre a escrita e o `unlink`, o segredo existe em disco. Se QUALQUER
-um dos dois lados morrer antes de correr o seu `unlink` — um OOM-kill, um `SIGKILL`
-externo, um crash do próprio motor — o ficheiro fica órfão, com o segredo dentro, e
-**nada no motor hoje varre isto** (não há ceifador para `cri/run/*.json` do jeito que há
-para leases de IPAM ou marcadores de referência — ver `AGENTS.md`, "O IPAM vaza"). Não é
-um bug do `write_run_spec`; é uma propriedade de qualquer transporte que escreve o
-segredo num caminho antes de o entregar. Medido, não hipotético: a simulação acima
-reproduz exactamente essa morte, e o segredo fica lá.
+**But there is a SECOND risk class that no way of "writing a file well" can close**:
+between the write and the `unlink`, the secret exists on disk. If EITHER side dies before
+running its own `unlink` — an OOM-kill, an external `SIGKILL`, a crash of the engine
+itself — the file is left orphaned, with the secret inside, and **nothing in the engine
+today sweeps this up** (there is no reaper for `cri/run/*.json` the way there is for IPAM
+leases or reference markers — see `AGENTS.md`, "IPAM leaks"). It is not a bug in
+`write_run_spec`; it is a property of any transport that writes the secret to a path
+before delivering it. Measured, not hypothetical: the simulation above reproduces exactly
+this death, and the secret is left there.
 
-Um `memfd` não tem essa classe: não existe um `unlink` a esquecer, porque não existe um
-`open()` a fazer, porque não existe um caminho. Quando o último fd que aponta para ele
-fecha — por qualquer razão, incluindo a morte do processo — o kernel liberta a memória.
-Não há ceifador a escrever porque não há nada para ceifar.
+A `memfd` has no such class: there is no `unlink` to forget, because there is no `open()`
+to make, because there is no path. When the last fd pointing at it closes — for any
+reason, including the process's death — the kernel frees the memory. There is no reaper
+to write because there is nothing to sweep.
 
-**Custo, medido e não hipotético**: uma chamada a `libc::memfd_create` (já dependência do
-workspace), sem dependência nova; o número do fd continua a viajar por um argumento de
-string — não é zero superfície de argv, é uma redução dela (de "o payload inteiro, ou um
-caminho para o descobrir" para "um inteiro pequeno, que não é segredo"). SCM_RIGHTS
-**não foi medido nem é necessário para este caso**: `delonix-launcher` é sempre
-`fork`+`exec`ado directamente pelo processo que o invoca (CLI/CRI), nunca recebe um fd de
-um processo que não o gerou — a herança simples por `fork` chega. SCM_RIGHTS só
-interessaria a um consumidor que recebesse fds de processos não-filhos sobre um socket
-já existente, o que não é este caso (é o caso do `delonix-netns-holder`, mas esse não
-transporta `LaunchSpec`).
+**Cost, measured and not hypothetical**: a call to `libc::memfd_create` (already a
+workspace dependency), no new dependency; the fd number still travels as a string
+argument — this is not zero argv surface, it is a reduction of it (from "the whole
+payload, or a path to find it" to "a small integer, which is not a secret"). SCM_RIGHTS
+**was not measured, nor is it necessary for this case**: `delonix-launcher` is always
+`fork`+`exec`ed directly by the process that invokes it (CLI/CRI), never receiving an fd
+from a process that is not its parent — simple inheritance through `fork` is enough.
+SCM_RIGHTS would only matter to a consumer that received fds from non-child processes
+over an already-existing socket, which is not this case (that is the
+`delonix-netns-holder`'s case, but it does not transport `LaunchSpec`).
 
-## Decisão para o D5
+## Decision for D5
 
-**O código do D5 fica como está** — o sketch do ADR já propõe a fd, não o ficheiro; este
-spike só o confirma em vez de o rebaixar. O que muda é a certeza: o texto original
-tratava isto como "intenção declarada, não medida" e como possivelmente devendo regredir
-para a forma de ficheiro; passa a **medido, e o ficheiro é que fica documentado como a
-alternativa com uma janela residual que o D5 existe para fechar**.
+**D5's code stays as it is** — the ADR's sketch already proposes the fd, not the file;
+this spike only confirms it instead of downgrading it. What changes is the certainty: the
+original text treated this as "declared intent, not measured" and as possibly needing to
+regress to the file form; it becomes **measured, and the file is now documented as the
+alternative with a residual window that D5 exists to close**.
 
 ## Proven vs not validated
 
-**Proven**: as quatro linhas da tabela acima, medidas neste host, com o binário deste
-harness (não código de produção — ver a nota abaixo) e `strace` real.
+**Proven**: the four rows of the table above, measured on this host, with this harness's
+binary (not production code — see the note below) and real `strace`.
 
-**Not validated**: o mesmo harness dentro de um `unshare(2)`/userns real (o `fork`+`exec`
-de `delonix-launcher` acontece a partir de dentro de um processo que já criou os seus
-próprios namespaces — este spike correu no processo do utilizador, sem namespaces);
-`SCM_RIGHTS` (deliberadamente fora de âmbito, ver acima); o comportamento sob AppArmor
-(fica para o spike nº2, `53_P1B_LAUNCHER_SPIKE` repetido a três binários — item 2 da lista
-de spikes do ADR-0044).
+**Not validated**: the same harness inside a real `unshare(2)`/userns (the
+`fork`+`exec` of `delonix-launcher` happens from inside a process that has already
+created its own namespaces — this spike ran in the user's own process, without
+namespaces); `SCM_RIGHTS` (deliberately out of scope, see above); behaviour under
+AppArmor (left for spike #2, `53_P1B_LAUNCHER_SPIKE` repeated across three binaries —
+item 2 of ADR-0044's spike list).
 
-## O que aconteceu ao código do spike
+## What happened to the spike code
 
-`harness.rs` fica neste directório como evidência (não compila como parte do workspace —
-é um crate `std`+`libc` isolado, correu de `/tmp` nesta sessão). Não há branch a fundir
-nem a apagar: este spike nunca tocou numa árvore do `delonix-runtime`.
+`harness.rs` stays in this directory as evidence (it does not compile as part of the
+workspace — it is a standalone `std`+`libc` crate, run from `/tmp` in this session). There
+is no branch to merge or delete: this spike never touched a `delonix-runtime` tree.

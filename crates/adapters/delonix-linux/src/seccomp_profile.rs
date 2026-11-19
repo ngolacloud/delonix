@@ -368,11 +368,11 @@ const SYSCALLS_ARCH: &[(&str, i64)] = &[
     ("chmod", libc::SYS_chmod),
     ("chown", libc::SYS_chown),
     ("creat", libc::SYS_creat),
-    // create_module (174), get_kernel_syms (177) e query_module (178) foram
-    // removidos do kernel (Linux 5.18) e o `libc` 0.2.191 deixou de expor as
-    // constantes. O número de syscall x86_64 é ABI estável e nunca reutilizado,
-    // por isso mantemos a entrada na denylist por defesa-em-profundidade (kernel
-    // antigo) com o literal em vez da constante.
+    // create_module (174), get_kernel_syms (177) and query_module (178) were
+    // removed from the kernel (Linux 5.18) and `libc` 0.2.191 stopped exposing
+    // the constants. The x86_64 syscall number is stable ABI and never reused,
+    // so we keep the denylist entry for defense-in-depth (old kernels) with the
+    // literal instead of the constant.
     ("create_module", 174),
     ("dup2", libc::SYS_dup2),
     ("epoll_create", libc::SYS_epoll_create),
@@ -385,7 +385,7 @@ const SYSCALLS_ARCH: &[(&str, i64)] = &[
     ("fork", libc::SYS_fork),
     ("futimesat", libc::SYS_futimesat),
     ("getdents", libc::SYS_getdents),
-    ("get_kernel_syms", 177), // ver nota em create_module (constante removida do libc 0.2.191)
+    ("get_kernel_syms", 177), // see note on create_module (constant removed from libc 0.2.191)
     ("getpgrp", libc::SYS_getpgrp),
     ("getpmsg", libc::SYS_getpmsg),
     ("get_thread_area", libc::SYS_get_thread_area),
@@ -404,7 +404,7 @@ const SYSCALLS_ARCH: &[(&str, i64)] = &[
     ("pipe", libc::SYS_pipe),
     ("poll", libc::SYS_poll),
     ("putpmsg", libc::SYS_putpmsg),
-    ("query_module", 178), // ver nota em create_module (constante removida do libc 0.2.191)
+    ("query_module", 178), // see note on create_module (constant removed from libc 0.2.191)
     ("readlink", libc::SYS_readlink),
     ("rename", libc::SYS_rename),
     ("rmdir", libc::SYS_rmdir),
@@ -662,7 +662,7 @@ mod tests {
     }"#;
 
     #[test]
-    fn parseia_o_perfil_do_conformance() {
+    fn parses_the_conformance_profile() {
         let (p, unknown) = parse(BLOCK_HOSTNAME).unwrap();
         assert_eq!(p.default_action, Act::Allow);
         assert_eq!(p.rules.len(), 1);
@@ -673,12 +673,12 @@ mod tests {
     }
 
     #[test]
-    fn nomes_resolvem_para_o_numero_desta_arquitectura() {
-        // Não são literais: em aarch64 os números são outros, e uma tabela
-        // fixa estaria silenciosamente errada numa das duas.
+    fn names_resolve_to_this_architectures_number() {
+        // Not literals: on aarch64 the numbers differ, and a fixed table would
+        // be silently wrong on one of the two.
         assert_eq!(syscall_number("read"), Some(libc::SYS_read));
         assert_eq!(syscall_number("mount"), Some(libc::SYS_mount));
-        assert_eq!(syscall_number("nao_existe_isto"), None);
+        assert_eq!(syscall_number("this_does_not_exist"), None);
     }
 
     /// The two tables must not name the same syscall twice.
@@ -740,16 +740,16 @@ mod tests {
     }
 
     #[test]
-    fn falha_fechado_no_que_nao_percebe() {
-        // Acção desconhecida: erro, não «ignora a regra».
+    fn fails_closed_on_what_it_does_not_understand() {
+        // Unknown action: an error, not "skip the rule".
         assert!(parse(r#"{"defaultAction":"SCMP_ACT_BANANA"}"#).is_err());
-        // Sem defaultAction não há política nenhuma para aplicar.
+        // With no defaultAction there is no policy to apply at all.
         assert!(parse(r#"{"syscalls":[]}"#).is_err());
-        // JSON partido.
+        // Broken JSON.
         assert!(parse("{").is_err());
-        // TRACE/NOTIFY entregam a decisão a um supervisor que não existe aqui:
-        // transformá-los em «allow» seria um buraco numa política que o
-        // operador julga aplicada.
+        // TRACE/NOTIFY hand the decision to a supervisor that does not exist
+        // here: turning them into "allow" would be a hole in a policy the
+        // operator believes is enforced.
         assert!(parse(
             r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["read"],"action":"SCMP_ACT_NOTIFY"}]}"#
         )
@@ -757,9 +757,9 @@ mod tests {
     }
 
     #[test]
-    fn regras_com_args_sao_recusadas_e_nao_alargadas() {
-        // Uma regra que só queria bloquear `clone(CLONE_NEWUSER)` viraria
-        // «bloquear clone» — partindo todo o programa com threads lá dentro.
+    fn rules_with_args_are_refused_not_widened() {
+        // A rule that only meant to block `clone(CLONE_NEWUSER)` would become
+        // "block clone" — breaking every threaded program in the container.
         let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
             {"names":["clone"],"action":"SCMP_ACT_ERRNO",
              "args":[{"index":0,"value":268435456,"op":"SCMP_CMP_MASKED_EQ"}]}]}"#;
@@ -767,14 +767,15 @@ mod tests {
     }
 
     #[test]
-    fn nome_inaplicavel_nesta_arquitectura_e_reportado_nao_descartado() {
-        // Um perfil portátil nomeia syscalls que só existem num dos arcos. Isso
-        // é inaplicável, não errado — mas quem o aplica tem de saber.
+    fn name_inapplicable_on_this_architecture_is_reported_not_dropped() {
+        // A portable profile names syscalls that only exist on one of the
+        // architectures. That is inapplicable, not wrong — but whoever applies
+        // it has to know.
         let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
-            {"names":["read","uma_syscall_de_outro_arco"],"action":"SCMP_ACT_ERRNO"}]}"#;
+            {"names":["read","a_syscall_from_another_arch"],"action":"SCMP_ACT_ERRNO"}]}"#;
         let (p, unknown) = parse(j).unwrap();
         assert_eq!(p.rules.len(), 1);
-        assert_eq!(unknown, vec!["uma_syscall_de_outro_arco"]);
+        assert_eq!(unknown, vec!["a_syscall_from_another_arch"]);
     }
 
     #[test]
@@ -808,9 +809,9 @@ mod tests {
     }
 
     #[test]
-    fn perfil_com_duas_accoes_distintas_e_recusado() {
-        // O modelo do seccompiler é «casou → uma acção, não casou → outra».
-        // Aproximar seria aplicar uma política diferente da escrita.
+    fn profile_with_two_distinct_actions_is_refused() {
+        // seccompiler's model is "matched → one action, no match → another".
+        // Approximating would apply a policy different from the one written.
         let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
             {"names":["read"],"action":"SCMP_ACT_ERRNO"},
             {"names":["write"],"action":"SCMP_ACT_KILL"}]}"#;

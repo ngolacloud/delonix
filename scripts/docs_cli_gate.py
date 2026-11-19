@@ -1,35 +1,38 @@
 #!/usr/bin/env python3
-"""Gate de documentação: cada `delonix ...` citado na documentação CORRENTE
-tem de resolver na árvore do binário.
+"""Documentation gate: every `delonix ...` cited in the CURRENT documentation
+must resolve against the binary's tree.
 
-Existe porque duas remoções de comandos seguidas (v2.0.0 e v3.0.0) passaram sem
-ninguém dar por elas: oito ficheiros de documentação corrente continuaram a
-ensinar `delonix pod ls`, `delonix vm status` e `delonix schema print`, todos a
-responder `unrecognized subcommand` no binário publicado. Um leitor que copie a
-linha da página bate no erro; o gate bate primeiro.
+It exists because two back-to-back command removals (v2.0.0 and v3.0.0) slipped
+through unnoticed: eight current documentation files kept teaching `delonix pod
+ls`, `delonix vm status` and `delonix schema print`, all answering
+`unrecognized subcommand` in the published binary. A reader who copies the line
+off the page hits the error; the gate hits it first.
 
-A lista autoritativa de caminhos vem de `scripts/cli-tree.sh`, que percorre o
-`--help` do binário DA ÁRVORE. Não se mede contra o `delonix` instalado no host:
-a primeira medição deste achado foi feita assim e veio de uma versão atrás.
+The authoritative list of paths comes from `scripts/cli-tree.sh`, which walks
+the `--help` of the TREE's binary. It is not measured against the `delonix`
+installed on the host: this finding was first measured that way and came from a
+version behind.
 
-    python3 scripts/docs_cli_gate.py            # verifica (exit 1 se houver órfãos)
-    python3 scripts/docs_cli_gate.py --list     # mostra cada citação e onde está
+    python3 scripts/docs_cli_gate.py            # checks (exit 1 if there are orphans)
+    python3 scripts/docs_cli_gate.py --list     # shows each citation and where it is
 
-O que NÃO se verifica, e porquê:
+What is NOT checked, and why:
 
-  * `docs/releases/*.md`, `docs/RELEASES.md`, `docs/AUDITORIA-E2E.md` e
-    `docs/discovery/*` são registo histórico datado. É CORRECTO citarem a grafia
-    da versão de que falam — reescrevê-las apagava o registo.
-  * Os cinco relatórios de auditoria/medição em `docs/` (`COMPARACAO-DOCKER-
+  * `docs/releases/*.md`, `docs/RELEASES.md`, `docs/AUDITORIA-E2E.md` and
+    `docs/discovery/*` are dated historical record. It is CORRECT for them to
+    cite the spelling of the version they talk about — rewriting them would
+    erase the record.
+  * The five audit/measurement reports in `docs/` (`COMPARACAO-DOCKER-
     PODMAN.md`, `paridade-docker-podman.md`, `comparacao-medida.md`,
-    `RELATORIO-PRE-PRODUCAO.md`, `cri-conformance.md`) são da MESMA classe —
-    cada um já tem data e versão no próprio cabeçalho, e nenhum é reescrito a
-    cada release. Ficam publicados (`comparacao.html`/`cri.html`/`AGENTS.md`/
-    `cli-stability.md` ligam-nos como o detalhe por trás de um resumo), só não
-    são "documentação corrente" para efeitos deste gate.
-  * Só se extraem citações de CONTEXTO DE CÓDIGO (`<code>`, `<pre>`, cercas de
-    markdown, `::` de reST, comentários de YAML). Prosa como «o delonix é um
-    motor» não é uma citação de comando e não se tenta resolver.
+    `RELATORIO-PRE-PRODUCAO.md`, `cri-conformance.md`) are the SAME class —
+    each already carries a date and version in its own header, and none is
+    rewritten on every release. They stay published (`comparacao.html`/
+    `cri.html`/`AGENTS.md`/`cli-stability.md` link to them as the detail behind
+    a summary), they just are not "current documentation" for this gate's
+    purposes.
+  * Citations are only extracted from CODE CONTEXT (`<code>`, `<pre>`, markdown
+    fences, reST `::`, YAML comments). Prose like "delonix is an engine" is not
+    a command citation and no attempt is made to resolve it.
 """
 
 from __future__ import annotations
@@ -51,11 +54,11 @@ EXCLUDE = (
     "docs/RELEASES.md",
     "docs/AUDITORIA-E2E.md",
     "docs/discovery/",
-    # Relatórios de auditoria/medição datados — ver a nota no docstring do
-    # módulo. Medido 2026-09-11: nenhum produzia uma citação órfã hoje; a
-    # exclusão é preventiva de categorização, não a correcção de uma falha
-    # activa — mas pertencem à mesma classe dos quatro de cima, e não à
-    # "documentação corrente" que este gate mantém sincronizada com o binário.
+    # Dated audit/measurement reports — see the note in the module docstring.
+    # Measured 2026-09-11: none produced an orphan citation today; the
+    # exclusion is a preventive categorisation, not the fix for an active
+    # failure — but they belong to the same class as the four above, and not to
+    # the "current documentation" this gate keeps in sync with the binary.
     "docs/COMPARACAO-DOCKER-PODMAN.md",
     "docs/paridade-docker-podman.md",
     "docs/comparacao-medida.md",
@@ -95,18 +98,19 @@ INVOCATION = re.compile(
 
 
 def paths_from_binary() -> tuple[set[str], set[str]]:
-    """Os caminhos da árvore, separados em nós e folhas.
+    """The tree's paths, split into nodes and leaves.
 
-    A distinção não é cosmética: um NÓ (`net tunnel`) só aceita subcomandos, e
-    uma FOLHA (`get`) aceita argumentos livres. Sem ela, `delonix net tunnel ls`
-    resolvia pelo prefixo `net tunnel` e o `ls` — removido — passava calado.
+    The distinction is not cosmetic: a NODE (`net tunnel`) only accepts
+    subcommands, and a LEAF (`get`) accepts free arguments. Without it, `delonix
+    net tunnel ls` resolved via the `net tunnel` prefix and the `ls` — removed —
+    slipped through unnoticed.
     """
     out = subprocess.run(
         ["bash", str(CLI_TREE)], capture_output=True, text=True, cwd=ROOT
     )
     if out.returncode != 0:
         sys.stderr.write(out.stderr)
-        sys.exit("cli-tree.sh falhou — constrói o binário da árvore primeiro")
+        sys.exit("cli-tree.sh failed — build the tree's binary first")
     nodes: set[str] = set()
     leaves: set[str] = set()
     for line in out.stdout.splitlines():
@@ -118,7 +122,7 @@ def paths_from_binary() -> tuple[set[str], set[str]]:
 
 
 def code_regions(path: Path) -> list[str]:
-    """Devolve só os pedaços do ficheiro que são contexto de código."""
+    """Returns only the parts of the file that are code context."""
     text = path.read_text(encoding="utf-8", errors="replace")
     suffix = path.suffix.lower()
     regions: list[str] = []
@@ -152,7 +156,7 @@ def code_regions(path: Path) -> list[str]:
 
 
 def citations(path: Path):
-    """(comando_normalizado, linha_do_ficheiro) para cada citação."""
+    """(normalized_command, file_line) for each citation."""
     raw = path.read_text(encoding="utf-8", errors="replace")
     for region in code_regions(path):
         for m in INVOCATION.finditer(region):
@@ -172,11 +176,12 @@ def citations(path: Path):
 
 
 def binary_accepts(path: str, cache: dict[str, bool]) -> bool:
-    """Pergunta ao próprio binário se este caminho existe.
+    """Asks the binary itself whether this path exists.
 
-    A árvore do `cli-tree.sh` lê a secção `Commands:` do `--help`, que lista os
-    nomes CANÓNICOS e não os ALIASES — `container ls` é `container ps` e não
-    aparece lá. Sem este recurso, cada alias documentado saía como órfão.
+    The `cli-tree.sh` tree reads the `Commands:` section of `--help`, which
+    lists the CANONICAL names and not the ALIASES — `container ls` is `container
+    ps` and does not appear there. Without this fallback, every documented alias
+    came out as an orphan.
     """
     if path not in cache:
         r = subprocess.run(
@@ -190,7 +195,7 @@ def binary() -> Path:
     for c in (ROOT / "target/release/delonix", ROOT / "target/debug/delonix"):
         if c.is_file():
             return c
-    sys.exit("sem binário: corre `cargo build --release -p delonix-bin`")
+    sys.exit("no binary: run `cargo build --release -p delonix-bin`")
 
 
 def resolve(
@@ -199,13 +204,14 @@ def resolve(
     leaves: set[str],
     cache: dict[str, bool] | None = None,
 ) -> str | None:
-    """Desce a árvore token a token. Devolve o caminho atingido, ou None.
+    """Descends the tree token by token. Returns the path reached, or None.
 
-    Três desfechos:
-      * cai numa FOLHA — o resto são argumentos (`delonix get pods` → `get`);
-      * fica num NÓ e a citação acaba aí (`delonix vm --help`) — vale;
-      * fica num NÓ com mais um token que NÃO é subcomando dele — não resolve,
-        e é este o caso que apanha `net tunnel ls` e `vm status`.
+    Three outcomes:
+      * lands on a LEAF — the rest are arguments (`delonix get pods` → `get`);
+      * stays on a NODE and the citation ends there (`delonix vm --help`) — valid;
+      * stays on a NODE with one more token that is NOT a subcommand of it —
+        does not resolve, and this is the case that catches `net tunnel ls` and
+        `vm status`.
     """
     path: list[str] = []
     for tok in tokens:
@@ -228,13 +234,13 @@ def resolve(
 
 
 def allowed() -> dict[tuple[str, str], str]:
-    """As excepções deliberadas, com a razão de cada uma.
+    """The deliberate exceptions, each with its reason.
 
-    É uma lista de EXCEPÇÕES e não um filtro heurístico de propósito: prosa como
-    «delonix picks a free one» e uma nota de migração como «o `delonix restore`
-    de raiz passou a…» são indistinguíveis de um comando removido sem alguém
-    ler a frase. Quem acrescentar uma linha tem de escrever porquê, e uma
-    citação nova que ensine a correr um comando morto continua a falhar.
+    It is a list of EXCEPTIONS and not a heuristic filter on purpose: prose like
+    "delonix picks a free one" and a migration note like "the original `delonix
+    restore` now…" are indistinguishable from a removed command without someone
+    reading the sentence. Whoever adds a line has to write down why, and a new
+    citation that teaches running a dead command still fails.
     """
     if not ALLOW.exists():
         return {}
@@ -245,7 +251,7 @@ def allowed() -> dict[tuple[str, str], str]:
             continue
         parts = line.split("\t")
         if len(parts) < 3:
-            sys.exit(f"docs_cli_allow.tsv: 3 colunas separadas por TAB — {raw!r}")
+            sys.exit(f"docs_cli_allow.tsv: 3 TAB-separated columns — {raw!r}")
         out[(parts[0], parts[1])] = parts[2]
     return out
 
@@ -306,9 +312,9 @@ def check_readme_groups(nodes: set[str], leaves: set[str]) -> list[str]:
     claimed = set(readme_group_table())
     problems = []
     for name in sorted(claimed - tops):
-        problems.append(f"README.rst cita o grupo `{name}`, que o binário não tem")
+        problems.append(f"README.rst cites the group `{name}`, which the binary does not have")
     for name in sorted(tops - claimed):
-        problems.append(f"README.rst não documenta o grupo `{name}`")
+        problems.append(f"README.rst does not document the group `{name}`")
     return problems
 
 
@@ -359,15 +365,15 @@ def check_site_groups(nodes: set[str], leaves: set[str]) -> list[str]:
     documented = site_group_keys()
     problems = []
     for name in sorted(documented - tops):
-        problems.append(f"docs/gen.py's GROUPS documenta `{name}`, que o binário não tem")
+        problems.append(f"docs/gen.py's GROUPS documents `{name}`, which the binary does not have")
     for name in sorted(tops - documented):
-        problems.append(f"docs/gen.py's GROUPS não tem página para `{name}`")
+        problems.append(f"docs/gen.py's GROUPS has no page for `{name}`")
     return problems
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--list", action="store_true", help="mostra cada citação resolvida")
+    ap.add_argument("--list", action="store_true", help="show each resolved citation")
     args = ap.parse_args()
 
     nodes, leaves = paths_from_binary()
@@ -397,16 +403,16 @@ def main() -> int:
     rc = 0
     if orphans:
         print(
-            f"FALHA: {len(orphans)} citação(ões) da documentação corrente não "
-            f"resolvem na árvore do binário ({total} verificadas):",
+            f"FAILURE: {len(orphans)} citation(s) in the current documentation do "
+            f"not resolve against the binary's tree ({total} checked):",
             file=sys.stderr,
         )
         for rel, line, cmd in orphans:
             print(f"  {rel}:{line}\t{cmd}", file=sys.stderr)
         print(
-            "  (se a citação é deliberada — prosa, ou uma frase cujo assunto É o "
-            "comando não existir —\n   acrescenta-a a scripts/docs_cli_allow.tsv "
-            "COM a razão)",
+            "  (if the citation is deliberate — prose, or a sentence whose very "
+            "subject IS the command not existing —\n   add it to "
+            "scripts/docs_cli_allow.tsv WITH the reason)",
             file=sys.stderr,
         )
         rc = 1
@@ -417,8 +423,8 @@ def main() -> int:
     stale = sorted(set(allow) - used)
     if stale:
         print(
-            f"FALHA: {len(stale)} excepção(ões) em docs_cli_allow.tsv que já não "
-            "casam com nenhuma citação:",
+            f"FAILURE: {len(stale)} exception(s) in docs_cli_allow.tsv that no "
+            "longer match any citation:",
             file=sys.stderr,
         )
         for rel, cmd in stale:
@@ -428,8 +434,8 @@ def main() -> int:
     table = check_readme_groups(nodes, leaves)
     if table:
         print(
-            f"FALHA: {len(table)} divergência(s) entre a tabela «Command groups» "
-            "do README e os grupos do binário:",
+            f"FAILURE: {len(table)} divergence(s) between the README's «Command "
+            "groups» table and the binary's groups:",
             file=sys.stderr,
         )
         for line in table:
@@ -439,8 +445,8 @@ def main() -> int:
     site = check_site_groups(nodes, leaves)
     if site:
         print(
-            f"FALHA: {len(site)} divergência(s) entre as páginas do site "
-            "(docs/gen.py's GROUPS) e os grupos do binário:",
+            f"FAILURE: {len(site)} divergence(s) between the site pages "
+            "(docs/gen.py's GROUPS) and the binary's groups:",
             file=sys.stderr,
         )
         for line in site:
@@ -449,9 +455,9 @@ def main() -> int:
 
     if rc == 0:
         print(
-            f"ok: as {total} citações da documentação corrente resolvem na árvore "
-            f"({len(allow)} excepções declaradas), e a tabela de grupos do README "
-            "e as páginas do site batem com o binário"
+            f"ok: the {total} citations in the current documentation resolve against "
+            f"the tree ({len(allow)} declared exceptions), and the README's group "
+            "table and the site pages match the binary"
         )
     return rc
 

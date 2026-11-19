@@ -381,57 +381,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn escapa_a_barra_e_o_hifen() {
-        // Um hífen cru vira hífen tipográfico e parte o copiar-colar de uma
-        // flag; uma barra crua abre uma sequência de escape do roff.
+    fn escapes_the_backslash_and_the_hyphen() {
+        // A raw hyphen becomes a typographic hyphen and breaks copy-pasting a
+        // flag; a raw backslash opens a roff escape sequence.
         assert_eq!(esc("--net a\\b"), "\\-\\-net a\\eb");
     }
 
     #[test]
-    fn uma_linha_iniciada_por_ponto_nao_vira_pedido_roff() {
-        // Sem o `\&`, o roff lê a linha como um pedido e ela DESAPARECE da
-        // página renderizada — a falha mais silenciosa deste ficheiro.
-        assert!(esc(".PP no início").starts_with("\\&."));
-        assert!(esc("'quote no início").starts_with("\\&'"));
-        // No meio de uma linha, um ponto é só um ponto.
-        assert!(!esc("um. dois").starts_with("\\&"));
+    fn a_line_starting_with_a_dot_is_not_read_as_a_roff_request() {
+        // Without the `\&`, roff reads the line as a request and it DISAPPEARS
+        // from the rendered page — the most silent failure in this file.
+        assert!(esc(".PP at the start").starts_with("\\&."));
+        assert!(esc("'quote at the start").starts_with("\\&'"));
+        // In the middle of a line, a dot is just a dot.
+        assert!(!esc("one. two").starts_with("\\&"));
     }
 
     #[test]
-    fn o_nome_da_pagina_segue_a_convencao_do_docker_e_do_git() {
+    fn page_name_follows_the_docker_and_git_convention() {
         assert_eq!(page_name(""), "delonix");
         assert_eq!(page_name("container run"), "delonix-container-run");
         assert_eq!(page_name("net ingress allow"), "delonix-net-ingress-allow");
     }
 
-    /// Uma página tem de trazer as secções que um leitor de `man` procura, e o
-    /// `.TH` tem de ser a PRIMEIRA linha (sem ele o `man` não a formata de todo).
+    /// A page has to carry the sections a `man` reader looks for, and the
+    /// `.TH` has to be the FIRST line (without it `man` does not format it at all).
     #[test]
-    fn a_pagina_tem_a_estrutura_de_uma_manpage() {
+    fn the_page_has_the_structure_of_a_manpage() {
         let root = crate::build_command();
         let cmd = find(&root, &["container".into(), "run".into()]).unwrap();
         let p = render(cmd, "container run");
         assert!(p.starts_with(".TH DELONIX\\-CONTAINER\\-RUN 1 "), "{p:.80}");
         for sec in [".SH NAME", ".SH SYNOPSIS", ".SH DESCRIPTION", ".SH OPTIONS"] {
-            assert!(p.contains(sec), "falta {sec}");
+            assert!(p.contains(sec), "missing {sec}");
         }
-        // Os exemplos da tabela do manual têm de chegar à página, dentro de um
-        // bloco literal `.EX`/`.EE` — é isso que os mantém coláveis.
+        // The examples from the manual table have to reach the page, inside a
+        // literal `.EX`/`.EE` block — that is what keeps them pasteable.
         assert!(p.contains(".SH EXAMPLES"));
         assert!(p.contains(".EX\ndelonix container run"));
     }
 
-    /// O SYNOPSIS tem de dizer os argumentos, não só o nome.
+    /// The SYNOPSIS has to state the arguments, not just the name.
     ///
-    /// Regressão de um defeito REAL e silencioso desta sessão: `render_usage()`
-    /// num subcomando levantado do pai devolve o nome nu, e depois o corte pelo
-    /// caminho completo não casava com o nome curto que o clap escreve. Nos dois
-    /// casos a página gerava-se, formatava-se e ficava com um SYNOPSIS que não
-    /// diz nada — nada falha, só se perde a secção mais consultada.
+    /// A regression of a REAL and silent defect from this session: `render_usage()`
+    /// on a subcommand lifted from its parent returns the bare name, and then the
+    /// trim by the full path did not match the short name clap writes. In both
+    /// cases the page generated, formatted and ended up with a SYNOPSIS that says
+    /// nothing — nothing fails, only the most-consulted section is lost.
     #[test]
-    fn o_synopsis_traz_os_argumentos_e_nao_so_o_nome() {
+    fn the_synopsis_carries_the_arguments_not_just_the_name() {
         let root = crate::build_command();
-        for (path, esperado) in [
+        for (path, expected) in [
             (vec!["container", "run"], "<IMAGE>"),
             (vec!["vm", "create"], "<NAME>"),
             (vec!["net", "ingress"], "<COMMAND>"),
@@ -446,28 +446,28 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("\n");
             assert!(
-                syn.contains(esperado),
-                "SYNOPSIS de `{}` sem `{esperado}`:\n{syn}",
+                syn.contains(expected),
+                "SYNOPSIS of `{}` without `{expected}`:\n{syn}",
                 segs.join(" ")
             );
         }
     }
 
-    /// Nenhuma página pode sair vazia nem perder o cabeçalho — o teste percorre
-    /// a árvore inteira em vez de confiar numa amostra.
+    /// No page may come out empty or lose its header — the test walks the whole
+    /// tree instead of trusting a sample.
     #[test]
-    fn todas_as_paginas_geram_com_cabecalho() {
+    fn all_pages_generate_with_a_header() {
         let root = crate::build_command();
         let mut n = 0;
-        let mut mal = Vec::new();
+        let mut malformed = Vec::new();
         walk(&root, String::new(), &mut |cmd, path| {
             let p = render(cmd, path);
             n += 1;
             if !p.starts_with(".TH ") || !p.contains(".SH NAME") {
-                mal.push(path.to_string());
+                malformed.push(path.to_string());
             }
         });
-        assert!(n > 200, "só {n} páginas — a árvore não foi percorrida");
-        assert!(mal.is_empty(), "páginas mal formadas: {mal:?}");
+        assert!(n > 200, "only {n} pages — the tree was not walked");
+        assert!(malformed.is_empty(), "malformed pages: {malformed:?}");
     }
 }

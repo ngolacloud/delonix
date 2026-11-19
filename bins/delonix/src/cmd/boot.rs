@@ -424,9 +424,9 @@ fn enable(
             Some(explicit) => explicit.to_string(),
             None => c.restart_policy.as_deref().unwrap_or("always").to_string(),
         };
-        // A âncora do próprio pod nunca depende de si mesma. O primeiro membro
-        // vive no MESMO namespace que `c` (um pod não cruza tenants), por isso o
-        // nome da unit da âncora usa o mesmo `boot_stem` qualificado por namespace.
+        // A pod's own anchor never depends on itself. The first member lives in
+        // the SAME namespace as `c` (a pod never crosses tenants), so the anchor's
+        // unit name uses the same namespace-qualified `boot_stem`.
         let anchor = c
             .labels
             .get(super::pod::POD_LABEL)
@@ -446,10 +446,10 @@ fn enable(
         std::fs::write(unit_dir.join(&unit_name), unit)?;
         installed.push(unit_name);
     }
-    // VMs, pelo MESMO critério: a correr, ou com política que diga que deviam
-    // estar. Um prefixo próprio (`delonix-boot-vm-`) porque um container e uma
-    // VM podem ter o mesmo nome — são stores diferentes — e dois units com o
-    // mesmo ficheiro seria um a apagar o outro em silêncio.
+    // VMs, by the SAME rule: running, or with a policy that says they should be.
+    // Their own prefix (`delonix-boot-vm-`) because a container and a VM can
+    // share a name — they live in different stores — and two units with the same
+    // file would mean one silently overwriting the other.
     for vm in delonix_vm::list(&std::path::PathBuf::from(root)).unwrap_or_default() {
         let alive = vm.status == delonix_model::records::Status::Running;
         if !alive && !wants_to_be_up(vm.restart_policy.as_deref()) {
@@ -556,36 +556,36 @@ mod tests {
         assert!(!u.contains("Restart=unless-stopped"), "{u}");
     }
 
-    /// **O filtro apagava o `delonix-cri.service`.**
+    /// **The sweep used to delete `delonix-cri.service`.**
     ///
-    /// Em modo root o `unit_dir` é `/etc/systemd/system`, que é exactamente onde
-    /// o `cluster apply` instala o CRI e onde a imagem VM dourada o activa. O
-    /// prefixo `delonix-` casava com ele, por isso um `net boot disable` num nó
-    /// Kubernetes desactivava e APAGAVA o endpoint que o kubelet usa — e o
-    /// `status` listava-o como se este comando o tivesse gerado.
+    /// As root `unit_dir` is `/etc/systemd/system`, which is exactly where
+    /// `cluster apply` installs the CRI and where the golden VM image enables it.
+    /// The `delonix-` prefix matched it, so a `net boot disable` on a Kubernetes
+    /// node disabled and DELETED the endpoint the kubelet uses — and `status`
+    /// listed it as if this command had generated it.
     #[test]
-    fn a_varredura_nunca_apanha_o_unit_do_cri() {
+    fn the_sweep_never_catches_the_cri_unit() {
         assert!(!is_boot_unit("delonix-cri.service"));
         // Written by `serve node-api --install-units` into the same directory.
         assert!(!is_boot_unit("delonix-node-api.service"));
-        // O que É nosso continua a ser reconhecido...
+        // What IS ours is still recognised...
         assert!(is_boot_unit("delonix-boot-web.service"));
         // The legacy shape is no longer recognised BY NAME: it moved to
         // `claims_unit`, which reads the file, because by name it cannot be
         // told apart from any other `delonix-*.service` in the shared unit
         // directory (see `disable_only_claims_the_units_enable_itself_wrote`).
         assert!(!is_boot_unit("delonix-web.service"));
-        // E nada que não seja um unit.
+        // And nothing that is not a unit.
         assert!(!is_boot_unit("delonix-boot-web.timer"));
-        assert!(!is_boot_unit("outra-coisa.service"));
+        assert!(!is_boot_unit("something-else.service"));
     }
 
-    /// `--restart no` era inalcançável: o default era `always` e o ÚNICO ramo que
-    /// lia a política do container era `restart == "no"`, portanto pedir
-    /// `Restart=no` produzia `Restart=always`. O valor que o nome da flag promete
-    /// era o único que ela não sabia exprimir.
+    /// `--restart no` was unreachable: the default was `always` and the ONLY
+    /// branch that read the container's own policy was `restart == "no"`, so
+    /// asking for `Restart=no` produced `Restart=always`. The value the flag's
+    /// name promises was the one it could not express.
     #[test]
-    fn a_politica_pedida_e_a_que_fica_no_unit() {
+    fn the_requested_policy_is_the_one_in_the_unit() {
         let u = container_unit(
             "default",
             "web",
@@ -628,45 +628,45 @@ mod tests {
         assert!(v.contains("ExecStart=/b vm start -n teamA db\n"), "{v}");
     }
 
-    /// **A lacuna que um reboot expõe.** O supervisor é um `fork()` e morre com
-    /// a máquina; o container fica `Crashed` sem PID; e o `stack apply` não o
-    /// ressuscita («already exists, nothing to do»). Só olhar para quem tem PID
-    /// vivo é fotografar o `ps` — e deixa de fora exactamente o container que
-    /// declarou `--restart always` e que o reboot parou.
+    /// **The gap a reboot exposes.** The supervisor is a `fork()` and dies with
+    /// the machine; the container is left `Crashed` with no PID; and `stack
+    /// apply` does not revive it («already exists, nothing to do»). Looking only
+    /// at who has a live PID is a snapshot of `ps` — and it leaves out exactly
+    /// the container that declared `--restart always` and that the reboot stopped.
     ///
-    /// É o papel que o `podman-restart.service` faz do outro lado: no arranque,
-    /// levantar o que a política diz que devia estar de pé.
+    /// This is the role `podman-restart.service` plays on the other side: at
+    /// boot, bring up what the policy says should be running.
     #[test]
-    fn a_politica_do_container_decide_se_ele_volta() {
+    fn the_containers_policy_decides_whether_it_comes_back() {
         assert!(wants_to_be_up(Some("always")));
         assert!(wants_to_be_up(Some("unless-stopped")));
-        // `on-failure` é «reinicia se sair mal», não «está de pé no arranque» —
-        // um container que saiu 0 acabou o seu trabalho.
+        // `on-failure` means «restart if it exits badly», not «be up at boot» —
+        // a container that exited 0 has finished its work.
         assert!(!wants_to_be_up(Some("on-failure")));
         assert!(!wants_to_be_up(Some("on-failure:3")));
         assert!(!wants_to_be_up(Some("no")));
         assert!(!wants_to_be_up(None));
     }
 
-    /// **Uma VM não tinha caminho de arranque automático NENHUM** — nem unit,
-    /// nem `virsh autostart` no domínio (só na rede libvirt). E o `vm stop` faz
-    /// `undefine`, portanto uma VM parada nem é conhecida do libvirt no momento
-    /// do reboot: ficava tudo dependente de alguém se lembrar de um `vm start`.
+    /// **A VM had NO automatic start path at all** — not a unit, and not `virsh
+    /// autostart` on the domain (only on the libvirt network). And `vm stop`
+    /// UNDEFINES it, so a stopped VM is not even known to libvirt at the moment
+    /// of a reboot: everything hinged on somebody remembering to run `vm start`.
     #[test]
-    fn uma_vm_ganha_unit_e_nao_colide_com_um_container_do_mesmo_nome() {
+    fn a_vm_gets_a_unit_and_does_not_collide_with_a_container_of_the_same_name() {
         let u = vm_unit("default", "db", "always", "/r", "/b", "default.target");
         assert!(u.contains("ExecStart=/b vm start db\n"), "{u}");
         assert!(u.contains("ExecStop=/b vm stop db\n"), "{u}");
-        // `oneshot` + RemainAfterExit e NÃO `forking`: o `vm start` devolve
-        // quando o VMM está de pé e não há processo do host para o systemd
-        // seguir — o backend é dono dele. Dizer `forking` punha o systemd à
-        // procura de um main PID que não existe.
+        // `oneshot` + RemainAfterExit and NOT `forking`: `vm start` returns once
+        // the VMM is up and there is no host process for systemd to follow — the
+        // backend owns it. Saying `forking` would have systemd hunting for a main
+        // PID that does not exist.
         assert!(u.contains("Type=oneshot"), "{u}");
         assert!(u.contains("RemainAfterExit=yes"), "{u}");
         assert!(!u.contains("Type=forking"), "{u}");
-        // Um container e uma VM podem ter o MESMO nome (stores diferentes), por
-        // isso os ficheiros têm de ser distintos — senão um apaga o outro em
-        // silêncio.
+        // A container and a VM can share the SAME name (different stores), so the
+        // files have to be distinct — otherwise one silently overwrites the
+        // other.
         assert_ne!(
             format!("{UNIT_PREFIX}vm-db.service"),
             format!("{UNIT_PREFIX}db.service")
@@ -758,11 +758,11 @@ mod tests {
     /// be wrong either way: it would take the whole pod down with the anchor, and
     /// a member that stops is not a reason to stop its peers.
     #[test]
-    fn os_membros_de_um_pod_arrancam_atras_do_primeiro() {
-        let c = |nome: &str, pod: Option<&str>| {
+    fn pod_members_start_behind_the_first_one() {
+        let c = |name: &str, pod: Option<&str>| {
             let mut c = delonix_compute::Container::new(
-                nome.into(),
-                nome.into(),
+                name.into(),
+                name.into(),
                 "alpine".into(),
                 vec!["sleep".into()],
                 "64M".into(),
@@ -776,16 +776,16 @@ mod tests {
         let all = vec![
             c("pa-c1", Some("pa")),
             c("pa-c0", Some("pa")),
-            c("solto", None),
+            c("loose", None),
         ];
         let a = pod_anchors(&all);
         // With no index to read, the name is what is left — and it is still
         // right for these, whose names ARE the creation order (`c0`, `c1`, …).
         assert_eq!(a.get("pa").unwrap(), "pa-c0");
-        // Um container sem pod não entra.
-        assert!(!a.contains_key("solto"));
+        // A container with no pod does not enter.
+        assert!(!a.contains_key("loose"));
 
-        // O unit do membro seguinte espera pela âncora...
+        // The next member's unit waits for the anchor...
         let u = container_unit(
             "default",
             "pa-c1",
@@ -796,9 +796,9 @@ mod tests {
             Some("delonix-boot-pa-c0.service"),
         );
         assert!(u.contains("After=delonix-boot-pa-c0.service\n"), "{u}");
-        // ...e nunca se declara `Requires`, que derrubaria o pod todo.
+        // ...and never declares `Requires`, which would take the whole pod down.
         assert!(!u.contains("Requires="), "{u}");
-        // A própria âncora não depende de si mesma.
+        // The anchor itself does not depend on itself.
         let anchor_unit = container_unit(
             "default",
             "pa-c0",
@@ -812,7 +812,7 @@ mod tests {
             !anchor_unit.contains("After=delonix-boot-"),
             "{anchor_unit}"
         );
-        // E um container fora de um pod continua sem ordenação nenhuma.
+        // And a container outside a pod still has no ordering at all.
         assert!(!anchor_unit.contains("delonix-boot-"), "{anchor_unit}");
     }
 
@@ -860,11 +860,11 @@ mod tests {
         );
     }
 
-    /// O unit tem de nomear o container nos DOIS lados e carregar a raiz de
-    /// estado — sem `DELONIX_ROOT`, a unidade arranca contra um store diferente
-    /// daquele onde o container existe, e falha por «no such container».
+    /// The unit has to name the container on BOTH sides and carry the state root
+    /// — without `DELONIX_ROOT`, the unit starts against a different store from
+    /// the one where the container exists, and fails with «no such container».
     #[test]
-    fn o_unit_gerado_tem_o_que_o_arranque_precisa() {
+    fn the_generated_unit_has_what_boot_needs() {
         let u = container_unit(
             "default",
             "web",
@@ -887,8 +887,8 @@ mod tests {
             "{u}"
         );
         assert!(u.contains("WantedBy=default.target\n"), "{u}");
-        // A rede do host tem de estar de pé antes: o `container start` sobe a
-        // infra do motor, mas o slirp precisa de uma rota para fora.
+        // The host network has to be up first: `container start` brings up the
+        // engine's infra, but slirp needs a route to the outside.
         assert!(u.contains("After=network-online.target"), "{u}");
     }
 }
