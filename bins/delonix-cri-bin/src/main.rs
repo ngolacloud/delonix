@@ -20,6 +20,8 @@ use std::sync::Arc;
 use delonix_engine::Engine;
 use delonix_model::Error as EngineError;
 
+mod warm;
+
 /// The composed engine behind the CRI server's ports (ADR-0040 A5, R3h): the
 /// `ImageService`'s image use cases and the RuntimeService's container-store use
 /// cases, served from one mounted [`Engine`]. Image records cross as the engine's
@@ -390,10 +392,20 @@ fn main() {
         Err(e) => fail(&e),
     };
 
+    // The warm plane (ADR-0095): opt-in via `DELONIX_CRI_WARM`. Off → the server
+    // takes `NoWarm` and every start is cold, exactly as before this change.
+    let warm: Arc<dyn delonix_cri::WarmOps> = match warm::CriWarmPlane::from_env(base.clone()) {
+        Some(plane) => {
+            tracing::info!("delonix-cri: warm plane ON (isolated native-SDN path)");
+            Arc::new(plane)
+        }
+        None => Arc::new(delonix_cri::NoWarm),
+    };
+
     tracing::info!(%addr, root = %base.display(), "delonix-cri starting");
-    if let Err(e) =
-        delonix_cri::serve_blocking(base, images, containers, runtime, network, &addr, ceiling)
-    {
+    if let Err(e) = delonix_cri::serve_blocking(
+        base, images, containers, runtime, network, warm, &addr, ceiling,
+    ) {
         exit_with(1, &e.to_string());
     }
 }

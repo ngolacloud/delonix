@@ -65,6 +65,8 @@ LAYERS = {
     "delonix-security": CONTEXT,  # → delonix-security (P2)
     "delonix-host": ADAPTER,  # the host adapter: the delonix-node split's process/fs mechanism (R2)
     "delonix-pool-helper": ADAPTER,  # the storage pool helper protocol, lifted out of the storage context (R2c)
+    "delonix-warm": ADAPTER,  # the warm-plane runner pool (ADR-0095): OS process/socket orchestration, no engine knowledge
+
     "delonix-linux": ADAPTER,
     "delonix-sdn": ADAPTER,
     "delonix-oci": ADAPTER,
@@ -322,6 +324,10 @@ CLI_DESTINATION = {
     # adapters
     "mapped": "delonix-linux", "ingress_proxy": "delonix-l7proxy", "remote": "delonix-ssh",
     "gitops_git": "delonix-git", "cni_plugins": "delonix-sdn",
+    # warm plane (ADR-0095): the runner (`__poolrunner`) and the measurement bench
+    # (`__poolbench`) drive the `delonix-warm` pool; `prespawn` is the pre_spawn
+    # profiler that justified it (env-gated, a no-op by default).
+    "warmpool": "delonix-warm", "prespawn": "delonix-warm",
     # local surfaces
     "dockerapi": "delonix-docker-api", "mcp": "delonix-mcp",
     # tests

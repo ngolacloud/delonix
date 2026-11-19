@@ -2254,6 +2254,7 @@ pub fn start_container(
     base: &Path,
     ops: &dyn crate::ContainerOps,
     rt: &dyn crate::RuntimeOps,
+    warm: &dyn crate::WarmOps,
     id: String,
     ceiling: crate::CapCeiling,
 ) -> Result<Response<StartContainerResponse>, Status> {
@@ -2324,6 +2325,33 @@ pub fn start_container(
     // supervisor's `fork` is safe.
     let spec = write_run_spec(base, &opts)?;
     let spec_arg = spec.to_string_lossy().into_owned();
+    // Warm plane (ADR-0095): on the ISOLATED native-SDN path — a rootless pod
+    // member, so `opts.pod` is set (not hostNetwork, not CNI; see `start_run_opts`)
+    // — a holder-resident runner warmed for this image can serve the start without
+    // the cold `__apirun`/`netns run` child, dropping `pre_spawn` to the ~7 ms the
+    // bench measured. A HIT returns the engine's own verdict (success, or the real
+    // refusal, surfaced exactly as the cold path does). A MISS (no hot sub-pool,
+    // holder down, runner died before the engine ran) falls through to the cold
+    // path, then seeds the sub-pool so the next member of this image serves warm
+    // (warm-on-second-use). Host-net, CNI and root keep the cold path untouched.
+    if rt.is_rootless() {
+        if let Some(pod) = opts.pod.as_deref() {
+            if let Some(result) = warm.try_start_warm(&rec.image, pod, &id, &spec) {
+                let _ = std::fs::remove_file(&spec);
+                return match result {
+                    Ok(()) => {
+                        rec.started = true;
+                        rec.started_at = now_ns();
+                        write_rec(&ct_dir(base), &id, &rec)?;
+                        Ok(Response::new(StartContainerResponse {}))
+                    }
+                    Err(why) => Err(Status::internal(format!(
+                        "failed to start container {id}: {why}"
+                    ))),
+                };
+            }
+        }
+    }
     // WITH the engine's reason. The bare "failed to start container <id>" hid
     // a refusal that named its own fix, and it took reproducing the argv by
     // hand on the node to read it (2026-09-15) — the same trap
@@ -2342,6 +2370,13 @@ pub fn start_container(
     rec.started = true;
     rec.started_at = now_ns();
     write_rec(&ct_dir(base), &id, &rec)?;
+    // Warm-on-second-use: this cold start just proved the image and the pod's
+    // shared netns work, so seed the sub-pool (off the hot path, best-effort) for
+    // the next member of this image — but only on the isolated path a warm runner
+    // can actually serve.
+    if rt.is_rootless() && opts.pod.is_some() {
+        warm.seed(&rec.image);
+    }
     Ok(Response::new(StartContainerResponse {}))
 }
 

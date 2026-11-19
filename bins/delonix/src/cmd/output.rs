@@ -1173,39 +1173,67 @@ pub fn fmt_elapsed(d: std::time::Duration) -> String {
 }
 
 struct SpinnerHandle {
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    stop: std::sync::Arc<Gate>,
     handle: Option<std::thread::JoinHandle<()>>,
+}
+
+/// An INTERRUPTIBLE gate for the spinner's threshold wait.
+///
+/// A step that finishes faster than its threshold must close in microseconds,
+/// not at the next poll boundary. `close_line` joins the spinner thread, and the
+/// old `sleep`-in-20 ms-slices left up to one slice of latency on EVERY `run`,
+/// even when the step is far under the threshold and nothing is ever drawn —
+/// measured (ADR-0095) as ~20 ms, the WHOLE of a host `container run`'s
+/// `pre_spawn`, a cost that is pure chrome and should not exist. A condvar lets
+/// [`signal`](Gate::signal) wake the waiter the instant the work finishes, so a
+/// fast step closes immediately and a slow one still announces itself after the
+/// threshold exactly as before (output unchanged — only the dead wait is gone).
+struct Gate {
+    stopped: std::sync::Mutex<bool>,
+    cv: std::sync::Condvar,
+}
+
+impl Gate {
+    fn new() -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            stopped: std::sync::Mutex::new(false),
+            cv: std::sync::Condvar::new(),
+        })
+    }
+
+    /// The step closed: wake the waiter at once.
+    fn signal(&self) {
+        if let Ok(mut g) = self.stopped.lock() {
+            *g = true;
+        }
+        self.cv.notify_all();
+    }
+
+    /// Has the step closed? Read by the TTY frame loop between frames.
+    fn is_stopped(&self) -> bool {
+        self.stopped.lock().map(|g| *g).unwrap_or(true)
+    }
+
+    /// Wait `quiet_for` out, giving up the instant [`signal`](Gate::signal) fires.
+    /// `true` = the work proved slow enough to be worth drawing; `false` = it
+    /// closed first. Shared by BOTH ways a step announces itself — the spinner on
+    /// a TTY and the single line off one — so the threshold rule stays identical.
+    fn wait_out(&self, quiet_for: std::time::Duration) -> bool {
+        let guard = match self.stopped.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        let (_guard, timeout) = self
+            .cv
+            .wait_timeout_while(guard, quiet_for, |stopped| !*stopped)
+            .unwrap_or_else(|p| p.into_inner());
+        // Timed out WITHOUT being signalled ⇒ the work is slow enough to draw.
+        timeout.timed_out()
+    }
 }
 
 /// Spinner frames (braille, like `kind`/`spinnies`).
 const SPIN_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
-/// Waits `quiet_for` out, giving up early if the step closed first.
-/// `true` = the work proved slow enough to be worth drawing.
-///
-/// Shared by BOTH ways a step announces itself — the spinner on a TTY and the
-/// single line off one. They had drifted apart, which is the whole defect this
-/// exists to prevent: one honoured the threshold and the other did not, so the
-/// closing line's rule («nothing was announced below the threshold») held on one
-/// path and not the other.
-///
-/// Waited in SLICES, never in one `sleep(quiet_for)`: `close_line` joins this
-/// thread, so a single long sleep would make every fast step block until the
-/// threshold elapsed — the delay meant to REMOVE chrome would have added latency
-/// to every `run` instead. Caught by measurement: the step reported 0.8s inside
-/// a run whose total was 0.3s, which is impossible unless the wait was the step.
-fn wait_out(stop: &std::sync::atomic::AtomicBool, quiet_for: std::time::Duration) -> bool {
-    let mut waited = std::time::Duration::ZERO;
-    while waited < quiet_for {
-        if stop.load(std::sync::atomic::Ordering::Relaxed) {
-            return false;
-        }
-        let slice = std::time::Duration::from_millis(20).min(quiet_for - waited);
-        std::thread::sleep(slice);
-        waited += slice;
-    }
-    !stop.load(std::sync::atomic::Ordering::Relaxed)
-}
 
 impl Progress {
     pub fn new() -> Self {
@@ -1283,7 +1311,7 @@ impl Progress {
         if !self.verbose {
             capture_start();
         }
-        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop = Gate::new();
         let (s2, msg, icon) = (stop.clone(), self.msg.clone(), self.icon.clone());
         let quiet_for = self.threshold;
         if !self.tty || self.verbose {
@@ -1310,7 +1338,7 @@ impl Progress {
                 return;
             }
             let handle = std::thread::spawn(move || {
-                if !wait_out(&s2, quiet_for) {
+                if !s2.wait_out(quiet_for) {
                     return;
                 }
                 eprintln!(" {} {msg} {icon}", paint(color::YELLOW, "•"));
@@ -1323,11 +1351,11 @@ impl Progress {
         }
         let handle = std::thread::spawn(move || {
             use std::io::Write;
-            if !wait_out(&s2, quiet_for) {
+            if !s2.wait_out(quiet_for) {
                 return;
             }
             let mut i = 0usize;
-            while !s2.load(std::sync::atomic::Ordering::Relaxed) {
+            while !s2.is_stopped() {
                 // `\x1b[K` clears to the end of the line (avoids leftovers from
                 // a longer frame). No `\n` — the line is rewritten in-place.
                 eprint!(
@@ -1355,7 +1383,7 @@ impl Progress {
     fn close_line(&mut self, mark: char) {
         let had_spinner = self.spin.is_some();
         if let Some(mut s) = self.spin.take() {
-            s.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            s.stop.signal();
             if let Some(h) = s.handle.take() {
                 let _ = h.join();
             }
