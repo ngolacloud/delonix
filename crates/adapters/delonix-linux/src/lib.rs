@@ -10747,12 +10747,31 @@ pub fn exec_with(
             // SAFETY: the grandchild does `exec` or `_exit`.
             match unsafe { fork() } {
                 Ok(ForkResult::Child) => {
-                    let workdir = overrides
-                        .workdir
+                    // `exec -w <dir>`: an EXPLICIT override must EXIST. docker/podman
+                    // abort the exec (rc≠0) when the requested workdir is missing;
+                    // this used to swallow the error and land the process in `/` with
+                    // rc 0 — a silent lie about where the command ran. Only the
+                    // workdir INHERITED from the container keeps the best-effort
+                    // fallback: a container may legitimately have no WORKDIR and `/`
+                    // is the documented default there (see `ExecOverrides::workdir`).
+                    let explicit_workdir = overrides.workdir.filter(|w| !w.is_empty());
+                    let workdir = explicit_workdir
                         .or(container.workdir.as_deref())
                         .filter(|w| !w.is_empty())
                         .unwrap_or("/");
-                    let _ = chdir(workdir);
+                    if let Err(e) = chdir(workdir) {
+                        if explicit_workdir.is_some() {
+                            eprintln!(
+                                "delonix: exec: cannot change directory to {workdir}: {e}"
+                            );
+                            // SAFETY: `_exit` in the forked grandchild: it must not run
+                            // the parent's destructors or atexit handlers, and it never
+                            // returns. 126 = "command cannot execute", the same code the
+                            // confinement check below uses and what `docker exec` returns
+                            // for a bad `-w`.
+                            unsafe { libc::_exit(126) };
+                        }
+                    }
                     // pty: allocates in the container's devpts, sends the master to the parent, and
                     // uses the slave as stdio (new session + controlling terminal).
                     if let Some((sp, sc)) = pty_sock {
