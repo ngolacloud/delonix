@@ -1,278 +1,286 @@
-# Paridade com Docker e Podman — levantamento e plano
+# Parity with Docker and Podman — survey and plan
 
-> **Estado:** levantamento feito a 2026-08-06 contra `delonix 0.42.2`, a partir
-> de uma sessão real de uso (montar e operar a stack do Delonix Meet com Odoo)
-> e da leitura do `--help` de cada grupo de comandos.
+> **Status:** survey done on 2026-08-06 against `delonix 0.42.2`, from a real
+> usage session (setting up and operating the Delonix Meet stack with Odoo)
+> and from reading the `--help` of each command group.
 >
-> **Não é uma auditoria.** Não li os 76 mil linhas dos 10 crates, não medi
-> desempenho, não exercitei `vm` nem `serve cri`. Onde não verifiquei, digo-o.
+> **This is not an audit.** I did not read the 76 thousand lines across the 10
+> crates, did not measure performance, did not exercise `vm` nor `serve cri`.
+> Where I did not verify, I say so.
 
 ---
 
-## 1. Porque é que este documento começa por uma correcção
+## 1. Why this document starts with a correction
 
-A primeira versão desta análise afirmava que faltavam ao Delonix as *restart
-policies*, o subcomando `restart`, os health checks, os limites de recursos e
-o registo em registries privados.
+The first version of this analysis claimed that Delonix was missing *restart
+policies*, the `restart` subcommand, health checks, resource limits, and
+login to private registries.
 
-**Estava errada em quase tudo.** Todos existem. O que aconteceu foi o erro
-mais comum numa comparação de ferramentas: inferir ausência a partir de um
-sintoma, sem ir ver.
+**It was wrong about almost everything.** All of them exist. What happened
+was the most common mistake in a tool comparison: inferring absence from a
+symptom, without going to check.
 
-O mesmo se passou com a resolução de nomes. Concluí que "não funcionava"
-porque tive de fixar IPs. Existe um servidor DNS embutido
-(`delonix-sdn/src/infra.rs`), a escutar UDP `:53` em todas as bridges,
-funcionalmente equivalente ao dnsmasq — que não corre rootless — e já com uma
-correcção de um bug em que uma query lenta bloqueava o node inteiro.
+The same happened with name resolution. I concluded it "didn't work"
+because I had to pin IPs. There is a built-in DNS server
+(`delonix-sdn/src/infra.rs`), listening on UDP `:53` on every bridge,
+functionally equivalent to dnsmasq — which does not run rootless — and
+already with a fix for a bug where a slow query blocked the entire node.
 
-O que me falhou foi outra coisa, e é a lição central deste documento:
-**o engine caiu para host-net e eu não soube.** Não é um bug de rede. É
-ausência de sinal sobre um modo degradado — categoria diferente, e mais
-importante do que qualquer funcionalidade em falta.
+What actually failed me was something else, and it is the central lesson of
+this document: **the engine fell back to host-net and I didn't know.** It is
+not a networking bug. It is the absence of a signal about a degraded mode —
+a different category, and more important than any missing feature.
 
 ---
 
-## 2. O que JÁ existe (verificado)
+## 2. What ALREADY exists (verified)
 
-| Capacidade | Como | Nota |
+| Capability | How | Note |
 |---|---|---|
-| Restart policies | `--restart no\|on-failure[:max]\|always\|unless-stopped` | Supervisor destacado por contentor, sem daemon — captura o exit code real |
-| `restart` | `delonix container restart <ids>` | Reutiliza rootfs e configuração original |
+| Restart policies | `--restart no\|on-failure[:max]\|always\|unless-stopped` | A per-container detached supervisor, no daemon — captures the real exit code |
+| `restart` | `delonix container restart <ids>` | Reuses the rootfs and the original configuration |
 | `wait` | `delonix container wait` | — |
-| Health check | `delonix container healthcheck <id>` | Corre o `HEALTHCHECK` da imagem, **sob demanda** |
-| Limites de recursos | `--memory`, `--cpus`, `--cpuset` | Exigem cgroup delegation |
-| Eventos | `delonix system events`, `system monitor` | — |
-| Registry privado | `delonix image login` / `logout` | — |
-| DNS entre contentores | servidor embutido no holder de ingress | Equivalente ao dnsmasq, rootless |
-| `depends_on` com condições | `service_started` / `service_healthy` / `service_completed_successfully` | Resolvido por ordenação topológica |
-| Pods, microVMs, CRI, Docker API | `pod`, `vm`, `serve cri`, `serve docker-api` | Fora do alcance do Docker/Podman |
+| Health check | `delonix container healthcheck <id>` | Runs the image's `HEALTHCHECK`, **on demand** |
+| Resource limits | `--memory`, `--cpus`, `--cpuset` | Require cgroup delegation |
+| Events | `delonix system events`, `system monitor` | — |
+| Private registry | `delonix image login` / `logout` | — |
+| DNS between containers | built into the ingress holder | Equivalent to dnsmasq, rootless |
+| `depends_on` with conditions | `service_started` / `service_healthy` / `service_completed_successfully` | Resolved via topological ordering |
+| Pods, microVMs, CRI, Docker API | `pod`, `vm`, `serve cri`, `serve docker-api` | Out of Docker/Podman's reach |
 
-Conclusão: **a lacuna não é de funcionalidades.** É de *operabilidade* — saber
-o que se passa — e de *ergonomia* — o custo de chegar lá.
-
----
-
-## 3. Lacunas reais
-
-### L1 · Degradação silenciosa (a mais grave)
-
-Quando a netns do holder falha, o stack cai para host-net. O contentor
-arranca, parece saudável, e a resolução de nomes deixou de existir. Nada no
-`ps`, no `inspect` ou nos logs o diz.
-
-Custou-me, numa sessão: IPs fixados à mão em vez de nomes, um upstream de
-nginx a apontar para um IP obsoleto, e um **502 em produção-de-demo detectado
-pelo utilizador, não por mim**.
-
-*Lente SRE.* Um modo degradado invisível é pior do que uma falha: a falha
-diagnostica-se, a degradação envenena tudo o que vem a seguir.
-
-### L2 · Health check é sob demanda, não contínuo
-
-`container healthcheck` corre o `HEALTHCHECK` e sai com 1 se não estiver
-saudável — "usable in a script/CI", diz a própria ajuda. Não há
-`--health-interval` que faça o engine monitorizar, nem o `STATUS` do `ps`
-distingue `Up` de `Up (healthy)`.
-
-Consequência directa: o `depends_on: service_healthy` do compose, que **está
-implementado**, tem de resolver a saúde de alguma forma — mas quem opera não
-tem como ver esse estado nem construir alertas sobre ele.
-
-### L3 · `--add-host` — FEITO, e o que a revisão apanhou
-
-O `/etc/hosts` do contentor é recriado no arranque, portanto entradas
-injectadas à mão desapareciam em cada reinício. Implementado com persistência
-no registo, validado ao vivo (sobrevive a `restart`, `getent` resolve).
-
-**A revisão de segurança encontrou um achado ALTO que esta funcionalidade
-armou**, e vale registar porque a lição é maior do que o bug:
-
-`write_etc_files` escrevia com `format!("{rootfs}/etc/...")` + `fs::write`, e
-tanto `metadata()` como `write()` SEGUEM symlinks. O rootfs é conteúdo
-controlado pela imagem e, em rootless, a árvore pertence ao uid mapeado — o
-próprio contentor podia plantar `etc/hosts -> ~/.ssh/authorized_keys` e o
-arranque seguinte escrevia-o **como o motor**, fora do rootfs.
-
-Isto já existia, mas era um primitivo de *truncar com conteúdo fixo do motor*.
-O `--add-host` tornou o conteúdo **escolhido pelo atacante** — o que o
-converte em execução de código. Provado ao vivo antes da correcção.
-
-Fechado com `safe_bind_target` (que já existia no MESMO ficheiro, e que este
-repo já tinha aplicado duas vezes — a bind mounts e ao `COPY` do build; este
-caminho ficara de fora) + validação na fronteira: endereço parseado como
-`IpAddr`, nome por whitelist LDH, `\n`/`\t`/espaço recusados, e erro em vez de
-descarte silencioso.
-
-**Lição**: acrescentar conteúdo controlado pelo utilizador a um caminho de
-escrita já existente muda a classe de risco desse caminho. Não basta rever o
-código novo — é preciso reavaliar o que ele passa a alimentar.
-
-### L4-bis · Uma lacuna que eu inventei
-
-Ao escrever a promessa de estabilidade afirmei que faltava `--format json` nos
-comandos de listagem. **Não falta**: `-o json` existe desde a ADR-0005 e
-funciona nos nove comandos de listagem, verificado um a um.
-
-Fica registado porque é a SEGUNDA vez neste documento que o mesmo erro aparece —
-e a primeira está logo na secção 1. Inferir ausência a partir de um sintoma, sem
-ir ver, é o modo de falha característico de comparar ferramentas.
-
-### L4 · Ergonomia divergente
-
-`delonix container ps`, não `delonix ps`. Isoladamente é um detalhe;
-multiplicado pelos verbos usados dezenas de vezes por dia, é atrito constante
-para quem vem do Docker ou do Podman.
-
-### L5 · cgroup delegation é trabalho do utilizador
-
-O engine avisa que sem delegação não há limites de memória/CPU — honesto —
-mas resolver implica saber montar um `systemd --user` com `Delegate=yes`.
-Devia ser um comando.
-
-### L6 · `serve docker-api` é uma fatia não documentada
-
-Enquanto for parcial e sem matriz publicada, ferramentas de terceiros
-(Testcontainers, plugins de CI, IDEs) partem de forma imprevisível. Falhar com
-"não implementado" explícito vale mais do que aproximar-se do completo.
+Conclusion: **the gap is not one of features.** It is one of *operability* —
+knowing what is happening — and of *ergonomics* — the cost of getting there.
 
 ---
 
-## 4. Plano
+## 3. Real gaps
 
-### Fase 1 — operável
+### L1 · Silent degradation (the most serious)
 
-1. **Estado de rede explícito.** `bridge` vs `host (degradado: <razão>)` no
-   `ps`, no `inspect` e um aviso, uma vez, no log. Fecha L1.
-2. **Health check contínuo.** FEITO. `--health-cmd`/`--health-interval`/
-   `--health-timeout`/`--health-retries`/`--health-start-period`; o `STATUS` do
-   `ps` passa a `Up 21 seconds (healthy)`, o `describe` mostra sonda, política e
-   último veredicto, e uma mudança de estado emite um evento. Fecha L2.
+When the holder's netns fails, the stack falls back to host-net. The
+container starts, looks healthy, and name resolution has stopped existing.
+Nothing in `ps`, `inspect`, or the logs says so.
 
-   **Quem monitoriza, num motor sem daemon** — era a decisão de desenho. É o
-   **supervisor do container destacado**: já existe, um por container, já
-   sobrevive à CLI, e morre com aquilo que vigia. Sem processo de frota, sem
-   ciclo de vida novo. O custo é um container em primeiro plano não ser
-   monitorizado, e isso está certo — estás a olhar para ele.
+It cost me, in one session: IPs pinned by hand instead of names, an nginx
+upstream pointing at a stale IP, and a **502 in demo-production caught by
+the user, not by me**.
 
-   **O probe limita-se a si próprio**, dentro do container (`sh` com watchdog).
-   Não foi escolha estética: o `runtime::exec` bloqueia num intermediário, e
-   matar esse intermediário deixa o probe vivo no pid-namespace do container —
-   uma fuga que se repetia a cada intervalo, para sempre. Um probe que se mata
-   não tem esse buraco e não precisa de plumbing novo do lado do host.
+*SRE lens.* An invisible degraded mode is worse than a failure: a failure can
+be diagnosed, degradation poisons everything that follows.
 
-   Validado ao vivo: `starting` durante os 6s em que o ficheiro não existia,
-   `healthy` no segundo exacto em que apareceu; e com `retries 3`, a sequência
-   1 → 2 → 3 antes de virar `unhealthy`, com um sucesso a zerar a contagem.
-3. **`--add-host` persistido** na spec e reaplicado no arranque. Fecha L3.
-4. **`run --wait`** — FEITO. Bloqueia até o `HEALTHCHECK` da imagem passar.
-   Medido: 64 ms sem a flag (com o serviço ainda a arrancar) contra 6086 ms
-   com ela, e o serviço pronto à saída. Sem `HEALTHCHECK` na imagem é ERRO,
-   nunca um retorno instantâneo. Reutiliza a resolução do comando que o
-   `depends_on: service_healthy` do compose já usava, para os dois não
-   poderem divergir.
+### L2 · Health check is on-demand, not continuous
 
-   **Dois bugs reais encontrados ao ligar isto**, ambos silenciosos:
+`container healthcheck` runs the `HEALTHCHECK` and exits with 1 if not
+healthy — "usable in a script/CI", as the help itself says. There is no
+`--health-interval` that makes the engine monitor it, nor does `ps`'s
+`STATUS` distinguish `Up` from `Up (healthy)`.
 
-   * **O supervisor tomou todo o caminho `-d`**, não só o `--restart` — e
-     retorna cedo. A primeira versão da flag era aceite e ignorada em
-     silêncio na esmagadora maioria dos `run -d`. Só apareceu porque o
-     `eprintln!` de depuração nunca chegou a imprimir.
-   * **`commit_flat_rootfs_from_tar` gravava `healthcheck: None` fixo.** Um
-     `HEALTHCHECK` no Dockerfile era parseado, aceite e DESCARTADO — no
-     caminho rootless, que é o normal. O caminho overlay (root) sempre o
-     honrou, portanto o mesmo ficheiro produzia imagens diferentes conforme o
-     modo do motor, e o `depends_on: service_healthy` do compose falhava com
-     "declares no healthcheck" contra uma imagem cuja fonte declara uma.
+Direct consequence: compose's `depends_on: service_healthy`, which **is
+implemented**, somehow has to resolve health — but whoever operates it has no
+way to see that state nor to build alerts on top of it.
 
-### Fase 2 — adoptável
+### L3 · `--add-host` — DONE, and what the review caught
 
-5. **Aliases de topo** — FEITO. `ps`, `run`, `exec`, `logs`, `rm` e `images`.
-   Implementados por **reescrita de argv**, não por variantes clap duplicadas:
-   uma segunda declaração das ~70 flags do `run` é uma segunda declaração para
-   manter sincronizada, e no dia em que divergissem o atalho deixava de aceitar
-   uma flag em silêncio. Assim são o MESMO comando por construção, `--help`
-   incluído. `stop`/`start` ficam deliberadamente de fora: este motor também
-   pára VMs e pods, e um `delonix stop <nome>` a significar «container» em
-   silêncio seria adivinhar — `workload stop` já cobre o caso e recusa a
-   ambiguidade em voz alta. Fecha L4.
-6. **`system setup [--delegate]`** — FEITO. Diagnostica e corrige a delegação de
-   cgroup. **Dois remédios, porque há dois problemas** — a metade que toda a
-   resposta de StackOverflow perde: o drop-in em `user@.service` resolve serviços
-   de utilizador e logins futuros, mas NÃO a shell onde estás a escrever, porque
-   um `session-N.scope` é IRMÃO do `user@.service` e não herda nada dele
-   (medido neste host: `subtree_control` é `root:root` num, do utilizador no
-   outro). Fecha L5.
-7. **Matriz do `serve docker-api`** — FEITO. `delonix serve docker-api --matrix`
-   imprime as 14 rotas implementadas e as 7 deliberadamente ausentes com a razão
-   de cada uma; o 404 aponta para lá em vez de só recusar. **A matriz não pode
-   divergir**: um teste lê o código-fonte do próprio dispatch e falha se existir
-   um braço sem linha na tabela. Esse teste já apanhou uma ambiguidade real
-   (uma limitação de UM CAMPO do `create` estava arquivada como se a rota
-   inteira faltasse). Fecha L6.
+The container's `/etc/hosts` is recreated at startup, so entries injected by
+hand would disappear on every restart. Implemented with persistence in the
+record, validated live (survives `restart`, `getent` resolves).
 
-### Fase 3 — defensável
+**The security review found a HIGH finding that this feature armed**, and it
+is worth recording because the lesson is bigger than the bug:
 
-8. **CRI validation** — FEITO, e é o item que mais valeu a pena. `critest`
-   v1.36.0 de upstream, corrido a sério: **65 de 103 specs**, publicado em
-   [cri-conformance.md](cri-conformance.md) com o script para reproduzir.
+`write_etc_files` wrote with `format!("{rootfs}/etc/...")` + `fs::write`, and
+both `metadata()` and `write()` FOLLOW symlinks. The rootfs is image-controlled
+content and, in rootless, the tree belongs to the mapped uid — the container
+itself could plant `etc/hosts -> ~/.ssh/authorized_keys` and the next startup
+would write it **as the engine**, outside the rootfs.
 
-   **Encontrou um bug grave e antigo.** O `delonix-cri` invocava `delonix netns
-   attach`; a reorganização da v0.30.0 moveu-o para `net netns attach` com corte
-   limpo, e este chamador nunca foi actualizado — **a criação de pod rootless
-   estava partida desde então**. Escondido por o `delonix_detached` mandar o
-   stderr para `/dev/null` e devolver um `bool`: a mensagem que chegava ao
-   kubelet nomeava a vítima e escondia o assassino. Uma linha de correcção
-   levou a corrida de **19 para 65 passes**.
+This already existed, but it was a primitive of *truncate with the engine's
+own fixed content*. `--add-host` made the content **attacker-chosen** — which
+turns it into code execution. Proven live before the fix.
 
-   Das 38 falhas restantes, 9 são de ambiente (AppArmor rootless) e as outras
-   são superfície por escrever — 8 delas em Security Context, que é por onde
-   começar.
+Closed with `safe_bind_target` (which already existed in the SAME file, and
+which this repo had already applied twice — to bind mounts and to the
+build's `COPY`; this path had been left out) + boundary validation: the
+address parsed as `IpAddr`, the name checked against an LDH whitelist,
+`\n`/`\t`/space refused, and an error instead of a silent drop.
 
-9. **Promessa de estabilidade da CLI** — FEITA, em
-   [cli-stability.md](cli-stability.md). Diz o que é estável (verbos de ciclo de
-   vida + JSON do `inspect`), o que é estável em CONTEÚDO mas não em formato (as
-   tabelas — para automação usa-se `inspect`), e o que não promete nada
-   (`serve *`, `cluster`, `vm`, schemas de manifesto).
-10. **Testes de fumo** — FEITO. `tests/compat/docker_api_smoke.py` corre a
-   sequência que ferramentas de terceiros usam de facto (`create` → `start` →
-   `inspect` → `rename` → `stop` → `remove`, uma chamada de cada vez), com o SDK
-   oficial de Python — o mesmo protocolo dos clientes Java/Go/Node que o
-   Testcontainers usa. **14/14 verdes** contra o nosso socket. Não é `docker run`
-   de propósito: nenhum harness de testes usa `docker run`.
+**Lesson**: adding user-controlled content to an already-existing write path
+changes that path's risk class. It is not enough to review the new code — you
+have to reassess what it now feeds into.
+
+### L4-bis · A gap I made up
+
+While writing the stability promise I claimed `--format json` was missing
+from the listing commands. **It is not**: `-o json` has existed since
+ADR-0005 and works across all nine listing commands, verified one by one.
+
+This is recorded because it is the SECOND time in this document that the same
+mistake appears — and the first is right in section 1. Inferring absence
+from a symptom, without going to check, is the characteristic failure mode of
+tool comparisons.
+
+### L4 · Divergent ergonomics
+
+`delonix container ps`, not `delonix ps`. In isolation it is a detail;
+multiplied by verbs used dozens of times a day, it is constant friction for
+anyone coming from Docker or Podman.
+
+### L5 · cgroup delegation is the user's job
+
+The engine warns that without delegation there are no memory/CPU limits —
+honest — but solving it means knowing how to set up a `systemd --user` with
+`Delegate=yes`. It should be a command.
+
+### L6 · `serve docker-api` is an undocumented slice
+
+As long as it stays partial and with no published matrix, third-party tools
+(Testcontainers, CI plugins, IDEs) break unpredictably. Failing with an
+explicit "not implemented" is worth more than approximating completeness.
 
 ---
 
-## 5. O que NÃO fazer
+## 4. Plan
 
-**Não perseguir paridade com o Docker.** É uma corrida perdida e sem prémio:
-quem quer Docker usa Docker. Paridade só interessa onde a falta dela *impede*
-de usar o que é diferenciador — microVMs e CRI.
+### Phase 1 — operable
 
-**Não construir um Docker Desktop.** Custo enorme, retorno para quem não é o
-público-alvo.
+1. **Explicit network state.** `bridge` vs `host (degraded: <reason>)` in
+   `ps`, in `inspect`, and a one-time warning in the log. Closes L1.
+2. **Continuous health check.** DONE. `--health-cmd`/`--health-interval`/
+   `--health-timeout`/`--health-retries`/`--health-start-period`; `ps`'s
+   `STATUS` now reads `Up 21 seconds (healthy)`, `describe` shows the probe,
+   the policy and the last verdict, and a state change emits an event.
+   Closes L2.
 
-**Não prometer produção a terceiros antes da Fase 1.** Um engine cujo modo
-degradado é invisível não é operável por quem não o escreveu.
+   **Who monitors, in an engine with no daemon** — that was the design
+   decision. It is the **detached container's own supervisor**: already
+   exists, one per container, already survives the CLI, and dies with
+   whatever it watches. No fleet process, no new lifecycle. The cost is that
+   a foreground container is not monitored, and that is correct — you are
+   looking at it.
+
+   **The probe limits only itself**, inside the container (`sh` with a
+   watchdog). This was not an aesthetic choice: `runtime::exec` blocks on an
+   intermediary, and killing that intermediary leaves the probe alive in the
+   container's pid-namespace — a leak that would repeat every interval,
+   forever. A probe that kills itself has no such hole and needs no new
+   host-side plumbing.
+
+   Validated live: `starting` during the 6s the file did not exist,
+   `healthy` the exact second it appeared; and with `retries 3`, the sequence
+   1 → 2 → 3 before flipping to `unhealthy`, with a success resetting the
+   count.
+3. **`--add-host` persisted** in the spec and reapplied at startup. Closes L3.
+4. **`run --wait`** — DONE. Blocks until the image's `HEALTHCHECK` passes.
+   Measured: 64 ms without the flag (with the service still starting up)
+   against 6086 ms with it, and the service ready on return. With no
+   `HEALTHCHECK` in the image it is an ERROR, never an instant return.
+   Reuses the command resolution that compose's `depends_on: service_healthy`
+   already used, so the two can never diverge.
+
+   **Two real bugs found while wiring this up**, both silent:
+
+   * **The supervisor took over the entire `-d` path**, not just
+     `--restart` — and returns early. The first version of the flag was
+     accepted and silently ignored in the overwhelming majority of `run -d`
+     cases. It only surfaced because the debug `eprintln!` never actually
+     printed.
+   * **`commit_flat_rootfs_from_tar` hard-wrote `healthcheck: None`.** A
+     `HEALTHCHECK` in the Dockerfile was parsed, accepted, and DISCARDED — on
+     the rootless path, which is the normal one. The overlay (root) path had
+     always honoured it, so the same file produced different images
+     depending on the engine's mode, and compose's `depends_on:
+     service_healthy` failed with "declares no healthcheck" against an image
+     whose source declares one.
+
+### Phase 2 — adoptable
+
+5. **Top-level aliases** — DONE. `ps`, `run`, `exec`, `logs`, `rm`, and
+   `images`. Implemented by **argv rewriting**, not by duplicated clap
+   variants: a second declaration of `run`'s ~70 flags is a second
+   declaration to keep in sync, and on the day they diverged the shortcut
+   would silently stop accepting a flag. This way they are the SAME command
+   by construction, `--help` included. `stop`/`start` are deliberately left
+   out: this engine also stops VMs and pods, and a `delonix stop <name>`
+   silently meaning "container" would be guessing — `workload stop` already
+   covers the case and refuses the ambiguity out loud. Closes L4.
+6. **`system setup [--delegate]`** — DONE. Diagnoses and fixes cgroup
+   delegation. **Two remedies, because there are two problems** — the half
+   every StackOverflow answer misses: the drop-in in `user@.service` fixes
+   user services and future logins, but NOT the shell you are typing in,
+   because a `session-N.scope` is a SIBLING of `user@.service` and inherits
+   nothing from it (measured on this host: `subtree_control` is `root:root`
+   in one, the user's in the other). Closes L5.
+7. **`serve docker-api` matrix** — DONE. `delonix serve docker-api --matrix`
+   prints the 14 implemented routes and the 7 deliberately missing ones with
+   each one's reason; the 404 points there instead of just refusing. **The
+   matrix cannot diverge**: a test reads the dispatch's own source code and
+   fails if an arm exists with no line in the table. That test has already
+   caught a real ambiguity (a ONE-FIELD limitation of `create` was filed as if
+   the whole route were missing). Closes L6.
+
+### Phase 3 — defensible
+
+8. **CRI validation** — DONE, and the item that paid off the most. Upstream
+   `critest` v1.36.0, run for real: **65 of 103 specs**, published in
+   [cri-conformance.md](cri-conformance.md) with the script to reproduce it.
+
+   **Found a serious, long-standing bug.** `delonix-cri` was calling `delonix
+   netns attach`; the v0.30.0 reorganization moved it to `net netns attach`
+   with a clean cut, and this caller was never updated — **rootless pod
+   creation had been broken since then**. Hidden because `delonix_detached`
+   sent stderr to `/dev/null` and returned a `bool`: the message that reached
+   the kubelet named the victim and hid the culprit. A one-line fix took the
+   run from **19 to 65 passes**.
+
+   Of the remaining 38 failures, 9 are environmental (rootless AppArmor) and
+   the rest is surface yet to be written — 8 of them in Security Context,
+   which is where to start.
+
+9. **CLI stability promise** — DONE, in
+   [cli-stability.md](cli-stability.md). States what is stable (lifecycle
+   verbs + `inspect`'s JSON), what is stable in CONTENT but not in format
+   (the tables — use `inspect` for automation), and what makes no promise at
+   all (`serve *`, `cluster`, `vm`, manifest schemas).
+10. **Smoke tests** — DONE. `tests/compat/docker_api_smoke.py` runs the
+   sequence third-party tools actually use (`create` → `start` → `inspect` →
+   `rename` → `stop` → `remove`, one call at a time), with the official
+   Python SDK — the same protocol as the Java/Go/Node clients Testcontainers
+   uses. **14/14 green** against our socket. Not `docker run` on purpose: no
+   test harness uses `docker run`.
 
 ---
 
-## 6. As quatro lentes, em resumo
+## 5. What NOT to do
 
-| Lente | O que vê | Prioridade |
+**Do not chase parity with Docker.** It is a race with no prize and no win:
+whoever wants Docker uses Docker. Parity only matters where its absence
+*prevents* using what is differentiating — microVMs and CRI.
+
+**Do not build a Docker Desktop.** Huge cost, return for an audience that
+is not our target.
+
+**Do not promise production to third parties before Phase 1.** An engine
+whose degraded mode is invisible is not operable by anyone who didn't write it.
+
+---
+
+## 6. The four lenses, in summary
+
+| Lens | What it sees | Priority |
 |---|---|---|
-| **SRE** | Não é possível saber em que estado está. Degradação silenciosa, saúde não observável | Fase 1 (1, 2) |
-| **DevOps** | Atrito diário: caminho longo para verbos quentes, esperas escritas à mão | Fase 1 (4), Fase 2 (5) |
-| **Platform Eng** | Já à frente em capacidades; falta **contrato** — o que é estável, o que está coberto | Fase 2 (7), Fase 3 (9) |
-| **Cloud Native** | `serve cri` é a aposta estruturalmente mais forte; exige conformidade demonstrada | Fase 3 (8) |
+| **SRE** | You cannot tell what state it's in. Silent degradation, unobservable health | Phase 1 (1, 2) |
+| **DevOps** | Daily friction: a long path to hot verbs, hand-written waits | Phase 1 (4), Phase 2 (5) |
+| **Platform Eng** | Already ahead on capabilities; missing a **contract** — what is stable, what is covered | Phase 2 (7), Phase 3 (9) |
+| **Cloud Native** | `serve cri` is the structurally strongest bet; demands demonstrated conformance | Phase 3 (8) |
 
 ---
 
-## 7. Método
+## 7. Method
 
-Cada item fecha com: implementação, teste que falha sem ela, e validação pelo
-revisor da área (`delonix-code`, `delonix-devops`, `delonix-security-compliance`).
-Nada é dado por feito só porque compila — foi assim que a primeira versão
-deste documento nasceu errada.
+Every item closes with: implementation, a test that fails without it, and
+review by that area's reviewer (`delonix-code`, `delonix-devops`,
+`delonix-security-compliance`). Nothing is taken as done just because it
+compiles — that is how the first version of this document was born wrong.
 
 ---
 

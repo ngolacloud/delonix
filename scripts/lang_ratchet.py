@@ -44,7 +44,12 @@ SKIP_PREFIXES = ("docs/handbook/",)
 # ADRs `*.pt-AO.md`). Contá-los como dívida faria o gate exigir que se
 # "traduzisse" o que já é, por desenho, a tradução. Estes ficam de fora; o resto
 # do `.md` (incluindo reports/ e docs/ sem sufixo de locale) conta.
-MD_SKIP_PREFIXES = ("docs/dev/pt-AO/", "docs/dev/zh-CN/", "docs/dev/fr-FR/")
+# `docs/releases/archive/` is a FROZEN historical changelog (v0.md): the release
+# notes of versions long shipped. It is a record of what was written at the time,
+# not living source we maintain, so it is excluded like the handbook — translating
+# frozen history would churn an immutable archive for no reader's benefit.
+MD_SKIP_PREFIXES = ("docs/dev/pt-AO/", "docs/dev/zh-CN/", "docs/dev/fr-FR/",
+                    "docs/releases/archive/")
 MD_SKIP_SUFFIX = ".pt-AO.md"
 
 # Declarações que introduzem um nome, por linguagem.

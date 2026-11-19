@@ -1,67 +1,67 @@
-# Arquitectura: Escopo de Cada Repositório
+# Architecture: Scope of Each Repository
 
-> ⚠️ **DOCUMENTO SUPERSEDED / HISTÓRICO — não é canónico.**
+> ⚠️ **SUPERSEDED / HISTORICAL DOCUMENT — not canonical.**
 >
-> Este é o registo de um *spike* de 2026-10-15, anterior à reestruturação em
-> camadas do **ADR-0040**. Descreve uma taxonomia de crates e um enquadramento
-> de produto que **já não correspondem ao motor**. Em particular, NÃO tomar como
-> verdade:
+> This is the record of a *spike* from 2026-10-15, prior to **ADR-0040**'s
+> restructuring into layers. It describes a crate taxonomy and a product
+> framing that **no longer match the engine**. In particular, do NOT take as
+> true:
 >
-> - A frase «Motor de execução PaaS … que roda sobre Kubernetes» (secção 1). O
->   Delonix é **daemonless, de nó único, e não conhece consumidor**: *consome* a
->   CRI do Kubernetes, não corre por cima dele nem tem noção de PaaS/inquilino.
-> - Os nomes de crates deste documento (`delonix-security-runtime`,
->   `delonix-scan`, `delonix-net`, `delonix-core`) — **não existem**. Os crates
->   reais são `delonix-security`, `delonix-scanner`, `delonix-networking`,
->   `delonix-model`, na árvore em camadas `crates/{foundation,contexts,adapters,
+> - The phrase "PaaS execution engine … that runs on top of Kubernetes" (section 1).
+>   Delonix is **daemonless, single-node, and consumer-agnostic**: it *consumes*
+>   Kubernetes' CRI, it does not run on top of it nor does it have a notion of PaaS/tenant.
+> - This document's crate names (`delonix-security-runtime`,
+>   `delonix-scan`, `delonix-net`, `delonix-core`) — **do not exist**. The
+>   real crates are `delonix-security`, `delonix-scanner`, `delonix-networking`,
+>   `delonix-model`, in the layered tree `crates/{foundation,contexts,adapters,
 >   providers,interfaces,assembly}`.
 >
-> **Fontes canónicas:** [`ARCHITECTURE.md`](../ARCHITECTURE.md) (raiz) e o
-> **ADR-0040** (`docs/adr/0040-*.md`). O mapa para contribuidores é
-> [`docs/dev/architecture.md`](dev/architecture.md), que defere para aquelas.
-> O corpo abaixo preserva-se tal como foi escrito, apenas como registo do spike.
+> **Canonical sources:** [`ARCHITECTURE.md`](../ARCHITECTURE.md) (root) and
+> **ADR-0040** (`docs/adr/0040-*.md`). The map for contributors is
+> [`docs/dev/architecture.md`](dev/architecture.md), which defers to those.
+> The body below is preserved as written, only as a record of the spike.
 
-**Data:** 2026-10-15  
-**Status:** Superseded pelo ADR-0040 (spike histórico; ver banner acima)  
-**Decision:** Opção B — runtime puro, observabilidade em delonix-paas
+**Date:** 2026-10-15  
+**Status:** Superseded by ADR-0040 (historical spike; see banner above)  
+**Decision:** Option B — pure runtime, observability in delonix-paas
 
 ---
 
-## 1. delonix-runtime (Este repositório)
+## 1. delonix-runtime (This repository)
 
-**O que é:** Motor de execução PaaS, escrito em Rust, que roda sobre Kubernetes. Responsável por admitir e executar cargas de trabalho (containers e VMs) com segurança.
+**What it is:** PaaS execution engine, written in Rust, that runs on top of Kubernetes. Responsible for securely admitting and running workloads (containers and VMs).
 
-**Princípios de design (ADR-0026):**
-- **Daemonless:** Cada comando nasce, executa, morre. Sem processos residentes.
-- **Decision-only:** Avalia políticas de admissão. Não monitora.
-- **Stateless:** Emite eventos, mas não persiste estado localmente.
-- **Fail-closed:** Recusa por padrão; política explicit-allow.
-- **Minimal dependencies:** Só serde + delonix-core. Sem eBPF, YARA, ou sensores.
+**Design principles (ADR-0026):**
+- **Daemonless:** Every command is born, runs, dies. No resident processes.
+- **Decision-only:** Evaluates admission policies. Does not monitor.
+- **Stateless:** Emits events, but does not persist state locally.
+- **Fail-closed:** Refuses by default; explicit-allow policy.
+- **Minimal dependencies:** Only serde + delonix-core. No eBPF, YARA, or sensors.
 
-### O que ESTÁ em delonix-runtime
+### What IS in delonix-runtime
 
-#### Segurança: Admission & Policy (✅ IMPLEMENTADO)
+#### Security: Admission & Policy (✅ IMPLEMENTED)
 - **delonix-security-runtime** (2703 LOC)
   - Admission control (container + VM paths)
   - Node policy enforcement (7 fields: denyPrivileged, denyHostNetwork, denyLatestTag, allowedRegistries, denyDevicePassthrough, denyLatestVmImage, allowedImageUrlHosts)
-  - Event audit trail (events.jsonl com stable IDs)
-  - Risk scoring e severity classification
+  - Event audit trail (events.jsonl with stable IDs)
+  - Risk scoring and severity classification
   - PII/sensitive data redaction
   - Lint warnings on partial policies (POLICY-VM-PASSTHROUGH-OPEN, etc.)
 
-#### Segurança: Supply Chain (✅ IMPLEMENTADO)
+#### Security: Supply Chain (✅ IMPLEMENTED)
 - **delonix-scan** (939 LOC)
   - Cosign signature verification
   - SBOM generation + CVE scanning
   - Integrated as scan-on-pull gate
 
-#### Segurança: Container Hardening (✅ IMPLEMENTADO)
+#### Security: Container Hardening (✅ IMPLEMENTED)
 - **seccomp_profile.rs** (756 LOC)
   - OCI seccomp profiles
   - Capability filtering per workload
   - Architecture-specific policies
 
-#### Segurança: Secrets (✅ IMPLEMENTADO)
+#### Security: Secrets (✅ IMPLEMENTED)
 - **core/secret.rs + core/cred_vault.rs**
   - Encryption at rest (XChaCha20)
   - Vault integration
@@ -71,7 +71,7 @@
   - Private egress control (RFC 1918, CGNAT blocking)
   - **Limitation:** Requires CAP_BPF + CAP_NET_ADMIN (not available in rootless mode, the primary deployment mode)
 
-#### Observabilidade: Event Emission (✅ IMPLEMENTED)
+#### Observability: Event Emission (✅ IMPLEMENTED)
 - **core/events.rs**
   - Append-only, lock-free event log
   - Best-effort (errors don't block operations)
@@ -89,7 +89,7 @@
   - Boundary preservation (no tenancy, no approval, no continuous detection)
   - Consequences and alternatives considered
 
-### O que NÃO ESTÁ em delonix-runtime
+### What is NOT in delonix-runtime
 
 #### ❌ Continuous Runtime Monitoring
 - No eBPF sensors (would violate daemonless principle)
@@ -128,9 +128,9 @@
 
 ## 2. delonix-paas (Separate repository)
 
-**O que é:** Kubernetes control plane for delonix-runtime. Manages tenancy, orchestration, observability, and compliance across a fleet of runtime instances.
+**What it is:** Kubernetes control plane for delonix-runtime. Manages tenancy, orchestration, observability, and compliance across a fleet of runtime instances.
 
-### O que PODE ESTAR em delonix-paas
+### What CAN be in delonix-paas
 
 #### Multi-tenancy & Identity
 - Tenant scoping (policies, events, audit context per tenant)
@@ -181,9 +181,9 @@
 
 ## 3. delonix-deploy (Future, or separate repository)
 
-**O que é:** GitOps / Infrastructure-as-Code layer. Deploys and configures delonix-runtime + delonix-paas to Kubernetes clusters.
+**What it is:** GitOps / Infrastructure-as-Code layer. Deploys and configures delonix-runtime + delonix-paas to Kubernetes clusters.
 
-### O que PODE ESTAR em delonix-deploy
+### What CAN be in delonix-deploy
 
 #### Kubernetes Hardening
 - RBAC definitions (ServiceAccount, Role, RoleBinding per component)

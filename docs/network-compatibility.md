@@ -1,47 +1,47 @@
-# Perfis de rede dos clusters — matriz de compatibilidade e o que foi medido
+# Cluster network profiles — compatibility matrix and what was measured
 
-> **Leia primeiro isto.** Os três perfis (`cilium`, `calico`, `flannel`) são
-> **EXPERIMENTAIS** nesta release, e o laboratório de dois nós de 2026-10-15
-> mostrou porquê: o Cilium **FALHA** neste CRI, com causa-raiz identificada
-> (§3.2). Tudo até ao dataplane — golden, preflight, artefactos, instalação,
-> espera por prontidão — foi medido e passa; o dataplane do Cilium não.
-> Esta página diz exactamente o que foi medido, com o quê, e o que não foi. Um
-> número de conformidade que ninguém revalida deixa de ser uma medição e passa
-> a ser uma citação.
+> **Read this first.** The three profiles (`cilium`, `calico`, `flannel`) are
+> **EXPERIMENTAL** in this release, and the 2026-10-15 two-node lab showed
+> why: Cilium **FAILS** on this CRI, with the root cause identified
+> (§3.2). Everything up to the dataplane — golden image, preflight,
+> artefacts, installation, waiting for readiness — was measured and passes;
+> the Cilium dataplane does not. This page says exactly what was measured,
+> with what, and what was not. A conformance number nobody re-validates
+> stops being a measurement and becomes a citation.
 >
-> Decisão e trade-offs: [ADR-0078](adr/0078-selectable-pod-network-profiles.md).
+> Decision and trade-offs: [ADR-0078](adr/0078-selectable-pod-network-profiles.md).
 
-Medido a **2026-10-15**, contra o commit base `67a0ba97`, no host de
-desenvolvimento (Linux 7.0.0-38-generic, cgroup v2, KVM). Esta é a linha **v5.1.1**
-(ver o `delonix://5.1.1` da etapa L7); é o mesmo motor que hoje embarca como
-**0.1.0** (rebrand de versão, sem mudança de código de rede). **Baseline histórica:
-os perfis não foram re-medidos contra a tag 0.1.0** — re-medir a matriz de rede é
-bancada nova (ver §5, B13).
+Measured on **2026-10-15**, against base commit `67a0ba97`, on the
+development host (Linux 7.0.0-38-generic, cgroup v2, KVM). This is the **v5.1.1**
+line (see the `delonix://5.1.1` of stage L7); it is the same engine that ships today as
+**0.1.0** (version rebrand, no network code change). **Historical baseline:
+the profiles were not re-measured against tag 0.1.0** — re-measuring the network
+matrix is new work (see §5, B13).
 
-## 1. Versões fixadas
+## 1. Pinned versions
 
-Cada artefacto é fixado por **versão e SHA-256 do conteúdo**. Um URL que passe
-a responder bytes diferentes falha fechado (DX-6704) em vez de instalar outra
-coisa. `latest` não aparece em nenhum caminho reprodutível — há um teste que o
-verifica por perfil.
+Every artefact is pinned by **version and content SHA-256**. A URL that starts
+answering different bytes fails closed (DX-6704) instead of installing something
+else. `latest` does not appear on any reproducible path — there is a test that
+checks this per profile.
 
-| componente | versão | sha256 | origem do digest |
+| component | version | sha256 | digest origin |
 |---|---|---|---|
-| `containernetworking/plugins` (amd64) | 1.9.1 | `b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303` | sidecar `.sha256` do publicador + `sha256sum` local |
-| `containernetworking/plugins` (arm64) | 1.9.1 | `56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375ee7ec` | sidecar `.sha256` do publicador |
-| chart Cilium | 1.20.2 | `b2afd87b7f75f875f92a14559f14f59b7babbb479d968e3fd625a20bf30ec20e` | `sha256sum` do tarball obtido |
-| manifesto Calico | 3.33.0 | `2de8f47595fb9c41b3f47d7b767a1f8e72ecf84057af834738ff12689a234da5` | `sha256sum` do manifesto obtido |
-| `kube-flannel.yml` | 0.28.10 | `393bdbce53eb50c8eb97dd513b218518b7d6e7985dc7b889be956e112a711084` | `sha256sum` do manifesto obtido |
-| Multus daemonset | 4.3.1 | `bd618d23a957729071ec81dcef740ffc03a5916102137afa6114d31a5d187843` | `sha256sum` do manifesto obtido |
+| `containernetworking/plugins` (amd64) | 1.9.1 | `b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303` | publisher's `.sha256` sidecar + local `sha256sum` |
+| `containernetworking/plugins` (arm64) | 1.9.1 | `56171987d3947707c3563db2f4001bccaf50fd63468611b9f3cbecb1375ee7ec` | publisher's `.sha256` sidecar |
+| Cilium chart | 1.20.2 | `b2afd87b7f75f875f92a14559f14f59b7babbb479d968e3fd625a20bf30ec20e` | `sha256sum` of the obtained tarball |
+| Calico manifest | 3.33.0 | `2de8f47595fb9c41b3f47d7b767a1f8e72ecf84057af834738ff12689a234da5` | `sha256sum` of the obtained manifest |
+| `kube-flannel.yml` | 0.28.10 | `393bdbce53eb50c8eb97dd513b218518b7d6e7985dc7b889be956e112a711084` | `sha256sum` of the obtained manifest |
+| Multus daemonset | 4.3.1 | `bd618d23a957729071ec81dcef740ffc03a5916102137afa6114d31a5d187843` | `sha256sum` of the obtained manifest |
 
-**Arquitectura.** Só `amd64` está no caminho da golden (ADR-0018). O `arm64`
-tem digest fixado para os plugins; qualquer outra arquitectura é **recusada**
-em vez de descarregada sem verificação.
+**Architecture.** Only `amd64` is in the golden image's path (ADR-0018). `arm64`
+has a pinned digest for the plugins; any other architecture is **refused**
+instead of being downloaded unverified.
 
-**O que os pins não cobrem.** As imagens de container *dentro* dos manifestos
-do Calico e do Flannel são fixadas por **tag** pelo upstream, não por digest.
-O chart do Cilium é o caso melhor — verificado no render, as três imagens dele
-vêm com `@sha256:`:
+**What the pins do not cover.** The container images *inside* the Calico and
+Flannel manifests are pinned by **tag** upstream, not by digest. The Cilium
+chart is the best case, verified at render time, its three images all come
+with `@sha256:`:
 
 ```
 quay.io/cilium/cilium:v1.20.2@sha256:2939231d0d3e3ebddcd80fffa168b7ddcc78fdf0dc864d1c8c126ff523c54f01
@@ -49,201 +49,204 @@ quay.io/cilium/operator-generic:v1.20.2@sha256:64d8798350e8569b8e7622563fed6e44d
 quay.io/cilium/cilium-envoy:v1.37.6-...@sha256:af7382699576b9e65e9184efa52eeca0b58aea70ad6e511bf260c91d9f740463
 ```
 
-Resolver as outras duas para digests é uma pendência, não um detalhe.
+Resolving the other two to digests is an open item, not a detail.
 
-## 2. Matriz de capacidades por perfil
+## 2. Capability matrix by profile
 
-| capacidade | cilium | calico | flannel | default | none |
+| capability | cilium | calico | flannel | default | none |
 |---|---|---|---|---|---|
-| nível de suporte | **EXPERIMENTAL — FALHA neste CRI** (§3.2) | **EXPERIMENTAL** | **EXPERIMENTAL** | suportado | suportado |
-| nós | vários | vários | vários | **um só** | — |
-| dataplanes renderizados | `vxlan` (omissão), `geneve` | `vxlan` (omissão), `ipip` | `vxlan` | — | — |
-| modos de kube-proxy | `iptables` (omissão), `ipvs`, `none` | `iptables` (omissão), `ipvs` | `iptables` (omissão), `ipvs` | `iptables` | `iptables` |
-| `NetworkPolicy` **implementada pelo perfil** | sim | sim | **não** | não | não |
-| `NetworkPolicy` **testada aqui** | **não** | **não** | n/a | n/a | n/a |
-| MTU automática (1500 → ) | 1450 | 1450 (`vxlan`) / 1480 (`ipip`) | 1450 | — | — |
-| plugins que a cadeia executa | `loopback`, `portmap` | `loopback`, `portmap`, `bandwidth` | `loopback`, `bridge`, `host-local`, `portmap` | `loopback`, `bridge`, `host-local`, `portmap` | — |
-| módulos de kernel | `vxlan` | `vxlan`/`ipip`, `ip_tables`, `nf_conntrack` | `vxlan`, `ip_tables`, `nf_conntrack` | — | — |
-| imagens fixadas por digest | **sim** | não (tag) | não (tag) | n/a | n/a |
-| Multus como extensão | sim | sim | sim | não | não |
-| Hubble | sim | n/a | n/a | n/a | n/a |
+| support level | **EXPERIMENTAL — FAILS on this CRI** (§3.2) | **EXPERIMENTAL** | **EXPERIMENTAL** | supported | supported |
+| nodes | several | several | several | **single only** | — |
+| rendered dataplanes | `vxlan` (default), `geneve` | `vxlan` (default), `ipip` | `vxlan` | — | — |
+| kube-proxy modes | `iptables` (default), `ipvs`, `none` | `iptables` (default), `ipvs` | `iptables` (default), `ipvs` | `iptables` | `iptables` |
+| `NetworkPolicy` **implemented by the profile** | yes | yes | **no** | no | no |
+| `NetworkPolicy` **tested here** | **no** | **no** | n/a | n/a | n/a |
+| automatic MTU (1500 → ) | 1450 | 1450 (`vxlan`) / 1480 (`ipip`) | 1450 | — | — |
+| plugins the chain runs | `loopback`, `portmap` | `loopback`, `portmap`, `bandwidth` | `loopback`, `bridge`, `host-local`, `portmap` | `loopback`, `bridge`, `host-local`, `portmap` | — |
+| kernel modules | `vxlan` | `vxlan`/`ipip`, `ip_tables`, `nf_conntrack` | `vxlan`, `ip_tables`, `nf_conntrack` | — | — |
+| images pinned by digest | **yes** | no (tag) | no (tag) | n/a | n/a |
+| Multus as an extension | yes | yes | yes | no | no |
+| Hubble | yes | n/a | n/a | n/a | n/a |
 
-> **O Flannel não entrega isolamento.** Uma `NetworkPolicy` num cluster Flannel
-> é aceite pelo apiserver e **aplicada por ninguém**. É um perfil de
-> laboratório e de diagnóstico do caminho CRI/CNI, e não é equivalente aos
-> outros dois. O `delonix cluster network profiles` di-lo em cada execução.
+> **Flannel does not deliver isolation.** A `NetworkPolicy` in a Flannel
+> cluster is accepted by the apiserver and **enforced by nobody**. It is a
+> lab and CRI/CNI path diagnostic profile, and it is not equivalent to the
+> other two. `delonix cluster network profiles` says so on every run.
 
-### Versões de Kubernetes
+### Kubernetes versions
 
-`DEFAULT_K8S_VERSION` = **1.36**. A validação do motor aceita qualquer versão
-numérica (`1.36`, `1.36.2`) e trunca para `major.minor` só no caminho do
-repositório apt. **Não existe aqui uma matriz medida de perfil × versão de
-Kubernetes**: o que está declarado acima é a versão do perfil que este binário
-instala, não uma afirmação de que ela foi exercida contra cada versão de
-Kubernetes suportada. Construí-la exige o laboratório da §5.
+`DEFAULT_K8S_VERSION` = **1.36**. The engine's validation accepts any numeric
+version (`1.36`, `1.36.2`) and truncates to `major.minor` only on the apt
+repository path. **There is no measured profile × Kubernetes-version matrix
+here**: what is declared above is the profile version this binary installs,
+not a claim that it was exercised against every supported Kubernetes
+version. Building it needs the §5 lab.
 
-## 3. O que foi medido — e com o quê
+## 3. What was measured — and with what
 
-### PASS — medido nesta sessão
+### PASS — measured in this session
 
-| # | o que | como | resultado |
+| # | what | how | result |
 |---|---|---|---|
-| 1 | Digest de cada artefacto | `delonix cluster network fetch` + `sha256sum` independente | **PASS** — 4 artefactos obtidos e verificados em 3,0 s; os quatro digests confirmados por `sha256sum` fora do motor |
-| 2 | Digest dos plugins CNI | `curl` do sidecar `.sha256` + `sha256sum` local do tarball | **PASS** — `b98f74a0…b303` nos dois |
-| 3 | Conteúdo do tarball de plugins | `tar tzf` | **PASS** — os 10 plugins de referência presentes; 18 membros no total |
-| 4 | Render do chart Cilium com os valores do motor | `helm template` com a lista exacta de `cilium_helm_values` | **PASS** — 22 objectos; `routing-mode: tunnel`, `tunnel-protocol: vxlan`, `mtu: 1450`, `cluster-pool-ipv4-cidr: 10.244.0.0/16`, `kube-proxy-replacement: false`, `/opt/cni/bin` e `/etc/cni/net.d` — todos presentes no ConfigMap |
-| 5 | Substituição nos manifests **reais** | teste `the_substitution_lands_on_the_real_upstream_manifests` sobre os artefactos em cache | **PASS** — e **encontrou um bug real**: ver §4 |
-| 6 | Preflight de nó, os 5 perfis | `sudo sh dist/delonix-node-preflight.sh <perfil>` no host real | **PASS** — cada perfil produz veredictos distintos e correctos; detectou swap activa, ausência do `delonix-cri`, e confirmou bpffs/cgroup v2/kernel 7.0/vxlan |
-| 7 | Preflight falha fechado sem root | execução como uid 1000 | **PASS** — `FAIL` + rc=1, nunca rc=0 |
-| 8 | Preflight recusa uso incorrecto | argumento inválido | **PASS** — rc=2 |
-| 9 | `shellcheck` do preflight | `shellcheck dist/delonix-node-preflight.sh` | **PASS** — limpo |
-| 10 | As 10 recusas, ponta a ponta pela CLI real | `delonix cluster apply -f` com cada manifesto inválido | **PASS** — DX-1701/1702/1703/1704/1705/1706 e o aviso de campo desconhecido, todos com rc=1 |
-| 11 | Exemplo novo válido | `delonix manifest validate -f examples/cluster/kubernetescluster.yaml` | **PASS** |
-| 12 | Testes unitários e de contrato | `cargo test -p delonix-runtime-bin --bin delonix` (suites afectadas) | **PASS** — 212 testes |
-| 13 | Requisitos de CRI do agente Cilium | inspecção do DaemonSet renderizado | **PASS por leitura** — ver §3.1 |
-| 14 | `fmt`, gate da superfície da CLI, schema publicado, traduções PT | `cargo fmt --check`, `scripts/cli-tree.sh --gate`, os testes de deriva | **PASS** — 273 folhas batem com a linha de base |
-| 15 | **Build da golden a sério** (era B1) | `delonix vm image build -t k8s-golden --k8s-version 1.34 --offline`, raiz isolada `/var/tmp/delonix-lab`, binários release deste ramo, sob um piso de disco de 8 GiB | **PASS** — `rc=0`, 608 MiB, 49 passos de `virt-customize`, nunca chegou ao piso |
-| 16 | `/etc/machine-id` da golden | `virt-ls -l -a … /etc/` | **PASS** — **0 bytes**. A golden de 2026-07-17 tinha **33** (`6bd6963d409a14986c04b3b6eed4c818`) — é o DX-6702 medido no artefacto |
-| 17 | Os 10 plugins de referência, e só eles | `virt-ls -a … /opt/cni/bin` | **PASS** — `bandwidth bridge firewall host-device host-local ipvlan loopback macvlan portmap tuning`. Os 8 excluídos e o `LICENSE`/`README.md` ausentes — ver §4.1, porque à primeira NÃO foi |
-| 18 | Preflight instalado como COMANDO | `virt-ls -l -a … /usr/local/bin` | **PASS** — `delonix-node-preflight`, `0755`, ao lado de `delonix` e `delonix-cri` |
-| 19 | Proveniência na imagem | `virt-cat -a … /etc/delonix-image-release` | **PASS** — `DELONIX_CNI_PLUGINS="v1.9.1 (amd64, sha256:b98f74a0f8522f0a)"` e `DELONIX_NET_PROFILES="cilium:1.20.2,calico:3.33.0,flannel:0.28.10,multus:4.3.1"` |
-| 20 | Módulos e sysctls dos perfis persistidos | `virt-cat` de `/etc/modules-load.d/delonix-cni.conf` e `/etc/sysctl.d/delonix-cni.conf` | **PASS** — os 9 módulos (`vxlan geneve ipip ip_tables nf_conntrack ip_vs ip_vs_rr ip_vs_wrr ip_vs_sh`) e os 4 sysctls |
-| 21 | Diagnóstico de rede na golden | `virt-ls` de `/usr/bin` e `/usr/sbin` | **PASS** — `tcpdump`, `ethtool`, `conntrack` |
-| 22 | A golden não leva conflist | `virt-ls -l -a … /etc/cni/net.d` | **PASS** — só `.kubernetes-cni-keep`, 0 bytes, do `.deb`. Não é `*.conflist`/`*.conf`, e o `cni::list_conf_files` filtra por extensão, logo é invisível à camada CNI |
+| 1 | Digest of each artefact | `delonix cluster network fetch` + independent `sha256sum` | **PASS** — 4 artefacts obtained and verified in 3.0 s; all four digests confirmed by `sha256sum` outside the engine |
+| 2 | CNI plugin digest | `curl` of the `.sha256` sidecar + local `sha256sum` of the tarball | **PASS** — `b98f74a0…b303` in both |
+| 3 | Plugin tarball contents | `tar tzf` | **PASS** — the 10 reference plugins present; 18 members total |
+| 4 | Cilium chart render with the engine's values | `helm template` with the exact `cilium_helm_values` list | **PASS** — 22 objects; `routing-mode: tunnel`, `tunnel-protocol: vxlan`, `mtu: 1450`, `cluster-pool-ipv4-cidr: 10.244.0.0/16`, `kube-proxy-replacement: false`, `/opt/cni/bin` and `/etc/cni/net.d` — all present in the ConfigMap |
+| 5 | Substitution against the **real** manifests | test `the_substitution_lands_on_the_real_upstream_manifests` against the cached artefacts | **PASS** — and **found a real bug**: see §4 |
+| 6 | Node preflight, all 5 profiles | `sudo sh dist/delonix-node-preflight.sh <profile>` on the real host | **PASS** — each profile produces distinct, correct verdicts; detected active swap, absence of `delonix-cri`, and confirmed bpffs/cgroup v2/kernel 7.0/vxlan |
+| 7 | Preflight fails closed without root | run as uid 1000 | **PASS** — `FAIL` + rc=1, never rc=0 |
+| 8 | Preflight refuses incorrect usage | invalid argument | **PASS** — rc=2 |
+| 9 | `shellcheck` of the preflight | `shellcheck dist/delonix-node-preflight.sh` | **PASS** — clean |
+| 10 | The 10 refusals, end-to-end through the real CLI | `delonix cluster apply -f` with each invalid manifest | **PASS** — DX-1701/1702/1703/1704/1705/1706 and the unknown-field warning, all with rc=1 |
+| 11 | New valid example | `delonix manifest validate -f examples/cluster/kubernetescluster.yaml` | **PASS** |
+| 12 | Unit and contract tests | `cargo test -p delonix-runtime-bin --bin delonix` (affected suites) | **PASS** — 212 tests |
+| 13 | Cilium agent CRI requirements | inspection of the rendered DaemonSet | **PASS by reading** — see §3.1 |
+| 14 | `fmt`, CLI surface gate, published schema, PT translations | `cargo fmt --check`, `scripts/cli-tree.sh --gate`, drift tests | **PASS** — 273 leaves match the baseline |
+| 15 | **Real golden image build** (was B1) | `delonix vm image build -t k8s-golden --k8s-version 1.34 --offline`, isolated root `/var/tmp/delonix-lab`, this branch's release binaries, under an 8 GiB disk floor | **PASS** — `rc=0`, 608 MiB, 49 `virt-customize` steps, never hit the floor |
+| 16 | Golden image's `/etc/machine-id` | `virt-ls -l -a … /etc/` | **PASS** — **0 bytes**. The 2026-07-17 golden had **33** (`6bd6963d409a14986c04b3b6eed4c818`) — this is DX-6702 measured on the artefact |
+| 17 | The 10 reference plugins, and only them | `virt-ls -a … /opt/cni/bin` | **PASS** — `bandwidth bridge firewall host-device host-local ipvlan loopback macvlan portmap tuning`. The 8 excluded ones and `LICENSE`/`README.md` absent — see §4.1, because at first they were NOT absent |
+| 18 | Preflight installed as a COMMAND | `virt-ls -l -a … /usr/local/bin` | **PASS** — `delonix-node-preflight`, `0755`, alongside `delonix` and `delonix-cri` |
+| 19 | Provenance in the image | `virt-cat -a … /etc/delonix-image-release` | **PASS** — `DELONIX_CNI_PLUGINS="v1.9.1 (amd64, sha256:b98f74a0f8522f0a)"` and `DELONIX_NET_PROFILES="cilium:1.20.2,calico:3.33.0,flannel:0.28.10,multus:4.3.1"` |
+| 20 | Profile modules and sysctls persisted | `virt-cat` of `/etc/modules-load.d/delonix-cni.conf` and `/etc/sysctl.d/delonix-cni.conf` | **PASS** — the 9 modules (`vxlan geneve ipip ip_tables nf_conntrack ip_vs ip_vs_rr ip_vs_wrr ip_vs_sh`) and the 4 sysctls |
+| 21 | Network diagnostics in the golden image | `virt-ls` of `/usr/bin` and `/usr/sbin` | **PASS** — `tcpdump`, `ethtool`, `conntrack` |
+| 22 | The golden image carries no conflist | `virt-ls -l -a … /etc/cni/net.d` | **PASS** — only `.kubernetes-cni-keep`, 0 bytes, from the `.deb`. Not a `*.conflist`/`*.conf`, and `cni::list_conf_files` filters by extension, so it is invisible to the CNI layer |
 
-### 3.2 O laboratório de dois nós — o que correu, e onde parou
+### 3.2 The two-node lab — what ran, and where it stopped
 
-Corrido a **2026-10-15**, raiz isolada `/var/tmp/delonix-lab`, golden construída
-nesta sessão, `cluster kubeadm --control-plane 1 --workers 1 --cni cilium
---experimental-cni` em libvirt/NAT (virbr0).
+Run on **2026-10-15**, isolated root `/var/tmp/delonix-lab`, golden image built
+in this session, `cluster kubeadm --control-plane 1 --workers 1 --cni cilium
+--experimental-cni` on libvirt/NAT (virbr0).
 
-| # | etapa | resultado |
+| # | step | result |
 |---|---|---|
-| L1 | Provisionamento das 2 VMs | **PASS** — 16,1 s + 19,4 s |
-| L2 | **Endereços DISTINTOS** (o DX-6702) | **PASS** — `labcil-cp1` 192.168.122.114, `labcil-w1` 192.168.122.15, com Client-IDs diferentes nos leases do dnsmasq. A golden de Julho dava **um** lease partilhado |
-| L3 | Preparação dos 2 hosts (receitas + CRI + CLI + preflight) | **PASS** — 3,6 s; detectou e substituiu o CLI mais antigo que a golden trazia |
-| L4 | `kubeadm init` | **PASS** — 32,4 s, depois de corrigido o bug da versão (§4.0) |
-| L5 | **Instalação do perfil** (o passo que não existia) | **PASS** — 1,0 s, entre o `init` e o join, como desenhado |
-| L6 | `kubeadm join` do worker | **PASS** — 6,3 s |
-| L7 | **Os dois nós registam-se no cluster** | **PASS** — `kubectl get nodes` mostra os 2, `v1.34.12`, e **`CONTAINER-RUNTIME: delonix://5.1.1`** — este CRI a servir um kubelet real em dois nós |
-| L8 | O DaemonSet do Cilium agenda | **PASS** — `DESIRED 2, CURRENT 2` |
-| L9 | **O agente Cilium arranca** | **FAIL** — `CrashLoopBackOff` nos dois nós |
-| L10 | A espera por prontidão **falha honestamente** | **PASS** — `✗ … 7m00s` e `DX-6704`: «its agent is Ready on 0/0 node(s) and 0/2 node(s) report Ready … nothing was deleted or rolled back». Não reportou sucesso, não apagou a prova, e nomeou os comandos de diagnóstico — mas **esses comandos não corriam**, ver a correcção a seguir à tabela |
-| L11 | Cross-node, DNS, ClusterIP, MTU, NetworkPolicy | **NOT RUN** — dependem de L9 |
+| L1 | Provisioning the 2 VMs | **PASS** — 16.1 s + 19.4 s |
+| L2 | **DISTINCT addresses** (DX-6702) | **PASS** — `labcil-cp1` 192.168.122.114, `labcil-w1` 192.168.122.15, with different Client-IDs in the dnsmasq leases. The July golden gave **one** shared lease |
+| L3 | Preparing the 2 hosts (recipes + CRI + CLI + preflight) | **PASS** — 3.6 s; detected and replaced the older CLI the golden image carried |
+| L4 | `kubeadm init` | **PASS** — 32.4 s, after fixing the version bug (§4.0) |
+| L5 | **Profile installation** (the step that did not exist) | **PASS** — 1.0 s, between `init` and join, as designed |
+| L6 | Worker `kubeadm join` | **PASS** — 6.3 s |
+| L7 | **Both nodes register on the cluster** | **PASS** — `kubectl get nodes` shows the 2, `v1.34.12`, and **`CONTAINER-RUNTIME: delonix://5.1.1`** — this CRI serving a real kubelet on two nodes |
+| L8 | The Cilium DaemonSet schedules | **PASS** — `DESIRED 2, CURRENT 2` |
+| L9 | **The Cilium agent starts** | **FAIL** — `CrashLoopBackOff` on both nodes |
+| L10 | The readiness wait **fails honestly** | **PASS** — `✗ … 7m00s` and `DX-6704`: "its agent is Ready on 0/0 node(s) and 0/2 node(s) report Ready … nothing was deleted or rolled back". Did not report success, did not delete the evidence, and named the diagnostic commands — but **those commands did not run**, see the correction after the table |
+| L11 | Cross-node, DNS, ClusterIP, MTU, NetworkPolicy | **NOT RUN** — depends on L9 |
 
-**Correcção ao L10, medida a 2026-10-20 e já corrigida no código.** O que o
-L10 observou continua verdade: a espera falha, com as contagens, sem apagar
-nada. O que ninguém experimentou nessa sessão foi **correr** os dois comandos
-que o DX-6704 nomeia. Não corriam: `delonix cluster <nome> -n <ns> describe
-daemonset <ds>` resolve o kubeconfig em cache
-(`<root>/clusters/<nome>-kubeconfig.yaml`), e o `apply_ssh` ia buscá-lo no
-**último** passo — depois da instalação do perfil e depois da espera. A única
-corrida que imprime o conselho era, por construção, a corrida que regressava
-antes de o ficheiro existir. Reproduzido a 2026-10-20 num cluster de 3
-control-planes + 2 workers com `--cni flannel`: `DX-6704` aos 420s e depois
-`error[DX-1000] … no kubeconfig for cluster 'ngolacloud'`, com a directoria do
-cluster a conter apenas `id_ed25519`, `id_ed25519.pub` e
+**Correction to L10, measured on 2026-10-20 and already fixed in the code.** What
+L10 observed is still true: the wait fails, with the counts, without deleting
+anything. What nobody tried in that session was **running** the two commands
+DX-6704 names. They did not run: `delonix cluster <name> -n <ns> describe
+daemonset <ds>` resolves the cached kubeconfig
+(`<root>/clusters/<name>-kubeconfig.yaml`), and `apply_ssh` fetched it on the
+**last** step — after profile installation and after the wait. The only run
+that prints the advice was, by construction, the run that returned before the
+file existed. Reproduced on 2026-10-20 on a cluster of 3
+control-planes + 2 workers with `--cni flannel`: `DX-6704` at 420s and then
+`error[DX-1000] … no kubeconfig for cluster 'ngolacloud'`, with the cluster
+directory containing only `id_ed25519`, `id_ed25519.pub` and
 `network-profile.json`.
 
-O kubeconfig passa a ser guardado **logo a seguir ao `kubeadm init`**, que é o
-primeiro momento em que o `admin.conf` existe; no caminho de sucesso não custa
-nada, e nos de falha é a diferença entre um conselho e um segundo erro. Dois
-testes seguram a ordem: a do plano (`bootstrap_plan`) e a das chamadas reais
-dentro do `apply_ssh` (`tests/architecture.rs`).
+The kubeconfig is now saved **right after `kubeadm init`**, which is the
+first moment `admin.conf` exists; it costs nothing on the success path, and on
+failure paths it is the difference between one piece of advice and a second
+error. Two tests hold the order in place: the plan's own
+(`bootstrap_plan`) and the real calls inside
+`apply_ssh` (`tests/architecture.rs`).
 
-**A lição, que é a mesma do §4:** nomear comandos de diagnóstico não é o
-critério — corrê-los é. Um «PASS» dado à redacção de uma mensagem não viu
-metade do que a mensagem promete.
+**The lesson, the same as §4's:** naming diagnostic commands is not the
+criterion — running them is. A "PASS" given to a message's wording never saw
+half of what the message promises.
 
-**A causa-raiz de L9, medida:**
+**L9's root cause, measured:**
 
 ```
 level=info  msg="Mounting BPF filesystem" bpffsRoot=/sys/fs/bpf
 level=fatal msg="Unable to mount BPF filesystem" error="multiple mount points detected at /sys/fs/bpf"
 ```
 
-E o host do nó tem **exactamente um** bpffs, já `shared` (bom para propagação):
+And the node host has **exactly one** bpffs, already `shared` (good for
+propagation):
 
 ```
 35 24 0:30 / /sys/fs/bpf rw,nosuid,nodev,noexec,relatime shared:11 - bpf bpf rw,mode=700
 ```
 
-Logo a duplicação é **construída dentro do container**, por este motor. A
-hipótese que o código suporta: um container `privileged` recebe `/sys` por bind
-recursivo do host (`delonix-linux`, o caminho que cai no bind quando um `sysfs`
-fresco é recusado numa userns) **e** o pod pede `/sys/fs/bpf` como hostPath —
-duas entradas no mesmo ponto, que é precisamente o que o Cilium recusa. O
-registo do container confirma o par `"source": "/sys/fs/bpf"` /
+So the duplication is **built inside the container**, by this engine. The
+hypothesis the code supports: a `privileged` container gets `/sys` via a
+recursive bind from the host (`delonix-linux`, the path taken when a fresh
+`sysfs` is refused in a userns) **and** the pod requests `/sys/fs/bpf` as a
+hostPath — two entries at the same point, which is exactly what Cilium
+refuses. The container's log confirms the pair `"source": "/sys/fs/bpf"` /
 `"target": "/sys/fs/bpf"`.
 
-**Isto é um defeito do motor, no CRI, não do perfil.** Está registado como
-pendência própria: é a primeira coisa a corrigir para o Cilium sair de
-experimental, e não se corrige nesta mudança porque vive no caminho de mounts
-de containers privilegiados, que serve muito mais do que CNIs.
+**This is an engine defect, in the CRI, not the profile's.** It is recorded
+as its own pending item: it is the first thing to fix for Cilium to leave
+experimental status, and it is not fixed in this change because it lives in
+the privileged-container mount path, which serves much more than CNIs.
 
-**O que a falha PROVA, e que não se podia provar por leitura:** o portão
-`EXPERIMENTAL` estava certo. Um perfil cujo artefacto está fixado, verificado,
-renderizado com os valores certos e aplicado com sucesso **ainda não funciona**
-— e a única razão por que isso se soube é ter-se corrido. Declarar o Cilium
-suportado com base no código a parecer certo teria sido exactamente o relato
-que o DX-1705 existe para impedir.
+**What the failure PROVES, and that could not be proven by reading:** the
+`EXPERIMENTAL` gate was right. A profile whose artefact is pinned, verified,
+rendered with the correct values and successfully applied **still does not
+work** — and the only reason this is known is that it was run. Declaring
+Cilium supported based on the code looking right would have been exactly the
+account DX-1705 exists to prevent.
 
-**Isolamento com flannel: NOT RUN.** A tentativa (mesmo par de VMs, perfil que
-não precisa de bpffs) parou porque o `kubeadm reset` deixou o apiserver a
-segurar a porta 6443 no control-plane, e a limpeza mais funda foi bloqueada
-pelo ambiente desta sessão. É o próximo passo e isolaria a falha do Cilium do
-resto da cadeia.
+**Isolation with flannel: NOT RUN.** The attempt (the same pair of VMs, a
+profile that does not need bpffs) stopped because `kubeadm reset` left the
+apiserver holding port 6443 on the control-plane, and deeper cleanup was
+blocked by this session's environment. It is the next step and would isolate
+the Cilium failure from the rest of the chain.
 
-### 3.1 Requisitos de CRI do agente Cilium — PASS por leitura, não medido ao vivo
+### 3.1 Cilium agent CRI requirements — PASS by reading, not measured live
 
-Extraído do DaemonSet renderizado (o que o agente realmente pede):
+Extracted from the rendered DaemonSet (what the agent actually asks for):
 
-| o agente pede | este motor | onde |
+| the agent asks for | this engine | where |
 |---|---|---|
-| `privileged: true` (×1) | implementado, e o bootstrap **levanta o tecto** nos seus nós | `cluster.rs` (`DELONIX_CRI_CAP_CEILING=all`, drop-in) |
-| `SYS_ADMIN` ×5, `NET_ADMIN` ×4, `SYS_MODULE`, `SYS_RESOURCE`, `SYS_PTRACE`, `SYS_CHROOT`, `NET_RAW` | cobertos pelo tecto `all` | `cap_ceiling.rs` |
-| `mountPropagation: Bidirectional` (×1) | implementado → `rshared` | `lifecycle.rs` → `delonix-linux` (`MS_SHARED\|MS_REC`, `mount()` próprio) |
-| `mountPropagation: HostToContainer` (×4) | implementado → `rslave` | o mesmo |
-| `hostNetwork: true` (×3) | implementado; o CNI é saltado | `lifecycle.rs` |
-| bpffs em `/sys/fs/bpf` | **verificado** pelo preflight (não configurado) | `dist/delonix-node-preflight.sh` |
-| cgroup v2 unificado | **verificado** pelo preflight | o mesmo |
+| `privileged: true` (×1) | implemented, and the bootstrap **raises the ceiling** on its nodes | `cluster.rs` (`DELONIX_CRI_CAP_CEILING=all`, drop-in) |
+| `SYS_ADMIN` ×5, `NET_ADMIN` ×4, `SYS_MODULE`, `SYS_RESOURCE`, `SYS_PTRACE`, `SYS_CHROOT`, `NET_RAW` | covered by the `all` ceiling | `cap_ceiling.rs` |
+| `mountPropagation: Bidirectional` (×1) | implemented → `rshared` | `lifecycle.rs` → `delonix-linux` (`MS_SHARED\|MS_REC`, its own `mount()`) |
+| `mountPropagation: HostToContainer` (×4) | implemented → `rslave` | the same |
+| `hostNetwork: true` (×3) | implemented; the CNI is skipped | `lifecycle.rs` |
+| bpffs at `/sys/fs/bpf` | **checked** by the preflight (not configured) | `dist/delonix-node-preflight.sh` |
+| unified cgroup v2 | **checked** by the preflight | the same |
 
-**Todas as peças existem. Nenhuma foi exercida em conjunto.** É isto, e só
-isto, que o nível `EXPERIMENTAL` significa.
+**Every piece exists. None was exercised together.** That is all, and only
+that, the `EXPERIMENTAL` level means.
 
-### BLOCKED — não executado, com a razão
+### BLOCKED — not run, with the reason
 
-| # | o que | porquê | desbloqueia com |
+| # | what | why | unblocked by |
 |---|---|---|---|
-| B1 | Build da golden a sério | **5 GiB livres em 938 GiB (100% ocupado)**. O `virt-resize`/`virt-customize` expande o qcow2 e não cabe; encher a raiz de uma máquina partilhada não é uma troca aceitável | ~40 GiB livres |
-| B2 | Cluster 1 CP + 1 worker | **JÁ CORRIDO** para o cilium — ver §3.2. O cluster sobe, os nós registam-se, o agente não arranca | corrigir o bpffs duplicado |
-| B3 | Criação/remoção de pods, DNS, `ClusterIP`/`NodePort`/`hostPort`, saída externa | precisa de B2 | §5 |
-| B4 | Comunicação no mesmo nó e **entre nós** | **NOT RUN** — depende de um agente que arranque (§3.2 L9) | corrigir o bpffs duplicado, ou isolar com flannel |
-| B5 | MTU com pacotes grandes | precisa de B2 | §5 |
-| B6 | `NetworkPolicy` ingress e egress | precisa de B2 | §5 |
-| B7 | Reinício de agentes e de nós | precisa de B2 | §5 |
-| B8 | Falha parcial no `ADD` e limpeza pelo `DEL` | precisa de B2 + `crictl` no nó | §5 |
-| B9 | Ausência de fugas de IPAM/interfaces/regras após ciclos | precisa de B2 | §5 |
-| B10 | Modo offline ponta a ponta | precisa de B2 (a **obtenção** verificada já está PASS, #1) | §5 |
-| B11 | Multus: interfaces adicionais e **isolamento** delas | precisa de B2 | §5 |
-| B12 | Repetição do bootstrap (idempotência ao vivo) | precisa de B2 | §5 |
-| B13 | `critest` remedido | não corrido nesta sessão | `scripts/critest.sh` |
+| B1 | Real golden image build | **5 GiB free out of 938 GiB (100% full)**. `virt-resize`/`virt-customize` expands the qcow2 and it does not fit; filling the root disk of a shared machine is not an acceptable trade-off | ~40 GiB free |
+| B2 | 1 CP + 1 worker cluster | **ALREADY RUN** for cilium — see §3.2. The cluster comes up, the nodes register, the agent does not start | fixing the duplicated bpffs |
+| B3 | Pod creation/removal, DNS, `ClusterIP`/`NodePort`/`hostPort`, external egress | needs B2 | §5 |
+| B4 | Same-node and **cross-node** communication | **NOT RUN** — depends on an agent that starts (§3.2 L9) | fixing the duplicated bpffs, or isolating with flannel |
+| B5 | MTU with large packets | needs B2 | §5 |
+| B6 | `NetworkPolicy` ingress and egress | needs B2 | §5 |
+| B7 | Agent and node restarts | needs B2 | §5 |
+| B8 | Partial `ADD` failure and cleanup by `DEL` | needs B2 + `crictl` on the node | §5 |
+| B9 | Absence of IPAM/interface/rule leaks after cycles | needs B2 | §5 |
+| B10 | End-to-end offline mode | needs B2 (the **fetch** check is already PASS, #1) | §5 |
+| B11 | Multus: additional interfaces and their **isolation** | needs B2 | §5 |
+| B12 | Bootstrap repetition (live idempotency) | needs B2 | §5 |
+| B13 | `critest` re-measured | not run in this session | `scripts/critest.sh` |
 
 ### NOT RUN
 
-- **Matriz perfil × versão de Kubernetes.** Só a versão por omissão (1.36) é
-  nomeada; nenhuma combinação foi exercida.
-- **Providers além do libvirt.** Nada aqui foi corrido contra Proxmox ou Cloud
-  Hypervisor, e **não se extrapola** de um provider para outro.
-- **Políticas de rede.** Ver B6. Instalar o Cilium **não é** entregar
-  isolamento, e esta página não o afirma.
+- **Profile × Kubernetes-version matrix.** Only the default version (1.36) is
+  named; no combination was exercised.
+- **Providers other than libvirt.** Nothing here was run against Proxmox or
+  Cloud Hypervisor, and **nothing is extrapolated** from one provider to
+  another.
+- **Network policies.** See B6. Installing Cilium **is not** delivering
+  isolation, and this page does not claim it.
 
-## 4. Bugs encontrados por estes testes
+## 4. Bugs found by these tests
 
-### 4.0. `--kubernetes-version=v1.34` — o kubeadm recusa, e TODOS os exemplos usavam isso
+### 4.0. `--kubernetes-version=v1.34` — kubeadm refuses it, and ALL the examples used it
 
-Encontrado na **primeira corrida real de dois nós**, depois de as VMs existirem e
-os hosts estarem preparados:
+Found on the **first real two-node run**, once the VMs existed and the hosts
+were prepared:
 
 ```
 kubeadm init --kubernetes-version=v1.34
@@ -251,92 +254,93 @@ error: version "v1.34" doesn't match patterns for neither semantic version nor
 labels (stable, latest, ...)
 ```
 
-O motor construía a flag como `v{spec.k8sVersion}` tal e qual. O kubeadm exige
-**semver completo**. O `valid_version` aceita major.minor, a ajuda da flag diz
-«minor version», e os cinco exemplos entregues usam `k8sVersion: "1.34"` —
-logo **todas as invocações documentadas deste caminho morriam no `kubeadm
+The engine built the flag as `v{spec.k8sVersion}` verbatim. kubeadm requires
+**full semver**. `valid_version` accepts major.minor, the flag's help says
+"minor version", and the five shipped examples use `k8sVersion: "1.34"` —
+so **every documented invocation of this path died on `kubeadm
 init`**.
 
-É o **espelho exacto** do bug que o `k8s_repo_version` já registra: lá uma
-versão com patch quebrava o URL do repo apt, que só existe a nível minor, e a
-correcção truncava. Ninguém verificou a outra direcção — os dois consumidores
-do mesmo campo querem formas opostas.
+It is the **exact mirror** of the bug already recorded by
+`k8s_repo_version`: there, a version with a patch broke the apt repo URL,
+which only exists at the minor level, and the fix truncated. Nobody checked
+the other direction — the same field's two consumers want opposite shapes.
 
-**Porque se omite a flag em vez de inventar `.0`:** medido na golden que esta
-sessão construiu, o kubeadm instalado é `1.34.12` e o `preseed_k8s_images`
-cacheou imagens `v1.34.12`. Pedir `v1.34.0` faria o kubeadm querer imagens que
-o nó **não tem** — transformando um nó offline a funcionar num que vai calado à
-rede, ou falha. Omitir faz o kubeadm usar a versão dele próprio, que por
-construção é a que a golden instalou e a que foi pré-semeada. Um semver
-completo passa intacto: quem fixou um patch quis fixá-lo.
+**Why the flag is omitted instead of inventing `.0`:** measured on the golden
+image this session built, the installed kubeadm is `1.34.12` and
+`preseed_k8s_images` cached `v1.34.12` images. Asking for `v1.34.0` would make
+kubeadm want images the node **does not have** — turning a working offline
+node into one that silently reaches out to the network, or fails. Omitting
+makes kubeadm use its own version, which by construction is the one the
+golden installed and the one pre-seeded. A full semver passes through
+intact: whoever pinned a patch meant to pin it.
 
-### 4.1. Os 8 plugins que eu dizia não ir, iam
+### 4.1. The 8 plugins I said would not ship, shipped
 
-A primeira golden construída trouxe **todos os 18** plugins mais `LICENSE` e
-`README.md`. O `.deb kubernetes-cni` chega como dependência do kubelet e é dono
-de 21 caminhos em `/opt/cni/bin`, por isso extrair dez binários verificados por
-cima dos dele deixava os outros oito intactos — enquanto o cabeçalho do módulo
-e o ADR-0078 afirmavam que não iam, com superfície de ataque como razão.
+The first golden image built carried **all 18** plugins plus `LICENSE` and
+`README.md`. The `kubernetes-cni` `.deb` arrives as a kubelet dependency and
+owns 21 paths in `/opt/cni/bin`, so extracting ten verified binaries on top of
+its own left the other eight intact — while the module header and ADR-0078
+asserted they would not ship, citing attack surface as the reason.
 
-**Nenhum teste unitário o podia apanhar:** os testes verificam o conteúdo de
-`REFERENCE_PLUGINS`, e os ficheiros extra vêm de um `.deb` que teste nenhum
-corre. A imagem era o único sítio onde aquela afirmação era verificável.
+**No unit test could catch this:** the tests check the contents of
+`REFERENCE_PLUGINS`, and the extra files come from a `.deb` no test runs. The
+image was the only place that claim was verifiable.
 
-Corrigido com um prune, e verificado numa golden reconstruída. O custo está
-escrito no código: o `dpkg` continua a achar-se dono dos ficheiros removidos.
+Fixed with a prune, and verified on a rebuilt golden image. The cost is
+written in the code: `dpkg` still believes it owns the removed files.
 
-### 4.2. A substituição da MTU do Flannel não casava nada
+### 4.2. The Flannel MTU substitution matched nothing
 
-O `kube-flannel.yml` v0.28.10 **não tem chave `MTU`** — o `net-conf.json` dele é
-`Network`, `EnableNFTables` e `Backend`. O código substituía uma linha `"MTU":`
-que não existe, por isso o Flannel teria autodetectado a MTU do **nó** e cada
-pod pagaria o cabeçalho VXLAN de 50 bytes duas vezes: pacotes grandes
-descartados em silêncio, que se lê como lentidão inexplicada.
+`kube-flannel.yml` v0.28.10 **has no `MTU` key** — its `net-conf.json` is
+`Network`, `EnableNFTables` and `Backend`. The code substituted a `"MTU":`
+line that does not exist, so Flannel would have auto-detected the **node**'s
+MTU and every pod would pay the 50-byte VXLAN header twice: large packets
+silently dropped, which reads as unexplained slowness.
 
-Era exactamente a falha que o cálculo de overhead existe para impedir,
-derrotada por uma substituição escrita a partir de uma suposição. **Os testes
-de excerto passaram sempre**, porque o excerto foi escrito com a mesma
-suposição. Corrigido: a MTU é **inserida**, ancorada na linha `"Network":`, e o
-teste passou a fazer parse do documento real como YAML e do `net-conf.json`
-como JSON, em vez de procurar uma substring.
+It was exactly the failure the overhead calculation exists to prevent,
+defeated by a substitution written from an assumption. **The snippet tests
+always passed**, because the snippet was written with the same assumption.
+Fixed: the MTU is **inserted**, anchored to the `"Network":` line, and the
+test now parses the real document as YAML and the `net-conf.json` as JSON,
+instead of searching for a substring.
 
-## 5. Procedimento de laboratório — como desbloquear B1-B12
+## 5. Lab procedure — how to unblock B1-B12
 
-Pré-requisitos: ~40 GiB livres, `/dev/kvm`, `libvirt`, `virt-customize`,
-`helm`, e `scripts/lab_preflight.sh` a passar.
+Prerequisites: ~40 GiB free, `/dev/kvm`, `libvirt`, `virt-customize`,
+`helm`, and `scripts/lab_preflight.sh` passing.
 
 ```bash
-# 0. Raiz isolada, para não tocar no estado partilhado do host
+# 0. Isolated root, so as not to touch the host's shared state
 export DELONIX_ROOT=/var/tmp/delonix-lab
 export DELONIX_NET_RUNTIME_DIR=/var/tmp/delonix-lab-net
 
-# 1. A golden, com os plugins fixados e o preflight dentro (B1)
+# 1. The golden image, with the plugins pinned and the preflight inside (B1)
 delonix vm image build -t k8s-golden --k8s-version 1.36 --offline
 virt-cat -a "$DELONIX_ROOT/vm-images/k8s-golden.qcow2" /etc/delonix-image-release
-#   confirmar: DELONIX_CNI_PLUGINS=v1.9.1 (amd64, sha256:b98f74a0f8522f0a)
-#              DELONIX_NET_PROFILES=cilium:1.20.2,calico:3.33.0,flannel:0.28.10,multus:4.3.1
-#   e que /etc/machine-id está VAZIO (0 bytes) — identidade de cluster na imagem é DX-6702
+#   confirm: DELONIX_CNI_PLUGINS=v1.9.1 (amd64, sha256:b98f74a0f8522f0a)
+#            DELONIX_NET_PROFILES=cilium:1.20.2,calico:3.33.0,flannel:0.28.10,multus:4.3.1
+#   and that /etc/machine-id is EMPTY (0 bytes) — cluster identity baked into the image is DX-6702
 
-# 2. Artefactos verificados (já PASS; repetir aqui prova a cache offline)
+# 2. Verified artefacts (already PASS; repeating here proves the offline cache)
 delonix cluster network fetch
 
-# 3. Um cluster por perfil (B2). Repetir com --cni calico e --cni flannel.
+# 3. One cluster per profile (B2). Repeat with --cni calico and --cni flannel.
 delonix network create lab-net
 delonix cluster kubeadm --name lab-cilium --control-plane 1 --workers 2 \
   --network lab-net --cni cilium --experimental-cni --copy-kubeconfig
-#   CRITÉRIO: termina sozinho, sem passo manual, e a última linha diz
-#   "agente Ready em 3/3 nós; 3/3 nós Ready". Um timeout é FAIL, não "lento".
+#   CRITERION: finishes on its own, with no manual step, and the last line says
+#   "agent Ready on 3/3 nodes; 3/3 nodes Ready". A timeout is FAIL, not "slow".
 
 export KUBECONFIG="$DELONIX_ROOT/clusters/lab-cilium-kubeconfig.yaml"
 
-# 4. Estado e deriva (operação)
+# 4. State and drift (operation)
 delonix cluster network status lab-cilium
-#   CRITÉRIO: desired e observed iguais; rc=0.
+#   CRITERION: desired and observed equal; rc=0.
 
-# 5. Pods, mesmo nó e ENTRE NÓS (B3, B4) — o teste que decide o suporte
+# 5. Pods, same node and ACROSS NODES (B3, B4) — the test that decides support
 kubectl create deployment web --image=nginx:1.27 --replicas=4
 kubectl rollout status deployment/web --timeout=180s
-kubectl get pods -o wide        # confirmar que caíram em nós DIFERENTES
+kubectl get pods -o wide        # confirm they landed on DIFFERENT nodes
 A=$(kubectl get pod -l app=web -o jsonpath='{.items[0].metadata.name}')
 B_IP=$(kubectl get pod -l app=web -o jsonpath='{.items[-1:].status.podIP}')
 kubectl exec "$A" -- curl -sS --max-time 5 "http://$B_IP" >/dev/null && echo "PASS cross-node"
@@ -346,18 +350,18 @@ kubectl expose deployment web --port 80 --name web-cip
 kubectl run probe --rm -i --restart=Never --image=busybox:1.36 -- \
   sh -c 'nslookup web-cip.default.svc.cluster.local && wget -qO- http://web-cip'
 kubectl expose deployment web --port 80 --type NodePort --name web-np
-#   e um pod com hostPort, que exercita o portmap (ADR-0074) sob este perfil
+#   plus a pod with hostPort, which exercises the portmap (ADR-0074) under this profile
 
-# 7. Saída externa (B3)
+# 7. External egress (B3)
 kubectl run egress --rm -i --restart=Never --image=busybox:1.36 -- \
   sh -c 'wget -qO- --timeout=5 http://example.com >/dev/null && echo PASS egress'
 
-# 8. MTU com pacotes grandes (B5)
-kubectl exec "$A" -- ip link show eth0 | grep -o 'mtu [0-9]*'   # esperado: mtu 1450
+# 8. MTU with large packets (B5)
+kubectl exec "$A" -- ip link show eth0 | grep -o 'mtu [0-9]*'   # expected: mtu 1450
 kubectl exec "$A" -- ping -c3 -M do -s 1422 "$B_IP"             # 1422+28 = 1450
-kubectl exec "$A" -- ping -c1 -M do -s 1500 "$B_IP" && echo "FAIL: devia fragmentar"
+kubectl exec "$A" -- ping -c1 -M do -s 1500 "$B_IP" && echo "FAIL: should fragment"
 
-# 9. NetworkPolicy ingress E egress (B6) — cilium e calico
+# 9. NetworkPolicy ingress AND egress (B6) — cilium and calico
 kubectl create ns locked
 kubectl -n locked run target --image=nginx:1.27
 kubectl -n locked apply -f - <<'EOF'
@@ -366,148 +370,151 @@ kind: NetworkPolicy
 metadata: {name: deny-all, namespace: locked}
 spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
 EOF
-#   CRITÉRIO: o acesso que passava passa a ser REJEITADO. Se continuar a passar,
-#   o perfil NÃO entrega isolamento e isso tem de ficar escrito na matriz.
+#   CRITERION: access that worked is now REJECTED. If it keeps working,
+#   the profile does NOT deliver isolation and that must be written in the matrix.
 
-# 10. Reinícios (B7)
+# 10. Restarts (B7)
 kubectl -n kube-system rollout restart ds/cilium
 kubectl -n kube-system rollout status ds/cilium --timeout=180s
 delonix vm stop lab-cilium-w1 && delonix vm start lab-cilium-w1
 kubectl wait --for=condition=Ready node/lab-cilium-w1 --timeout=300s
 
-# 11. Falha parcial no ADD e limpeza pelo DEL (B8), no nó
-#   crictl runp com uma conflist cuja cadeia falha no 2.º plugin; confirmar que
-#   nenhum lease de IPAM nem netns sobrevive (`ls /var/lib/cni/networks`,
+# 11. Partial failure in ADD and cleanup by DEL (B8), on the node
+#   crictl runp with a conflist whose chain fails on the 2nd plugin; confirm that
+#   no IPAM lease nor netns survives (`ls /var/lib/cni/networks`,
 #   `ip netns list`).
 
-# 12. Fugas após ciclos (B9)
+# 12. Leaks after cycles (B9)
 for i in $(seq 1 20); do kubectl run churn-$i --image=busybox:1.36 --restart=Never -- true; done
 kubectl delete pod -l run --all --wait
-#   CRITÉRIO: contagens de netns, veth, leases de IPAM e regras nft voltam ao
-#   valor inicial. Método: scripts/net-lifecycle-leaks.sh.
+#   CRITERION: netns, veth, IPAM lease and nft rule counts return to their
+#   starting value. Method: scripts/net-lifecycle-leaks.sh.
 
 # 13. Offline (B10)
-#   Num host SEM alcance: copiar $DELONIX_ROOT/net-profiles/ e correr o passo 3
-#   com --cni-offline. CRITÉRIO: instala sem rede; sem a cache, DX-6704.
+#   On a host WITHOUT reachability: copy $DELONIX_ROOT/net-profiles/ and run step 3
+#   with --cni-offline. CRITERION: installs without network; without the cache, DX-6704.
 
-# 14. Idempotência (B12)
+# 14. Idempotency (B12)
 delonix cluster apply -f examples/cluster/kubernetescluster.yaml
-#   CRITÉRIO: converge sem duplicar nada, e rc=0. Com OUTRO perfil: DX-6703, e
-#   o cluster fica intocado.
+#   CRITERION: converges without duplicating anything, and rc=0. With ANOTHER profile:
+#   DX-6703, and the cluster stays untouched.
 
 # 15. Multus (B11)
-#   --multus, uma NetworkAttachmentDefinition macvlan, um pod com duas
-#   interfaces. CRITÉRIO CRÍTICO: confirmar se a interface secundária permite
-#   CONTORNAR a NetworkPolicy da principal. Se permitir, documentar como
-#   limitação antes de qualquer uso.
+#   --multus, a macvlan NetworkAttachmentDefinition, a pod with two
+#   interfaces. CRITICAL CRITERION: confirm whether the secondary interface allows
+#   BYPASSING the primary interface's NetworkPolicy. If it does, document it as a
+#   limitation before any use.
 
-# 16. Limpeza
+# 16. Cleanup
 delonix vm rm -f lab-cilium-cp1 lab-cilium-w1 lab-cilium-w2
 delonix network rm lab-net
 ```
 
-**Condição de saída de `EXPERIMENTAL`, por perfil:** B2-B9 e B12 em PASS, mais
-B6 para os perfis que declaram implementar `NetworkPolicy`. Qualquer FAIL
-mantém o perfil experimental e fica escrito nesta página com o resultado.
+**Exit condition from `EXPERIMENTAL`, by profile:** B2-B9 and B12 at PASS, plus
+B6 for profiles that declare they implement `NetworkPolicy`. Any FAIL
+keeps the profile experimental and is written on this page with the result.
 
-## 6. Limitações conhecidas
+## 6. Known limitations
 
-1. **Nenhum perfil está provado contra este CRI em vários nós.** É o item 1 das
-   pendências do ADR-0078.
-2. **`ipFamily` só `ipv4`.** `ipv6` e dual-stack são recusados (DX-1706) como
-   **não implementados**, com o ADR-0065 nomeado. Para dual-stack hoje:
-   `cni: none` e a tua própria CNI.
-3. **Dataplanes encaminhados ausentes.** `native` e BGP exigem que a rede em
-   volta transporte as rotas dos pods; este motor não a configura.
-4. **`kubeProxy: none` é uma decisão de criação.** Muda o `kubeadm init`
-   (`skipPhases: addon/kube-proxy`) e não se liga depois.
-5. **Mudar de CNI num cluster vivo não é suportado** (DX-6703). O cluster fica
-   intocado; a saída é criar outro cluster e migrar as cargas.
-6. **O `helm` é pré-requisito do host para o perfil Cilium.** A ausência dele é
-   uma recusa que nomeia as alternativas, nunca um fallback silencioso.
-7. **As imagens do Calico e do Flannel são fixadas por tag**, não por digest.
-8. **O `cni: default` serve um nó.** Não foi alargado: uma bridge local ao nó
-   não tem como encaminhar entre nós.
-9. **LoadBalancer, BGP e anúncios L2 estão fora desta entrega.** O ADR-0066
-   (balanceador L4) está aceite e não construído; nada aqui liga BGP ou
-   anúncios L2, e nada aqui cria um segundo dono de um pool de endereços. A
-   fronteira mantém-se: rede dos pods (esta página), rede e firewall das VMs
-   (`guia-rede.md`), VIP do apiserver (o HAProxy que o `cluster kubeadm`
-   provisiona), e Services `LoadBalancer` (não entregue).
-10. **O `critest` não foi remedido** nesta sessão (2026-10-15). **Entretanto
-    remedido a 2026-10-24** na v5.1.1 → **84/20** (`84 Passed · 20 Failed · 18
-    Skipped`, critest v1.36.0); o `docs/cri-conformance.md` foi actualizado e já
-    não lista o 79/103 de 2026-08-25 como número corrente. Ver
+1. **No profile is proven against this CRI across several nodes.** It is item 1
+   of ADR-0078's pending items.
+2. **`ipFamily` only `ipv4`.** `ipv6` and dual-stack are refused (DX-1706) as
+   **not implemented**, with ADR-0065 named. For dual-stack today:
+   `cni: none` and your own CNI.
+3. **Routed dataplanes absent.** `native` and BGP require the surrounding
+   network to carry pod routes; this engine does not configure it.
+4. **`kubeProxy: none` is a creation-time decision.** It changes `kubeadm init`
+   (`skipPhases: addon/kube-proxy`) and cannot be toggled afterward.
+5. **Switching CNI on a live cluster is not supported** (DX-6703). The cluster
+   stays untouched; the way out is creating another cluster and migrating the
+   workloads.
+6. **`helm` is a host prerequisite for the Cilium profile.** Its absence is
+   a refusal that names the alternatives, never a silent fallback.
+7. **The Calico and Flannel images are pinned by tag**, not by digest.
+8. **`cni: default` serves one node.** It was not extended: a node-local
+   bridge has no way to route between nodes.
+9. **LoadBalancer, BGP and L2 announcements are out of this delivery.** ADR-0066
+   (L4 load balancer) is accepted and not built; nothing here wires BGP or
+   L2 announcements, and nothing here creates a second owner of an address
+   pool. The boundary holds: pod network (this page), VM network and firewall
+   (`guia-rede.md`), apiserver VIP (the HAProxy `cluster kubeadm`
+   provisions), and `LoadBalancer` Services (not delivered).
+10. **`critest` was not re-measured** in this session (2026-10-15). **Since
+    re-measured on 2026-10-24** on v5.1.1 → **84/20** (`84 Passed · 20 Failed · 18
+    Skipped`, critest v1.36.0); `docs/cri-conformance.md` was updated and no
+    longer lists the 79/103 of 2026-08-25 as the current number. See
     `reports/cri-conformance-2026-10-24/`.
 
-## 6.1. Nota de método: porque é que estas conclusões não dependem do binário em disco
+## 6.1. Method note: why these conclusions do not depend on the binary on disk
 
-Uma sessão paralela avisou — e confirmou-se — que um `CARGO_TARGET_DIR`
-PARTILHADO entre worktrees em commits diferentes produz binários **mal
-rotulados**: a fingerprint do build-script não inclui o git HEAD, por isso o
-`commit:` que o `delonix version` imprime pode ser de outro commit que não o
-código que está dentro. Medido às 21:12 de 2026-10-15: o binário em
-`target/release/delonix` dizia `commit: ce3582329` (o desta série) e **não
-continha a string `cilium`** — era de outro ramo, escrito por cima 4 minutos
-depois de a medição do §3.2 terminar.
+A parallel session warned — and it was confirmed — that a SHARED
+`CARGO_TARGET_DIR` between worktrees on different commits produces **mislabelled**
+binaries: the build-script fingerprint does not include the git HEAD, so the
+`commit:` `delonix version` prints can be from a different commit than the
+code actually inside it. Measured at 21:12 on 2026-10-15: the binary at
+`target/release/delonix` said `commit: ce3582329` (this series') and **did
+not contain the string `cilium`** — it was from a different branch, written
+over 4 minutes after §3.2's measurement ended.
 
-**O que isso invalida: nada do §3.2 — e a razão importa.** As conclusões não
-se apoiam no `delonix version` nem no ficheiro que hoje está naquele caminho,
-apoiam-se no COMPORTAMENTO que ficou registado no log da corrida, e esse só
-pode vir deste código:
+**What this invalidates: nothing in §3.2 — and the reason matters.** The
+conclusions do not rest on `delonix version` nor on the file currently at
+that path, they rest on the BEHAVIOUR recorded in the run log, and that can
+only come from this code:
 
-- `Installing the cilium pod network` — passo que só existe aqui;
-- `Waiting for the cilium pod network …` e o `DX-6704` com a redacção
-  «nothing was deleted or rolled back»;
-- `--experimental-cni` aceite como flag;
-- e o próprio fix da versão a mudar o observável: `--kubernetes-version=v1.34`
-  presente na 1ª corrida, **ausente** na seguinte, com o kubeadm a responder
-  `Using Kubernetes version: v1.34.12` por si.
+- `Installing the cilium pod network` — a step that only exists here;
+- `Waiting for the cilium pod network …` and `DX-6704` with the wording
+  "nothing was deleted or rolled back";
+- `--experimental-cni` accepted as a flag;
+- and the version fix itself changing the observable: `--kubernetes-version=v1.34`
+  present in the 1st run, **absent** in the next, with kubeadm answering
+  `Using Kubernetes version: v1.34.12` on its own.
 
-**A lição, que vale mais do que o episódio:** um `cargo build` que termina
-`exit 0` não prova que o binário é do commit que se pensa, quando o `target/`
-é partilhado. Qualquer medição deste repositório deve ser ancorada em
-comportamento observável (uma string que só aquele código emite, uma flag que
-só ele aceita) e não na etiqueta de versão. Para medir com o `target/` próprio:
-`CARGO_TARGET_DIR=<caminho só teu> cargo build --release` — custa ~10 GB e um
-build do zero, e o disco deste host esteve a 100% três vezes no mesmo dia.
+**The lesson, worth more than the episode:** a `cargo build` that ends
+`exit 0` does not prove the binary is from the commit one thinks it is, when
+`target/` is shared. Any measurement from this repository must be anchored to
+observable behaviour (a string only that code emits, a flag only it accepts)
+and not to the version label. To measure with your own `target/`:
+`CARGO_TARGET_DIR=<your-own-path> cargo build --release` — costs ~10 GB and a
+build from scratch, and this host's disk was at 100% three times in the same
+day.
 
-**Uma variável que o §3.2 pôde excluir de graça.** Até ao commit `f945b1c7`
-(outro ramo), o `--network <nome>` era aceite, gravado e **descartado** no
-provider libvirt: todos os nós caíam na rede `default`. A corrida do §3.2 usou
-`--network default`, logo o destino era o mesmo com ou sem esse bug — e os dois
-nós receberam, medido, **endereços e client-ids distintos**
-(`192.168.122.114` e `.15`). Mais: o agente do Cilium morre em
-`Mounting BPF filesystem`, a PRIMEIRA coisa que faz, antes de tocar na rede.
-Endereçamento, escolha de rede libvirt e partilha de leases não podem explicar
-uma falha de construção de mount namespace.
+**One variable §3.2 could rule out for free.** Up to commit `f945b1c7`
+(another branch), `--network <name>` was accepted, recorded and **discarded**
+in the libvirt provider: every node landed on the `default` network. The §3.2
+run used `--network default`, so the outcome was the same with or without
+that bug — and both nodes received, measured, **distinct addresses and
+client-ids** (`192.168.122.114` and `.15`). Moreover: the Cilium agent dies in
+`Mounting BPF filesystem`, the FIRST thing it does, before touching the
+network at all. Addressing, libvirt network choice and lease sharing cannot
+explain a mount-namespace construction failure.
 
-## 7. Diagnóstico e recuperação
+## 7. Diagnosis and recovery
 
-**O cluster não fica `Ready`.** O bootstrap já falhou com as contagens
-(`agente Ready em A/D nós; N/E nós Ready`) e **não apagou nada**:
+**The cluster does not reach `Ready`.** The bootstrap already failed with the
+counts (`agent Ready on A/D nodes; N/E nodes Ready`) and **deleted nothing**:
 
 ```bash
-delonix cluster network status <nome>              # desired vs observed
-delonix cluster <nome> -n kube-system get pods -o wide
-delonix cluster <nome> -n kube-system describe ds <agente>
-delonix cluster <nome> -n kube-system logs -l k8s-app=<agente> --tail=100
-ssh delonix@<nó> sudo delonix-node-preflight <perfil>   # o que falta NO NÓ
+delonix cluster network status <name>              # desired vs observed
+delonix cluster <name> -n kube-system get pods -o wide
+delonix cluster <name> -n kube-system describe ds <agent>
+delonix cluster <name> -n kube-system logs -l k8s-app=<agent> --tail=100
+ssh delonix@<node> sudo delonix-node-preflight <profile>   # what is missing ON THE NODE
 ```
 
-**Repetir é a forma de retomar.** O `kubectl apply` é idempotente e a
-instalação converge; `delonix cluster apply -f <manifesto>` com o **mesmo**
-perfil retoma de onde parou. Com outro perfil, DX-6703 e nada muda.
+**Retrying is how to resume.** `kubectl apply` is idempotent and the
+installation converges; `delonix cluster apply -f <manifest>` with the
+**same** profile resumes where it stopped. With another profile, DX-6703 and
+nothing changes.
 
-**Pods `Pending` sem endereço.** Quase sempre um CIDR de pods pequeno demais
-para os nós — recusado hoje na validação (DX-1704), mas um cluster criado antes
-desta release pode estar nesse estado.
+**Pods `Pending` with no address.** Almost always a pod CIDR too small for the
+nodes — refused today at validation time (DX-1704), but a cluster created
+before this release may be in that state.
 
-**Lentidão inexplicada com pacotes grandes.** É MTU. `ip link show eth0` dentro
-de um pod tem de mostrar a MTU do perfil (1450 em VXLAN sobre 1500), e
-`ping -M do -s <mtu-28>` tem de passar enquanto `-s 1500` fragmenta.
+**Unexplained slowness with large packets.** It is MTU. `ip link show eth0`
+inside a pod must show the profile's MTU (1450 on VXLAN over 1500), and
+`ping -M do -s <mtu-28>` must succeed while `-s 1500` fragments.
 
-**Actualizar um perfil.** Não há caminho suportado para trocar a versão de um
-perfil num cluster vivo nesta release. O procedimento é o do upstream (o
-`helm upgrade`/`kubectl apply` do próprio projecto), fora do motor, e fica
-**fora** do que esta página garante.
+**Updating a profile.** There is no supported path to change a profile's
+version on a live cluster in this release. The procedure is the upstream
+project's own (`helm upgrade`/`kubectl apply`), outside the engine, and
+remains **outside** what this page guarantees.

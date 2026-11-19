@@ -1,26 +1,26 @@
-# RT-4 Fase 1 — mapa de implementação (`delonix oci-runtime`)
+# RT-4 Phase 1 — implementation map (`delonix oci-runtime`)
 
-> Concretiza o ADR-0080 ao nível do código, para a implementação na janela de build ser mecânica.
-> Baseado na investigação de 2026-10-24 do init do `delonix-linux`.
+> Concretizes ADR-0080 at the code level, so implementation in the build window is mechanical.
+> Based on the 2026-10-24 investigation of `delonix-linux`'s init.
 
-## A descoberta que torna isto tratável
+## The discovery that makes this tractable
 
 `delonix_linux::create_with(store: &Store, container: &mut Container, rootfs: &str, spec: &RunSpec)`
-(`lib.rs:6989`) é o **ponto de entrada reutilizável do launch**: arranca o init a partir de um
-`Container` + um **caminho de rootfs** + `RunSpec` — **não** de uma imagem. E `ContainerInitSpec`
-(`lib.rs:3876`) consome `rootfs: &str` + process/filesystem/security/namespaces/io — não é acoplado
-a imagem. Um bundle OCI **já tem** `rootfs/` extraído + `config.json`, logo:
+(`lib.rs:6989`) is the **reusable launch entry point**: it starts the init from a
+`Container` + a **rootfs path** + `RunSpec` — **not** from an image. And `ContainerInitSpec`
+(`lib.rs:3876`) consumes `rootfs: &str` + process/filesystem/security/namespaces/io — it is not coupled
+to an image. An OCI bundle **already has** `rootfs/` extracted + `config.json`, so:
 
-- **Não é preciso o image store nem unpack** — o rootfs do bundle usa-se directamente.
-- O trabalho real é **traduzir `config.json` (oci_spec::runtime::Spec) → `Container` + `RunSpec`**.
+- **No image store or unpack is needed** — the bundle's rootfs is used directly.
+- The real work is **translating `config.json` (oci_spec::runtime::Spec) → `Container` + `RunSpec`**.
 
-## Estrutura (ficheiros a tocar)
+## Structure (files to touch)
 
-| Ficheiro | O quê |
+| File | What |
 |---|---|
-| `bins/delonix-runtime-bin/src/cmd/oci_runtime.rs` (novo) | o subcomando, os 5 handlers, o modelo de estado, o tradutor Spec→Container |
-| `bins/delonix-runtime-bin/src/main.rs` | registar `OciRuntime(OciRuntimeArgs)` no enum de topo + dispatch; `--l18n`/pt.po da ajuda |
-| `bins/delonix-runtime-bin/data/pt.po` | 3 textos da ajuda (flag clap nova bate ARG_HELP_PENDING) |
+| `bins/delonix-runtime-bin/src/cmd/oci_runtime.rs` (new) | the subcommand, the 5 handlers, the state model, the Spec→Container translator |
+| `bins/delonix-runtime-bin/src/main.rs` | register `OciRuntime(OciRuntimeArgs)` in the top-level enum + dispatch; `--l18n`/pt.po for the help text |
+| `bins/delonix-runtime-bin/data/pt.po` | 3 help texts (the new clap flag hits ARG_HELP_PENDING) |
 
 ## CLI (clap)
 
@@ -33,18 +33,18 @@ delonix oci-runtime [--root <state-dir>] delete <id> [--force]
 ```
 `--root` default: `$XDG_RUNTIME_DIR/delonix-runtime` (rootless) / `/run/delonix-runtime` (root).
 
-## Estado bundle-keyed (em `--root`, NÃO no image store)
+## Bundle-keyed state (in `--root`, NOT in the image store)
 
 ```rust
 #[derive(Serialize, Deserialize)]
 struct OciState { oci_version: String, id: String, status: String, pid: i32, bundle: String }
-// status: "creating"|"created"|"running"|"stopped" (o enum do runtime-spec)
+// status: "creating"|"created"|"running"|"stopped" (the runtime-spec's enum)
 ```
-Ficheiro `--root/<id>/state.json`. Pure + unit-testável (round-trip serde + o shape que `state` imprime).
+File `--root/<id>/state.json`. Pure and unit-testable (serde round-trip + the shape `state` prints).
 
-## Tradutor `config.json` → `Container` + `RunSpec` (o miolo)
+## `config.json` → `Container` + `RunSpec` translator (the core)
 
-Ler `oci_spec::runtime::Spec` de `<bundle>/config.json`. Mapear:
+Read `oci_spec::runtime::Spec` from `<bundle>/config.json`. Map:
 
 | OCI `config.json` | delonix |
 |---|---|
@@ -52,35 +52,35 @@ Ler `oci_spec::runtime::Spec` de `<bundle>/config.json`. Mapear:
 | `process.env` | `Container.config.env` |
 | `process.cwd` | `Container.config.working_dir` |
 | `process.user.{uid,gid}` | `RunOpts.user`/run_uid/run_gid |
-| `root.path` (relativo ao bundle) | `rootfs = <bundle>/<root.path>` |
-| `mounts[]` | `Container` mounts (reusar o tipo `Mount` do volume) |
+| `root.path` (relative to the bundle) | `rootfs = <bundle>/<root.path>` |
+| `mounts[]` | `Container` mounts (reuse the volume's `Mount` type) |
 | `linux.namespaces` (user/net/…) | `RunSpec.new_netns` + `Container.userns` + mappings |
-| `linux.resources.{memory,cpu,pids}` | `Container` limits (os controladores delegados) |
-| `linux.seccomp` | `seccomp_profile::parse` (JÁ consome OCI seccomp JSON) |
+| `linux.resources.{memory,cpu,pids}` | `Container` limits (the delegated controllers) |
+| `linux.seccomp` | `seccomp_profile::parse` (ALREADY consumes OCI seccomp JSON) |
 | `hostname` | `Container.hostname` |
 
-**Recusar-por-nome (guardrail 6, nunca ignorar):** `hooks` (sem protocolo OCI-hook), `annotations`
-que impliquem comportamento, `linux.resources` sem controlador delegado (como `system resources`
-já faz), AppArmor em rootless. Cada recusa nomeia o campo + a razão.
+**Refuse-by-name (guardrail 6, never ignore):** `hooks` (no OCI-hook protocol), `annotations`
+that imply behavior, `linux.resources` with no delegated controller (as `system resources`
+already does), AppArmor on rootless. Each refusal names the field + the reason.
 
 ## Handlers
 
-- **create**: parse config.json → `Container` + guardar `OciState{status:"created",pid:0}` em `--root`;
-  NÃO arrancar. (O rootfs do bundle já está pronto.)
-- **start**: ler estado → `create_with(&store_em_root, &mut container, &rootfs, &RunSpec{detach:true,…})`;
-  gravar `pid`/`status:"running"`.
-- **state**: ler o estado, `reconcile_status`, imprimir o JSON OCI (`{ociVersion,id,status,pid,bundle}`).
+- **create**: parse config.json → `Container` + save `OciState{status:"created",pid:0}` in `--root`;
+  do NOT start it. (The bundle's rootfs is already ready.)
+- **start**: read the state → `create_with(&store_in_root, &mut container, &rootfs, &RunSpec{detach:true,…})`;
+  record `pid`/`status:"running"`.
+- **state**: read the state, `reconcile_status`, print the OCI JSON (`{ociVersion,id,status,pid,bundle}`).
 - **kill**: `runtime::send_signal(&store, id, sig)`.
-- **delete**: teardown (netns/cgroup/mounts via o caminho de `cmd_rm`) + remover `--root/<id>`.
+- **delete**: teardown (netns/cgroup/mounts via `cmd_rm`'s path) + remove `--root/<id>`.
 
-## Verificação (na janela de build)
+## Verification (in the build window)
 
-1. `cargo build --release -p delonix-runtime-bin` (incremental; disco ≥12G).
-2. Unit: round-trip de `OciState` + o tradutor numa `config.json` mínima (fail-sem/passa-com).
-3. Live: `delonix image export --rootless alpine /tmp/b` (já temos) → `delonix oci-runtime create c1 --bundle /tmp/b` → `start c1` → `state c1` (running) → `kill c1` → `delete c1`; zero órfãos.
-4. Suite: `RUNTIME=<wrapper p/ delonix oci-runtime> scripts/runtime-tools.sh` → baseline vs o runc.
+1. `cargo build --release -p delonix-runtime-bin` (incremental; disk ≥12G).
+2. Unit: `OciState` round-trip + the translator on a minimal `config.json` (fail-without/pass-with).
+3. Live: `delonix image export --rootless alpine /tmp/b` (already have it) → `delonix oci-runtime create c1 --bundle /tmp/b` → `start c1` → `state c1` (running) → `kill c1` → `delete c1`; zero orphans.
+4. Suite: `RUNTIME=<wrapper for delonix oci-runtime> scripts/runtime-tools.sh` → baseline vs runc.
 
-## Gate da Fase 1
+## Phase 1 gate
 
-Um número `runtime-tools: N ok / M not ok` contra `delonix oci-runtime`, publicado ao lado do do runc
-(a referência). Fase 2 fecha os `not ok` de maior valor, um por fatia, com teste.
+A `runtime-tools: N ok / M not ok` number against `delonix oci-runtime`, published alongside runc's
+(the reference). Phase 2 closes the highest-value `not ok`s, one per slice, with a test.

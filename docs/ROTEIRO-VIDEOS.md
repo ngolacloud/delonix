@@ -1,55 +1,55 @@
-# Roteiro de vídeos — Delonix Runtime
+# Video script — Delonix Runtime
 
-Guião de gravação para a série de vídeos de lançamento à comunidade. Seis episódios curtos, cada
-um autónomo, a levar alguém de "nunca ouvi falar disto" a "consigo publicar uma stack real" — sem
-Docker instalado, em nenhum momento. Todos os comandos abaixo foram corridos e confirmados no host
-de desenvolvimento antes de entrarem no guião.
+Recording script for the community launch video series. Six short episodes, each
+self-contained, taking someone from "never heard of this" to "I can ship a real stack" — without
+Docker installed, at any point. Every command below was run and confirmed on the development host
+before going into the script.
 
-Ordem pensada para binge-watch (cada um assume o anterior), mas cada vídeo também funciona
-sozinho — quem procura só "Kubernetes sem Docker" no YouTube tem de perceber o episódio 05 sem ter
-visto o 01. Por isso cada guião abaixo repete o essencial do contexto nos primeiros 20 segundos (o
-"gancho").
+Order designed for binge-watching (each assumes the previous one), but each video also works
+standalone — someone who only searches "Kubernetes without Docker" on YouTube has to understand episode 05 without having
+seen 01. That is why each script below repeats the essential context in the first 20 seconds (the
+"hook").
 
-## Visão geral
+## Overview
 
-| # | Título | Foco | Duração |
+| # | Title | Focus | Duration |
 |---|---|---|---|
-| 01 | Delonix em 6 minutos | Instalar, correr o primeiro container, porquê sem Docker | 5–7 min |
-| 02 | Volumes, redes e build | Dados persistentes, SDN rootless, `delonix build` | 8–10 min |
-| 03 | MicroVMs declarativas | `delonix vm`, imagem dourada, cloud-init | 7–9 min |
-| 04 | Stack e Compose | Manifesto declarativo + `docker-compose.yml` nativo | 9–11 min |
-| 05 | Kubernetes sem Docker | `cluster kubeadm` — cluster real de ponta a ponta | 10–13 min |
-| 06 | Produção: firewall e dash | Segurança de rede, dashboard, disco | 8–10 min |
+| 01 | Delonix in 6 minutes | Install, run the first container, why no Docker | 5–7 min |
+| 02 | Volumes, networks and build | Persistent data, rootless SDN, `delonix build` | 8–10 min |
+| 03 | Declarative microVMs | `delonix vm`, golden image, cloud-init | 7–9 min |
+| 04 | Stack and Compose | Declarative manifest + native `docker-compose.yml` | 9–11 min |
+| 05 | Kubernetes without Docker | `cluster kubeadm` — a real end-to-end cluster | 10–13 min |
+| 06 | Production: firewall and dashboard | Network security, dashboard, disk | 8–10 min |
 
 ---
 
-## 01 — Delonix em 6 minutos (5–7 min)
+## 01 — Delonix in 6 minutes (5–7 min)
 
-O "olá mundo": instalar, correr o primeiro container, e a única ideia que importa reter — motor de
-containers e microVMs sem daemon, sem root.
+The "hello world": install, run the first container, and the one idea that matters — a
+container and microVM engine with no daemon, no root.
 
-### Gancho (primeiros 15s)
+### Hook (first 15s)
 
-> "Isto é o Delonix a correr um container nginx — sem Docker instalado nesta máquina, sem root,
-> sem daemon nenhum a correr em segundo plano." *(ecrã: `docker: command not found` seguido de
-> `delonix container run` a funcionar na mesma.)*
+> "This is Delonix running an nginx container — with no Docker installed on this machine, no root,
+> no daemon running in the background at all." *(screen: `docker: command not found` followed by
+> `delonix container run` working anyway.)*
 
-### Objectivos
+### Objectives
 
-- Instalar com um comando (`install.sh`)
-- Perceber "rootless-first, daemonless" em 1 frase, sem jargão
-- Correr, ver, e remover o primeiro container
+- Install with one command (`install.sh`)
+- Understand "rootless-first, daemonless" in one sentence, no jargon
+- Run, see, and remove the first container
 
-### Guião de ecrã
+### On-screen script
 
-**Falar:** Instalação — um script, sem sudo (excepto o passo pontual de subuid/subgid na primeira vez).
+**Say:** Installation — one script, no sudo (except the one-time subuid/subgid step the first time).
 
 ```bash
 curl -fsSL https://ngolacloud.github.io/delonix/install.sh | sh
 delonix --version
 ```
 
-**Falar:** O primeiro container — publica uma porta, sem privilégio nenhum.
+**Say:** The first container — publishes a port, with no privilege at all.
 
 ```bash
 delonix container run -d --name web -p 8080:80 nginx
@@ -57,7 +57,7 @@ curl localhost:8080
 # <title>Welcome to nginx!</title>
 ```
 
-**Falar:** `ps`/`logs`/`rm` — o vocabulário docker que já conheces, funciona igual.
+**Say:** `ps`/`logs`/`rm` — the docker vocabulary you already know, works the same way.
 
 ```bash
 delonix container ls
@@ -65,49 +65,49 @@ delonix container logs web
 delonix container rm -f web
 ```
 
-### A frase que fica
+### The line that sticks
 
-"Sem daemon" quer dizer: cada comando é o processo todo, do princípio ao fim — se o `delonix`
-morresse a meio, não haveria um daemon zombie a gerir nada. "Rootless" quer dizer: o teu utilizador
-normal, sem `sudo`, sem grupo `docker` a dar root de facto.
+"No daemon" means: every command is the whole process, start to finish — if `delonix`
+died halfway, there would be no zombie daemon managing anything. "Rootless" means: your
+normal user, no `sudo`, no `docker` group giving de facto root.
 
-### CTA final
+### Final CTA
 
-"No próximo vídeo: volumes que sobrevivem a reinícios, redes isoladas entre containers, e
-`delonix build` a construir a tua própria imagem — sem Dockerfile especial, é o mesmo de sempre."
+"Next video: volumes that survive restarts, isolated networks between containers, and
+`delonix build` building your own image — no special Dockerfile, it's the same as always."
 
 ---
 
-## 02 — Volumes, redes e build (8–10 min)
+## 02 — Volumes, networks and build (8–10 min)
 
-Dados que sobrevivem ao container, containers que se descobrem por nome, e construir uma imagem
-própria com um Dockerfile normal.
+Data that survives the container, containers that discover each other by name, and building a
+custom image with a normal Dockerfile.
 
-### Gancho
+### Hook
 
-> "Vou apagar este container com a base de dados lá dentro — e os dados vão sobreviver." *(ecrã:
-> cria um volume, escreve um ficheiro dentro, remove o container, sobe outro a apontar ao mesmo
-> volume, o ficheiro continua lá.)*
+> "I'm going to delete this container with the database inside — and the data will survive."
+> *(screen: creates a volume, writes a file inside, removes the container, brings up another
+> pointing at the same volume, the file is still there.)*
 
-### Objectivos
+### Objectives
 
-- Volume nomeado — criar, montar, sobreviver a um `rm`
-- Rede custom — dois containers a falarem-se pelo NOME (DNS interno)
-- `delonix build` — Dockerfile normal, zero sintaxe nova
+- Named volume — create, mount, survive an `rm`
+- Custom network — two containers talking by NAME (internal DNS)
+- `delonix build` — normal Dockerfile, zero new syntax
 
-### Guião de ecrã
+### On-screen script
 
-**Falar:** Volume nomeado — o dado vive fora do ciclo de vida do container.
+**Say:** Named volume — the data lives outside the container's lifecycle.
 
 ```bash
-delonix volume create dados
-delonix container run -d --name db -v dados:/var/lib/postgresql/data postgres:16-alpine
+delonix volume create data
+delonix container run -d --name db -v data:/var/lib/postgresql/data postgres:16-alpine
 delonix container rm -f db
-# recria — o volume, não o container, é que guardava os dados
-delonix container run -d --name db2 -v dados:/var/lib/postgresql/data postgres:16-alpine
+# recreate it — the volume, not the container, is what held the data
+delonix container run -d --name db2 -v data:/var/lib/postgresql/data postgres:16-alpine
 ```
 
-**Falar:** Rede custom + DNS por nome — a app fala com "db", não com um IP decorado.
+**Say:** Custom network + DNS by name — the app talks to "db", not to a memorized IP.
 
 ```bash
 delonix network create backend
@@ -116,179 +116,179 @@ delonix container run -it --rm --net backend alpine sh -c \
   "apk add -q bind-tools && nslookup db"
 ```
 
-**Falar:** Build — um Dockerfile qualquer, sem adaptar nada.
+**Say:** Build — any Dockerfile, with nothing adapted.
 
 ```dockerfile
 # Dockerfile
 FROM alpine
-RUN echo "construído no Delonix" > /msg.txt
+RUN echo "built on Delonix" > /msg.txt
 CMD ["cat", "/msg.txt"]
 ```
 
 ```bash
-delonix build -t minha-app:dev .
-delonix container run --rm minha-app:dev
+delonix build -t my-app:dev .
+delonix container run --rm my-app:dev
 ```
 
-### Ponto a sublinhar
+### Point to underline
 
-A rede não é um detalhe cosmético: dois containers na MESMA rede resolvem-se por nome (como o
-CoreDNS do Kubernetes) — é a base de tudo o que vem no episódio 04 (Compose) e 05 (Kubernetes).
+The network is not a cosmetic detail: two containers on the SAME network resolve each other by name (like
+Kubernetes' CoreDNS) — it is the foundation for everything coming in episode 04 (Compose) and 05 (Kubernetes).
 
-### CTA final
+### Final CTA
 
-"Container é só metade da história — no próximo vídeo: microVMs de verdade, com o próprio kernel,
-prontas para correr Kubernetes."
+"Container is only half the story — next video: real microVMs, with their own kernel,
+ready to run Kubernetes."
 
 ---
 
-## 03 — MicroVMs declarativas (7–9 min)
+## 03 — Declarative microVMs (7–9 min)
 
-Quando um container não chega — isolamento de hipervisor, kernel próprio, pronto a arrancar um nó
-Kubernetes sem instalar nada na primeira vez que liga.
+When a container is not enough — hypervisor isolation, its own kernel, ready to boot a
+Kubernetes node without installing anything the first time it powers on.
 
-### Gancho
+### Hook
 
-> "Isto não é um container — é uma VM completa, com o SEU PRÓPRIO kernel, a arrancar em segundos,
-> sem eu ter tocado num instalador." *(ecrã: `delonix vm create dev` → `vm console dev` → login
-> funcional.)*
+> "This is not a container — it's a full VM, with ITS OWN kernel, booting in seconds,
+> without me touching an installer." *(screen: `delonix vm create dev` → `vm console dev` → working
+> login.)*
 
-### Objectivos
+### Objectives
 
-- Diferença prática container vs. microVM (isolamento, não performance)
-- Criar uma VM com a imagem dourada, entrar por consola e por SSH
-- Cloud-init declarativo (hostname/chave SSH sem tocar num ISO à mão)
+- Practical difference between container vs. microVM (isolation, not performance)
+- Create a VM with the golden image, enter via console and SSH
+- Declarative cloud-init (hostname/SSH key without touching an ISO by hand)
 
-### Guião de ecrã
+### On-screen script
 
-**Falar:** Uma VM com chave SSH já injectada — nada de senha por defeito em produção.
+**Say:** A VM with the SSH key already injected — no default password in production.
 
 ```bash
 delonix vm create dev --ssh-key ~/.ssh/id_ed25519.pub --hostname dev
 delonix vm ls
-# espera o IP aparecer, depois:
+# wait for the IP to appear, then:
 ssh delonix@$(delonix vm ls | grep dev | awk '{print $4}')
 ```
 
-**Falar:** Consola série — para quando nem a rede está pronta ainda.
+**Say:** Serial console — for when the network is not even ready yet.
 
 ```bash
 delonix vm console dev
-# Ctrl+] para voltar ao host
+# Ctrl+] to return to the host
 ```
 
-**Falar:** A golden image já vem com Kubernetes pronto — é o gancho para o episódio 05.
+**Say:** The golden image already ships with Kubernetes ready — this is the hook for episode 05.
 
 ```bash
 ssh delonix@<ip> "kubeadm version && kubelet --version"
 ```
 
-### Ponto a sublinhar
+### Point to underline
 
-"Golden image" = a VM já nasce com `kubeadm`/`kubelet`/`delonix-cri` instalados — arrancar um nó
-não instala nada, só faz `kubeadm init`/`join`. É o que torna o próximo vídeo rápido de verdade.
+"Golden image" = the VM is born with `kubeadm`/`kubelet`/`delonix-cri` already installed — booting a node
+installs nothing, it just does `kubeadm init`/`join`. That's what makes the next video genuinely fast.
 
-### CTA final
+### Final CTA
 
-"Container para o dia a dia, VM para isolamento a sério — no próximo vídeo, um jeito de descrever
-os dois (mais rede, mais volumes) num único ficheiro YAML, e o `docker-compose.yml` que já tens a
-funcionar sem alterar uma linha."
+"Container for everyday use, VM for serious isolation — next video, a way to describe
+both (plus network, plus volumes) in a single YAML file, and the `docker-compose.yml` you already have
+working without changing a line."
 
 ---
 
-## 04 — Stack e Compose (9–11 min)
+## 04 — Stack and Compose (9–11 min)
 
-Duas portas de entrada para o mesmo resultado: o manifesto declarativo nativo do Delonix, e o
-`docker-compose.yml` que já existe no teu projecto.
+Two entry points to the same result: Delonix's native declarative manifest, and the
+`docker-compose.yml` that already exists in your project.
 
-### Gancho
+### Hook
 
-> "Este `docker-compose.yml` nunca foi pensado para o Delonix — e vai simplesmente funcionar."
-> *(ecrã: um compose de app+Postgres real, `delonix compose up`, os dois serviços a subir na
-> ordem certa.)*
+> "This `docker-compose.yml` was never written with Delonix in mind — and it's just going to work."
+> *(screen: a real app+Postgres compose, `delonix compose up`, both services coming up in the
+> right order.)*
 
-### Objectivos
+### Objectives
 
-- `delonix stack init` → projecto completo pronto a editar
-- `stack plan`/`apply` — manifesto declarativo que CONVERGE (a quente, sem mudar o PID)
-- `compose up` — o mesmo `docker-compose.yml`, sem tradução manual
+- `delonix stack init` → a complete project ready to edit
+- `stack plan`/`apply` — a declarative manifest that CONVERGES (live, without changing the PID)
+- `compose up` — the same `docker-compose.yml`, with no manual translation
 
-### Guião de ecrã
+### On-screen script
 
-**Falar:** Scaffold — um projecto completo (volume + BD + app) num comando.
+**Say:** Scaffold — a complete project (volume + DB + app) in one command.
 
 ```bash
-delonix stack init minhaapp && cd minhaapp
+delonix stack init myapp && cd myapp
 cat delonix-manifest.yaml
-delonix stack apply --dry-run   # mostra o plano, não cria nada
+delonix stack apply --dry-run   # shows the plan, creates nothing
 delonix stack apply
 ```
 
-**Falar:** Agora o mesmo resultado, mas a partir de um docker-compose.yml existente.
+**Say:** Now the same result, but starting from an existing docker-compose.yml.
 
 ```bash
-delonix compose config          # valida, mostra o plano resolvido
+delonix compose config          # validates, shows the resolved plan
 delonix compose up
 delonix compose ps
 delonix compose logs db
 ```
 
-**Falar:** `depends_on` a sério — a app só arranca depois da BD responder de facto.
+**Say:** Real `depends_on` — the app only starts once the DB actually responds.
 
 ```yaml
-# no docker-compose.yml:
+# in docker-compose.yml:
 #   depends_on:
 #     db:
 #       condition: service_healthy
 ```
 
 ```bash
-delonix compose down -v   # limpa tudo, incl. volumes nomeados
+delonix compose down -v   # cleans everything, including named volumes
 ```
 
-### Ponto a sublinhar
+### Point to underline
 
-Não é um shim que só finge — `depends_on: service_healthy` espera mesmo pelo healthcheck real (o
-do serviço ou o da própria imagem) antes de arrancar o próximo. Um ciclo no grafo dá erro claro,
-nunca uma ordem inventada.
+It is not a shim that just pretends — `depends_on: service_healthy` genuinely waits for the real healthcheck (the
+service's own or the image's own) before starting the next one. A cycle in the graph gives a clear error,
+never a made-up order.
 
-### CTA final
+### Final CTA
 
-"Um container, uma VM, uma stack — falta a peça maior: um cluster Kubernetes real, do zero, sem
-Docker instalado em lado nenhum. É o próximo vídeo."
+"One container, one VM, one stack — what's missing is the biggest piece: a real Kubernetes cluster, from scratch, with no
+Docker anywhere. That's the next video."
 
 ---
 
-## 05 — Kubernetes sem Docker (10–13 min)
+## 05 — Kubernetes without Docker (10–13 min)
 
-O vídeo-bandeira: um comando, do zero a um control-plane `Ready` — VMs provisionadas, `kubeadm` a
-correr, HAProxy automático em HA.
+The flagship video: one command, from zero to a `Ready` control-plane — VMs provisioned, `kubeadm`
+running, automatic HA HAProxy.
 
-### Gancho
+### Hook
 
-> "Vou criar um cluster Kubernetes com dois control-planes e três workers — e o Docker nunca vai
-> aparecer nesta demo, nem uma vez." *(ecrã: `kubectl get nodes` no fim, todos `Ready`.)*
+> "I'm going to create a Kubernetes cluster with two control-planes and three workers — and Docker will never
+> show up in this demo, not once." *(screen: `kubectl get nodes` at the end, all `Ready`.)*
 
-### Objectivos
+### Objectives
 
-- `cluster kubeadm` — provisiona VMs + bootstrap, um comando só
-- HA automático (>1 control-plane provisiona um HAProxy sozinho)
-- `delonix-cri` como runtime — sem containerd, sem Docker
+- `cluster kubeadm` — provisions VMs + bootstrap, a single command
+- Automatic HA (>1 control-plane provisions a HAProxy on its own)
+- `delonix-cri` as the runtime — no containerd, no Docker
 
-### Guião de ecrã
+### On-screen script
 
-**Falar:** Um comando: provisiona as VMs, gera a chave SSH, arranca o cluster.
+**Say:** One command: provisions the VMs, generates the SSH key, boots the cluster.
 
 ```bash
 delonix cluster kubeadm --name lab --control-plane 2 --workers 3
-# progresso estilo `kind create cluster` — cada etapa fecha com ✓
+# `kind create cluster`-style progress — each step closes with a ✓
 ```
 
-**Falar (enquanto sobe, sem ficar em silêncio):** explicar o que está a acontecer por trás —
-provisiona 5+1 VMs (a +1 é o HAProxy, automático com >1 control-plane), prepara cada host,
-`kubeadm init`, junta os restantes control-planes e os workers.
+**Say (while it's coming up, without going silent):** explain what's happening behind the scenes —
+it provisions 5+1 VMs (the +1 is the HAProxy, automatic with >1 control-plane), prepares each host,
+runs `kubeadm init`, joins the remaining control-planes and the workers.
 
-**Falar:** O cluster está pronto — puxa o kubeconfig e confirma.
+**Say:** The cluster is ready — pull the kubeconfig and confirm.
 
 ```bash
 export KUBECONFIG=~/.local/share/delonix/clusters/lab-kubeconfig.yaml
@@ -300,45 +300,45 @@ kubectl get nodes -o wide
 # ...
 ```
 
-**Falar:** Prova de fogo — sobe uma app real no cluster.
+**Say:** Acid test — deploy a real app on the cluster.
 
 ```bash
 kubectl create deployment web --image=nginx --replicas=3
 kubectl get pods -o wide
 ```
 
-### Ponto a sublinhar
+### Point to underline
 
-O runtime de cada nó é o `delonix-cri` — não há containerd nem Docker em lado nenhum da pilha. E é
-idempotente "à Terraform, mas sem ficheiro de estado": corre o mesmo comando outra vez e ele só
-corrige o que faltar.
+Every node's runtime is `delonix-cri` — there is no containerd nor Docker anywhere in the stack. And it is
+idempotent "Terraform-style, but with no state file": run the same command again and it only
+fixes what's missing.
 
-### CTA final
+### Final CTA
 
-"Cluster a correr é só metade — no último vídeo: firewall entre containers, o dashboard estilo
-htop, e como ver onde está a ir o disco antes que seja tarde demais."
+"A running cluster is only half the story — in the last video: firewall between containers, the
+htop-style dashboard, and how to see where your disk is going before it's too late."
 
 ---
 
-## 06 — Produção: firewall e dashboard (8–10 min)
+## 06 — Production: firewall and dashboard (8–10 min)
 
-O que muda quando isto deixa de ser uma demo — isolar tráfego entre containers, observar tudo num
-só ecrã, e não deixar o disco encher em silêncio.
+What changes when this stops being a demo — isolating traffic between containers, observing everything on
+a single screen, and not letting the disk fill up silently.
 
-### Gancho
+### Hook
 
-> "Esta base de dados vai deixar de responder a QUALQUER container excepto à app — em duas
-> linhas." *(ecrã: `curl` a falhar depois do `net ingress policy deny`.)*
+> "This database is going to stop responding to ANY container except the app — in two
+> lines." *(screen: a `curl` failing after `net ingress policy deny`.)*
 
-### Objectivos
+### Objectives
 
-- Firewall L4 por container (`net ingress`/`egress`)
-- Dashboard interactivo — KPIs de RAM/rede/disco num só ecrã
-- `system df`/`prune` — não deixar disco acumular em silêncio
+- Per-container L4 firewall (`net ingress`/`egress`)
+- Interactive dashboard — RAM/network/disk KPIs on one screen
+- `system df`/`prune` — not letting disk fill up silently
 
-### Guião de ecrã
+### On-screen script
 
-**Falar:** Bloquear tudo por omissão, só deixar entrar quem precisa mesmo.
+**Say:** Block everything by default, only let in what's actually needed.
 
 ```bash
 delonix net ingress policy db deny
@@ -346,56 +346,56 @@ delonix net ingress allow db tcp/5432 --from 10.219.0.0/16
 delonix net ingress ls db
 ```
 
-**Falar:** O dashboard — não é um snapshot, é ao vivo (o equivalente a um `htop` do runtime).
+**Say:** The dashboard — not a snapshot, it's live (the runtime's equivalent of `htop`).
 
 ```bash
 delonix dashboard
-# setas para navegar, `m` alterna o gráfico containers/memória
+# arrow keys to navigate, `m` toggles the containers/memory graph
 ```
 
-**Falar:** Também dá para script/Grafana — JSON puro, sem TUI.
+**Say:** It also scripts/Grafana-integrates — plain JSON, no TUI.
 
 ```bash
 delonix dashboard --json | jq '.tiles'
 ```
 
-**Falar:** Disco — o vilão silencioso de qualquer runtime rootless (rootfs por container).
+**Say:** Disk — the silent villain of any rootless runtime (per-container rootfs).
 
 ```bash
 delonix system df
-delonix system prune   # só remove órfãos/não referenciados — pede confirmação
+delonix system prune   # only removes orphaned/unreferenced items — asks for confirmation
 ```
 
-### Ponto a sublinhar
+### Point to underline
 
-"Última regra ganha" no firewall — mudar uma `allow`/`deny` para o MESMO alvo substitui a
-anterior, nunca acumula uma sombra invisível por trás.
+"Last rule wins" in the firewall — changing an `allow`/`deny` for the SAME target replaces the
+previous one, never piling up an invisible shadow behind it.
 
-### CTA final
+### Final CTA
 
-"Isto fecha a série de base — instalação, containers, VMs, stacks, Kubernetes, e produção. A
-partir daqui, a documentação completa e o `--help` de cada grupo levam-te ao resto. Se ficaste com
-alguma dúvida, deixa nos comentários."
-
----
-
-## Notas de produção
-
-- **Terminal:** fonte grande (≥18pt), tema claro ou escuro consistente em TODOS os vídeos
-  (reconhecimento de marca), prompt curto (evita `user@hostname:~/caminho/longo$` a comer o ecrã).
-- **Antes de gravar cada episódio:** correr o guião de comandos uma vez a seco fora de gravação —
-  todos os comandos deste documento já foram testados neste host, mas o ESTADO local
-  (containers/redes já existentes) pode diferir; limpar o ambiente antes de cada gravação evita um
-  `already exists` em directo.
-- **Erros em directo não são má sorte — são conteúdo:** se algo falhar durante a gravação, não
-  cortar — mostrar a mensagem de erro e o que ela diz para fazer é a favor do produto (mensagens de
-  erro claras é um objectivo explícito deste projecto).
-- **Legenda/overlay:** cada bloco "Falar" acima é o guia de voz, não texto para ler — dizer por
-  palavras próprias em cima do que o ecrã mostra.
-- **Miniatura/título consistente:** "Delonix Runtime — Ep. 0X: \<título\>", mesma paleta laranja
-  (`#e8590c`) do site/dashboard, para a série ser reconhecível na lista do canal.
+"This closes the base series — installation, containers, VMs, stacks, Kubernetes, and production. From
+here, the full documentation and each group's `--help` take you the rest of the way. If you're left with
+any question, leave it in the comments."
 
 ---
 
-*Roteiro preparado para a publicação do Delonix Runtime à comunidade — todos os comandos foram
-executados e confirmados neste host antes de entrarem no guião.*
+## Production notes
+
+- **Terminal:** large font (≥18pt), consistent light or dark theme across ALL videos
+  (brand recognition), short prompt (avoid `user@hostname:~/long/path$` eating the screen).
+- **Before recording each episode:** run the command script once dry, off-recording —
+  every command in this document has already been tested on this host, but the local STATE
+  (containers/networks already existing) may differ; clearing the environment before each recording avoids an
+  `already exists` live.
+- **Live errors are not bad luck — they're content:** if something fails during
+  recording, don't cut — showing the error message and what it says to do works in the product's favour (clear
+  error messages is an explicit goal of this project).
+- **Caption/overlay:** each "Say" block above is the voice guide, not text to read — say it in
+  your own words over what the screen shows.
+- **Consistent thumbnail/title:** "Delonix Runtime — Ep. 0X: \<title\>", same orange palette
+  (`#e8590c`) as the site/dashboard, so the series is recognisable in the channel list.
+
+---
+
+*Script prepared for Delonix Runtime's community launch — all commands were
+run and confirmed on this host before going into the script.*

@@ -1,55 +1,55 @@
-# Guia de rede do Delonix Runtime
+# Delonix Runtime networking guide
 
-> Do básico ao avançado, para quem opera **só** com o `delonix` — sem PaaS, sem
-> control plane, sem daemon. Escrito contra o binário real; cada saída aqui foi
-> obtida a correr o comando, e o que não corre neste ambiente está assinalado
-> como tal em vez de ser inventado.
+> From basics to advanced, for whoever operates with **only** `delonix` — no PaaS, no
+> control plane, no daemon. Written against the real binary; every output here was
+> obtained by running the command, and whatever does not run in this environment is flagged
+> as such instead of being made up.
 
 ---
 
-## 0. O que esta ferramenta é — e o que não é
+## 0. What this tool is — and what it is not
 
-O `delonix` é o **mecanismo de um host**. Cria bridges, netns, veth, regras nft e
-túneis nessa máquina. Não sabe o que é um tenant, não tem base de dados de
-utilizadores, não fala com outros nós a não ser quando lhe dizes explicitamente
-quais são (`--peer`).
+`delonix` is **a single host's mechanism**. It creates bridges, netns, veth, nft rules and
+tunnels on that machine. It does not know what a tenant is, has no user database,
+and does not talk to other nodes unless you explicitly tell it
+which ones (`--peer`).
 
-| | `delonix` (este guia) | `delonixctl` |
+| | `delonix` (this guide) | `delonixctl` |
 |---|---|---|
-| onde corre | **no** host que vai ser alterado | de qualquer lado |
-| como fala | chamadas ao kernel, ficheiros em `$DELONIX_ROOT` | só HTTP, `/v2/*` |
-| unidade | container, VM, rede, regra | app, addon, team, org |
-| quem autoriza | o utilizador Unix que corre o comando | token Bearer + RBAC |
+| where it runs | **on** the host being changed | from anywhere |
+| how it talks | kernel calls, files under `$DELONIX_ROOT` | HTTP only, `/v2/*` |
+| unit | container, VM, network, rule | app, addon, team, org |
+| who authorizes | the Unix user running the command | Bearer token + RBAC |
 
-Se precisas de tenants, quotas, RBAC ou de operar dez máquinas de uma vez, é o
-`delonixctl` — este guia não te vai lá levar. Se precisas de segmentar redes numa
-máquina e provar que estão segmentadas, é aqui.
+If you need tenants, quotas, RBAC, or to operate ten machines at once, that's
+`delonixctl` — this guide will not take you there. If you need to segment networks on one
+machine and prove they are segmented, you're in the right place.
 
-### Duas propriedades que explicam quase tudo o resto
+### Two properties that explain almost everything else
 
-**Rootless.** Um processo sem privilégios não tem `CAP_NET_ADMIN` no netns do
-host — tem-no apenas dentro do seu próprio user+network namespace. Por isso o
-Delonix não cria a bridge «no host»: cria-a dentro de um namespace que ele
-próprio detém (o *holder*), e liga-lhe os workloads por veth. É também por isto
-que só há **um** comando de rede que precisa de root (`network vlan`), e ele
-diz-to à cara.
+**Rootless.** An unprivileged process does not have `CAP_NET_ADMIN` in the
+host's netns — it only has it inside its own user+network namespace. That is why
+Delonix does not create the bridge "on the host": it creates it inside a namespace it
+owns itself (the *holder*), and connects workloads to it via veth. That is also why
+there is only **one** networking command that needs root (`network vlan`), and it
+tells you so to your face.
 
-**Daemonless.** Não há processo residente a reconciliar nada. O holder sobe à
-primeira necessidade e cai quando o último workload larga (`refcount 0`). Um
-comando que não devolveu erro fez o que disse; não há uma fila onde a intenção
-fica a marinar.
+**Daemonless.** There is no resident process reconciling anything. The holder comes up at
+the first need and goes down when the last workload lets go (`refcount 0`). A
+command that returned no error did what it said; there is no queue where an intent
+sits marinating.
 
-### Declarado ≠ realizado
+### Declared ≠ realized
 
-`network create` **declara** uma rede: escreve o registo, escolhe o `/16` e o
-nome da bridge. A bridge só nasce no netns do holder no primeiro `attach`. Isto
-é deliberado — declarar não deve exigir infraestrutura de pé — mas significa que
-`network ls` a mostrar uma rede **não** prova que a bridge existe. Para isso é
+`network create` **declares** a network: it writes the record, chooses the `/16` and the
+bridge name. The bridge only comes into being in the holder's netns on the first `attach`. This
+is deliberate — declaring should not require live infrastructure — but it means that
+`network ls` showing a network does **not** prove the bridge exists. For that, use
 `net netns status`.
 
 ---
 
-## 1. Primeiros passos
+## 1. First steps
 
 ```bash
 delonix network create app
@@ -62,16 +62,16 @@ app       bridge   dlxn1f6a832c   10.207.0.0/16
 backend   bridge   dlxn79b4a5e1   10.220.0.0/16
 ```
 
-O nome da bridge (`dlxn` + dispersão do nome) é derivado, não escolhido: o mesmo
-nome de rede dá sempre a mesma bridge, em qualquer nó. É o que permite a dois
-nós de um overlay concordarem sobre o dispositivo sem o combinarem.
+The bridge name (`dlxn` + a hash of the name) is derived, not chosen: the same
+network name always yields the same bridge, on any node. That is what lets two
+nodes of an overlay agree on the device without negotiating it.
 
-Três vistas da mesma rede, por ordem de verbosidade:
+Three views of the same network, in increasing order of verbosity:
 
 ```bash
-delonix network inspect app              # compacto
-delonix network inspect app -o json      # para automação
-delonix network describe app backend     # bloco legível, estilo kubectl describe
+delonix network inspect app              # compact
+delonix network inspect app -o json      # for automation
+delonix network describe app backend     # readable block, kubectl-describe style
 ```
 
 ```
@@ -82,49 +82,49 @@ subnet:   10.207.0.0/16
 gateway:  10.207.0.1
 ```
 
-Remover:
+Removing:
 
 ```bash
 delonix network rm app
 ```
 
-Remove o registo, o uplink VXLAN (se for um overlay) **e** manda apagar a bridge
-no holder.
+Removes the record, the VXLAN uplink (if it's an overlay), **and** tells the holder to
+delete the bridge.
 
-> **Não verifica se há workloads ligados.** Não há um «network is in use» a
-> travar-te: a bridge desaparece e os containers que estavam nela ficam sem
-> rede, sem serem parados. Se isso for indesejável no teu ambiente, o gate tem
-> de ser teu — um `delonix net netns status` antes, ou uma regra no
-> procedimento. Vale a pena saber disto antes de escrever um `rm` num script.
+> **It does not check whether workloads are attached.** There is no "network is in use"
+> guard stopping you: the bridge disappears and the containers that were on it are left without
+> networking, without being stopped. If that is undesirable in your environment, the gate has
+> to be yours — a `delonix net netns status` beforehand, or a rule in the
+> procedure. Worth knowing before scripting an `rm`.
 
 ---
 
-## 2. O espaço de endereços
+## 2. Address space
 
-Há **dois** regimes, e confundi-los é a origem de metade das surpresas.
+There are **two** regimes, and confusing them is the source of half the surprises.
 
-### 2.1 Sem `--subnet`: o motor escolhe, e escolhe `10.<200-254>.0.0/16`
+### 2.1 Without `--subnet`: the engine picks, and picks `10.<200-254>.0.0/16`
 
 ```bash
 delonix network create app
 ```
 
-O registo em disco guarda **um octeto**; a bridge, o gateway e a gama de IPAM
-são todos derivados dele. É o caminho por omissão e o mais barato de raciocinar:
-uma rede, um `/16`, sem sobreposição possível.
+The on-disk record stores **a single octet**; the bridge, the gateway, and the IPAM
+range are all derived from it. This is the default path and the cheapest to reason about:
+one network, one `/16`, no possible overlap.
 
-### 2.2 Com `--subnet`: qualquer privado, `/8` a `/28`
+### 2.2 With `--subnet`: any private range, `/8` to `/28`
 
 ```bash
 delonix network create backend --subnet 10.220.0.0/16
-delonix network create pequena --subnet 10.221.0.0/24     # /24 é aceite
-delonix network create legado  --subnet 192.168.5.0/24    # 192.168 também
+delonix network create small   --subnet 10.221.0.0/24     # /24 is accepted
+delonix network create legacy  --subnet 192.168.5.0/24    # 192.168 too
 ```
 
-Aqui o registo guarda o CIDR inteiro, e as regras são outras: tem de ser espaço
-**privado (RFC 1918)** — `10.0.0.0/8`, `172.16.0.0/12` ou `192.168.0.0/16` — com
-prefixo entre `/8` e `/28`, e não pode **sobrepor-se** a uma rede já existente.
-As duas recusas, verbatim:
+Here the record stores the whole CIDR, and the rules differ: it must be
+**private (RFC 1918)** space — `10.0.0.0/8`, `172.16.0.0/12` or `192.168.0.0/16` — with a
+prefix between `/8` and `/28`, and it may not **overlap** an existing network.
+The two refusals, verbatim:
 
 ```
 error invalid argument: subnet '8.8.8.0/24': outside the private address space
@@ -135,47 +135,48 @@ engine pick a free one
 error conflict: subnet 10.220.0.0/24 overlaps network 'x' (10.220.0.0/24)
 ```
 
-O `spec.subnet` de um `kind: Network` segue exactamente as mesmas regras — o
-declarativo e o imperativo não divergem aqui (verificado a aplicar os três casos
-acima por manifesto).
+The `spec.subnet` of a `kind: Network` follows exactly the same rules — the
+declarative and the imperative do not diverge here (verified by applying the three cases
+above via manifest).
 
-### 2.3 O tecto: 55 redes auto-atribuídas
+### 2.3 The ceiling: 55 auto-assigned networks
 
-O alocador automático tem `10.200`–`10.254`, ou seja **55** lugares. À 56.ª rede
-criada **sem** `--subnet`:
+The automatic allocator has `10.200`–`10.254`, that is, **55** slots. At the 56th network
+created **without** `--subnet`:
 
 ```
-error conflict: no free /16 left for network 'a-mais': the workload space
+error conflict: no free /16 left for network 'one-too-many': the workload space
 10.200.0.0-10.254.255.255 holds 55 networks and all are taken — remove one
 (`delonix network rm <name>`) to free a subnet
 ```
 
-Uma recusa, não um duplicado silencioso. O tecto é do alocador, não do motor:
-redes com `--subnet` explícito não saem desses 55 lugares, portanto uma
-organização que precise de mais do que isso pode continuar com endereçamento
-próprio. Ainda assim, vale a pena decidir isto cedo — numa segmentação com uma
-rede por equipa e sessenta equipas, a unidade de isolamento passa
-provavelmente a ser a *regra de firewall por workload* (secção 5) e não a rede.
+A refusal, not a silent duplicate. The ceiling belongs to the allocator, not the engine:
+networks with an explicit `--subnet` do not come out of those 55 slots, so an
+organization needing more than that can keep using its own addressing. Still, it's
+worth deciding this early — in a segmentation with one network per team and sixty teams, the
+unit of isolation probably ends up being the *per-workload firewall rule* (section 5)
+rather than the network.
 
 ---
 
-## 3. Os drivers
+## 3. The drivers
 
-| driver | o que faz | rootless |
+| driver | what it does | rootless |
 |---|---|---|
-| `bridge` | bridge própria + `/16` próprio, filtrada pela firewall | **sim**, é o caminho realizado |
-| `macvlan` | interface do container directamente na LAN física | registada, **não realizada** |
-| `ipvlan` | idem, partilhando o MAC do parent | registada, **não realizada** |
-| `overlay` | VXLAN entre nós, opcionalmente cifrado com WireGuard | sim, no holder |
+| `bridge` | its own bridge + its own `/16`, filtered by the firewall | **yes**, it's the realized path |
+| `macvlan` | the container's interface directly on the physical LAN | registered, **not realized** |
+| `ipvlan` | same, sharing the parent's MAC | registered, **not realized** |
+| `overlay` | VXLAN between nodes, optionally encrypted with WireGuard | yes, in the holder |
 
-`macvlan`/`ipvlan` precisam de `CAP_NET_ADMIN` no netns do host. Sem privilégio,
-o `create` regista a rede e **avisa** que não a realizou — não finge que
-realizou (é o que o próprio comando documenta; não foi possível confirmar ao
-vivo aqui por não haver NIC física disponível para `--parent`). Duas notas que costumam apanhar quem vem do Docker:
+`macvlan`/`ipvlan` need `CAP_NET_ADMIN` in the host's netns. Without privilege,
+`create` registers the network and **warns** that it did not realize it — it does not pretend it
+realized it (that is what the command itself documents; it was not possible to confirm this
+live here, since there was no physical NIC available for `--parent`). Two notes that tend to trip up
+people coming from Docker:
 
-- não são filtradas pela firewall do Delonix; o tráfego sai directo para a LAN;
-- exigem `--parent` e `--subnet`, e a NIC do `--parent` tem de **existir mesmo** —
-  senão a recusa é imediata (`parent NIC 'eth0' does not exist on the host`).
+- they are not filtered by Delonix's firewall; traffic goes straight out to the LAN;
+- they require `--parent` and `--subnet`, and the `--parent` NIC has to **actually exist** —
+  otherwise the refusal is immediate (`parent NIC 'eth0' does not exist on the host`).
 
 ```bash
 delonix network create lan --driver macvlan --parent eno1 --subnet 192.168.1.0/24
@@ -183,19 +184,19 @@ delonix network create lan --driver macvlan --parent eno1 --subnet 192.168.1.0/2
 
 ---
 
-## 4. Publicar portos
+## 4. Publishing ports
 
 ```bash
 delonix net ingress publish web 8080:80      # host 8080 → container 80
-delonix net ingress publish web 8443         # mesmo número dos dois lados
+delonix net ingress publish web 8443         # same number on both sides
 delonix net ingress publish dns 5353:53/udp  # UDP
 ```
 
-**Rootless não liga portos do host abaixo de 1024.** Não é uma limitação do
-Delonix — é do kernel. Publica alto e põe um proxy a deter o :443, ou dá a
-capability ao binário se a política da máquina o permitir.
+**Rootless does not bind host ports below 1024.** This is not a
+Delonix limitation — it's the kernel's. Publish high and put a proxy in front to hold :443,
+or grant the capability to the binary if the machine's policy allows it.
 
-Ver e desfazer:
+Listing and undoing:
 
 ```bash
 delonix net ingress ls web
@@ -204,32 +205,32 @@ delonix net ingress unpublish web 8080
 
 ---
 
-## 5. Segmentação — a parte que interessa a quem tem de a provar
+## 5. Segmentation — the part that matters to whoever has to prove it
 
-### 5.1 O que já está isolado sem fazeres nada
+### 5.1 What is already isolated without doing anything
 
-Duas redes `bridge` distintas **não se falam**. Não é uma regra que se escreva; é
-a ausência de rota entre os dois segmentos. É o estado inicial e o estado a que
-se volta quando se apaga tudo.
+Two distinct `bridge` networks **do not talk to each other**. It is not a rule that gets
+written; it's the absence of a route between the two segments. It's the initial state and the
+state you return to when everything is wiped.
 
-### 5.2 Abrir um caminho — e só num sentido
+### 5.2 Opening a path — and only in one direction
 
 ```bash
-delonix network route web db          # web PODE iniciar para db
-delonix network route web db --rm     # fechar
+delonix network route web db          # web CAN initiate towards db
+delonix network route web db --rm     # close it
 ```
 
-`route` é **direccionado**: abrir `web → db` não abre `db → web`. E, lido com
-rigor, um `route` diz que o pacote *pode atravessar*, não que é *permitido* — a
-firewall por workload continua a decidir a seguir. São duas camadas, de
-propósito: a rota é topologia, a regra é política.
+`route` is **directed**: opening `web → db` does not open `db → web`. And, read
+strictly, a `route` says the packet *can cross*, not that it is *allowed* — the
+per-workload firewall still gets to decide next. These are two layers, on purpose: the
+route is topology, the rule is policy.
 
-> Precisa do holder de pé. Se ainda não há nada ligado, faz `delonix net netns
-> up` primeiro.
+> Needs the holder up. If nothing is attached yet, run `delonix net netns
+> up` first.
 
-### 5.3 Firewall por workload: entrada
+### 5.3 Per-workload firewall: ingress
 
-O padrão para um serviço interno é *default-deny* e depois nomear o que entra:
+The pattern for an internal service is *default-deny* and then naming what comes in:
 
 ```bash
 delonix net ingress policy db deny
@@ -237,172 +238,171 @@ delonix net ingress allow db tcp/5432 --from 10.200.0.0/16
 delonix net ingress ls db
 ```
 
-A regra é avaliada **depois** do DNAT, portanto o porto que se nomeia é o que o
-container escuta (5432), não o publicado no host. Enganar-se aqui é a origem
-mais comum de «abri a regra e continua a não entrar».
+The rule is evaluated **after** DNAT, so the port you name is the one the
+container listens on (5432), not the one published on the host. Getting this wrong is the
+most common source of "I opened the rule and it still doesn't get through".
 
-Formas aceites em `<PORT>`: `tcp/5432`, `udp/53`, `5432` (qualquer protocolo),
-`tcp/*` (todos os portos).
+Accepted forms for `<PORT>`: `tcp/5432`, `udp/53`, `5432` (any protocol),
+`tcp/*` (all ports).
 
-`--note` guarda um texto com a regra. Numa auditoria daqui a um ano, é a
-diferença entre uma regra justificada e uma regra que ninguém se atreve a
-apagar.
+`--note` stores a text alongside the rule. In an audit a year from now, it's the
+difference between a justified rule and a rule nobody dares to delete.
 
-### 5.4 Firewall por workload: saída
+### 5.4 Per-workload firewall: egress
 
 ```bash
 delonix net egress policy app deny
-delonix net egress allow app udp/53                        # senão nada resolve
+delonix net egress allow app udp/53                        # otherwise nothing resolves
 delonix net egress allow app tcp/5432 --to 10.200.0.20/32
 delonix net egress allow app tcp/443
 ```
 
-O `udp/53` não é decoração: um *default-deny* de saída tira o DNS, e o sintoma
-que chega ao operador é «a aplicação está lenta», não «a firewall bloqueou».
+`udp/53` is not decoration: an egress *default-deny* takes DNS out, and the
+symptom that reaches the operator is "the application is slow", not "the firewall blocked it".
 
-**Uma mudança de política não derruba fluxos já estabelecidos** — só decide os
-novos. Para verificar uma alteração, reinicia o workload ou espera que a ligação
-caia.
+**A policy change does not tear down already-established flows** — it only decides the
+new ones. To verify a change, restart the workload or wait for the connection to
+drop.
 
-**Entrada e saída decidem ambas.** Um fluxo de `app` para `db` só passa se a
-saída de `app` o deixar **e** a entrada de `db` o deixar; um *accept* de um lado
-não salta a decisão do outro. Até à correcção P0-1 da auditoria NaaS, um
-`egress policy deny` ficava sem efeito para qualquer destino que aceitasse a
-origem — os da mesma namespace, por exemplo.
+**Both ingress and egress decide.** A flow from `app` to `db` only passes if
+`app`'s egress lets it **and** `db`'s ingress lets it; an *accept* on one side
+does not skip the other side's decision. Before the NaaS audit's P0-1 fix, an
+`egress policy deny` had no effect for any destination that accepted the
+source — those in the same namespace, for example.
 
-**Uma regra que o motor não consegue impor tal como está escrita é recusada, e
-com ela a especificação inteira**: as regras anteriores continuam em vigor. Não
-há aplicação parcial — um *deny* descartado em silêncio seria um *allow*.
+**A rule the engine cannot enforce as written is refused, and the entire
+spec with it**: the previous rules remain in effect. There is no
+partial application — a silently dropped *deny* would amount to an *allow*.
 
-### 5.5 Saída ao nível da rede
+### 5.5 Network-level egress
 
-Além do por-container, uma rede inteira tem política de saída:
+Beyond per-container, an entire network also has egress policy:
 
 ```bash
-delonix net egress net app deny                              # sem Internet
+delonix net egress net app deny                              # no Internet
 delonix net egress net app allowlist --to 10.0.0.0/8,1.1.1.1/32
 delonix net egress show app
 ```
 
-E, o que CIDRs não conseguem exprimir, uma lista de nomes:
+And, for what CIDRs cannot express, a list of names:
 
 ```bash
-delonix net egress host app github.com          # apanha github.com e *.github.com
+delonix net egress host app github.com          # catches github.com and *.github.com
 delonix net egress host app registry.npmjs.org
 ```
 
-Os endereços são aprendidos à medida que as respostas de DNS passam, portanto um
-CDN que renumera continua a funcionar — que é exactamente o caso em que uma
-lista de CIDRs escrita à mão apodrece em silêncio.
+Addresses are learned as DNS responses pass through, so a
+CDN that renumbers keeps working — which is exactly the case where a
+hand-written CIDR list rots silently.
 
-### 5.6 Um desenho de referência
+### 5.6 A reference design
 
-Três zonas, entrada só onde é preciso, saída fechada por omissão:
+Three zones, ingress only where needed, egress closed by default:
 
 ```bash
-# zonas
+# zones
 delonix network create dmz
 delonix network create app
-delonix network create dados
+delonix network create data
 
-# caminhos, sempre num sentido
+# paths, always one direction
 delonix network route dmz app
-delonix network route app dados
+delonix network route app data
 
-# entrada
+# ingress
 delonix net ingress policy api deny
-delonix net ingress allow api tcp/8080 --from 10.201.0.0/16   # só da dmz
+delonix net ingress allow api tcp/8080 --from 10.201.0.0/16   # only from dmz
 delonix net ingress policy pg deny
-delonix net ingress allow pg tcp/5432 --from 10.202.0.0/16    # só da app
+delonix net ingress allow pg tcp/5432 --from 10.202.0.0/16    # only from app
 
-# saída
-delonix net egress net dados deny                              # a base não sai
+# egress
+delonix net egress net data deny                               # the database doesn't go out
 delonix net egress policy api deny
 delonix net egress allow api udp/53
 delonix net egress allow api tcp/5432 --to 10.203.0.0/16
 ```
 
-Repara que a `dados` não tem rota **de** lado nenhum a não ser da `app`, e não
-tem saída nenhuma. Se um dia alguém precisar de a exportar, terá de escrever um
-comando — e esse comando fica no histórico.
+Notice that `data` has no route **from** anywhere except `app`, and has no
+egress at all. If someone ever needs to export it, they will have to write a
+command — and that command stays in the history.
 
 ---
 
-## 6. Multi-nó: overlay VXLAN cifrado
+## 6. Multi-node: encrypted VXLAN overlay
 
-Cada nó tem uma identidade WireGuard própria. A chave privada fica `0600` em
-`<root>/wg/node.key`; a pública é o que se distribui.
+Each node has its own WireGuard identity. The private key sits at `0600` under
+`<root>/wg/node.key`; the public one is what gets distributed.
 
 ```bash
-delonix network node init     # idempotente; imprime a chave pública
-delonix network node key      # só a pública, para compor num script
+delonix network node init     # idempotent; prints the public key
+delonix network node key      # just the public one, to compose into a script
 ```
 
-Em cada nó, a mesma rede com o mesmo VNI:
+On each node, the same network with the same VNI:
 
 ```bash
-# nó A (10.0.0.1)
+# node A (10.0.0.1)
 delonix network create mesh --driver overlay --vni 42 \
   --peer 10.0.0.2=<pub_B>=10.42.0.2 --wg-ip 10.42.0.1
 
-# nó B (10.0.0.2)
+# node B (10.0.0.2)
 delonix network create mesh --driver overlay --vni 42 \
   --peer 10.0.0.1=<pub_A>=10.42.0.1 --wg-ip 10.42.0.2
 ```
 
-`--peer` aceita `<ip>` (VXLAN em claro) ou `<ip>=<pubkey>=<wg_ip>` (cifrado), e é
-repetível.
+`--peer` accepts `<ip>` (plaintext VXLAN) or `<ip>=<pubkey>=<wg_ip>` (encrypted), and is
+repeatable.
 
-Duas coisas a saber antes de pôr isto em produção:
+Two things worth knowing before putting this into production:
 
-- **cifrado exige `wg` no host.** Se declaras `--wg-ip` e o `wireguard-tools`/
-  módulo não estão lá, o comando **falha antes** de levantar o VXLAN. É
-  deliberado: sem isso a FDB apontaria para endereços só alcançáveis pelo túnel
-  que nunca subiria, e terias um overlay a fingir que está de pé.
-- **MTU.** VXLAN come 50 bytes, WireGuard mais 60. Um overlay cifrado sobre um
-  MTU de 1500 deixa ~1390 úteis. Se as aplicações tiverem trocas grandes e
-  `DF`, isto aparece como lentidão inexplicável e não como erro.
+- **encrypted requires `wg` on the host.** If you declare `--wg-ip` and
+  `wireguard-tools`/the module are not there, the command **fails before** bringing up the VXLAN. It
+  is deliberate: without that the FDB would point at addresses only reachable through the tunnel
+  that would never come up, and you'd have an overlay pretending to be up.
+- **MTU.** VXLAN eats 50 bytes, WireGuard another 60. An encrypted overlay over a
+  1500 MTU leaves ~1390 usable. If the applications exchange large payloads with
+  `DF` set, this shows up as unexplained slowness rather than an error.
 
 ---
 
-## 7. Declarativo
+## 7. Declarative
 
-Para rede versionada em git, em vez de uma sequência de comandos:
+For network state versioned in git, instead of a sequence of commands:
 
 ```bash
 delonix network apply -f delonix-manifest.yaml
 ```
 
-Aplica **só** os documentos `kind: Network` do manifesto, deixando os outros
-Kinds em paz, e é idempotente por nome. Para o manifesto inteiro (todos os
-Kinds, por ordem de dependência) é `delonix stack apply`.
+Applies **only** the `kind: Network` documents in the manifest, leaving the other
+Kinds alone, and it's idempotent by name. For the whole manifest (all
+Kinds, in dependency order) use `delonix stack apply`.
 
-O esquema sai do próprio binário, não de um `.md` que envelhece:
+The schema comes straight from the binary itself, not from a `.md` that ages:
 
 ```bash
-delonix explain Network       # referência de campos, estilo kubectl explain
-delonix manifest schema       # JSON Schema gerado do código
+delonix explain Network       # field reference, kubectl-explain style
+delonix manifest schema       # JSON Schema generated from the code
 ```
 
-O manifesto precisa de `apiVersion: delonix.io/v1` — sem ele a recusa é
-`missing field \`apiVersion\``, que é clara mas apanha quem colou um exemplo
-truncado:
+The manifest needs `apiVersion: delonix.io/v1` — without it the refusal is
+`missing field \`apiVersion\``, which is clear but catches whoever pasted a
+truncated example:
 
 ```yaml
 apiVersion: delonix.io/v1
 kind: Network
 metadata:
-  name: dados
+  name: data
 spec:
   subnet: 10.221.0.0/24
 ```
 
 ---
 
-## 8. Observar
+## 8. Observing
 
 ```bash
-delonix net netns status          # a PRIMEIRA coisa a ler quando não há rede
+delonix net netns status          # the FIRST thing to read when there's no network
 delonix net netns status --json
 ```
 
@@ -410,50 +410,50 @@ delonix net netns status --json
 ingress DOWN — pin — · control in-pin · slirp — · bridge delonix0 (10.200.0.1) · refcount 0
 ```
 
-Lê-se: infra em baixo, sem slirp, `refcount 0` (nenhum workload a segurá-la). Com
-`refcount > 0` e `ingress UP`, a bridge existe mesmo.
+Reads as: infra down, no slirp, `refcount 0` (no workload holding it). With
+`refcount > 0` and `ingress UP`, the bridge really does exist.
 
 ```bash
-delonix net flow             # RX/TX por container, agora
-delonix net flow -w          # redesenhado de 2 em 2s
-delonix dashboard --scope network         # TUI de redes
-delonix dashboard --scope network --once  # um instantâneo, para pipe
+delonix net flow             # RX/TX per container, right now
+delonix net flow -w          # redrawn every 2s
+delonix dashboard --scope network         # network TUI
+delonix dashboard --scope network --once  # a single snapshot, for piping
 delonix dashboard --scope network --json
 ```
 
-O `net flow` usa eBPF quando está disponível e **degrada para contadores de
-veth** quando não está — dizendo qual dos dois está a usar, em vez de dar
-números sem procedência.
+`net flow` uses eBPF when available and **degrades to veth
+counters** when it's not — telling you which of the two it's using, rather than giving
+numbers with no provenance.
 
 ---
 
-## 9. O único comando que precisa de root
+## 9. The only command that needs root
 
 ```bash
-delonix network vlan eth0 100              # DRY-RUN, não muda nada
+delonix network vlan eth0 100              # DRY-RUN, changes nothing
 sudo delonix network vlan eth0 100 --apply
 sudo delonix network vlan eth0 100 --rm --apply
 ```
 
-Uma interface 802.1Q numa NIC do host precisa de `CAP_NET_ADMIN` no netns do
-host, que nenhum utilizador sem privilégios tem. Por isso este comando é
-dry-run por omissão: imprime o plano e só toca na máquina com `--apply`.
+An 802.1Q interface on a host NIC needs `CAP_NET_ADMIN` in the host's
+netns, which no unprivileged user has. That's why this command is
+dry-run by default: it prints the plan and only touches the machine with `--apply`.
 
 ---
 
-## 10. Diagnóstico
+## 10. Diagnosis
 
-### «Criei a rede e o container não tem rede»
+### "I created the network and the container has no connectivity"
 
-Ordem de leitura:
+Reading order:
 
-1. `delonix net netns status` — a infra está de pé? `refcount` faz sentido?
-2. `delonix network inspect <rede>` — a bridge e o `/16` são os que esperas?
-3. `delonix net ingress ls <container>` / `net egress ls <container>` — há uma
-   política *deny* sem a regra correspondente?
-4. `delonix net flow` — passa alguma coisa?
+1. `delonix net netns status` — is the infra up? Does the `refcount` make sense?
+2. `delonix network inspect <network>` — are the bridge and the `/16` the ones you expect?
+3. `delonix net ingress ls <container>` / `net egress ls <container>` — is there a
+   *deny* policy without the matching rule?
+4. `delonix net flow` — is anything passing?
 
-### «Outro `DELONIX_ROOT` já detém a infra»
+### "Another `DELONIX_ROOT` already holds the infra"
 
 ```
 error system call `control socket` failed: another delonix state root on this
@@ -465,148 +465,148 @@ that infra and unplug every workload on it. Either use that root (unset/point
 from the root that owns it.
 ```
 
-Os sockets de controlo são por **utilizador**; os pidfiles são por **root de
-estado**. Correr dois `DELONIX_ROOT` diferentes com o mesmo uid é a receita para
-isto. A recusa é intencional: reconstruir dali abaixo desligaria os workloads da
-outra infra.
+Control sockets are per **user**; pidfiles are per **state root**. Running two
+different `DELONIX_ROOT`s under the same uid is the recipe for
+this. The refusal is intentional: rebuilding from there would disconnect the workloads from
+the other infra.
 
-### «Actualizei o motor e um `egress deny` ainda deixa passar para outro container»
+### "I upgraded the engine and an `egress deny` still lets traffic through to another container"
 
-O despacho da firewall (as *base chains* `fwout` e `fwcont` na tabela `dlxing`)
-vive no netns do holder. Um **plano de controlo arrancado por um binário antigo**
-tem a forma antiga, em que o *accept* do destino saltava o *egress* da origem.
-O binário novo **migra-o sozinho** na primeira operação de rede depois do
-upgrade (um `run`, um `start`, um `net ingress`/`egress`, um `net netns up`):
-entra nos namespaces do pin e troca o despacho numa transacção atómica, sem
-tocar no pin, nas chains por container nem no `@fwmap`, e sem reiniciar nada.
-Se a migração falhar, o comando **falha** com a razão, em vez de aplicar regras
-que não seriam cumpridas.
+The firewall dispatch (the `fwout` and `fwcont` *base chains* in the `dlxing`
+table) lives in the holder's netns. A **control plane started by an old binary**
+has the old shape, where the destination's *accept* skipped the origin's *egress*.
+The new binary **migrates it by itself** on the first network operation after the
+upgrade (a `run`, a `start`, a `net ingress`/`egress`, a `net netns up`):
+it enters the pin's namespaces and swaps the dispatch in an atomic transaction, without
+touching the pin, the per-container chains, or `@fwmap`, and without restarting anything.
+If the migration fails, the command **fails** with the reason, instead of applying rules
+that would not be enforced.
 
-Só se essa migração falhar é preciso o passo manual, que reinicia **só o
-controlo**:
+Only if that migration fails is the manual step needed, which restarts **only
+the control**:
 
 ```bash
-delonix net netns status                  # anota o pid do «control»
-kill <pid-do-control>
-delonix net netns up                      # o controlo novo reata e migra
+delonix net netns status                  # note the "control" pid
+kill <control-pid>
+delonix net netns up                      # the new control reattaches and migrates
 ```
 
-Confirma com `nsenter -t <pid-do-pin> -U -m -n -- nft list chain ip dlxing fwout`:
-tem de existir e ter uma única regra, `ip saddr vmap @fwmap`. A recusa de regras
-inválidas também é feita pela CLI, por isso protege já um nó com holder antigo.
+Confirm with `nsenter -t <pin-pid> -U -m -n -- nft list chain ip dlxing fwout`:
+it must exist and have a single rule, `ip saddr vmap @fwmap`. The refusal of
+invalid rules is also done by the CLI, so it already protects a node with an old holder.
 
-### «A regra está lá e não passa»
+### "The rule is there and it's not getting through"
 
-- O porto na regra de *ingress* é o do **container**, não o do host.
-- Uma mudança de política não corta ligações já estabelecidas.
-- `macvlan`/`ipvlan` **não passam pela firewall** do Delonix.
-- Fora da namespace `default`, apagar a última regra **não** tira o isolamento
-  de namespace: a chain fica, só com o *accept* da mesma namespace e o *drop*
-  das outras.
-- Uma regra de *ingress* explícita (até um `deny` de uma porta) **também não** tira
-  o isolamento: as ligações novas vindas de outra namespace continuam cortadas.
-  Só um `allow` explícito — é o que um `kind: Dependency` escreve — deixa passar
-  o par que nomeia.
+- The port in the *ingress* rule is the **container's**, not the host's.
+- A policy change does not cut already-established connections.
+- `macvlan`/`ipvlan` **do not pass through** Delonix's firewall.
+- Outside the `default` namespace, deleting the last rule does **not** remove
+  namespace isolation: the chain stays, with only the *accept* for the same namespace and the
+  *drop* for others.
+- An explicit *ingress* rule (even a `deny` on a port) **also does not** remove
+  namespace isolation: new connections coming from another namespace are still cut off.
+  Only an explicit `allow` — which is what a `kind: Dependency` writes — lets through
+  the pair it names.
 
 ---
 
-## 11. Referência
+## 11. Reference
 
-### `delonix network` — redes de utilizador
+### `delonix network` — user networks
 
-| comando | o que faz |
+| command | what it does |
 |---|---|
-| `create <nome>` | cria; `--driver`, `--subnet`, `--parent`, `--gateway`, `--vni`, `--peer`, `--wg-ip` |
-| `ls` | lista; `-o table\|json` |
-| `inspect <nome>` | detalhe; `-o table\|json` |
-| `describe <nomes>...` | bloco legível, várias redes |
-| `rm <nome>` | remove registo + bridge |
-| `route <de> <para>` | caminho **direccionado**; `--rm` fecha |
-| `vlan <nic> <id>` | 802.1Q; **root**, dry-run sem `--apply`; `--rm` |
-| `apply -f <ficheiro>` | aplica os `kind: Network` de um manifesto |
+| `create <name>` | creates; `--driver`, `--subnet`, `--parent`, `--gateway`, `--vni`, `--peer`, `--wg-ip` |
+| `ls` | lists; `-o table\|json` |
+| `inspect <name>` | detail; `-o table\|json` |
+| `describe <names>...` | readable block, several networks |
+| `rm <name>` | removes record + bridge |
+| `route <from> <to>` | **directed** path; `--rm` closes it |
+| `vlan <nic> <id>` | 802.1Q; **root**, dry-run without `--apply`; `--rm` |
+| `apply -f <file>` | applies the `kind: Network` documents from a manifest |
 | `dash` | TUI; `--once`, `--json` |
-| `node init\|key` | identidade WireGuard deste nó |
+| `node init\|key` | this node's WireGuard identity |
 
 ### `delonix net` — plumbing
 
-| grupo | comandos |
+| group | commands |
 |---|---|
 | `netns` | `up`, `down`, `status`, `attach`, `detach`, `exec`, `publish`, `unpublish`, `firewall` |
 | `ingress` | `ls`, `allow`, `deny`, `policy`, `publish`, `unpublish`, `clear`, `rm` |
 | `egress` | `ls`, `show`, `allow`, `deny`, `host`, `net`, `policy`, `clear`, `rm` |
-| `flow` | tráfego por container (`--iface`, `-w`) |
-| `httproute` | `apply`, `ls`, `rm` — proxy L7 embebido |
-| `tunnel` | `expose`, `ls`, `describe`, `apply`, `rm` — exposição pública |
-| `boot` | `enable`, `disable`, `status` — unidades systemd pós-reboot |
+| `flow` | per-container traffic (`--iface`, `-w`) |
+| `httproute` | `apply`, `ls`, `rm` — embedded L7 proxy |
+| `tunnel` | `expose`, `ls`, `describe`, `apply`, `rm` — public exposure |
+| `boot` | `enable`, `disable`, `status` — post-reboot systemd units |
 
-Global: `--l18n en|pt` (ou `$DELONIX_L18N`) muda a língua da saída, antes de
-qualquer subcomando.
+Global: `--l18n en|pt` (or `$DELONIX_L18N`) changes the output language, before
+any subcommand.
 
 ---
 
-## 12. Limites conhecidos
+## 12. Known limits
 
-Escritos aqui para não serem descobertos em produção:
+Written here so they are not discovered in production:
 
-- **55 redes** `bridge` por host (`10.200`–`10.254`), com recusa explícita ao
-  passar do tecto.
-- **`macvlan`/`ipvlan` não são realizados sem privilégio** — ficam registados,
-  com aviso.
-- **Portos do host < 1024 não se publicam** em rootless.
-- **`route` e as políticas de egress ao nível da rede precisam do holder de pé.**
-- **`network rm` não verifica se há workloads ligados** — apaga a bridge à mesma.
-- **Sem IPv6** nas redes bridge.
-- **Só espaço privado** em `--subnet` (RFC 1918, `/8`–`/28`).
-- **Um `DELONIX_ROOT` por utilizador** de cada vez, para a infra de rede.
-- **O `ls` mostra o declarado.** Para saber o que está realizado, `net netns
+- **55 `bridge` networks** per host (`10.200`–`10.254`), with an explicit refusal
+  once past the ceiling.
+- **`macvlan`/`ipvlan` are not realized without privilege** — they stay registered,
+  with a warning.
+- **Host ports < 1024 are not published** under rootless.
+- **`route` and network-level egress policies need the holder up.**
+- **`network rm` does not check for attached workloads** — it deletes the bridge regardless.
+- **No IPv6** on bridge networks.
+- **Private space only** for `--subnet` (RFC 1918, `/8`–`/28`).
+- **One `DELONIX_ROOT` per user** at a time, for the network infra.
+- **`ls` shows what's declared.** To know what's realized, use `net netns
   status`.
 
 ---
 
-## 12.1. A rede dos PODS não é esta rede
+## 12.1. The PODS' network is not this network
 
-Este guia é sobre a rede de **containers e VMs num host**. Um cluster
-Kubernetes criado por este motor tem, por cima disso, uma rede sua — e
-confundir as duas é a origem de uma classe de problemas que se diagnostica no
-sítio errado. São **quatro planos distintos**, com donos distintos:
+This guide covers the network of **containers and VMs on a host**. A
+Kubernetes cluster created by this engine has, on top of that, its own network — and
+confusing the two is the source of a class of problems that gets diagnosed in the
+wrong place. There are **four distinct planes**, with distinct owners:
 
-| plano | quem é o dono | onde se configura | onde se diagnostica |
+| plane | who owns it | where it's configured | where it's diagnosed |
 |---|---|---|---|
-| **rede dos pods** (pod CIDR, Service CIDR, encaminhamento entre nós) | o perfil de CNI escolhido no `spec.cni` | `spec.podSubnet`/`serviceSubnet`/`spec.network` do `kind: KubernetesCluster` | `delonix cluster network status`, `docs/network-compatibility.md` |
-| **rede das VMs que são os nós** (o `--network` / `spec.vm.network`, DHCP, o firewall da VM) | este motor, pelo `kind: Network` | este guia | `delonix net netns status`, `delonix network ls` |
-| **VIP do apiserver** | o HAProxy que o `cluster kubeadm` provisiona com `--control-plane > 1` | `spec.controlPlaneEndpoint` | `cmd/lb.rs`, a VM `<nome>-lb` |
-| **Services `LoadBalancer`** | **ninguém — não entregue** | — | ADR-0066, aceite e não construído |
+| **pods network** (pod CIDR, Service CIDR, inter-node routing) | the CNI profile chosen in `spec.cni` | `spec.podSubnet`/`serviceSubnet`/`spec.network` of `kind: KubernetesCluster` | `delonix cluster network status`, `docs/network-compatibility.md` |
+| **network of the VMs that are the nodes** (`--network` / `spec.vm.network`, DHCP, the VM's firewall) | this engine, via `kind: Network` | this guide | `delonix net netns status`, `delonix network ls` |
+| **apiserver VIP** | the HAProxy that `cluster kubeadm` provisions with `--control-plane > 1` | `spec.controlPlaneEndpoint` | `cmd/lb.rs`, the `<name>-lb` VM |
+| **`LoadBalancer` Services** | **nobody — not delivered** | — | ADR-0066, accepted and not built |
 
-Três consequências práticas:
+Three practical consequences:
 
-1. **O pod CIDR tem de não colidir com a rede das VMs.** Se colidir, o cluster
-   sobe e um host (ou uma rede inteira) fica inalcançável de dentro dos pods —
-   e isso não é um erro no momento da criação, é um sintoma depois. Por isso é
-   **recusado** antes de criar qualquer máquina (DX-1704), comparando os CIDR
-   do cluster com as redes que este host já declara.
-2. **A MTU paga-se duas vezes se ninguém contar.** A rede das VMs já pode estar
-   num overlay (VXLAN = 50 bytes, +60 se cifrado por WireGuard — ver §6), e o
-   perfil do cluster acrescenta o encapsulamento dele por cima. Daí
-   `spec.network.nodeMtu`: declara a MTU **real** dos nós, e a MTU dos pods é
-   calculada a partir dela.
-3. **O firewall deste motor não filtra a rede dos pods.** As regras `nft` das
-   tabelas `delonix`/`dlxing` governam containers e VMs deste host. O
-   isolamento *entre pods* é `NetworkPolicy`, e quem a aplica é o perfil de CNI
-   — e **o Flannel não aplica nenhuma** (ver `docs/network-compatibility.md`).
+1. **The pod CIDR must not collide with the VMs' network.** If it collides, the cluster
+   comes up and a host (or an entire network) becomes unreachable from inside the pods —
+   and that is not an error at creation time, it's a symptom afterwards. That's why it is
+   **refused** before creating any machine (DX-1704), comparing the cluster's CIDRs
+   against the networks this host already declares.
+2. **MTU gets paid for twice if nobody accounts for it.** The VMs' network may already be
+   on an overlay (VXLAN = 50 bytes, +60 if encrypted with WireGuard — see §6), and
+   the cluster profile adds its own encapsulation on top. Hence
+   `spec.network.nodeMtu`: declares the nodes' **real** MTU, and the pods' MTU is
+   calculated from it.
+3. **This engine's firewall does not filter the pods' network.** The `nft` rules in the
+   `delonix`/`dlxing` tables govern containers and VMs on this host. *Pod-to-pod*
+   isolation is `NetworkPolicy`, and it's the CNI profile that enforces it
+   — and **Flannel enforces none** (see `docs/network-compatibility.md`).
 
-E uma que não é prática mas é importante: **nada aqui activa BGP, anúncios L2
-ou um controlador de endereços externos**. Um segundo dono do mesmo pool de
-endereços é um conflito que se manifesta como tráfego que às vezes chega, e
-este motor não o cria sem configuração explícita da rede onde o cluster nasce.
+And one that is not practical but is important: **nothing here enables BGP, L2
+announcements, or an external address controller**. A second owner of the same address
+pool is a conflict that manifests as traffic that sometimes gets through, and
+this engine does not create one without explicit configuration of the network the cluster is born into.
 
 ---
 
-## 13. Onde continuar
+## 13. Where to go next
 
-- `delonix explain Network` — os campos do `kind: Network`, a partir do código.
-- `docs/comandos/` — referência gerada, um ficheiro por comando.
-- `docs/adr/` — as decisões e o porquê (a rede é sobretudo a ADR-0013; a rede
-  dos pods de um cluster é a ADR-0078).
-- `docs/network-compatibility.md` — os perfis de rede dos clusters: versões
-  fixadas, o que foi medido e o que não foi.
-- `docs/cli-stability.md` — o que pode partir num upgrade e o que não pode.
+- `delonix explain Network` — the fields of `kind: Network`, straight from the code.
+- `docs/commands/` — generated reference, one file per command.
+- `docs/adr/` — the decisions and the why (networking is mostly ADR-0013; a cluster's
+  pod network is ADR-0078).
+- `docs/network-compatibility.md` — cluster network profiles: pinned
+  versions, what was measured, and what wasn't.
+- `docs/cli-stability.md` — what can break on an upgrade and what can't.

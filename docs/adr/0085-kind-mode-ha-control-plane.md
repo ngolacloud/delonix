@@ -1,19 +1,19 @@
-# ADR-0085 — `cluster create` (kind-mode) provisiona HA multi-control-plane
+# ADR-0085 — `cluster create` (kind-mode) provisions a multi-control-plane HA setup
 
-**Estado:** Proposto (2026-11-03) — fecha a lacuna que a prova do G4 revelou: o
-turnkey `delonix cluster create` (kind-mode, nós em containers) recusava
-`--control-planes > 1` porque não provisionava o endpoint estável (LB/VIP) que o
-kubeadm HA exige. **Implementado e provado ao vivo** em `feat/ipv6-gonogo`:
-`cluster create --control-planes 3` levanta 3 CP + um HAProxy container + etcd
-stacked + kindnet, 3/3 Ready, e **sobrevive à queda de um CP**. Aguarda GO do dono.
-**Relaciona:** ADR-0084 (overlay inter-nó), `reports/go-nogo-alta-criticidade-20261101/g4-ha-controlplane.md`.
+**Status:** Proposed (2026-11-03) — closes the gap that the G4 proof revealed: the
+turnkey `delonix cluster create` (kind-mode, containerized nodes) refused
+`--control-planes > 1` because it did not provision the stable endpoint (LB/VIP) that
+kubeadm HA requires. **Implemented and proven live** on `feat/ipv6-gonogo`:
+`cluster create --control-planes 3` brings up 3 CPs + an HAProxy container + stacked
+etcd + kindnet, 3/3 Ready, and **survives one CP going down**. Awaiting the owner's GO.
+**Relates to:** ADR-0084 (cross-node overlay), `reports/go-nogo-alta-criticidade-20261101/g4-ha-controlplane.md`.
 
-## Contexto
+## Context
 
-O G4 (via prova) pedia um control-plane k8s **HA sobre o Delonix**. Isso foi
-provado pelo caminho **kubeadm-em-VMs** (`cluster kubeadm`, que já provisiona um
-HAProxy numa VM). Mas o caminho **turnkey e leve** — `cluster create`, que corre
-os nós como **containers** (`kindest/node`) — recusava a HA:
+G4 (via proof) called for an HA k8s control plane **on top of Delonix**. That was
+proven through the **kubeadm-on-VMs** path (`cluster kubeadm`, which already provisions an
+HAProxy on a VM). But the **turnkey, lightweight** path — `cluster create`, which runs
+its nodes as **containers** (`kindest/node`) — refused HA:
 
 ```
 DX-1000: --control-planes 3 is not supported yet: kubeadm HA needs a stable
@@ -21,56 +21,56 @@ endpoint (load-balancer/VIP) in front of the control-planes, which delonix does
 not provision yet.
 ```
 
-A recusa era honesta (vários CP com o `controlPlaneEndpoint` a apontar para UM
-deles não é HA, é um ponto único de falha com a aparência de HA), mas a lacuna
-era de produto: faltava provisionar o LB.
+The refusal was honest (several CPs with `controlPlaneEndpoint` pointing at ONE
+of them is not HA, it is a single point of failure dressed up as HA), but the
+gap was a product one: the LB simply was not provisioned.
 
-## Decisão
+## Decision
 
-Em kind-mode, quando `--control-planes > 1`, o Delonix provisiona ele próprio o
-endpoint estável — um **container HAProxy** na rede do cluster — e faz o bootstrap
-HA do kubeadm. Concretamente (`kindmode::create_ha`):
+In kind-mode, when `--control-planes > 1`, Delonix itself provisions the
+stable endpoint — an **HAProxy container** on the cluster's network — and runs kubeadm's
+HA bootstrap. Concretely (`kindmode::create_ha`):
 
-1. **N containers de control-plane** (`<nome>-control-plane`, `-control-plane2`, …)
-   na rede do cluster; NENHUM publica a porta da API.
-2. Um **container HAProxy** (`<nome>-external-load-balancer`, imagem
-   `haproxy:lts-alpine`) com um `haproxy.cfg` que balanceia TCP `6443` pelos IPs
-   dos CP (reutiliza o `lb::build_haproxy_cfg` do caminho VM); publica `api_port`
-   para o host. O seu IP na rede do cluster é o `controlPlaneEndpoint`.
-3. `kubeadm init --upload-certs` no líder, com `controlPlaneEndpoint = <lb>:6443`
-   e o IP do LB nos `certSANs`; a chave de certificados é lida de
+1. **N control-plane containers** (`<name>-control-plane`, `-control-plane2`, …)
+   on the cluster's network; NONE of them publishes the API port.
+2. An **HAProxy container** (`<name>-external-load-balancer`, image
+   `haproxy:lts-alpine`) with an `haproxy.cfg` that load-balances TCP `6443` across the CPs'
+   IPs (reuses the VM path's `lb::build_haproxy_cfg`); publishes `api_port`
+   to the host. Its IP on the cluster's network is the `controlPlaneEndpoint`.
+3. `kubeadm init --upload-certs` on the leader, with `controlPlaneEndpoint = <lb>:6443`
+   and the LB's IP in `certSANs`; the certificate key is read from
    `kubeadm init phase upload-certs`.
-4. Os outros CP fazem `kubeadm join` com uma `JoinConfiguration` que leva o bloco
-   `controlPlane` (o seu `localAPIEndpoint` + a `certificateKey`) —
+4. The other CPs run `kubeadm join` with a `JoinConfiguration` that carries the
+   `controlPlane` block (its `localAPIEndpoint` + the `certificateKey`) —
    `cp_join_config_yaml`.
-5. CNI (kindnet) uma vez; **autorização dos PodCIDRs por nó** (sem isto o
-   anti-spoofing do bridge dropa o tráfego de pods cross-node — a mesma classe do
-   bloqueio #2B do overlay); kubeconfig exportado (host → LB → apiservers).
+5. CNI (kindnet) once; **per-node PodCIDR authorization** (without this the
+   bridge's anti-spoofing drops cross-node pod traffic — the same class as
+   block #2B of the overlay); kubeconfig exported (host → LB → apiservers).
 
-É o que o `kind` upstream faz com `kindest/haproxy`; aqui o LB é um container
-HAProxy comum, do mesmo `build_haproxy_cfg` que o caminho VM.
+This is what upstream `kind` does with `kindest/haproxy`; here the LB is a plain
+HAProxy container, from the same `build_haproxy_cfg` as the VM path.
 
-## Prova (ao vivo, containers, sem VMs)
+## Proof (live, containers, no VMs)
 
 `delonix cluster create --name g4k --control-planes 3 --workers 0 --cni default`
-→ `cluster "g4k" ready (HA)`. 4 containers (`g4k-external-load-balancer` + 3 CP),
-`kubectl` via `127.0.0.1:6443` → o LB → 3/3 Ready, pod `Running` cross-node.
-**Failover:** parar o CP líder → a API sobrevive via o LB (routed para cp2/cp3),
-continua a **escrever** (configmap, quórum 2/3) e a **agendar** (pod novo em cp2).
+→ `cluster "g4k" ready (HA)`. 4 containers (`g4k-external-load-balancer` + 3 CPs),
+`kubectl` via `127.0.0.1:6443` → the LB → 3/3 Ready, cross-node pod `Running`.
+**Failover:** stop the leader CP → the API survives via the LB (routed to cp2/cp3),
+keeps **writing** (configmap, 2/3 quorum) and **scheduling** (a new pod on cp2).
 
-## Alternativas consideradas
+## Alternatives considered
 
-- **keepalived/VIP partilhado** em vez de um LB dedicado. Rejeitado para kind: os
-  nós são containers numa bridge; um container LB é mais simples e espelha o kind.
-- **Manter a recusa e remeter para o caminho VM.** Rejeitado: o `cluster kubeadm`
-  (VMs) já fazia HA; a lacuna era precisamente o turnkey leve não a fazer.
+- **keepalived/shared VIP** instead of a dedicated LB. Rejected for kind: the
+  nodes are containers on a bridge; a container LB is simpler and mirrors kind.
+- **Keep the refusal and point to the VM path.** Rejected: `cluster kubeadm`
+  (VMs) already did HA; the gap was precisely that the lightweight turnkey path did not.
 
-## Consequências
+## Consequences
 
-- `cluster create --control-planes N` (e o manifesto `mode: kind` com
-  `controlPlane.count > 1`) passam a dar HA turnkey **sem VMs**. O caminho
-  single-CP fica inalterado.
-- Dependência nova: a imagem `haproxy:lts-alpine` (puxada on-demand quando há HA).
-- A segurança de fecho de rede (PodCIDRs autorizados por porta) é a mesma do
-  caminho multi-worker; o LB não filtra (TCP passthrough), a governança fica nos
-  nós.
+- `cluster create --control-planes N` (and the `mode: kind` manifest with
+  `controlPlane.count > 1`) now give turnkey HA **without VMs**. The
+  single-CP path stays unchanged.
+- New dependency: the `haproxy:lts-alpine` image (pulled on-demand when HA is used).
+- Network closure security (per-port authorized PodCIDRs) is the same as the
+  multi-worker path; the LB does not filter (TCP passthrough), governance stays on the
+  nodes.

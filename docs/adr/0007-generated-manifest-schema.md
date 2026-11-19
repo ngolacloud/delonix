@@ -5,7 +5,7 @@
 - **Deciders:** Walter (owner) + Chief Runtime Architect review
 - **Related:** `docs/kinds.html` (hand-written today), `docs/gen.py`, `cmd/manifest.rs`
   (`*_SPEC_FIELDS`), ADR-0005 (`-o json` contract), `docs/discovery/47_IAC_REVISAO.md` §F12,
-  `AGENTS.md` "Output: … Sem dependências novas".
+  `AGENTS.md` "Output: … No new dependencies".
 
 ## Context
 
@@ -20,8 +20,8 @@ realizing only `bridge` physically (`overlay` had been realized for several vers
 written correctly once and then silently became a lie.
 
 The IaC review (`47_IAC_REVISAO.md`) named it as the documentation gap that most directly
-contradicts the stated goal — *«a documentação dá-lhe sustento para trabalhar sem ficar
-travado»* — because the person writing a manifest has no way to check a field short of reading
+contradicts the stated goal — *«the documentation gives you sustenance to work without getting
+stuck»* — because the person writing a manifest has no way to check a field short of reading
 Rust. There is also no `delonix explain`, the one command a `kubectl` user reaches for first.
 
 Forces:

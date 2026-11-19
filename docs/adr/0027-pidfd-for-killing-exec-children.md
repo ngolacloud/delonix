@@ -1,79 +1,79 @@
-# ADR-0027 — pidfd para matar os filhos de `exec`/`attach`
+# ADR-0027 — pidfd for killing `exec`/`attach` children
 
-**Estado:** aceite · **Data:** 2026-08-29 · **Âmbito:** `delonix-cri`
+**Status:** accepted · **Date:** 2026-08-29 · **Scope:** `delonix-cri`
 
-## Contexto
+## Context
 
-O servidor CRI lança um filho `delonix` por sessão de `exec`/`attach` e mata-o
-quando o cliente desaparece — senão uma shell interactiva abandonada corre para
-sempre, e com ela ficam presos o pty, os fds de netns e as referências aos
-namespaces do container. Essa correcção já existia; o que ela usava é que estava
-errado.
+The CRI server spawns a `delonix` child per `exec`/`attach` session and kills it
+when the client disappears — otherwise an abandoned interactive shell runs
+forever, and with it the pty, the netns fds, and the references to the
+container's namespaces stay stuck. That fix already existed; what it used was
+what was wrong.
 
-O killer guardava o **número do PID**. Um número não é um nome durável de um
-processo. Enquanto o filho é zombie o slot está preso e o número não pode ser
-reatribuído — mas quem espera por ele (`child.wait()`, numa thread destacada)
-**ceifa-o**, e ceifar é exactamente o que liberta o número para reutilização.
-A partir daí, `kill(pid)` nomeia o processo a quem o kernel entretanto deu esse
-número.
+The killer stored the **PID number**. A number is not a durable name for a
+process. While the child is a zombie the slot is held and the number cannot be
+reassigned — but whoever waits for it (`child.wait()`, on a detached thread)
+**reaps it**, and reaping is exactly what frees the number for reuse.
+From that point on, `kill(pid)` names whatever process the kernel has since given
+that number.
 
-Três sítios tinham a janela:
+Three places had the window:
 
-| Sítio | Janela |
+| Place | Window |
 |---|---|
-| `spdy.rs` `Input::close` | o `Input` guardava `pid: u32` cru; o `Child` já tinha sido consumido pela thread que ceifa |
-| `streaming.rs` `exec_tty` | a thread ceifa e só depois envia o código por um `oneshot`; o teste `exit_code.is_none()` ainda diz «não saiu» com o PID já livre |
-| `streaming.rs` `exec_pipe` | idem |
+| `spdy.rs` `Input::close` | `Input` stored a raw `pid: u32`; the `Child` had already been consumed by the reaping thread |
+| `streaming.rs` `exec_tty` | the thread reaps and only then sends the code through a `oneshot`; the `exit_code.is_none()` check still says "hasn't exited" with the PID already free |
+| `streaming.rs` `exec_pipe` | same |
 
-O comentário que lá estava afirmava o contrário — que por a thread já ter
-ceifado o sinal seria «um ESRCH inofensivo, não um sinal mal dirigido a um pid
-reutilizado». O raciocínio está invertido, e é por isso que ninguém investigou
-antes: quem lê encontra a garantia e segue em frente.
+The comment that was there claimed the opposite — that because the thread had
+already reaped it, the signal would be "a harmless ESRCH, not a signal misdirected
+at a reused pid." The reasoning is inverted, which is why no one investigated
+it before: whoever reads it finds the guarantee and moves on.
 
-Probabilidade baixa — `pid_max` é 4 194 304 num kernel moderno, portanto é
-preciso o contador dar a volta. Mas o sinal é `SIGKILL`, o nó corre cargas de
-clientes, e a vítima seria trabalho de outra pessoa, sem nada em log nenhum a
-ligar o facto a nós.
+Low probability — `pid_max` is 4,194,304 on a modern kernel, so the counter
+needs to wrap around. But the signal is `SIGKILL`, the node runs client
+workloads, and the victim would be someone else's work, with nothing in any log
+to tie the fact back to us.
 
-## Decisão
+## Decision
 
-Um `ChildHandle` (`crates/interfaces/delonix-cri/src/child_handle.rs`) envolve
-`pidfd_open(2)` e `pidfd_send_signal(2)`. Um pidfd refere-se ao **processo**, não
-ao número: o sinal chega àquele processo ou falha com `ESRCH`, nunca a outro.
+A `ChildHandle` (`crates/interfaces/delonix-cri/src/child_handle.rs`) wraps
+`pidfd_open(2)` and `pidfd_send_signal(2)`. A pidfd refers to the **process**, not
+the number: the signal reaches that process or fails with `ESRCH`, never another one.
 
-O handle é aberto **imediatamente a seguir ao `spawn`**, antes de qualquer coisa
-poder ceifar o filho. Abri-lo mais tarde não é erro mas também não é garantia.
+The handle is opened **immediately after `spawn`**, before anything
+can reap the child. Opening it later is not an error but it is not a guarantee either.
 
-## Alternativas recusadas
+## Rejected alternatives
 
-**Guardar o `Child` e usar `Child::kill`.** O `wait()` bloqueante tem de viver
-algures; partilhar o `Child` entre quem espera e quem mata dá impasse — o
-esperador segura o lock precisamente enquanto está bloqueado.
+**Store the `Child` and use `Child::kill`.** The blocking `wait()` has to live
+somewhere; sharing the `Child` between whoever waits and whoever kills causes a deadlock — the
+waiter holds the lock precisely while it is blocked.
 
-**Trocar `wait()` por `try_wait()` em ciclo.** Fecha a janela à custa de
-transformar uma espera bloqueante barata em polling, num caminho que existe uma
-vez por sessão de exec.
+**Swap `wait()` for `try_wait()` in a loop.** Closes the window at the cost of
+turning a cheap blocking wait into polling, on a path that exists once
+per exec session.
 
-**Matar o grupo de processos.** O identificador de grupo recicla-se pela mesma
-razão que o PID.
+**Kill the process group.** The group identifier recycles for the same
+reason the PID does.
 
-**Só documentar.** Foi considerado e recusado: um SAFETY honesto aqui teria de
-dizer «isto pode sinalizar um PID reciclado», o que é melhor do que a garantia
-falsa mas deixa o defeito de pé.
+**Just document it.** This was considered and rejected: an honest SAFETY note here would have to
+say "this can signal a recycled PID," which is better than the false
+guarantee but leaves the defect standing.
 
-## Consequências
+## Consequences
 
-Piso de **Linux 5.3** para a garantia (`pidfd_send_signal` entrou em 5.1,
-`pidfd_open` em 5.3). Não é piso para funcionar: se o `pidfd_open` for recusado,
-o `ChildHandle` cai no `kill(pid)` de sempre e herda a janela — igual a hoje,
-melhor em todo o lado onde o kernel deixa. O `is_process_stable()` diz qual dos
-dois está em uso, e o teste que prova a propriedade salta-se sozinho no
-fallback, em vez de afirmar o que ali não é verdade.
+A floor of **Linux 5.3** for the guarantee (`pidfd_send_signal` landed in 5.1,
+`pidfd_open` in 5.3). Not a floor to function: if `pidfd_open` is refused,
+`ChildHandle` falls back to the usual `kill(pid)` and inherits the window — same as today,
+better everywhere the kernel allows it. `is_process_stable()` reports which of the
+two is in use, and the test that proves the property skips itself on the
+fallback, rather than asserting something that isn't true there.
 
-As três syscalls já estavam na lista de permitidas do seccomp
-(`delonix-runtime/src/seccomp_profile.rs`), portanto não há perfil a alargar.
+The three syscalls were already on the seccomp allow-list
+(`delonix-runtime/src/seccomp_profile.rs`), so there is no profile to widen.
 
-O `HeldChild` do `delonix-runtime` **não** muda: mata e só depois faz `waitpid`,
-e como nunca ceifa antes disso o zombie segura o número. É correcto pela ORDEM
-das duas chamadas, e passou a ter isso escrito — com o aviso de que trocar as
-linhas o transforma neste mesmo defeito.
+The `delonix-runtime`'s `HeldChild` does **not** change: it kills and only then does
+`waitpid`, and since it never reaps before that the zombie holds the number. It is correct by the
+ORDER of the two calls, and it now has that written down — with a warning that swapping the
+lines turns it into this very same defect.

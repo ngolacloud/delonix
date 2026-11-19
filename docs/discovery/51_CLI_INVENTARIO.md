@@ -1,21 +1,21 @@
-# Fase CLI-0 — inventário, matriz de destinos e lacunas
+# CLI-0 Phase — inventory, destination matrix, and gaps
 
-> Medido a **2026-08-26** contra `origin/main` (`a3e7fa1`, v0.63.1), com o binário
-> construído desse commit — **não** com o `delonix` instalado no host, que estava
-> quatro dias atrasado e não tinha `namespace`, `net l4guard`, `stack history`,
-> `stack rollback`, `system doctor` nem `system features`. Medir o binário à mão
-> teria dado um inventário com seis comandos a menos e uma matriz que os deixava
-> sem destino sem ninguém dar por isso.
+> Measured on **2026-08-26** against `origin/main` (`a3e7fa1`, v0.63.1), with the binary
+> built from that commit — **not** with the `delonix` installed on the host, which was
+> four days behind and did not have `namespace`, `net l4guard`, `stack history`,
+> `stack rollback`, `system doctor`, or `system features`. Measuring the binary by hand
+> would have produced an inventory with six fewer commands and a matrix that left them
+> without a destination without anyone noticing.
 
-## 1. A superfície actual, em números
+## 1. The current surface, in numbers
 
-| medida | valor |
+| metric | value |
 |---|---|
-| comandos na árvore pública | **263** |
-| folhas invocáveis | **233** |
-| grupos de topo | **28** |
+| commands in the public tree | **263** |
+| invokable leaves | **233** |
+| top-level groups | **28** |
 
-Reproduzir:
+To reproduce:
 
 ```bash
 scripts/cli-tree.sh --count      # os totais desta secção
@@ -23,16 +23,16 @@ scripts/cli-tree.sh --leaves     # as 233 folhas
 scripts/cli-tree.sh --classify   # folha + classe de impacto (secção 4)
 ```
 
-O script usa o binário da árvore e **diz qual** na saída — a primeira medição
-desta fase foi feita contra o `delonix` do `PATH` e ficou seis comandos
-atrasada.
+The script uses the tree's binary and **states which one** in the output — the first measurement
+of this phase was taken against the `delonix` on the `PATH` and ended up six commands
+behind.
 
-### Duplicação de verbo, contada e não afirmada
+### Verb duplication, counted and not asserted
 
-O ponto §2 da especificação pede confirmação de que há sobreposição. Há, e o
-número é este — a contagem do segundo token de cada folha:
+Point §2 of the specification asks for confirmation that there is overlap. There is, and the
+number is this — the count of the second token of each leaf:
 
-| verbo | ocorrências | onde |
+| verb | occurrences | where |
 |---|---|---|
 | `ls` | **12** | cluster, container(`ps`), image, image vm, namespace, network, pod, secret, sharevolume, stack, storage, vm, volumes, workload |
 | `apply` | **10** | cluster, container, image, network, secret, sharevolume, stack, storage, vm, volumes |
@@ -41,174 +41,174 @@ número é este — a contagem do segundo token de cada folha:
 | `prune` | **7** | cluster, container, image, stack, system, vm, volumes |
 | `create` | **7** | network, pod, secret, storage, volumes, vm snapshot, volumes snapshot |
 | `inspect` | **5** | container, image(`describe`), network, secret, storage, volumes |
-| `init` | **5** | cluster, container, image, image vm, stack, vm (+ o `init` de topo = 7) |
-| `dash` | **5** | container, image, network, storage, vm (+ o `dash` de topo = 6) |
+| `init` | **5** | cluster, container, image, image vm, stack, vm (+ the top-level `init` = 7) |
+| `dash` | **5** | container, image, network, storage, vm (+ the top-level `dash` = 6) |
 
-Nove verbos declarativos repetidos dez vezes cada é a medida exacta do problema
-que a especificação existe para fechar: **o CRUD de cada Kind está escrito uma
-vez por grupo**, e nada obriga as dez cópias a concordar. É a mesma família do
-defeito que o `cmd/kinds.rs` já corrigiu do lado do reconciliador — seis listas
-que tinham de concordar e derivaram — só que aqui está na superfície pública.
+Nine declarative verbs repeated ten times each is the exact measure of the problem
+that the specification exists to close: **the CRUD for each Kind is written once
+per group**, and nothing forces the ten copies to agree. It is the same family of
+defect that `cmd/kinds.rs` already fixed on the reconciler side — six lists
+that had to agree and drifted — except here it is on the public surface.
 
-### Os onze pontos do §2, verificados um a um
+### The eleven points of §2, verified one by one
 
-| # | alegação | verificado | evidência |
+| # | claim | verified | evidence |
 |---|---|---|---|
-| 1 | sobreposição `container`/`pod`/`vm`/`workload` | **sim** | `workload ls` lista containers E vms; `pod ls`/`vm ls`/`container ps` listam os mesmos objectos por outra porta |
-| 2 | sobreposição `volumes`/`storage`/`sharevolume` | **sim** | três grupos, 26 folhas, um só `kind: Volume` por baixo desde a 5.ª fusão (v0.53.x) |
-| 3 | sobreposição `network`/`net` | **sim** | 13 + 45 folhas; `network route` e `net ingress` actuam no mesmo dataplane |
-| 4 | `build` separado de `image` | **sim** | `delonix build` e `delonix image build` coexistem |
-| 5 | `image --vm` muda de store | **sim** | flag global que troca `ImageStore`↔`VmImageStore`; e há **três** portas para o mesmo (`vm pull`, `image vm pull`, `image --vm pull`) |
-| 6 | CRUD duplicado grupo↔`stack` | **sim** | 10 `apply` por-grupo contra `stack apply` |
-| 7 | `schema`/`explain` fora da gestão de manifestos | **sim** | `schema print` e `explain` são grupos de topo |
-| 8 | `backup`/`restore` em grupos distintos | **sim, e pior** | são **quatro** portas: `backup`, `restore`, `system backup`, `system restore` |
-| 9 | `dash` global e repetido | **sim** | 6 ocorrências |
-| 10 | aliases de argv no topo | **sim** | `ps`/`run`/`exec`/`logs`/`rm`/`images`, por reescrita de `argv` antes do `clap` |
-| 11 | `ls`/`ps`/`get`/`status`/`inspect`/`describe` divergentes | **sim** | `vm status` e `vm describe` respondem à mesma pergunta com formatos diferentes |
+| 1 | overlap between `container`/`pod`/`vm`/`workload` | **yes** | `workload ls` lists containers AND vms; `pod ls`/`vm ls`/`container ps` list the same objects through another door |
+| 2 | overlap between `volumes`/`storage`/`sharevolume` | **yes** | three groups, 26 leaves, a single `kind: Volume` underneath since the 5th merge (v0.53.x) |
+| 3 | overlap between `network`/`net` | **yes** | 13 + 45 leaves; `network route` and `net ingress` act on the same dataplane |
+| 4 | `build` separate from `image` | **yes** | `delonix build` and `delonix image build` coexist |
+| 5 | `image --vm` switches store | **yes** | global flag that swaps `ImageStore`↔`VmImageStore`; and there are **three** doors to the same thing (`vm pull`, `image vm pull`, `image --vm pull`) |
+| 6 | duplicated CRUD group↔`stack` | **yes** | 10 per-group `apply` against `stack apply` |
+| 7 | `schema`/`explain` outside manifest management | **yes** | `schema print` and `explain` are top-level groups |
+| 8 | `backup`/`restore` in distinct groups | **yes, and worse** | there are **four** doors: `backup`, `restore`, `system backup`, `system restore` |
+| 9 | global and repeated `dash` | **yes** | 6 occurrences |
+| 10 | top-level argv aliases | **yes** | `ps`/`run`/`exec`/`logs`/`rm`/`images`, via `argv` rewriting before `clap` |
+| 11 | divergent `ls`/`ps`/`get`/`status`/`inspect`/`describe` | **yes** | `vm status` and `vm describe` answer the same question with different formats |
 
-O ponto 8 é o único onde a especificação **subestimou** o problema: listava dois
-grupos e são quatro.
+Point 8 is the only one where the specification **underestimated** the problem: it listed two
+groups and there are four.
 
-## 2. Conflitos com contratos JÁ PUBLICADOS
+## 2. Conflicts with ALREADY PUBLISHED contracts
 
-A especificação diz que prevalece sobre a CLI antiga. Prevalece — mas três das
-mudanças não são só reorganização: **quebram promessas escritas** em
-`docs/cli-stability.md`, que existe precisamente para dizer o que não parte. Ou
-o documento é revisto no mesmo commit, ou a promessa passa a mentir.
+The specification says it takes precedence over the old CLI. It does — but three of the
+changes are not just reorganisation: **they break promises written** in
+`docs/cli-stability.md`, which exists precisely to say what does not break. Either
+the document is revised in the same commit, or the promise becomes a lie.
 
-### 2.1 Os atalhos de topo estão declarados ESTÁVEIS
+### 2.1 The top-level shortcuts are declared STABLE
 
-`docs/cli-stability.md`, secção «Estável — não quebra sem um major»:
+`docs/cli-stability.md`, section «Stable — does not break without a major»:
 
-> **Os atalhos de topo** (`ps`, `run`, `exec`, `logs`, `rm`, `images`), que são
-> literalmente o mesmo comando por reescrita de argv.
+> **The top-level shortcuts** (`ps`, `run`, `exec`, `logs`, `rm`, `images`), which are
+> literally the same command via argv rewriting.
 
-O §3.4 da especificação manda removê-los. É uma decisão legítima do dono do
-produto, mas é **um major**, não uma limpeza — e o custo cai inteiro sobre o
-público de adopção (quem vem do Docker e escreve `delonix ps`).
+§3.4 of the specification orders them removed. It is a legitimate decision by the product
+owner, but it is **a major**, not a cleanup — and the cost falls entirely on the
+adoption audience (those coming from Docker who type `delonix ps`).
 
-### 2.2 Os códigos de saída colidem com a tabela da v0.49.0
+### 2.2 Exit codes collide with the v0.49.0 table
 
-Publicada, com nota de migração e exemplo em bash:
+Published, with a migration note and a bash example:
 
-| publicado (v0.49.0) | proposto (§19) | colisão |
+| published (v0.49.0) | proposed (§19) | collision |
 |---|---|---|
-| `3` = existe mas não está a correr | — | o `3` desaparece sem substituto nomeado |
-| `4` = **não existe** | `66` = não encontrado | **um script escrito contra a tabela publicada passa a classificar mal em silêncio** |
-| `5` = conflito | `73` = conflito | idem |
+| `3` = exists but is not running | — | `3` disappears with no named replacement |
+| `4` = **does not exist** | `66` = not found | **a script written against the published table starts silently misclassifying** |
+| `5` = conflict | `73` = conflict | same |
 
-O caso do `4` é o grave: o valor não passa a ser inválido, passa a ser
-*outra coisa* — um `case $? in 4)` que hoje cria o recurso em falta passará a
-não casar com nada, e o ramo `*) exit 1` engole-o. A tabela publicada traz
-literalmente esse `case` como exemplo recomendado.
+The `4` case is the serious one: the value does not become invalid, it becomes
+*something else* — a `case $? in 4)` that today creates the missing resource will
+stop matching anything, and the `*) exit 1` branch swallows it. The published table
+literally carries that `case` as a recommended example.
 
-**Recomendação**: manter `3`/`4`/`5` e acrescentar os códigos novos apenas para
-classes que hoje não existem (`69` capacidade indisponível, `75` retryable, `77`
-permissão, `124` timeout). Isto cumpre o objectivo do §19 — dar classe ao que
-não a tem — sem invalidar o que já foi prometido. A alternativa (adoptar
-`64`–`77` por inteiro) exige nota de migração própria e um major.
+**Recommendation**: keep `3`/`4`/`5` and add the new codes only for
+classes that do not exist today (`69` capability unavailable, `75` retryable, `77`
+permission, `124` timeout). This meets the goal of §19 — giving a class to what
+doesn't have one — without invalidating what has already been promised. The alternative
+(adopting `64`–`77` wholesale) requires its own migration note and a major.
 
-### 2.3 `delonix build` está declarado estável
+### 2.3 `delonix build` is declared stable
 
-A mesma secção lista `image pull ls rm build (delonix build)`. O §10 move-o para
-`image build --type container`. Mesmo tratamento que o 2.1.
+The same section lists `image pull ls rm build (delonix build)`. §10 moves it to
+`image build --type container`. Same treatment as 2.1.
 
-### 2.5 O schema dos manifestos — a quebra mais séria, e a menos visível
+### 2.5 The manifest schema — the most serious break, and the least visible
 
-`docs/cli-stability.md` tem uma secção intitulada **«O schema dos manifestos —
-estável, e é o que mais importa»**. Para `Container`, `Pod`, `Volume` e
-`Network` promete, dentro do `0.x`:
+`docs/cli-stability.md` has a section titled **«The manifest schema —
+stable, and it matters most»**. For `Container`, `Pod`, `Volume`, and
+`Network` it promises, within `0.x`:
 
-* um campo **nunca** é removido, nem muda de tipo, nem de significado;
-* um nome renomeado **mantém-se aceite como alias**;
-* **`apiVersion: delonix.io/v1` só muda com um `v2`, e um `v2` não sai sem o
-  `v1` continuar a ser aceite.**
+* a field is **never** removed, nor does it change type or meaning;
+* a renamed name **remains accepted as an alias**;
+* **`apiVersion: delonix.io/v1` only changes with a `v2`, and a `v2` does not ship unless
+  `v1` continues to be accepted.**
 
-A reestruturação dos 12 Kinds quebra as três:
+The restructuring of the 12 Kinds breaks all three:
 
-| promessa | o que a reestruturação faz |
+| promise | what the restructuring does |
 |---|---|
-| campo nunca removido | `kind: Container` desaparece — **todos** os seus campos com ele, e é um dos quatro Kinds cobertos pela promessa |
-| alias para nome renomeado | `Vm`→`VirtualMachine`, `Ingress`/`FirewallPolicy`→`NetworkPolicy` sem degrau declarado |
-| `v1` só muda com `v2` | vai para `compute.delonix.io/v1alpha1` — que não é `v2` e é um degrau **abaixo** na maturidade anunciada |
+| field never removed | `kind: Container` disappears — **all** of its fields with it, and it is one of the four Kinds covered by the promise |
+| alias for renamed name | `Vm`→`VirtualMachine`, `Ingress`/`FirewallPolicy`→`NetworkPolicy` with no declared step |
+| `v1` only changes with `v2` | it moves to `compute.delonix.io/v1alpha1` — which is not `v2` and is a step **down** in announced maturity |
 
-Há ainda um gate de CI que isto acciona: `scripts/schema-diff.sh` compara campo
-a campo entre duas tags e **assinala um campo removido como quebra de
-contrato**. A reestruturação fá-lo disparar por desenho.
+There is also a CI gate that this triggers: `scripts/schema-diff.sh` compares field
+by field between two tags and **flags a removed field as a contract
+break**. The restructuring triggers it by design.
 
-**E o repo já tem a resposta certa escrita**, no fim dessa mesma secção, sobre
-três Kinds que foram fundidos:
+**And the repo already has the right answer written down**, at the end of that same section, about
+three Kinds that were merged:
 
-> os nomes antigos continuam a carregar, com aviso de depreciação — a regra do
-> «corte limpo» aplica-se a comandos, e um manifesto em git merece um degrau em
-> vez de um erro.
+> the old names continue to load, with a deprecation warning — the «clean cut»
+> rule applies to commands, and a manifest in git deserves a step down
+> instead of an error.
 
-É a distinção que o §3.4 da especificação não faz. **Corte limpo em comandos:
-correcto, e é o precedente da v0.30.0.** Corte limpo em manifestos: parte
-ficheiros que estão em git, revistos em PR e referenciados por
-`$schema` em editores — e parte-os sem que ninguém corra um comando.
+It is the distinction that §3.4 of the specification does not make. **Clean cut in commands:
+correct, and it is the v0.30.0 precedent.** Clean cut in manifests: breaks
+files that are in git, reviewed in a PR and referenced via
+`$schema` in editors — and breaks them without anyone running a command.
 
-**Recomendação**: `delonix.io/v1` continua a CARREGAR com aviso de depreciação e
-a baixar para os Kinds novos no `load` — exactamente o mecanismo que
-`Egress`→`FirewallPolicy` e `Storage`→`Volume` já usam, e que o `cmd/kinds.rs`
-modela como `Form::Deprecated`. Custa um braço no `load` por Kind antigo e
-mantém a promessa. `kind: Container` baixa para `kind: Pod` de um container,
-que é literalmente o que o §3.3 diz que ele é.
+**Recommendation**: `delonix.io/v1` continues to LOAD with a deprecation warning and
+to downgrade to the new Kinds in `load` — exactly the mechanism that
+`Egress`→`FirewallPolicy` and `Storage`→`Volume` already use, and that `cmd/kinds.rs`
+models as `Form::Deprecated`. It costs one branch in `load` per old Kind and
+keeps the promise. `kind: Container` downgrades to `kind: Pod` for a container,
+which is literally what §3.3 says it is.
 
 ### 2.4 `--l18n` → `--language`
 
-Não está na lista de estáveis, portanto é a mudança mais barata das quatro. Mas
-`DELONIX_L18N` aparece em documentação publicada e em `scripts/e2e.sh`. Aceitar
-as duas grafias durante um ciclo custa três linhas e evita partir CI alheio;
-recusar a antiga em silêncio é a armadilha que este repo já catalogou.
+It is not on the stable list, so it is the cheapest change of the four. But
+`DELONIX_L18N` appears in published documentation and in `scripts/e2e.sh`. Accepting
+both spellings for one cycle costs three lines and avoids breaking someone else's CI;
+silently rejecting the old one is the trap this repo has already catalogued.
 
-## 3. Matriz de destinos — as 233 folhas
+## 3. Destination matrix — the 233 leaves
 
-Legenda da coluna **impacto**:
-`=` sem quebra (renomeação transparente ou já equivalente) ·
-`~` quebra de grafia, mesma capacidade ·
-`!` quebra de contrato publicado ·
-`+` capacidade nova exigida pela especificação ·
-`?` **sem destino na árvore proposta** — decisão em aberto
+Legend for the **impact** column:
+`=` no break (transparent rename or already equivalent) ·
+`~` spelling break, same capability ·
+`!` break of a published contract ·
+`+` new capability required by the specification ·
+`?` **no destination in the proposed tree** — open decision
 
-### 3.1 Declarativo — o CRUD que colapsa nos verbos genéricos
+### 3.1 Declarative — the CRUD that collapses into generic verbs
 
-Estas 47 folhas são a razão de ser da reestruturação: dez cópias de um CRUD que
-passa a ser escrito uma vez.
+These 47 leaves are the raison d'être of the restructuring: ten copies of a CRUD that
+now gets written once.
 
-| antigo | novo | razão semântica | impacto |
+| old | new | semantic reason | impact |
 |---|---|---|---|
-| `container apply` | `apply -f` | Kind `Container` deixa de existir (§3.3) | `!` |
-| `image apply` | `apply -f` | CRUD declarativo unificado | `~` |
-| `network apply` | `apply -f` | idem | `~` |
-| `secret apply` | `apply -f` | idem | `~` |
-| `sharevolume apply` | `apply -f` | grupo eliminado (§12) | `~` |
-| `storage apply` | `apply -f` | grupo eliminado (§12) | `~` |
-| `volumes apply` | `apply -f` | idem | `~` |
-| `vm apply` | `apply -f` | idem | `~` |
+| `container apply` | `apply -f` | Kind `Container` ceases to exist (§3.3) | `!` |
+| `image apply` | `apply -f` | unified declarative CRUD | `~` |
+| `network apply` | `apply -f` | same | `~` |
+| `secret apply` | `apply -f` | same | `~` |
+| `sharevolume apply` | `apply -f` | group eliminated (§12) | `~` |
+| `storage apply` | `apply -f` | group eliminated (§12) | `~` |
+| `volumes apply` | `apply -f` | same | `~` |
+| `vm apply` | `apply -f` | same | `~` |
 | `cluster apply` | `apply -f` | `KubernetesCluster` (§13) | `~` |
-| `stack apply` | `apply` | verbo canónico | `~` |
-| `stack plan` | `plan` | verbo canónico | `~` |
-| `stack destroy` | `delete -f --owner` | verbo canónico (§5.7) | `~` |
-| `stack wait` | `wait -f` | verbo canónico (§5.8) | `~` |
+| `stack apply` | `apply` | canonical verb | `~` |
+| `stack plan` | `plan` | canonical verb | `~` |
+| `stack destroy` | `delete -f --owner` | canonical verb (§5.7) | `~` |
+| `stack wait` | `wait -f` | canonical verb (§5.8) | `~` |
 | `stack validate` | `manifest validate` | §6.1 | `~` |
-| `stack ls` | `get -f` / `get <kind>` | listagem genérica | `~` |
+| `stack ls` | `get -f` / `get <kind>` | generic listing | `~` |
 | `stack describe` | `describe -f` | §5.6 | `~` |
-| `stack prune` | `apply --prune` | a poda é modo do apply, não comando | `~` |
-| `stack init` | `init` | o `init` de topo já delega | `=` |
-| `stack history` | `manifest history` **ou** `get stackrevisions` | ADR-0019; **a especificação não o prevê** | `?` |
-| `stack rollback` | `apply --revision <n>` | ADR-0019; **não previsto** | `?` |
+| `stack prune` | `apply --prune` | pruning is a mode of apply, not a command | `~` |
+| `stack init` | `init` | the top-level `init` already delegates | `=` |
+| `stack history` | `manifest history` **or** `get stackrevisions` | ADR-0019; **the specification does not provide for it** | `?` |
+| `stack rollback` | `apply --revision <n>` | ADR-0019; **not provided for** | `?` |
 | `schema print` | `manifest schema` | §6.4 | `~` |
-| `explain` | `explain` | mantém-se no topo (§4) | `=` |
+| `explain` | `explain` | stays at the top level (§4) | `=` |
 | `pod create` | `apply -f` | §8 | `~` |
 | `pod ls` | `get pods` | §8 | `~` |
 | `pod rm` | `delete pod` | §8 | `~` |
 | `pod describe` | `describe pod` | §8 | `~` |
-| `pod logs` | `pod logs` | day-2, mantém-se | `=` |
+| `pod logs` | `pod logs` | day-2, stays | `=` |
 | `vm create` | `apply -f` | §9 | `~` |
 | `vm ls` | `get virtualmachines` | §9 | `~` |
 | `vm rm` | `delete virtualmachine` | §9 | `~` |
-| `vm status` | `get vm <nome>` | §9 — funde-se com `describe` | `~` |
+| `vm status` | `get vm <name>` | §9 — merges with `describe` | `~` |
 | `vm describe` | `describe vm` | §9 | `~` |
 | `network create` | `apply -f` | §11 | `~` |
 | `network ls` | `get networks` | §11 | `~` |
@@ -221,31 +221,31 @@ passa a ser escrito uma vez.
 | `volumes rm` | `delete volume` | §12 | `~` |
 | `volumes describe` | `describe volume` | §12 | `~` |
 | `volumes inspect` | `get volume -o json` | §12 | `~` |
-| `storage create/ls/rm/inspect` | `apply`/`get`/`delete` (`Volume`) | grupo eliminado (§12) | `~` |
-| `sharevolume ls/rm/describe` | `apply`/`get`/`delete` (`Volume`) | grupo eliminado (§12) | `~` |
+| `storage create/ls/rm/inspect` | `apply`/`get`/`delete` (`Volume`) | group eliminated (§12) | `~` |
+| `sharevolume ls/rm/describe` | `apply`/`get`/`delete` (`Volume`) | group eliminated (§12) | `~` |
 | `cluster create` | `apply -f` (`KubernetesCluster`) | §13 | `~` |
 | `cluster kubeadm` | `apply -f` (provider `kubeadm`) | §13 | `~` |
 | `cluster ls` | `get kubernetesclusters` | §13 | `~` |
 | `cluster delete` | `delete kubernetescluster` | §13 | `~` |
 | `secret ls/rm/inspect` | `get`/`delete`/`get -o json` | §5 | `~` |
-| `workload ls/rm/stop/describe` | `get`/`delete`/… sobre Pod+VM | grupo eliminado (§5) | `~` |
+| `workload ls/rm/stop/describe` | `get`/`delete`/… over Pod+VM | group eliminated (§5) | `~` |
 
-### 3.2 Compatibilidade imperativa — `container` mantém-se
+### 3.2 Imperative compatibility — `container` stays
 
-As 27 folhas do grupo `container` ficam onde estão (§7), com quatro excepções
-listadas em 3.5. É a ponte de adopção e a especificação preserva-a
-explicitamente.
+The 27 leaves of the `container` group stay where they are (§7), with four exceptions
+listed in 3.5. It is the adoption bridge and the specification explicitly
+preserves it.
 
 `run · ps · start · stop · restart · kill · wait · rm · exec · logs · attach ·
 inspect · update · port · rename · pause · unpause · cp · diff · commit · top ·
-stats · healthcheck · ssh` — **todas `=`**.
+stats · healthcheck · ssh` — **all `=`**.
 
-### 3.3 Day-2 — sobrevivem porque não são CRUD
+### 3.3 Day-2 — survive because they are not CRUD
 
-| antigo | novo | impacto |
+| old | new | impact |
 |---|---|---|
 | `pod logs` / `pod exec`¹ | `pod logs` / `pod exec` | `=` |
-| `vm start/stop/restart/console/ssh` | idem | `=` |
+| `vm start/stop/restart/console/ssh` | same | `=` |
 | `vm snapshot create/ls/rm/restore` | `vm snapshot …` | `=` |
 | `volumes snapshot create/ls/rm/restore` | `volume snapshot …` | `~` (plural→singular) |
 | `image pull/push/build/scan/verify/convert/import/export` | `image …` | `=` |
@@ -255,15 +255,15 @@ stats · healthcheck · ssh` — **todas `=`**.
 | `net flow` | `network flow` | `~` |
 | `net boot enable/disable/status` | `system boot …` | `~` |
 | `namespace ls/describe` | `system namespace …` | `~` |
-| `system info/events/df/prune/doctor/features` | idem | `=` |
+| `system info/events/df/prune/doctor/features` | same | `=` |
 | `dash` | `dashboard` | `~` |
 
-¹ `pod exec`/`attach`/`cp`/`port-forward` **não existem hoje** — são capacidade
-nova (§8), marcada `+` no total.
+¹ `pod exec`/`attach`/`cp`/`port-forward` **do not exist today** — they are new
+capability (§8), marked `+` in the total.
 
-### 3.4 Política — o que colapsa em Kinds novos
+### 3.4 Policy — what collapses into new Kinds
 
-| antigo | novo | impacto |
+| old | new | impact |
 |---|---|---|
 | `net ingress allow/deny/policy/clear/rm/ls` | `apply -f` (`NetworkPolicy`) | `~` |
 | `net egress allow/deny/host/net/policy/clear/rm/ls/show` | `apply -f` (`NetworkPolicy`) | `~` |
@@ -271,82 +271,82 @@ nova (§8), marcada `+` no total.
 | `net httproute apply/ls/rm` | `apply -f` (`HTTPRoute`) | `~` |
 | `net tunnel expose/rm/ls/describe/apply` | `apply -f` (`Gateway`) | `~` |
 
-### 3.5 **Lacunas — folhas sem destino na árvore proposta**
+### 3.5 **Gaps — leaves with no destination in the proposed tree**
 
-Este é o achado que a Fase CLI-0 existe para produzir. **31 folhas** não têm
-destino na árvore do §4, e cada uma exige uma decisão antes de a Fase CLI-5
-(remoção) poder correr — senão são eliminadas por omissão, que é a forma mais
-cara de partir uma CLI.
+This is the finding that the CLI-0 Phase exists to produce. **31 leaves** have no
+destination in the §4 tree, and each one requires a decision before the CLI-5 Phase
+(removal) can run — otherwise they are eliminated by omission, which is the most
+expensive way to break a CLI.
 
-| folha | o que faz | proposta | porquê |
+| leaf | what it does | proposal | why |
 |---|---|---|---|
-| `net l4guard set/clear/status` | limitador L4 por origem | `apply -f` (`NetworkPolicy.spec.rateLimit`) | é política; entrou depois da especificação ser escrita |
-| `net netns` (9 folhas) | plumbing do holder | **subcomando oculto** | o §11 manda ocultar, mas não diz para onde — fica `__netns`, fora da árvore pública |
-| `system setup` | prepara delegação de cgroup no host | `system setup` | administração local, cabe no §15 |
-| `system virt` | reporta suporte de virtualização | `system doctor` | é uma pergunta de capacidade |
-| `system thermal` | temperaturas do ferro | `system metrics` | §15 já prevê `metrics` |
-| `system monitor` | monitor contínuo | `dashboard` | duplicava o dash |
-| `system backup` / `system restore` | backup do estado do motor | `backup create --scope engine` | 4.ª e 3.ª porta do mesmo (ver §2 ponto 8) |
-| `cluster kube generate` | gera YAML k8s de um manifesto | `manifest render --target kubernetes` | §6.2 é o sítio natural |
-| `cluster init` / `container init` / `image init` / `image vm init` / `vm init` | scaffold por tipo | `init` (topo, já delega) | §4 mantém um `init` só |
-| `container prune` / `image prune` / `vm prune` / `volumes prune` / `cluster prune` | GC por domínio | `system prune --scope <x>` | um GC, um comando (§15) |
-| `container dash` / `image dash` / `network dash` / `storage dash` / `vm dash` | dash por recurso | `dashboard --scope <x>` | §22 manda eliminar os duplicados |
-| `image tag` | reetiquetar imagem local | `image tag` | day-2 legítimo, falta na árvore |
-| `image login` / `image logout` | credenciais de registo | `image login`/`logout` | day-2 legítimo, falta na árvore |
-| `image load` / `image save` | archive Docker | `image import`/`export` | §10 já tem os dois verbos |
-| `image history` | camadas da imagem | `image inspect` | mesma pergunta |
-| `image ls-remote` / `vm ls-remote` | tags de um repositório | `image list --remote` | falta na árvore |
-| `vm vnc` | consola gráfica | `vm console --vnc` | modo de consola, não comando |
-| `vm reach` | diagnóstico VM→container | `network diagnose` | §11 já tem o sítio |
-| `vm bridge` / `vm unbridge` | ponte privilegiada VM↔SDN | `network bridge`¹ | privilegiado e EXPERIMENTAL |
-| `vm default-backend` | preferência de hypervisor | `config set-context --vm-backend` | §16 é o sítio de preferências |
-| `vm build/convert/pull/push` | a 3.ª porta do `image --vm` | `image … --type virtual-machine` | §10 fecha as três portas numa |
-| `network vlan` | VLAN de uma rede | `apply -f` (`Network.spec.vlan`) | é campo, não comando |
-| `network node key` / `node init` | chaves do overlay WireGuard | `network node …` | falta na árvore |
-| `sharevolume migrate` | absorve `ShareRecord` legado | `manifest migrate` | §6.3 é o sítio |
-| `serve api` | API de gestão local | `serve management-api` | §4 renomeia-o |
-| `syntax` | realce de VMfile | `completion editor` | §21 |
-| `container ssh` | SSH para dentro do container | `container exec` com `--ssh`? | **em aberto** — duplica `exec` |
-| `stack history` / `stack rollback` | ADR-0019 | ver 3.1 | **em aberto** |
+| `net l4guard set/clear/status` | per-origin L4 limiter | `apply -f` (`NetworkPolicy.spec.rateLimit`) | it is policy; it arrived after the specification was written |
+| `net netns` (9 leaves) | holder plumbing | **hidden subcommand** | §11 mandates hiding it, but doesn't say where — it becomes `__netns`, outside the public tree |
+| `system setup` | prepares cgroup delegation on the host | `system setup` | local administration, fits in §15 |
+| `system virt` | reports virtualization support | `system doctor` | it is a capability question |
+| `system thermal` | hardware temperatures | `system metrics` | §15 already provides for `metrics` |
+| `system monitor` | continuous monitor | `dashboard` | duplicated the dash |
+| `system backup` / `system restore` | engine-state backup | `backup create --scope engine` | 4th and 3rd door to the same thing (see §2 point 8) |
+| `cluster kube generate` | generates k8s YAML from a manifest | `manifest render --target kubernetes` | §6.2 is the natural place |
+| `cluster init` / `container init` / `image init` / `image vm init` / `vm init` | scaffold by type | `init` (top level, already delegates) | §4 keeps a single `init` |
+| `container prune` / `image prune` / `vm prune` / `volumes prune` / `cluster prune` | per-domain GC | `system prune --scope <x>` | one GC, one command (§15) |
+| `container dash` / `image dash` / `network dash` / `storage dash` / `vm dash` | per-resource dash | `dashboard --scope <x>` | §22 mandates eliminating the duplicates |
+| `image tag` | retag a local image | `image tag` | legitimate day-2, missing from the tree |
+| `image login` / `image logout` | registry credentials | `image login`/`logout` | legitimate day-2, missing from the tree |
+| `image load` / `image save` | Docker archive | `image import`/`export` | §10 already has both verbs |
+| `image history` | image layers | `image inspect` | same question |
+| `image ls-remote` / `vm ls-remote` | tags of a repository | `image list --remote` | missing from the tree |
+| `vm vnc` | graphical console | `vm console --vnc` | console mode, not a command |
+| `vm reach` | VM→container diagnostic | `network diagnose` | §11 already has the place |
+| `vm bridge` / `vm unbridge` | privileged VM↔SDN bridge | `network bridge`¹ | privileged and EXPERIMENTAL |
+| `vm default-backend` | hypervisor preference | `config set-context --vm-backend` | §16 is the place for preferences |
+| `vm build/convert/pull/push` | the 3rd door of `image --vm` | `image … --type virtual-machine` | §10 closes the three doors into one |
+| `network vlan` | VLAN of a network | `apply -f` (`Network.spec.vlan`) | it's a field, not a command |
+| `network node key` / `node init` | WireGuard overlay keys | `network node …` | missing from the tree |
+| `sharevolume migrate` | absorbs legacy `ShareRecord` | `manifest migrate` | §6.3 is the place |
+| `serve api` | local management API | `serve management-api` | §4 renames it |
+| `syntax` | VMfile highlighting | `completion editor` | §21 |
+| `container ssh` | SSH into the container | `container exec` with `--ssh`? | **open** — duplicates `exec` |
+| `stack history` / `stack rollback` | ADR-0019 | see 3.1 | **open** |
 
-¹ `vm bridge` continua a exigir root e a ser a única excepção declarada ao
-modelo rootless. Movê-lo para `network` não muda isso, e a árvore proposta não
-tem sítio para um comando privilegiado — decisão em aberto.
+¹ `vm bridge` continues to require root and to be the only declared exception to the
+rootless model. Moving it to `network` does not change that, and the proposed tree does not
+have a place for a privileged command — open decision.
 
-## 4. Contagem final da matriz
+## 4. Final count of the matrix
 
-Derivada da classificação folha a folha (`scripts/cli-tree.sh --classify`), não
-estimada — uma primeira versão desta secção trazia números que somavam certo e
-tinham sido inventados, que é o relato desonesto que este repo persegue.
+Derived from the leaf-by-leaf classification (`scripts/cli-tree.sh --classify`), not
+estimated — a first version of this section carried numbers that summed correctly and
+had been invented, which is the dishonest reporting this repo chases down.
 
-| classe | folhas |
+| class | leaves |
 |---|---|
-| `~` quebra de grafia, mesma capacidade | **144** |
-| `=` sem quebra | **70** |
-| `?` sem destino / decisão em aberto | **17** |
-| `!` quebra de contrato publicado (folhas) | **2** |
+| `~` spelling break, same capability | **144** |
+| `=` no break | **70** |
+| `?` no destination / open decision | **17** |
+| `!` break of a published contract (leaves) | **2** |
 | **total** | **233** |
 
-Às 2 folhas `!` juntam-se **quatro quebras que não são folhas** e por isso não
-aparecem nesta contagem: os seis atalhos de topo (são reescrita de `argv`, não
-subcomandos `clap`), a tabela de códigos de saída, o `--l18n`, e — a mais séria —
-o schema dos manifestos (§2.5).
+To the 2 `!` leaves are added **four breaks that are not leaves** and therefore do not
+appear in this count: the six top-level shortcuts (they are `argv` rewriting, not
+`clap` subcommands), the exit code table, the `--l18n`, and — the most serious —
+the manifest schema (§2.5).
 
-**Critério de saída da Fase CLI-0 cumprido**: as 233 folhas têm destino
-documentado; 17 delas com o destino marcado como decisão em aberto, que é
-precisamente o que esta fase existe para expor antes de alguém as apagar.
+**CLI-0 Phase exit criterion met**: the 233 leaves have a documented
+destination; 17 of them with the destination marked as an open decision, which is
+precisely what this phase exists to expose before someone deletes them.
 
-## 5. Dependência bloqueante
+## 5. Blocking dependency
 
-A Fase CLI-2 (verbos declarativos) **não pode começar** antes da reestruturação
-dos 12 Kinds. Medido: `origin/main` serve `apiVersion: delonix.io/v1` com 15
-Kinds, e não existe `Pod`, `VirtualMachine`, `Service`, `Gateway`,
-`NetworkPolicy` nem `KubernetesCluster`. Construir `get pods` contra um Kind que
-não existe é escrever um comando que não pode ter chamador — o padrão de código
-morto que este repo já apagou quatro vezes (`publish_port_allow`, `Net`,
+The CLI-2 Phase (declarative verbs) **cannot start** before the restructuring
+of the 12 Kinds. Measured: `origin/main` serves `apiVersion: delonix.io/v1` with 15
+Kinds, and `Pod`, `VirtualMachine`, `Service`, `Gateway`,
+`NetworkPolicy`, and `KubernetesCluster` do not exist. Building `get pods` against a Kind that
+does not exist is writing a command that can have no caller — the dead-code
+pattern this repo has already deleted four times (`publish_port_allow`, `Net`,
 `mount_live`, `set_net_rate`).
 
-Ordem que respeita a dependência:
+Order that respects the dependency:
 
 ```
 Kinds (12)  →  CLI-1 (contratos)  →  CLI-2 (verbos)  →  CLI-3 (day-2)
@@ -354,124 +354,124 @@ Kinds (12)  →  CLI-1 (contratos)  →  CLI-2 (verbos)  →  CLI-3 (day-2)
               pode correr JÁ, em paralelo com os Kinds
 ```
 
-A Fase CLI-1 (ResourceRef, contexts, output, erros JSON, exit codes,
-cancelamento) é independente dos Kinds e é o trabalho que pode arrancar hoje.
+The CLI-1 Phase (ResourceRef, contexts, output, JSON errors, exit codes,
+cancellation) is independent of the Kinds and is the work that can start today.
 
-## 6. Duas armadilhas de método que esta fase pagou
+## 6. Two methodological traps this phase paid for
 
-Ficam registadas porque nenhuma das duas é sobre a CLI — são sobre como se mede,
-e as duas já estavam catalogadas no `AGENTS.md` antes de eu voltar a cair nelas.
+They are recorded here because neither is about the CLI — they are about how one measures,
+and both were already catalogued in `AGENTS.md` before I fell into them again.
 
-**O `$?` depois de um pipe é do último comando.** Corri
-`cargo test --workspace 2>&1 | tee log | grep …` e o harness anunciou **exit code
-0**. O `grep` saiu 0; o `cargo` tinha falhado. Se tivesse aceitado o número, teria
-reportado a bateria verde sobre uma suite com um teste vermelho. O que deu por
-isso foi contar as suites (**4**, quando uma só corrida do binário já tinha 672
-testes) — um número bom demais é o sinal para desligar o filtro e voltar a contar.
+**The `$?` after a pipe belongs to the last command.** I ran
+`cargo test --workspace 2>&1 | tee log | grep …` and the harness announced **exit code
+0**. `grep` exited 0; `cargo` had failed. Had I accepted the number, I would have
+reported the battery green over a suite with a failing test. What caught it
+was counting the suites (**4**, when a single run of the binary already had 672
+tests) — a number too good to be true is the signal to turn off the filter and recount.
 
-**Meia-isolação é pior que nenhuma.** O teste que falhou
-(`delonix-mgmt::redes_lista_get_e_estado`) passa **29/29 duas vezes** quando a
-suite corre sozinha, e falha quando o `--workspace` corre vários binários de
-teste em paralelo contra o mesmo estado real da máquina. Não é fragilidade do
-teste nem efeito da alteração — é o `DELONIX_ROOT` e o `DELONIX_NET_RUNTIME_DIR`
-partilhados, exactamente o incidente de 2026-08-12 que reiniciou um container de
-produção. A bateria desta fase corre com **os dois** redireccionados:
+**Half-isolation is worse than none.** The test that failed
+(`delonix-mgmt::redes_lista_get_e_estado`) passes **29/29 twice** when the
+suite runs alone, and fails when `--workspace` runs several test
+binaries in parallel against the same real machine state. It is not test
+flakiness nor an effect of the change — it is the shared `DELONIX_ROOT` and
+`DELONIX_NET_RUNTIME_DIR`, exactly the 2026-08-12 incident that restarted a
+production container. This phase's battery runs with **both** redirected:
 
 ```bash
 DELONIX_ROOT=<iso>/root DELONIX_NET_RUNTIME_DIR=<iso>/netrt cargo test --workspace
 ```
 
-Isto é dívida a fechar antes da Fase CLI-2: o `cargo test --workspace` a seco não
-é reprodutível neste repo e ninguém o diz em lado nenhum.
+This is debt to close before the CLI-2 Phase: plain `cargo test --workspace` is not
+reproducible in this repo and nobody says so anywhere.
 
-## 7. Fase CLI-1 — o que já aterrou
+## 7. CLI-1 Phase — what has already landed
 
-| contrato | estado | consumidor real hoje |
+| contract | status | real consumer today |
 |---|---|---|
-| exit codes (`69`, `124`) | **feito** | `stack wait`, `wg`, `virt-customize`, `ngrok`, `cloudflared`, `systemd-run` |
-| identidade textual `DX_*` | **feito** | corpo de erro do `serve api` |
-| shortnames vindos do registo | **feito** | `explain`, `stack apply --replace` |
-| `ResourceRef` (o TIPO) | **adiado, de propósito** | — |
-| contexts (`config set-context`) | **em conflito com o ADR-0010** | — |
-| formatos de output, cancelamento, request IDs | por fazer | — |
+| exit codes (`69`, `124`) | **done** | `stack wait`, `wg`, `virt-customize`, `ngrok`, `cloudflared`, `systemd-run` |
+| textual identity `DX_*` | **done** | `serve api` error body |
+| shortnames from the registry | **done** | `explain`, `stack apply --replace` |
+| `ResourceRef` (the TYPE) | **deferred, on purpose** | — |
+| contexts (`config set-context`) | **in conflict with ADR-0010** | — |
+| output formats, cancellation, request IDs | to do | — |
 
-### O `ResourceRef` foi escrito e apagado
+### `ResourceRef` was written and deleted
 
-O tipo (`kind`/`kind/name`, com testes) chegou a existir e saiu antes do commit:
-nada consome uma REFERÊNCIA de recurso até os verbos declarativos existirem, e
-este repo já apagou quatro APIs públicas que ficaram sem chamador e criaram bugs
-latentes que ninguém podia notar — `publish_port_allow`, `Net`, e os parâmetros
-ignorados no `mount_live` e no `reexec_start`. Uma quinta, escrita pela mesma
-mão que escreve esta frase, não seria melhor.
+The type (`kind`/`kind/name`, with tests) did come to exist and was removed before the
+commit: nothing consumes a resource REFERENCE until the declarative verbs exist, and
+this repo has already deleted four public APIs that ended up with no caller and created
+latent bugs nobody could notice — `publish_port_allow`, `Net`, and the parameters
+ignored in `mount_live` and in `reexec_start`. A fifth, written by the same
+hand writing this sentence, would be no better.
 
-O que ficou registado no doc do módulo, para não ser re-derivado: `kind/name` é
-um argumento e `kind name` são dois; nomear o recurso duas vezes recusa-se em
-vez de se resolver; e `pod/` recusa-se em vez de se ler como a colecção —
-senão um erro de escrita num `delete` passa a ser todos os pods.
+What was recorded in the module's doc, so it need not be re-derived: `kind/name` is
+one argument and `kind name` is two; naming the resource twice is rejected
+instead of resolved; and `pod/` is rejected instead of being read as the collection —
+otherwise a typo in a `delete` becomes all pods.
 
-Ficou o que TEM chamador: `resolve_kind`, mais as colunas `plural` e `short` na
-tabela de Kinds. Duas arestas reais fecharam-se de caminho:
+What remained is what HAS a caller: `resolve_kind`, plus the `plural` and `short` columns in
+the Kinds table. Two real edges were closed along the way:
 
-- **`explain` só aceitava a grafia canónica exacta.** `explain pods` e
-  `explain po` falhavam — e `pods` é precisamente o que se tem nos dedos depois
-  de escrever `get pods`. As quatro grafias funcionam agora, e as duas recusas
-  (Kind sem schema tipado, token que não é Kind) mantêm as dicas dirigidas.
-- **`stack apply --replace` comparava strings.** `--replace container/web`
-  (minúsculas) não casava: a autorização era ignorada em silêncio e o apply
-  recusado a mandar passar a flag que a pessoa julgava ter passado. Num portão
-  destrutivo, é a pior maneira de falhar. O KIND passa pelo registo; o **NOME
-  nunca** — resolver nomes é como um `--replace` começa a autorizar um recurso
-  que ninguém mencionou.
+- **`explain` only accepted the exact canonical spelling.** `explain pods` and
+  `explain po` failed — and `pods` is precisely what is on one's fingers right
+  after typing `get pods`. All four spellings now work, and the two rejections
+  (Kind with no typed schema, token that is not a Kind) keep their targeted hints.
+- **`stack apply --replace` compared strings.** `--replace container/web`
+  (lowercase) did not match: the authorization was silently ignored and the apply
+  rejected the flag the person believed they had passed. At a destructive
+  gate, that is the worst way to fail. The KIND goes through the registry; the **NAME
+  never** — resolving names is how a `--replace` starts authorizing a resource
+  nobody mentioned.
 
-### Contexts: o §16 colide com o ADR-0010
+### Contexts: §16 collides with ADR-0010
 
-O §16 pede `config set-context --endpoint`, com identidade e TLS, «para preparar
-a CLI para gestão local e remota». O **ADR-0010 deste repo recusou a API de
-gestão remota**, e a razão aplica-se tal e qual ao cliente: *remoteness* sem
-identidade, autorização e auditoria não é remoteness que valha a pena, e essa
-metade vive no `delonix-paas`.
+§16 asks for `config set-context --endpoint`, with identity and TLS, «to prepare
+the CLI for local and remote management». This repo's **ADR-0010 rejected the remote
+management API**, and the reason applies just as much to the client: *remoteness*
+without identity, authorization, and auditing is not remoteness worth having, and that
+half lives in `delonix-paas`.
 
-Construir o lado-cliente de uma capacidade que o motor decidiu não ter é a mesma
-classe de código-sem-consumidor de que o `ResourceRef` acabou de sair. O que
-**não** colide, e é a parte útil, é um contexto puramente LOCAL: namespace por
-omissão, formato de output preferido, `DELONIX_ROOT`. Fica como decisão a tomar
-antes de a CLI-1 fechar.
+Building the client side of a capability the engine decided not to have is the same
+class of consumer-less code that `ResourceRef` just came out of. What
+**does not** collide, and is the useful part, is a purely LOCAL context: default
+namespace, preferred output format, `DELONIX_ROOT`. It stands as a decision to be made
+before the CLI-1 closes.
 
-## 8. O contrato de output do §18 — medido antes de mexer
+## 8. The §18 output contract — measured before touching anything
 
-A especificação lista onze regras para o que a automação lê. Medi-as contra o
-binário **antes** de escrever código, e o resultado inverteu o plano: das que são
-testáveis hoje, **todas já se cumpriam**.
+The specification lists eleven rules for what automation reads. I measured them against the
+binary **before** writing code, and the result reversed the plan: of those that are
+testable today, **all were already being met**.
 
-| regra do §18 | estado medido |
+| §18 rule | measured state |
 |---|---|
-| arrays vazios continuam arrays | **cumpre** — `[]` nos seis `ls`/`ps` |
-| JSON sem texto traduzido | **cumpre** — `-o json` byte a byte igual em EN e PT, em listagem e em plano |
-| sem ANSI quando o stdout não é TTY | **cumpre** — zero escapes num pipe |
-| dados no stdout, o resto no stderr | **cumpre** — `-o json` não escreve nada no stderr |
-| segredos redigidos | **cumpre** — `ls` traz nomes de chave, `inspect` redige e diz como revelar |
-| `table`/`wide`/`name`/`yaml` | **`wide`, `name` e `yaml` não existem** |
+| empty arrays stay arrays | **met** — `[]` in all six `ls`/`ps` |
+| JSON with no translated text | **met** — `-o json` byte-for-byte identical in EN and PT, in listing and in plan |
+| no ANSI when stdout is not a TTY | **met** — zero escapes in a pipe |
+| data on stdout, everything else on stderr | **met** — `-o json` writes nothing to stderr |
+| secrets redacted | **met** — `ls` carries key names, `inspect` redacts and says how to reveal |
+| `table`/`wide`/`name`/`yaml` | **`wide`, `name`, and `yaml` do not exist** |
 
-Portanto o trabalho útil aqui **não era acrescentar formatos**. Primeiro porque
-`yaml`/`name`/`wide` nos `ls` actuais é trabalho que a CLI-2 deita fora quando o
-`get` os substituir; e depois porque o que estava mesmo em falta era outra coisa:
-**nenhuma das cinco propriedades que já se cumprem estava travada por um gate**.
-O que ninguém verifica é o que volta a partir-se, e cada uma delas parte em
-silêncio — um `[]` que vire `""` rebenta todo o `jq '.[]'` lá fora sem uma
-mensagem, e um escape ANSI que passe a sair num pipe faz um `grep` deixar de
-casar por uma razão invisível a olho nu.
+So the useful work here **was not adding formats**. First because
+`yaml`/`name`/`wide` on the current `ls` commands is work CLI-2 throws away once
+`get` replaces them; and second because what was really missing was something else:
+**none of the five properties already being met was locked in by a gate**.
+What nobody checks is what breaks again, and each of them breaks
+silently — a `[]` that turns into `""` breaks every `jq '.[]'` out there with no
+message, and an ANSI escape that starts leaking into a pipe makes a `grep` stop
+matching for a reason invisible to the naked eye.
 
-Ficam 13 checks novos no `scripts/e2e.sh`, e são propriedades do OUTPUT e não de
-um comando: quando o `get` substituir estes `ls`, o bloco muda de alvo e não de
-sentido. As três asserções cuja lógica podia estar subtilmente errada foram
-verificadas a discriminar contra entrada deliberadamente má — sobretudo a do
-ANSI, cujo `$'\033'` dentro de citação aninhada era o ponto frágil.
+13 new checks land in `scripts/e2e.sh`, and they are properties of the OUTPUT and not of
+a command: when `get` replaces these `ls` commands, the block changes target, not
+meaning. The three assertions whose logic could have been subtly wrong were
+verified to discriminate against deliberately bad input — above all the
+ANSI one, whose `$'\033'` inside nested quoting was the fragile point.
 
-**Por decidir**: `wide`, `name` e `yaml` entram com o `get` (CLI-2) e não antes.
+**To be decided**: `wide`, `name`, and `yaml` come in with `get` (CLI-2) and not before.
 
-## 9. Cancelamento — e o único bug real que a CLI-1 encontrou
+## 9. Cancellation — and the only real bug CLI-1 found
 
-O §20 pede «TTY restaurado após falha». Medido a **2026-08-26**, não estava:
+§20 asks for «TTY restored after failure». Measured on **2026-08-26**, it was not:
 
 ```
 antes:   raw=False
@@ -480,135 +480,135 @@ SIGTERM →
 depois:  raw=True     ← a shell de quem chamou fica sem eco e sem edição de linha
 ```
 
-Um `SIGTERM` a um `container exec -it` deixava o terminal em modo raw. Quem o
-apanhava ficava a escrever às cegas até se lembrar de `reset`.
+A `SIGTERM` to a `container exec -it` left the terminal in raw mode. Whoever
+was hit by it ended up typing blind until remembering `reset`.
 
-**A causa não é descuido.** O `restore_mode` corre em todas as saídas normais —
-incluindo a de erro, e é por isso que o `?` do `exec` está DEPOIS dele, o que
-alguém pensou com cuidado. O que não corre em código Rust nenhum é um sinal: sem
-destrutores, sem unwinding. Acontece com qualquer morte por sinal — um `kill`,
-um timeout de CI, um teardown de sessão, o OOM killer.
+**The cause is not carelessness.** `restore_mode` runs on every normal exit —
+including the error one, which is why the `exec`'s `?` is placed AFTER it, something
+someone thought through carefully. What runs in no Rust code at all is a signal: no
+destructors, no unwinding. It happens with any death by signal — a `kill`,
+a CI timeout, a session teardown, the OOM killer.
 
-**A correcção fica na fronteira** (`set_raw_mode`, no motor) e não no comando,
-para todos os chamadores da via interactiva a herdarem — a mesma disciplina do
-`missing_wg`. Um `AtomicPtr` e não um `static mut`, porque o handler lê isto de
-contexto assíncrono e uma leitura atómica é das poucas coisas legais aí;
-`tcsetattr`, `signal` e `raise` estão na lista de async-signal-safe do POSIX e
-mais nada no handler aloca, tranca ou formata.
+**The fix lives at the boundary** (`set_raw_mode`, in the engine) and not in the command,
+so every caller of the interactive path inherits it — the same discipline as
+`missing_wg`. An `AtomicPtr` and not a `static mut`, because the handler reads this from
+an asynchronous context and an atomic read is one of the few legal things there;
+`tcsetattr`, `signal`, and `raise` are on POSIX's async-signal-safe list, and
+nothing else in the handler allocates, locks, or formats.
 
-**O re-raise com disposição default é o que mantém o estado de saída honesto**:
-um processo morto por `SIGTERM` tem de continuar a parecer morto por `SIGTERM`
-(`128+15`) a quem espera por ele. Engolir o sinal para sair limpo trocava um
-terminal partido por uma mentira sobre como o processo acabou. Medido nos
-quatro: `rc=-15`, `-2`, `-1`, `-3`.
+**Re-raising with default disposition is what keeps the exit status honest**:
+a process killed by `SIGTERM` has to keep looking killed by `SIGTERM`
+(`128+15`) to whoever is waiting on it. Swallowing the signal to exit cleanly would trade a
+broken terminal for a lie about how the process ended. Measured across all
+four: `rc=-15`, `-2`, `-1`, `-3`.
 
-**O gate mede o TERMINAL e não o comando** — um `check` por exit code ficava
-verde sobre o bug, porque o processo morria na mesma e com o mesmo estado.
-Verificado a falhar com a correcção revertida: `15: o terminal FICOU em modo
-raw`. `SIGKILL` fica de fora de propósito: não é capturável, e prometer repor
-nesse caso seria mentira.
+**The gate measures the TERMINAL and not the command** — a `check` on exit code stayed
+green over the bug, because the process still died with the same status.
+Verified to fail with the fix reverted: `15: the terminal STAYED in raw
+mode`. `SIGKILL` is left out on purpose: it is not catchable, and promising to restore
+in that case would be a lie.
 
-### O que NÃO se fez, e porquê
+### What was NOT done, and why
 
-`delonix` continua **sem handler de SIGINT** para as operações não interactivas.
-É deliberado por agora: a pergunta «um Ctrl-C a meio de um `stack apply` deixa a
-stack meio convergida?» tem resposta conhecida e escrita — o apply é fail-fast
-sem rollback, e o que já foi aplicado FICA aplicado. Dar-lhe um handler que
-tentasse desfazer seria inventar transacionalidade que o motor não tem, e é
-matéria de ADR, não de uma fatia de CLI.
+`delonix` still has **no SIGINT handler** for non-interactive operations.
+That is deliberate for now: the question «does a Ctrl-C mid-`stack apply` leave the
+stack half-converged?» has a known, written answer — apply is fail-fast
+with no rollback, and whatever has already been applied STAYS applied. Giving it a handler that
+tried to undo it would be inventing transactionality the engine does not have, and that is
+ADR material, not a CLI slice.
 
-## 10. As decisões em aberto, fechadas (2026-08-26)
+## 10. The open decisions, closed (2026-08-26)
 
-A Fase CLI-0 expôs 17 folhas sem destino e dois conflitos de especificação. Ficam
-todos decididos aqui, para a CLI-5 não os apagar por omissão e a CLI-2 poder
-arrancar sem nada pendurado.
+The CLI-0 Phase exposed 17 leaves with no destination and two specification conflicts. All of them
+are decided here, so CLI-5 does not delete them by omission and CLI-2 can
+start with nothing left hanging.
 
-### 10.1 `net netns` (9 folhas) → subcomando OCULTO
+### 10.1 `net netns` (9 leaves) → HIDDEN subcommand
 
-`net netns {up,down,status,exec,attach,detach,firewall,publish,unpublish}` passa
-a `__netns`, fora da árvore pública, como o `ingress-proxy` já é.
+`net netns {up,down,status,exec,attach,detach,firewall,publish,unpublish}` becomes
+`__netns`, outside the public tree, as `ingress-proxy` already is.
 
-Não é uma remoção de capacidade: o `docs/cli-stability.md` já declara «**tudo o
-que começa por `net netns`** — plumbing interno exposto por conveniência de
-depuração» como NÃO estável. O que muda é deixar de estar à mesma distância do
-utilizador que o `container run`. O `net netns down` continua a ser o comando de
-recuperação de um upgrade in-place, e a mensagem do `stale_holder_message` tem de
-passar a nomear a forma nova — senão a diagnose manda escrever um comando que já
-não existe.
+It is not a capability removal: `docs/cli-stability.md` already declares «**everything
+starting with `net netns`** — internal plumbing exposed for debugging
+convenience» as NOT stable. What changes is that it stops being at the same distance from
+the user as `container run`. `net netns down` remains the recovery
+command for an in-place upgrade, and the `stale_holder_message` message has to
+start naming the new form — otherwise the diagnosis tells someone to type a command that
+no longer exists.
 
-### 10.2 `net l4guard` (3 folhas) → `network l4guard`
+### 10.2 `net l4guard` (3 leaves) → `network l4guard`
 
-É um guarda L4 **do nó** (taxa de ligação por origem e tecto de concorrentes),
-ingress-wide, não uma política por workload. Por isso **não** vira campo de
-`NetworkPolicy`: essa Kind descreve o que é permitido a UM alvo, e um limiar
-global espremido lá dentro seria a mesma fusão de duas perguntas que este motor
-recusa entre `NetworkRoute` e `FirewallPolicy`.
+It is a **node-level** L4 guard (per-origin connection rate and a cap on
+concurrents), ingress-wide, not a per-workload policy. That is why it does **not**
+become a `NetworkPolicy` field: that Kind describes what is allowed to ONE target, and
+squeezing a global threshold in there would be the same merging of two questions that this
+engine rejects between `NetworkRoute` and `FirewallPolicy`.
 
-Fica no grupo de rede day-2, ao lado do `diagnose`/`flow`/`capture`. Entrou
-depois de a especificação ser escrita, o que é a razão de não estar na árvore
-dela.
+It stays in the day-2 network group, alongside `diagnose`/`flow`/`capture`. It arrived
+after the specification was written, which is the reason it is not in its
+tree.
 
-### 10.3 `stack history` / `stack rollback` → `get revisions` e `apply --revision`
+### 10.3 `stack history` / `stack rollback` → `get revisions` and `apply --revision`
 
-O `rollback` **é um apply** — o próprio `--help` di-lo: repete o manifesto da
-revisão N pelo caminho normal e ganha revisão própria. Um verbo próprio para
-«apply com outra entrada» seria um segundo caminho a manter de acordo com o
-primeiro.
+`rollback` **is an apply** — the `--help` itself says so: it replays the revision N
+manifest through the normal path and gains its own revision. A dedicated verb for
+«apply with different input» would be a second path to keep in agreement with the
+first.
 
 * `stack rollback --to N` → **`apply --revision N`**
-* `stack history` → **`get revisions`**, com `--show N` a manter-se
+* `stack history` → **`get revisions`**, with `--show N` staying
 
-Isto acrescenta uma linha ao registo de Kinds (`Revision`, `revisions`, sem
-abreviatura). É um REGISTO e nunca fonte de verdade — o ADR-0019 é explícito — e
-o `presence` dele é `Registry`, porque há mesmo um store por baixo.
+This adds a line to the Kinds registry (`Revision`, `revisions`, with no
+abbreviation). It is a RECORD and never a source of truth — ADR-0019 is explicit — and
+its `presence` is `Registry`, because there really is a store underneath.
 
-### 10.4 `container ssh` → REMOVIDO, com o comportamento absorvido pelo `exec`
+### 10.4 `container ssh` → REMOVED, with the behaviour absorbed by `exec`
 
-O nome promete SSH e entrega outra coisa: o `--help` diz «shortcut for `exec -t`»
-e o que faz é tentar `bash` e cair para `sh`. Nem o Docker nem o Podman têm este
-verbo, e o `container` existe precisamente para espelhar o que eles ensinaram.
+The name promises SSH and delivers something else: the `--help` says «shortcut for
+`exec -t`» and what it does is try `bash` and fall back to `sh`. Neither Docker nor
+Podman have this verb, and `container` exists precisely to mirror what they taught.
 
-A capacidade útil não é o comando, é o **fallback**: `container exec -it <id>`
-sem comando passa a tentar `bash` e a cair para `sh`, que é o que a pessoa
-queria. Feito isso, `ssh` não acrescenta nada e sai no corte limpo da CLI-5.
+The useful capability is not the command, it is the **fallback**: `container exec -it <id>`
+with no command now tries `bash` and falls back to `sh`, which is what the person
+wanted. With that done, `ssh` adds nothing and leaves in CLI-5's clean cut.
 
-**FEITO (2026-09-12, Sprint 2 da reestruturação da CLI pedida numa auditoria
-DevOps/SRE).** `container ssh` removido (corte limpo — falha com `unrecognized
-subcommand`, nunca em silêncio); `container exec` sem `COMMAND` faz o fallback.
-**Bug real herdado, apanhado a validar ao vivo e não por leitura**: o argv
-original do `cmd_ssh` era `exec /bin/bash 2>/dev/null || exec /bin/sh` — e um
-`exec` falhado numa shell POSIX NÃO-interactiva termina essa shell no local, sem
-chegar ao `||` (confirmado com `busybox sh`/`dash`, não só suposto). Contra
-qualquer imagem sem `bash` — `alpine` incluída — o fallback que `container ssh`
-prometia nunca corria; devolvia sempre o `exec` da shell inteira a falhar.
-Corrigido de caminho para `command -v bash >/dev/null 2>&1 && exec bash || exec
-sh`, que só testa a presença do binário e nunca chega a um `exec` que possa
-falhar. `vm ssh` (SSH real, por rede, para dentro de uma VM) fica intocado — a
-colisão de nome que isto também resolvia era com este `container ssh`, nunca
-com esse.
+**DONE (2026-09-12, Sprint 2 of the CLI restructuring requested in a
+DevOps/SRE audit).** `container ssh` removed (clean cut — fails with `unrecognized
+subcommand`, never silently); `container exec` with no `COMMAND` does the fallback.
+**Real inherited bug, caught by live validation and not by reading**: the original
+argv of `cmd_ssh` was `exec /bin/bash 2>/dev/null || exec /bin/sh` — and a
+failed `exec` in a NON-interactive POSIX shell terminates that shell on the spot, without
+reaching the `||` (confirmed with `busybox sh`/`dash`, not merely assumed). Against
+any image without `bash` — `alpine` included — the fallback `container ssh`
+promised never ran; it always returned the entire shell's `exec` failing.
+Fixed along the way to `command -v bash >/dev/null 2>&1 && exec bash || exec
+sh`, which only tests the binary's presence and never reaches an `exec` that could
+fail. `vm ssh` (real SSH, over the network, into a VM) stays untouched — the
+name collision this also resolved was with this `container ssh`, never
+with that one.
 
 ### 10.5 `vm bridge` / `vm unbridge` → `network bridge` / `network unbridge`
 
-**Recebem uma REDE como argumento** (`vm bridge <NETWORK>`), o que decide a
-questão: é uma operação sobre a rede, não sobre uma VM. Passam para o grupo de
-rede day-2 com tudo o que as protege intacto — o dry-run por omissão, a
-exigência de root, e o rótulo EXPERIMENTAL.
+**They take a NETWORK as an argument** (`vm bridge <NETWORK>`), which settles the
+question: it is an operation on the network, not on a VM. They move into the
+day-2 network group with everything that protects them intact — the default dry-run, the
+root requirement, and the EXPERIMENTAL label.
 
-Continua a ser a **única excepção declarada ao modelo rootless**, e mudar de
-grupo não muda isso. A árvore proposta não tinha sítio para um comando
-privilegiado; passa a ter, e é o mesmo sítio onde já vive o `capture`, que
-também exige autorização.
+It remains the **only declared exception to the rootless model**, and changing
+group does not change that. The proposed tree had no place for a privileged
+command; now it does, and it is the same place where `capture` already lives, which
+also requires authorization.
 
-### 10.6 Contexts (§16) → **só o contexto LOCAL**
+### 10.6 Contexts (§16) → **only the LOCAL context**
 
-O §16 pede `endpoint`, `identity` e `tls configuration`. O **ADR-0010 recusou a
-API de gestão remota**, e a razão aplica-se tal e qual ao lado cliente:
-*remoteness* sem identidade, autorização e auditoria não é remoteness que valha a
-pena, e essa metade vive no `delonix-paas`. Construir o cliente de uma capacidade
-que o motor decidiu não ter é a mesma classe de código-sem-consumidor de que o
-`ResourceRef` já saiu.
+§16 asks for `endpoint`, `identity`, and `tls configuration`. **ADR-0010 rejected the
+remote management API**, and the reason applies just as much to the client side:
+*remoteness* without identity, authorization, and auditing is not remoteness worth
+having, and that half lives in `delonix-paas`. Building the client of a capability
+the engine decided not to have is the same class of consumer-less code that
+`ResourceRef` already came out of.
 
-Fica o que é útil e não conflitua — um contexto **puramente local**:
+What remains is what is useful and does not conflict — a **purely local** context:
 
 ```
 namespace   o `-n` por omissão
@@ -616,29 +616,29 @@ output      o `-o` por omissão
 root        o `DELONIX_ROOT` a usar
 ```
 
-`endpoint`, `identity` e `tls` **não entram**. Reabrem com o ADR sucessor do
-0010, que terá de nomear o consumidor concreto — e nessa altura o campo nasce
-com um servidor do outro lado, em vez de esperar por um.
+`endpoint`, `identity`, and `tls` **do not enter**. They reopen with the successor ADR to
+0010, which will have to name the concrete consumer — and at that point the field is born
+with a server on the other side, instead of waiting for one.
 
-### 10.7 A matriz fica sem folhas em aberto
+### 10.7 The matrix ends with no open leaves
 
-| classe | antes | agora |
+| class | before | now |
 |---|---|---|
-| `~` muda de grafia | 144 | 144 |
-| `=` sem quebra | 70 | 70 |
-| `?` em aberto | **17** | **0** |
-| `!` quebra contrato | 2 | 2 |
-| `→` movida por decisão desta secção | — | **17** |
+| `~` spelling change | 144 | 144 |
+| `=` no break | 70 | 70 |
+| `?` open | **17** | **0** |
+| `!` contract break | 2 | 2 |
+| `→` moved by this section's decision | — | **17** |
 
-**A Fase CLI-0 fecha aqui.** O que resta antes da CLI-2 não é decisão nenhuma —
-é a reestruturação dos 12 Kinds, que é o outro prompt.
+**The CLI-0 Phase closes here.** What remains before CLI-2 is no decision at all —
+it is the restructuring of the 12 Kinds, which is the other prompt.
 
-## 11. O primeiro comando da CLI-2: `api-resources`
+## 11. The first CLI-2 command: `api-resources`
 
-A CLI-2 está bloqueada nos 12 Kinds — **excepto num comando**. O `api-resources`
-lista o que houver no registo, portanto as LINHAS mudam com a reestruturação sem
-o mecanismo mudar. É por isso o primeiro a aterrar, e é o que dá superfície
-visível a tudo o que a CLI-0 e a CLI-1 construíram.
+CLI-2 is blocked on the 12 Kinds — **except for one command**. `api-resources`
+lists whatever is in the registry, so the ROWS change with the restructuring without
+the mechanism changing. That is why it is the first to land, and it is what gives
+visible surface to everything CLI-0 and CLI-1 built.
 
 ```
 NAME               SHORTNAMES   APIVERSION      KIND             NAMESPACED   DOMAIN         FORM
@@ -647,162 +647,163 @@ pods               po           delonix.io/v1   Pod              true         co
 egresses                        delonix.io/v1   Egress           false        net-policy     deprecated → FirewallPolicy
 ```
 
-**Não há segunda tabela por baixo.** A listagem deriva do mesmo `cmd::kinds` que
-o parser, o schema, a completação e o reconciliador leem — uma listagem escrita à
-mão ao lado é como as duas começam a discordar sobre que Kinds existem, que é o
-defeito que aquele módulo foi escrito para remover.
+**There is no second table underneath.** The listing derives from the same `cmd::kinds` that
+the parser, the schema, completion, and the reconciler read — a hand-written listing
+alongside it is how the two start disagreeing about which Kinds exist, which is the
+defect that module was written to remove.
 
-**O `FORM` não está na tabela do `kubectl` e é a coluna que não se adivinha:**
-diz se um documento daquele Kind sobrevive ao load com o próprio nome. É a
-resposta a «porque é que o meu `kind: Egress` nunca aparece no plano com esse
-nome».
+**`FORM` is not in `kubectl`'s table and is the column one cannot guess:**
+it says whether a document of that Kind survives loading under its own name. It is the
+answer to «why does my `kind: Egress` never show up in the plan with that
+name».
 
-**O `apiVersion` passou a COLUNA e não constante**, apesar de hoje as 19 linhas
-direm o mesmo. A reestruturação parte-o por domínio, e um Kind cuja versão viva
-num `const` partilhado não se consegue mover um de cada vez — que é a única forma
-de essa migração ser revista.
+**`apiVersion` became a COLUMN and not a constant**, even though today all 19 rows
+say the same thing. The restructuring splits it by domain, and a Kind whose version lives
+in a shared `const` cannot be moved one at a time — which is the only way
+for that migration to be reviewed.
 
-### Dois invariantes que ficaram travados
+### Two invariants that got locked in
 
-* **O `NAMESPACED` não pode discordar do carregador.** O `honors_namespace` é
-  quem decide se um `metadata.namespace` é honrado ou avisado; a tabela dizer
-  outra coisa era pior que não dizer nada — a pessoa escreve a namespace porque a
-  tabela disse que o Kind a leva, e o load ignora-a em silêncio. O
-  `PerDocument` é o que torna isto não-trivial.
-* **Todo o plural listado resolve no `explain`** (E2E). Um nome documentado que
-  não funcionasse era a tabela a publicar uma grafia inválida.
+* **`NAMESPACED` cannot disagree with the loader.** `honors_namespace` is
+  what decides whether a `metadata.namespace` is honoured or warned about; the table
+  saying something else was worse than saying nothing — the person writes the namespace because the
+  table said the Kind takes it, and load silently ignores it. `PerDocument`
+  is what makes this non-trivial.
+* **Every listed plural resolves in `explain`** (E2E). A documented name that
+  did not work would be the table publishing an invalid spelling.
 
-### Duas notas de honestidade
+### Two notes of honesty
 
-O `api-resources` **não ganhou página no site**, e é uma escolha: das 234
-folhas, o gerador documenta 32 GRUPOS, e o `explain` — o irmão mais próximo — também
-não tem página. Uma entrada nova ali custa título, tagline, intro e exemplos em
-PT e EN, e faz mais sentido escrita de uma vez para o conjunto de verbos da
-CLI-2 do que para um comando isolado.
+`api-resources` **did not get a site page**, and that is a choice: of 234
+leaves, the generator documents 32 GROUPS, and `explain` — its closest sibling — also
+has no page. A new entry there costs a title, a tagline, an intro, and examples in
+PT and EN, and it makes more sense written once for the whole set of CLI-2 verbs
+than for a single isolated command.
 
-**Mas «o site não exige cobertura» não é «nada exige»**, e escrevi isso antes de
-medir. O **manual** exige: o `todo_o_comando_tem_entrada_no_manual` chumbou com
-«1 comando(s) sem entrada em manual_entries.rs: api-resources», e o
-`a_descricao_curta_cabe_numa_linha` chumbou a par, porque o `about` que escrevi
-tinha 140 caracteres para um tecto de 110. As duas são exigências reais que eu
-tinha dado por inexistentes depois de olhar só para o `docs/gen.py`. Ambas
-fechadas — a descrição curta partida em duas (o resto passou a `long_about`,
-nada se perdeu) e a entrada escrita, com os comentários dos exemplos traduzidos.
+**But «the site does not require coverage» is not «nothing requires it»**, and I wrote
+that before measuring. The **manual** requires it: `todo_o_comando_tem_entrada_no_manual`
+failed with «1 command(s) with no entry in manual_entries.rs: api-resources», and
+`a_descricao_curta_cabe_numa_linha` failed alongside it, because the `about` I wrote
+had 140 characters against a 110 cap. Both are real requirements I had
+assumed did not exist after looking only at `docs/gen.py`. Both
+closed — the short description split in two (the rest became `long_about`,
+nothing was lost) and the entry written, with the example comments translated.
 
-A lição é a de sempre neste repo: **procurar num sítio e concluir sobre todos**.
-A cobertura da CLI é vigiada em dois sítios diferentes, e eu tinha visto um.
+The lesson is the usual one in this repo: **searching in one place and
+concluding about all of them**. CLI coverage is watched in two different places, and
+I had seen one.
 
-E o gate da superfície **disparou numa alteração real**, não fabricada: a folha
-nova apareceu como não classificada e obrigou a decidir a classe (`=`, porque
-nasce no destino e nunca teve outra grafia). É a primeira prova de que ele
-funciona fora de um teste negativo.
+And the surface gate **fired on a real change**, not a fabricated one: the new
+leaf showed up as unclassified and forced deciding its class (`=`, because
+it is born at the destination and never had another spelling). It is the first proof that it
+works outside of a negative test.
 
-## 12. O nome de um Kind passou a ter um sítio
+## 12. A Kind's name now has one place
 
-A primeira renomeação (`Tunnel`→`Gateway`) custou **15 sítios de string em cinco
-ficheiros**, e mediu o problema: o nome de um Kind era um literal repetido, com
-nada a apanhar um sítio esquecido. E um sítio esquecido **não falha alto** — faz
-um caminho de código deixar de reconhecer um Kind que o resto do motor continua a
-servir.
+The first rename (`Tunnel`→`Gateway`) cost **15 string sites across five
+files**, and it measured the problem: a Kind's name was a repeated literal, with
+nothing to catch a forgotten site. And a forgotten site **does not fail loudly** — it makes
+a code path stop recognizing a Kind the rest of the engine keeps
+serving.
 
-É o mesmo defeito que o `cmd/kinds.rs` já tinha removido para os FACTOS sobre um
-Kind — seis listas que tinham de concordar e derivaram — deixado de pé para o
-NOME.
+It is the same defect that `cmd/kinds.rs` had already removed for the FACTS about a
+Kind — six lists that had to agree and drifted — still standing for the
+NAME.
 
-### O que a medição mudou no plano
+### What the measurement changed in the plan
 
-A estimativa inicial era 106 literais. **São 460.** O número anterior era só dos
-quatro Kinds a renomear. Mas a contagem crua não é a resposta, porque a maioria
-não é identidade de Kind:
+The initial estimate was 106 literals. **It is 460.** The earlier number was only for the
+four Kinds being renamed. But the raw count is not the answer, because most
+of it is not Kind identity:
 
-| categoria | sítios | decisão |
+| category | sites | decision |
 |---|---|---|
-| despacho (`match`, `of_kind`, `kind:`) | **113** | migrados para constantes |
-| fixtures de teste | ~138 | **ficam literais** |
-| rótulos, documentação, `manual_entries` | o resto | não tocados |
+| dispatch (`match`, `of_kind`, `kind:`) | **113** | migrated to constants |
+| test fixtures | ~138 | **stay literals** |
+| labels, documentation, `manual_entries` | the rest | untouched |
 
-**Os testes ficam com literais, e é deliberado.** Um teste que escreve
-`"Gateway"` à mão testa o formato REAL que vai para o disco; trocá-lo pela
-constante torna-o tautológico — passaria a SEGUIR uma renomeação em vez de a
-APANHAR. A rede de segurança tem de estar do lado de fora do que vigia.
+**Tests keep literals, and that is deliberate.** A test that writes
+`"Gateway"` by hand tests the REAL format that goes to disk; swapping it for the
+constant would make it tautological — it would start FOLLOWING a rename instead of
+CATCHING it. The safety net has to stand outside of what it watches.
 
-### O idioma é seguro por causa de uma configuração deste repo
+### The idiom is safe because of a setting in this repo
 
-Uma constante `&'static str` é um padrão de `match` legal, e um nome mal escrito
-degrada para um BINDING que apanha tudo — footgun conhecido. Verifiquei-o com um
-programa de dois minutos antes de adoptar o idioma, em vez de assumir: o binding
-torna os ramos seguintes inalcançáveis, e este repo corre com `-D warnings`,
-portanto é erro de compilação. **Quem desligar o `-D warnings` perde esta
-garantia**, e é por isso que está escrita no doc-comment das constantes.
+A `&'static str` constant is a legal `match` pattern, and a misspelled name
+degrades into a BINDING that catches everything — a known footgun. I verified it with a
+two-minute program before adopting the idiom, instead of assuming: the binding
+makes the following arms unreachable, and this repo runs with `-D warnings`,
+so it is a compile error. **Whoever turns off `-D warnings` loses this
+guarantee**, and that is why it is written in the constants' doc-comment.
 
-### O retorno, medido
+### The payoff, measured
 
 ```
 pub(crate) const CLUSTER: &str = "KubernetesCluster";   ← uma linha
 → 0 erros de compilação
 ```
 
-Uma renomeação passou de 15 sítios em cinco ficheiros para **uma linha**, mais o
-alias no `canonical_kind` e a sua linha no teste que mantém os nomes antigos a
-carregar. As três que faltam — incluindo o `Vm`, que era o mais caro com 54
-sítios — passam a ter o mesmo custo.
+A rename went from 15 sites across five files to **one line**, plus the
+alias in `canonical_kind` and its line in the test that keeps the old names
+loading. The three remaining — including `Vm`, which was the most expensive at 54
+sites — now have the same cost.
 
 ---
 
-## 10. Fase CLI-2 — a primeira fatia, e porque é ADITIVA
+## 10. CLI-2 Phase — the first slice, and why it is ADDITIVE
 
-A matriz do §3 descreve um corte: `network ls` **passa a ser** `get networks`, e
-o antigo desaparece. Esta fatia faz metade disso — acrescenta o verbo genérico e
-**não remove nada** —, e a razão não é cautela, é uma ordem que a matriz não diz.
+The §3 matrix describes a cut: `network ls` **becomes** `get networks`, and
+the old one disappears. This slice does half of that — it adds the generic verb and
+**removes nothing** —, and the reason is not caution, it is an ordering the matrix does not state.
 
-**Um corte só é honesto quando o destino já faz tudo o que a origem fazia.**
-Hoje o `get` encaminha cinco Kinds dos dezasseis. Remover `network ls` agora
-deixava sete Kinds sem forma nenhuma de serem listados — a reestruturação a
-tirar capacidade em vez de a arrumar. O corte é a fatia seguinte, e só pode
-acontecer quando as três listas de routing cobrirem tudo o que hoje tem `ls`.
+**A cut is only honest when the destination already does everything the source did.**
+Today `get` routes five of the sixteen Kinds. Removing `network ls` now
+would leave seven Kinds with no way to be listed at all — the restructuring
+taking away capability instead of tidying it up. The cut is the next slice, and it can
+only happen once the three routing lists cover everything that has `ls` today.
 
-### O que aterrou
+### What landed
 
-`get`, `describe` e `delete` no topo, resolvidos pelo MESMO registo que o
-`api-resources` imprime — logo `pods`, `pod` e `po` são a mesma pergunta, e um
-Kind renomeado na v0.64.0 continua a responder ao nome antigo.
+`get`, `describe`, and `delete` at the top level, resolved by the SAME registry that
+`api-resources` prints — so `pods`, `pod`, and `po` are the same question, and a
+Kind renamed in v0.64.0 still answers to the old name.
 
-Encaminham para o `run` de cada grupo em vez de reimplementar. Isso é
-verificável e é verificado: a bateria compara a saída JSON das duas grafias e
-exige **igualdade byte a byte** — cinco pares, todos iguais. Um teste unitário
-não podia mostrar isto.
+They route to each group's `run` instead of reimplementing. That is
+verifiable and is verified: the battery compares the JSON output of both spellings and
+demands **byte-for-byte equality** — five pairs, all equal. A unit test
+could not have shown this.
 
-### Três coisas que a fatia decidiu
+### Three things the slice decided
 
-**`delete` sem nome RECUSA.** Nunca «todos os desse Kind». Um argumento em falta
-é um erro de escrita muito mais vezes do que uma intenção, e este verbo não tem
-segunda oportunidade de perguntar.
+**`delete` with no name REFUSES.** Never «all of that Kind». A missing argument
+is a typo far more often than an intention, and this verb gets no
+second chance to ask.
 
-**Um Kind que não se pergunta assim explica-se.** `get stacks` diz que uma Stack
-se lê de um manifesto; `get workloads` diz que o Kind baixa para outros três.
-Responder uma lista vazia seria pior do que recusar: lê-se como «não há nenhum».
+**A Kind that cannot be asked about this way explains itself.** `get stacks` says that a Stack
+is read from a manifest; `get workloads` says the Kind downgrades to three others.
+Answering with an empty list would be worse than refusing: it reads as «there are none».
 
-**As listas de routing GOVERNAM o despacho.** A primeira versão tinha-as ao lado
-de um `match` e usava-as só nos testes — a segunda lista que este repo já pagou
-várias vezes. Agora a lista decide, e o `match` sem arm correspondente devolve um
-erro que se identifica como defeito interno, não como comando mal escrito.
+**The routing lists GOVERN dispatch.** The first version had them sitting beside
+a `match` and used them only in tests — the second list this repo has already paid for
+several times. Now the list decides, and a `match` with no matching arm returns an
+error that identifies itself as an internal defect, not a mistyped command.
 
-### O defeito que a fatia encontrou em si própria
+### The defect the slice found in itself
 
-A mensagem de recurso era construída com o PLURAL do registo, e mandava usar
-`virtualmachines ls` — um comando que esta CLI nunca teve. O grupo que uma
-pessoa escreve é `vm`. Um sinal de trânsito errado é pior do que nenhum: custa o
-tempo de descobrir que estava errado.
+The recovery message was built with the registry's PLURAL, and told people to use
+`virtualmachines ls` — a command this CLI never had. The group a
+person actually types is `vm`. A wrong road sign is worse than none: it costs the
+time of discovering it was wrong.
 
-Fechado com `cli_group()` e um gate que percorre a árvore `clap` REAL e recusa
-uma sugestão que não exista lá. Verificado por reversão: com o plural de volta,
-falha a dizer «sugere `virtualmachines`, e `virtualmachines` não existe na
-árvore».
+Closed with `cli_group()` and a gate that walks the REAL `clap` tree and rejects
+a suggestion that does not exist there. Verified by reverting: with the plural back,
+it fails saying «suggests `virtualmachines`, and `virtualmachines` does not exist in the
+tree».
 
-### O que falta para o corte
+### What is missing for the cut
 
-Onze Kinds por encaminhar (`Image`, `Container`, `HTTPRoute`, `Gateway`,
-`NetworkPolicy`, `NetworkRoute`, `KubernetesCluster` e os quatro que se
-explicam), mais `apply`/`plan`/`wait`/`diff` promovidos do `stack`, mais o grupo
-`manifest`. Só depois disso é que remover `network ls` deixa de tirar
-capacidade.
+Eleven Kinds still to route (`Image`, `Container`, `HTTPRoute`, `Gateway`,
+`NetworkPolicy`, `NetworkRoute`, `KubernetesCluster`, and the four that are
+self-explanatory), plus `apply`/`plan`/`wait`/`diff` promoted from `stack`, plus the
+`manifest` group. Only after that does removing `network ls` stop taking away
+capability.

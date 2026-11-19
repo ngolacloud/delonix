@@ -1,110 +1,110 @@
-# ADR-0094 — Em rootless, a rede por omissão isola a netns do host (alinhar com Docker/Podman)
+# ADR-0094 — In rootless, the default network isolates the host's netns (align with Docker/Podman)
 
-**Estado:** Aceite (2026-11-18) — decisão do dono na campanha de endurecimento de
-plataforma (avaliação a fundo, `reports/e2e/0.1.1/PLATFORM_EVAL_2026-11-18.md`,
-achado **R2**). **Gap medido ao vivo** nesta sessão; **design validado**;
-**implementação é uma fatia e2e-gated própria** (toca o contrato de rede em 32+
-call-sites — ver «Implementação»). **Relaciona:** ADR-0082 (IPv6 dataplane),
-ADR-0084 (overlay/wireguard/hostfwd), ADR-0078 (perfis de rede de pod).
+**Status:** Accepted (2026-11-18) — owner's decision in the platform hardening
+campaign (in-depth evaluation, `reports/e2e/0.1.1/PLATFORM_EVAL_2026-11-18.md`,
+finding **R2**). **Gap measured live** in this session; **design validated**;
+**implementation is its own e2e-gated slice** (touches the network contract at 32+
+call sites — see «Implementation»). **Relates to:** ADR-0082 (IPv6 dataplane),
+ADR-0084 (overlay/wireguard/hostfwd), ADR-0078 (pod network profiles).
 
-> **A decisão, numa linha:** o default de `--net` em **rootless** passa de `host`
-> (partilha a netns do host — sem isolamento) para uma **rede NAT isolada** (netns
-> própria + `slirp4netns` com SNAT de egress), como fazem `docker`/`podman`
-> rootless. `--net host` continua disponível, **explícito**.
+> **The decision, in one line:** the **rootless** `--net` default moves from `host`
+> (shares the host's netns — no isolation) to an **isolated NAT network** (own
+> netns + `slirp4netns` with egress SNAT), as `docker`/`podman` rootless do.
+> `--net host` remains available, **explicit**.
 
-## Contexto
+## Context
 
-### O gap, medido ao vivo (host rootless, 2026-11-18)
+### The gap, measured live (rootless host, 2026-11-18)
 
-Hoje `--net` tem `default_value = "host"`
-(`bins/delonix/src/cmd/container.rs:1166`). Em rootless, `host` faz o container
-**partilhar a network namespace do processo engine**, que é a do host:
-`Launch::new_netns()` (`delonix-compute/src/domain/launch.rs:61`) só cria netns
-própria com `--net none` ou com `-p`, e `clone_flags` (`delonix-linux/src/lib.rs`)
-só junta `CLONE_NEWNET` quando `new_netns` — o teste
-`the_clone_flags_isolate_by_default_and_waive_what_is_asked` fixa precisamente
-`!CLONE_NEWNET` para o default.
+Today `--net` has `default_value = "host"`
+(`bins/delonix/src/cmd/container.rs:1166`). In rootless, `host` makes the container
+**share the engine process's network namespace**, which is the host's:
+`Launch::new_netns()` (`delonix-compute/src/domain/launch.rs:61`) only creates its
+own netns with `--net none` or with `-p`, and `clone_flags`
+(`delonix-linux/src/lib.rs`) only adds `CLONE_NEWNET` when `new_netns` — the test
+`the_clone_flags_isolate_by_default_and_waive_what_is_asked` fixes precisely
+`!CLONE_NEWNET` for the default.
 
-Prova ao vivo (binário `0.1.1` deste worktree, utilizador rootless):
+Live proof (`0.1.1` binary from this worktree, rootless user):
 
 ```
-$ python3 -m http.server 45999 --bind 127.0.0.1 &      # serviço SÓ no loopback do host
+$ python3 -m http.server 45999 --bind 127.0.0.1 &      # a service ONLY on the host's loopback
 $ delonix run --rm alpine:3.24 -- wget -qO- http://127.0.0.1:45999/
-<!DOCTYPE HTML> …                                         # ← o container ALCANÇOU-O
+<!DOCTYPE HTML> …                                         # ← the container REACHED it
 $ delonix run --rm alpine:3.24 -- ip -o addr
-… wlp0s20f3  inet 192.168.1.108/24 …                      # WiFi do host
-… br-lan  inet 192.168.10.1/24 …  br-wan … virbr0 …       # TODAS as bridges/VMs do host
+… wlp0s20f3  inet 192.168.1.108/24 …                      # the host's WiFi
+… br-lan  inet 192.168.10.1/24 …  br-wan … virbr0 …       # ALL the host's bridges/VMs
 ```
 
-Um container de tenant vê e alcança **toda** a rede do host: serviços em
-`127.0.0.1` (bases de dados locais, o próprio *CRI streaming server*), todas as
-interfaces, as bridges das outras redes e das VMs. Numa plataforma multi-tenant
-(NgolaCloud) isto é uma regressão de isolamento face a Docker/Podman rootless, que
-dão a cada container uma netns própria com egress por `slirp4netns`/`pasta`.
+A tenant container sees and reaches **the whole** of the host's network: services on
+`127.0.0.1` (local databases, the *CRI streaming server* itself), every interface,
+other networks' and VMs' bridges. On a multi-tenant platform (NgolaCloud) this is an
+isolation regression compared to Docker/Podman rootless, which give each container
+its own netns with egress via `slirp4netns`/`pasta`.
 
-### Porque é que o modelo actual suporta a correcção
+### Why the current model supports the fix
 
-O datapath rootless já tem o mecanismo todo: um **holder netns** com um
-**`slirp4netns` único** (`delonix-sdn/src/infra.rs` `start_slirp`), que corre com
-`--configure` (SNAT de egress) e um `--api-socket` para os `add_hostfwd` da Fase
-4. **O egress não depende de `-p`:** os `hostfwd` são só para *ingress*; o SNAT de
-saída existe no momento em que o container entra na holder netns. Logo um
-container **sem** `-p` pode ter isolamento **e** egress juntando-se ao holder — é
-exactamente o modelo Podman.
+The rootless datapath already has the whole mechanism: a **netns holder** with a
+**single `slirp4netns`** (`delonix-sdn/src/infra.rs` `start_slirp`), which runs with
+`--configure` (egress SNAT) and an `--api-socket` for Phase 4's `add_hostfwd`.
+**Egress does not depend on `-p`:** the `hostfwd` are only for *ingress*; the
+outbound SNAT exists the moment the container enters the holder's netns. So a
+container **without** `-p` can have isolation **and** egress by joining the holder —
+exactly the Podman model.
 
-## Decisão
+## Decision
 
-1. **Default rootless de `--net` = rede NAT isolada** (netns própria + holder/slirp
-   com egress), não `host`.
-2. **`--net host` fica explícito** — quem quer partilhar a netns do host pede-o.
-   O `delonix run --net host` é a válvula de escape (tal como `docker run
+1. **Rootless default of `--net` = isolated NAT network** (own netns +
+   holder/slirp with egress), not `host`.
+2. **`--net host` becomes explicit** — whoever wants to share the host's netns asks
+   for it. `delonix run --net host` is the escape hatch (same as `docker run
    --network host`).
-3. **Em modo root (não-rootless)** o default não muda nesta ADR (o root já tem
-   caminhos de bridge/CNI próprios; o gap medido é rootless).
-4. **Admissão:** com `workloadSecurity: baseline`, `--net host` passa a ser
-   refutado (ADR deste mesmo lote, achado S1) — coerente: o host-net é opt-in **e**
-   sujeito à política PSS.
+3. **In root mode (not rootless)** the default does not change in this ADR (root
+   already has its own bridge/CNI paths; the measured gap is rootless).
+4. **Admission:** with `workloadSecurity: baseline`, `--net host` becomes refused
+   (ADR in the same batch, finding S1) — consistent: host-net is opt-in **and**
+   subject to PSS policy.
 
-## Consequências
+## Consequences
 
-- **Isolamento por omissão**: um container de tenant deixa de ver/alcançar a rede
-  do host; `127.0.0.1` passa a ser o do container.
-- **Egress preservado**: saída para a internet via SNAT do slirp (como hoje com
+- **Isolation by default**: a tenant container no longer sees/reaches the host's
+  network; `127.0.0.1` becomes the container's own.
+- **Egress preserved**: outbound internet access via slirp SNAT (as today with
   `-p`).
-- **Custo**: cada container rootless passa a ter netns + (partilha do) slirp —
-  custo já pago pelos containers com `-p`; para os sem `-p` é novo. Medir o
-  overhead de arranque vs. o default actual.
-- **Migração / quebra**: scripts que hoje dependem de o container ver `127.0.0.1`
-  ou as interfaces do host **partem** — resolvem-se com `--net host` explícito.
-  Documentar em `MIGRATION.md` e nas notas de release; emitir um aviso único na
-  primeira vez que um `--net host` implícito teria sido o comportamento antigo (um
-  release de transição), antes de o default mudar de facto.
+- **Cost**: every rootless container now carries a netns + (a share of) slirp —
+  a cost already paid by containers with `-p`; for those without `-p` it is new.
+  Measure the startup overhead vs. the current default.
+- **Migration / breakage**: scripts that today rely on the container seeing
+  `127.0.0.1` or the host's interfaces **break** — resolved with explicit
+  `--net host`. Document in `MIGRATION.md` and in the release notes; emit a single
+  warning the first time an implicit `--net host` would have been the old
+  behaviour (a transition release), before the default actually changes.
 
-## Implementação (fatia e2e-gated própria — NÃO neste commit)
+## Implementation (its own e2e-gated slice — NOT in this commit)
 
-Mudar o default de rede toca o **contrato de rede em todo o lado** — medidos 32+
-call-sites que assumem `net == "host"` / `net.is_empty()` como «partilha host»
+Changing the network default touches the **contract everywhere** — 32+ measured call
+sites assuming `net == "host"` / `net.is_empty()` as «shares the host»
 (`container.rs:3428`, `compute/app/run.rs:178`, `gitops.rs:1396`, pods, compose,
-stack, CRI). Por isso a troca é uma fatia governada, com a suite e2e de rede
-completa como gate, não uma edição cirúrgica.
+stack, CRI). So the swap is a governed slice, gated by the full network e2e suite,
+not a surgical edit.
 
-Passos:
+Steps:
 
-1. Introduzir o modo isolado como valor de `--net` (ex. `nat`/`private`): netns
-   própria + holder/slirp egress, `-p` acrescenta `hostfwd` por cima (reutiliza o
-   caminho de `-p`, que já faz isto).
-2. `Launch::new_netns()` passa a ser `true` para o modo isolado; `slirp_ports`
-   vazio ⇒ slirp egress-only (sem `hostfwd`).
-3. Trocar `default_value` de `host` para o modo isolado; auditar os 32+ call-sites
-   e os defaults de pod/compose/stack/gitops/CRI para o novo default.
-4. **Gate e2e (o critério «nada falha»)**, em rootless: (a) isolamento — o teste
-   do loopback do host acima passa a **falhar** a ligação; (b) egress — o container
-   alcança a internet; (c) `-p` continua a publicar ingress; (d) DNS interno e
-   container-a-container; (e) pods (netns partilhada do pod) intactos; (f)
-   conformância CRI intacta. Benchmark de arranque vs. baseline.
-5. Actualizar os testes unitários de `launch`/`clone_flags` (incl.
-   `the_clone_flags_isolate_by_default_and_waive_what_is_asked`) para o novo
-   default, e `MIGRATION.md`.
+1. Introduce the isolated mode as a `--net` value (e.g. `nat`/`private`): own netns
+   + holder/slirp egress, `-p` adds `hostfwd` on top (reuses the `-p` path, which
+   already does this).
+2. `Launch::new_netns()` becomes `true` for the isolated mode; empty `slirp_ports`
+   ⇒ egress-only slirp (no `hostfwd`).
+3. Swap `default_value` from `host` to the isolated mode; audit the 32+ call sites
+   and the pod/compose/stack/gitops/CRI defaults for the new default.
+4. **E2e gate (the «nothing fails» criterion)**, in rootless: (a) isolation — the
+   host loopback test above starts to **fail** the connection; (b) egress — the
+   container reaches the internet; (c) `-p` keeps publishing ingress; (d) internal
+   DNS and container-to-container; (e) pods (shared pod netns) intact; (f) CRI
+   conformance intact. Startup benchmark vs. baseline.
+5. Update the `launch`/`clone_flags` unit tests (incl.
+   `the_clone_flags_isolate_by_default_and_waive_what_is_asked`) for the new
+   default, and `MIGRATION.md`.
 
-Até a fatia aterrar, o gap fica **documentado e medido**; `--net host` é o
-comportamento actual e o modo isolado é o alvo do default.
+Until this slice lands, the gap stays **documented and measured**; `--net host` is
+the current behaviour and the isolated mode is the default's target.

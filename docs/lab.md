@@ -1,35 +1,35 @@
-# O laboratório nocturno
+# The overnight lab
 
-Decisão D1 de [`docs/discovery/65_PLANO_MATURIDADE.md`](discovery/65_PLANO_MATURIDADE.md).
+Decision D1 of [`docs/discovery/65_PLANO_MATURIDADE.md`](discovery/65_PLANO_MATURIDADE.md).
 
-O runner alojado do GitHub bloqueia user namespaces sem privilégio. Por isso o
-workflow de caos fica `skipped` e a bateria E2E nunca corre no CI. O workflow
-[`.github/workflows/lab.yml`](../.github/workflows/lab.yml) corre tudo todas as
-noites num runner self-hosted:
+GitHub's hosted runner blocks unprivileged user namespaces. Because of that the
+chaos workflow stays `skipped` and the E2E battery never runs in CI. The
+[`.github/workflows/lab.yml`](../.github/workflows/lab.yml) workflow runs everything every
+night on a self-hosted runner:
 
-1. o preflight do host;
-2. o build;
-3. a bateria E2E inteira;
-4. o gate dos SKIPs;
-5. o arnês de caos;
-6. o gate de performance.
+1. the host preflight;
+2. the build;
+3. the full E2E battery;
+4. the SKIPs gate;
+5. the chaos harness;
+6. the performance gate.
 
-## O host
+## The host
 
-O que o `scripts/lab_preflight.sh` exige. Ele nomeia TUDO o que falta e sai com
-erro:
+What `scripts/lab_preflight.sh` requires. It names EVERYTHING that is missing and exits with
+an error:
 
-| Peça | Porque |
+| Piece | Why |
 |---|---|
-| user namespaces sem privilégio, `/etc/subuid` e `/etc/subgid` | o motor é rootless |
-| `cpu cpuset io memory pids` delegados ao `user@<uid>.service` | sem eles os limites são recusados, e a bateria salta-os |
-| `br_netfilter` carregado e `bridge-nf-call-iptables=1` | sem eles o isolamento por namespace é recusado (D5) |
-| `/dev/kvm` com leitura e escrita; `virsh`, `qemu-*`, `cloud-hypervisor`, `cloud-localds`, `virt-customize`; `qemu:///system` acessível | as secções de VM dos dois backends locais |
-| o EDK2 `CLOUDHV.fd` em `/usr/local/share/delonix` | é o único firmware que arranca as imagens do projecto em Cloud Hypervisor |
-| `slirp4netns`, `nft`, `ip`, `conntrack`, `newuidmap`, `protoc`, `wg` | rede rootless, overlay cifrado e build |
-| 80 GiB livres na home do runner | imagens, VMs e o target do cargo |
+| unprivileged user namespaces, `/etc/subuid` and `/etc/subgid` | the engine is rootless |
+| `cpu cpuset io memory pids` delegated to `user@<uid>.service` | without them limits are refused, and the battery skips them |
+| `br_netfilter` loaded and `bridge-nf-call-iptables=1` | without them per-namespace isolation is refused (D5) |
+| `/dev/kvm` readable and writable; `virsh`, `qemu-*`, `cloud-hypervisor`, `cloud-localds`, `virt-customize`; `qemu:///system` reachable | the VM sections of the two local backends |
+| the EDK2 `CLOUDHV.fd` in `/usr/local/share/delonix` | it is the only firmware that boots the project's images in Cloud Hypervisor |
+| `slirp4netns`, `nft`, `ip`, `conntrack`, `newuidmap`, `protoc`, `wg` | rootless networking, encrypted overlay, and the build |
+| 80 GiB free in the runner's home | images, VMs, and cargo's target |
 
-A delegação completa dos cinco controladores exige um drop-in como root:
+Full delegation of the five controllers requires a drop-in as root:
 
 ```bash
 sudo mkdir -p /etc/systemd/system/user@.service.d
@@ -37,18 +37,18 @@ printf '[Service]\nDelegate=cpu cpuset io memory pids\n' | sudo tee /etc/systemd
 sudo systemctl daemon-reload && sudo systemctl restart user@$(id -u runner).service
 ```
 
-Só o `daemon-reload` não chega, porque o `user@` já a correr não muda de
-controladores. Está medido no `AGENTS.md`.
+`daemon-reload` alone is not enough, because a `user@` already running does not pick up new
+controllers. This is measured in `AGENTS.md`.
 
-## Registar o runner
+## Registering the runner
 
-Um comando, da conta `runner` do host de laboratório. O
+One command, from the `runner` account on the lab host. The
 [`scripts/lab_runner_register.sh`](../scripts/lab_runner_register.sh)
-provisiona os habilitadores que faltam (delegação de cgroup, linger,
-`subuid`/`subgid` e — nos kernels que o restringem — o perfil AppArmor de
-userns), descarrega e configura o runner do GitHub Actions com a etiqueta
-**`delonix-lab`**, instala-o como serviço da conta, e termina a correr o
-`lab_preflight.sh` como porta final:
+provisions whatever enablers are missing (cgroup delegation, linger,
+`subuid`/`subgid`, and — on kernels that restrict it — the userns AppArmor
+profile), downloads and configures the GitHub Actions runner with the
+**`delonix-lab`** label, installs it as the account's service, and finishes by
+running `lab_preflight.sh` as a final gate:
 
 ```bash
 scripts/lab_runner_register.sh \
@@ -56,32 +56,31 @@ scripts/lab_runner_register.sh \
   --token "$(gh api -X POST repos/ngolacloud/delonix/actions/runners/registration-token -q .token)"
 ```
 
-O token de registo é **efémero e do dono**: mintado em *Settings → Actions →
-Runners → New self-hosted runner* ou com a linha `gh` acima (precisa da conta
-admin do repositório). O script nunca o cria — é a credencial do dono, não do
-host do runner. Passa `--no-provision` se um root já montou os habilitadores à
-mão, e `--version` para fixar a versão do runner.
+The registration token is **ephemeral and belongs to the owner**: minted at *Settings → Actions →
+Runners → New self-hosted runner* or with the `gh` line above (needs the repository's
+admin account). The script never creates it — it is the owner's credential, not the
+runner host's. Pass `--no-provision` if a root has already set up the enablers by
+hand, and `--version` to pin the runner's version.
 
-Confirma com um disparo manual:
+Confirm with a manual trigger:
 
 ```bash
-gh workflow run lab.yml        # deixa a fila e arranca neste host
+gh workflow run lab.yml        # leaves the queue and starts on this host
 ```
 
-Uma corrida de PR do `chaos.yml` num runner alojado continua a reportar
-`skipped` por desenho (a sua sonda de userns); a cobertura real de caos + E2E
-corre aqui, pelo `lab.yml`.
+A PR run of `chaos.yml` on a hosted runner still reports `skipped` by design (its
+userns probe); the real chaos + E2E coverage runs here, through `lab.yml`.
 
-## Os SKIPs declarados
+## Declared SKIPs
 
-`scripts/lab_allowed_skips.txt` começa vazio. Depois da primeira noite com o host
-completo, imprime os SKIPs que sobraram:
+`scripts/lab_allowed_skips.txt` starts empty. After the first night with the full host,
+it prints the SKIPs that remain:
 
 ```bash
 python3 scripts/lab_skip_gate.py --print /tmp/delonix-lab-e2e/results.jsonl
 ```
 
-Cada um que fique na lista leva a razão pela qual o laboratório não consegue
-fazer essa medição: credenciais de um provider remoto, uma GPU, ou um segundo
-nó. O gate falha também quando uma linha declarada passa a correr. Nesse caso a
-linha sai no mesmo commit.
+Each one left on the list carries the reason the lab cannot
+perform that measurement: credentials for a remote provider, a GPU, or a second
+node. The gate also fails when a declared line starts running. In that case the
+line comes out in the same commit.

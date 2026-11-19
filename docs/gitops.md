@@ -1,79 +1,82 @@
-# GitOps com o Delonix
+# GitOps with Delonix
 
-O manifesto é a fonte de verdade; o repositório é onde ele vive; o `delonix` é
-quem o aplica. Não é preciso Terraform nem Ansible por cima — esta página é o
-fluxo completo.
+The manifest is the source of truth; the repository is where it lives;
+`delonix` is what applies it. No Terraform or Ansible needed on top — this page
+is the whole flow.
 
-> Aplica-se aos Kinds que **convergem**, que são onze: `Network`,
+> Applies to the Kinds that **converge**, which are eleven: `Network`,
 > `NetworkRoute`, `Volume`, `Image`, `VirtualMachine`, `Container`, `Pod`,
-> `NetworkPolicy`, `HTTPRoute`, `Ingress` e `Gateway`. Só o `Secret` continua «garante presente»
-> (criado se faltar, nunca actualizado), porque o estado são valores cifrados e
-> um plano não os decifra para comparar — e o `plan` marca-o com `!` em vez de o
-> esconder, com o obstáculo nomeado. A lista autoritativa não é este parágrafo:
-> é `delonix stack plan --fields`, que a imprime do próprio código. Vê também
+> `NetworkPolicy`, `HTTPRoute`, `Ingress` and `Gateway`. Only `Secret` remains
+> «ensure present» (created if missing, never updated), because the state is
+> encrypted values and a plan does not decrypt them to compare — and `plan`
+> marks it with `!` instead of hiding it, with the obstacle named. The
+> authoritative list is not this paragraph: it is `delonix stack plan --fields`,
+> which prints it from the code itself. See also
 > [`cli-stability.md`](cli-stability.md).
 
-## Os cinco comandos
+## The five commands
 
 ```bash
-delonix stack plan       # o que mudaria — não muda nada (`--prune`: o que o apply --prune faria)
-delonix stack apply      # converge
-delonix stack apply --prune   # converge e remove o que saiu do manifesto
-delonix stack wait       # bloqueia até estar mesmo de pé
-delonix stack destroy    # remove tudo o que esta stack possui
+delonix stack plan       # what would change — changes nothing (`--prune`: what apply --prune would do)
+delonix stack apply      # converges
+delonix stack apply --prune   # converges and removes what left the manifest
+delonix stack wait       # blocks until it is really up
+delonix stack destroy    # removes everything this stack owns
 ```
 
-`plan` compara três coisas — o manifesto, a máquina, e o último spec que **esta
-stack** aplicou. É esse terceiro lado que distingue «tiraste este campo do
-ficheiro» (reverte) de «alguém pôs isto à mão com `container update`» (não
-mexe).
+`plan` compares three things — the manifest, the machine, and the last spec
+that **this stack** applied. It is that third side that tells «you removed
+this field from the file» (reverts) apart from «someone set this by hand with
+`container update`» (leaves alone).
 
-## Os símbolos
+## The symbols
 
-| | Significa |
+| | Means |
 |---|---|
-| `+` | não existe, vai ser criado |
-| `+~` | existe, não pertence a stack nenhuma — vai ser **adoptado** |
-| `~` | converge **a quente**, sem recriar e sem mudar o PID |
-| `-/+` | tem de ser **destruído e recriado** — o `apply` recusa sem `--replace` |
-| `-` | pertence a esta stack e saiu do manifesto — só sai com `--prune`. Num `plan` sem `--prune` aparece como **mantido** e não conta para o `--detailed-exitcode` |
-| `=` | já bate certo |
-| `✗` | pertence a **outra** stack — nunca é tocado |
-| `!` | este Kind não converge nesta versão |
+| `+` | does not exist, will be created |
+| `+~` | exists, belongs to no stack — will be **adopted** |
+| `~` | converges **hot**, without recreating and without changing the PID |
+| `-/+` | has to be **destroyed and recreated** — `apply` refuses without `--replace` |
+| `-` | belongs to this stack and left the manifest — only leaves with `--prune`. On a `plan` without `--prune` it shows as **kept** and does not count toward `--detailed-exitcode` |
+| `=` | already matches |
+| `✗` | belongs to **another** stack — never touched |
+| `!` | this Kind does not converge in this version |
 
-Se não perceberes porque é que uma alteração tua não aparece:
+If you do not understand why a change of yours is not showing up:
 
 ```bash
 delonix stack plan --fields
 ```
 
-Diz exactamente que campos são comparados por Kind, e quais não são e porquê
-(`env` e `command` vêm fundidos com os da imagem; `user` é guardado como uid
-resolvido). E, para o Kind que ainda não converge, **porque não** — o `Secret`,
-porque o estado são valores cifrados e um plano não os decifra para comparar. Um
-obstáculo nomeado é uma decisão; «ainda não converge» seria só silêncio.
+Says exactly which fields are compared per Kind, and which are not and why
+(`env` and `command` come merged with the image's; `user` is stored as the
+resolved uid). And, for the Kind that still does not converge, **why not** —
+`Secret`, because the state is encrypted values and a plan does not decrypt
+them to compare. A named obstacle is a decision; «still does not converge»
+would be just silence.
 
-## Quem é o dono
+## Who the owner is
 
-A posse vem da label `delonix.io/stack`, carimbada em cada recurso pelo próprio
-`apply`. O nome da stack é, por esta ordem: `--name`, o `metadata.name` de um
-`kind: Stack`, ou o **directório** do manifesto.
+Ownership comes from the `delonix.io/stack` label, stamped on each resource by
+`apply` itself. The stack name is, in this order: `--name`, the `metadata.name`
+of a `kind: Stack`, or the manifest's **directory**.
 
-Consequências que interessam:
+Consequences that matter:
 
-* Um recurso criado à mão **nunca** é apagado por um `--prune` ou por um
-  `destroy` — não tem a label. Aparece no plano como `+~` e é adoptado no
-  primeiro apply, que é o que dispensa um comando `import`.
-* **Nem tudo é possuível, e isso é deliberado.** Uma `Image` é cache partilhada
-  com endereço de conteúdo — o mesmo `alpine:latest` serve todas as stacks do
-  host, por isso carimbá-la para uma e removê-la quando essa deixasse de a
-  declarar tirava-a debaixo das outras. Uma `NetworkPolicy`, um `HTTPRoute` e um
-  `Gateway` não têm registo próprio onde carimbar. Nenhum dos quatro é adoptado
-  nem podado; todos convergem.
-* Duas stacks a declarar o mesmo nome dão **conflito** (`✗`), não uma corrida.
-  O `apply` recusa antes de tocar em nada.
+* A resource created by hand is **never** deleted by a `--prune` or a
+  `destroy` — it does not have the label. It shows up in the plan as `+~` and
+  is adopted on the first apply, which is what makes an `import` command
+  unnecessary.
+* **Not everything is ownable, and that is deliberate.** An `Image` is shared,
+  content-addressed cache — the same `alpine:latest` serves every stack on the
+  host, so stamping it for one and removing it when that one stopped declaring
+  it would pull it out from under the others. A `NetworkPolicy`, an
+  `HTTPRoute` and a `Gateway` have no record of their own to stamp. None of
+  the four is adopted or pruned; all of them converge.
+* Two stacks declaring the same name get a **conflict** (`✗`), not a race.
+  `apply` refuses before touching anything.
 
-## O PR: `plan` como revisão
+## The PR: `plan` as review
 
 ```yaml
 # .github/workflows/delonix.yml
@@ -87,23 +90,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: validar o manifesto
+      - name: validate the manifest
         run: delonix stack validate
-      - name: plano
+      - name: plan
         run: delonix stack plan | tee plan.txt
-      - name: comentar o plano no PR
+      - name: comment the plan on the PR
         if: github.event_name == 'pull_request'
         run: gh pr comment ${{ github.event.number }} -F plan.txt
         env: { GH_TOKEN: '${{ github.token }}' }
 ```
 
-`stack validate` corre primeiro de propósito: resolve as referências cruzadas
-(`Container.network`, `.volumes`, alvos de `Ingress`/`Egress`) contra o que o
-manifesto declara **mais** o que já existe na máquina. Como o `apply` é
-fail-fast sem rollback, uma referência partida tem de parar tudo antes da
-primeira criação, não a meio.
+`stack validate` runs first on purpose: it resolves the cross-references
+(`Container.network`, `.volumes`, `Ingress`/`Egress` targets) against what the
+manifest declares **plus** what already exists on the machine. Since `apply`
+is fail-fast with no rollback, a broken reference has to stop everything
+before the first creation, not halfway through.
 
-## O merge: `apply`
+## The merge: `apply`
 
 ```yaml
   apply:
@@ -115,66 +118,69 @@ primeira criação, não a meio.
       - run: delonix stack wait --timeout 180
 ```
 
-O `wait` não é decoração: o `apply` devolve assim que **criou** as coisas, o que
-não é o mesmo que a stack estar a funcionar. Sem ele, cada pipeline inventa o
-seu `sleep`. Bloqueia até cada recurso declarado existir e — onde isso significa
-alguma coisa — estar a correr e saudável; falha nomeando exactamente o que não
-subiu. Um pré-requisito em falta (o `!` do plano) é **avisado e não esperado**:
-um volume que não monta em rootless não começa a montar ao fim de noventa
-segundos, e bloquear nisso transformaria um aviso honesto num pendura.
+`wait` is not decoration: `apply` returns as soon as it **created** things,
+which is not the same as the stack working. Without it, every pipeline
+invents its own `sleep`. It blocks until every declared resource exists and —
+where that means something — is running and healthy; it fails naming exactly
+what did not come up. A missing prerequisite (the plan's `!`) is **warned
+about, not waited on**: a volume that does not mount under rootless does not
+start mounting after ninety seconds, and blocking on that would turn an
+honest warning into a hang.
 
-Uma recriação **não passa sozinha**. Se o plano trouxer um `-/+`, o job falha
-com o nome do campo que a obriga, e alguém tem de decidir:
+A recreation **does not pass on its own**. If the plan carries a `-/+`, the
+job fails naming the field that forces it, and someone has to decide:
 
 ```bash
 delonix stack apply --replace Container/api
 ```
 
-Isto é deliberado: recriar significa downtime, e num volume significa perder os
-dados. Um `apply` distraído não deve poder fazê-lo.
+This is deliberate: recreating means downtime, and on a volume it means losing
+the data. A careless `apply` should not be able to do it.
 
-E o valor é **verificado**, em duas etapas: a forma (`<Kind>/<nome>`, um nome nu,
-ou `all`) e depois se nomeia mesmo alguma coisa deste manifesto. Um
-`--replace Container/wev` com o erro de escrita é **recusado a nomear o valor**,
-em vez de se ler como autorizado e deixar a recusa seguinte a falar do recurso —
-nunca do engano que a causou. Numa flag que autoriza uma operação destrutiva,
-aceitar um valor que não pode casar com nada é dar a ilusão de ter autorizado.
+And the value is **verified**, in two steps: the shape (`<Kind>/<name>`, a bare
+name, or `all`) and then whether it even names something from this manifest. A
+`--replace Container/wev` with a typo is **refused for naming the value**,
+instead of being read as authorized and letting the next refusal talk about
+the resource — never about the mistake that caused it. On a flag that
+authorizes a destructive operation, accepting a value that cannot match
+anything is giving the illusion of having authorized it.
 
-## O gate de deriva
+## The drift gate
 
-Deriva é o `plan` a dizer alguma coisa com o manifesto inalterado. O exit code
-serve-o directamente — mesmo contrato do `terraform plan -detailed-exitcode`:
+Drift is `plan` saying something with the manifest unchanged. The exit code
+serves it directly — the same contract as
+`terraform plan -detailed-exitcode`:
 
-| exit | significa |
+| exit | means |
 |---|---|
-| `0` | nada a fazer |
-| `2` | há alterações (= deriva, se o ficheiro não mudou) |
-| `5` | o plano tem um **conflito de posse** (`DX-5601`) — o `stack apply` recusá-lo-ia inteiro |
-| `1` | o comando falhou |
+| `0` | nothing to do |
+| `2` | there are changes (= drift, if the file did not change) |
+| `5` | the plan has an **ownership conflict** (`DX-5601`) — `stack apply` would refuse it whole |
+| `1` | the command failed |
 
-**O gate planeia com as flags do `apply` que o acompanha.** O `plan` responde
-pelo que esse `apply` faria, e um `apply` sem `--prune` não remove nada. Por isso,
-sem `--prune`, um recurso que saiu do manifesto aparece como **mantido** e não
-conta: o gate fica verde, porque o `apply` também o deixa ficar. Um pipeline que
-aplica com `--prune`, como o de cima, planeia com `stack plan --prune
---detailed-exitcode`, e aí a remoção conta como alteração (`2`). Até aqui o `plan`
-não tinha `--prune`, contava sempre a remoção, e um gate sem poda ficava a `2`
-para sempre.
+**The gate plans with the flags of the `apply` that accompanies it.** `plan`
+answers for what that `apply` would do, and an `apply` without `--prune`
+removes nothing. So, without `--prune`, a resource that left the manifest
+shows up as **kept** and does not count: the gate stays green, because `apply`
+also leaves it alone. A pipeline that applies with `--prune`, like the one
+above, plans with `stack plan --prune --detailed-exitcode`, and there the
+removal counts as a change (`2`). Until now `plan` had no `--prune`, it always
+counted the removal, and a gate without pruning stayed at `2` forever.
 
-Desde a v0.49.0 uma falha pode vir CLASSIFICADA em vez de `1` — `4` se o
-manifesto nomear um recurso que não existe, por exemplo (a tabela completa está
-em [cli-stability.md](cli-stability.md)). Os dois sinais positivos não mudam:
-`0` é «nada a fazer», `2` é «há alterações», e nenhum caminho de erro devolve
-`2`. Um gate escrito como «`0` passa, `2` falha por deriva, **o resto** falha
-por erro» continua correcto; um escrito com `elif [ $? -eq 1 ]` para o erro
-passa a precisar de `else`.
+Since v0.49.0 a failure can come CLASSIFIED instead of `1` — `4` if the
+manifest names a resource that does not exist, for example (the full table is
+in [cli-stability.md](cli-stability.md)). The two positive signals do not
+change: `0` is «nothing to do», `2` is «there are changes», and no error path
+returns `2`. A gate written as «`0` passes, `2` fails for drift, **everything
+else** fails for error» remains correct; one written with `elif [ $? -eq 1 ]`
+for the error now needs an `else`.
 
-O `5` existe desde que um conflito deixou de passar por limpo: um recurso que
-outra stack já carimbou não é uma alteração (o `changed` dele é `false`), e até
-aqui o plano respondia `0` — o gate ficava verde e o `apply` a seguir recusava
-com `5`. O conflito ganha às alterações: com um conflito no plano a resposta é
-`5` mesmo que haja também recursos a mudar, porque o `apply` não aplicaria
-nenhum deles.
+`5` has existed since a conflict stopped passing as clean: a resource another
+stack has already stamped is not a change (its `changed` is `false`), and
+until now the plan answered `0` — the gate stayed green and the following
+`apply` refused with `5`. The conflict beats the changes: with a conflict in
+the plan, the answer is `5` even if there are also resources changing, because
+`apply` would not apply any of them.
 
 ```yaml
   drift:
@@ -189,115 +195,116 @@ on:
   schedule: [{ cron: '0 7 * * *' }]
 ```
 
-Para alimentar outra ferramenta em vez de falhar um job:
+To feed another tool instead of failing a job:
 
 ```bash
 delonix stack plan -o json | jq -r '.[] | select(.changed) | "\(.kind)/\(.name) \(.action)"'
 ```
 
-Os nomes dos campos do JSON são estáveis e **não mudam com `--l18n`**
-(ADR-0005) — é a tabela que é traduzida, nunca as chaves.
+The JSON field names are stable and **do not change with `--l18n`**
+(ADR-0005) — it is the table that is translated, never the keys.
 
-## Quando um `apply` morre a meio
+## When an `apply` dies halfway
 
-Acontece, e é um estado normal: o `apply` é **fail-fast e não tem rollback**.
-Não há transacção; o que já foi criado fica criado.
+It happens, and it is a normal state: `apply` is **fail-fast with no
+rollback**. There is no transaction; what was already created stays created.
 
-A recuperação não é adivinhação:
+Recovery is not guesswork:
 
 ```bash
-delonix stack plan      # mostra exactamente o que ficou por fazer
-delonix stack apply     # continua daí — é idempotente
+delonix stack plan      # shows exactly what was left undone
+delonix stack apply     # continues from there — it is idempotent
 ```
 
-O `plan` é a ferramenta de diagnóstico porque compara com o real, não com um
-ficheiro de estado que poderia estar dessincronizado. **Não há `.tfstate`
-nenhum**: a posse e o último spec aplicado vivem no próprio recurso
-(`delonix.io/stack` e `delonix.io/last-applied`), por isso não existe o modo de
-falha «o estado diz uma coisa e a máquina diz outra».
+`plan` is the diagnostic tool because it compares against the real thing, not
+against a state file that could be out of sync. **There is no `.tfstate`**:
+ownership and the last applied spec live on the resource itself
+(`delonix.io/stack` and `delonix.io/last-applied`), so the failure mode «the
+state says one thing and the machine says another» does not exist.
 
-Se a corrida morreu depois de criar mas antes de carimbar, o recurso aparece
-como `+~` (por adoptar) e o apply seguinte resolve-o.
+If the run died after creating but before stamping, the resource shows up as
+`+~` (to be adopted) and the next apply resolves it.
 
-## Escrever o manifesto sem decorar nada
+## Writing the manifest without memorizing anything
 
 ```yaml
 # yaml-language-server: $schema=https://ngolacloud.github.io/delonix/schema/v1/delonix.json
 ```
 
-Uma linha, e o editor passa a dar completação, verificação de tipos e a
-documentação de cada campo enquanto escreves. O schema é gerado do próprio
-código (ADR-0007), por isso não pode divergir dele — apanha um typo num nome de
-campo, um `kind` que o motor não conhece, e um `apiVersion` que não é o grupo
-daquele Kind.
+One line, and the editor starts giving completion, type checking and the
+documentation of every field as you write. The schema is generated from the
+code itself (ADR-0007), so it cannot drift from it — it catches a typo in a
+field name, a `kind` the engine does not know, and an `apiVersion` that is not
+that Kind's group.
 
-Num PR, isto vale mais do que parece: um manifesto que o editor sublinha nunca
-chega ao `plan`, e o erro aparece a quem o escreveu em vez de aparecer no CI de
-outra pessoa.
+In a PR, this is worth more than it looks: a manifest the editor underlines
+never reaches `plan`, and the error shows up to whoever wrote it instead of
+showing up in someone else's CI.
 
-No terminal:
+On the terminal:
 
 ```bash
 delonix explain Container
 delonix explain Container.ports
 delonix explain Pod.containers.image
-delonix manifest render         # o manifesto com TODOS os defaults preenchidos, sem ler a máquina
-delonix stack apply --dry-run   # o mesmo, e sai como o apply sairia (5 num conflito de posse)
+delonix manifest render         # the manifest with ALL defaults filled in, without reading the machine
+delonix stack apply --dry-run   # the same, and exits the way apply would exit (5 on an ownership conflict)
 ```
 
-## Validado ao vivo, com um container real
+## Validated live, with a real container
 
-O ciclo inteiro, num `DELONIX_ROOT` isolado — e a prova que interessa não é o
-comando devolver 0:
+The whole cycle, in an isolated `DELONIX_ROOT` — and the proof that matters is
+not the command returning 0:
 
-| Passo | Resultado |
+| Step | Result |
 |---|---|
-| `apply` de um manifesto novo | container criado, PID `618350` |
-| `plan` outra vez | «sem alterações» |
-| mudar `memory: 64M` → `128M` | plano diz `~ update`, com os dois valores |
-| `apply` | **PID inalterado (618350)** e o `memory.max` do cgroup REAL passa a `134217728` |
-| mudar a `image` | plano diz `-/+`, nomeando `image` |
-| `apply` sem `--replace` | **RECUSA**, e o PID continua `618350` — nada foi tocado |
-| `container update` por fora | o `plan` seguinte apanha a deriva (`256M → 128M`) |
-| `stack wait` | devolve de imediato |
-| `stack destroy` | container removido, `ps -a` vazio |
+| `apply` of a new manifest | container created, PID `618350` |
+| `plan` again | «no changes» |
+| change `memory: 64M` → `128M` | plan says `~ update`, with both values |
+| `apply` | **unchanged PID (618350)** and the cgroup's REAL `memory.max` becomes `134217728` |
+| change the `image` | plan says `-/+`, naming `image` |
+| `apply` without `--replace` | **REFUSES**, and the PID stays `618350` — nothing was touched |
+| `container update` from outside | the next `plan` catches the drift (`256M → 128M`) |
+| `stack wait` | returns immediately |
+| `stack destroy` | container removed, `ps -a` empty |
 
-O PID inalterado é o ponto: é o que distingue convergência a quente de um
-restart disfarçado, e é a diferença de fundo entre este motor e recriar o
-container como o Docker faria.
+The unchanged PID is the point: it is what distinguishes hot convergence from
+a disguised restart, and it is the fundamental difference between this engine
+and recreating the container the way Docker would.
 
-## O que este fluxo não faz
+## What this flow does not do
 
-* **Não reconcilia continuamente por omissão.** Converge quando lhe chamas.
-  A metade pull existe desde 2026-10-12 e é opt-in: uma `kind: GitOpsSource`
-  ([ADR-0021](adr/0021-gitops-pull-reconciler.md),
-  `examples/gitops/gitopssource.yaml`) nomeia um repositório, uma ref e um
-  caminho, e com `sync.automated: true` um temporizador systemd corre UMA
-  passagem e sai — o motor continua sem daemon. `delonix gitops reconcile`
-  corre uma passagem à mão, `delonix gitops status` diz o commit que cada fonte
-  viu e o que está aplicado. Um commit que a guarda ou a política de segurança
-  recusam deixa a stack em execução intacta.
+* **It does not reconcile continuously by default.** It converges when you
+  call it. The pull half has existed since 2026-10-12 and is opt-in: a
+  `kind: GitOpsSource` ([ADR-0021](adr/0021-gitops-pull-reconciler.md),
+  `examples/gitops/gitopssource.yaml`) names a repository, a ref and a path,
+  and with `sync.automated: true` a systemd timer runs ONE pass and exits —
+  the engine remains daemonless. `delonix gitops reconcile` runs one pass by
+  hand, `delonix gitops status` tells the commit each source last saw and
+  what is applied. A commit the guard or the security policy refuses leaves
+  the running stack intact.
 
-  **São duas stacks, e nunca a mesma.** A stack que aplica a fonte à mão (o
-  bootstrap) declara só a fonte; a stack em que as passagens aplicam o
-  repositório é `spec.stack`, por omissão `gitops.<namespace>.<nome>`. Se fossem
-  a mesma, um `stack plan` do bootstrap daria rc=2 para sempre e um
-  `stack apply --prune` apagaria o que a passagem aplicou (e a passagem seguinte
-  recriava-o vazio). Por isso `stack apply`, `plan`, `prune`, `rollback` e
-  `validate` recusam (DX-1601) um manifesto que declare uma fonte cujas passagens
-  caiam na stack em que o comando age — dá outro `--name` ao bootstrap, ou
-  outra `spec.stack` à fonte:
+  **They are two stacks, and never the same one.** The stack that applies the
+  source by hand (the bootstrap) declares only the source; the stack the
+  passes apply the repository into is `spec.stack`, by default
+  `gitops.<namespace>.<name>`. If they were the same, a bootstrap `stack plan`
+  would give rc=2 forever and a `stack apply --prune` would delete what the
+  pass applied (and the next pass would recreate it empty). That is why
+  `stack apply`, `plan`, `prune`, `rollback` and `validate` refuse (DX-1601) a
+  manifest declaring a source whose passes land on the stack the command is
+  acting on — give the bootstrap another `--name`, or the source another
+  `spec.stack`:
 
   ```bash
-  delonix stack apply -f source.yaml --name bootstrap   # regista a fonte
+  delonix stack apply -f source.yaml --name bootstrap   # registers the source
   delonix gitops reconcile production --namespace production
   delonix stack plan -f source.yaml --name bootstrap --detailed-exitcode   # 0
   ```
 
-  Se o repositório se declarar a si próprio, a primeira passagem toma o registo
-  da fonte à stack do bootstrap («taken over from stack 'bootstrap'»), e a partir
-  daí é a stack das passagens que declara tudo; o bootstrap deixa de ser dono de
-  nada.
-* **Não tem rollback transaccional** (ver acima).
-* **Não gere frota.** É um runtime de nó: um manifesto, uma máquina. Vários nós
-  são várias corridas.
+  If the repository declares itself, the first pass takes over the source's
+  record from the bootstrap stack («taken over from stack 'bootstrap'»), and
+  from then on it is the passes' stack that declares everything; the
+  bootstrap stops owning anything.
+* **It has no transactional rollback** (see above).
+* **It does not manage a fleet.** It is a node runtime: one manifest, one
+  machine. Several nodes are several runs.

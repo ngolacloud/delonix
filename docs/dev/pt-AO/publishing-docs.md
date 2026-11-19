@@ -27,7 +27,7 @@ sítios.
 | Superfície | O que é | Como se mantém verdadeira |
 |---|---|---|
 | `README.rst` | a página de entrada do projecto | escrita à mão, verificada por `docs_cli_gate.py` |
-| `docs/*.html`, `docs/comandos/*.html` | o site do utilizador | **gerado** por `docs/gen.py` a partir do `--help` do binário mais o texto editorial do gerador; verificado pelo job de CI `docs` e na altura da release |
+| `docs/*.html`, `docs/commands/*.html` | o site do utilizador | **gerado** por `docs/gen.py` a partir do `--help` do binário mais o texto editorial do gerador; verificado pelo job de CI `docs` e na altura da release |
 | `docs/releases/v<version>.md` | notas de release, uma por tag | escritas à mão no commit de release; publicadas como corpo da GitHub Release |
 | `docs/RELEASES.md` | o apêndice de funcionalidades por release | **gerado** por `scripts/gen-releases.sh` a partir de `docs/releases/`; nunca editar à mão |
 | `ARCHITECTURE.md` | diagramas de arquitectura C4 | escrito à mão, mantido a par do código; renderizado no site por `docs/gen.py` |

@@ -50,7 +50,7 @@ kubeadm over SSH).
 ## 4. Target vision → reality matrix (the honest part)
 
 Legend: **✅ Exists** (real, wired) · **🟡 Partial** (seed present, not first-class) ·
-**⛔ Absent** (no code) · **🚧 Out of bounds** (belongs to `delonix-paas`, per Regra de ouro) ·
+**⛔ Absent** (no code) · **🚧 Out of bounds** (belongs to `delonix-paas`, per the Golden Rule) ·
 **⚠️ Philosophy change** (needs its own ADR before it is a decision).
 
 | Vision engine / goal | Status | Reality & verdict |

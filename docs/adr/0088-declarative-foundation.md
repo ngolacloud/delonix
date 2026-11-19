@@ -77,8 +77,8 @@ with the current FACTS order — a test asserts the graph order equals the FACTS
 shipped examples, and parallelism within a level is proven not to change any outcome, before the
 hardcoded `run_layers` sequence is deleted.
 
-**D4. Lifecycle controls, including drift (A5).** `stack plan -o plano.json` + `stack apply
-plano.json` (apply gains a plan-file input beside the manifest + `--plan-digest`). The
+**D4. Lifecycle controls, including drift (A5).** `stack plan -o plan.json` + `stack apply
+plan.json` (apply gains a plan-file input beside the manifest + `--plan-digest`). The
 annotation `delonix.io/protect: "true"` makes `destroy` and `--prune` refuse that resource by
 name (DX-coded, fail-closed). `delonix.io/ignore-fields` drops named fields from the diff (for a
 field another actor owns, e.g. `spec.replicas` under an external scaler). A per-stack lock
@@ -117,7 +117,7 @@ constraint holds while the capability is added.
    `metadata.generation`, computed `Ready`, `stack wait` reads Ready; wait-parity test.
 4. **2d — A4 dependency graph:** build the DAG from references; level apply/parallel/reverse
    destroy; cycle refusal with path; order-parity test vs FACTS for the shipped examples.
-5. **2e — A5 drift + plan-file:** `stack apply plano.json`; `stack drift` with per-stack
+5. **2e — A5 drift + plan-file:** `stack apply plan.json`; `stack drift` with per-stack
    `driftPolicy`, driven by the `GitOpsSource` timer.
 
 ## Addendum (2026-11-03): how A1 is realised, measured against the code
