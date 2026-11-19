@@ -1548,12 +1548,57 @@ pub struct RunArgs {
     /// Write the created container's id to this file (Docker/Podman `--cidfile`); refused if the file already exists.
     #[arg(long = "cidfile", value_hint = clap::ValueHint::FilePath)]
     cidfile: Option<String>,
-    /// Image (e.g. `alpine:3.19`).
-    #[arg(add = ArgValueCandidates::new(super::complete::images))]
-    image: String,
-    /// Command + arguments (default: the image's ENTRYPOINT/CMD).
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    command: Vec<String>,
+    /// Image (e.g. `alpine:3.19`), then the command + arguments (default: the
+    /// image's ENTRYPOINT/CMD).
+    // Captured as ONE trailing list and split in code (first = image, rest =
+    // command, via `split_image_command`) so that — exactly like `docker
+    // run`/`podman run`, which stop parsing flags at the first positional —
+    // every token after the image is the container's command even when it
+    // begins with `-` and would otherwise collide with a `run` flag (e.g. the
+    // container's own `--config`). Flags for `run`/`create` itself therefore go
+    // BEFORE the image, as in Docker. `value_name` stays "IMAGE" (not "IMAGE
+    // [COMMAND...]") so the generated SYNOPSIS reads `<IMAGE>...`.
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        required = true,
+        value_name = "IMAGE",
+        add = ArgValueCandidates::new(super::complete::images)
+    )]
+    image_command: Vec<String>,
+}
+
+impl RunArgs {
+    /// The image reference: the first element of `image_command`. `required =
+    /// true` on the field means a successfully-parsed `RunArgs` always has at
+    /// least one element, so this does not panic on a parsed value.
+    fn image(&self) -> &str {
+        &self.image_command[0]
+    }
+
+    /// Splits `image_command` into owned `(image, command)`. Same invariant as
+    /// [`RunArgs::image`]: the first element is always present post-parse.
+    fn split_image_command(image_command: Vec<String>) -> (String, Vec<String>) {
+        let mut it = image_command.into_iter();
+        let image = it
+            .next()
+            .expect("RunArgs.image_command is `required = true`; clap guarantees >= 1 element");
+        (image, strip_leading_separator(it.collect()))
+    }
+}
+
+/// Drops a single leading `--` from a captured command. With `trailing_var_arg`
+/// the image/container already "armed" the trailing list, so a subsequent `--`
+/// is taken LITERALLY instead of being consumed as the end-of-options marker —
+/// yet Docker/Podman (and callers that defensively insert it, e.g. the CRI's
+/// `exec <id> -- <cmd>`) mean it as the separator. Strip exactly one so the
+/// command is `<cmd>`, not `-- <cmd>`, matching Docker; a second `--` (a genuine
+/// command argument) survives.
+fn strip_leading_separator(mut command: Vec<String>) -> Vec<String> {
+    if command.first().map(String::as_str) == Some("--") {
+        command.remove(0);
+    }
+    command
 }
 
 #[derive(clap::Args)]
@@ -1658,11 +1703,34 @@ pub struct ExecArgs {
     /// call only — does not change the container or other execs.
     #[arg(long)]
     privileged: bool,
-    #[arg(add = ArgValueCandidates::new(super::complete::containers))]
-    id: String,
-    /// Command + arguments. Omit it for the bash/sh fallback shell.
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    pub(crate) command: Vec<String>,
+    /// Container, then the command + arguments (omit the command for the
+    /// bash/sh fallback shell).
+    // Captured as ONE trailing list and split in code (first = container, rest =
+    // command, via `split_id_command`) so that — like `docker exec`, which stops
+    // parsing flags at the container — every token after the container is the
+    // command even when it begins with `-` and would collide with an `exec` flag
+    // (`-w`, `-u`, `-e`). Flags for `exec` itself therefore go BEFORE the
+    // container, as in Docker.
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        required = true,
+        value_name = "CONTAINER",
+        add = ArgValueCandidates::new(super::complete::containers)
+    )]
+    pub(crate) id_command: Vec<String>,
+}
+
+impl ExecArgs {
+    /// Splits `id_command` into owned `(container, command)`. `required = true`
+    /// on the field guarantees the container is present post-parse.
+    pub(crate) fn split_id_command(id_command: Vec<String>) -> (String, Vec<String>) {
+        let mut it = id_command.into_iter();
+        let id = it
+            .next()
+            .expect("ExecArgs.id_command is `required = true`; clap guarantees >= 1 element");
+        (id, strip_leading_separator(it.collect()))
+    }
 }
 
 #[derive(clap::Args)]
@@ -2242,11 +2310,14 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         log_cri,
         cidfile,
         shm_size,
-        image,
-        command,
+        image_command,
         namespace,
         expose,
     } = args;
+    // First element is the image, the rest is the container command — the Docker
+    // split that lets a container flag (`--config`, ...) ride after the image
+    // without `run` stealing it. See the `image_command` field doc.
+    let (image, command) = RunArgs::split_image_command(image_command);
     // `--pod <name>` (imperative join, Podman parity). The flag carries the POD
     // NAME, but every downstream user — `cmd_run`'s netns re-exec, the persisted
     // record, `start` — treats the `pod` field as the pod's NETNS name, which is
@@ -2517,11 +2588,11 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         // difference is `no_start` — `create` persists the record in `Created`
         // state and stops, `run` goes on to launch. See `run_opts_from_args`.
         ContainerCmd::Run(args) => {
-            apply_pull_policy(&images, &args.image, &args.pull, args.platform.as_deref())?;
+            apply_pull_policy(&images, args.image(), &args.pull, args.platform.as_deref())?;
             cmd_run(&images, &store, run_opts_from_args(args, false)?)
         }
         ContainerCmd::Create(args) => {
-            apply_pull_policy(&images, &args.image, &args.pull, args.platform.as_deref())?;
+            apply_pull_policy(&images, args.image(), &args.pull, args.platform.as_deref())?;
             cmd_run(&images, &store, run_opts_from_args(args, true)?)
         }
         ContainerCmd::Ps(PsArgs {
@@ -2582,9 +2653,10 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             workdir,
             user,
             privileged,
-            id,
-            command,
-        }) => cmd_exec(
+            id_command,
+        }) => {
+            let (id, command) = ExecArgs::split_id_command(id_command);
+            cmd_exec(
             &images,
             &store,
             &id,
@@ -2597,7 +2669,8 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             user.as_deref(),
             privileged,
             &command,
-        ),
+            )
+        }
         ContainerCmd::Pause { ids } => for_each_id(&ids, |id| cmd_freeze(&store, id, true)),
         ContainerCmd::Unpause { ids } => for_each_id(&ids, |id| cmd_freeze(&store, id, false)),
         ContainerCmd::Commit { id, tag } => cmd_commit(&images, &store, &id, &tag),
@@ -11255,5 +11328,66 @@ mod rm_namespace_tests {
             resolve_rm_query(&store, "team/db", Some("other")),
             "team/db"
         );
+    }
+}
+
+#[cfg(test)]
+mod run_arg_parity_tests {
+    //! Docker/Podman parity for the `run`/`create`/`exec` positional split:
+    //! every token after the image/container is the command, even when it
+    //! begins with `-` and collides with a delonix flag. See the
+    //! `image_command`/`id_command` field docs and `strip_leading_separator`.
+    use super::{ContainerCmd, RunArgs};
+    use crate::{Cli, Cmd};
+    use clap::Parser;
+
+    fn run_image_command(argv: &[&str]) -> (String, Vec<String>) {
+        let cli = Cli::try_parse_from(argv).expect("parses");
+        match cli.cmd {
+            Cmd::Container {
+                action: ContainerCmd::Run(args) | ContainerCmd::Create(args),
+            } => RunArgs::split_image_command(args.image_command),
+            _ => panic!("not container run/create"),
+        }
+    }
+
+    /// THE REGRESSION GUARD. `run <img> --config=X` used to have `--config`
+    /// stolen by `run`'s own `--config` flag; now it is the container's command.
+    #[test]
+    fn a_container_flag_after_the_image_is_the_command_not_a_run_flag() {
+        let (image, command) =
+            run_image_command(&["delonix", "container", "run", "otel/collector", "--config=/c.yaml"]);
+        assert_eq!(image, "otel/collector");
+        assert_eq!(command, ["--config=/c.yaml"]);
+    }
+
+    /// `run`'s own flags still work when placed BEFORE the image (as in Docker).
+    #[test]
+    fn run_flags_before_the_image_still_parse() {
+        let (image, command) = run_image_command(&[
+            "delonix", "container", "run", "--name", "x", "alpine:3.19", "echo", "hi",
+        ]);
+        assert_eq!(image, "alpine:3.19");
+        assert_eq!(command, ["echo", "hi"]);
+    }
+
+    /// The `--` separator still works and is consumed (not passed as argv[0]).
+    #[test]
+    fn a_leading_double_dash_in_the_command_is_consumed() {
+        let (image, command) =
+            run_image_command(&["delonix", "container", "run", "alpine:3.19", "--", "-n", "x"]);
+        assert_eq!(image, "alpine:3.19");
+        assert_eq!(command, ["-n", "x"]);
+    }
+
+    /// A SECOND `--` (a genuine argument) survives — only the separator is dropped.
+    #[test]
+    fn strip_leading_separator_drops_only_the_first_double_dash() {
+        assert_eq!(
+            super::strip_leading_separator(vec!["--".into(), "--".into(), "x".into()]),
+            vec!["--".to_string(), "x".to_string()]
+        );
+        assert_eq!(super::strip_leading_separator(vec!["a".into()]), vec!["a".to_string()]);
+        assert!(super::strip_leading_separator(vec![]).is_empty());
     }
 }
