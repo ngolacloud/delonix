@@ -3003,7 +3003,7 @@ mod container_image_contract_tests {
         let cmd = super::Cli::command();
         let exec = verb(&cmd, "container", "exec");
         let short: BTreeSet<char> = exec.get_arguments().filter_map(|a| a.get_short()).collect();
-        for f in ['i', 't', 'e', 'w', 'u'] {
+        for f in ['d', 'i', 't', 'e', 'w', 'u'] {
             assert!(short.contains(&f), "`container exec -{f}` disappeared");
         }
     }

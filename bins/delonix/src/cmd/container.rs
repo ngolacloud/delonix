@@ -1624,6 +1624,9 @@ pub struct RmArgs {
 
 #[derive(clap::Args)]
 pub struct ExecArgs {
+    /// Run the command in the background and return immediately.
+    #[arg(short = 'd', long, conflicts_with_all = ["interactive", "tty"])]
+    detach: bool,
     /// Interactive (attaches stdin).
     #[arg(short = 'i', long)]
     interactive: bool,
@@ -2558,6 +2561,7 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         }),
         ContainerCmd::Prune { force } => cmd_prune(&images, &store, force),
         ContainerCmd::Exec(ExecArgs {
+            detach,
             interactive,
             tty,
             env,
@@ -2569,6 +2573,7 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             &images,
             &store,
             &id,
+            detach,
             interactive,
             tty,
             &env,
@@ -6560,10 +6565,12 @@ pub(crate) fn cmd_rm(images: &ImageStore, store: &Store, id: &str, force: bool) 
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn cmd_exec(
     images: &ImageStore,
     store: &Store,
     id: &str,
+    detach: bool,
     interactive: bool,
     tty: bool,
     env: &[String],
@@ -6645,6 +6652,10 @@ pub(crate) fn cmd_exec(
         supplementary_groups: &user_groups,
         // An interactive `exec` runs for as long as the user wants it to.
         timeout_secs: None,
+        // `exec -d`: the grandchild daemonizes inside the container and the CLI
+        // returns right after launching it (docker `exec -d`). Mutually
+        // exclusive with `-i`/`-t`, enforced by clap at parse time.
+        detach,
     };
     let code = runtime::exec_with(&c, command, tty, &overrides)?;
     std::process::exit(code);
