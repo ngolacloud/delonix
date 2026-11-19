@@ -1,0 +1,22 @@
+== bancada ==
+  cpu:        13th Gen Intel(R) Core(TM) i9-13900H (20 threads)
+  memória:    62 GiB
+  kernel:     7.0.0-43-generic
+  load(1m):   2.70   (limiar: 10.00)
+  densidade:  0 container(s) delonix a correr
+  docker: Docker version 29.10.0, build fdd4b8e
+  podman: podman version 4.9.3
+  delonix:    delonix 0.1.1
+
+== aquecimento (o root do delonix nasce vazio; docker e podman já têm a imagem) ==
+
+== 4a: latência de `run --rm`, no DEFAULT de cada motor (n=12) ==
+  docker (bridge)                2335 ms   (min 2108, max 2639, dispersão 1.25x)
+                               amostras: 2328 2466 2301 2293 2578 2342 2108 2263 2277 2455 2639 2458 
+  podman (slirp)                  232 ms   (min 221, max 1347, dispersão 6.10x)
+                               amostras: 324 241 231 229 234 228 226 227 1347 237 221 237 
+  delonix (host)                   74 ms   (min 49, max 111, dispersão 2.27x)
+                               amostras: 111 73 68 76 74 49 78 76 82 74 69 60 
+
+Nota: os defaults NÃO são a mesma configuração. O do delonix é `--net host`;
+para a comparação com rede isolada ver o `docs/comparacao-medida.md`, linha 4b.
