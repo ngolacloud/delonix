@@ -1,11 +1,11 @@
-# PERFORMANCE.md — `delonix 0.1.3`, tempo por grupo de comando
+# PERFORMANCE.md — `delonix 0.1.3`, time per command group
 
-Latência de `delonix <folha> --help` (RUNS=20 por folha, 366 folhas, 78
-grupos). Valores em ms. `mean-dos-means` = média das médias das folhas do grupo.
-Arranque base: `--version` 9.874 ms mean, `--help` 9.886 ms mean.
-mean global: 9.12 ms · mediana 9.065 ms · min 7.785 · max 10.715.
+Latency of `delonix <leaf> --help` (RUNS=20 per leaf, 366 leaves, 78
+groups). Values in ms. `mean-of-means` = average of the leaf means in the group.
+Base cold start: `--version` 9.874 ms mean, `--help` 9.886 ms mean.
+Global mean: 9.12 ms · median 9.065 ms · min 7.785 · max 10.715.
 
-| grupo | folhas | mean-dos-means (ms) | p95 máx (ms) | p99 máx (ms) |
+| group | leaves | mean-of-means (ms) | p95 max (ms) | p99 max (ms) |
 |---|--:|--:|--:|--:|
 | `run` | 1 | 10.53 | 12.14 | 12.26 |
 | `pull` | 1 | 10.27 | 11.73 | 11.75 |
@@ -87,10 +87,10 @@ mean global: 9.12 ms · mediana 9.065 ms · min 7.785 · max 10.715.
 | `commit` | 1 | 7.95 | 9.38 | 10.09 |
 
 
-## Notas
+## Notes
 
-- O tempo medido é **parse + `fork`/`exec`** (clap curto-circuita no `--help`,
-  antes de qualquer efeito), ou seja a latência de arranque da superfície CLI.
-- Percentis com n<20 por folha são indicativos; a sonda de concorrência (§5 do
-  report) gera n alto (8736 amostras) para o perfil sob carga.
-- Reproduzir: `DELONIX_BIN=target/release/delonix RUNS=20 bash scripts/cli_timing_profile.sh`.
+- The measured time is **parse + `fork`/`exec`** (clap short-circuits on `--help`,
+  before any effect), i.e. the startup latency of the CLI surface.
+- Percentiles with n<20 per leaf are indicative; the concurrency probe (§5 of the
+  report) generates a high n (8736 samples) for the profile under load.
+- Reproduce: `DELONIX_BIN=target/release/delonix RUNS=20 bash scripts/cli_timing_profile.sh`.
