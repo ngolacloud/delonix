@@ -17946,3 +17946,57 @@ msgstr "nenhuma imagem '{distro}' está publicada em '{repo}' — tags disponív
 msgid "Base distro of the VM (semantic selector: `ubuntu`|`debian`|`rocky`|`fedora`). Without `--disk`/`--url-img` it picks the matching official `base` image and first checks the VM image repository is reachable; with `--disk` it cross-checks the resolved image's own distro and refuses a mismatch"
 msgstr "Distro base da VM (selector semântico: `ubuntu`|`debian`|`rocky`|`fedora`). Sem `--disk`/`--url-img` escolhe a imagem `base` oficial correspondente e verifica primeiro que o repositório de imagens de VM está acessível; com `--disk` confronta a distro da própria imagem resolvida e recusa uma divergência"
 
+# ---------------------------------------------------------------------------
+# `vm logs` + `vm create --capture-serial` (campanha de observabilidade: logs
+# dos recursos prontos para expedidores externos — Loki/Graylog/Elasticsearch).
+# ---------------------------------------------------------------------------
+
+msgid "Read the VM's captured serial console — boot/kernel/systemd/app output."
+msgstr "Lê a consola série capturada da VM — saída de arranque/kernel/systemd/aplicação."
+
+msgid "Needs the VM created with `--capture-serial` (the file a log shipper tails). Mirrors `container logs`: non-interactive, follows on `-f`."
+msgstr "Precisa que a VM tenha sido criada com `--capture-serial` (o ficheiro que um expedidor de logs segue). Espelha `container logs`: não-interactivo, segue com `-f`."
+
+msgid ""
+"Read the VM's captured serial console — boot/kernel/systemd/app output."
+"\n"
+"\n"
+"Needs the VM created with `--capture-serial` (the file a log shipper tails). Mirrors `container logs`: non-interactive, follows on `-f`."
+msgstr ""
+"Lê a consola série capturada da VM — saída de arranque/kernel/systemd/aplicação."
+"\n"
+"\n"
+"Precisa que a VM tenha sido criada com `--capture-serial` (o ficheiro que um expedidor de logs segue). Espelha `container logs`: não-interactivo, segue com `-f`."
+
+msgid "Capture the serial console to a file for `delonix vm logs` (and log shippers) instead of keeping it interactive — `vm console` is then unavailable (one guest serial port)."
+msgstr "Captura a consola série para um ficheiro, para `delonix vm logs` (e expedidores de logs), em vez de a manter interactiva — `vm console` fica então indisponível (uma só porta série no convidado)."
+
+msgid "Follow the serial log as new lines arrive (Ctrl-C to stop)."
+msgstr "Segue o log série à medida que chegam novas linhas (Ctrl-C para parar)."
+
+msgid "Print only the last N lines of the existing log first."
+msgstr "Mostra primeiro só as últimas N linhas do log existente."
+
+msgid "VM '{name}' was not created with --capture-serial, so it keeps an interactive console and writes no serial log — recreate it with `delonix vm create {name} … --capture-serial`, or attach live with `delonix vm console {name}`"
+msgstr "A VM '{name}' não foi criada com --capture-serial, por isso mantém uma consola interactiva e não escreve log série — recria-a com `delonix vm create {name} … --capture-serial`, ou liga-te ao vivo com `delonix vm console {name}`"
+
+msgid "no serial log yet for VM '{name}' at {path} — it appears once the VM boots with capture on"
+msgstr "ainda não há log série para a VM '{name}' em {path} — aparece assim que a VM arranca com a captura ligada"
+
+msgid "serial log of VM '{name}' at {path} is not readable by this user — the system hypervisor wrote it as root; recreate the VM on a rootless backend (`--backend cloud-hypervisor`) or read it with elevated privileges"
+msgstr "o log série da VM '{name}' em {path} não é legível por este utilizador — o hypervisor de sistema escreveu-o como root; recria a VM num backend sem privilégios (`--backend cloud-hypervisor`) ou lê-o com privilégios elevados"
+
+msgid "read the captured serial console of a VM created with --capture-serial (a log shipper tails the same file)"
+msgstr "lê a consola série capturada de uma VM criada com --capture-serial (um expedidor de logs segue o mesmo ficheiro)"
+
+msgid "follow the serial console live"
+msgstr "segue a consola série ao vivo"
+
+# Dívida de tradução pré-existente em develop (ARG_HELP_PENDING=0 mas estes arg
+# help nunca foram traduzidos) — resolvida aqui para manter o gate verde.
+msgid "Join an existing pod's shared netns (Podman `run --pod`): the container gets the pod's IP and ports and reaches its peers on `127.0.0.1`. The pod (declared with `kind: Pod`) defines the network, so do NOT combine with `--net <network>`"
+msgstr "Junta-se à netns partilhada de um pod existente (Podman `run --pod`): o container recebe o IP e as portas do pod e alcança os seus pares em `127.0.0.1`. O pod (declarado com `kind: Pod`) define a rede, por isso NÃO combinar com `--net <rede>`"
+
+msgid "Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION` (1.37, the latest stable on pkgs.k8s.io). 1.34/1.35/1.36 remain available by passing them here"
+msgstr "Versão do Kubernetes (ex. `1.31`) — omite para `DEFAULT_K8S_VERSION` (1.37, a última estável em pkgs.k8s.io). 1.34/1.35/1.36 continuam disponíveis passando-as aqui"
+

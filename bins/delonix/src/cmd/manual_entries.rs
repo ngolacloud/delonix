@@ -3400,6 +3400,15 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["vm vnc", "get", "vm create", "vm restart"],
     },
     Entry {
+        path: "vm logs",
+        group: "Interact",
+        examples: &[
+            ("read the captured serial console of a VM created with --capture-serial (a log shipper tails the same file)", "delonix vm logs dev"),
+            ("follow the serial console live", "delonix vm logs dev -f"),
+        ],
+        see_also: &["vm console", "vm create", "logs"],
+    },
+    Entry {
         path: "vm ssh",
         group: "Interact",
         examples: &[
