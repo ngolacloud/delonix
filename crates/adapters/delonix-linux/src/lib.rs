@@ -3189,7 +3189,7 @@ fn detach_old_root(old: &str, rshared: bool) -> nix::Result<()> {
 /// writable, kernel RAM readable, or (worst, because the first bind succeeds and
 /// the remount is what fails) a `/proc/sys` that looks mounted and still writes
 /// the HOST's sysctls.
-fn mask_proc_paths(privileged: bool) -> std::result::Result<(), String> {
+fn mask_proc_paths(privileged: bool, host_pid: bool) -> std::result::Result<(), String> {
     // bind /dev/null over sysrq-trigger -> writes go to the void.
     if std::fs::metadata("/proc/sysrq-trigger").is_ok() {
         mount(
@@ -3219,22 +3219,45 @@ fn mask_proc_paths(privileged: bool) -> std::result::Result<(), String> {
     // SECOND is the one that must not be ignored: without it the bind above
     // leaves `/proc/sys` writable behind a mount that looks right.
     if std::fs::metadata("/proc/sys").is_ok() {
-        mount(
+        let masked = mount(
             Some("/proc/sys"),
             "/proc/sys",
             None::<&str>,
             MsFlags::MS_BIND,
             None::<&str>,
         )
-        .map_err(|e| format!("could not bind '/proc/sys' for read-only: {e}"))?;
-        mount(
-            None::<&str>,
-            "/proc/sys",
-            None::<&str>,
-            MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
-            None::<&str>,
-        )
-        .map_err(|e| format!("could not remount '/proc/sys' read-only: {e}"))?;
+        .and_then(|_| {
+            mount(
+                None::<&str>,
+                "/proc/sys",
+                None::<&str>,
+                MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
+                None::<&str>,
+            )
+        });
+        if let Err(e) = masked {
+            // `--host-pid` makes `/proc` a RECURSIVE BIND of the host's `/proc`
+            // (the kernel refuses a fresh procfs in the host's pidns, see
+            // `setup_rootfs`), so `/proc/sys` carries the host's submounts and
+            // this self-bind fails `EINVAL` in a rootless user namespace —
+            // aborting a container Docker/Podman would have started (`run --pid
+            // host` died, worked only with `--privileged`). It is NOT a hole to
+            // leave it writable here: as `proc_sys_read_only` documents, a user
+            // namespace already refuses writes to the init-ns sysctls, so the
+            // writable view changes nothing an unprivileged container could do.
+            // So: DEGRADE to a warning under `--host-pid`, but stay FAIL-CLOSED
+            // when `/proc` is our own fresh procfs (`!host_pid`), where the
+            // remount is expected to work and a failure is a real fault.
+            if ro_failure_is_tolerable(host_pid, "/proc/sys") {
+                eprintln!(
+                    "delonix: /proc/sys left writable under --host-pid — the shared host /proc \
+                     cannot be remounted read-only rootless ({e}); the user namespace still \
+                     refuses writes to the host's sysctls"
+                );
+            } else {
+                return Err(format!("could not make '/proc/sys' read-only: {e}"));
+            }
+        }
     }
     Ok(())
 }
@@ -3256,6 +3279,22 @@ fn mask_proc_paths(privileged: bool) -> std::result::Result<(), String> {
 /// kernel still refuses writes to sysctls owned by the initial namespace.
 fn proc_sys_read_only(privileged: bool) -> bool {
     !privileged
+}
+
+/// Whether a FAILED read-only remount of `path` is tolerable (warn and carry on)
+/// rather than fail-closed (abort the container).
+///
+/// Only under `--host-pid`, and only for a `/proc/*` subtree. That is the single
+/// case the kernel forces on us: with the host's pidns shared it refuses a fresh
+/// procfs ("fully visible" rule), so the engine binds the host's `/proc`
+/// recursively, and a rootless user namespace then cannot remount those
+/// host-owned, locked `/proc/*` submounts read-only (EINVAL/EPERM). Leaving them
+/// writable is not a hole here: the user namespace already refuses the
+/// host-level sysctl/PCI/IRQ writes the read-only guard existed to stop (see
+/// `proc_sys_read_only`). Every other path, and the whole non-`--host-pid` case
+/// (where `/proc` is our own fresh procfs), stays fail-closed. PURE.
+fn ro_failure_is_tolerable(host_pid: bool, path: &str) -> bool {
+    host_pid && path.starts_with("/proc/")
 }
 
 /// Base and size of the UID mapping for the user namespace: the container's
@@ -5074,13 +5113,13 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
 
     // The engine's own `/proc` defaults, moved here from `setup_rootfs` so the
     // refusal can name the path (see the note there).
-    if let Err(e) = mask_proc_paths(privileged) {
+    if let Err(e) = mask_proc_paths(privileged, host_pid) {
         return setup_abort(&e);
     }
     if let Err(e) = apply_masked_paths(masked_paths) {
         return setup_abort(&e);
     }
-    if let Err(e) = apply_readonly_paths(readonly_paths) {
+    if let Err(e) = apply_readonly_paths(readonly_paths, host_pid) {
         return setup_abort(&e);
     }
     // READY: the last mount is in. Everything that shapes this mount namespace —
@@ -5448,7 +5487,7 @@ fn is_masked_with_dev_null(p: &str) -> bool {
 /// mount to modify, then a `MS_REMOUNT|MS_RDONLY|MS_BIND` on it. Passing
 /// `MS_RDONLY` on the first bind is silently ignored by the kernel — the classic
 /// mistake, and it produces a path that reports success and stays writable.
-fn apply_readonly_paths(paths: &[String]) -> std::result::Result<(), String> {
+fn apply_readonly_paths(paths: &[String], host_pid: bool) -> std::result::Result<(), String> {
     for p in paths {
         if std::fs::metadata(p).is_err() {
             continue;
@@ -5468,27 +5507,44 @@ fn apply_readonly_paths(paths: &[String]) -> std::result::Result<(), String> {
         // leaves the bind from the first step in place, so the path looks
         // mounted and stays WRITABLE — the caller asked for read-only by name
         // and would get the opposite, silently.
-        if let Err(e) = mount(
+        let ro = mount(
             Some(p.as_str()),
             p.as_str(),
             None::<&str>,
             MsFlags::MS_BIND | MsFlags::MS_REC,
             None::<&str>,
-        ) {
-            return Err(format!(
-                "could not bind '{p}' for read-only (requested explicitly): {e}"
-            ));
-        }
-        if let Err(e) = mount(
-            Some(p.as_str()),
-            p.as_str(),
-            None::<&str>,
-            MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY | MsFlags::MS_REC,
-            None::<&str>,
-        ) {
-            return Err(format!(
-                "could not remount '{p}' read-only (requested explicitly): {e}"
-            ));
+        )
+        .and_then(|_| {
+            mount(
+                Some(p.as_str()),
+                p.as_str(),
+                None::<&str>,
+                MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY | MsFlags::MS_REC,
+                None::<&str>,
+            )
+        });
+        if let Err(e) = ro {
+            // Under `--host-pid`, `/proc` is a recursive bind of the host's
+            // `/proc` (the kernel refuses a fresh procfs in the host's pidns),
+            // so these `/proc/*` subtrees carry the host's locked submounts and
+            // cannot be remounted read-only in a rootless user namespace
+            // (EINVAL/EPERM). Same reasoning as `mask_proc_paths`: the user
+            // namespace already refuses the host-level writes these guard, so
+            // DEGRADE to a warning rather than abort a container Docker/Podman
+            // would run. Any OTHER path (or without `--host-pid`) stays
+            // FAIL-CLOSED — a named path left writable is the silent opposite of
+            // what was asked.
+            if ro_failure_is_tolerable(host_pid, p) {
+                eprintln!(
+                    "delonix: '{p}' left writable under --host-pid — the shared host /proc \
+                     cannot be remounted read-only rootless ({e}); the user namespace still \
+                     refuses the host-level writes it guards"
+                );
+            } else {
+                return Err(format!(
+                    "could not make '{p}' read-only (requested explicitly): {e}"
+                ));
+            }
         }
     }
     Ok(())
@@ -14113,6 +14169,24 @@ mod tests {
         assert!(!super::proc_sys_read_only(true));
         assert!(super::proc_sys_read_only(false));
         assert!(super::DEFAULT_READONLY_PATHS.contains(&"/proc/sys"));
+    }
+
+    /// `--host-pid` makes `/proc` a recursive bind of the host's, so the engine's
+    /// read-only remounts of `/proc/*` cannot succeed in a rootless user ns and
+    /// must degrade to a warning (the userns already refuses the writes). Every
+    /// other path, and the whole non-`--host-pid` case, stays fail-closed —
+    /// otherwise a `--readonly-path /data` left writable would pass silently.
+    #[test]
+    fn host_pid_tolerates_only_proc_ro_failures() {
+        // --host-pid: /proc/* failures are tolerable (the shared host /proc).
+        assert!(super::ro_failure_is_tolerable(true, "/proc/sys"));
+        assert!(super::ro_failure_is_tolerable(true, "/proc/bus"));
+        // --host-pid but NOT a /proc path: still fail-closed.
+        assert!(!super::ro_failure_is_tolerable(true, "/data"));
+        assert!(!super::ro_failure_is_tolerable(true, "/proc")); // the mount itself, not a subtree
+        // No --host-pid: /proc is our own fresh procfs, so never tolerate.
+        assert!(!super::ro_failure_is_tolerable(false, "/proc/sys"));
+        assert!(!super::ro_failure_is_tolerable(false, "/data"));
     }
 
     #[test]
