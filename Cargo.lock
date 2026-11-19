@@ -876,6 +876,7 @@ dependencies = [
  "delonix-telemetry",
  "delonix-vm",
  "delonix-volume",
+ "delonix-warm",
  "flate2",
  "http-body-util",
  "hyper",
@@ -956,6 +957,7 @@ dependencies = [
  "delonix-model",
  "delonix-sdn",
  "delonix-telemetry",
+ "delonix-warm",
  "serde_json",
  "tempfile",
  "tracing",
@@ -1506,6 +1508,14 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "delonix-warm"
+version = "0.1.2"
+dependencies = [
+ "libc",
+ "tempfile",
 ]
 
 [[package]]

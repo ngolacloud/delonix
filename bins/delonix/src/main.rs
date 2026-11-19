@@ -2222,6 +2222,18 @@ fn main() {
     if raw.len() == 3 && raw[1] == "netns" && raw[2] == "control" {
         delonix_sdn::infra::control_main(); // never returns
     }
+    // A parked warm-plane runner (`delonix __poolrunner <fd> [hint]`, ADR-0095).
+    // Intercepted HERE, before `telemetry::init()`, for the same reason `netns
+    // pin` is: it must stay single-threaded, because the start it serves reaches
+    // the supervisor's `fork`, whose safety argument is "single-threaded caller"
+    // — exactly the invariant the cold `__apirun` re-exec exists to hold. The fd
+    // is the control socket the pool duped onto `RUNNER_FD`; the optional hint is
+    // the image to pre-resolve before announcing READY. Never a public subcommand.
+    if (raw.len() == 3 || raw.len() == 4) && raw[1] == "__poolrunner" {
+        let fd: std::os::unix::io::RawFd = raw[2].parse().unwrap_or(delonix_warm::RUNNER_FD);
+        let hint = raw.get(3).map(String::as_str).unwrap_or("");
+        cmd::warmpool::poolrunner(fd, hint); // never returns
+    }
     // Hidden re-exec of the 2nd step of `--net <network>` (see
     // `container::reexec_into_netns`): we already run INSIDE the holder's
     // userns+netns; the container spec comes in a file. Intercepted BEFORE clap
@@ -2361,6 +2373,20 @@ fn main() {
     // reason. Intercepted before clap, like the four above.
     if raw.len() == 3 && raw[1] == "__apirun" {
         cmd::dockerapi::run_from_spec_file(std::path::Path::new(&raw[2]));
+    }
+    // The warm-plane measurement bench (`delonix __poolbench <image> <runs>
+    // <size>`, ADR-0095): a persistent process that starts identical containers
+    // cold (a fresh `__apirun` per run) and warm (a pooled `__poolrunner`), and
+    // emits the per-run wall to `DELONIX_PROFILE_SPAWN` so the pre_spawn drop can
+    // be read against `reports/spawn-profile-2026-11-18/`. Not a public subcommand;
+    // it orchestrates children but never forks a container itself.
+    if (raw.len() == 5 || raw.len() == 6) && raw[1] == "__poolbench" {
+        let runs = raw[3].parse().unwrap_or(20);
+        let size = raw[4].parse().unwrap_or(4);
+        // Optional 5th token: the network the benched containers run on. Absent
+        // ⇒ `host` (the original behaviour); a name ⇒ the ISOLATED path.
+        let net = raw.get(5).map(String::as_str).unwrap_or("host");
+        cmd::warmpool::poolbench(&raw[2], runs, size, net); // never returns
     }
     // Hidden verb for `pod port-forward` (see `cmd::pod::port_forward`): run
     // INSIDE the pod's netns via `join_argv`, with the accepted host-side

@@ -228,6 +228,7 @@ async fn o_status_chega_pelo_transporte_grpc_a_serio() {
             std::sync::Arc::new(NoContainers),
             std::sync::Arc::new(TestRuntime),
             std::sync::Arc::new(TestNetwork),
+            std::sync::Arc::new(delonix_cri::NoWarm),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );
@@ -368,6 +369,7 @@ async fn an_sctp_host_port_is_refused_over_grpc_and_leaves_nothing_behind() {
             std::sync::Arc::new(NoContainers),
             std::sync::Arc::new(TestRuntime),
             std::sync::Arc::new(TestNetwork),
+            std::sync::Arc::new(delonix_cri::NoWarm),
             &format!("unix://{s}"),
             delonix_cri::CapCeiling::unlimited(),
         );

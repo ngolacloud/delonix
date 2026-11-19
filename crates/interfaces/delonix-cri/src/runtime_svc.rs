@@ -31,6 +31,11 @@ pub struct DelonixRuntime {
     /// the value is resolved ONCE at startup, so a malformed setting fails the
     /// server instead of silently degrading per request.
     pub cap_ceiling: crate::CapCeiling,
+    /// The warm plane (ADR-0095): `StartContainer` consults it to serve an
+    /// isolated native-SDN start from a holder-resident runner instead of a cold
+    /// child. [`crate::NoWarm`] by default (warming off); the real plane is wired
+    /// by the bin via [`with_warm`](DelonixRuntime::with_warm).
+    pub warm: std::sync::Arc<dyn crate::WarmOps>,
 }
 
 impl DelonixRuntime {
@@ -49,7 +54,16 @@ impl DelonixRuntime {
             network,
             streamer,
             cap_ceiling,
+            warm: std::sync::Arc::new(crate::NoWarm),
         }
+    }
+
+    /// Wire a real warm plane (the bin's; the default is [`crate::NoWarm`]).
+    /// Builder form so [`new`](DelonixRuntime::new) keeps its signature for the
+    /// crate's tests, which never warm.
+    pub fn with_warm(mut self, warm: std::sync::Arc<dyn crate::WarmOps>) -> Self {
+        self.warm = warm;
+        self
     }
 }
 
@@ -329,8 +343,11 @@ impl RuntimeService for DelonixRuntime {
         let ceiling = self.cap_ceiling;
         let ops = self.containers.clone();
         let rt = self.runtime.clone();
-        blocking(move || lifecycle::start_container(&base, ops.as_ref(), rt.as_ref(), id, ceiling))
-            .await
+        let warm = self.warm.clone();
+        blocking(move || {
+            lifecycle::start_container(&base, ops.as_ref(), rt.as_ref(), warm.as_ref(), id, ceiling)
+        })
+        .await
     }
     #[tracing::instrument(name = "cri.stop_container", skip_all, fields(
         container = %r.get_ref().container_id,

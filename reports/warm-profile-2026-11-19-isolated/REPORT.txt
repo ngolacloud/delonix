@@ -1,0 +1,35 @@
+=== Perfil do plano morno (ADR-0095) — pre_spawn = wall − spawn_total ===
+
+[cold]  (20 corridas)
+  wall (processo→container pronto):
+    min  121.97 | mediana  135.01 | max  1279.33 ms  (n=20)
+  spawn_total (mecânica do container — clone/cgroup/mounts):
+    min    7.97 | mediana   15.41 | max    23.65 ms  (n=20)
+  >> pre_spawn (o que o plano morno ataca) = wall − spawn_total:
+    min  109.30 | mediana  123.77 | max  1263.83 ms  (n=20)
+     decomposto (cmd_run, medido): prespawn_total min    0.73 | mediana    0.98 | max   362.51 ms  (n=20)
+       policy_preflight min    0.29 | mediana    0.43 | max   361.86 ms  (n=20)
+       claims           min    0.06 | mediana    0.26 | max     0.73 ms  (n=20)
+       resolve_rootfs   min    0.13 | mediana    0.21 | max     0.43 ms  (n=20)
+       record_net       min    0.01 | mediana    0.03 | max     0.09 ms  (n=20)
+     (o resto do pre_spawn = carga do processo + handshake/socket)
+
+[warm]  (20 corridas)
+  wall (processo→container pronto):
+    min   16.85 | mediana   23.87 | max   537.75 ms  (n=20)
+  spawn_total (mecânica do container — clone/cgroup/mounts):
+    min    6.00 | mediana   16.62 | max   530.93 ms  (n=20)
+  >> pre_spawn (o que o plano morno ataca) = wall − spawn_total:
+    min    6.05 | mediana    7.64 | max    12.15 ms  (n=20)
+     decomposto (cmd_run, medido): prespawn_total min    1.01 | mediana    1.83 | max     2.67 ms  (n=20)
+       policy_preflight min    0.21 | mediana    0.39 | max     0.67 ms  (n=20)
+       claims           min    0.43 | mediana    0.95 | max     1.53 ms  (n=20)
+       resolve_rootfs   min    0.25 | mediana    0.43 | max     0.67 ms  (n=20)
+       record_net       min    0.01 | mediana    0.03 | max     0.05 ms  (n=20)
+     (o resto do pre_spawn = carga do processo + handshake/socket)
+
+=== Veredicto ===
+  pre_spawn cold (mediana):  123.77 ms
+  pre_spawn warm (mediana):    7.64 ms
+  queda:  116.12 ms  ( 93.8 %)
+  baseline host 2026-11-18: pre_spawn ~57.9 ms (68 %) — comparar o cold acima.
