@@ -31,6 +31,7 @@ pub mod features;
 pub mod firewall;
 pub mod flow;
 pub mod gatewayproviders;
+pub mod help;
 pub mod hosts;
 pub mod hosts_file;
 pub mod httproute;
