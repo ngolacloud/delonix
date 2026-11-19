@@ -9,7 +9,7 @@ shutdown.
 
 | | |
 |---|---|
-| Language / runtime | Python 3.13 (`.python-version`, `Delonixfile`) |
+| Language / runtime | Python 3.11 (`.python-version`; distroless `python3-debian12` at runtime) |
 | Framework / server | FastAPI __TEMPLATE_VERSION__, Pydantic 2, Uvicorn |
 | Tooling | uv (lock, environment, build), Ruff (format + lint), mypy `--strict`, pytest |
 | Telemetry | OpenTelemetry SDK (traces, metrics), contrib FastAPI and httpx instrumentation |
@@ -26,7 +26,7 @@ mechanism before exposing it.
 ## Quickstart
 
 Prerequisites: [uv](https://docs.astral.sh/uv/) 0.12 or newer (it installs
-Python 3.13 itself); `make` and `curl`; Delonix to build and run the image.
+Python 3.11 itself); `make` and `curl`; Delonix to build and run the image.
 
 ```bash
 make lock                         # resolve and write uv.lock — commit it (see below)

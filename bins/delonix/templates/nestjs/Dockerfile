@@ -1,8 +1,8 @@
 # The image compose.yaml and `docker build` use. It is the same two-stage node
 # build as the Delonixfile (which `delonix build` uses and may extend with
-# Delonix-only directives): keep the two in step when you change either. The one
-# difference is the launcher — this image goes through docker/entrypoint.sh so a
-# `docker run` can pass extra node flags; the Delonixfile CMDs the same command.
+# Delonix-only directives): keep the two in step when you change either. Both run
+# on distroless/nodejs22 (no shell), so both exec node directly: ENTRYPOINT is the
+# node binary and the CMD carries only the arguments — no docker/entrypoint.sh.
 #
 #   docker build -t __NAME__:dev .          # or: docker compose build
 #
@@ -10,7 +10,9 @@
 # the production dependencies; only those and the compiled dist/ reach the
 # runtime image — no TypeScript, CLI, test, lint tooling or package manager.
 # .dockerignore keeps .env, node_modules and .git out of the context.
-FROM node:24-slim AS build
+# The runtime is distroless/nodejs22, so the build stage MUST be Node 22: the
+# node_modules (and any native addon) are pinned to the Node 22 ABI.
+FROM node:22-slim AS build
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 CI=true
 WORKDIR /app
 # pnpm at the version pinned in package.json ("packageManager").
@@ -22,22 +24,32 @@ RUN --mount=type=cache,target=/pnpm/store if [ -f pnpm-lock.yaml ]; then pnpm in
 # Drop the dev dependencies here, so the runtime stage needs no package manager.
 RUN pnpm build && pnpm prune --prod
 
-FROM node:24-slim
+# Distroless/nodejs22: just the Node 22 runtime, the CA roots and a pre-created
+# nonroot user (uid 65532) — no shell, no npm/pnpm, no apt. The token
+# __DISTROLESS_REGISTRY__ is substituted by the scaffold (default
+# gcr.io/distroless), with a conventional fallback (node:22-slim) if it cannot
+# be pulled.
+FROM __DISTROLESS_REGISTRY__/nodejs22-debian12:nonroot
 ENV NODE_ENV=production APP_ENV=production
 WORKDIR /app
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/docker/entrypoint.sh ./docker/entrypoint.sh
 ARG VERSION=dev
 ENV APP_VERSION=${VERSION}
 EXPOSE __PORT__
-# The runtime probes liveness; readiness is for the load balancer.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:__PORT__/api/v1/health/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+# No shell in distroless: the healthcheck is exec-form (a JSON array, run WITHOUT
+# a shell) and calls node by absolute path. The runtime probes liveness;
+# readiness is for the load balancer.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:__PORT__/api/v1/health/live').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 STOPSIGNAL SIGTERM
-# node:24-slim ships this unprivileged user (uid 1000); it owns nothing in the
-# image and writes only to the manifest's tmpfs.
-USER node
-# The entry point loads the instrumentation before the application and then
-# execs node, so SIGTERM reaches the process directly (see docker/entrypoint.sh).
-ENTRYPOINT ["sh", "/app/docker/entrypoint.sh"]
+# distroless/nodejs ships the nonroot user (uid 65532); numeric uid:gid needs no
+# /etc/passwd entry, so it also holds on the conventional fallback base. The
+# process owns nothing under /app and writes only to the manifest's tmpfs.
+USER 65532:65532
+# No shell in distroless: no entrypoint.sh wrapper. distroless/nodejs sets
+# ENTRYPOINT=["/nodejs/bin/node"]; declared explicitly, with the instrumentation
+# loaded before the application via the CMD arguments. node is PID 1 directly, so
+# SIGTERM reaches the ordered shutdown in dist/main.js.
+ENTRYPOINT ["/nodejs/bin/node"]
+CMD ["--require", "./dist/instrumentation.js", "dist/main.js"]

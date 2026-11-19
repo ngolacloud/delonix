@@ -38,12 +38,13 @@ services:
       rabbitmq:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:__PORT__/api/v1/health/live || exit 1"]
+      # Distroless has no shell/wget: the binary self-probes (exec form).
+      test: ["CMD", "/usr/local/bin/server", "healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
-    user: "app"
+    user: "65532:65532"
     tmpfs:
       - /tmp
 

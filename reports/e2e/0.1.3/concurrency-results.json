@@ -1,0 +1,22 @@
+{
+  "binary": "/home/walter/workspaces/NgolaCloud/projects/.worktrees/ngolacloud/delonix/distroless-default-vm-distro/target/release/delonix",
+  "mode": "duration",
+  "concurrency": 32,
+  "duration_s": 20,
+  "iterations_per_worker": 0,
+  "elapsed_ms": 20056,
+  "active_leaves": ["version","info","ps","image ls","vm ls","system info","events --help"],
+  "skipped_leaves": [{"leaf":"net ls","serial_rc":2}],
+  "total_invocations": 8736,
+  "ok": 8736,
+  "errors": 0,
+  "success_rate": 1.0000,
+  "error_rate": 0.0000,
+  "throughput_per_s": 435.58,
+  "latency_ms": {
+    "min": 10.592, "p50": 51.657, "p95": 108.590, "p99": 362.212, "max": 736.948, "mean": 61.829
+  },
+  "state_corruption_suspected": false,
+  "failure_count": 0,
+  "failures": []
+}

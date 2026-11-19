@@ -6,7 +6,7 @@ for the Python side, not from `latest`.
 
 | Service | Image (pinned) | Role | Profile | State |
 |---|---|---|---|---|
-| app | built from `Dockerfile` (python:3.13-slim) | the Django service (gunicorn) | default | validated |
+| app | built from `Dockerfile` (build python:3.11-slim → runtime distroless python3-debian12) | the Django service (gunicorn) | default | validated |
 | app-consumer | same image, `manage.py consume_events` | reads `note.created` from RabbitMQ | default | upstream-available |
 | redis | `redis:7.4-alpine` | Django cache backend | default | upstream-available |
 | rabbitmq | `rabbitmq:4.0-management-alpine` | `note.created` pub/sub | default | upstream-available |

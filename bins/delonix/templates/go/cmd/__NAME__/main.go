@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,10 +34,39 @@ import (
 var version = "dev"
 
 func main() {
+	// Container HEALTHCHECK. The runtime image is distroless (no shell, no
+	// wget/curl), so the HEALTHCHECK runs the binary itself: `server healthcheck`
+	// probes the liveness endpoint over loopback and maps a 2xx to exit 0.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck())
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "fatal:", err)
 		os.Exit(1)
 	}
+}
+
+// healthcheck GETs /api/v1/health/live over loopback and returns a process exit
+// code: 0 for a 2xx, 1 otherwise. It reads PORT exactly as config.Load does —
+// same env var, same "__PORT__" default — so it always targets the port the
+// server listens on. Standard library only, bounded by a 3s timeout.
+func healthcheck() int {
+	port := strings.TrimSpace(os.Getenv("PORT"))
+	if port == "" {
+		port = "__PORT__"
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://127.0.0.1:" + port + "/api/v1/health/live")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "healthcheck:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, "healthcheck: unhealthy status", resp.StatusCode)
+	return 1
 }
 
 func run() error {

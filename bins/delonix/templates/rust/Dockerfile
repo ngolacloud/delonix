@@ -4,12 +4,20 @@
 #
 #   docker build -t __NAME__:dev .          # or: docker compose build
 #
-# Stage 1 compiles a release binary against glibc; only the binary, the CA roots
-# and a tiny entrypoint reach the runtime image — no toolchain, no source tree,
-# no build cache. Manifests are copied first so the dependency build is cached
-# until they change. .dockerignore keeps .env, target/ and the git tree out of
-# the context.
-FROM rust:__TEMPLATE_VERSION__-slim AS build
+# Stage 1 compiles a release binary against glibc; only the binary reaches the
+# runtime image — no toolchain, no source tree, no build cache. Manifests are
+# copied first so the dependency build is cached until they change.
+# .dockerignore keeps .env, target/ and the git tree out of the context.
+#
+# The runtime is distroless/cc: a minimal image with no shell, no package
+# manager and no extra userland — just glibc, libgcc and libstdc++ (so the
+# dynamically linked, glibc-based binary runs), the CA roots for outbound HTTPS,
+# and a pre-created `nonroot` user (uid 65532). No apt, no entrypoint script,
+# no curl: the healthcheck is an exec-form subcommand of the app itself.
+# Build on bookworm so the glibc the binary links against matches the runtime
+# image (distroless/cc is debian12/bookworm, glibc 2.36). A plain `rust:*-slim`
+# now tracks trixie, whose newer glibc symbols would fail to resolve at runtime.
+FROM rust:__TEMPLATE_VERSION__-slim-bookworm AS build
 WORKDIR /src
 # Cache dependencies: a manifest-only layer that only rebuilds when they change.
 # No `|| true`: a real dependency error must fail HERE, not hide until the next
@@ -26,21 +34,21 @@ COPY . /src
 RUN cargo build --release --locked --quiet || cargo build --release --quiet
 RUN cp "target/release/__NAME__" /usr/local/bin/__NAME__
 
-FROM debian:trixie-slim
-# CA roots for the outbound webhook over https, and curl for the healthcheck.
-# An unprivileged user for the service (uid 10001): it owns nothing in the image
-# and writes only to the manifest's tmpfs.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 10001 app \
-    && useradd --system --uid 10001 --gid app --no-create-home --home-dir /nonexistent app
+# distroless/cc already ships glibc + libgcc + libstdc++ (so the dynamically
+# linked binary runs), the CA roots for the outbound webhook over https, and the
+# `nonroot` user (uid 65532). No apt, no shell, nothing to install: the service
+# owns nothing in the image and writes only to the manifest's tmpfs.
+FROM __DISTROLESS_REGISTRY__/cc-debian12:nonroot
 COPY --from=build /usr/local/bin/__NAME__ /usr/local/bin/__NAME__
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 ENV APP_ENV=production LOG_LEVEL=info
 EXPOSE __PORT__
-# The runtime probes liveness; readiness is for the load balancer.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:__PORT__/api/v1/health/live || exit 1
+# The runtime probes liveness; readiness is for the load balancer. distroless
+# has no shell and no curl, so the app answers its own probe via the
+# `healthcheck` subcommand (exec-form), which GETs /api/v1/health/live.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/__NAME__", "healthcheck"]
 STOPSIGNAL SIGTERM
-USER app
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Numeric uid:gid — valid in distroless and in a conventional base alike.
+USER 65532:65532
+# No entrypoint script (distroless runs no shell): exec the binary directly, so
+# it is PID 1 and SIGTERM reaches it for the ordered shutdown in main.rs.
+ENTRYPOINT ["/usr/local/bin/__NAME__"]
