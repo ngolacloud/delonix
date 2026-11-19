@@ -4062,6 +4062,20 @@ fn volume_refs(doc: &manifest::ManifestDoc) -> Vec<String> {
         .collect()
 }
 
+/// A workload (`Container` or `VirtualMachine`) ALREADY on the machine, carried
+/// into the reference graph with the two things a bare name cannot tell apart:
+/// the `namespace` it lives in — so a bare reference matching the same name in
+/// two namespaces is the `AmbiguousContainer` `Store::load` raises, caught at
+/// `validate` instead of halfway through an `apply` — and its `labels`, so a
+/// `Service` selector is matched against what actually RUNS, not only against
+/// what the manifest declares.
+#[derive(Clone)]
+pub(crate) struct ExistingWorkload {
+    pub name: String,
+    pub namespace: String,
+    pub labels: std::collections::BTreeMap<String, String>,
+}
+
 /// Resolves all the manifest cross-references against what it DECLARES plus
 /// what already EXISTS in the stores (read, best-effort). Returns the list of
 /// problems (empty = intact graph). **Touches nothing** — it is the base shared
@@ -4080,16 +4094,29 @@ pub(crate) fn validate_graph(docs: &[manifest::ManifestDoc]) -> Vec<String> {
         .and_then(|s| s.list())
         .map(|vs| vs.into_iter().map(|v| v.name).collect())
         .unwrap_or_default();
-    let mut existing_containers: Vec<String> = super::util::open_stores()
+    // Containers (one flat store) and VMs (per-namespace subtrees), each carried
+    // with its namespace and labels — the two things a bare name cannot tell
+    // apart (see [`ExistingWorkload`]). Best-effort: a store that does not open
+    // contributes nothing.
+    let mut existing_workloads: Vec<ExistingWorkload> = super::util::open_stores()
         .and_then(|(_, cstore)| Ok(cstore.list()?))
-        .map(|cs| cs.into_iter().map(|c| c.name).collect())
+        .map(|cs| {
+            cs.into_iter()
+                .map(|c| ExistingWorkload {
+                    name: c.name,
+                    namespace: c.namespace,
+                    labels: c.labels,
+                })
+                .collect()
+        })
         .unwrap_or_default();
-    existing_containers.extend(
-        delonix_vm::list(&root)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|v| v.name),
-    );
+    existing_workloads.extend(delonix_vm::list(&root).unwrap_or_default().into_iter().map(
+        |v| ExistingWorkload {
+            name: v.name,
+            namespace: v.namespace,
+            labels: v.labels,
+        },
+    ));
     let existing_secrets: Vec<String> = delonix_state::SecretStore::open(&root)
         .map(|s| s.list().into_iter().map(|sec| sec.name).collect())
         .unwrap_or_default();
@@ -4103,7 +4130,7 @@ pub(crate) fn validate_graph(docs: &[manifest::ManifestDoc]) -> Vec<String> {
         docs,
         &existing_networks,
         &existing_volumes,
-        &existing_containers,
+        &existing_workloads,
         &existing_secrets,
         &existing_configs,
         &super::system_container::registered_names(),
@@ -4142,11 +4169,22 @@ fn validate_graph_with(
     existing_containers: &[String],
     existing_secrets: &[String],
 ) -> Vec<String> {
+    // A bare name on the machine, with no namespace or labels stated, is one in
+    // the `default` namespace — exactly what these containment-only tests meant
+    // before the graph learned about namespaces.
+    let existing_workloads: Vec<ExistingWorkload> = existing_containers
+        .iter()
+        .map(|n| ExistingWorkload {
+            name: n.clone(),
+            namespace: "default".to_string(),
+            labels: Default::default(),
+        })
+        .collect();
     validate_graph_full(
         docs,
         existing_networks,
         existing_volumes,
-        existing_containers,
+        &existing_workloads,
         existing_secrets,
         &[],
         &[],
@@ -4159,7 +4197,7 @@ fn validate_graph_full(
     docs: &[manifest::ManifestDoc],
     existing_networks: &[String],
     existing_volumes: &[String],
-    existing_containers: &[String],
+    existing_workloads: &[ExistingWorkload],
     existing_secrets: &[String],
     existing_configs: &[String],
     existing_system_containers: &[String],
@@ -4187,8 +4225,9 @@ fn validate_graph_full(
     // the firewall chain all hang off.
     // A VM is a workload target too: a route published by `VirtualMachine.spec.expose`
     // names it as its backend (ADR-0046), and `Dependency` documents already say
-    // «containers/VMs».
-    let mut containers = declared(&[k::CONTAINER, k::POD, k::VM]);
+    // «containers/VMs». These three Kinds are the `workload_kinds` the reference
+    // resolver below treats as the targets a bare/qualified name may point at.
+    //
     // What a container-scope policy CANNOT govern, declared in this very manifest:
     // a VM (its firewall is the provider's, `scope: vm`). It used to pass this
     // check and fail at apply with «no such container», after the layers before
@@ -4202,7 +4241,6 @@ fn validate_graph_full(
     system_containers.extend(existing_system_containers.iter().cloned());
     networks.extend(existing_networks.iter().cloned());
     volumes.extend(existing_volumes.iter().cloned());
-    containers.extend(existing_containers.iter().cloned());
     secrets.extend(existing_secrets.iter().cloned());
     configs.extend(existing_configs.iter().cloned());
 
@@ -4242,11 +4280,7 @@ fn validate_graph_full(
     //
     // `declared_scoped` carries the `<namespace>/<name>` identity of every declared
     // workload (default elided by `scoped_plan_name`, as everywhere else), so a
-    // qualified reference resolves iff the namespace actually matches. A qualified
-    // reference to a name declared in ANOTHER namespace stays unresolved — the same
-    // `NotFound` `Store::load` gives. A base name that is only on the machine (its
-    // namespace is not plumbed to the graph yet) resolves leniently, so validation
-    // never rejects a reference a live apply would satisfy.
+    // qualified reference resolves iff the namespace actually matches.
     let workload_kinds = |kind: &str| matches!(kind, k::CONTAINER | k::POD | k::VM);
     let declared_scoped: HashSet<String> = docs
         .iter()
@@ -4263,19 +4297,80 @@ fn validate_graph_full(
         .filter(|d| workload_kinds(d.kind.as_str()))
         .map(|d| d.metadata.name.clone())
         .collect();
-    let resolves = |reference: &str| -> bool {
+    // The on-machine workloads, indexed for the two checks a bare name cannot do
+    // on its own now that the namespace is known:
+    //   * `existing_scoped` — the exact `<namespace>/<name>` pairs, so a qualified
+    //     reference resolves iff that PRECISE pair runs (no longer the old lenient
+    //     "any namespace" match: `apply`'s qualified `Store::load` requires the
+    //     exact namespace, so this is what keeps `validate` honest with it).
+    //   * `existing_ns_by_base` — base name → the namespaces that carry it. More
+    //     than one is the `AmbiguousContainer` a bare `Store::load` raises, so the
+    //     bare reference is refused here, naming the candidates to qualify with.
+    let mut existing_scoped: HashSet<String> = HashSet::new();
+    let mut existing_ns_by_base: std::collections::HashMap<
+        String,
+        std::collections::BTreeSet<String>,
+    > = std::collections::HashMap::new();
+    for w in existing_workloads {
+        existing_scoped.insert(manifest::scoped_plan_name(&w.namespace, &w.name));
+        existing_ns_by_base
+            .entry(w.name.clone())
+            .or_default()
+            .insert(w.namespace.clone());
+    }
+
+    // The three outcomes a reference can have, so a bare name resolving against
+    // two namespaces is reported as the ambiguity it is, not silently as resolved.
+    enum Resolution {
+        Resolved,
+        NotFound,
+        /// Candidate `<namespace>/<name>` to qualify with, sorted.
+        Ambiguous(Vec<String>),
+    }
+    let resolve_ref = |reference: &str| -> Resolution {
         match reference.split_once('/') {
             Some((ns, base)) => {
-                // Qualified: the namespace must match the one the workload was
-                // declared in; a name declared elsewhere is NotFound. A name only
-                // present on the machine resolves leniently (its namespace is
-                // unknown here) rather than being refused.
-                declared_scoped.contains(&manifest::scoped_plan_name(ns, base))
-                    || (!declared_bare.contains(base) && containers.contains(base))
+                // Qualified: resolves iff declared OR existing with EXACTLY this
+                // (namespace, name). A name only in ANOTHER namespace is the
+                // `NotFound` a qualified `Store::load` returns; a qualified name
+                // is never ambiguous — it already states its namespace.
+                let scoped = manifest::scoped_plan_name(ns, base);
+                if declared_scoped.contains(&scoped) || existing_scoped.contains(&scoped) {
+                    Resolution::Resolved
+                } else {
+                    Resolution::NotFound
+                }
             }
-            // Bare: unchanged — exactly the containment the graph always used.
-            None => containers.contains(reference),
+            None => {
+                // Bare: a DECLARED workload resolves (unchanged — declared-homonym
+                // ambiguity belongs to the dedup, not here; see the session's
+                // out-of-scope). For a name only on the machine, more than one
+                // namespace is what `Store::load` refuses as `AmbiguousContainer`.
+                if declared_bare.contains(reference) {
+                    Resolution::Resolved
+                } else {
+                    match existing_ns_by_base.get(reference) {
+                        None => Resolution::NotFound,
+                        Some(nss) if nss.len() <= 1 => Resolution::Resolved,
+                        Some(nss) => Resolution::Ambiguous(
+                            nss.iter().map(|ns| format!("{ns}/{reference}")).collect(),
+                        ),
+                    }
+                }
+            }
         }
+    };
+    // The one message every ambiguous bare reference gets, whatever Kind names it.
+    let ambiguity_issue = |kind: &str, name: &str, reference: &str, cands: &[String]| -> String {
+        super::po::tf(
+            "{kind} '{name}' → '{reference}' is ambiguous: workloads named '{reference}' exist in more than one namespace ({cands}) — qualify it as <namespace>/{reference}",
+            &[
+                ("kind", kind),
+                ("name", name),
+                ("reference", reference),
+                ("cands", &cands.join(", ")),
+            ],
+        )
     };
 
     let mut issues = Vec::new();
@@ -4532,14 +4627,18 @@ fn validate_graph_full(
                             ));
                         }
                     } else if scope == "vm" {
-                        // `containers` holds the declared and existing VMs too;
-                        // whether the VM's backend has a firewall is the
-                        // apply's question (ADR-0052), not the graph's.
-                        if !resolves(target) {
-                            issues.push(super::po::tf(
+                        // The declared and existing VMs resolve here too; whether
+                        // the VM's backend has a firewall is the apply's question
+                        // (ADR-0052), not the graph's.
+                        match resolve_ref(target) {
+                            Resolution::Resolved => {}
+                            Resolution::Ambiguous(c) => {
+                                issues.push(ambiguity_issue(&doc.kind, name, target, &c))
+                            }
+                            Resolution::NotFound => issues.push(super::po::tf(
                                 "{kind} '{name}' (scope vm) → target '{target}' is not a declared or existing VirtualMachine",
                                 &[("kind", &doc.kind), ("name", name), ("target", target)],
-                            ));
+                            )),
                         }
                     } else if let Some(why) = container_scope_target_problem(
                         &doc.kind,
@@ -4549,11 +4648,17 @@ fn validate_graph_full(
                         &declared_vms,
                     ) {
                         issues.push(why);
-                    } else if !resolves(target) {
-                        issues.push(super::po::tf(
-                            "{kind} '{name}' → target '{target}' is not a declared or existing Container",
-                            &[("kind", &doc.kind), ("name", name), ("target", target)],
-                        ));
+                    } else {
+                        match resolve_ref(target) {
+                            Resolution::Resolved => {}
+                            Resolution::Ambiguous(c) => {
+                                issues.push(ambiguity_issue(&doc.kind, name, target, &c))
+                            }
+                            Resolution::NotFound => issues.push(super::po::tf(
+                                "{kind} '{name}' → target '{target}' is not a declared or existing Container",
+                                &[("kind", &doc.kind), ("name", name), ("target", target)],
+                            )),
+                        }
                     }
                 }
             }
@@ -4578,11 +4683,17 @@ fn validate_graph_full(
                         &declared_vms,
                     ) {
                         issues.push(why);
-                    } else if !resolves(target) {
-                        issues.push(super::po::tf(
-                            "{kind} '{name}' → target '{target}' is not a declared or existing Container",
-                            &[("kind", &doc.kind), ("name", name), ("target", target)],
-                        ));
+                    } else {
+                        match resolve_ref(target) {
+                            Resolution::Resolved => {}
+                            Resolution::Ambiguous(c) => {
+                                issues.push(ambiguity_issue(&doc.kind, name, target, &c))
+                            }
+                            Resolution::NotFound => issues.push(super::po::tf(
+                                "{kind} '{name}' → target '{target}' is not a declared or existing Container",
+                                &[("kind", &doc.kind), ("name", name), ("target", target)],
+                            )),
+                        }
                     }
                 }
             }
@@ -4614,11 +4725,18 @@ fn validate_graph_full(
                         }
                         for rule in &spec.rules {
                             for pr in &rule.paths {
-                                if !resolves(&pr.backend.service) {
-                                    issues.push(super::po::tf(
+                                match resolve_ref(&pr.backend.service) {
+                                    Resolution::Resolved => {}
+                                    Resolution::Ambiguous(c) => issues.push(ambiguity_issue(
+                                        &doc.kind,
+                                        name,
+                                        &pr.backend.service,
+                                        &c,
+                                    )),
+                                    Resolution::NotFound => issues.push(super::po::tf(
                                         "HTTPRoute '{name}' → backend '{service}' is not a declared or existing Container",
                                         &[("name", name), ("service", &pr.backend.service)],
-                                    ));
+                                    )),
                                 }
                             }
                         }
@@ -4668,7 +4786,7 @@ fn validate_graph_full(
                             k::VOLUME => volumes.contains(&spec.target_name),
                             k::VM => {
                                 declared_vms.contains(&spec.target_name)
-                                    || existing_containers.contains(&spec.target_name)
+                                    || existing_workloads.iter().any(|w| w.name == spec.target_name)
                             }
                             _ => {
                                 issues.push(super::po::tf(
@@ -4692,17 +4810,20 @@ fn validate_graph_full(
                 // `from` and each `to` must be declared/existing containers.
                 let from = doc.spec.get("from").and_then(|v| v.as_str());
                 match from {
-                    Some(f) if !resolves(f) => {
-                        issues.push(super::po::tf(
+                    Some(f) => match resolve_ref(f) {
+                        Resolution::Resolved => {}
+                        Resolution::Ambiguous(c) => {
+                            issues.push(ambiguity_issue(&doc.kind, name, f, &c))
+                        }
+                        Resolution::NotFound => issues.push(super::po::tf(
                             "Dependency '{name}' → from '{f}' is not a declared or existing Container",
                             &[("name", name), ("f", f)],
-                        ));
-                    }
+                        )),
+                    },
                     None => issues.push(super::po::tf(
                         "Dependency '{name}' → `from` is required",
                         &[("name", name)],
                     )),
-                    _ => {}
                 }
                 // `to` can be a scalar OR a list.
                 let tos: Vec<&str> = match doc.spec.get("to") {
@@ -4720,11 +4841,15 @@ fn validate_graph_full(
                     ));
                 }
                 for t in tos {
-                    if !resolves(t) {
-                        issues.push(super::po::tf(
+                    match resolve_ref(t) {
+                        Resolution::Resolved => {}
+                        Resolution::Ambiguous(c) => {
+                            issues.push(ambiguity_issue(&doc.kind, name, t, &c))
+                        }
+                        Resolution::NotFound => issues.push(super::po::tf(
                             "Dependency '{name}' → to '{t}' is not a declared or existing Container",
                             &[("name", name), ("t", t)],
-                        ));
+                        )),
                     }
                 }
             }
@@ -4735,19 +4860,46 @@ fn validate_graph_full(
                 // resolves to nothing for the life of the manifest. `apply` already
                 // warns about it; refuse it here, before it is applied.
                 //
-                // A NON-empty selector that matches nothing *yet* stays valid: the
-                // backends may arrive from a later apply or another stack, so
-                // blocking it would refuse a legitimate ordering
-                // (`a_service_selecting_nothing_yet_still_validates`). The graph had
-                // no `Service` arm at all — a dead selector passed `stack validate`
-                // with rc 0, the one Kind whose references were never checked.
+                // A NON-empty selector is matched, by the SAME `matches_labels` the
+                // DNS index and `match_count` use, against what is declared in this
+                // manifest AND what already runs on the machine, both scoped to the
+                // Service's namespace (`match_count` scopes the same way). Matching
+                // NEITHER means nothing will ever answer the Service's name, so it is
+                // refused here. This only became safe once the graph could see the
+                // LABELS of the existing workloads: a Service resolving against a
+                // live-but-undeclared backend must NOT be refused, and now it is not
+                // — `existing_workloads` carries exactly those labels.
                 match manifest::spec_of::<super::service::ServiceSpec>(doc) {
                     Ok(spec) => {
-                        if spec.selector.match_labels.is_empty() {
+                        let sel = &spec.selector.match_labels;
+                        let svc_ns = doc.metadata.namespace.as_deref().unwrap_or("default");
+                        if sel.is_empty() {
                             issues.push(super::po::tf(
                                 "Service '{name}' → selector.matchLabels is empty; it selects no workload and can never resolve",
                                 &[("name", name)],
                             ));
+                        } else {
+                            let declared_match = docs
+                                .iter()
+                                .filter(|d| workload_kinds(d.kind.as_str()))
+                                .filter(|d| {
+                                    d.metadata
+                                        .namespace
+                                        .as_deref()
+                                        .unwrap_or("default")
+                                        .eq_ignore_ascii_case(svc_ns)
+                                })
+                                .any(|d| delonix_sdn::matches_labels(&d.metadata.labels, sel));
+                            let existing_match = existing_workloads
+                                .iter()
+                                .filter(|w| w.namespace.eq_ignore_ascii_case(svc_ns))
+                                .any(|w| delonix_sdn::matches_labels(&w.labels, sel));
+                            if !declared_match && !existing_match {
+                                issues.push(super::po::tf(
+                                    "Service '{name}' → selector matches no declared or existing workload in namespace '{ns}'; nothing will answer its name",
+                                    &[("name", name), ("ns", svc_ns)],
+                                ));
+                            }
                         }
                     }
                     Err(e) => issues.push(e.to_string()),
@@ -5611,6 +5763,19 @@ spec: { target: cc, direction: ingress, defaultPolicy: deny, rules: [] }
         validate_graph_with(&docs(yaml), &[], &[], &[], &[])
     }
 
+    /// An [`ExistingWorkload`] (a record already on the machine) for the tests
+    /// that exercise ambiguity and live-label matching.
+    fn ew(name: &str, namespace: &str, labels: &[(&str, &str)]) -> ExistingWorkload {
+        ExistingWorkload {
+            name: name.to_string(),
+            namespace: namespace.to_string(),
+            labels: labels
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
     /// A `scope: systemcontainer` policy names a system container, declared in
     /// the manifest or registered; a Container of that name is not one.
     #[test]
@@ -5631,7 +5796,8 @@ kind: NetworkPolicy
 metadata: {name: p2}
 spec: {target: other, direction: ingress, scope: systemcontainer}
 "#;
-        let issues = validate_graph_full(&docs(yaml), &[], &[], &["other".into()], &[], &[], &[]);
+        let issues =
+            validate_graph_full(&docs(yaml), &[], &[], &[ew("other", "default", &[])], &[], &[], &[]);
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(issues[0].contains("'other'"), "{issues:?}");
         let issues = validate_graph_full(&docs(yaml), &[], &[], &[], &[], &[], &["other".into()]);
@@ -5657,7 +5823,7 @@ spec:
   networkRoutes:
     - { name: r, spec: { from: front, to: back } }
   containers:
-    - { name: web, spec: { image: nginx, network: front } }
+    - { name: web, labels: { app: web }, spec: { image: nginx, network: front } }
   pods:
     - { name: worker, spec: { network: back, containers: [{ name: a, image: nginx }] } }
   services:
@@ -5718,14 +5884,37 @@ spec:
         assert!(issues.iter().any(|i| i.contains("nowhere")), "{issues:?}");
     }
 
-    /// A `Service` whose selector matches nothing is NOT a validation error, on
-    /// purpose. It selects by label against workloads that are alive when the
-    /// DNS answers (ADR-0032), so the same manifest is legitimate when the
-    /// backends arrive from another stack or a later apply — blocking it here
-    /// would refuse a valid ordering. `apply` already warns about an EMPTY
-    /// selector, the case that is certainly a mistake.
+    /// A `Service` whose non-empty selector matches a workload DECLARED in the
+    /// same manifest validates — the selector is checked against the workload's
+    /// labels with the same `matches_labels` the DNS index uses, in the Service's
+    /// namespace.
     #[test]
-    fn a_service_selecting_nothing_yet_still_validates() {
+    fn a_service_matching_a_declared_workload_validates() {
+        let issues = check(
+            "\
+apiVersion: compute.delonix.io/v1beta1
+kind: Container
+metadata: { name: web, namespace: prod, labels: { app: web } }
+spec: { image: nginx }
+---
+apiVersion: core.delonix.io/v1alpha1
+kind: Stack
+metadata: { name: s, namespace: prod }
+spec:
+  services:
+    - { name: svc, spec: { selector: { matchLabels: { app: web } }, port: 80 } }
+",
+        );
+        assert!(issues.is_empty(), "{issues:?}");
+    }
+
+    /// Now that the graph sees the labels of what is declared AND of what runs, a
+    /// `Service` whose non-empty selector matches NEITHER is refused: nothing will
+    /// ever answer its name. Before this slice the graph had no labels to check
+    /// against, so it had to let a dead selector pass (the old
+    /// `a_service_selecting_nothing_yet_still_validates`).
+    #[test]
+    fn a_service_matching_no_workload_is_refused() {
         let issues = check(
             "\
 apiVersion: core.delonix.io/v1alpha1
@@ -5736,7 +5925,93 @@ spec:
     - { name: svc, spec: { selector: { matchLabels: { app: later } }, port: 80 } }
 ",
         );
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(
+            issues[0].contains("matches no declared or existing workload"),
+            "{issues:?}"
+        );
+    }
+
+    /// The honesty the refusal above hinges on: a selector that matches a
+    /// LIVE-but-undeclared workload (in the Service's namespace) must NOT be
+    /// refused — the Service resolves against it at apply. No false positive
+    /// against the running machine.
+    #[test]
+    fn a_service_matching_a_live_workload_is_not_refused() {
+        let yaml = "\
+apiVersion: core.delonix.io/v1alpha1
+kind: Stack
+metadata: { name: s, namespace: prod }
+spec:
+  services:
+    - { name: svc, spec: { selector: { matchLabels: { app: web } }, port: 80 } }
+";
+        // Nothing declared matches, but a live container in `prod` is labelled `app: web`.
+        let issues = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("web", "prod", &[("app", "web")])],
+            &[],
+            &[],
+            &[],
+        );
         assert!(issues.is_empty(), "{issues:?}");
+        // A live container with the label in ANOTHER namespace does not rescue it:
+        // the Service selects namespace-scoped, so this one is still refused.
+        let other_ns = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("web", "staging", &[("app", "web")])],
+            &[],
+            &[],
+            &[],
+        );
+        assert_eq!(other_ns.len(), 1, "{other_ns:?}");
+        assert!(
+            other_ns[0].contains("matches no declared or existing workload"),
+            "{other_ns:?}"
+        );
+    }
+
+    /// A BARE workload reference that matches records ALREADY on the machine in
+    /// more than one namespace is the `AmbiguousContainer` a bare `Store::load`
+    /// raises — `validate` refuses it here, before `apply` fails halfway, naming
+    /// the `<ns>/<name>` candidates to qualify with. A single namespace resolves.
+    #[test]
+    fn a_bare_reference_matching_two_namespaces_is_ambiguous() {
+        let yaml = "\
+apiVersion: networking.delonix.io/v1beta1
+kind: NetworkAccessRule
+metadata: { name: allow }
+spec: { target: web, direction: ingress, port: '80' }
+";
+        // `web` runs in both `prod` and `staging`: a bare `target: web` is ambiguous.
+        let issues = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("web", "prod", &[]), ew("web", "staging", &[])],
+            &[],
+            &[],
+            &[],
+        );
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(issues[0].contains("ambiguous"), "{issues:?}");
+        assert!(issues[0].contains("prod/web"), "{issues:?}");
+        assert!(issues[0].contains("staging/web"), "{issues:?}");
+        // The same `web` in a SINGLE namespace resolves — no ambiguity.
+        let one = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("web", "prod", &[])],
+            &[],
+            &[],
+            &[],
+        );
+        assert!(one.is_empty(), "{one:?}");
     }
 
     /// The other half of the rule above: an EMPTY `matchLabels` can never select
