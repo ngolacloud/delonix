@@ -3320,25 +3320,35 @@ mod exec_separator_tests {
     use crate::cmd::container::{ContainerCmd, ExecArgs};
     use clap::Parser;
 
-    fn exec_of(argv: &[&str]) -> (Option<String>, Vec<String>, Vec<String>) {
+    /// Returns `(user, env, container, command)` — the container is now the
+    /// first element of the trailing `id_command`, split exactly as the handler
+    /// does via `ExecArgs::split_id_command`.
+    fn exec_of(argv: &[&str]) -> (Option<String>, Vec<String>, String, Vec<String>) {
         let cli = Cli::try_parse_from(argv).expect("parses");
         match cli.cmd {
             Cmd::Container {
                 action:
                     ContainerCmd::Exec(ExecArgs {
-                        user, env, command, ..
+                        user,
+                        env,
+                        id_command,
+                        ..
                     }),
-            } => (user, env, command),
+            } => {
+                let (id, command) = ExecArgs::split_id_command(id_command);
+                (user, env, id, command)
+            }
             _ => panic!("not container exec"),
         }
     }
 
     /// The argv the CRI builds for `kubectl exec <pod> -- -u 0 sh`
     /// (`delonix_cri::streaming::subprocess_args`): the command stays the
-    /// command, and the container's own user stays in force.
+    /// command, and the container's own user stays in force. The `--` separator
+    /// still works (clap consumes it) — the CRI path keeps relying on it.
     #[test]
     fn a_command_after_the_separator_is_never_an_option_of_exec() {
-        let (user, env, command) = exec_of(&[
+        let (user, env, id, command) = exec_of(&[
             "delonix",
             "container",
             "exec",
@@ -3350,16 +3360,32 @@ mod exec_separator_tests {
             "X=1",
             "sh",
         ]);
+        assert_eq!(id, "cri-a");
         assert_eq!(user, None);
         assert!(env.is_empty());
         assert_eq!(command, ["-u", "0", "-e", "X=1", "sh"]);
     }
 
-    /// Why the separator is needed: without it, the same tokens are options.
+    /// Docker parity: WITHOUT the separator too, every token after the container
+    /// is the command — `exec` stops parsing its own flags at the container, so
+    /// `-u 0` here is the command, NOT `exec`'s `--user`. (Before the trailing
+    /// split this stole `-u 0` into `--user`; that regression is what this fix
+    /// closes. Flags for `exec` itself go BEFORE the container.)
     #[test]
-    fn without_the_separator_the_tokens_after_the_name_are_options() {
-        let (user, _, command) =
+    fn without_the_separator_the_tokens_after_the_container_are_the_command() {
+        let (user, _, id, command) =
             exec_of(&["delonix", "container", "exec", "cri-a", "-u", "0", "sh"]);
+        assert_eq!(id, "cri-a");
+        assert_eq!(user, None, "`-u` after the container must NOT be exec's --user");
+        assert_eq!(command, ["-u", "0", "sh"]);
+    }
+
+    /// `exec`'s own flags still work when placed BEFORE the container.
+    #[test]
+    fn exec_flags_before_the_container_still_parse() {
+        let (user, _, id, command) =
+            exec_of(&["delonix", "container", "exec", "-u", "0", "cri-a", "sh"]);
+        assert_eq!(id, "cri-a");
         assert_eq!(user.as_deref(), Some("0"));
         assert_eq!(command, ["sh"]);
     }
