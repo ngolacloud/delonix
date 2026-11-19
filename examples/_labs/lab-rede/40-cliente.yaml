@@ -1,4 +1,4 @@
-# lab-cli — posto de trabalho: recebe endereco do DHCP e autentica no Samba
+# lab-cli — workstation: gets its address from DHCP and authenticates against Samba
 apiVersion: delonix.io/v1
 kind: Vm
 metadata:

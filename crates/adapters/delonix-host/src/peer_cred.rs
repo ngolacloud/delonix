@@ -45,7 +45,7 @@ mod tests {
     use std::os::unix::net::UnixStream;
 
     #[test]
-    fn peer_uid_de_um_par_local_e_o_proprio_uid() {
+    fn peer_uid_of_a_local_peer_is_our_own_uid() {
         let (a, _b) = UnixStream::pair().unwrap();
         // SAFETY: geteuid() has no preconditions.
         let me = unsafe { libc::geteuid() };

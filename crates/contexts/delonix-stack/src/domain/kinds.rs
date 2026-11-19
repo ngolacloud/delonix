@@ -1277,10 +1277,10 @@ mod tests {
 
     /// Two rows for one Kind means half the code reads one and half the other.
     #[test]
-    fn nenhum_kind_aparece_duas_vezes() {
+    fn no_kind_appears_twice() {
         let mut seen = std::collections::BTreeSet::new();
         for f in all() {
-            assert!(seen.insert(f.kind), "{} está duplicado na tabela", f.kind);
+            assert!(seen.insert(f.kind), "{} is duplicated in the table", f.kind);
         }
     }
 
@@ -1288,11 +1288,11 @@ mod tests {
     /// are contiguous at the head of the table: a row inserted between them
     /// changes the apply order without anyone editing an «order» anywhere.
     #[test]
-    fn os_kinds_do_stack_sao_um_prefixo_contiguo() {
+    fn the_stack_kinds_are_a_contiguous_prefix() {
         let first_out = FACTS.iter().position(|f| !f.in_stack).unwrap();
         assert!(
             FACTS[first_out..].iter().all(|f| !f.in_stack),
-            "um Kind do stack está DEPOIS de um que não é — a ordem de apply mudou em silêncio"
+            "a stack Kind is AFTER one that is not — the apply order changed in silence"
         );
         assert_eq!(stack_kinds().count(), first_out);
     }
@@ -1301,17 +1301,17 @@ mod tests {
     /// cannot be part of the stack cycle — and if it were, `apply` would look
     /// for documents that no longer exist.
     #[test]
-    fn um_kind_que_baixa_para_outro_nao_pertence_ao_ciclo_do_stack() {
+    fn a_kind_that_lowers_into_another_is_not_part_of_the_stack_cycle() {
         for f in all() {
             if matches!(f.form, Form::Sugar(_) | Form::Aggregate) {
                 assert!(
                     !f.in_stack,
-                    "{} é reescrito no load e está no ciclo do stack",
+                    "{} is rewritten on load and is in the stack cycle",
                     f.kind
                 );
                 assert!(
                     !f.converges,
-                    "{} é reescrito no load e diz convergir",
+                    "{} is rewritten on load and claims to converge",
                     f.kind
                 );
             }
@@ -1325,12 +1325,12 @@ mod tests {
     /// by hand: promising to remove something the destroy refuses would fail
     /// HALFWAY, after the rest of the stack is already gone.
     #[test]
-    fn so_um_kind_convergente_tem_teardown() {
+    fn only_a_converging_kind_has_teardown() {
         for f in all() {
             if f.teardown {
                 assert!(
                     f.converges,
-                    "{} tem teardown e não converge — o `--prune` promete o que o destroy recusa",
+                    "{} has teardown and does not converge — `--prune` promises what destroy refuses",
                     f.kind
                 );
             }
@@ -1340,10 +1340,10 @@ mod tests {
     /// A Kind outside the stack cycle is never applied, so it can neither
     /// converge nor be torn down. Catches the copy-paste of a row.
     #[test]
-    fn fora_do_ciclo_nao_converge_nem_e_removido() {
+    fn outside_the_cycle_it_neither_converges_nor_is_removed() {
         for f in all().filter(|f| !f.in_stack) {
-            assert!(!f.converges, "{} converge fora do ciclo", f.kind);
-            assert!(!f.teardown, "{} tem teardown fora do ciclo", f.kind);
+            assert!(!f.converges, "{} converges outside the cycle", f.kind);
+            assert!(!f.teardown, "{} has teardown outside the cycle", f.kind);
         }
     }
 
@@ -1356,12 +1356,12 @@ mod tests {
     /// The paired check lives in `stack.rs`, where `presence()` can be called:
     /// this one says the column is filled in, that one says it is TRUE.
     #[test]
-    fn um_kind_do_ciclo_do_stack_tem_presenca_observavel() {
+    fn a_kind_in_the_stack_cycle_has_observable_presence() {
         for f in all().filter(|f| f.in_stack) {
             assert_ne!(
                 f.presence,
                 Presence::NotObservable,
-                "{} é aplicado pelo stack e não tem presença — cairia no «unsupported kind»",
+                "{} is applied by the stack and has no presence — it would fall into «unsupported kind»",
                 f.kind
             );
         }
@@ -1400,7 +1400,7 @@ mod tests {
     /// The lowering target has to be a Kind that exists — a typo here sends the
     /// reader looking for a Kind the engine never had.
     #[test]
-    fn o_destino_de_uma_reducao_existe() {
+    fn the_target_of_a_lowering_exists() {
         for f in all() {
             let Some(to) = f.form.successor() else {
                 continue;
@@ -1409,7 +1409,7 @@ mod tests {
             for k in to.split('/') {
                 assert!(
                     facts(k).is_some(),
-                    "{} baixa para {k}, que não existe",
+                    "{} lowers into {k}, which does not exist",
                     f.kind
                 );
             }

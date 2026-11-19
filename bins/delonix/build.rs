@@ -135,7 +135,7 @@ fn main() {
         writeln!(out, "    ({name:?}, &[").unwrap();
         let mut files = Vec::new();
         collect(tdir, tdir, &mut files);
-        files.retain(|(rel, _)| rel != "template.meta"); // meta não vai no projecto
+        files.retain(|(rel, _)| rel != "template.meta"); // meta does not go into the project
         files.sort();
         for (rel, abs) in files {
             // include_str! wants a path relative to THIS file (build.rs) or
@@ -165,9 +165,9 @@ fn main() {
     let dest = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("templates.rs");
     std::fs::write(dest, out).unwrap();
 
-    // Metadados de build para o `--version` rico: hash git curto + data UTC.
-    // Sem dependências — shell-out com fallbacks (um build de tarball sem .git
-    // continua a compilar). SOURCE_DATE_EPOCH respeitado (builds reprodutíveis).
+    // Build metadata for the rich `--version`: short git hash + UTC date.
+    // No dependencies — shell-out with fallbacks (a tarball build with no .git
+    // still compiles). SOURCE_DATE_EPOCH honoured (reproducible builds).
     let hash = std::process::Command::new("git")
         .args(["rev-parse", "--short=9", "HEAD"])
         .output()
@@ -207,7 +207,7 @@ fn main() {
     println!("cargo:rustc-env=DELONIX_GIT_HASH={hash}");
     println!("cargo:rustc-env=DELONIX_GIT_SINCE={since}");
     println!("cargo:rustc-env=DELONIX_BUILD_DATE={date}");
-    // Re-corre quando o HEAD muda — sem isto o hash fossiliza entre commits.
+    // Re-runs when HEAD changes — without this the hash fossilizes between commits.
     println!("cargo::rerun-if-changed=../../.git/HEAD");
     // A new tag changes the distance without moving HEAD.
     println!("cargo::rerun-if-changed=../../.git/refs/tags");

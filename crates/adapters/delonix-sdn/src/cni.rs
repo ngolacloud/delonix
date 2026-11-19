@@ -918,7 +918,7 @@ mod tests {
     }"#;
 
     #[test]
-    fn parse_conflist_le_a_cadeia() {
+    fn parse_conflist_reads_the_chain() {
         let net = parse_config(CONFLIST).unwrap();
         assert_eq!(net.name, "delonix");
         assert_eq!(net.cni_version, "1.0.0");
@@ -928,7 +928,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_conf_unico_normaliza_para_lista() {
+    fn parse_single_conf_normalizes_to_a_list() {
         let conf = r#"{ "cniVersion": "0.4.0", "name": "mynet", "type": "bridge" }"#;
         let net = parse_config(conf).unwrap();
         assert_eq!(net.plugins.len(), 1);
@@ -937,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn build_env_tem_as_5_variaveis() {
+    fn build_env_has_the_5_variables() {
         let dirs = vec![PathBuf::from("/opt/cni/bin"), PathBuf::from("/usr/lib/cni")];
         let t = Target {
             container_id: "abc123",
@@ -981,7 +981,7 @@ mod tests {
     }
 
     #[test]
-    fn plugin_input_injeta_nome_versao_e_prevresult() {
+    fn plugin_input_injects_name_version_and_prevresult() {
         let net = parse_config(CONFLIST).unwrap();
         // 1st plugin: no prevResult.
         let s1 = plugin_input(&net.plugins[0], &net.name, &net.cni_version, None).unwrap();
@@ -1004,7 +1004,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_result_le_ips_e_interfaces() {
+    fn parse_result_reads_ips_and_interfaces() {
         let out = r#"{
             "cniVersion": "1.0.0",
             "interfaces": [{ "name": "eth0", "mac": "0a:1b:2c:3d:4e:5f", "sandbox": "/proc/1/ns/net" }],
@@ -1018,20 +1018,20 @@ mod tests {
     }
 
     #[test]
-    fn parse_result_vazio_e_ok() {
+    fn parse_result_empty_is_ok() {
         assert!(parse_result("   ").unwrap().ips.is_empty());
     }
 
     #[test]
-    fn parse_error_le_o_erro_estruturado() {
+    fn parse_error_reads_the_structured_error() {
         let e =
-            parse_error(r#"{ "cniVersion":"1.0.0", "code": 7, "msg": "sem IP livre" }"#).unwrap();
+            parse_error(r#"{ "cniVersion":"1.0.0", "code": 7, "msg": "no free IP" }"#).unwrap();
         assert_eq!(e.code, 7);
-        assert_eq!(e.msg, "sem IP livre");
+        assert_eq!(e.msg, "no free IP");
     }
 
     #[test]
-    fn resolve_plugin_encontra_no_primeiro_dir() {
+    fn resolve_plugin_finds_in_the_first_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
         let d1 = tmp.join("a");
@@ -1041,11 +1041,11 @@ mod tests {
         std::fs::write(d2.join("bridge"), b"#!/bin/true\n").unwrap();
         let dirs = vec![d1.clone(), d2.clone()];
         assert_eq!(resolve_plugin(&dirs, "bridge"), Some(d2.join("bridge")));
-        assert_eq!(resolve_plugin(&dirs, "inexistente"), None);
+        assert_eq!(resolve_plugin(&dirs, "nonexistent"), None);
     }
 
     #[test]
-    fn list_conf_files_ordena_e_filtra() {
+    fn list_conf_files_sorts_and_filters() {
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
         std::fs::write(tmp.join("20-b.conflist"), "{}").unwrap();
@@ -1117,8 +1117,8 @@ mod tests {
     }
 
     #[test]
-    fn list_conf_files_dir_ausente_vazio() {
-        assert!(list_conf_files(Path::new("/nao/existe/de/todo")).is_empty());
+    fn list_conf_files_missing_dir_empty() {
+        assert!(list_conf_files(Path::new("/does/not/exist/at/all")).is_empty());
     }
 
     /// Waits until `bin` can actually be exec'ed.
@@ -1156,7 +1156,7 @@ mod tests {
     /// Executor E2E: a fake plugin (shell) validates the `CNI_COMMAND` env, reads the
     /// config from stdin and returns a CNI result — exercises invoke/run_one/add/del.
     #[test]
-    fn add_e_del_com_plugin_falso() {
+    fn add_and_del_with_a_fake_plugin() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
@@ -1168,7 +1168,7 @@ cat > /dev/null
 case "$CNI_COMMAND" in
   ADD) echo '{"cniVersion":"1.0.0","ips":[{"address":"10.9.9.9/24","gateway":"10.9.9.1"}]}' ;;
   DEL) exit 0 ;;
-  *)   echo '{"code":4,"msg":"comando nao suportado"}'; exit 4 ;;
+  *)   echo '{"code":4,"msg":"unsupported command"}'; exit 4 ;;
 esac
 "#;
         let plugin = bindir.join("faux");

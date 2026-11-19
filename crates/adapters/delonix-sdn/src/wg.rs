@@ -330,20 +330,20 @@ mod tests {
         // the public key derives DETERMINISTICALLY from the private one (Curve25519).
         assert_eq!(pubkey(&k.private).unwrap(), k.public);
         assert_ne!(k.private, k.public);
-        // A chave REAL tem de passar o validador — senão o `remove_peer` recusaria
-        // exactamente as chaves que existem.
+        // The REAL key has to pass the validator — otherwise `remove_peer` would
+        // refuse exactly the keys that exist.
         assert!(valid_wg_key(&k.public), "{}", k.public);
     }
 
-    /// A chave vai para o argv do `wg` e vem de um manifesto. Validar ANTES do
-    /// `format!` é a disciplina `valid_*` que a auditoria deixou: sem ela, um
-    /// valor começado por `-` é lido pelo `wg` como uma opção.
+    /// The key goes to `wg`'s argv and comes from a manifest. Validating BEFORE
+    /// the `format!` is the `valid_*` discipline the audit left behind: without
+    /// it, a value starting with `-` is read by `wg` as an option.
     #[test]
-    fn valid_wg_key_recusa_flags_espacos_e_comprimentos_errados() {
-        // 44 chars, alfabeto base64, termina em '=' — a forma real.
+    fn valid_wg_key_refuses_flags_spaces_and_wrong_lengths() {
+        // 44 chars, base64 alphabet, ends in '=' — the real shape.
         assert!(valid_wg_key("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ="));
         assert!(valid_wg_key("aB3+/aB3+/aB3+/aB3+/aB3+/aB3+/aB3+/aB3+/aB3="));
-        // O que isto existe para travar.
+        // What this exists to stop.
         assert!(!valid_wg_key("-remove"));
         assert!(!valid_wg_key("--endpoint=1.2.3.4:51820"));
         assert!(!valid_wg_key(
@@ -352,7 +352,7 @@ mod tests {
         assert!(!valid_wg_key(
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLM\nOPQ="
         ));
-        // Comprimento e pad.
+        // Length and pad.
         assert!(!valid_wg_key(""));
         assert!(!valid_wg_key("abc="));
         assert!(!valid_wg_key(

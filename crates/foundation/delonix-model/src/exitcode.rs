@@ -183,7 +183,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nao_existe_e_rebentou_deixam_de_ser_o_mesmo_numero() {
+    fn not_found_and_crashed_stop_being_the_same_number() {
         // The whole point: these two used to be indistinguishable at 1.
         assert_eq!(for_error(&Error::NotFound("container: web".into())), 4);
         assert_eq!(
@@ -196,14 +196,14 @@ mod tests {
     }
 
     #[test]
-    fn uma_vm_em_falta_conta_como_recurso_em_falta() {
+    fn a_missing_vm_counts_as_a_missing_resource() {
         // `VmNotFound` only exists because the shared `NotFound` used to say
         // "no such container"; for a caller they are the same question.
         assert_eq!(for_error(&Error::VmNotFound("dev".into())), NOT_FOUND);
     }
 
     #[test]
-    fn existe_mas_parado_tem_codigo_proprio() {
+    fn exists_but_stopped_has_its_own_code() {
         assert_eq!(for_error(&Error::NotRunning("web".into())), NOT_RUNNING);
         // The KIND decides, not the variant: two `Error::Io` values give
         // different numbers, and that distinction is what 77 exists for.
@@ -222,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn ja_existe_tem_codigo_proprio() {
+    fn already_exists_has_its_own_code() {
         assert_eq!(
             for_error(&Error::Conflict("network 'app' already exists".into())),
             CONFLICT
@@ -323,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn tudo_o_resto_continua_a_ser_um() {
+    fn everything_else_stays_one() {
         // The conservative half of the contract: nothing that used to be 1 and
         // has no class moves.
         //
@@ -341,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn nenhum_codigo_colide_com_uma_convencao_instalada() {
+    fn no_code_collides_with_an_installed_convention() {
         // 2 is clap's usage error AND `stack plan --detailed-exitcode`'s "there
         // are changes"; 126/127 are the shell's; 128+N is a signal. A class
         // landing on any of those would be read as something else entirely.
@@ -364,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn um_lote_todo_em_falta_mantem_a_classe_e_um_lote_misto_nao() {
+    fn a_fully_missing_batch_keeps_the_class_and_a_mixed_batch_does_not() {
         assert_eq!(merge(&[]), 0);
         assert_eq!(merge(&[NOT_FOUND]), NOT_FOUND);
         assert_eq!(merge(&[NOT_FOUND, NOT_FOUND]), NOT_FOUND);

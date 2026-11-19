@@ -681,9 +681,9 @@ struct ComposeService {
     privileged: bool,
     #[serde(default)]
     tmpfs: OneOrMany<String>,
-    /// `extra_hosts:` — mesmo formato `name:ip` do Docker, e por isso o mesmo
-    /// parser (`container::parse_add_host`). Aceita a forma de lista e a de
-    /// mapa (`{ nome: ip }`), como o Compose Spec.
+    /// `extra_hosts:` — same `name:ip` format as Docker, and therefore the same
+    /// parser (`container::parse_add_host`). Accepts the list form and the map
+    /// form (`{ name: ip }`), like the Compose Spec.
     #[serde(default)]
     extra_hosts: ComposeEnv,
     deploy: Option<ComposeDeploy>,
@@ -804,13 +804,13 @@ impl ComposeEnv {
         }
     }
 
-    /// `extra_hosts` no formato `name:ip` que o parser do motor espera.
+    /// `extra_hosts` in the `name:ip` format the engine's parser expects.
     ///
-    /// Método próprio e não `to_kv_pairs`: o Compose Spec aceita as duas
-    /// formas (lista `- "nome:ip"` e mapa `nome: ip`), e a de mapa sairia como
-    /// `nome=ip` — que o validador recusa de propósito, porque `db=2001:db8::1`
-    /// é ambíguo. Aqui o separador é sempre `:`, e o valor do mapa nunca é
-    /// dividido, portanto um IPv6 chega inteiro.
+    /// A dedicated method and not `to_kv_pairs`: the Compose Spec accepts both
+    /// forms (list `- "name:ip"` and map `name: ip`), and the map form would
+    /// come out as `name=ip` — which the validator refuses on purpose, because
+    /// `db=2001:db8::1` is ambiguous. Here the separator is always `:`, and the
+    /// map value is never split, so an IPv6 address arrives intact.
     fn to_host_pairs(&self) -> Vec<String> {
         match self {
             ComposeEnv::List(v) => v.clone(),
@@ -2776,24 +2776,26 @@ fn resolve_ports(ports: &[ComposePort], service: &str) -> Result<Vec<String>> {
                         "compose: service '{service}': malformed port '{s}'"
                     )));
                 }
-                // `host_ip:host_port:container_port` (`127.0.0.1:9000:80`) passa
-                // VERBATIM para o motor, que o entende desde que o `parse_publish_addr`
-                // existe (`delonix-sdn`, forma `[hostIp:]hostPort:contPort[/proto]`).
+                // `host_ip:host_port:container_port` (`127.0.0.1:9000:80`) passes
+                // VERBATIM to the engine, which understands it ever since
+                // `parse_publish_addr` exists (`delonix-sdn`, form
+                // `[hostIp:]hostPort:contPort[/proto]`).
                 //
-                // **Isto já foi um descarte silencioso e depois uma recusa, e as duas
-                // estavam erradas de maneiras opostas.** Primeiro a forma de 3 partes
-                // caía no caso de 2 e a restrição de IP desaparecia — um ficheiro que
-                // pede loopback-only publicava em TODAS as interfaces, o oposto exacto
-                // da intenção de segurança. A correcção foi recusar; melhor, mas ainda
-                // errado, porque a razão invocada («o `-p` exige host port só dígitos»)
-                // deixou de valer quando o CLI ganhou o parser de host-IP e foi validado
-                // ao vivo com `curl` da LAN a devolver 200. Ficou a recusar uma
-                // capacidade que a casa já tinha — no ficheiro que a maioria das pessoas
-                // traz do docker, e na forma mais comum de expor um serviço só ao host.
+                // **This was once a silent drop and then a refusal, and both were
+                // wrong in opposite ways.** First the three-part form fell into the
+                // two-part case and the IP restriction vanished — a file asking for
+                // loopback-only published on ALL interfaces, the exact opposite of
+                // the security intent. The fix was to refuse; better, but still
+                // wrong, because the reason invoked ("`-p` requires a digits-only
+                // host port") stopped holding when the CLI gained the host-IP parser
+                // and it was validated live with `curl` from the LAN returning 200.
+                // It ended up refusing a capability the house already had — in the
+                // file most people bring from docker, and in the most common way to
+                // expose a service to the host only.
                 //
-                // Uma limitação documentada envelhece para mentira sem ninguém lhe tocar:
-                // é a terceira ocorrência nesta sessão, depois do `WorkingDir` da Docker
-                // API e do `--net host` com `-p` do comparativo.
+                // A documented limitation ages into a lie with nobody touching it:
+                // this is the third occurrence in this session, after the Docker
+                // API's `WorkingDir` and `--net host` with `-p` from the comparison.
                 out.push(s.clone());
             }
             ComposePort::Long {
@@ -2808,12 +2810,12 @@ fn resolve_ports(ports: &[ComposePort], service: &str) -> Result<Vec<String>> {
                     // the short form's bare-port case above.
                     None => free_host_port()?.to_string(),
                 };
-                // Ranges (`8000-8002:9000-9002`) também vão verbatim: o
-                // `expand_publish_range` existe, é público, e o `container run` e o
-                // `update --publish-add` já o chamam na sua fronteira — o compose era
-                // o único dos três a recusar o que os outros dois fazem. Larguras
-                // diferentes continuam a ser recusadas lá, com a contagem dos dois
-                // lados, em vez de truncadas em silêncio.
+                // Ranges (`8000-8002:9000-9002`) also go verbatim: the
+                // `expand_publish_range` exists, is public, and both `container run`
+                // and `update --publish-add` already call it at their boundary — the
+                // compose was the only one of the three refusing what the other two
+                // do. Mismatched widths are still refused there, with the count of
+                // both sides, instead of being truncated in silence.
                 let proto = protocol.as_deref().unwrap_or("tcp");
                 let suffix = if proto == "udp" { "/udp" } else { "" };
                 // `host_ip` prepended exactly as the short form's three-part
@@ -3058,9 +3060,9 @@ fn service_to_run_opts(
         tmpfs,
         ulimit,
         health,
-        // Validado AQUI, com o mesmo parser do `container run` — um
-        // `extra_hosts:` malformado falha o `compose up` com a razão, em vez
-        // de ser descartado em silêncio (a regra explícita deste módulo).
+        // Validated HERE, with the same parser as `container run` — a
+        // malformed `extra_hosts:` fails `compose up` with the reason, instead
+        // of being dropped in silence (this module's explicit rule).
         add_host: {
             let mut out = Vec::new();
             for entry in svc.extra_hosts.to_host_pairs() {
@@ -3429,10 +3431,10 @@ fn health_params(hc: &Option<ComposeHealthcheck>) -> Result<(Duration, Duration,
     Ok((interval, timeout, retries, start_period))
 }
 
-/// O comando de health check declarado na IMAGEM (`HEALTHCHECK`), sem passar
-/// por um serviço compose. Exposto para o `container run --wait` usar
-/// exactamente a mesma resolução — dois resolvedores divergiriam, e o que
-/// ficasse para trás passaria a dizer "saudável" por outra regra.
+/// The health check command declared on the IMAGE (`HEALTHCHECK`), without
+/// going through a compose service. Exposed so `container run --wait` uses
+/// exactly the same resolution — two resolvers would diverge, and the one left
+/// behind would start reporting "healthy" by a different rule.
 pub(crate) fn image_health_argv(images: &ImageStore, image_ref: &str) -> Option<Vec<String>> {
     resolve_test_argv(&None, images, image_ref)
 }
@@ -4434,9 +4436,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shlex_split_nao_e_shell_trata_metacaracteres_como_texto() {
-        // Metacaracteres de shell (`;`/`` ` ``/`$()`) saem como texto literal
-        // dentro de um token — nunca chegam a um shell real para os interpretar.
+    fn shlex_split_is_not_a_shell_treats_metacharacters_as_text() {
+        // Shell metacharacters (`;`/`` ` ``/`$()`) come out as literal text
+        // inside a token — they never reach a real shell to be interpreted.
         assert_eq!(
             shlex_split("echo hi; rm -rf /").unwrap(),
             vec!["echo", "hi;", "rm", "-rf", "/"]
@@ -4458,7 +4460,7 @@ mod tests {
     /// backslash. This used to drop the backslash unconditionally, silently
     /// mangling e.g. a regex pattern passed as a command argument.
     #[test]
-    fn shlex_split_dentro_de_aspas_duplas_so_escapa_o_conjunto_posix() {
+    fn shlex_split_inside_double_quotes_only_escapes_the_posix_set() {
         // `\d` is not one of `$ \` " <newline>` -> the backslash survives.
         assert_eq!(
             shlex_split(r#"grep "\d+" file"#).unwrap(),
@@ -4475,7 +4477,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_go_duration_reconhece_as_unidades() {
+    fn parse_go_duration_recognizes_the_units() {
         assert_eq!(parse_go_duration("30s").unwrap(), Duration::from_secs(30));
         assert_eq!(parse_go_duration("1m30s").unwrap(), Duration::from_secs(90));
         assert_eq!(
@@ -4488,7 +4490,7 @@ mod tests {
     }
 
     #[test]
-    fn topo_sort_ordena_por_dependencia_e_detecta_ciclo() {
+    fn topo_sort_orders_by_dependency_and_detects_cycle() {
         let yaml = "web:\n  image: a\n  depends_on: [api]\napi:\n  image: b\n  depends_on: [db]\ndb:\n  image: c\n";
         let services: BTreeMap<String, ComposeService> = serde_yaml::from_str(yaml).unwrap();
         let all: BTreeSet<String> = services.keys().cloned().collect();
@@ -4573,7 +4575,7 @@ services:
     }
 
     #[test]
-    fn default_project_name_normaliza_o_directorio() {
+    fn default_project_name_normalizes_the_directory() {
         assert_eq!(
             default_project_name(Path::new("/home/u/My App/compose.yml")),
             "my_app"
@@ -4592,23 +4594,23 @@ services:
     /// projects adopted each other's containers and volumes and `down -v` in one
     /// deleted the other's data.
     #[test]
-    fn default_project_name_resolve_caminho_relativo_contra_o_cwd() {
+    fn default_project_name_resolves_relative_path_against_the_cwd() {
         let cwd = std::env::current_dir().unwrap();
-        let esperado = default_project_name(&cwd.join("compose.yml"));
-        assert_eq!(default_project_name(Path::new("compose.yml")), esperado);
+        let expected = default_project_name(&cwd.join("compose.yml"));
+        assert_eq!(default_project_name(Path::new("compose.yml")), expected);
         assert_eq!(
             default_project_name(Path::new("./docker-compose.yml")),
-            esperado
+            expected
         );
         assert_ne!(
             default_project_name(Path::new("compose.yml")),
             "default",
-            "um caminho relativo não pode cair no nome de projecto partilhado"
+            "a relative path must not collapse onto the shared project name"
         );
     }
 
     #[test]
-    fn valid_compose_project_name_recusa_charset_invalido() {
+    fn valid_compose_project_name_refuses_invalid_charset() {
         assert!(valid_compose_project_name("myapp"));
         assert!(valid_compose_project_name("my_app-1"));
         assert!(!valid_compose_project_name(""));
@@ -4617,7 +4619,7 @@ services:
     }
 
     #[test]
-    fn translate_resolve_depends_on_e_healthcheck_e_erros_ficam_claros() {
+    fn translate_resolves_depends_on_and_healthcheck_and_errors_stay_clear() {
         let yaml = r#"
 services:
   db:
@@ -5009,19 +5011,19 @@ services:
         assert_eq!(
             names,
             vec!["p-svc", "p-svc-2", "p-svc-3"],
-            "a 1ª réplica mantém o nome de sempre (depends_on/DNS não mudam), as outras levam sufixo"
+            "the 1st replica keeps its usual name (depends_on/DNS don't change), the others get a suffix"
         );
     }
 
     #[test]
-    fn service_sem_image_nem_build_e_erro() {
+    fn service_with_no_image_nor_build_is_an_error() {
         let yaml = "services:\n  svc:\n    ports: []\n";
         let compose: ComposeFile = serde_yaml::from_str(yaml).unwrap();
         assert!(translate(&compose, "p", Path::new("/tmp"), &[]).is_err());
     }
 
     #[test]
-    fn resolve_ports_curto_e_longo() {
+    fn resolve_ports_short_and_long() {
         let ports = vec![
             ComposePort::Short("8080:80".to_string()),
             ComposePort::Long {
@@ -5038,7 +5040,7 @@ services:
     /// A bare container port (no host port, short or long form) gets a random
     /// free host port instead of being rejected — real Compose semantics.
     #[test]
-    fn resolve_ports_porta_sem_host_ganha_porta_aleatoria() {
+    fn resolve_ports_port_with_no_host_gets_a_random_port() {
         let bare = vec![ComposePort::Short("80".to_string())];
         let out = resolve_ports(&bare, "svc").unwrap();
         assert_eq!(out.len(), 1);
@@ -5046,7 +5048,7 @@ services:
         assert_eq!(cont, "80");
         assert!(
             host.parse::<u16>().is_ok(),
-            "host port não numérico: {host}"
+            "non-numeric host port: {host}"
         );
 
         let bare_long = vec![ComposePort::Long {
@@ -5061,39 +5063,42 @@ services:
         assert!(host2.parse::<u16>().is_ok());
     }
 
-    /// `127.0.0.1:9000:80` chega INTEIRO ao motor — nem descartado nem recusado.
+    /// `127.0.0.1:9000:80` arrives WHOLE at the engine — neither dropped nor
+    /// refused.
     ///
-    /// **Este teste já afirmou o contrário, e a lição é a razão de estar aqui
-    /// escrita.** Nasceu a fixar «tem de recusar», que foi a correcção certa para o
-    /// bug anterior (a forma de 3 partes caía na de 2 e a restrição de IP
-    /// desaparecia — um ficheiro a pedir loopback-only publicava em todas as
-    /// interfaces). Só que a razão da recusa era «o `-p` do motor exige host port
-    /// só dígitos», e isso deixou de valer quando o CLI ganhou o
-    /// `parse_publish_addr`. O teste sobreviveu à premissa e passou a defender uma
-    /// recusa sem motivo, na forma mais comum de expor um serviço só ao host.
+    /// **This test once asserted the opposite, and the lesson is the reason it's
+    /// written here.** It was born pinning "must refuse", which was the right fix
+    /// for the earlier bug (the three-part form fell into the two-part one and the
+    /// IP restriction vanished — a file asking for loopback-only published on all
+    /// interfaces). Except the reason for the refusal was "the engine's `-p`
+    /// requires a digits-only host port", and that stopped holding when the CLI
+    /// gained `parse_publish_addr`. The test outlived its premise and started
+    /// defending a refusal with no reason, in the most common way to expose a
+    /// service to the host only.
     ///
-    /// Quando uma correcção faz um teste antigo falhar, a primeira hipótese é que o
-    /// teste fixava o comportamento errado — regra já registada neste repo, e a
-    /// segunda vez que se paga.
+    /// When a fix makes an old test fail, the first hypothesis is that the test
+    /// pinned the wrong behavior — a rule already recorded in this repo, and the
+    /// second time it's paid.
     #[test]
-    fn resolve_ports_passa_o_bind_a_ip_especifico_intacto_ao_motor() {
+    fn resolve_ports_passes_the_specific_ip_bind_intact_to_the_engine() {
         let ports = vec![ComposePort::Short("127.0.0.1:9000:80".to_string())];
         let out = resolve_ports(&ports, "svc").unwrap();
         assert_eq!(
             out,
             vec!["127.0.0.1:9000:80".to_string()],
-            "o IP do host tem de sobreviver — é a restrição que o ficheiro pediu"
+            "the host IP has to survive — it's the restriction the file asked for"
         );
-        // E a forma de 2 partes continua exactamente como estava.
-        let simples = resolve_ports(&[ComposePort::Short("9000:80".into())], "svc").unwrap();
-        assert_eq!(simples, vec!["9000:80".to_string()]);
+        // And the two-part form stays exactly as it was.
+        let simple = resolve_ports(&[ComposePort::Short("9000:80".into())], "svc").unwrap();
+        assert_eq!(simple, vec!["9000:80".to_string()]);
     }
 
-    /// Um range vai inteiro para o motor, que o expande na sua fronteira
-    /// (`expand_publish_range`, o mesmo que o `container run` já usa). O compose
-    /// era o único dos três pontos de entrada a recusar o que os outros faziam.
+    /// A range goes whole to the engine, which expands it at its boundary
+    /// (`expand_publish_range`, the same one `container run` already uses). The
+    /// compose was the only one of the three entry points refusing what the
+    /// others did.
     #[test]
-    fn resolve_ports_passa_ranges_ao_motor_em_vez_de_os_recusar() {
+    fn resolve_ports_passes_ranges_to_the_engine_instead_of_refusing_them() {
         let ports = vec![ComposePort::Long {
             target: StringOrNum::Str("9000-9002".into()),
             published: Some(StringOrNum::Str("8000-8002".into())),
@@ -5165,12 +5170,12 @@ services:
     /// both used to yield `"a_b_c"`), which meant `compose down` for one
     /// project could remove a resource belonging to the other.
     #[test]
-    fn compose_scoped_name_nao_colide_entre_projectos_com_undercores() {
+    fn compose_scoped_name_does_not_collide_between_projects_with_underscores() {
         let a = compose_scoped_name("a_b", "c");
         let b = compose_scoped_name("a", "b_c");
         assert_ne!(
             a, b,
-            "colisão real entre dois pares projecto/chave distintos"
+            "real collision between two distinct project/key pairs"
         );
     }
 

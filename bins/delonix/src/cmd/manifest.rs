@@ -598,7 +598,7 @@ fn refused_by_name(doc: &ManifestDoc) -> Result<()> {
 /// Both live here for the same reason: a check that only runs where the spec is
 /// DESERIALIZED runs only on `apply`, and `validate` — the command whose whole
 /// job is to answer «is this right?» — stays silent. Measured before the move:
-/// `resources.memoria` was reported by `apply --dry-run` and not by `validate`,
+/// `resources.memroy` was reported by `apply --dry-run` and not by `validate`,
 /// on the very same file.
 fn check_unknown_fields(doc: &ManifestDoc) {
     if let Some(fields) = spec_fields_for_doc(doc) {
@@ -1034,10 +1034,11 @@ fn warn_sunset_kinds(docs: &[ManifestDoc]) {
 /// only covers one of them turns a merged Kind into a document nobody claims —
 /// silently, which is the failure this whole exercise exists to remove.
 fn lower_legacy_kind(doc: &mut ManifestDoc) -> Result<()> {
-    // Os três Kinds que estas reduções serviam foram REMOVIDOS. A recusa nomeia
-    // o que escrever em vez deles: deixá-los cair no «unknown kind» genérico
-    // faria um manifesto correcto-até-ontem parecer um erro de escrita, e quem o
-    // apanha não saberia se errou ou se algo mudou debaixo dele.
+    // The three Kinds these reductions served have been REMOVED. The refusal
+    // names what to write instead of them: letting them fall into the generic
+    // «unknown kind» would make a correct-until-yesterday manifest look like a
+    // spelling mistake, and whoever hits it would not know whether they erred or
+    // something changed under them.
     if let Some((write, why)) = removed_kind_hint(&doc.kind) {
         return Err(Error::Invalid(super::po::tf(
             "`kind: {kind}` was removed — write {write} instead ({why})",
@@ -1251,13 +1252,14 @@ mod tests {
     /// what the document means, so there is nothing for the writer to migrate;
     /// a SUNSET Kind does warn, because a successor exists. Warning on a pure
     /// rename would train people to ignore warnings.
-    /// Os três Kinds removidos (`Storage`/`ShareVolume`/`Egress`) recusam
-    /// NOMEANDO o substituto.
+    /// The three removed Kinds (`Storage`/`ShareVolume`/`Egress`) refuse by
+    /// NAMING the replacement.
     ///
-    /// Uma remoção que caísse no «unknown kind» genérico faria um manifesto
-    /// correcto-até-ontem parecer um erro de escrita, e quem o apanha não
-    /// saberia se errou ou se algo mudou debaixo dele. Este teste substitui os
-    /// sete que provavam a REDUÇÃO — o comportamento que deixou de existir.
+    /// A removal that fell into the generic «unknown kind» would make a
+    /// correct-until-yesterday manifest look like a spelling mistake, and whoever
+    /// hits it would not know whether they erred or something changed under them.
+    /// This test replaces the seven that proved the REDUCTION — the behaviour that
+    /// no longer exists.
     #[test]
     fn a_removed_kind_refuses_by_naming_its_replacement() {
         for (kind, expect) in [
@@ -1271,9 +1273,9 @@ mod tests {
             .unwrap();
             let e = lower_legacy_kind(&mut doc).unwrap_err().to_string();
             assert!(e.contains("was removed"), "{kind}: {e}");
-            assert!(e.contains(expect), "{kind} nao nomeia o substituto: {e}");
+            assert!(e.contains(expect), "{kind} does not name the replacement: {e}");
         }
-        // E um Kind que FICA nao e apanhado pela recusa.
+        // And a Kind that STAYS is not caught by the refusal.
         let mut ok: ManifestDoc = serde_yaml::from_str(
             "apiVersion: storage.delonix.io/v1alpha1\nkind: Volume\nmetadata: { name: v }\nspec: {}\n",
         )
@@ -1504,7 +1506,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_multi_doc_com_kinds_diferentes() {
+    fn parse_multi_doc_with_different_kinds() {
         let text = "\
 apiVersion: delonix.io/v1
 kind: Network
@@ -1565,7 +1567,7 @@ spec:
     }
 
     #[test]
-    fn of_kind_filtra_correctamente() {
+    fn of_kind_filters_correctly() {
         let text = "\
 apiVersion: delonix.io/v1
 kind: Network
@@ -1587,7 +1589,7 @@ spec: {}
     }
 
     #[test]
-    fn kind_vm_canonicaliza_para_virtualmachine() {
+    fn kind_vm_canonicalizes_to_virtualmachine() {
         let text = "\
 apiVersion: delonix.io/v1
 kind: VirtualMachine
@@ -1663,50 +1665,50 @@ spec: { disk: k8s-golden }
     }
 
     #[test]
-    fn os_exemplos_publicados_fazem_round_trip_sem_perder_campos() {
+    fn the_published_examples_round_trip_without_losing_fields() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
         let mut files = 0usize;
         let mut docs_seen = 0usize;
         let mut kinds = std::collections::BTreeSet::new();
         for path in all_example_yaml(&dir) {
-            let text = std::fs::read_to_string(&path).expect("exemplo legivel");
+            let text = std::fs::read_to_string(&path).expect("readable example");
             if !is_delonix_manifest(&text) {
-                continue; // cloud-init e afins: nao sao manifestos deste motor
+                continue; // cloud-init and the like: not manifests of this engine
             }
             files += 1;
             let name = path.file_name().unwrap().to_string_lossy().to_string();
-            // Que o exemplo publicado sequer CARREGUE ja e uma afirmacao que vale a pena.
-            let loaded = load(&path).unwrap_or_else(|e| panic!("{name}: nao carrega: {e}"));
+            // That the published example even LOADS is already a claim worth making.
+            let loaded = load(&path).unwrap_or_else(|e| panic!("{name}: does not load: {e}"));
             for doc in &loaded {
                 docs_seen += 1;
                 kinds.insert(doc.kind.clone());
                 let once = filled_spec(doc)
-                    .unwrap_or_else(|e| panic!("{name}: {} nao serializa: {e}", doc.kind));
+                    .unwrap_or_else(|e| panic!("{name}: {} does not serialize: {e}", doc.kind));
                 let mut again = doc.clone();
                 again.spec = once.clone();
                 let twice = filled_spec(&again)
-                    .unwrap_or_else(|e| panic!("{name}: {} nao re-parseia: {e}", doc.kind));
+                    .unwrap_or_else(|e| panic!("{name}: {} does not re-parse: {e}", doc.kind));
                 assert_eq!(
                     once, twice,
-                    "{name}: o round-trip de {} mudou o spec — o --dry-run nao descreve o que sera aplicado",
+                    "{name}: the round-trip of {} changed the spec — the --dry-run does not describe what will be applied",
                     doc.kind
                 );
             }
         }
         assert!(
             files >= 20,
-            "so {files} exemplos: o filtro esta a comer manifestos"
+            "only {files} examples: the filter is eating manifests"
         );
         assert!(
             docs_seen >= files,
-            "menos documentos que ficheiros ({docs_seen} < {files})"
+            "fewer documents than files ({docs_seen} < {files})"
         );
-        // Os Kinds com renderizador tipado tem MESMO de aparecer, senao o teste passa por
-        // nao ter exercitado nada deles.
+        // The Kinds with a typed renderer MUST show up, otherwise the test passes
+        // for having exercised none of them.
         for k in ["Container", "Network", "Volume", "VirtualMachine", "Pod"] {
             assert!(
                 kinds.contains(k),
-                "nenhum exemplo cobre o kind {k}: {kinds:?}"
+                "no example covers the kind {k}: {kinds:?}"
             );
         }
     }
@@ -1717,36 +1719,38 @@ spec: { disk: k8s-golden }
     /// functions together is the point — checking `kind_honors_namespace("VirtualMachine")` alone
     /// would still pass the day an alias stopped being canonicalized.
     #[test]
-    fn a_namespace_e_honrada_exactamente_onde_o_motor_a_aplica() {
+    fn a_namespace_is_honored_exactly_where_the_engine_applies_it() {
         for kind in [
             "Container",
             "Pod",
             "VirtualMachine",
             "Workload",
             "Stack",
-            // `ShareVolume` saiu da lista com o Kind: quem honra a namespace de
-            // uma share e agora o `Volume` com bloco `share:`, verificado logo
-            // a seguir.
+            // `ShareVolume` left the list with the Kind: what honors a share's
+            // namespace is now the `Volume` with a `share:` block, checked right
+            // below.
         ] {
-            assert!(kind_honors_namespace(kind), "{kind} tem de honrar");
+            assert!(kind_honors_namespace(kind), "{kind} must honor it");
         }
         for alias in ["VirtualMachine", "VM", "vm", "pod", "workload"] {
             assert!(
                 kind_honors_namespace(canonical_kind(alias)),
-                "o alias {alias} tem de chegar canonicalizado ao lado honrado"
+                "the alias {alias} must arrive canonicalized on the honored side"
             );
         }
-        // `Volume` honra-a desde a fusao do `ShareVolume`: um volume com bloco
-        // `share:` e escopado pelo namespace (e o directorio dos dados que muda),
-        // um volume simples nao. E o unico Kind cuja resposta vem do DOCUMENTO,
-        // e por isso `honors_namespace` diz que sim — o aviso do `load` seria
-        // errado num share, e um aviso errado e pior que nenhum.
+        // `Volume` honors it since the `ShareVolume` merge: a volume with a
+        // `share:` block is scoped by the namespace (it is the data directory that
+        // changes), a plain volume is not. It is the only Kind whose answer comes
+        // from the DOCUMENT, which is why `honors_namespace` says yes — the
+        // `load`'s warning would be wrong on a share, and a wrong warning is worse
+        // than none.
         assert!(kind_honors_namespace("Volume"));
-        // A grafia antiga JA NAO honra nada: o Kind foi removido, e o `load`
-        // recusa-a nomeando o substituto antes de a namespace sequer ser lida.
+        // The old spelling NO LONGER honors anything: the Kind was removed, and
+        // `load` refuses it by naming the replacement before the namespace is even
+        // read.
         assert!(!kind_honors_namespace("ShareVolume"));
-        // Sem semantica de namespace hoje: aceitam o campo e nao fazem nada com ele,
-        // que e precisamente o que passa a ser avisado no `load`.
+        // No namespace semantics today: they accept the field and do nothing with
+        // it, which is precisely what is now warned about in `load`.
         for kind in [
             "Network",
             "Secret",
@@ -1758,12 +1762,12 @@ spec: { disk: k8s-golden }
             "Dependency",
             "Cluster",
         ] {
-            assert!(!kind_honors_namespace(kind), "{kind} nao honra hoje");
+            assert!(!kind_honors_namespace(kind), "{kind} does not honor it today");
         }
     }
 
     #[test]
-    fn canonical_kind_e_case_insensitive_para_a_vm() {
+    fn canonical_kind_is_case_insensitive_for_vm() {
         // Any plausible casing from another tool resolves to `Vm`.
         for k in [
             "VirtualMachine",
@@ -1776,7 +1780,7 @@ spec: { disk: k8s-golden }
             assert_eq!(
                 canonical_kind(k),
                 "VirtualMachine",
-                "kind {k:?} devia canonicalizar para VirtualMachine"
+                "kind {k:?} should canonicalize to VirtualMachine"
             );
         }
         // Non-Vm Kinds pass through intact (we don't invent synonyms).
@@ -1785,7 +1789,7 @@ spec: { disk: k8s-golden }
     }
 
     #[test]
-    fn metadata_labels_annotations_opcionais() {
+    fn metadata_labels_annotations_optional() {
         let text = "\
 apiVersion: delonix.io/v1
 kind: Container
@@ -2018,7 +2022,7 @@ spec: {}
     }
 
     #[test]
-    fn unknown_fields_apanha_gralha_e_ignora_conhecidos() {
+    fn unknown_fields_catches_the_typo_and_ignores_the_known() {
         let text = "\
 apiVersion: delonix.io/v1
 kind: Container
@@ -2034,11 +2038,11 @@ spec: { image: alpine, memroy: 2G, restartPolicy: always }
         assert_eq!(unknown, vec!["memroy".to_string()]);
     }
 
-    /// O `validate` dizia `OK` na linha a seguir a avisar que um campo tinha
-    /// sido ignorado. O contador é o que permite ao veredicto condizer com o que
-    /// foi impresso — e ao `--strict` transformá-lo em exit code.
+    /// `validate` said `OK` on the line right after warning that a field had been
+    /// ignored. The counter is what lets the verdict match what was printed — and
+    /// lets `--strict` turn it into an exit code.
     #[test]
-    fn campo_ignorado_e_contado() {
+    fn an_ignored_field_is_counted() {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("m.yaml");
         std::fs::write(
@@ -2046,12 +2050,12 @@ spec: { image: alpine, memroy: 2G, restartPolicy: always }
             "apiVersion: delonix.io/v1\nkind: Network\nmetadata:\n  name: n\nspec:\n  campoInexistente: 1\n",
         )
         .unwrap();
-        let antes = super::thread_unknown_fields().len();
+        let before = super::thread_unknown_fields().len();
         super::load_lenient(&p).unwrap();
         assert_eq!(
-            super::thread_unknown_fields()[antes..],
+            super::thread_unknown_fields()[before..],
             ["Network 'n' spec.campoInexistente".to_string()],
-            "carregar um manifesto com um campo inventado tem de contar UM aviso"
+            "loading a manifest with an invented field has to count ONE warning"
         );
     }
 
@@ -2060,7 +2064,7 @@ spec: { image: alpine, memroy: 2G, restartPolicy: always }
     /// `*_SPEC_FIELDS` const (or vice versa), this test breaks — it is what keeps
     /// the lists of known fields aligned with the real schema and with the doc.
     #[test]
-    fn examples_nao_tem_campos_desconhecidos() {
+    fn examples_have_no_unknown_fields() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
         let fields_for = |kind: &str| -> Option<&'static [&'static str]> { spec_fields_for(kind) };
         for path in all_example_yaml(&dir) {
@@ -2075,7 +2079,7 @@ spec: { image: alpine, memroy: 2G, restartPolicy: always }
             }
             let docs = load(&path).unwrap_or_else(|e| {
                 panic!(
-                    "{}: é um manifesto delonix mas não parseia: {e}",
+                    "{}: it is a delonix manifest but it does not parse: {e}",
                     path.display()
                 )
             });
@@ -2093,7 +2097,7 @@ spec: { image: alpine, memroy: 2G, restartPolicy: always }
                 let unknown = unknown_fields(doc, known);
                 assert!(
                     unknown.is_empty(),
-                    "{}: {} '{}' tem campos desconhecidos {:?} — actualiza a const *_SPEC_FIELDS",
+                    "{}: {} '{}' has unknown fields {:?} — update the *_SPEC_FIELDS const",
                     path.display(),
                     doc.kind,
                     doc.metadata.name,
@@ -2104,7 +2108,7 @@ spec: { image: alpine, memroy: 2G, restartPolicy: always }
     }
 
     #[test]
-    fn manifesto_marcado_mas_partido_falha_load_nao_e_saltado() {
+    fn a_marked_but_broken_manifest_fails_load_and_is_not_skipped() {
         // Drift-guard contract (Fix #1): a file that HAS the `delonix.io/v1`
         // marker but is broken (here, `metadata.name` is missing) must
         // give Err on load — that is what distinguishes a malformed example (the guard
@@ -2121,12 +2125,12 @@ spec: { image: alpine }
         std::fs::write(&p, text).unwrap();
         assert!(
             load(&p).is_err(),
-            "manifesto marcado mas sem metadata.name devia falhar o load"
+            "a marked manifest with no metadata.name should fail the load"
         );
     }
 
     #[test]
-    fn ficheiro_vazio_e_erro_claro() {
+    fn an_empty_file_is_a_clear_error() {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("delonix-manifest-empty.yaml");
         std::fs::write(&p, "").unwrap();
@@ -2135,7 +2139,7 @@ spec: { image: alpine }
     }
 
     #[test]
-    fn resolve_path_sem_flag_nem_ficheiro_e_erro_claro() {
+    fn resolve_path_with_no_flag_nor_file_is_a_clear_error() {
         let tmp = tempfile::tempdir().unwrap();
         let orig = std::env::current_dir().unwrap();
         std::env::set_current_dir(tmp.path()).unwrap();
@@ -2159,9 +2163,9 @@ spec: { image: nginx }
         let out = render_with_defaults(&docs).unwrap();
         // The user only wrote `image: nginx`; the defaults must materialize.
         assert!(out.contains("image: nginx"));
-        assert!(out.contains("detach: true"), "veio:\n{out}"); // default_true
-        assert!(out.contains("network: host"), "veio:\n{out}"); // default_net
-        assert!(out.contains("restartPolicy: no"), "veio:\n{out}"); // renamed default
+        assert!(out.contains("detach: true"), "got:\n{out}"); // default_true
+        assert!(out.contains("network: host"), "got:\n{out}"); // default_net
+        assert!(out.contains("restartPolicy: no"), "got:\n{out}"); // renamed default
     }
 
     /// The minimal `spec` of one child per group, and the Kind it ends up as
@@ -2412,7 +2416,7 @@ spec:
     }
 
     #[test]
-    fn storage_sem_tipo_ou_com_tipo_desconhecido_e_recusado() {
+    fn storage_with_no_type_or_an_unknown_type_is_refused() {
         for spec in [
             "{ server: nas, share: x }",
             "{ type: gluster, server: nas, share: x }",
@@ -2421,7 +2425,7 @@ spec:
                 "apiVersion: delonix.io/v1\nkind: Storage\nmetadata: {{ name: b }}\nspec: {spec}\n"
             ))
             .unwrap();
-            assert!(lower_legacy_kind(&mut doc).is_err(), "aceitou: {spec}");
+            assert!(lower_legacy_kind(&mut doc).is_err(), "accepted: {spec}");
         }
     }
 }

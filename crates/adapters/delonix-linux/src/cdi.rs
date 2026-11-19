@@ -8,7 +8,7 @@
 //! container's OWN already-namespaced init, before its `pivot_root` — never
 //! a second process `setns`-ing into a target by PID (the legacy NVIDIA hook
 //! model), which would reintroduce exactly the cross-namespace privilege
-//! problem the `--net <rede>` re-exec trick was built to avoid. Driver
+//! problem the `--net <network>` re-exec trick was built to avoid. Driver
 //! discovery/versioning stays 100% inside `nvidia-ctk`, same as every other
 //! container engine (Docker/Podman/containerd/CRI-O) — none of them
 //! reimplement it either.
@@ -377,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn is_cdi_qualified_distingue_de_um_caminho_de_dev() {
+    fn is_cdi_qualified_distinguishes_from_a_dev_path() {
         assert!(is_cdi_qualified("nvidia.com/gpu=all"));
         assert!(is_cdi_qualified("nvidia.com/gpu=0"));
         assert!(!is_cdi_qualified("/dev/nvidia0"));
@@ -509,7 +509,7 @@ mod tests {
         assert_eq!(
             before,
             devices.len(),
-            "device nodes duplicados: {devices:?}"
+            "duplicate device nodes: {devices:?}"
         );
         assert_eq!(
             out.mounts
@@ -517,9 +517,9 @@ mod tests {
                 .filter(|m| m.target == "/usr/bin/nvidia-smi")
                 .count(),
             1,
-            "os mounts de topo entraram mais do que uma vez"
+            "the top-level mounts entered more than once"
         );
-        assert_eq!(out.env.len(), 1, "env duplicado: {:?}", out.env);
+        assert_eq!(out.env.len(), 1, "duplicate env: {:?}", out.env);
     }
 
     #[test]

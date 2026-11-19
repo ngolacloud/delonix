@@ -89,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn retag_move_a_tag_e_nao_a_duplica() {
+    fn retag_moves_the_tag_and_does_not_duplicate_it() {
         use image::{Image, ImageConfig, ImageStore};
         let root = tempfile::tempdir().unwrap();
         let store = ImageStore::open(root.path()).unwrap();
@@ -107,7 +107,7 @@ mod tests {
         // re-tag B with A's tag: it must MOVE (A loses it; B gains it).
         store.tag("other:latest", "app:latest").unwrap();
         let resolved = store.resolve("app:latest").unwrap();
-        assert_eq!(resolved.id, b.id, "app:latest devia agora apontar para B");
+        assert_eq!(resolved.id, b.id, "app:latest should now point to B");
         // only ONE image has app:latest.
         let holders = store
             .list()
@@ -115,7 +115,7 @@ mod tests {
             .into_iter()
             .filter(|i| i.repo_tags.iter().any(|t| t == "app:latest"))
             .count();
-        assert_eq!(holders, 1, "a tag não pode apontar para duas imagens");
+        assert_eq!(holders, 1, "the tag cannot point to two images");
     }
 
     /// Loading an archive must never DROP a name the same image already had.

@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn find_prefixo_ambiguo_e_erro_nao_o_mais_recente() {
+    fn find_ambiguous_prefix_is_an_error_not_the_newest() {
         // BUG regression guard: `find` used to silently return the FIRST
         // (newest-created) match on an ambiguous id prefix instead of
         // erroring — the exact opposite of Docker/Podman semantics.
@@ -475,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn find_prefixo_unico_resolve_normalmente() {
+    fn find_unique_prefix_resolves_normally() {
         let (store, _dir) = tmp_store();
         store.save(&mk("a1f3000000000000", "old")).unwrap();
         store.save(&mk("b2000000000000000", "other")).unwrap();
@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn find_nome_exacto_ganha_mesmo_com_prefixo_de_id_ambiguo() {
+    fn find_exact_name_wins_even_with_ambiguous_id_prefix() {
         // An exact id/name match is unambiguous by definition and must win
         // outright, even if OTHER containers' ids happen to share a prefix
         // with the query string.

@@ -2880,7 +2880,7 @@ spec: { target: web, direction: ingress, defaultPolicy: deny, rules: [] }
     // the deny (above, first-match) won forever. The replacement compares with
     // norm_any: source ""/"0.0.0.0/0"/"*" are the same match.
     #[test]
-    fn norm_any_iguala_as_tres_formas_de_qualquer_origem() {
+    fn norm_any_equates_the_three_forms_of_any_source() {
         assert_eq!(norm_any(""), norm_any("0.0.0.0/0"));
         assert_eq!(norm_any(""), norm_any("*"));
         assert_eq!(norm_any("10.0.0.0/8"), "10.0.0.0/8");
@@ -2937,7 +2937,7 @@ spec: { target: web, direction: ingress, defaultPolicy: deny, rules: [] }
     // by hand instead.
 
     #[test]
-    fn field_overlaps_apanha_coringas_e_iguais() {
+    fn field_overlaps_catches_wildcards_and_equals() {
         // `deny any/8069` shadows `allow tcp/8069` — the warning must fire.
         assert!(field_overlaps("any", "tcp", &["any", ""]));
         assert!(field_overlaps("8069", "8069", &["*", ""]));
@@ -2947,7 +2947,7 @@ spec: { target: web, direction: ingress, defaultPolicy: deny, rules: [] }
     }
 
     #[test]
-    fn rule_spec_reproduz_o_formato_do_cli() {
+    fn rule_spec_reproduces_the_cli_format() {
         assert_eq!(rule_spec(&rule("in", "any", "8069", "", "deny")), "8069");
         assert_eq!(
             rule_spec(&rule("in", "tcp", "5432", "", "allow")),
@@ -2969,7 +2969,7 @@ spec: { target: web, direction: ingress, defaultPolicy: deny, rules: [] }
     }
 
     #[test]
-    fn network_egress_recusa_allowlist_com_policy_allow() {
+    fn network_egress_rejects_allowlist_with_policy_allow() {
         // #1: allow + allowlist = restriction only in appearance → clear error.
         let e = apply_network_egress(
             "Egress",
@@ -3001,7 +3001,7 @@ spec: { target: web, direction: ingress, defaultPolicy: deny, rules: [] }
     /// while it answered that source perfectly well. Validated live before and after:
     /// allowed source 200, other source nothing.
     #[test]
-    fn publish_restrito_a_uma_origem_nao_e_bloqueado() {
+    fn publish_restricted_to_one_source_is_not_blocked() {
         let rule = |port: &str, src: &str, action: &str| FwRule {
             dir: "in".into(),
             proto: "any".into(),
@@ -3066,7 +3066,7 @@ spec: { target: web, direction: ingress, defaultPolicy: deny, rules: [] }
     }
 
     #[test]
-    fn network_egress_valida_tudo_antes_de_tocar_no_motor() {
+    fn network_egress_validates_everything_before_touching_the_engine() {
         // These errors fire BEFORE resolve_net (which would need the ingress
         // running) — pure validation, testable without infra.
         // #3: invalid CIDR.
@@ -3103,7 +3103,7 @@ spec: { target: web, direction: ingress, defaultPolicy: deny, rules: [] }
     }
 
     #[test]
-    fn fw_host_ok_aceita_fqdn_valido_recusa_lixo() {
+    fn fw_host_ok_accepts_a_valid_fqdn_rejects_junk() {
         assert!(fw_host_ok("github.com"));
         assert!(fw_host_ok("sub.dominio-x.example.co"));
         assert!(!fw_host_ok("")); // empty

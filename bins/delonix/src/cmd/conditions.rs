@@ -627,10 +627,10 @@ mod tests {
         }
     }
 
-    /// A montagem de rede é declarada por um BLOCO num `kind: Volume` desde que
-    /// o `kind: Storage` se fundiu nele — e é do bloco que o tipo vem.
+    /// A network share is declared by a BLOCK in a `kind: Volume` ever since
+    /// `kind: Storage` folded into it — and the type comes from the block.
     #[test]
-    fn share_de_rede_em_rootless_exige_cap_sys_admin() {
+    fn a_rootless_network_share_requires_cap_sys_admin() {
         let c = conditions_for(
             &doc("Volume", "nfs: { server: nas, share: /x }"),
             &env(true, true, true, true),
@@ -641,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn share_de_rede_sem_helper_assinala_helper_em_falta() {
+    fn a_network_share_with_no_helper_flags_the_missing_helper() {
         // cifs needs mount.cifs; absent → MountHelperMissing.
         let c = conditions_for(
             &doc("Volume", "cifs: { server: nas, share: media }"),
@@ -656,33 +656,33 @@ mod tests {
         assert!(c[0].ok);
     }
 
-    /// **A regressão que isto fixa.** A condição era despachada por
-    /// `kind: Storage`; quando esse Kind se fundiu no `Volume`, deixou de haver
-    /// documentos com aquele nome e a condição cujo trabalho inteiro é dizer
-    /// «criado, mas não monta» ficou MUDA. Um volume local não a tem; um com
-    /// bloco de rede tem sempre.
+    /// **The regression this fixes.** The condition was dispatched by
+    /// `kind: Storage`; when that Kind folded into `Volume`, there were no more
+    /// documents with that name and the condition whose entire job is to say
+    /// «created, but it does not mount» went SILENT. A local volume has none; one
+    /// with a network block always does.
     #[test]
-    fn um_volume_local_nao_tem_condicao_de_montagem_e_um_de_rede_tem() {
+    fn a_local_volume_has_no_mount_condition_and_a_network_one_does() {
         let local = conditions_for(
             &doc("Volume", "driver: local"),
             &env(true, true, true, true),
         );
         assert!(
             local.iter().all(|c| c.kind != "Mounted"),
-            "um volume local não monta nada: {local:?}"
+            "a local volume mounts nothing: {local:?}"
         );
-        let rede = conditions_for(
+        let network = conditions_for(
             &doc("Volume", "nfs: { server: nas, share: /x }"),
             &env(true, true, true, true),
         );
         assert!(
-            rede.iter().any(|c| c.kind == "Mounted" && !c.ok),
-            "a condição de montagem voltou a ficar muda: {rede:?}"
+            network.iter().any(|c| c.kind == "Mounted" && !c.ok),
+            "the mount condition went silent again: {network:?}"
         );
     }
 
     #[test]
-    fn volume_quota_rootless_e_so_monitorizada() {
+    fn a_rootless_volume_quota_is_only_monitored() {
         let c = conditions_for(&doc("Volume", "quota: 2g"), &env(true, true, true, true));
         assert_eq!(c[0].reason, "RequiresRoot");
         // root with quota → OK.
@@ -696,31 +696,31 @@ mod tests {
         .is_empty());
     }
 
-    /// **«Realizável» não é «realizada», e a condição respondia à segunda
-    /// pergunta com a primeira.**
+    /// **«Realizable» is not «realized», and the condition answered the second
+    /// question with the first.**
     ///
-    /// O `Realized` saía inteiramente do YAML: dizia `False` porque o documento
-    /// dizia `macvlan`, nunca porque alguém tivesse olhado para a máquina. Uma
-    /// rede cujo plano físico desapareceu — `NetDef` apagado, `rm` a meio —
-    /// reportava `Realized=True`, o `stack plan` dizia «sem alterações», e o
-    /// `container run --net <nome>` falhava com «does not exist».
+    /// `Realized` came entirely from the YAML: it said `False` because the
+    /// document said `macvlan`, never because anyone had looked at the machine. A
+    /// network whose physical plane was gone — `NetDef` deleted, `rm` half-done —
+    /// reported `Realized=True`, `stack plan` said «no changes», and `container
+    /// run --net <name>` failed with «does not exist».
     ///
-    /// Lê o registo do plano FÍSICO e não a bridge: aquele é um ficheiro que
-    /// sobrevive ao holder, esta vive na netns efémera e num nó ocioso não
-    /// existe — sondá-la daria por partida toda a rede saudável, que é
-    /// exactamente o erro que o `NetworkRoute` evitou ao planear contra o
-    /// registo.
+    /// It reads the record of the PHYSICAL plane and not the bridge: the former
+    /// is a file that outlives the holder, the latter lives in the ephemeral
+    /// netns and does not exist on an idle node — probing it would report every
+    /// healthy network as broken, which is exactly the trap `NetworkRoute`
+    /// avoided by planning against the record.
     #[test]
-    fn uma_rede_sem_plano_fisico_e_assinalada() {
+    fn a_network_with_no_physical_plane_is_flagged() {
         let d = doc("Network", "driver: bridge");
-        // Realizada de facto → nada a dizer.
+        // Actually realized → nothing to say.
         assert!(network_not_realized(&d, &env_with_networks(&["t"])).is_none());
-        // No registo declarativo mas sem plano físico → é isto que era invisível.
-        let c = network_not_realized(&d, &env_with_networks(&["outra"])).expect("condição");
+        // In the declarative registry but with no physical plane → this is what was invisible.
+        let c = network_not_realized(&d, &env_with_networks(&["other"])).expect("condition");
         assert_eq!(c.reason, "NotRealized");
         assert!(!c.ok);
-        // Um driver que NUNCA tem plano físico já tem razão própria, mais
-        // específica — não se lhe sobrepõe uma genérica.
+        // A driver that NEVER has a physical plane already has its own, more
+        // specific reason — a generic one does not override it.
         for drv in ["macvlan", "ipvlan"] {
             assert!(
                 network_not_realized(
@@ -731,7 +731,7 @@ mod tests {
                 "{drv}"
             );
         }
-        // E não se aplica a outro Kind nenhum.
+        // And it does not apply to any other Kind.
         assert!(
             network_not_realized(&doc("Volume", "driver: local"), &env_with_networks(&[]))
                 .is_none()
@@ -739,7 +739,7 @@ mod tests {
     }
 
     #[test]
-    fn network_driver_nao_implementado_e_assinalado() {
+    fn an_unimplemented_network_driver_is_flagged() {
         // These two genuinely have no physical plane without CAP_NET_ADMIN in
         // the host's init-netns. `overlay` is NOT one of them — the previous
         // version of this test looped over all three and so FIXED THE BUG in
@@ -762,7 +762,7 @@ mod tests {
     /// A plain overlay is realized in the holder (bridge + VXLAN uplink), with
     /// no host privilege. Reverting the fix makes this fail.
     #[test]
-    fn overlay_simples_e_realizado() {
+    fn a_plain_overlay_is_realized() {
         let c = conditions_for(
             &doc("Network", "driver: overlay\nvni: 42"),
             &env(true, true, true, true),
@@ -773,7 +773,7 @@ mod tests {
     /// The prerequisite that IS real: an encrypted overlay needs `wg`, and
     /// `realize_overlay` refuses without it rather than blackholing the uplink.
     #[test]
-    fn overlay_cifrado_sem_wg_e_assinalado() {
+    fn an_encrypted_overlay_without_wg_is_flagged() {
         let no_wg = Env {
             wg: false,
             ..env(true, true, true, true)
@@ -792,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn vm_volumes_com_ch_explicito_exige_libvirt() {
+    fn vm_volumes_with_explicit_ch_require_libvirt() {
         // volumes + explicit cloud-hypervisor backend → condition.
         let c = conditions_for(
             &doc(
@@ -851,7 +851,7 @@ mod tests {
     }
 
     #[test]
-    fn vm_restart_no_cloud_hypervisor_nao_e_supervisionado() {
+    fn vm_restart_on_cloud_hypervisor_is_not_supervised() {
         // backend absent (auto → CH) + canonical restartPolicy → not supervised.
         let c = conditions_for(
             &doc("VirtualMachine", "disk: d\nrestartPolicy: always"),
@@ -874,17 +874,17 @@ mod tests {
         assert!(c[0].ok);
         // Fix #3: backend ABSENT (auto) on a host WITHOUT cloud-hypervisor → falls
         // back to libvirt → supervised (does not warn needlessly).
-        let sem_ch = Env {
+        let no_ch = Env {
             cloud_hypervisor: false,
             ..env(false, true, true, true)
         };
         let c = conditions_for(
             &doc("VirtualMachine", "disk: d\nrestartPolicy: always"),
-            &sem_ch,
+            &no_ch,
         );
         assert!(
             c[0].ok,
-            "sem cloud-hypervisor o auto cai para libvirt, que supervisiona"
+            "without cloud-hypervisor the auto backend falls back to libvirt, which supervises"
         );
         // no restartPolicy (or `no`) → no condition.
         assert!(conditions_for(
