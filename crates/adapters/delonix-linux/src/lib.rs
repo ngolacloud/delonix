@@ -95,7 +95,7 @@ fn syserr(context: &'static str) -> impl Fn(nix::Error) -> Error {
 /// are placed in the PARENT's sequential orchestration only, between the
 /// syscalls that already happen, and read only `Instant::now()`.
 ///
-/// Why this exists: `docs/comparacao-medida.md` measures ~91 ms of cold start
+/// Why this exists: `docs/measured-comparison.md` measures ~91 ms of cold start
 /// (rootless, `--net host`) end-to-end but cannot say WHERE those ms go. ADR-0095
 /// says the warm/pooled plane must be designed on a measured profile, not a
 /// guess. This emits one line per start, broken into the phases a reader cares
@@ -153,7 +153,7 @@ mod spawn_profile {
 
     /// Emit the profile (stderr, and JSONL if the env var names a path) and reset.
     /// `container` names the run; `net_mode` records host vs isolated so the two
-    /// can be compared as `docs/comparacao-medida.md` asks.
+    /// can be compared as `docs/measured-comparison.md` asks.
     pub fn flush(container: &str, net_mode: &str) {
         if !enabled() {
             return;
@@ -9620,7 +9620,7 @@ fn userns_handshake(
     spawn_profile::mark("cgroup");
     let net_err = spec.on_started.and_then(|hook| hook(pid.as_raw()).err());
     // Network hook (CNI/slirp). `None` for `--net host` — the phase is then ~0,
-    // which is exactly the host-vs-isolated split `docs/comparacao-medida.md` asks
+    // which is exactly the host-vs-isolated split `docs/measured-comparison.md` asks
     // to measure separately.
     spawn_profile::mark("net");
     // SAFETY: writes 1 byte (the "you may proceed") and closes the write.

@@ -42,7 +42,7 @@ Read honestly:
 - **It is the API path, not the CLI.** Kiri's CLI costs 14,2 ms — the overhead is the
   *`docker` binary itself*, not the runtime.
 - Therefore it is **not directly comparable** to delonix's ~91 ms cold startup
-  (`docs/comparacao-medida.md`): delonix is **daemonless** (ADR-0040) —
+  (`docs/measured-comparison.md`): delonix is **daemonless** (ADR-0040) —
   each `container run` is an ephemeral process that re-pays process startup +
   overlay mount + namespaces + supervisor fork + exec. Kiri reuses
   everything in a persistent process.

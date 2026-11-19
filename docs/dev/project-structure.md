@@ -148,7 +148,7 @@ The crate list, each crate's layer and who depends on whom are generated facts i
 `docs/gen.py`; `gen.py` itself and Markdown such as `cli-stability.md`, `gitops.md`,
 `estrutura.md`, `guia-vm-lab.md` are hand-written sources that it renders; `RELEASES.md` is
 **generated** by `scripts/gen-releases.sh`; and dated reports (`AUDITORIA-E2E.md`,
-`RELATORIO-PRE-PRODUCAO.md`, `paridade-docker-podman.md`, `comparacao-medida.md`,
+`RELATORIO-PRE-PRODUCAO.md`, `paridade-docker-podman.md`, `measured-comparison.md`,
 `sovereignty-engine.md`) record what was measured on a given date.
 
 | Path | What it is | Who changes it / when | Read more |

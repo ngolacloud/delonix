@@ -143,7 +143,7 @@ pages HTML (`index.html`, `cheatsheet.html`, `estrutura.html`, …) et `.nojekyl
 par `docs/gen.py` ; `gen.py` lui-même et du Markdown comme `cli-stability.md`, `gitops.md`,
 `estrutura.md`, `guia-vm-lab.md` sont des sources écrites à la main qu’il rend ; `RELEASES.md` est
 **généré** par `scripts/gen-releases.sh` ; et des rapports datés (`AUDITORIA-E2E.md`,
-`RELATORIO-PRE-PRODUCAO.md`, `paridade-docker-podman.md`, `comparacao-medida.md`,
+`RELATORIO-PRE-PRODUCAO.md`, `paridade-docker-podman.md`, `measured-comparison.md`,
 `sovereignty-engine.md`) consignent ce qui a été mesuré à une date donnée.
 
 | Chemin | Ce que c’est | Qui le modifie / quand | Pour aller plus loin |

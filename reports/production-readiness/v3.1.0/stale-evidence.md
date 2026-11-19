@@ -29,9 +29,9 @@ v3.1.0 notes.
 | critest 65/103 | `paridade-docker-podman.md:216`, `tests/compat/cri-conformance.sh:6` | 79 |
 | profiles/extends/configs/secrets/multi-file "to do" | `COMPARACAO-DOCKER-PODMAN.md:130` | implemented |
 | `--pids-limit` missing | `COMPARACAO-DOCKER-PODMAN.md:169` | exists |
-| `vm create` without `--disk-size` | `comparacao-medida.md:126` | exists (`cmd/vm.rs:552`) |
+| `vm create` without `--disk-size` | `measured-comparison.md:126` | exists (`cmd/vm.rs:552`) |
 | `cri-conformance.md` | header 24 failures vs "26 failures" (`:212`) vs "13 of 31" (`:177`) | **document contradicts itself** |
-| `comparacao-medida.md` | v0.63.1 recount (`:136`) vs "table is v0.53.0, recount to do" (`:183`) | **document contradicts itself** |
+| `measured-comparison.md` | v0.63.1 recount (`:136`) vs "table is v0.53.0, recount to do" (`:183`) | **document contradicts itself** |
 
 ## Matrix (summary; detail per line in the raw inventory)
 

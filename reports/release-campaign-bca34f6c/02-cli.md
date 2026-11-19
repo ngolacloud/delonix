@@ -35,4 +35,4 @@ SUT: `delonix 5.1.1` @ `bca34f6c3` (digest `725112b6…`), `target/release/delon
 
 `docker` and `podman` are not installed (delonix is this host's runtime). Live
 comparison not runnable. The repo has a prior measured comparison in
-`docs/comparacao-medida.md` / `docs/paridade-docker-podman.md` (not re-measured here).
+`docs/measured-comparison.md` / `docs/paridade-docker-podman.md` (not re-measured here).

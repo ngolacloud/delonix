@@ -1,7 +1,7 @@
 # Per-phase profile of the cold start — where the ~91 ms go
 
 > **What this document is.** The **measured** breakdown of the ~91 ms that
-> `docs/comparacao-medida.md` (line 4a) attributes to the cold start of a
+> `docs/measured-comparison.md` (line 4a) attributes to the cold start of a
 > container on delonix rootless. That document says *how much*; this one says *where*.
 > It is the prerequisite that **ADR-0095** requires before designing the warm plane/pool:
 > «measure first where the ~91 ms go».

@@ -138,7 +138,7 @@ The differentiator is **architecture, measured** — not a benchmark win:
   same table: with isolated per-container networking the figure rises to ~216 ms
   (a tie with Docker) and ~344 ms when the network plane is built from cold — the
   *secure* path is the slower one, and it is the first item on the optimization
-  list. See `docs/comparacao-medida.md <docs/comparacao-medida.md>`_.
+  list. See `docs/measured-comparison.md <docs/measured-comparison.md>`_.
 
 What it is **not**: a young line (``0.1.x``), without Docker's or Podman's
 ecosystem, registry reach, or years of production hardening. The pitch is not
@@ -467,7 +467,7 @@ This is a ``0.1.x`` line. The gaps are tracked, each with the way out:
      - ongoing
 
 None of these are hidden behind the latency numbers: the measured bench
-(`docs/comparacao-medida.md <docs/comparacao-medida.md>`_) spells out the places
+(`docs/measured-comparison.md <docs/measured-comparison.md>`_) spells out the places
 Delonix is slower, and this table spells out the places it is not production-ready
 yet. The pitch is the integrated, daemonless, rootless path from a container to a
 Kubernetes node with VM-grade isolation — not "ready to replace Docker in a bank

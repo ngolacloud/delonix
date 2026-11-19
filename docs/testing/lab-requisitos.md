@@ -91,7 +91,7 @@ signature interoperability (line 14).
 ## 2. `docker` + `podman` in a VM — the whole of Phase 5
 
 Neither exists here, and installing them on **this** host is out of scope: it
-is the development machine, and `comparacao-medida.md` itself recorded on
+is the development machine, and `measured-comparison.md` itself recorded on
 2026-08-13 that it is not touched for exactly that reason. The comparison ran
 in a `libvirt` VM created by the engine itself, and that's the path to
 repeat.
