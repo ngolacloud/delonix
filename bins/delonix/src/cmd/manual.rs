@@ -113,13 +113,17 @@ pub fn entry(path: &str) -> Option<&'static Entry> {
     ENTRIES.iter().find(|e| e.path == path)
 }
 
-/// Category of a command, for its parent's map.
-fn group_of(path: &str) -> &'static str {
+/// Category of a command, for its parent's map. `path` is the FULL path of the
+/// child (e.g. `"container run"`), as the `Entry.group` lives per command.
+/// `pub` so `cmd::help` can reuse the exact same taxonomy for the grouped
+/// subcommand listing instead of inventing a second one.
+pub fn group_of(path: &str) -> &'static str {
     entry(path).map(|e| e.group).unwrap_or("")
 }
 
-/// Sort key for a category, in the order that level uses.
-fn group_rank(g: &str, root: bool) -> usize {
+/// Sort key for a category, in the order that level uses. `pub` for the same
+/// reason as [`group_of`].
+pub fn group_rank(g: &str, root: bool) -> usize {
     let order = if root { ROOT_GROUP_ORDER } else { GROUP_ORDER };
     order.iter().position(|x| *x == g).unwrap_or(order.len())
 }
@@ -239,7 +243,13 @@ fn tail(cmd: &clap::Command, path: &str) -> Option<String> {
         });
     };
     let mut out = String::new();
-    if let Some(map) = map {
+    // The COMMAND MAP is now ONLY the root's. Every non-root group's `--help`
+    // carries the same categories as section headings on the subcommand listing
+    // itself (see `cmd::help::render_group`), so a second copy in the tail would
+    // be pure duplication. The root keeps it: its listing groups by a different
+    // lens (Common/Management/Orchestration), and `docs/gen.py` parses the root
+    // COMMAND MAP as a contract.
+    if let Some(map) = map.filter(|_| path.is_empty()) {
         out.push_str(po::t("COMMAND MAP"));
         out.push_str(":\n");
         out.push_str(&map);
