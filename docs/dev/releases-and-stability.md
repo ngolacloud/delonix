@@ -138,7 +138,7 @@ history to decide what exists, so losing it changes nothing the reconciler does)
 The precedent, already applied more than once (the v0.30.0 CLI reorganisation, the v2.0.0
 `image list`→`image ls` reversal): **a clean cut, no compatibility alias.** The old spelling fails
 with `unrecognized subcommand`, loudly, in every version from the break onward — never a silent
-alias that quietly changes behaviour later. `docs/cli-stability.md § Como uma quebra é feita`
+alias that quietly changes behaviour later. `docs/cli-stability.md § How a break is made, when it has to happen`
 records a real lesson from doing this: a rename can leave an *internal* caller behind (the CRI
 server itself kept invoking a removed `delonix netns attach` for months after the v0.30.0
 reorganisation, breaking rootless pod creation) — grepping the whole workspace for the old

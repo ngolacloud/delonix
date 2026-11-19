@@ -1,28 +1,28 @@
-# Revisão de rede, DNS e isolamento (2026-08-11)
+# Network, DNS and isolation review (2026-08-11)
 
-Auditoria pedida sobre: bugs, latências, gaps, colisão de DNS e boas práticas
-cloud-native de rede e isolamento (namespace, stack, pod, default).
+Audit requested on: bugs, latencies, gaps, DNS collision and cloud-native
+networking and isolation best practices (namespace, stack, pod, default).
 
-**Método**: nó Delonix completo montado à parte (`DELONIX_ROOT=/tmp/dxa/root`,
-`DELONIX_NET_RUNTIME_DIR=/tmp/dxa/run`), com pin/controlo/slirp próprios. O nó
-real deste host tem trabalho vivo (`kaeso-odoo18-multi`, `kaeso-db18`) e não foi
-tocado — os PIDs foram confirmados inalterados no fim. **Tudo o que se segue foi
-medido, não deduzido**; onde não houve medição, está dito.
+**Method**: a complete Delonix node mounted on the side (`DELONIX_ROOT=/tmp/dxa/root`,
+`DELONIX_NET_RUNTIME_DIR=/tmp/dxa/run`), with its own pin/control/slirp. This
+host's real node has live work (`kaeso-odoo18-multi`, `kaeso-db18`) and was not
+touched — the PIDs were confirmed unchanged at the end. **Everything that
+follows was measured, not deduced**; where there was no measurement, it is said.
 
 ---
 
-> **Estado (2026-08-12).** Fechados e validados ao vivo: **A1, A2, A4, A5**
-> (1.ª passagem) e **A3, A6, A7, A8, A10** (2.ª passagem, sob ADR-0011). **A9
-> fecha por decisão consciente** — o `default` continua aberto, e a razão está
-> no ADR §5. Um achado **novo (A11)** apareceu ao validar, é PRÉ-EXISTENTE e
-> fica aberto com a medição feita. Esta nota é mantida a par das correcções de
-> propósito — uma tabela de achados que não acompanha o que foi fechado mente
-> nos dois sentidos, como o `AUDITORIA-E2E.md` fez durante semanas.
+> **Status (2026-08-12).** Closed and validated live: **A1, A2, A4, A5**
+> (1st pass) and **A3, A6, A7, A8, A10** (2nd pass, under ADR-0011). **A9
+> closes by a conscious decision** — `default` remains open, and the reason is
+> in ADR §5. A **new finding (A11)** appeared while validating, is PRE-EXISTING,
+> and stays open with the measurement done. This note is kept alongside the
+> purpose-built corrections — a findings table that does not track what was
+> closed lies in both directions, as `AUDITORIA-E2E.md` did for weeks.
 
-## A1 — CRÍTICO ✅ CORRIGIDO. A descoberta de serviço está partida para aplicações reais
+## A1 — CRITICAL. FIXED. Service discovery is broken for real applications
 
-Um container **não consegue falar com outro pelo nome** se usar `getaddrinfo()`
-— o caminho por omissão de Go, Java, Node, Python, curl, wget, nc. Medido:
+A container **cannot talk to another by name** if it uses `getaddrinfo()`
+— the default path for Go, Java, Node, Python, curl, wget, nc. Measured:
 
 ```
 nslookup -type=a weba   → 10.250.209.43     ✓
@@ -31,408 +31,428 @@ nc -w2 weba 9           → nc: bad address 'weba'      ✗
 wget -O- http://weba:8080/ → wget: bad address 'weba:8080'   ✗
 ```
 
-**Causa**, isolada por query directa ao servidor:
+**Cause**, isolated by querying the server directly:
 
 ```
-weba A     → NOERROR  10.250.209.43   (nosso)
-weba AAAA  → SERVFAIL                 (veio do UPSTREAM)
+weba A     → NOERROR  10.250.209.43   (ours)
+weba AAAA  → SERVFAIL                 (came from the UPSTREAM)
 ```
 
-`handle_dns` só trata `qtype == 1` (A). Tudo o resto — incluindo o AAAA que
-`getaddrinfo` emite **sempre**, em paralelo com o A — cai em `forward_dns` e vai
-ao resolvedor externo, que não sabe nada de um nome de uma só etiqueta e devolve
-SERVFAIL. musl e glibc tratam SERVFAIL numa das metades como falha da resolução
-inteira.
+`handle_dns` only handles `qtype == 1` (A). Everything else — including the
+AAAA that `getaddrinfo` **always** emits, in parallel with the A — falls into
+`forward_dns` and goes to the external resolver, which knows nothing of a
+single-label name and returns SERVFAIL. musl and glibc treat SERVFAIL on
+either half as a failure of the whole resolution.
 
-Só funcionam as ferramentas que pedem A explicitamente (`ping` do busybox,
-`getent`) — que é exactamente porque isto pode passar despercebido em testes
-manuais e falhar em todas as aplicações.
+Only tools that ask for A explicitly work (busybox's `ping`, `getent`) —
+which is exactly why this can go unnoticed in manual tests and fail in every
+application.
 
-**Correcção**: para um nome que o índice resolve, responder ao AAAA com **NODATA
-autoritativo** (rcode 0, ANCOUNT 0). É a resposta correcta — o IPv6 está
-desligado por desenho desde a v0.37.1 — e é o que o CoreDNS faz.
+**Fix**: for a name the index resolves, answer the AAAA with **authoritative
+NODATA** (rcode 0, ANCOUNT 0). That is the correct answer — IPv6 has been off
+by design since v0.37.1 — and it is what CoreDNS does.
 
-## A2 — CRÍTICO ✅ CORRIGIDO. Nomes internos vão para fora, e não há resposta negativa própria
+## A2 — CRITICAL. FIXED. Internal names go outward, and there is no negative answer of our own
 
-O servidor **nunca gera uma resposta negativa**. Confirmado por varredura: não
-existe no ficheiro nenhuma construção de NXDOMAIN/SERVFAIL. Portanto todo o
-`.delonix.internal` que não resolve é reencaminhado:
+The server **never generates a negative answer**. Confirmed by scanning: there
+is no NXDOMAIN/SERVFAIL construction anywhere in the file. So every
+`.delonix.internal` that does not resolve is forwarded:
 
 ```
-weba.teamA.delonix.internal AAAA → NXDOMAIN, vindo do upstream
-client.teamB.delonix.internal A  → NXDOMAIN, vindo do upstream
+weba.teamA.delonix.internal AAAA → NXDOMAIN, coming from upstream
+client.teamB.delonix.internal A  → NXDOMAIN, coming from upstream
 ```
 
-Duas consequências:
+Two consequences:
 
-1. **Fuga de informação.** Os nomes dos workloads e das namespaces de cada
-   inquilino são enviados para o resolvedor externo (`SLIRP_DNS`, depois
-   `1.1.1.1`). Um domínio interno nunca deve sair do nó.
-2. **Latência e DoS.** Cada nome interno que não resolve custa até **6 s** (2
-   upstreams × 3 s) e prende uma thread do tecto de 64. Medido com o upstream
-   inacessível: uma query AAAA de um container **vivo** custou **9,03 s**, e
-   `nslookup weba` (que emite A+AAAA) demorou **5,05 s** terminando em
-   `*** Can't find weba: No answer`.
+1. **Information leak.** The names of each tenant's workloads and namespaces
+   are sent to the external resolver (`SLIRP_DNS`, then `1.1.1.1`). An internal
+   domain should never leave the node.
+2. **Latency and DoS.** Every internal name that fails to resolve costs up to
+   **6 s** (2 upstreams × 3 s) and holds a thread from the 64-thread ceiling.
+   Measured with the upstream unreachable: an AAAA query from a **live**
+   container cost **9.03 s**, and `nslookup weba` (which emits A+AAAA) took
+   **5.05 s**, ending in `*** Can't find weba: No answer`.
 
-O AGENTS.md afirma que uma namespace errada «dá NXDOMAIN» — dá, mas o NXDOMAIN é
-do upstream, não nosso. O comportamento observável coincide; o custo e a fuga não.
+AGENTS.md states that a wrong namespace «gives NXDOMAIN» — it does, but the
+NXDOMAIN is the upstream's, not ours. The observable behaviour matches; the
+cost and the leak do not.
 
-**Correcção**: NXDOMAIN autoritativo para qualquer `.delonix.internal` que o
-índice não conheça, sem nunca reencaminhar esse sufixo.
+**Fix**: authoritative NXDOMAIN for any `.delonix.internal` the index does
+not know, without ever forwarding that suffix.
 
-## A3 — CRÍTICO ✅ CORRIGIDO (ADR-0011). O DNS ignora a namespace de quem pergunta
+## A3 — CRITICAL. FIXED (ADR-0011). DNS ignores the namespace of the requester
 
-O dataplane isola (medido: `client`@teamA → `webb`@teamB = 100 % de perda), mas o
-plano de nomes não isola nada:
+The dataplane isolates (measured: `client`@teamA → `webb`@teamB = 100% loss),
+but the name plane isolates nothing:
 
 ```
 client(teamA) → nslookup webb                        → 10.250.198.79
 client(teamA) → nslookup webb.teamB.delonix.internal → 10.250.198.79
 ```
 
-Um inquilino enumera a existência e o endereço exacto de todos os workloads dos
-outros. `dns_server_main` **tem** o IP de origem (`peer`) e deita-o fora —
-`handle_dns(&q)` não o recebe.
+A tenant can enumerate the existence and exact address of every other
+tenant's workloads. `dns_server_main` **has** the source IP (`peer`) and
+throws it away — `handle_dns(&q)` never receives it.
 
-Isto torna também o desempate de nomes nus (`idx.entry(name).or_insert(ip)`,
-«first wins») estruturalmente indecidível: a resposta certa depende de quem
-pergunta.
+This also makes the tie-break for bare names (`idx.entry(name).or_insert(ip)`,
+«first wins») structurally undecidable: the right answer depends on who is
+asking.
 
-**Correcção**: passar `peer.ip()` a `handle_dns`, mapear origem→namespace pelo
-índice que já existe, e resolver o nome nu **primeiro dentro da namespace do
-requerente**. É o modelo do `search <ns>.svc.cluster.local` do k8s.
+**Fix**: pass `peer.ip()` into `handle_dns`, map source → namespace through
+the index that already exists, and resolve the bare name **first inside the
+requester's own namespace**. This is the model of k8s's `search
+<ns>.svc.cluster.local`.
 
-## A4 — GRAVE ✅ CORRIGIDO. Membro de pod em rede custom regista o IP ERRADO → colisão real
+## A4 — SERIOUS. FIXED. A pod member on a custom network registers the WRONG IP → real collision
 
-Medido, com dois pods:
+Measured, with two pods:
 
-| pod | rede | IP real | `ip` no registo |
+| pod | network | real IP | registered `ip` |
 |---|---|---|---|
 | `p1` | `audit` (10.250/16) | **10.250.0.2** | `10.200.0.2` |
 | `pdef` | default (10.200/16) | 10.200.0.2 | `10.200.0.2` |
 
-Os dois pods ficam com **o mesmo endereço no registo**, e esse endereço pertence
-de facto ao `pdef`. Consequência medida: `nslookup p1-a` devolve `10.200.0.2` —
-**o outro pod**. Tráfego endereçado por nome a um pod é entregue a outro, que
-pode ser de outro inquilino. Controlo pelo IP real confirma que os workloads
-estão bem (`nc 10.250.0.2 8080` → `SOU-O-P1`); o que está errado é o nome.
+Both pods end up with **the same address in the registry**, and that address
+actually belongs to `pdef`. Measured consequence: `nslookup p1-a` returns
+`10.200.0.2` — **the other pod**. Traffic addressed by name to one pod is
+delivered to another, which may belong to a different tenant. Checking by the
+real IP confirms the workloads themselves are fine (`nc 10.250.0.2 8080` →
+`SOU-O-P1`); what is wrong is the name.
 
-**Causa-raiz** (`cmd/container.rs:3330`):
+**Root cause** (`cmd/container.rs:3330`):
 
 ```rust
 let ip = infra::container_ip(pn);   // "IP on the DEFAULT ingress network (10.200.A.B)"
 ```
 
-`container_ip()` calcula sempre no prefixo default e o caminho do pod chama-a sem
-olhar à rede do pod. **A função certa existe e não é chamada**:
-`container_ip_on(prefix, id)`. Sexta ocorrência do padrão já catalogado neste
-repo (`mount_live`, `set_net_rate`, `update_limits`, `create_with_base`,
-`JsonStore::update`).
+`container_ip()` always computes on the default prefix, and the pod path
+calls it without looking at the pod's own network. **The right function
+exists and is not called**: `container_ip_on(prefix, id)`. Sixth occurrence
+of a pattern already catalogued in this repo (`mount_live`, `set_net_rate`,
+`update_limits`, `create_with_base`, `JsonStore::update`).
 
-O `fwmap` está correcto (10.250.0.2 presente) porque
-`apply_pod_namespace_isolation` usa o nome da netns e não o `c.ip` do membro —
-por isso o isolamento aguenta e o dano fica no DNS. Verificado: `spy`@teamB →
-pod@teamA = 100 % de perda; `client`@teamA → pod = 0 % de perda.
+`fwmap` is correct (10.250.0.2 present) because `apply_pod_namespace_isolation`
+uses the netns name and not the member's `c.ip` — that is why isolation holds
+and the damage is confined to DNS. Verified: `spy`@teamB → pod@teamA = 100%
+loss; `client`@teamA → pod = 0% loss.
 
-## A5 — MÉDIO (segurança) ✅ CORRIGIDO. `forward_dns` aceita a resposta de qualquer origem
+## A5 — MEDIUM (security). FIXED. `forward_dns` accepts a response from any source
 
 ```rust
-let sock = UdpSocket::bind("0.0.0.0:0")?;   // sem connect()
+let sock = UdpSocket::bind("0.0.0.0:0")?;   // no connect()
 sock.send_to(q, "10.0.2.3:53");
 if let Ok((n, _)) = sock.recv_from(&mut buf) { return Some(buf[..n].to_vec()) }
 ```
 
-A origem é descartada (`_`), não há `connect()`, e nem o txid nem a pergunta são
-conferidos contra o que se enviou. A primeira resposta UDP que chegue à porta
-efémera é entregue ao cliente. É o vector Kaminsky clássico. O anti-spoofing da
-bridge dificulta-o mas não o fecha, e a correcção é uma linha: `connect()` no
-socket faz o kernel recusar tudo o que não venha do upstream.
+The source is discarded (`_`), there is no `connect()`, and neither the txid
+nor the question is checked against what was sent. The first UDP response to
+reach the ephemeral port is delivered to the client. This is the classic
+Kaminsky vector. The bridge's anti-spoofing makes it harder but does not close
+it, and the fix is one line: `connect()` on the socket makes the kernel refuse
+anything not coming from the upstream.
 
-## A6 — GRAVE ✅ CORRIGIDO (ADR-0011). Nomes de container são GLOBAIS, não por-namespace
+## A6 — SERIOUS. FIXED (ADR-0011). Container names are GLOBAL, not per-namespace
 
 ```
 run --name web --namespace teamA   → ok
 run --name web --namespace teamB   → error: the name 'web' is already in use
 ```
 
-Uma namespace que não é um espaço de nomes contradiz o próprio nome e o modelo
-k8s, onde a unicidade é *dentro* da namespace. Impede duas equipas ou duas stacks
-de terem ambas um `db`/`web`/`api` — precisamente os nomes que toda a gente usa —
-e força prefixos manuais (`loja-api`, `banco-api`) que reinventam à mão a
-namespace que já foi declarada.
+A namespace that is not a namespace contradicts its own name and the k8s
+model, where uniqueness is *within* the namespace. It prevents two teams or
+two stacks from both having a `db`/`web`/`api` — precisely the names everyone
+uses — and forces manual prefixes (`loja-api`, `banco-api`) that hand-reinvent
+the namespace already declared.
 
-## A7 — GAP ✅ FECHADO (aviso; ver ADR-0011 §4 para o que NÃO se fez). `stack` não é fronteira de isolamento nenhuma
+## A7 — GAP. CLOSED (warning; see ADR-0011 §4 for what was NOT done). `stack` is no isolation boundary at all
 
-Duas stacks distintas, sem `namespace` declarada, caem ambas em `default` e
-alcançam-se e resolvem-se sem barreira (medido: 0 % de perda, nome resolvido):
+Two distinct stacks, with no `namespace` declared, both fall into `default`
+and can reach and resolve each other with no barrier (measured: 0% loss, name
+resolved):
 
 ```
 loja-api   ns=default  {'delonix.io/stack': 'loja'}
 banco-api  ns=default  {'delonix.io/stack': 'banco'}
 ```
 
-A label `delonix.io/stack` é posse para o reconciliador, não política de rede.
-Não é bug — nada promete o contrário — mas é o gap que mais surpreende quem chega
-do compose (onde um projecto tem rede própria por omissão). As opções são
-derivar a namespace do nome da stack quando não é declarada, ou documentar
-explicitamente que isolar é declarar `namespace`.
+The `delonix.io/stack` label is ownership for the reconciler, not network
+policy. It is not a bug — nothing promises otherwise — but it is the gap that
+most surprises someone coming from compose (where a project has its own
+network by default). The options are to derive the namespace from the stack
+name when none is declared, or to explicitly document that isolating means
+declaring `namespace`.
 
-## A8 — GAP ✅ CORRIGIDO. Um Pod não tem nome DNS
+## A8 — GAP. FIXED. A Pod has no DNS name
 
-`nslookup p1` → SERVFAIL. Só os membros (`p1-a`, `p1-b`) resolvem — e resolvem
-para o IP errado (A4). O k8s dá nome ao Pod e, sobretudo, um **Service** com nome
-estável à frente de N réplicas. Sem isso não há descoberta de serviço estável:
-o consumidor tem de conhecer o nome de um membro concreto.
+`nslookup p1` → SERVFAIL. Only the members (`p1-a`, `p1-b`) resolve — and
+they resolve to the wrong IP (A4). k8s gives the Pod a name and, above all, a
+**Service** with a stable name in front of N replicas. Without that there is
+no stable service discovery: the consumer has to know the name of one
+specific member.
 
-## A9 — MENOR ✅ FECHADO POR DECISÃO (ADR-0011 §5). O `default` é assimétrico, e é o oposto do default seguro
+## A9 — MINOR. CLOSED BY DECISION (ADR-0011 §5). `default` is asymmetric, and it is the opposite of a secure default
 
-Já documentado como limitação v1: `default` é alcançável de dentro de qualquer
-namespace mas não alcança para dentro delas. A prática cloud-native (k8s
-NetworkPolicy, e o que qualquer auditoria de segurança pede) é **default-deny**
-com abertura explícita. Hoje quem não declara `namespace` fica numa SDN plana e
-aberta, que é o caso por omissão — portanto o estado por omissão é o menos
-seguro. Mudar isto é breaking e merece decisão própria (ADR).
+Already documented as a v1 limitation: `default` is reachable from inside any
+namespace but cannot reach into them. Cloud-native practice (k8s
+NetworkPolicy, and what any security audit asks for) is **default-deny** with
+explicit opening. Today, whoever does not declare `namespace` ends up on a
+flat, open SDN, which is the default case — so the default state is the least
+secure one. Changing this is breaking and deserves its own decision (ADR).
 
-## A10 — MENOR ✅ CORRIGIDO (stderr; o MTU fica). Observabilidade e MTU
+## A10 — MINOR. FIXED (stderr; the MTU remains). Observability and MTU
 
-- O stderr do processo de controlo vai para `/dev/null` (confirmado em
-  `/proc/<pid>/fd/2`). Um pânico numa thread de DNS é invisível: o serviço
-  degrada e não há uma linha em lado nenhum. Foi o que tornou o diagnóstico de
-  A1/A2 mais lento do que precisava.
-- MTU: `delonix0` e os veth a 1500, `tap0` a 65520. Sem problema hoje, mas o
-  overlay VXLAN encapsula (−50 B) e não há ajuste de MTU em lado nenhum — é a
-  causa clássica de «o TCP pendura em transferências grandes» quando o
-  inter-nó entrar ao barulho.
-
----
-
-## O que está bem, e foi medido
-
-Vale registar, para a revisão seguinte não voltar a suspeitar daqui:
-
-- **Isolamento cross-namespace de containers e de pods**: correcto nos dois
-  sentidos. `fwmap` com uma entrada por workload e o IP certo.
-- **Concorrência do socket de controlo**: 12 attaches concorrentes em **1091 ms**
-  (~90 ms cada), 12/12 sem falha. A correcção do tecto de 30 s aguenta.
-- **Latência de criação** de container em rede custom: 249–341 ms.
-- **Resolução A de nome interno**: 0 ms no servidor, 19–38 ms fim-a-fim.
-- **DNS não se pendura no arranque**: o servidor respondeu em 0 ms mesmo com
-  threads presas em forwards lentos.
-
-## Ordem sugerida
-
-1. **A1 + A2 juntos** — são a mesma correcção (tratar AAAA e o sufixo interno
-   localmente, com resposta autoritativa). Desbloqueiam a descoberta de serviço,
-   fecham a fuga de nomes e eliminam a via de DoS. É a correcção de maior
-   retorno de toda a lista.
-2. **A4** — uma linha (`container_ip_on` com o prefixo da rede do pod) e um
-   teste que exija dois pods em redes diferentes.
-3. **A5** — uma linha (`connect()`).
-4. **A3** — precisa de desenho (o `peer` tem de descer até ao resolvedor).
-5. **A6/A7/A9** — são decisões de modelo, não bugs; merecem ADR antes de código.
+- The control process's stderr goes to `/dev/null` (confirmed via
+  `/proc/<pid>/fd/2`). A panic in a DNS thread is invisible: the service
+  degrades and there is a line nowhere. This is what made diagnosing A1/A2
+  slower than it needed to be.
+- MTU: `delonix0` and the veths at 1500, `tap0` at 65520. No problem today,
+  but the VXLAN overlay encapsulates (−50 B) and there is no MTU adjustment
+  anywhere — it is the classic cause of «TCP hangs on large transfers» once
+  inter-node traffic kicks in.
 
 ---
 
-## Validação das correcções (A1, A2, A4, A5)
+## What is fine, and was measured
 
-Nó novo montado com o binário corrigido (`/tmp/dxb`, pin/controlo/slirp
-próprios), mesmo cenário que produziu cada achado.
+Worth recording, so the next review does not come in suspecting this again:
 
-**A1 — descoberta de serviço.** O caminho `getaddrinfo`, que era o partido:
+- **Cross-namespace isolation of containers and pods**: correct in both
+  directions. `fwmap` with one entry per workload and the right IP.
+- **Control socket concurrency**: 12 concurrent attaches in **1091 ms**
+  (~90 ms each), 12/12 with no failure. The 30 s ceiling fix holds.
+- **Creation latency** of a container on a custom network: 249–341 ms.
+- **A resolution of an internal name**: 0 ms on the server, 19–38 ms end-to-end.
+- **DNS does not hang on startup**: the server answered in 0 ms even with
+  threads stuck on slow forwards.
+
+## Suggested order
+
+1. **A1 + A2 together** — they are the same fix (handle AAAA and the internal
+   suffix locally, with an authoritative answer). They unblock service
+   discovery, close the name leak and eliminate the DoS vector. It is the
+   highest-return fix of the whole list.
+2. **A4** — one line (`container_ip_on` with the pod's own network prefix)
+   and a test requiring two pods on different networks.
+3. **A5** — one line (`connect()`).
+4. **A3** — needs design (the `peer` has to be threaded down into the
+   resolver).
+5. **A6/A7/A9** — these are model decisions, not bugs; they deserve an ADR
+   before code.
+
+---
+
+## Validation of the fixes (A1, A2, A4, A5)
+
+A new node mounted with the fixed binary (`/tmp/dxb`, its own pin/control/slirp),
+the same scenario that produced each finding.
+
+**A1 — service discovery.** The `getaddrinfo` path, which was the broken one:
 
 ```
-antes:  wget -O- http://weba:8080/  → wget: bad address 'weba:8080'
-depois: wget -O- http://weba:8080/  → Connecting to weba:8080 (10.250.9.124:8080)
-antes:  nc -w2 weba 9               → nc: bad address 'weba'
-depois: nc -w2 weba 9               → (liga)
+before: wget -O- http://weba:8080/  → wget: bad address 'weba:8080'
+after:  wget -O- http://weba:8080/  → Connecting to weba:8080 (10.250.9.124:8080)
+before: nc -w2 weba 9               → nc: bad address 'weba'
+after:  nc -w2 weba 9               → (connects)
 ```
 
-**A1/A2 — no protocolo.** Ambas as respostas passam a ser nossas, com `aa`:
+**A1/A2 — in the protocol.** Both answers are now ours, with `aa`:
 
 ```
-weba AAAA                        → NOERROR, aa, ANSWER: 0, Query time 0 msec   (era SERVFAIL do upstream)
-naoexiste.teamA.delonix.internal → NXDOMAIN, aa,           Query time 0 msec   (era NXDOMAIN do upstream)
+weba AAAA                        → NOERROR, aa, ANSWER: 0, Query time 0 msec   (was upstream SERVFAIL)
+naoexiste.teamA.delonix.internal → NXDOMAIN, aa,           Query time 0 msec   (was upstream NXDOMAIN)
 ```
 
-**A2 — a prova de que já não sai do nó.** Com o upstream DROPADO por nftables
-(o caso air-gapped, e o que expunha o custo):
+**A2 — the proof that it no longer leaves the node.** With the upstream
+DROPPED by nftables (the air-gapped case, which is what exposed the cost):
 
-| | antes | depois |
+| | before | after |
 |---|---|---|
-| `nslookup weba` (A+AAAA) | **5,047 s**, `*** Can't find weba: No answer` | **0,034 s**, endereço devolvido |
-| `wget http://weba:8080/` | `bad address` | **0,040 s**, resolve e liga |
-| AAAA de container vivo | **9,03 s** | 0 ms |
+| `nslookup weba` (A+AAAA) | **5.047 s**, `*** Can't find weba: No answer` | **0.034 s**, address returned |
+| `wget http://weba:8080/` | `bad address` | **0.040 s**, resolves and connects |
+| AAAA from a live container | **9.03 s** | 0 ms |
 
-~148× no caminho de resolução, e a fuga fecha por construção: uma resposta em
-0 ms com a saída bloqueada não pode ter ido a lado nenhum.
+~148× on the resolution path, and the leak closes by construction: a 0 ms
+response with egress blocked cannot have gone anywhere.
 
-**Não parti a internet** — `example.com` continua a ser encaminhado e resolve
-(`172.66.147.243`), e `.delonix.io` continua deliberadamente fora da nossa zona.
+**I did not break the internet** — `example.com` is still forwarded and
+resolves (`172.66.147.243`), and `.delonix.io` remains deliberately outside
+our zone.
 
-**A4 — colisão eliminada.** Mesmos dois pods de antes:
+**A4 — collision eliminated.** The same two pods as before:
 
 ```
-antes:  p1-a 10.200.0.2 · p1-b 10.200.0.2 · pdef-a 10.200.0.2   (os três iguais)
-depois: p1-a 10.250.0.2 · p1-b 10.250.0.2 · pdef-a 10.200.0.2   (cada um o seu)
+before: p1-a 10.200.0.2 · p1-b 10.200.0.2 · pdef-a 10.200.0.2   (all three the same)
+after:  p1-a 10.250.0.2 · p1-b 10.250.0.2 · pdef-a 10.200.0.2   (each its own)
 ```
 
-E com tráfego real, as duas correcções juntas: `nc -w3 p1-a 8080` a partir de
-outro container resolve por nome **e** chega ao pod certo — `SOU-O-P1`. Antes
-falhava em `bad address`, e o nome apontava para o outro pod.
+And with real traffic, the two fixes together: `nc -w3 p1-a 8080` from
+another container resolves by name **and** reaches the right pod —
+`SOU-O-P1`. Before, it failed with `bad address`, and the name pointed to the
+other pod.
 
-**Sem regressão de isolamento** (o que mais importava não partir): `spy`@teamB →
-`weba`@teamA e → pod@teamA continuam a 100 % de perda; `client`@teamA → `weba` a
-0 %. `cargo build`/`clippy`/`fmt` limpos e a suite completa do workspace a
-passar; os dois testes de decisão do DNS **falham com a correcção revertida**
-(verificado explicitamente, conforme a regra do repo).
+**No isolation regression** (the thing that most mattered not to break):
+`spy`@teamB → `weba`@teamA and → pod@teamA remain at 100% loss; `client`@teamA
+→ `weba` at 0%. `cargo build`/`clippy`/`fmt` clean and the whole workspace
+suite passing; the two DNS decision tests **fail with the fix reverted**
+(explicitly verified, per the repo's rule).
 
 ---
 
-## Validação da 2.ª passagem (A3, A6, A7, A8, A10 — sob ADR-0011)
+## Validation of the 2nd pass (A3, A6, A7, A8, A10 — under ADR-0011)
 
-Nó novo (`/tmp/dxd`), com o cenário que a auditoria não conseguia montar antes:
-**dois inquilinos com o MESMO nome**, coisa que a unicidade global proibia.
+A new node (`/tmp/dxd`), with the scenario the audit could not set up before:
+**two tenants with the SAME name**, something the global uniqueness used to
+forbid.
 
-**A6 — dois `db` coexistem** (o segundo era recusado), e cada inquilino resolve
-o seu:
+**A6 — two `db`s coexist** (the second used to be refused), and each tenant
+resolves its own:
 
 ```
 db  ns=teamA  ip=10.250.229.6
 db  ns=teamB  ip=10.250.194.118
 
-app(teamA) → nslookup db  → 10.250.229.6     (o seu)
-app(teamB) → nslookup db  → 10.250.194.118   (o seu)
+app(teamA) → nslookup db  → 10.250.229.6     (its own)
+app(teamB) → nslookup db  → 10.250.194.118   (its own)
 ```
 
-**A3 — a fuga fechou**, e fechou com precisão de endereço e não de namespace:
+**A3 — the leak closed**, and closed with address precision rather than
+namespace precision:
 
 ```
 app(teamA)   → db.teamB.delonix.internal   → NXDOMAIN
-  (depois de `ingress allow teamB/db 5432 --from <ip do app>`)
-app(teamA)   → db.teamB.delonix.internal   → 10.250.194.118   ← a Dependency abre
-outro(teamA) → db.teamB.delonix.internal   → NXDOMAIN         ← e SÓ para o endereço nomeado
+  (after `ingress allow teamB/db 5432 --from <app's ip>`)
+app(teamA)   → db.teamB.delonix.internal   → 10.250.194.118   ← the Dependency opens it
+outro(teamA) → db.teamB.delonix.internal   → NXDOMAIN         ← and ONLY for the named address
 ```
 
-O vizinho da MESMA namespace, não coberto pelo allow, continua sem ver — é a
-diferença entre espelhar a política e abrir a fronteira.
+The neighbour from the SAME namespace, not covered by the allow, still cannot
+see it — that is the difference between mirroring the policy and opening the
+boundary.
 
-**A6 no caminho destrutivo**, que é onde adivinhar custa caro:
+**A6 on the destructive path**, which is where guessing gets expensive:
 
 ```
-net ingress allow db 5432 …        → recusa: «exists in several namespaces
+net ingress allow db 5432 …        → refused: «exists in several namespaces
                                       (teamA/db, teamB/db) — qualify it»
-net ingress allow teamB/db 5432 …  → aplica, no db certo
+net ingress allow teamB/db 5432 …  → applies, to the right db
 ```
 
-Isto veio de um gap que a própria mudança criou e que só a validação ao vivo
-mostrou: `util::find` passou a recusar nomes ambíguos, mas `Store::load` — por
-onde o firewall e os manifestos resolvem — continuava com «o mais recente
-ganha». Um `ingress deny db` teria escolhido um inquilino em silêncio. Corrigido
-no `Store::load`, com teste.
+This came from a gap the change itself created and that only live validation
+revealed: `util::find` started refusing ambiguous names, but `Store::load` —
+where the firewall and manifests resolve — still used «the most recent wins».
+An `ingress deny db` would have silently picked one tenant. Fixed in
+`Store::load`, with a test.
 
-**A8 — o pod resolve pelo próprio nome**: `nslookup web` → `10.250.0.2` (dava
-SERVFAIL). **A10** — o log do controlo existe e foi USADO nesta sessão para
-excluir um pânico em segundos, que era exactamente o que faltava na 1.ª
-passagem.
+**A8 — the pod resolves by its own name**: `nslookup web` → `10.250.0.2`
+(used to give SERVFAIL). **A10** — the control log exists and was USED in
+this session to rule out a panic within seconds, which was exactly what was
+missing in the 1st pass.
 
-**Sem regressão**: externos resolvem (`example.com` → 104.20.23.154);
-`getaddrinfo` por nome funciona (`wget http://db:5432/` → conecta a
-`10.250.229.6`); 20 resoluções seguidas em **68 ms**.
+**No regression**: external names resolve (`example.com` →
+104.20.23.154); `getaddrinfo` by name works (`wget http://db:5432/` →
+connects to `10.250.229.6`); 20 consecutive resolutions in **68 ms**.
 
-## A11 — ABERTO, PRÉ-EXISTENTE. A 1.ª resolução após criar um pod falha, às vezes
+## A11 — OPEN, PRE-EXISTING. The 1st resolution after creating a pod sometimes fails
 
-Encontrado a validar. Logo depois de um `pod create`, a primeira query DNS de um
-container **já existente** pode dar timeout (5,04 s); as seguintes respondem em
-~30 ms. A rede não está partida (ping ao gateway a 0,127 ms) e o servidor está
-vivo (um `dig` de dentro do holder responde em 1 ms na mesma janela) — o que
-falha é o pedido do container.
+Found while validating. Right after a `pod create`, the first DNS query from
+an **already existing** container can time out (5.04 s); subsequent ones
+answer in ~30 ms. The network is not broken (ping to the gateway at
+0.127 ms) and the server is alive (a `dig` from inside the holder answers in
+1 ms in the same window) — what fails is the container's request.
 
-**Medido nos dois binários, com o MESMO cenário**, porque a primeira leitura foi
-«a regressão é minha» a partir de uma amostra de UM, que é o erro de método que
-este ficheiro já documenta noutro sítio:
+**Measured on both binaries, with the SAME scenario**, because the first
+reading was «this is my regression» from a sample of ONE, which is the
+method error this file already documents elsewhere.
 
-| binário | falhas |
+| binary | failures |
 |---|---|
-| com estas correcções | **0 / 10** |
-| `main` (sem elas) | **2 / 10** |
+| with these fixes | **0 / 10** |
+| `main` (without them) | **2 / 10** |
 
-Portanto é pré-existente e intermitente, e não há evidência de que este trabalho
-o agrave. Ver **D4** abaixo para o que se fez a seguir.
+So it is pre-existing and intermittent, and there is no evidence that this
+work makes it worse. See **D4** below for what was done next.
 
 ---
 
-# 3.ª passagem: fechar o DNS para produção crítica (2026-08-12)
+# 3rd pass: closing DNS for critical production (2026-08-12)
 
-Pedido: «tudo precisa resolver por nome». Inventário MEDIDO do que resolvia,
-feito antes de mexer em nada — porque até aqui «o que falta» era suposição.
+Request: «everything needs to resolve by name». A MEASURED inventory of what
+resolved, done before touching anything — because until now «what's missing»
+was guesswork.
 
-| forma | antes | agora |
+| form | before | now |
 |---|---|---|
-| `api` (nome nu) | ✓ | ✓ |
+| `api` (bare name) | ✓ | ✓ |
 | `api.loja.delonix.internal` | ✓ | ✓ |
-| `api.delonix.io` (legado) | ✓ | ✓ |
-| **alias de rede** (`backend`) | **✗** | ✓ |
-| **`api.loja`** (curta) | **✗** | ✓ |
-| **workload MORTO** | **resolvia** ✗ | NXDOMAIN ✓ |
-| externo (`example.com`) | ✓ | ✓ |
+| `api.delonix.io` (legacy) | ✓ | ✓ |
+| **network alias** (`backend`) | **✗** | ✓ |
+| **`api.loja`** (short) | **✗** | ✓ |
+| **DEAD workload** | **used to resolve** ✗ | NXDOMAIN ✓ |
+| external (`example.com`) | ✓ | ✓ |
 
-## D1 — um workload morto continuava a resolver
+## D1 — a dead workload still resolved
 
-Medido: um container que sai sozinho fica `status=Stopped` com o endereço ainda
-no registo, e o `nslookup` continuava a entregá-lo. Um cliente ligava-se a um
-serviço que já não existe e esperava por um timeout, em vez de falhar depressa
-com NXDOMAIN. E o lease volta ao IPAM, por isso o nome de um serviço morto pode
-passar a apontar para o workload que receba esse endereço a seguir.
+Measured: a container that exits on its own becomes `status=Stopped` with
+its address still in the registry, and `nslookup` kept delivering it. A
+client would connect to a service that no longer exists and wait for a
+timeout, instead of failing fast with NXDOMAIN. And the lease goes back to
+IPAM, so a dead service's name can end up pointing to whatever workload
+receives that address next.
 
-**Não consegui provocar a reatribuição** em 6 tentativas — os endereços derivam
-do id e a colisão a curto prazo é improvável. Fica dito, porque a consequência
-grave é essa e não a demonstrei.
+**I could not trigger the reassignment** in 6 attempts — addresses derive
+from the id and short-term collision is unlikely. It is stated anyway,
+because that is the serious consequence and I did not demonstrate it.
 
-O índice passa a servir só `Running`/`Paused`/`Created`. `Failed(code)` e o
-legado `Exited` serializam como OBJECTOS e chegam como `None`, tal como um
-registo sem estado — os três param de responder. Fail-closed, que é o lado certo
-da pergunta «este endereço ainda é teu?». O mesmo se aplica a VMs paradas.
+The index now serves only `Running`/`Paused`/`Created`. `Failed(code)` and
+the legacy `Exited` serialize as OBJECTS and arrive as `None`, same as a
+stateless record — all three stop answering. Fail-closed, which is the right
+side of the question «is this address still yours?». The same applies to
+stopped VMs.
 
-## D2 — os aliases de rede nunca foram consultados
+## D2 — network aliases were never consulted
 
-`--network-alias`/`networkAlias:` era persistido em `net_aliases` desde sempre e
-**nada o lia** — a opção era aceite e não fazia nada, a forma de falha que este
-repo persegue. Passam a ser indexados como nomes, com o mesmo âmbito de
-namespace e com `or_insert`, para que um alias nunca desloque um container que
-seja mesmo dono daquele nome. Validado: `backend` e `api-v2` → o endereço do `api`.
+`--network-alias`/`networkAlias:` had always been persisted in `net_aliases`
+and **nothing read it** — the option was accepted and did nothing, the
+failure shape this repo hunts for. They are now indexed as names, with the
+same namespace scope and with `or_insert`, so that an alias never displaces a
+container that genuinely owns that name. Validated: `backend` and `api-v2` →
+the `api`'s address.
 
-## D3 — a forma curta `<nome>.<namespace>`
+## D3 — the short form `<name>.<namespace>`
 
-`api.loja` não resolvia; só o nome nu e o FQDN inteiro. O k8s dá isto com
-`search` no `resolv.conf`; aqui faz-se no resolvedor de propósito — um `search`
-faz o cliente colar o nosso sufixo a **todas** as falhas externas, o que é
-tráfego e fuga por omissão.
+`api.loja` did not resolve; only the bare name and the full FQDN did. k8s
+gives this via `search` in `resolv.conf`; here it is done in the resolver
+itself on purpose — a `search` makes the client glue our suffix onto **every**
+external failure, which is traffic and a default leak.
 
-Só é tentada quando a string inteira não resolve como nome próprio, e **a
-namespace tem de existir neste nó** para o nome ser nosso: sem isso, um
-`api.loja` que não resolvesse saía com a namespace do inquilino colada. Um nome
-com mais de uma etiqueta depois da cabeça (`api.github.com`) nunca é nosso — e
-um container numa namespace chamada `com` não nos faz reclamar `github.com`.
-Validado: `naoexiste.loja` → **NXDOMAIN autoritativo (`aa`) em 1 ms**.
+It is only attempted when the whole string does not resolve as a proper name,
+and **the namespace has to exist on this node** for the name to be ours:
+without that, an `api.loja` that failed to resolve would leak out with the
+tenant's namespace attached. A name with more than one label after the head
+(`api.github.com`) is never ours — and a container in a namespace called
+`com` does not make us claim `github.com`. Validated: `naoexiste.loja` →
+**authoritative NXDOMAIN (`aa`) in 1 ms**.
 
-## D4 — o A11, e o que se fez sem o corrigir às cegas
+## D4 — A11, and what was done without fixing it blindly
 
-Não reproduziu com o código actual na forma sequencial (0/10). Reproduziu com
-uma sonda CONTÍNUA de dentro de um container enquanto se criavam pods: **2 em
-300** (~0,7 %), contra 0 em 90 sem criação nenhuma. Não isolei a causa, e uma
-correcção sem causa isolada é um palpite.
+It did not reproduce with the current code in the sequential form (0/10). It
+reproduced with a CONTINUOUS probe from inside a container while pods were
+being created: **2 in 300** (~0.7%), versus 0 in 90 with no creation at all.
+I did not isolate the cause, and a fix without an isolated cause is a guess.
 
-**Nota de método**: a primeira sonda corria `dig` a partir do holder e deu
-200/200 «falhas» — o holder não pertence à namespace, logo o âmbito recusava-o
-correctamente. Era o isolamento a funcionar, não uma avaria. Uma sonda tem de
-correr de onde o cliente real corre.
+**Method note**: the first probe ran `dig` from the holder and gave 200/200
+«failures» — the holder does not belong to the namespace, so scope correctly
+refused it. That was isolation working, not a malfunction. A probe has to run
+from where the real client runs.
 
-O que se fez é outra coisa e é defensável por si: **`options timeout:2
-attempts:3` no `resolv.conf`**. O DNS é UDP e um datagrama perdido enquanto o nó
-reprograma o dataplane é um evento NORMAL; o default da libc é `timeout:5
-attempts:2`, ou seja **cinco segundos** até à primeira retentativa — é isso que
-transforma uma perda transitória numa paragem visível. Medido depois, no mesmo
-cenário e com 16 pods criados durante as sondas: **0 falhas em 600**.
+What was done instead is a different thing and is defensible on its own:
+**`options timeout:2 attempts:3` in `resolv.conf`**. DNS is UDP, and a lost
+datagram while the node is reprogramming the dataplane is a NORMAL event; the
+libc default is `timeout:5 attempts:2`, i.e. **five seconds** before the
+first retry — that is what turns a transient loss into a visible stall.
+Measured afterward, in the same scenario with 16 pods created during the
+probes: **0 failures in 600**.
 
-Isto não afirma que a causa foi corrigida — afirma que o cliente deixou de a
-sentir. A causa fica aberta, com o número.
+This does not claim the cause was fixed — it claims the client stopped
+feeling it. The cause remains open, with its number.

@@ -2448,7 +2448,7 @@ def lab_challenge_html(entry):
     return "\n".join(parts)
 
 
-# Lab + Desafio por grupo de comandos — cada um usa SÓ subcomandos/flags reais
+# Lab + Desafio por grupo de comandos — cada um usa SÓ subcommands/flags reais
 # (confirmados contra `GROUPS[name]["subs"]` e o `AGENTS.md` do projecto),
 # nunca inventados. `lab` é guiado (passo a passo); `challenge` é mais aberto,
 # normalmente estica uma garantia já documentada do motor (idempotência,
@@ -3703,7 +3703,7 @@ def topbar(active, depth=0):
 
     def item(href, pt, en, members):
         on = active == href or active in members or (
-            active.startswith("comandos/") and href == "cheatsheet.html")
+            active.startswith("commands/") and href == "cheatsheet.html")
         cls = ' class="on"' if on else ""
         return (f'<a href="{p}{href}"{cls}>'
                 f'<span class="lang-pt">{pt}</span><span class="lang-en">{en}</span></a>')
@@ -3790,22 +3790,22 @@ def sidebar(active, depth=0):
     # Referência CLI — recolhida por omissão (divulgação progressiva: não despeja
     # TODOS os comandos na sidebar permanentemente). Abre sozinha a categoria do
     # comando activo. Mesma taxonomia (COMMAND MAP + nesting) do cheatsheet — não
-    # uma 4.ª cópia. `cri` é o único filho sem `comandos/cri.html` (documentado
+    # uma 4.ª cópia. `cri` é o único filho sem `commands/cri.html` (documentado
     # no guia `cri.html`), mesmo fallback que o `cheatsheet_page()` já trata.
     children = children_of_top_level()
-    cli_active = active.startswith("comandos/")
+    cli_active = active.startswith("commands/")
     cat_blocks = []
     for category, members in root_command_categories():
         links = []
         cat_has_active = False
         for g in members:
             if g in GROUPS:
-                href = f"comandos/{g}.html"
+                href = f"commands/{g}.html"
                 cat_has_active = cat_has_active or href == active
                 links.append(link(href, GROUPS[g]["title"]))
             for child in children.get(g, []):
                 if child in GROUPS:
-                    href = f"comandos/{child}.html"
+                    href = f"commands/{child}.html"
                     cat_has_active = cat_has_active or href == active
                     links.append(link(href, GROUPS[child]["title"], sub=True))
                 else:
@@ -4262,7 +4262,7 @@ HELP_NOTE_HTML = bi("div", "Saída real do binário (em inglês).",
 
 # URL base do GitHub Pages (modo "branch → /docs", sem CNAME/domínio próprio).
 # NÃO se usa uma tag <base> HTML: os links do site são relativos com
-# profundidade variável (`../kinds.html`, `comandos/x.html`) e um <base>
+# profundidade variável (`../kinds.html`, `commands/x.html`) e um <base>
 # resolvê-los-ia todos contra a raiz, partindo a navegação. Serve só de origem
 # para os URLs ABSOLUTOS de `canonical`/`og:url`, calculados por página.
 SITE_BASE = "https://ngolacloud.github.io/delonix"
@@ -4310,10 +4310,10 @@ def _cli_order():
     for category, members in root_command_categories():
         for g in members:
             if g in GROUPS:
-                out.append((f"comandos/{g}.html", GROUPS[g]["title"]))
+                out.append((f"commands/{g}.html", GROUPS[g]["title"]))
             for child in children.get(g, []):
                 if child in GROUPS:
-                    out.append((f"comandos/{child}.html", GROUPS[child]["title"]))
+                    out.append((f"commands/{child}.html", GROUPS[child]["title"]))
                 else:
                     out.append((CRI_FALLBACK[0], CRI_FALLBACK[1]))
     return out
@@ -4525,7 +4525,7 @@ def group_page(name, g):
             body.append(f"<h3>{bi('span', 'Exemplos', 'Examples')}</h3>" + examples_html(meta["examples"], EXAMPLES_EN.get((name, sub)), (name, sub)))
     if name in CLI_LABS:
         body.append(lab_challenge_html(CLI_LABS[name]))
-    page(f"comandos/{name}.html", g["title"], "\n".join(body), depth=1)
+    page(f"commands/{name}.html", g["title"], "\n".join(body), depth=1)
 
 
 INDEX_PT = """
@@ -7469,7 +7469,7 @@ def cheatsheet_page():
         # never has to say twice whether it's top-level or a child.
         tag = "h3" if level == 1 else "h4"
         title = GROUPS[g]["title"] if g in GROUPS else CRI_FALLBACK[1]
-        href = f"comandos/{g}.html" if g in GROUPS else CRI_FALLBACK[0]
+        href = f"commands/{g}.html" if g in GROUPS else CRI_FALLBACK[0]
         subs = subcommands_of(g)
         head = f"<{tag} id='{g}'><a href='{href}'><code>{html.escape(title)}</code></a></{tag}>"
         if not subs:
@@ -7596,7 +7596,7 @@ INFO:     10.0.2.2:57802 - "GET /api/weather/Luanda HTTP/1.1" 200 OK</code></pre
 
 <h2>4. Expor à internet</h2>
 <p>Uma porta local não chega — o objectivo é uma URL que qualquer pessoa, em qualquer rede,
-consiga abrir. É aqui que entra o <a href="comandos/tunnel.html"><code>kind: Gateway</code></a>:</p>
+consiga abrir. É aqui que entra o <a href="commands/tunnel.html"><code>kind: Gateway</code></a>:</p>
 <pre><code>delonix net tunnel expose 8080 --name delonix-temp</code></pre>
 <div class="out"><pre><code>tunnel/delonix-temp: running — https://lfdhz-197-148-40-67.free.pinggy.net</code></pre></div>
 <p>Essa URL é REAL — foi a que este guião recebeu ao correr o comando. (A tua vai ser diferente
@@ -7609,7 +7609,7 @@ público (pinggy) e de volta — zero configuração de router, zero IP público
 Abrir a URL num browser mostra a página <em>Delonix Temp</em> a actualizar-se sozinha.</p>
 
 <div class="callout">
-<p><b>Ir mais longe:</b> com mais de um serviço, mete o <a href="comandos/httproute.html"><code>kind:
+<p><b>Ir mais longe:</b> com mais de um serviço, mete o <a href="commands/httproute.html"><code>kind:
 HTTPRoute</code></a> à frente (routing por <code>Host</code>/path para vários containers) e aponta
 o <code>tunnel</code> para a PORTA DO PROXY em vez de directamente ao container — uma só URL
 pública, tantos backends quantos precisares. Ver <code>examples/gateway/httproute.yaml</code> +
@@ -7719,7 +7719,7 @@ INFO:     10.0.2.2:57802 - "GET /api/weather/Luanda HTTP/1.1" 200 OK</code></pre
 
 <h2>4. Expose it to the internet</h2>
 <p>A local port isn't enough — the goal is a URL anyone, on any network, can open. This is where
-<a href="comandos/tunnel.html"><code>kind: Gateway</code></a> comes in:</p>
+<a href="commands/tunnel.html"><code>kind: Gateway</code></a> comes in:</p>
 <pre><code>delonix net tunnel expose 8080 --name delonix-temp</code></pre>
 <div class="out"><pre><code>tunnel/delonix-temp: running — https://lfdhz-197-148-40-67.free.pinggy.net</code></pre></div>
 <p>That URL is REAL — it's the one this guide got when the command was actually run. (Yours will
@@ -7732,7 +7732,7 @@ server (pinggy) and back — zero router configuration, zero public IP of your o
 Opening the URL in a browser shows the <em>Delonix Temp</em> page updating itself.</p>
 
 <div class="callout">
-<p><b>Going further:</b> with more than one service, put <a href="comandos/httproute.html"><code>kind:
+<p><b>Going further:</b> with more than one service, put <a href="commands/httproute.html"><code>kind:
 HTTPRoute</code></a> in front (routing by <code>Host</code>/path to several containers) and point
 <code>tunnel</code> at the PROXY'S PORT instead of directly at the container — one public URL, as
 many backends as you need. See <code>examples/gateway/httproute.yaml</code> +
@@ -8159,7 +8159,7 @@ def _page_titles_bi():
             m[href] = (pt, en)
     for name in GROUPS:
         # Nomes de comando são neutros em idioma (p.ex. "delonix run").
-        m["comandos/%s.html" % name] = (GROUPS[name]["title"], GROUPS[name]["title"])
+        m["commands/%s.html" % name] = (GROUPS[name]["title"], GROUPS[name]["title"])
     return m
 
 
@@ -8214,7 +8214,7 @@ def main():
     def card_html(n):
         g = GROUPS[n]
         cls = "card"
-        return (f'<div class="{cls}"><b><a href="comandos/{n}.html">{html.escape(g["title"])}</a></b>'
+        return (f'<div class="{cls}"><b><a href="commands/{n}.html">{html.escape(g["title"])}</a></b>'
                 f'<p>{card_tagline(n, g)}</p></div>')
     children = children_of_top_level()
     cat_blocks = []

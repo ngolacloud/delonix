@@ -1,228 +1,250 @@
-# 70 — Catálogo v1 e lacunas do motor: re-medição com evidência
+# 70 — Catalog v1 and engine gaps: re-measurement with evidence
 
-- **Medido em:** `develop == main == 64a5953a` (2026-11-03). O ponto `0f172f5` do prompt
-  (#958, 2026-10-29) é ancestral deste — a medição reflecte o estado de HOJE, alguns commits
-  à frente.
-- **Método:** 6 frentes de leitura em paralelo sobre `crates/`, `bins/`, `proto/`,
-  `docs/`, `scripts/e2e.sh`, `scripts/chaos.sh` e `docs/providers/capability-matrix.md`.
-  Cada ponto tem veredicto **FECHADO / PARCIAL / ABERTO** com `ficheiro:linha` ou secção.
-- **Regra:** itens FECHADOS saltam-se nas fases de construção. Um PARCIAL diz o que falta.
-  Esta é a tabela que a Fase 1 do prompt pede como Entregável #1.
+- **Measured at:** `develop == main == 64a5953a` (2026-11-03). The prompt's
+  `0f172f5` point (#958, 2026-10-29) is an ancestor of this one — the
+  measurement reflects TODAY's state, a few commits ahead.
+- **Method:** 6 parallel reading fronts over `crates/`, `bins/`, `proto/`,
+  `docs/`, `scripts/e2e.sh`, `scripts/chaos.sh` and
+  `docs/providers/capability-matrix.md`. Each point has a **CLOSED / PARTIAL /
+  OPEN** verdict with `file:line` or section.
+- **Rule:** CLOSED items are skipped in the build phases. A PARTIAL says
+  what is missing. This is the table that Phase 1 of the prompt asks for as
+  Deliverable #1.
 
-> **Aviso de baseline (fora do âmbito desta campanha, mas bloqueante).** A run de CI do tip
-> `64a5953a` está **FAILURE**: `contract gate`, `generated-docs` (handbook), `test` (arm64,
-> `cargo test --workspace`) e `cli-execution-ratchet`. A última bateria verde é `b5e153b3`
-> (Out-11, 1345/0/13 + chaos 53/0/2). A regra inegociável «gates verdes» tem de ser
-> restabelecida ANTES de qualquer fase desta campanha fechar — senão a campanha herda uma
-> baseline vermelha e mascara regressões próprias.
-
----
-
-## Correcção às premissas do prompt (medido, não assumido)
-
-1. **Grupos: são 9, não 7.** Além de `core/compute/networking/gateway/storage/artifact/
-   infrastructure`, existem `security.delonix.io` (`RuntimePolicy`) e `gitops.delonix.io`
-   (`GitOpsSource`). Todos em `v1alpha1`; não existe nenhum `v1` apesar do nome «catálogo v1».
-2. **Os serviços gRPC por Kind JÁ são servidos.** O prompt (C1) assume que
-   `VirtualMachineService/ContainerService/PodService/ImageService/StackService` «estão no
-   `.proto` mas não são servidos». Medido: os **10 serviços estão registados e implementados**
-   (`delonix-node-api/src/service.rs:948-993`), desde o Sprint 13. A premissa está obsoleta —
-   o que C1 propõe é *substituir* um contrato servido, não terminar um por servir.
-3. **Não há «excepção Pod/VM sem namespace».** O prompt (A3) quer «acabar com a excepção que
-   a ADR-0069 documentou». Medido: `VirtualMachine/Container/Pod` já são `Namespaced::Always`
-   (`kinds.rs:489`). A ADR-0069 Pending #2 decidiu outra coisa — o **nome de uma VM é único
-   no NÓ** (conflito entre namespaces), não «único dentro do namespace». Isso é a contradição
-   real a resolver (ver lista abaixo), não uma excepção de campo namespace.
-4. **O bug N3 (`set_network` ao criar VM) está FECHADO** (`delonix-node-api/src/lib.rs:128-143`
-   + teste de regressão `tests/vm_network_composition.rs`). C1 não precisa de o corrigir.
-5. **Duas linhas da `capability-matrix.md` estão adiantadas/falsas face a develop** — violam
-   a regra «só suportado com teste ao vivo»:
-   - `storage.ceph` (linha ~198): diz «driver the engine does not ship» quando o crate
-     `delonix-provider-ceph` **já embarca** em develop (PR #960). Corrigir o texto (o cluster
-     Ceph externo continua a ser requisito legítimo).
-   - `net.ipv6` (linha ~146): marcado **supported** quando o dataplane v6 ainda é scaffolding
-     (`delonix-sdn/src/infra.rs:46` «the dual-family table never governs a v6 packet yet») —
-     o «governado ON» vive em ramo não-integrado. **Rebaixar para experimental/partial** até
-     o v6 governar um pacote em develop.
+> **Baseline warning (out of scope for this campaign, but blocking).** The CI
+> run at tip `64a5953a` is **FAILURE**: `contract gate`, `generated-docs`
+> (handbook), `test` (arm64, `cargo test --workspace`) and
+> `cli-execution-ratchet`. The last green battery is `b5e153b3` (Oct 11,
+> 1345/0/13 + chaos 53/0/2). The non-negotiable «green gates» rule has to be
+> restored BEFORE any phase of this campaign closes — otherwise the campaign
+> inherits a red baseline and masks its own regressions.
 
 ---
 
-## Parte A — Fundação declarativa
+## Corrections to the prompt's premises (measured, not assumed)
 
-| Ponto | Veredicto | Evidência | Falta |
+1. **Groups: there are 9, not 7.** Besides `core/compute/networking/gateway/
+   storage/artifact/infrastructure`, there are also `security.delonix.io`
+   (`RuntimePolicy`) and `gitops.delonix.io` (`GitOpsSource`). All in
+   `v1alpha1`; there is no `v1` at all despite the name «catalog v1».
+2. **The per-Kind gRPC services are ALREADY served.** The prompt (C1) assumes
+   that `VirtualMachineService/ContainerService/PodService/ImageService/
+   StackService` «are in the `.proto` but not served». Measured: the **10
+   services are registered and implemented**
+   (`delonix-node-api/src/service.rs:948-993`), since Sprint 13. The premise is
+   stale — what C1 proposes is to *replace* a served contract, not finish one
+   that was never served.
+3. **There is no «Pod/VM namespace exception».** The prompt (A3) wants to «end
+   the exception ADR-0069 documented». Measured: `VirtualMachine/Container/
+   Pod` are already `Namespaced::Always` (`kinds.rs:489`). ADR-0069 Pending #2
+   decided something else — **a VM's name is unique on the NODE** (conflict
+   across namespaces), not «unique within the namespace». That is the real
+   contradiction to resolve (see the list below), not a namespace-field
+   exception.
+4. **Bug N3 (`set_network` on VM creation) is CLOSED**
+   (`delonix-node-api/src/lib.rs:128-143` + regression test
+   `tests/vm_network_composition.rs`). C1 does not need to fix it.
+5. **Two lines of `capability-matrix.md` are ahead of / false against
+   develop** — they violate the «only supported with a live test» rule:
+   - `storage.ceph` (line ~198): says «driver the engine does not ship» when
+     the `delonix-provider-ceph` crate **already ships** in develop (PR
+     #960). Fix the text (the external Ceph cluster remains a legitimate
+     requirement).
+   - `net.ipv6` (line ~146): marked **supported** when the v6 dataplane is
+     still scaffolding (`delonix-sdn/src/infra.rs:46` «the dual-family table
+     never governs a v6 packet yet») — the «governed ON» lives on a branch
+     not yet integrated. **Downgrade to experimental/partial** until v6
+     governs a packet in develop.
+
+---
+
+## Part A — Declarative foundation
+
+| Point | Verdict | Evidence | Missing |
 |---|---|---|---|
-| A1 diff a partir do schema + `x-delonix-update` + gate por-campo | **ABERTO** | 0 anotações `x-*` em `docs/schema`; classificação live/reboot/cold é tabela à mão por Kind (`reconcile.rs:277-437`, `grow_only_fields:451`); braço `_ => &[]` (`:436`) silencia o não-classificado | anotação por campo no schema + diff que a leia + gate que recuse campo sem classe |
-| A2 metadata/status comum | **ABERTO** | `Metadata{name,ns,labels,annotations}` ok (`manifest.rs:20-34`); **sem** `generation/observedGeneration/conditions/outputs/storedVersion`; `Condition` actual (`condition.rs:5-11`) é pré-requisito, sem `lastTransitionTime` nem taxonomia Ready/Progressing/Degraded | bloco `status` + `generation` escrito pelo motor + condições uniformes + `stack wait` a ler só `Ready` |
-| A3 dois âmbitos | **FECHADO** (modelo) | enum `Namespaced{Never,Always,PerDocument}` (`kinds.rs:236`); VM/Container/Pod=Always, App=Never, Volume=PerDocument | v1 muda o mapa (Application namespaced; ver contradição VM-name) |
-| A4 ordem por grafo | **ABERTO** | ordem FIXA da tabela FACTS (`kinds.rs:275-304`) via `run_layers_inner` hardcoded (`stack.rs:2442-2523`), 1 Kind de cada vez; sem `dependsOn/outputRef/toposort`; `validate_graph` (`stack.rs:3496`) só valida existência; destroy inverso FECHADO | grafo real de referências, paralelismo por nível, detecção de ciclo com caminho |
-| A5 controlos de ciclo de vida | **PARCIAL** | 3-vias com `delonix.io/last-applied` FECHADO (`reconcile.rs:63,605-642`); `plan -o json` FECHADO mas `apply` come manifesto + `--plan-digest` (não um ficheiro de plano); `planDigest` só provider-backed (`reconcile.rs:235`); `protect`/`ignore-fields`/`drift`/lock **ABERTOS** (0 ocorrências) | `stack apply plano.json`; protect/ignore-fields; **drift** (contradiz decisão registada); lock por stack |
+| A1 diff from the schema + `x-delonix-update` + per-field gate | **OPEN** | 0 `x-*` annotations in `docs/schema`; live/reboot/cold classification is a hand-written table per Kind (`reconcile.rs:277-437`, `grow_only_fields:451`); `_ => &[]` arm (`:436`) silences the unclassified | per-field annotation in the schema + a diff that reads it + a gate that refuses a field with no class |
+| A2 common metadata/status | **OPEN** | `Metadata{name,ns,labels,annotations}` ok (`manifest.rs:20-34`); **no** `generation/observedGeneration/conditions/outputs/storedVersion`; the current `Condition` (`condition.rs:5-11`) is a prerequisite, with no `lastTransitionTime` or Ready/Progressing/Degraded taxonomy | `status` block + `generation` written by the engine + uniform conditions + `stack wait` reading only `Ready` |
+| A3 two scopes | **CLOSED** (model) | enum `Namespaced{Never,Always,PerDocument}` (`kinds.rs:236`); VM/Container/Pod=Always, App=Never, Volume=PerDocument | v1 changes the map (Application namespaced; see the VM-name contradiction) |
+| A4 graph order | **OPEN** | FIXED order from the FACTS table (`kinds.rs:275-304`) via hardcoded `run_layers_inner` (`stack.rs:2442-2523`), 1 Kind at a time; no `dependsOn/outputRef/toposort`; `validate_graph` (`stack.rs:3496`) only validates existence; reverse destroy is CLOSED | a real reference graph, per-level parallelism, cycle detection with a path |
+| A5 lifecycle controls | **PARTIAL** | 3-way with `delonix.io/last-applied` CLOSED (`reconcile.rs:63,605-642`); `plan -o json` CLOSED but `apply` consumes a manifest + `--plan-digest` (not a plan file); `planDigest` only provider-backed (`reconcile.rs:235`); `protect`/`ignore-fields`/`drift`/lock **OPEN** (0 occurrences) | `stack apply plan.json`; protect/ignore-fields; **drift** (contradicts a recorded decision); per-stack lock |
 
-## Parte B — Catálogo (24 Kinds v1)
+## Part B — Catalog (24 v1 Kinds)
 
-Catálogo actual: **27 Kinds** numa só tabela (`crates/contexts/delonix-stack/src/kinds.rs`),
-todos `v1alpha1`, lida por `api-resources`/schema/parser/reconciliador (sem segunda lista).
-**Não existe `delonix manifest convert`** nem maquinaria de conversão de versões / storage
-version. Deprecação modelada em `enum Form` (`kinds.rs:154`): `Sunset(successor)` anuncia,
-`Sugar`/`Compat` baixam, fusões avisam, renomeações puras (`KIND_ALIASES`) são alias silencioso.
+Current catalog: **27 Kinds** in a single table
+(`crates/contexts/delonix-stack/src/kinds.rs`), all `v1alpha1`, read by
+`api-resources`/schema/parser/reconciler (no second list). **There is no
+`delonix manifest convert`** nor any version-conversion / storage-version
+machinery. Deprecation modeled as `enum Form` (`kinds.rs:154`):
+`Sunset(successor)` announces, `Sugar`/`Compat` downgrade, merges warn, pure
+renames (`KIND_ALIASES`) are a silent alias.
 
-Dos 24 Kinds v1: **14 já existem, 4 parciais, 6 não existem.**
+Of the 24 v1 Kinds: **14 already exist, 4 are partial, 6 do not exist.**
 
-| Grupo v1 | Kind | Veredicto | Origem / nota |
+| v1 group | Kind | Verdict | Origin / note |
 |---|---|---|---|
-| compute | Application | **PARCIAL** | deriva de `App` (hoje em **artifact**, só constrói imagem) + `Workload`/`Pod`/`Container` que correm; nenhum Kind «Application» |
-| compute | Job | **NÃO-EXISTE** | sem Kind Job; sem `action` nem `template` |
-| compute | VirtualMachine | **EXISTE** | `kinds.rs:479` |
-| networking | Network | **EXISTE** | `kinds.rs:345` |
-| networking | NetworkRoute | **EXISTE** | `kinds.rs:359` |
-| networking | Router | **NÃO-EXISTE** | mais próximo `NetworkGateway` (`kinds.rs:603`) |
-| networking | IPPool | **EXISTE** | `kinds.rs:624` |
-| networking | IPAddress | **NÃO-EXISTE** | só `IPPool` (ledger de reservas) |
-| networking | NetworkPolicy | **EXISTE** | `kinds.rs:572` |
-| networking | Service | **EXISTE** | `kinds.rs:544` (DNS round-robin, ADR-0032) |
-| networking | Gateway | **PARCIAL** | **colisão de nome**: o `Gateway` actual é o ex-`Tunnel` edge (`kinds.rs:652`), semântica ≠ Gateway-API |
-| networking | HTTPRoute | **EXISTE** | `kinds.rs:638` (hoje em grupo **gateway**) |
-| storage | StoragePool | **EXISTE** | `kinds.rs:397` |
-| storage | Volume | **EXISTE** | `kinds.rs:413` |
-| storage | Bucket | **PARCIAL** | deriva de `ObjectStorage` (`kinds.rs:429`) |
-| storage | Snapshot | **NÃO-EXISTE** | snapshot de VM só imperativo |
-| core | Secret | **EXISTE** | `kinds.rs:327` |
-| core | Config | **NÃO-EXISTE** | não há ConfigMap-like; dados não-secretos só via `Secret` |
-| core | Image | **EXISTE** | hoje em **artifact** (`kinds.rs:447`) |
-| core | Stack | **EXISTE** | `kinds.rs:721` |
-| core | GitOpsSource | **EXISTE** | hoje em **gitops** (`kinds.rs:671`) |
-| core | Node | **NÃO-EXISTE** | só RPC `NodeService.GetCapacity`, sem Kind |
-| policy | RuntimePolicy | **EXISTE** | hoje em **security** (`kinds.rs:310`) |
-| cluster | KubernetesCluster | **EXISTE** | hoje em **infrastructure** (`kinds.rs:736`), `in_stack:false` |
+| compute | Application | **PARTIAL** | derives from `App` (today in **artifact**, only builds the image) + `Workload`/`Pod`/`Container` that run; no «Application» Kind |
+| compute | Job | **DOES-NOT-EXIST** | no Job Kind; no `action` or `template` |
+| compute | VirtualMachine | **EXISTS** | `kinds.rs:479` |
+| networking | Network | **EXISTS** | `kinds.rs:345` |
+| networking | NetworkRoute | **EXISTS** | `kinds.rs:359` |
+| networking | Router | **DOES-NOT-EXIST** | closest is `NetworkGateway` (`kinds.rs:603`) |
+| networking | IPPool | **EXISTS** | `kinds.rs:624` |
+| networking | IPAddress | **DOES-NOT-EXIST** | only `IPPool` (reservation ledger) |
+| networking | NetworkPolicy | **EXISTS** | `kinds.rs:572` |
+| networking | Service | **EXISTS** | `kinds.rs:544` (DNS round-robin, ADR-0032) |
+| networking | Gateway | **PARTIAL** | **name collision**: the current `Gateway` is the former `Tunnel` edge resource (`kinds.rs:652`), semantics ≠ Gateway API |
+| networking | HTTPRoute | **EXISTS** | `kinds.rs:638` (today in the **gateway** group) |
+| storage | StoragePool | **EXISTS** | `kinds.rs:397` |
+| storage | Volume | **EXISTS** | `kinds.rs:413` |
+| storage | Bucket | **PARTIAL** | derives from `ObjectStorage` (`kinds.rs:429`) |
+| storage | Snapshot | **DOES-NOT-EXIST** | VM snapshot is imperative-only |
+| core | Secret | **EXISTS** | `kinds.rs:327` |
+| core | Config | **DOES-NOT-EXIST** | no ConfigMap-like resource; non-secret data only via `Secret` |
+| core | Image | **EXISTS** | today in **artifact** (`kinds.rs:447`) |
+| core | Stack | **EXISTS** | `kinds.rs:721` |
+| core | GitOpsSource | **EXISTS** | today in **gitops** (`kinds.rs:671`) |
+| core | Node | **DOES-NOT-EXIST** | only the `NodeService.GetCapacity` RPC, no Kind |
+| policy | RuntimePolicy | **EXISTS** | today in **security** (`kinds.rs:310`) |
+| cluster | KubernetesCluster | **EXISTS** | today in **infrastructure** (`kinds.rs:736`), `in_stack:false` |
 
-Realocação de grupo mesmo nos «existe»: Image/App→core, RuntimePolicy security→policy,
-KubernetesCluster infrastructure→cluster, GitOpsSource gitops→core, HTTPRoute/Gateway
-gateway→networking.
+Group relocation even among the «exists» ones: Image/App→core, RuntimePolicy
+security→policy, KubernetesCluster infrastructure→cluster, GitOpsSource
+gitops→core, HTTPRoute/Gateway gateway→networking.
 
-Conversões dos Kinds actuais (origem → destino v1): `Container`→`Application` (Sunset já
-anunciado), `Pod`(escrito)→instância de `Application`, `App`→`Application.containers[].build`
-+ `Image`, `Workload`→`Application`/`VirtualMachine`, `NetworkAccessRule`→`NetworkPolicy`,
-`Dependency`→`dependsOn`/`NetworkPolicy`, `NetworkZone`→`Network`+provider (Sunset já),
-`NetworkGateway`→`Router`, `ObjectStorage`→`Bucket`, `Ingress`→`HTTPRoute` (Compat já),
-`Gateway`(túnel)→`Gateway` class de túnel, `SystemContainer`→`proxmox.delonix.io/SystemContainer`.
+Conversions of current Kinds (origin → v1 destination): `Container`→
+`Application` (Sunset already announced), `Pod` (instance)→an `Application`
+instance, `App`→`Application.containers[].build` + `Image`, `Workload`→
+`Application`/`VirtualMachine`, `NetworkAccessRule`→`NetworkPolicy`,
+`Dependency`→`dependsOn`/`NetworkPolicy`, `NetworkZone`→`Network`+provider
+(Sunset already), `NetworkGateway`→`Router`, `ObjectStorage`→`Bucket`,
+`Ingress`→`HTTPRoute` (Compat already), `Gateway` (tunnel)→`Gateway` tunnel
+class, `SystemContainer`→`proxmox.delonix.io/SystemContainer`.
 
-## Parte B — KubernetesCluster convergente (2 FECHADO / 7 PARCIAL / 6 ABERTO)
+## Part B — Convergent KubernetesCluster (2 CLOSED / 7 PARTIAL / 6 OPEN)
 
-| # | Capacidade | Veredicto | Evidência |
+| # | Capability | Verdict | Evidence |
 |---|---|---|---|
-| 1 | 3 modos kind/vm/ssh | **FECHADO** | `cluster.rs:138,630,2454` |
-| 2 | convergência declarativa/idempotente | **PARCIAL** | idempotente por passo (`cluster.rs:3125-3128`); sem diff/remoção/estado; sem `plan` |
-| 3 | HA CP + join um-a-um c/ etcd saudável | **PARCIAL** | `cluster.rs:2891-2897` + ADR-0085; sem gate de quórum etcd entre joins |
-| 4 | etcd stacked vs external | **PARCIAL** | `cluster.rs:92,663`; external só `ssh` (ou `vm` via flag), nunca `kind` |
-| 5 | endpoint kube-vip/HAProxy/external | **PARCIAL** | `lb.rs` + ADR-0085; HAProxy+externo sim, **kube-vip NÃO** (ADR-0085 rejeitou VIP) |
-| 6 | scale CP/workers + remover membro etcd | **ABERTO** | sem `scale`, sem `nodePools[]` (só `workers` único), remoção etcd «por fazer» |
-| 7 | upgrade menor-a-menor, snapshot, um-a-um | **PARCIAL** | `cluster.rs:2367,2380`; só `ssh`, sem snapshot prévio, sem gate de salto de versão |
-| 8 | backup/restore (etcd+PKI+config), CA p/ cluster novo | **PARCIAL** | `etcd_backup.rs:9-26`; só etcd stacked, in-place 1 CP; sem PKI/config/manifesto; sem restauro p/ cluster novo |
-| 9 | auto-reparação de workers | **ABERTO** | nenhum laço NotReady→substitui |
-| 10 | retoma após `kill -9` (registo de operações) | **PARCIAL** | por re-execução idempotente stateless; sem op-ledger |
-| 11 | perfis CNI fixados + offline | **FECHADO** | `net_profiles.rs:13,32` + `--cni-offline`; imagens do CNI não empacotadas |
-| 12 | `x-delonix-update` por campo | **ABERTO** | 0 ocorrências |
-| 13 | conformidade CNCF/Sonobuoy | **ABERTO** | só `critest` de CRI |
-| 14 | segurança por omissão (PSA/encryption/audit/…) | **ABERTO** | `kubeadm_config.rs` só escreve etcd |
-| 15 | subcomandos | **PARCIAL** | faltam `plan`,`scale`,`certs`; resto existe (alguns só num modo) |
+| 1 | 3 modes kind/vm/ssh | **CLOSED** | `cluster.rs:138,630,2454` |
+| 2 | declarative/idempotent convergence | **PARTIAL** | idempotent per step (`cluster.rs:3125-3128`); no diff/removal/state; no `plan` |
+| 3 | HA CP + one-by-one join with healthy etcd | **PARTIAL** | `cluster.rs:2891-2897` + ADR-0085; no etcd quorum gate between joins |
+| 4 | stacked vs external etcd | **PARTIAL** | `cluster.rs:92,663`; external only `ssh` (or `vm` via flag), never `kind` |
+| 5 | kube-vip/HAProxy/external endpoint | **PARTIAL** | `lb.rs` + ADR-0085; HAProxy+external yes, **kube-vip NO** (ADR-0085 rejected VIP) |
+| 6 | scale CP/workers + remove an etcd member | **OPEN** | no `scale`, no `nodePools[]` (only a single `workers`), etcd removal «to be done» |
+| 7 | minor-by-minor upgrade, snapshot, one-by-one | **PARTIAL** | `cluster.rs:2367,2380`; only `ssh`, no prior snapshot, no version-skip gate |
+| 8 | backup/restore (etcd+PKI+config), CA for a new cluster | **PARTIAL** | `etcd_backup.rs:9-26`; only stacked etcd, in-place single CP; no PKI/config/manifest; no restore to a new cluster |
+| 9 | worker self-healing | **OPEN** | no NotReady→replace loop |
+| 10 | resume after `kill -9` (operations log) | **PARTIAL** | via idempotent stateless re-execution; no op-ledger |
+| 11 | pinned CNI profiles + offline | **CLOSED** | `net_profiles.rs:13,32` + `--cni-offline`; CNI images not bundled |
+| 12 | `x-delonix-update` per field | **OPEN** | 0 occurrences |
+| 13 | CNCF/Sonobuoy conformance | **OPEN** | only CRI's `critest` |
+| 14 | secure by default (PSA/encryption/audit/…) | **OPEN** | `kubeadm_config.rs` only writes etcd |
+| 15 | subcommands | **PARTIAL** | missing `plan`, `scale`, `certs`; the rest exists (some in only one mode) |
 
-## Parte C — Contrato do nó
+## Part C — Node contract
 
-| Ponto | Veredicto | Evidência |
+| Point | Verdict | Evidence |
 |---|---|---|
-| 10 serviços servidos (não só proto) | **FECHADO** | `service.rs:948-993` + impls `:135-937` (só `VM.Console` e `Image.Push/Build/Scan` UNIMPLEMENTED) |
-| `ResourceService` genérico (Apply/Plan/Get/List/Watch/Delete sobre qualquer Kind) | **ABERTO (por desenho)** | ausente no proto; portão de contrato (`AGENTS.md:148,159-166`) **impõe** «um pedido por RPC» + identidade explícita, **nunca** `ResourceMeta` genérico → C1 contradiz isto |
-| Exec / Logs | **FECHADO** | `service.rs:910-929` → `container_exec`/`container_logs` |
-| Console de VM / Attach / port-forward | **ABERTO** | `Console` UNIMPLEMENTED (`service.rs:712`); Attach/port-forward nem no contrato |
-| NodeService / OperationService (Get/Watch/Cancel) / WatchEvents | **FECHADO** | `service.rs:135-196,726-781,174-187` |
-| Watch com retoma por offset | **PARCIAL** | só `since` temporal (`node.proto:114`); sem offset genérico |
-| Socket activation + `.socket` + idle-exit | **FECHADO** | `dist/delonix-node-api.socket`; `lib.rs:169-183,264-279`; testes `idle_exit.rs`/`socket_activation.rs` |
-| `ErrorDetail` tipado em TODOS os caminhos | **PARCIAL** | REST dá problem+json completo (`service.rs:1385`); gRPC (`network_ops.rs:73-74`) só trailer DX — o proto (`common.proto:113`) promete mais do que o gRPC entrega |
-| em-processo vs CLI (ADR-0040 D5) | **PARCIAL (por desenho)** | leituras/mutações em processo; só launch/exec/pod-create re-executam `delonix` (`container_exec.rs:6-11`) por `setns`/`clone` serem single-thread |
-| bug N3 (`set_network` ao criar VM) | **FECHADO** | `lib.rs:128-143` + `tests/vm_network_composition.rs` |
-| **C2** autz por namespace/verbo/Kind (ADR-0003) | **ABERTO** | só `SO_PEERCRED` uid-equality (`lib.rs:295`) + socket 0600; ADR-0003 **aceite mas o portão de capacidade NÃO está construído** (o `enum Capability` existente é o catálogo de providers, ADR-0050) |
+| 10 services served (not just proto) | **CLOSED** | `service.rs:948-993` + impls `:135-937` (only `VM.Console` and `Image.Push/Build/Scan` UNIMPLEMENTED) |
+| generic `ResourceService` (Apply/Plan/Get/List/Watch/Delete over any Kind) | **OPEN (by design)** | absent from the proto; the contract gate (`AGENTS.md:148,159-166`) **enforces** «one request per RPC» + explicit identity, **never** a generic `ResourceMeta` → C1 contradicts this |
+| Exec / Logs | **CLOSED** | `service.rs:910-929` → `container_exec`/`container_logs` |
+| VM console / Attach / port-forward | **OPEN** | `Console` UNIMPLEMENTED (`service.rs:712`); Attach/port-forward not even in the contract |
+| NodeService / OperationService (Get/Watch/Cancel) / WatchEvents | **CLOSED** | `service.rs:135-196,726-781,174-187` |
+| Watch with offset resume | **PARTIAL** | only temporal `since` (`node.proto:114`); no generic offset |
+| Socket activation + `.socket` + idle-exit | **CLOSED** | `dist/delonix-node-api.socket`; `lib.rs:169-183,264-279`; tests `idle_exit.rs`/`socket_activation.rs` |
+| typed `ErrorDetail` on ALL paths | **PARTIAL** | REST gives full problem+json (`service.rs:1385`); gRPC (`network_ops.rs:73-74`) only a DX trailer — the proto (`common.proto:113`) promises more than gRPC delivers |
+| in-process vs CLI (ADR-0040 D5) | **PARTIAL (by design)** | reads/mutations in-process; only launch/exec/pod-create re-exec `delonix` (`container_exec.rs:6-11`) because `setns`/`clone` must be single-thread |
+| bug N3 (`set_network` on VM creation) | **CLOSED** | `lib.rs:128-143` + `tests/vm_network_composition.rs` |
+| **C2** authz by namespace/verb/Kind (ADR-0003) | **OPEN** | only `SO_PEERCRED` uid-equality (`lib.rs:295`) + 0600 socket; ADR-0003 **accepted but the capability gate is NOT built** (the existing `enum Capability` is the provider catalog, ADR-0050) |
 
-## Parte D — Capacidades
+## Part D — Capabilities
 
-| # | Item | Veredicto | Evidência |
+| # | Item | Verdict | Evidence |
 |---|---|---|---|
-| D1a | `RuntimePolicy` profile strict/baseline/privileged por `namespaceSelector` | **PARCIAL** | Kind existe (`policy.rs:425`); sem `profile` nem `namespaceSelector`; tecto de nó; só `baseline` (`policy.rs:488`) |
-| D1b | tecto de capabilities CRI, recusa sem tecto | **FECHADO** | `cap_ceiling.rs:84` (default = conjunto seguro; malformado recusa arranque) |
-| D1c | Secret só em tmpfs, sem disco persistente | **FECHADO** | `delonix-linux/src/lib.rs:3468` (tmpfs 0600 no ns) |
-| D1d | fallback root (ADR-0062) visível | **FECHADO** | `lifecycle.rs:998,2503` (`userFallbackToRoot` no status) |
-| D2 | container por-instância em microVM com API de container + RuntimeClass + medições | **ABERTO** | `type: microvm` baixa para VM completa (`workload.rs:15`); `runtime_handlers=vec![]` (`runtime_svc.rs:208`); só densidade de containers medida |
-| D3 | `storedVersion` + migração de estado testada em CI | **ABERTO** | 0 `storedVersion`; só spike `56_P4_D6_...` |
-| D4a | overlay VXLAN + WireGuard entre zonas (ADR-0084) | **FECHADO** (ADR Proposto) | `delonix-sdn/src/infra.rs:8289`, `wg.rs`; live `g4-overlay-forwarding.md` 0% perda 2 nós |
-| D4b | CNI multi-nó / recusa explícita (N15) | **FECHADO** | `cni:default`→Cilium (`cluster.rs:305`); `none`→NotReady nomeado (`:159`) |
-| D4c | `IPAddress` NAT 1:1 movível entre nós | **ABERTO** | Kind inexistente |
-| D4d | Service type:LoadBalancer (ADR-0066) + IPv6 (0065/0082) | **PARCIAL** | LB = VIP L4 de **nó único** (`lb.rs:1`), não cross-node; IPv6 scaffolding, v6 recusado (matrix adiantada) |
-| D5a | ADR-0081 ceph-native implementada | **FECHADO** (ADR Proposto; matrix desactualizada) | crate `delonix-provider-ceph` em develop; `storage.rs:13`; MicroCeph 19.2.3 live |
-| D5b | StoragePool ceph-rbd/cephfs + pools ADR-0067 (N20) | **FECHADO** | `storage.rs:215-221`; dir/btrfs/zfs/lvm-thin + ceph |
-| D5c | `Volume.size` cresce a quente (N16) | **FECHADO** | `volume.rs:336` |
-| D5d | `Snapshot`→Bucket agendado/retenção por `Job action:CreateSnapshot` | **ABERTO** | peças ad-hoc (`vm.snapshot`, backup etcd); sem destino Bucket, sem Kind Job, sem agendamento |
-| D6 | hotplug CPU/mem/disco/NIC ≤ max (imperativo) | **FECHADO** | `vm.rs:1388`; matrix 49-56; DX-8504 (`codes.rs:1532`) |
-| D6 | …via manifesto (reconciliador, ADR-0068 D9) | **ABERTO** | `reconcile.rs:323,451` ainda planeia Replace |
-| D6 | guest agent nos 3 backends | **PARCIAL 2/3** | libvirt/proxmox live; CH sem canal virtio-serial (`:538`, estrutural) |
-| D6 | migração a frio (N12) | **FECHADO** | matrix L110; `e2e.sh:6497/6594`; proxmox live |
-| D6 | arrancar de disco partilhado existente | **ABERTO** | root sempre overlay fresco (`local_ports.rs:258-310`); só discos extra referenciam volume |
-| D6 | fencing RBD lock + blocklist + teste split-brain | **ABERTO** | sem código; delega a gestor externo |
-| D6 | live migration fora (ADR-0031) | **CONFIRMADO fora** | CH `:509`; só Proxmox delega ao PVE |
-| D7 | CRI re-medida critest (N6) | **FECHADO** 84/104 ≈ 80,8% | `docs/cri-conformance.md` (v1.36.0, 2026-10-24) |
-| D7 | CRI ≥95% (N26) | **ABERTO** (~14 pp) | 5 gaps reais (2 já corrigidos em ramo não-integrado) |
-| D8 | Kind `Node` capacity/allocatable/allocated/overcommit/eventos | **ABERTO** | só RPC `GetCapacity` (`node.proto:80-102`); sem allocated/IPs/GPU, sem eventos |
-| D8 | `unschedulable` drena c/ disruption | **ABERTO** | 0 no contrato; só wrapper `kubectl` (`cluster.rs:2141`) |
-| D9 | SLIs daemonless + observe/diagnose | **ABERTO** | `engine-slis-2026-10-12.md` «nothing wired»; sem `/metrics` no node-api |
-| D10 | init gera Stack App+Svc+Gateway+HTTPRoute+Secret | **ABERTO** | gera compose + `Container`/`Stack` |
-| D10 | rust + DORM (migrações+outbox) | **ABERTO** | `rust/src/memstore.rs:12` (em memória) |
-| D10 | gRPC+REST buf / LRO / Idempotency-Key / JetStream | **ABERTO** | ADR-0061 D6 «gRPC not generated»; RabbitMQ, não NATS |
-| D10 | templates OCI assinados (`-t oci://`) | **ABERTO / fora de contrato** | `scaffold.rs:25-27` embebido; ADR-0061 D2 «no network at generation time» |
-| D11 | fuzzing manifesto/conversores/diff | **PARCIAL** | `fuzz/` 6 alvos (parsers de entrada) + CI; não cobre manifesto→diff |
-| D11 | feed CVE no scanner | **PARCIAL** | OSV parser existe (`scanner lib.rs:525,632`); DB embebida = 5 placeholders, sem sync automático |
-| D11 | cobertura CLI (N11) | **95,6%** (258/270) mas ratchet X no tip | `RELEASES.md:318`; `cli-execution-ratchet` vermelho em 64a5953a |
-| D11 | bateria limpa no tip (N30) | **ABERTO no tip** | verde em `b5e153b3`; `64a5953a` CI FAILURE |
+| D1a | `RuntimePolicy` strict/baseline/privileged profile per `namespaceSelector` | **PARTIAL** | Kind exists (`policy.rs:425`); no `profile` or `namespaceSelector`; node-level ceiling; only `baseline` (`policy.rs:488`) |
+| D1b | CRI capabilities ceiling, refuse without a ceiling | **CLOSED** | `cap_ceiling.rs:84` (default = safe set; malformed refuses startup) |
+| D1c | Secret only on tmpfs, no persistent disk | **CLOSED** | `delonix-linux/src/lib.rs:3468` (0600 tmpfs in the ns) |
+| D1d | root fallback (ADR-0062) visible | **CLOSED** | `lifecycle.rs:998,2503` (`userFallbackToRoot` in status) |
+| D2 | per-instance container in a microVM with the container API + RuntimeClass + measurements | **OPEN** | `type: microvm` downgrades to a full VM (`workload.rs:15`); `runtime_handlers=vec![]` (`runtime_svc.rs:208`); only container density is measured |
+| D3 | `storedVersion` + state migration tested in CI | **OPEN** | 0 `storedVersion`; only the `56_P4_D6_...` spike |
+| D4a | VXLAN overlay + WireGuard between zones (ADR-0084) | **CLOSED** (ADR Proposed) | `delonix-sdn/src/infra.rs:8289`, `wg.rs`; live `g4-overlay-forwarding.md` 0% loss, 2 nodes |
+| D4b | multi-node CNI / explicit refusal (N15) | **CLOSED** | `cni:default`→Cilium (`cluster.rs:305`); `none`→named NotReady (`:159`) |
+| D4c | movable 1:1 `IPAddress` NAT between nodes | **OPEN** | Kind does not exist |
+| D4d | Service type:LoadBalancer (ADR-0066) + IPv6 (0065/0082) | **PARTIAL** | LB = **single-node** L4 VIP (`lb.rs:1`), not cross-node; IPv6 scaffolding, v6 refused (matrix ahead of reality) |
+| D5a | ADR-0081 ceph-native implemented | **CLOSED** (ADR Proposed; matrix stale) | `delonix-provider-ceph` crate in develop; `storage.rs:13`; MicroCeph 19.2.3 live |
+| D5b | StoragePool ceph-rbd/cephfs + ADR-0067 pools (N20) | **CLOSED** | `storage.rs:215-221`; dir/btrfs/zfs/lvm-thin + ceph |
+| D5c | `Volume.size` grows hot (N16) | **CLOSED** | `volume.rs:336` |
+| D5d | scheduled/retained `Snapshot`→Bucket via `Job action:CreateSnapshot` | **OPEN** | ad-hoc pieces (`vm.snapshot`, etcd backup); no Bucket target, no Job Kind, no scheduling |
+| D6 | CPU/mem/disk/NIC hotplug ≤ max (imperative) | **CLOSED** | `vm.rs:1388`; matrix 49-56; DX-8504 (`codes.rs:1532`) |
+| D6 | …via manifest (reconciler, ADR-0068 D9) | **OPEN** | `reconcile.rs:323,451` still plans a Replace |
+| D6 | guest agent on the 3 backends | **PARTIAL 2/3** | libvirt/proxmox live; CH has no virtio-serial channel (`:538`, structural) |
+| D6 | cold migration (N12) | **CLOSED** | matrix L110; `e2e.sh:6497/6594`; proxmox live |
+| D6 | boot from an existing shared disk | **OPEN** | root is always a fresh overlay (`local_ports.rs:258-310`); only extra disks reference a volume |
+| D6 | RBD lock fencing + blocklist + split-brain test | **OPEN** | no code; delegated to an external manager |
+| D6 | live migration out of scope (ADR-0031) | **CONFIRMED out** | CH `:509`; only Proxmox delegates to PVE |
+| D7 | CRI re-measured with critest (N6) | **CLOSED** 84/104 ≈ 80.8% | `docs/cri-conformance.md` (v1.36.0, 2026-10-24) |
+| D7 | CRI ≥95% (N26) | **OPEN** (~14 pp) | 5 real gaps (2 already fixed on an unintegrated branch) |
+| D8 | `Node` Kind capacity/allocatable/allocated/overcommit/events | **OPEN** | only the `GetCapacity` RPC (`node.proto:80-102`); no allocated/IPs/GPU, no events |
+| D8 | `unschedulable` drains with disruption | **OPEN** | 0 in the contract; only a `kubectl` wrapper (`cluster.rs:2141`) |
+| D9 | daemonless SLIs + observe/diagnose | **OPEN** | `engine-slis-2026-10-12.md` «nothing wired»; no `/metrics` on node-api |
+| D10 | init generates Stack App+Svc+Gateway+HTTPRoute+Secret | **OPEN** | generates compose + `Container`/`Stack` |
+| D10 | rust + DORM (migrations+outbox) | **OPEN** | `rust/src/memstore.rs:12` (in-memory) |
+| D10 | gRPC+REST buf / LRO / Idempotency-Key / JetStream | **OPEN** | ADR-0061 D6 «gRPC not generated»; RabbitMQ, not NATS |
+| D10 | signed OCI templates (`-t oci://`) | **OPEN / out of contract** | `scaffold.rs:25-27` embedded; ADR-0061 D2 «no network at generation time» |
+| D11 | manifest/converter/diff fuzzing | **PARTIAL** | `fuzz/` 6 targets (input parsers) + CI; does not cover manifest→diff |
+| D11 | scanner CVE feed | **PARTIAL** | OSV parser exists (`scanner lib.rs:525,632`); embedded DB = 5 placeholders, no automatic sync |
+| D11 | CLI coverage (N11) | **95.6%** (258/270) but ratchet X at the tip | `RELEASES.md:318`; `cli-execution-ratchet` red at 64a5953a |
+| D11 | clean battery at the tip (N30) | **OPEN at the tip** | green at `b5e153b3`; `64a5953a` CI FAILURE |
 
-Lacunas de Outubro confirmadas **fechadas**: backup de etcd (`etcd_backup.rs`),
-`UpdateContainerResources` (`runtime_svc.rs:333`), hotplug add+remove CH/libvirt, migração a
-frio nos 3 backends — vários muito além do plano de fases da ADR-0068.
+October gaps confirmed **closed**: etcd backup (`etcd_backup.rs`),
+`UpdateContainerResources` (`runtime_svc.rs:333`), add+remove hotplug on
+CH/libvirt, cold migration on all 3 backends — several well beyond
+ADR-0068's phase plan.
 
 ---
 
-## Contradições com decisões registadas (o prompt é a nova vontade do dono; cada uma exige ADR)
+## Contradictions with recorded decisions (the prompt is the owner's new will; each one needs an ADR)
 
-Pela regra #3 do prompt, cada contradição abaixo tem de ficar escrita numa ADR que diga o que
-substitui:
+By rule #3 of the prompt, each contradiction below has to be written into an
+ADR that states what it replaces:
 
-1. **Drift detection.** `AGENTS.md:1246,1691` + ADR-0069 decidem **não** fazer drift
-   («trabalho de um orchestrator com controllers, deliberadamente»). O A5 pede `stack drift`
-   com política report|correct. → ADR da fundação substitui essa decisão.
-2. **Nome de VM/instância único no namespace.** ADR-0069 Pending #2 decidiu nome **único no
-   nó** (conflito entre namespaces). O A3 pede unicidade **dentro do namespace** (dois
-   namespaces podem ter cada um a sua VM `X`). → ADR do catálogo substitui ADR-0069 #2.
-3. **kube-vip.** ADR-0085 **rejeitou** keepalived/VIP. O KubernetesCluster v1 quer kube-vip
-   (ARP/BGP) como endpoint por omissão. → ADR do cluster substitui a decisão de endpoint da
-   ADR-0085.
-4. **KubernetesCluster convergente.** ADR-0069 D7 pôs `KubernetesCluster` **fora** do
-   `stack apply` (`in_stack:false`, «procedimento SSH remoto»). O prompt quer um recurso
-   convergente. → ADR do cluster substitui essa classificação.
-5. **`ResourceService` genérico vs «um pedido por RPC».** O portão de contrato
-   (`AGENTS.md:148,159-166`) impõe serviço/identidade explícitos e proíbe `ResourceMeta`
-   genérico. O C1 propõe exactamente um serviço genérico sobre qualquer Kind. → ADR do
-   contrato de recursos substitui a regra e **nomeia a excepção ao `buf breaking`** (os
-   serviços por Kind retirados; como são servidos, há aviso de clientes, mas no nó são
-   consumidos pela própria CLI/agente — a ADR documenta a janela de migração).
+1. **Drift detection.** `AGENTS.md:1246,1691` + ADR-0069 decide **not** to do
+   drift («an orchestrator's job, with controllers, deliberately»). A5 asks
+   for `stack drift` with a report|correct policy. → the foundation ADR
+   replaces that decision.
+2. **VM/instance name unique within the namespace.** ADR-0069 Pending #2
+   decided the name is unique **on the node** (conflict across namespaces).
+   A3 asks for uniqueness **within the namespace** (two namespaces can each
+   have their own VM named `X`). → the catalog ADR replaces ADR-0069 #2.
+3. **kube-vip.** ADR-0085 **rejected** keepalived/VIP. The v1
+   KubernetesCluster wants kube-vip (ARP/BGP) as the default endpoint. → the
+   cluster ADR replaces ADR-0085's endpoint decision.
+4. **Convergent KubernetesCluster.** ADR-0069 D7 put `KubernetesCluster`
+   **outside** `stack apply` (`in_stack:false`, «remote SSH procedure»). The
+   prompt wants a convergent resource. → the cluster ADR replaces that
+   classification.
+5. **Generic `ResourceService` vs «one request per RPC».** The contract gate
+   (`AGENTS.md:148,159-166`) enforces explicit service/identity and
+   prohibits a generic `ResourceMeta`. C1 proposes exactly a generic service
+   over any Kind. → the resource contract ADR replaces the rule and **names
+   the exception to `buf breaking`** (the per-Kind services are withdrawn;
+   since they are served, there is a client warning, but on the node they
+   are consumed by the CLI/agent itself — the ADR documents the migration
+   window).
 
 ---
 
-## Roteiro de ADRs da Fase 1
+## Phase 1 ADR roadmap
 
-| ADR | Título | Substitui / baseia-se | Estado nesta entrega |
+| ADR | Title | Replaces / builds on | State in this delivery |
 |---|---|---|---|
-| **0086** | Kind catalog v1 — six groups, `v1beta1`, conversion machinery | ADR-0069 D7, ADR-0020 (nomes/grupos), ADR-0069 #2 (nome de VM) | **redigida nesta fase** |
-| **0087** | Generic resource contract on the node socket | portão de contrato (um-pedido-por-RPC), serviços por Kind; nomeia excepção `buf breaking`; implementa ADR-0003 (autz por namespace) | **redigida nesta fase** |
-| 0088 | Declarative foundation — schema-driven diff, status/conditions, dependency graph, lifecycle controls (drift) | AGENTS.md «no drift», amplia ADR-0007/0019/0069 D1 | esboço de decisão pronto; redigir no arranque da Fase 2 |
-| 0089 | KubernetesCluster as a convergent resource | ADR-0069 D7 (`in_stack:false`), ADR-0085 (endpoint/kube-vip) | esboço de decisão pronto; redigir no arranque da Fase 10 |
-| 0090 | Capability amendments — microVM containers, state versioning, inter-node IPAddress/LB, shared-storage fencing, Node Kind, SLIs | amplia ADR-0006, fecha ADR-0081; novo para Node/fencing/SLIs | esboço de decisão pronto; redigir por capítulo nas Fases 7–11 |
+| **0086** | Kind catalog v1 — six groups, `v1beta1`, conversion machinery | ADR-0069 D7, ADR-0020 (names/groups), ADR-0069 #2 (VM name) | **drafted in this phase** |
+| **0087** | Generic resource contract on the node socket | contract gate (one-request-per-RPC), per-Kind services; names the `buf breaking` exception; implements ADR-0003 (namespace authz) | **drafted in this phase** |
+| 0088 | Declarative foundation — schema-driven diff, status/conditions, dependency graph, lifecycle controls (drift) | AGENTS.md «no drift», extends ADR-0007/0019/0069 D1 | decision outline ready; draft at the start of Phase 2 |
+| 0089 | KubernetesCluster as a convergent resource | ADR-0069 D7 (`in_stack:false`), ADR-0085 (endpoint/kube-vip) | decision outline ready; draft at the start of Phase 10 |
+| 0090 | Capability amendments — microVM containers, state versioning, inter-node IPAddress/LB, shared-storage fencing, Node Kind, SLIs | extends ADR-0006, closes ADR-0081; new for Node/fencing/SLIs | decision outline ready; draft per chapter across Phases 7–11 |
 
-As 0088–0090 ficam com a decisão esboçada aqui e redigem-se no arranque da fase que as
-constrói (o prompt entrega por fases), para não fixar detalhe antes da medição de
-implementação de cada uma. As 0086 e 0087 — as que o Entregável #2 nomeia explicitamente e de
-que todas as fases seguintes dependem — ficam redigidas já.
+0088–0090 keep the decision outlined here and get drafted at the start of
+the phase that builds them (the prompt delivers by phases), so as not to fix
+detail before each one's implementation is measured. 0086 and 0087 — the ones
+Deliverable #2 names explicitly and that all following phases depend on —
+are drafted already.

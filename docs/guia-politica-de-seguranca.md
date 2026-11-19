@@ -1,80 +1,82 @@
-# Guia — a política de segurança do nó (`policy.json`)
+# Guide — the node's security policy (`policy.json`)
 
-O que este nó **recusa correr**, seja quem for que peça: a CLI, um `crictl` a falar
-com o socket, a Docker Engine API, ou alguém a escrever `delonix vm create` à mão.
+What this node **refuses to run**, no matter who asks: the CLI, a `crictl` talking to the
+socket, the Docker Engine API, or someone writing `delonix vm create` by hand.
 
-O ficheiro vive em `$DELONIX_ROOT/policy.json` (por omissão `~/.delonix/policy.json`).
-Não existe nenhum por omissão, e isso é deliberado — **sem ficheiro não há tecto**, e
-o motor comporta-se exactamente como sempre se comportou.
+The file lives at `$DELONIX_ROOT/policy.json` (by default `~/.delonix/policy.json`).
+None exists by default, and that is deliberate — **no file means no ceiling**, and
+the engine behaves exactly as it always has.
 
-## As três regras que governam este ficheiro
+## The three rules that govern this file
 
-1. **Sem ficheiro, sem tecto.** Um nó que nunca escreveu política não recusa nada.
-2. **Um ficheiro que não se consegue LER é um erro, não uma política ausente.** Um
-   ficheiro truncado, ou com um campo mal escrito (`denyPriviledged`), pára o comando
-   em vez de passar por «sem opinião». A intenção de alguém é desconhecida, e correr
-   à mesma é a degradação silenciosa que este motor recusa em todo o lado.
-3. **Um campo que ninguém põe nunca começa a recusar coisas.** É o que permite
-   actualizar o motor sem que uma frota inteira pare de manhã.
+1. **No file, no ceiling.** A node that has never written a policy refuses nothing.
+2. **A file that cannot be READ is an error, not an absent policy.** A truncated
+   file, or one with a misspelled field (`denyPriviledged`), stops the command
+   instead of passing through as "no opinion". Someone's intent is unknown, and
+   running anyway is exactly the silent degradation this engine refuses everywhere.
+3. **A field nobody ever sets never starts refusing things.** This is what lets
+   the engine be updated without an entire fleet stopping overnight.
 
-## Os campos
+## The fields
 
-### Caminho de container
+### Container path
 
-| Campo | O que recusa |
+| Field | What it refuses |
 |---|---|
 | `denyPrivileged` | `container run --privileged` |
-| `denyHostNetwork` | `--net host` — que é o modo **por omissão** deste motor, por isso pôr isto obriga cada carga a nomear a sua rede |
-| `denyLatestTag` | uma imagem sem etiqueta, ou com `:latest`. Sem etiqueta conta: `alpine` e `alpine:latest` são a mesma coisa, e uma regra que só recusasse a forma explícita contornava-se tirando quatro caracteres. Um `@sha256:…` passa — é a forma mais forte que há |
-| `allowedRegistries` | qualquer registo fora da lista. Leva **hosts** (`ghcr.io`), não referências. A comparação é da string inteira: `ghcr.io` não aceita `evil-ghcr.io` nem `ghcr.io.evil.com` |
+| `denyHostNetwork` | `--net host` — which is this engine's **default** mode, so setting this forces every workload to name its network |
+| `denyLatestTag` | an image with no tag, or with `:latest`. No tag counts too: `alpine` and `alpine:latest` are the same thing, and a rule that only refused the explicit form could be worked around by dropping four characters. An `@sha256:…` passes — it's the strongest form there is |
+| `allowedRegistries` | any registry outside the list. Takes **hosts** (`ghcr.io`), not references. The comparison is the whole string: `ghcr.io` does not accept `evil-ghcr.io` or `ghcr.io.evil.com` |
 
-### Caminho de VM
+### VM path
 
-Estes campos são **novos** e todos desligados por omissão. Até existirem, o caminho de
-VM não tinha política de nó nenhuma.
+These fields are **new** and all off by default. Until they existed, the VM
+path had no node policy at all.
 
-| Campo | O que recusa |
+| Field | What it refuses |
 |---|---|
-| `denyDevicePassthrough` | `vm create --device` (passthrough VFIO PCI). **É o `--privileged` das VMs, e mais um bocado**: um dispositivo passado dá ao convidado DMA ao hardware do host, que é um buraco mais largo do que qualquer capability que um container privilegiado receba |
-| `denyLatestVmImage` | uma imagem de disco de VM sem etiqueta ou com `:latest`. Separado do `denyLatestTag` de propósito — um `vm build` etiqueta o que produz como `<nome>:latest` por omissão, e juntar os dois teria recusado uma construção normal a quem actualizasse |
-| `allowedImageUrlHosts` | um `vm create --url-img` de um host fora da lista. Sem um `.sha256` publicado ao lado, esse descarregamento é confiado **só no TLS** — e o TLS prova que chegaste ao host que nomeaste, não que o host merecia ser nomeado |
+| `denyDevicePassthrough` | `vm create --device` (VFIO PCI passthrough). **It's the VM equivalent of `--privileged`, and then some**: a passed-through device gives the guest DMA to the host's hardware, which is a wider hole than any capability a privileged container gets |
+| `denyLatestVmImage` | a VM disk image with no tag or with `:latest`. Deliberately separate from `denyLatestTag` — a `vm build` tags what it produces as `<name>:latest` by default, and merging the two would have refused a normal build for anyone who updated |
+| `allowedImageUrlHosts` | a `vm create --url-img` from a host outside the list. Without a `.sha256` published alongside it, that download is trusted **on TLS alone** — and TLS proves you reached the host you named, not that the host deserved to be named |
 
-### Caminho de rede — egress para espaço de endereços privado
+### Network path — egress to private address space
 
-O único campo que **não** decide na admissão: é aplicado pelo plano de rede (o holder),
-pacote a pacote, a toda a carga ligada a uma rede do motor.
+The one field that does **not** decide at admission: it is enforced by the
+network plane (the holder), packet by packet, for every workload connected to
+one of the engine's networks.
 
-| Campo | O que faz |
+| Field | What it does |
 |---|---|
-| `denyPrivateEgress` | recusa ligações NOVAS de uma carga numa rede do motor para espaço privado que só se alcança pelo uplink do nó: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` (RFC 1918) e `100.64.0.0/10` (CGNAT). É aí que vivem a LAN do nó, as APIs de gestão do host e os vizinhos — sem isto, uma carga que chega ao uplink chega a tudo o que o host alcança. Link-local e loopback já eram negados sempre (`fwguard`) |
-| `allowedEgressPrefixes` | os destinos privados que continuam alcançáveis com a guarda ligada (um resolvedor, um gateway, um registo de que o nó depende). Prefixos canónicos `a.b.c.d/len`. É uma **concessão**: vazio = nenhuma, e só a política do nó a dá — a carga não a reabre por si |
+| `denyPrivateEgress` | refuses NEW connections from a workload on an engine network toward private space reachable only through the node's uplink: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` (RFC 1918), and `100.64.0.0/10` (CGNAT). That's where the node's LAN, the host's management APIs, and its neighbors live — without this, a workload that reaches the uplink reaches everything the host reaches. Link-local and loopback were already always denied (`fwguard`) |
+| `allowedEgressPrefixes` | the private destinations that stay reachable with the guard on (a resolver, a gateway, a registry the node depends on). Canonical `a.b.c.d/len` prefixes. It's a **grant**: empty = none, and only the node's policy grants it — the workload cannot reopen it on its own |
 
-- **A rede da própria carga, e qualquer rede encaminhada para ela (`kind: NetworkRoute`),
-  nunca são tocadas.** Não é uma lista de excepções: esse tráfego sai do holder por uma
-  bridge, nunca pelo uplink, e a guarda só olha para o uplink. O isolamento entre redes
-  continua a ser o do `@netpair`.
-- **Respostas passam.** Um cliente da LAN que chegou a uma porta publicada recebe a
-  resposta; só a ligação NOVA é recusada.
-- **Nem uma `allowlist:` de rede nem um `egress allow` de carga a reabrem**: a chain
-  (`fwprivate`, prioridade -15) corre antes do `fwdeny` (-10), e um `drop` entre base
-  chains é final.
-- `mode: "warn"` conta e deixa passar (o contador da regra diz quanto teria sido recusado).
-- **Só cobre cargas numa rede do motor.** Um `--net host`, ou um container com o seu
-  próprio slirp (sem `--net`, só com `-p`), não passa pelo uplink do holder — por isso o
-  lint `POLICY-EGRESS-HOST-NET-OPEN` pede `denyHostNetwork: true` ao lado.
-- Toma efeito no `apply` de uma `RuntimePolicy`, no `policy unset`, e no próximo
-  `container run` depois de uma edição à mão do `policy.json`. Um registo da guarda que o
-  holder não consegue ler **falha fechado**: todos os intervalos recusados, nenhuma
-  concessão.
+- **A workload's own network, and any network routed to it (`kind: NetworkRoute`),
+  are never touched.** It's not an exception list: that traffic leaves the holder
+  through a bridge, never through the uplink, and the guard only watches the
+  uplink. Isolation between networks remains `@netpair`'s.
+- **Replies pass through.** A LAN client that reached a published port gets the
+  reply; only the NEW connection is refused.
+- **Neither a network `allowlist:` nor a workload `egress allow` reopens this**:
+  the chain (`fwprivate`, priority -15) runs before `fwdeny` (-10), and a `drop`
+  between base chains is final.
+- `mode: "warn"` counts and lets through (the rule's counter shows how much would
+  have been refused).
+- **Only covers workloads on an engine network.** A `--net host`, or a container
+  with its own slirp (no `--net`, only `-p`), does not go through the holder's
+  uplink — which is why lint `POLICY-EGRESS-HOST-NET-OPEN` asks for
+  `denyHostNetwork: true` alongside it.
+- Takes effect on a `RuntimePolicy`'s `apply`, on `policy unset`, and on the next
+  `container run` after a hand edit of `policy.json`. A guard record the holder
+  cannot read **fails closed**: every range refused, no grant.
 
-### Modo
+### Mode
 
-| Campo | Efeito |
+| Field | Effect |
 |---|---|
-| `mode: "enforce"` | recusa. É a omissão, e o comportamento que sempre houve |
-| `mode: "warn"` | deixa passar e diz o que teria recusado. Para estrear uma regra numa frota antes de ela morder |
+| `mode: "enforce"` | refuses. It's the default, and the behavior that always existed |
+| `mode: "warn"` | lets through and says what would have been refused. For rolling out a rule across a fleet before it bites |
 
-## Exemplo completo
+## Full example
 
 ```json
 {
@@ -92,72 +94,74 @@ pacote a pacote, a toda a carga ligada a uma rede do motor.
 }
 ```
 
-## Os avisos que o nó te dá sobre ti próprio
+## The warnings the node gives you about yourself
 
-Quando guardaste metade da casa e deixaste a outra aberta, o nó diz-to — pelo nome,
-com um identificador estável, e **no caminho onde podes agir** (um aviso sobre VMs em
-cada `container run` é ruído que se aprende a ignorar):
+When you locked half the house and left the other half open, the node tells
+you — by name, with a stable identifier, and **on the path where you can act**
+(a warning about VMs on every `container run` is noise you learn to ignore):
 
 ```
-aviso: política de runtime [POLICY-VM-PASSTHROUGH-OPEN] este nó recusa containers
-`--privileged` mas permite `vm create --device` (passthrough VFIO PCI)…
+warning: runtime policy [POLICY-VM-PASSTHROUGH-OPEN] this node refuses
+`--privileged` containers but allows `vm create --device` (VFIO PCI passthrough)…
 ```
 
-| Identificador | O que te está a dizer |
+| Identifier | What it's telling you |
 |---|---|
-| `POLICY-VM-PASSTHROUGH-OPEN` | recusas containers privilegiados e permites passthrough VFIO |
-| `POLICY-VM-LATEST-OPEN` | recusas `:latest` em containers e não em imagens de VM |
-| `POLICY-VM-URL-OPEN` | restringes registos e o `--url-img` continua a ir a qualquer host |
-| `POLICY-SILENT` | o ficheiro existe e não recusa nada — quase sempre um engano |
-| `POLICY-REGISTRY-NOT-A-HOST` | puseste uma referência (`ghcr.io/org/app`) onde se espera um host |
-| `POLICY-EGRESS-HOST-NET-OPEN` | recusas egress privado mas admites cargas fora de qualquer rede do motor, que não passam pela guarda |
-| `POLICY-EGRESS-GRANT-UNUSED` | concedeste destinos em `allowedEgressPrefixes` sem `denyPrivateEgress` — a concessão não muda nada |
+| `POLICY-VM-PASSTHROUGH-OPEN` | you refuse privileged containers and allow VFIO passthrough |
+| `POLICY-VM-LATEST-OPEN` | you refuse `:latest` in containers and not in VM images |
+| `POLICY-VM-URL-OPEN` | you restrict registries and `--url-img` still goes to any host |
+| `POLICY-SILENT` | the file exists and refuses nothing — almost always a mistake |
+| `POLICY-REGISTRY-NOT-A-HOST` | you put a reference (`ghcr.io/org/app`) where a host is expected |
+| `POLICY-EGRESS-HOST-NET-OPEN` | you refuse private egress but allow workloads outside any engine network, which don't pass through the guard |
+| `POLICY-EGRESS-GRANT-UNUSED` | you granted destinations in `allowedEgressPrefixes` without `denyPrivateEgress` — the grant changes nothing |
 
-Aparecem **uma vez por comando** (este motor não tem daemon: cada comando é um
-processo que nasce, trabalha e morre). Para os calar, depois de os teres lido e
-decidido: `DELONIX_POLICY_LINT=0`.
+They appear **once per command** (this engine has no daemon: every command is a
+process that is born, works, and dies). To silence them, once you've read them
+and decided: `DELONIX_POLICY_LINT=0`.
 
-## O rasto
+## The trail
 
-Cada recusa deixa uma linha em `$DELONIX_ROOT/events.jsonl`, com `kind: "security"` e
-um identificador de regra estável:
+Every refusal leaves a line in `$DELONIX_ROOT/events.jsonl`, with `kind: "security"` and
+a stable rule identifier:
 
 ```
 delonix system events | grep security
 {"ts":…,"kind":"security","action":"ADM-DEVICE-PASSTHROUGH","name":"db-01","detail":"0000:01:00.0"}
 ```
 
-Os identificadores (`ADM-PRIVILEGED`, `ADM-HOST-NETWORK`, `ADM-LATEST-TAG`,
+The identifiers (`ADM-PRIVILEGED`, `ADM-HOST-NETWORK`, `ADM-LATEST-TAG`,
 `ADM-REGISTRY`, `ADM-DEVICE-PASSTHROUGH`, `ADM-LATEST-VM-IMAGE`, `ADM-IMAGE-URL-HOST`)
-são estáveis: a redacção da mensagem pode mudar, o identificador não. Alerta sobre
-eles, não sobre o texto.
+are stable: the message's wording may change, the identifier does not. Alert on
+them, not on the text.
 
-**Este log é sinal operacional, não prova.** É *best-effort* por desenho — um erro a
-registar nunca faz falhar a operação que o gerou —, não detecta nada sobre as suas
-próprias falhas, e quem tiver escrita na raiz de estado consegue editá-lo. A trilha à
-prova de adulteração é a cadeia de hashes com âncora Ed25519, e essa vive no
-`delonix-paas`. Dizer o contrário seria vender como prova o que é um aviso.
+**This log is operational signal, not proof.** It is *best-effort* by design — a
+logging error never fails the operation that triggered it —, it detects nothing
+about its own failures, and anyone with write access to the state root can edit
+it. The tamper-proof trail is the Ed25519-anchored hash chain, and that lives in
+`delonix-paas`. Calling this proof when it is a warning would be false
+advertising.
 
-## O que esta política NÃO faz
+## What this policy does NOT do
 
-Escrito para ninguém confundir o nome com o alcance:
+Written so no one confuses the name with the scope:
 
-- **Não vigia nada em execução.** Decide na admissão, e mais nada — com UMA excepção,
-  dita acima: `denyPrivateEgress` é uma regra de dataplane, e o que ela faz é recusar
-  pacotes, não observá-los. Não há sensores
-  eBPF, monitorização de integridade de ficheiros, detecção de malware, pontuação
-  comportamental de ransomware nem detecção de anomalias de rede. Todos esses são
-  processos residentes, e este motor é *daemonless* por desenho — abrir essa porta é
-  matéria de ADR próprio, com um spike que meça o que um sensor desses consegue
-  observar **em rootless**, onde este motor normalmente corre.
-- **Não age.** Não congela, não isola, não põe em quarentena, não recua e não restaura.
-- **Não sabe de inquilinos.** Não há `tenant`, `project` nem `environment` em lado
-  nenhum, e há um teste que falha a construção se alguém acrescentar um. Isso vive no
-  `delonix-paas`, por decisão registada (ADR-0010, ADR-0025).
-- **Não substitui a admissão do cluster.** Complementa-a. Esta é a resposta **local**,
-  e vale com o Pod Security mal configurado e com um `crictl` a falar directamente com
-  o socket — porque uma política que só vive na cadeia de admissão de um cluster corre
-  noutro processo, noutra máquina, que este nó não consegue ver nem verificar.
+- **It watches nothing at runtime.** It decides at admission, and nothing else —
+  with ONE exception, stated above: `denyPrivateEgress` is a dataplane rule, and
+  what it does is refuse packets, not observe them. There are no
+  eBPF sensors, no file-integrity monitoring, no malware detection, no
+  ransomware behavioral scoring, and no network anomaly detection. All of those
+  are resident processes, and this engine is *daemonless* by design — opening
+  that door is matter for its own ADR, with a spike measuring what such a
+  sensor can observe **in rootless**, where this engine normally runs.
+- **It does not act.** It does not freeze, isolate, quarantine, roll back, or restore.
+- **It knows nothing about tenants.** There is no `tenant`, `project`, or
+  `environment` anywhere, and there is a test that fails the build if anyone
+  adds one. That lives in `delonix-paas`, by recorded decision (ADR-0010, ADR-0025).
+- **It does not replace cluster admission.** It complements it. This is the
+  **local** answer, and it holds even with a misconfigured Pod Security policy
+  and with a `crictl` talking directly to the socket — because a policy that
+  only lives in one cluster's admission chain runs in another process, on
+  another machine, that this node cannot see or verify.
 
-Ver [ADR-0026](adr/0026-security-runtime-decision-crate.md) para o porquê de cada uma
-destas fronteiras.
+See [ADR-0026](adr/0026-security-runtime-decision-crate.md) for why each of
+these boundaries exists.

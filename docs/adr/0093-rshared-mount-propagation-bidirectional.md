@@ -1,52 +1,53 @@
-# ADR-0093 — `rshared` (propagação de mount bidireccional) exige um grupo de peers com o host, atrás de privilégio
+# ADR-0093 — `rshared` (bidirectional mount propagation) requires a peer group with the host, behind privilege
 
-**Estado:** Aceite (2026-11-08) — identificado e medido na campanha de
-conformância CRI (`critest v1.36.0`), e **implementado e validado numa VM golden
-rootful+CNI**: o spec **mount with 'rshared' should support propagation from host
-to container and vice versa** passa, fechando a suite a **103/103**. **Relaciona:**
-ADR-0083 (rootful suportado), `reports/cri-conformance-0.1.1/`.
+**Status:** Accepted (2026-11-08) — identified and measured during the CRI
+conformance campaign (`critest v1.36.0`), and **implemented and validated on a
+rootful+CNI golden VM**: the spec **mount with 'rshared' should support propagation from host
+to container and vice versa** passes, closing the suite at **103/103**. **Relates to:**
+ADR-0083 (rootful supported), `reports/cri-conformance-0.1.1/`.
 
-> **O que foi preciso (medido numa VM, não assumido — ver «Investigação»):** o
-> `MS_SHARED` por-mount sozinho NÃO basta, e pôr a raiz `MS_REC|MS_SHARED` conforma
-> o spec mas **vaza** os mounts do container para o host (parte o cgroup do
-> servidor CRI). O volume só aterra como **peer** do grupo do host (`shared:N`, o
-> que leva um mount feito no container até ao host) se a origem no host **mantiver**
-> o grupo de peers com que foi clonada E o pai do bind (o rootfs) estiver `shared`
-> no instante do bind. Qualquer mudança RECURSIVA de propagação em `/` destrói a
-> primeira condição (arranca a origem do grupo, e um mount nunca reentra num grupo
-> que deixou). Daí a forma final, toda atrás do gate de privilégio:
+> **What was needed (measured on a VM, not assumed — see "Investigation"):** a
+> per-mount `MS_SHARED` alone is NOT enough, and making the root `MS_REC|MS_SHARED` makes the spec
+> pass but **leaks** the container's mounts to the host (breaking the CRI server's
+> cgroup). The volume only lands as a **peer** of the host's group (`shared:N`, which
+> propagates a mount made in the container up to the host) if the host-side source
+> **keeps** the peer group it was cloned with AND the bind's parent (the rootfs) is `shared`
+> at the moment of the bind. Any RECURSIVE propagation change on `/` destroys the
+> first condition (pulls the source out of the group, and a mount never rejoins a group it
+> has left). Hence the final form, all behind the privilege gate:
 >
-> 1. **`/` NÃO é tocado recursivamente** — a origem mantém o `shared:N` do clone;
-> 2. o mount que **ENCLAUSURA o rootfs** (ex.: `/run` no CRI) é posto `MS_PRIVATE`,
->    confinando a partilha ao sub-caminho do rootfs (nada que o container monte por
->    baixo escapa ao host);
-> 3. o **rootfs** é tornado `MS_SHARED` antes dos volumes → o bind da origem
->    partilhada aterra como peer do grupo do host;
-> 4. mesmo antes do `pivot_root` (que recusa uma raiz-actual partilhada), `/` passa
->    a `MS_PRIVATE` **não-recursivo** (os volumes, mounts próprios, mantêm `shared:N`);
-> 5. a raiz antiga (`/.delonix_old`) é posta `MS_REC|MS_PRIVATE` **antes** do
->    `MNT_DETACH` — senão o detach, via a partilha, desmontaria o `/sys/fs/cgroup`
->    do host onde o motor corre (medido: `cgroup: could not create delonix.slice`).
+> 1. **`/` is NOT touched recursively** — the source keeps the `shared:N` from the clone;
+> 2. the mount that ENCLOSES the rootfs (e.g. `/run` in CRI) is set `MS_PRIVATE`,
+>    confining the sharing to the rootfs's sub-path (nothing the container mounts
+>    underneath escapes to the host);
+> 3. the **rootfs** is made `MS_SHARED` before the volumes → the shared source's bind
+>    lands as a peer of the host's group;
+> 4. even before `pivot_root` (which refuses a shared current root), `/` becomes
+>    `MS_PRIVATE` **non-recursively** (the volumes, its own mounts, keep `shared:N`);
+> 5. the old root (`/.delonix_old`) is made `MS_REC|MS_PRIVATE` **before** the
+>    `MNT_DETACH` — otherwise the detach, via the sharing, would unmount the host's
+>    `/sys/fs/cgroup` where the engine runs (measured: `cgroup: could not create
+>    delonix.slice`).
 >
-> Um `rshared` de container não-privilegiado ou motor rootless é **recusado com
-> razão** (`Error::BidirectionalNeedsPrivileged`, DX-1117), nunca degradado em
-> silêncio para slave.
+> An `rshared` from a non-privileged container or a rootless engine is **refused with a
+> reason** (`Error::BidirectionalNeedsPrivileged`, DX-1117), never silently degraded
+> to slave.
 
-## Contexto
+## Context
 
-O `critest` verifica três modos de propagação de mount:
+`critest` checks three mount propagation modes:
 
-- **`rprivate`** — sem propagação (nenhum dos lados vê os mounts do outro). Passa.
-- **`rslave`** — unidireccional **host→container** (um mount criado no host aparece
-  no container, mas não o inverso). Passa.
-- **`rshared`** — **bidireccional** (host→container **e** container→host). Falha: o
-  teste cria um mount DENTRO do container e verifica que aparece no HOST
-  (`len(fileInfo) should not be zero`, `container_linux.go`) — e não aparece.
+- **`rprivate`** — no propagation (neither side sees the other's mounts). Passes.
+- **`rslave`** — unidirectional, **host→container** (a mount created on the host appears
+  in the container, but not the reverse). Passes.
+- **`rshared`** — **bidirectional** (host→container **and** container→host). Fails: the
+  test creates a mount INSIDE the container and checks it appears on the HOST
+  (`len(fileInfo) should not be zero`, `container_linux.go`) — and it does not.
 
-A causa está em `container_init` (`delonix-linux/src/lib.rs` ~2504-2519): a raiz de
-mount do container é posta a **`MS_REC | MS_SLAVE`** quando algum mount pede
-propagação (e `MS_PRIVATE` caso contrário). O comentário no código é explícito e a
-escolha é deliberada:
+The cause is in `container_init` (`delonix-linux/src/lib.rs` ~2504-2519): the container's
+mount root is set to **`MS_REC | MS_SLAVE`** whenever some mount asks for
+propagation (and `MS_PRIVATE` otherwise). The comment in the code is explicit and the
+choice is deliberate:
 
 ```
 MS_PRIVATE … makes rslave/rshared on any individual mount a no-op … MS_SLAVE keeps
@@ -54,105 +55,106 @@ the one-way link the propagating mounts need (and is what Docker and runc use fo
 ALL containers …).
 ```
 
-`MS_SLAVE` dá a direcção **host→container** (o slave recebe do master), por isso
-`rslave` funciona. Mas um slave **não envia de volta** ao master — logo a metade
-**container→host** do `rshared` não acontece, e o per-mount `MS_SHARED` aplicado ao
-alvo (linhas ~1508/1718) não basta enquanto a raiz continuar slave: não há grupo de
-peers partilhado com o host para receber o evento.
+`MS_SLAVE` gives the **host→container** direction (the slave receives from the
+master), which is why `rslave` works. But a slave **does not send back** to the
+master — so the **container→host** half of `rshared` never happens, and the
+per-mount `MS_SHARED` applied to the target (lines ~1508/1718) is not enough while the
+root remains slave: there is no peer group shared with the host to receive the event.
 
-## Porque não é só «trocar SLAVE por SHARED»
+## Why it is not simply «swap SLAVE for SHARED»
 
-Pôr a raiz do container em `MS_SHARED` com o host faria **todos** os mounts do
-container propagarem para o host (e para outros containers no mesmo grupo de peers)
-— uma abertura muito maior do que o pedido e um vector de escalada (um container a
-criar mounts visíveis no host). Por isso `MS_SLAVE` é o default seguro que o
-Docker/runc usam. O `rshared` verdadeiro é, por natureza, um **privilégio**: em
-Kubernetes, `mountPropagation: Bidirectional` **exige um container privilegiado**.
+Making the container's root `MS_SHARED` with the host would make **all** of the
+container's mounts propagate to the host (and to other containers in the same peer group)
+— a much bigger opening than requested and an escalation vector (a container
+creating mounts visible on the host). That is why `MS_SLAVE` is the safe default
+Docker/runc use. True `rshared` is, by nature, a **privilege**: in
+Kubernetes, `mountPropagation: Bidirectional` **requires a privileged container**.
 
-## Decisão
+## Decision
 
-> **Nota (as-built):** esta é a *proposta* original. A medição na VM mostrou que o
-> ponto 1 abaixo (raiz permanece `rec-slave`) **não** consegue tornar o volume peer
-> do host — a forma efectivamente implementada está na caixa-resumo no topo e na
-> «Investigação». O objectivo (bidireccional só no sub-caminho `rshared`, atrás de
-> privilégio) e o ponto 3 (gate) mantêm-se; a mecânica da raiz é que mudou.
+> **Note (as-built):** this is the original *proposal*. Measuring on the VM showed
+> that point 1 below (root stays `rec-slave`) **cannot** make the volume a peer of
+> the host — the form actually implemented is in the summary box at the top and in
+> the "Investigation" section. The goal (bidirectional only on the `rshared` sub-path,
+> behind privilege) and point 3 (the gate) still hold; it is the root mechanics that
+> changed.
 
-Honrar `rshared` **por-mount** (não na raiz) e **só** quando pedido explicitamente,
-montando esse alvo específico num **grupo de peers partilhado com o mount de origem
-do host**:
+Honour `rshared` **per-mount** (not on the root) and **only** when explicitly
+requested, mounting that specific target into a **peer group shared with the host's
+source mount**:
 
-1. a raiz do container permanece `MS_REC | MS_SLAVE` (o default seguro inalterado);
-2. para um mount com `propagation: rshared`, garantir que a **origem no host** é
-   `shared` (num grupo de peers), fazer o bind para dentro do container e marcar o
-   alvo `MS_SHARED` — assim origem e destino ficam no MESMO grupo de peers e a
-   propagação é bidireccional **apenas nesse sub-caminho**, não em toda a árvore;
-3. **gate de privilégio:** `rshared` só é aceite quando o container é privilegiado
-   (o mesmo requisito do k8s para `Bidirectional`). Um `rshared` pedido por um
-   container não-privilegiado é **recusado com razão** (não degradado em silêncio
-   para slave — a classe de falha-calado que o repo persegue), com a mensagem a
-   nomear o requisito de privilégio e a alternativa (`rslave`).
+1. the container's root stays `MS_REC | MS_SLAVE` (the safe default, unchanged);
+2. for a mount with `propagation: rshared`, ensure the **source on the host** is
+   `shared` (in a peer group), bind it into the container and mark the
+   target `MS_SHARED` — so source and destination end up in the SAME peer group and
+   propagation is bidirectional **only on that sub-path**, not across the whole tree;
+3. **privilege gate:** `rshared` is only accepted when the container is privileged
+   (the same requirement k8s has for `Bidirectional`). An `rshared` requested by a
+   non-privileged container is **refused with a reason** (not silently degraded
+   to slave — the class of silent-failure this repo hunts for), with the
+   message naming the privilege requirement and the alternative (`rslave`).
 
-Isto alinha com o runc (propagação por-mount; `rshared` exige a origem partilhada) e
-mantém o isolamento por omissão.
+This aligns with runc (per-mount propagation; `rshared` requires the shared source) and
+keeps isolation by default.
 
-## Alternativas consideradas
+## Alternatives considered
 
-1. **Raiz `MS_SHARED` (trivial).** Faz o spec passar mas vaza TODOS os mounts do
-   container para o host — escalada. Rejeitada.
-2. **Degradar `rshared`→`rslave` em silêncio.** Seguro mas falha-calado (o container
-   pede bidireccional e recebe unidireccional sem aviso). Rejeitada — contra a
-   doutrina do repo.
-3. **Peer group por-mount atrás de privilégio (esta decisão).** Conforma o spec sem
-   abrir a árvore do host nem enganar o chamador.
+1. **Root `MS_SHARED` (trivial).** Makes the spec pass but leaks ALL of the
+   container's mounts to the host — escalation. Rejected.
+2. **Silently degrade `rshared`→`rslave`.** Safe but a silent failure (the container
+   asks for bidirectional and gets unidirectional with no warning). Rejected — against
+   the repo's doctrine.
+3. **Per-mount peer group behind privilege (this decision).** Conforms to the spec without
+   opening the host's tree or misleading the caller.
 
-## Consequências
+## Consequences
 
-- **+** Conforma o `rshared`; mantém `rprivate`/`rslave` e o isolamento por omissão;
-  a abertura é limitada ao sub-caminho pedido e só a containers privilegiados.
-- **−** Exige tornar a **origem no host** `shared` (uma operação de mount no host,
-  logo root — coerente com ADR-0083, rootful suportado; em rootless `rshared`
-  permanece recusado por falta de privilégio sobre a árvore do host). Novo caminho
-  de recusa a testar (não-privilegiado → erro claro).
-- **Compat:** nenhum contrato público muda de forma; é comportamento do caminho de
-  mount. `rshared` passa de «degrada a slave» para «suportado-se-privilegiado /
-  recusado-caso-contrário».
+- **+** Conforms `rshared`; keeps `rprivate`/`rslave` and isolation by default;
+  the opening is limited to the requested sub-path and only to privileged containers.
+- **−** Requires making the **source on the host** `shared` (a mount operation on the
+  host, hence root — consistent with ADR-0083, rootful supported; in rootless `rshared`
+  remains refused for lack of privilege over the host tree). New refusal path
+  to test (non-privileged → clear error).
+- **Compat:** no public contract changes shape; it is mount-path behaviour.
+  `rshared` moves from «degrades to slave» to «supported-if-privileged /
+  refused-otherwise».
 
-## Validação (feita — 2026-11-08, VM golden `delonix-vm-k8s:1.36` rootful+CNI)
+## Validation (done — 2026-11-08, `delonix-vm-k8s:1.36` golden VM, rootful+CNI)
 
-- **Comportamento:** `critest` `mount with 'rshared'` **passa** (o `mount --bind
-  /etc` feito DENTRO do container aparece no host), `rslave`/`rprivate` continuam a
-  passar; suite completa a **103/103**.
-- **Segurança:** `rshared` de container não-privilegiado / motor rootless é
-  recusado com `Error::BidirectionalNeedsPrivileged` (DX-1117); `rprivate`/`rslave`
-  não ganham propagação para o host (cada mount não-rshared é fixado `rprivate`).
-- **Unit:** `per_mount_propagation`, `root_propagation`, `rshared_allowed` e
-  `enclosing_mount_point` — puras, em `mount_propagation_tests`.
+- **Behaviour:** `critest`'s `mount with 'rshared'` **passes** (a `mount --bind
+  /etc` done INSIDE the container appears on the host), `rslave`/`rprivate` still
+  pass; full suite at **103/103**.
+- **Security:** `rshared` from a non-privileged container / rootless engine is
+  refused with `Error::BidirectionalNeedsPrivileged` (DX-1117); `rprivate`/`rslave`
+  gain no propagation to the host (every non-rshared mount is pinned `rprivate`).
+- **Unit:** `per_mount_propagation`, `root_propagation`, `rshared_allowed` and
+  `enclosing_mount_point` — pure, in `mount_propagation_tests`.
 
-### Investigação (2026-11-08/09) — resolvida na VM, peer-groups medidos
+### Investigation (2026-11-08/09) — resolved on the VM, peer groups measured
 
-A hipótese inicial («o `MS_SHARED` por-mount já basta, igual ao runc») estava
-**errada para o delonix**. Medido em `/proc/self/mountinfo` do container vs host,
-iterando numa VM golden:
+The initial hypothesis («per-mount `MS_SHARED` is already enough, same as runc») was
+**wrong for delonix**. Measured in `/proc/self/mountinfo` of container vs host,
+iterating on a golden VM:
 
-- Com a raiz `MS_REC|MS_SLAVE` (default), o volume saía `shared:X master:1` —
-  **slave** do grupo do host (recebe host→container, nunca devolve). Suspeito #2
-  CONFIRMADO.
-- Pôr `/` em `MS_REC|MS_SHARED` fez o spec passar com `delonix run` (o host passou a
-  ver o submount), MAS no caminho do servidor CRI partiu o cgroup: o `MNT_DETACH`
-  da raiz antiga, com `/` partilhado, PROPAGAVA o desmonte de `/sys/fs/cgroup` de
-  volta à ns do host onde o motor corre (`cgroup: could not create
-  delonix.slice/...`). Confirmado por comparação directa: o binário `develop`
-  (raiz rec-slave) arrancava o mesmo pod rshared; o meu (rec-shared) não. É o
-  «vaza TODOS os mounts» da Alternativa 1, observado.
-- A forma final (ver a caixa no topo) evita o vazamento: `/` **não** é tocado
-  recursivamente (a origem mantém `shared:N`), o mount que enclausura o rootfs fica
-  `MS_PRIVATE`, o rootfs fica `MS_SHARED` só para o bind dos volumes aterrar peer, e
-  a raiz antiga é `MS_REC|MS_PRIVATE` antes do `MNT_DETACH`. Receita medida a
-  funcionar ponta-a-ponta: um `mount --bind /etc` feito DENTRO do container aparece
-  em `/tmp/.../src/sub` no host, e o cgroup do container cria-se sem erro.
+- With the root at `MS_REC|MS_SLAVE` (default), the volume came out `shared:X master:1` —
+  **slave** of the host's group (receives host→container, never sends back). Suspect #2
+  CONFIRMED.
+- Setting `/` to `MS_REC|MS_SHARED` made the spec pass with `delonix run` (the host did
+  see the submount), BUT it broke the CRI server's cgroup: the old root's
+  `MNT_DETACH`, with `/` shared, PROPAGATED the unmount of `/sys/fs/cgroup` back
+  to the host namespace where the engine runs (`cgroup: could not create
+  delonix.slice/...`). Confirmed by direct comparison: the `develop` binary
+  (rec-slave root) booted the same rshared pod fine; mine (rec-shared) did not. It is the
+  «leaks ALL mounts» of Alternative 1, observed.
+- The final form (see the box at the top) avoids the leak: `/` is **not** touched
+  recursively (the source keeps `shared:N`), the mount enclosing the rootfs gets
+  `MS_PRIVATE`, the rootfs gets `MS_SHARED` only so the volumes' bind lands as a peer, and
+  the old root is `MS_REC|MS_PRIVATE` before `MNT_DETACH`. Recipe measured
+  working end to end: a `mount --bind /etc` done INSIDE the container appears
+  at `/tmp/.../src/sub` on the host, and the container's cgroup is created with no error.
 
-Implementação em `setup_rootfs`/`detach_old_root`/`enclosing_mount_point`
-(`delonix-linux/src/lib.rs`) e no gate em `spawn` via
-`rshared_allowed(privileged, rootless)`. Blast radius contido ao sub-caminho
-`rshared`: a raiz antiga é isolada antes do detach, o enclausurante do rootfs é
-privado, e cada volume não-rshared é fixado `rprivate` por `per_mount_propagation`.
+Implemented in `setup_rootfs`/`detach_old_root`/`enclosing_mount_point`
+(`delonix-linux/src/lib.rs`) and in the gate in `spawn` via
+`rshared_allowed(privileged, rootless)`. Blast radius contained to the
+`rshared` sub-path: the old root is isolated before the detach, the rootfs's enclosing
+mount is private, and every non-rshared volume is pinned `rprivate` by `per_mount_propagation`.

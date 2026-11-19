@@ -1,289 +1,291 @@
-# Docker × Podman × Delonix — comparação medida
+# Docker × Podman × Delonix — measured comparison
 
-> **O que este documento é.** Uma tabela em que **cada linha foi executada**, nas três
-> ferramentas, na mesma máquina, no mesmo dia. Não decide quem é melhor: mostra o que cada
-> um faz, incluindo aquilo em que o Delonix é **pior**.
+> **What this document is.** A table where **every line was run**, on all three
+> tools, on the same machine, on the same day. It does not decide who is better: it
+> shows what each one does, including where Delonix is **worse**.
 >
-> **O que não é.** Uma análise de funcionalidades lida do `--help`. Isso já existe em
-> [`paridade-docker-podman.md`](paridade-docker-podman.md), que aliás começa por dizer que
-> não mediu nada. Aqui, uma célula sem medição diz `não verificado` — nunca uma afirmação.
+> **What it is not.** A feature analysis read off `--help`. That already exists in
+> [`paridade-docker-podman.md`](paridade-docker-podman.md), which in fact starts by saying it
+> measured nothing. Here, a cell with no measurement says `not verified` — never a claim.
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Data | **2026-08-13** |
-| Onde | VM libvirt `pari053`, 4 vCPU / 4 GiB, Ubuntu 24.04.4, kernel 6.8.0-136-generic |
-| Porquê numa VM | O host de desenvolvimento **não tem daemon do docker**, e instalá-lo ali seria mexer numa máquina com produção a correr. Sem as três no mesmo sítio, duas colunas seriam `não verificado` e a comparação não valia nada. A VM foi criada pelo próprio motor (`delonix vm create`). |
-| Docker | 29.1.3 (`docker.io` do Ubuntu, daemon `systemd` activo, utilizador no grupo `docker`) |
+| Date | **2026-08-13** |
+| Where | libvirt VM `pari053`, 4 vCPU / 4 GiB, Ubuntu 24.04.4, kernel 6.8.0-136-generic |
+| Why a VM | The development host **has no docker daemon**, and installing one there would mean touching a machine with production running on it. Without all three in the same place, two columns would be `not verified` and the comparison would be worthless. The VM was created by the engine itself (`delonix vm create`). |
+| Docker | 29.1.3 (Ubuntu's `docker.io`, active `systemd` daemon, user in the `docker` group) |
 | Podman | 4.9.3 (rootless) |
-| Delonix | **0.1.0** (rootless), binário da release oficial da tag, em `/usr/local/bin/delonix` |
+| Delonix | **0.1.0** (rootless), official release binary from the tag, at `/usr/local/bin/delonix` |
 
-> **Nota de montagem, e ela importa para a justiça da comparação.** O binário do Delonix tem
-> de estar em `/usr/local/bin/delonix`: a golden aplica-lhe um perfil AppArmor, e com
-> `kernel.apparmor_restrict_unprivileged_userns=1` (activo, medido) o `unshare` é negado a
-> qualquer outro caminho. Uma bateria anterior mediu, sem o saber, um `run` que rebentava.
-> Cada ferramenta tem de ser medida configurada como é suposto, ou a tabela mente a favor de
-> quem estiver bem instalado.
+> **Setup note, and it matters for the fairness of the comparison.** The Delonix binary has
+> to sit at `/usr/local/bin/delonix`: the golden image applies an AppArmor profile to it, and with
+> `kernel.apparmor_restrict_unprivileged_userns=1` (active, measured) `unshare` is denied at
+> any other path. An earlier battery unknowingly measured a `run` that was blowing up.
+> Every tool has to be measured configured the way it is meant to be, or the table lies in favour of
+> whoever happens to be well installed.
 >
-> As imagens (`alpine:latest`, `nginx:alpine`) estavam locais nos três antes do primeiro
-> cronómetro, e cada motor corre com o **seu** default de rede.
+> The images (`alpine:latest`, `nginx:alpine`) were local on all three before the first
+> stopwatch, and each engine runs with **its own** network default.
 
 ---
 
-## A tabela
+## The table
 
-| # | Capacidade | Docker 29.1.3 | Podman 4.9.3 | Delonix 0.1.0 | Como foi medido |
+| # | Capability | Docker 29.1.3 | Podman 4.9.3 | Delonix 0.1.0 | How it was measured |
 |---|---|---|---|---|---|
-| 1 | Daemon residente | **Sim** — `systemctl is-active docker` → `active` | Não — 0 processos | Não — 0 processos | `systemctl is-active docker`; `pgrep -c podman`; `pgrep -cf 'delonix (netns\|serve)'` |
-| 2 | Corre sem privilégio | Não sem o grupo `docker`/daemon: `permission denied … unix:///var/run/docker.sock` | Sim (userns, `id -u` → 0) | Sim (userns, `id -u` → 0) | `sudo -u nobody docker ps`; `<eng> run --rm alpine id -u` |
-| 3 | `run` básico | `ok` | `ok` | `ok` | `<eng> run --rm alpine echo ok` |
-| 4a | **Latência de `run --rm`, default de cada um** (mediana de **10**) | **208 ms** (bridge) | **268 ms** (slirp) | **91 ms** (host) | `date +%s%N` à volta de `<eng> run --rm alpine true` |
-| 4b | **Latência com rede isolada por container, plano de rede JÁ de pé** (mediana de 10) | **208 ms** (a mesma — a bridge JÁ é isolada) | **268 ms** (a mesma) | **216 ms** (`--net <rede>`) | idem, com um container sentinela na rede a manter o refcount ≥ 1 |
-| 4c | **Idem, com o plano de rede a subir DO ZERO em cada corrida** | 208 ms (o daemon e a `docker0` são permanentes — não paga) | 268 ms (não tem plano partilhado — não paga) | **344 ms** | sem sentinela: o `--rm` do último container leva o refcount a 0 e o `release` faz `teardown()` do pin/control/slirp |
-| 5 | Código de saída de um container `-d` | `42` | `42` | `42` (`Exited (42)`) | `run -d … sh -c 'exit 42'`, depois `inspect -f '{{.State.ExitCode}}'` / `container ls -a` |
-| 6 | **Mudar portas a quente, sem recriar** | **Não** — `unknown flag: --publish-add` | **Não** — `Error: unknown flag: --publish-add` | **Sim** — `port 19312->80/tcp hot-published`, **PID 4118 → 4118**, `container port` lista as duas | `<eng> update --publish-add 19312:80 <c>`; PID lido no `describe` antes e depois |
-| 7 | **stdin de um pipe, SEM flags** | **Não chega** — saída vazia | **Não chega** — saída vazia | **Chega** — `oi` | `echo oi \| <eng> run --rm alpine cat` |
-| 7-ctl | idem, **com `-i`** | `oi` | `oi` | (não tem a flag; já chega sem ela) | `echo oi \| <eng> run -i --rm alpine cat` |
-| 7b | **TTY quando o CHAMADOR tem um, sem flags** | **Não** — `NOTTY-IN`/`NOTTY-OUT` | **Não** — `NOTTY-IN`/`NOTTY-OUT` | **Sim** — `TTY-IN`/`TTY-OUT` | os três sob `script -qec … /dev/null`, com `test -t 0`/`test -t 1` dentro do container |
-| 7c | **Forçar um TTY quando o chamador NÃO tem** | **Sim** (`-t`) — `TTY-OUT` | **Sim** (`-t`) — `TTY-OUT` | **Não, e não há flag** — `NOTTY-OUT`; `-t` → `error: unexpected argument '-t' found` | `echo x \| <eng> run -t --rm alpine sh -c 'test -t 1 …'` |
-| 8 | microVMs declarativas | Não (`docker vm` não existe) | `podman machine` — «Manage a virtual machine», uma VM **para** correr containers, não um workload | `delonix vm` — «Declarative microVMs: create/ls/stop/rm/status» | `<eng> vm --help` / `podman machine --help` |
-| 9 | `docker-compose.yml` nativo | `não verificado` — `unknown command: docker compose` (o plugin não está instalado; existe como plugin oficial) | `não verificado` — `looking up compose provider failed` (o `podman-compose` não está instalado) | Sim, embutido — «Native `docker-compose.yml` support (up/down/ps/logs/config)» | `<eng> compose version` / `delonix compose --help` |
+| 1 | Resident daemon | **Yes** — `systemctl is-active docker` → `active` | No — 0 processes | No — 0 processes | `systemctl is-active docker`; `pgrep -c podman`; `pgrep -cf 'delonix (netns\|serve)'` |
+| 2 | Runs without privilege | No without the `docker` group/daemon: `permission denied … unix:///var/run/docker.sock` | Yes (userns, `id -u` → 0) | Yes (userns, `id -u` → 0) | `sudo -u nobody docker ps`; `<eng> run --rm alpine id -u` |
+| 3 | Basic `run` | `ok` | `ok` | `ok` | `<eng> run --rm alpine echo ok` |
+| 4a | **`run --rm` latency, each one's default** (median of **10**) | **208 ms** (bridge) | **268 ms** (slirp) | **91 ms** (host) | `date +%s%N` around `<eng> run --rm alpine true` |
+| 4b | **Latency with isolated per-container network, network plane ALREADY up** (median of 10) | **208 ms** (the same — the bridge is ALREADY isolated) | **268 ms** (the same) | **216 ms** (`--net <network>`) | same as above, with a sentinel container on the network keeping the refcount ≥ 1 |
+| 4c | **Same, with the network plane coming up FROM SCRATCH on each run** | 208 ms (the daemon and `docker0` are permanent — it doesn't pay the cost) | 268 ms (no shared plane — it doesn't pay the cost) | **344 ms** | no sentinel: the last container's `--rm` drops the refcount to 0 and `release` runs `teardown()` of the pin/control/slirp |
+| 5 | Exit code of a `-d` container | `42` | `42` | `42` (`Exited (42)`) | `run -d … sh -c 'exit 42'`, then `inspect -f '{{.State.ExitCode}}'` / `container ls -a` |
+| 6 | **Changing ports hot, without recreating** | **No** — `unknown flag: --publish-add` | **No** — `Error: unknown flag: --publish-add` | **Yes** — `port 19312->80/tcp hot-published`, **PID 4118 → 4118**, `container port` lists both | `<eng> update --publish-add 19312:80 <c>`; PID read via `describe` before and after |
+| 7 | **stdin from a pipe, NO flags** | **Doesn't arrive** — empty output | **Doesn't arrive** — empty output | **Arrives** — `oi` | `echo oi \| <eng> run --rm alpine cat` |
+| 7-ctl | same, **with `-i`** | `oi` | `oi` | (has no such flag; already arrives without it) | `echo oi \| <eng> run -i --rm alpine cat` |
+| 7b | **TTY when the CALLER has one, no flags** | **No** — `NOTTY-IN`/`NOTTY-OUT` | **No** — `NOTTY-IN`/`NOTTY-OUT` | **Yes** — `TTY-IN`/`TTY-OUT` | all three under `script -qec … /dev/null`, with `test -t 0`/`test -t 1` inside the container |
+| 7c | **Forcing a TTY when the caller does NOT have one** | **Yes** (`-t`) — `TTY-OUT` | **Yes** (`-t`) — `TTY-OUT` | **No, and there is no flag** — `NOTTY-OUT`; `-t` → `error: unexpected argument '-t' found` | `echo x \| <eng> run -t --rm alpine sh -c 'test -t 1 …'` |
+| 8 | Declarative microVMs | No (`docker vm` does not exist) | `podman machine` — «Manage a virtual machine», a VM **for** running containers, not a workload | `delonix vm` — «Declarative microVMs: create/ls/stop/rm/status» | `<eng> vm --help` / `podman machine --help` |
+| 9 | Native `docker-compose.yml` | `not verified` — `unknown command: docker compose` (the plugin is not installed; it exists as an official plugin) | `not verified` — `looking up compose provider failed` (`podman-compose` is not installed) | Yes, built in — «Native `docker-compose.yml` support (up/down/ps/logs/config)» | `<eng> compose version` / `delonix compose --help` |
 
 ---
 
-## Onde o Delonix ganha, e porquê
+## Where Delonix wins, and why
 
-**Latência no default: 91 ms contra 208 e 268** (linha 4a) — 2,3× mais rápido que o docker,
-2,9× que o podman. Não é afinação, é arquitectura: não há daemon a contactar nem serviço a
-acordar. O `run` é um processo que faz `clone()` e sai. **Mas leia-se a linha 4b antes de
-citar este número** — parte da margem é o default ser `host`, e não uma rede isolada.
+**Default latency: 91 ms versus 208 and 268** (line 4a) — 2.3× faster than docker,
+2.9× than podman. It is not tuning, it is architecture: there is no daemon to contact and no
+service to wake up. `run` is a process that does `clone()` and exits. **But read line 4b before
+quoting this number** — part of the margin is the default being `host`, not an isolated
+network.
 
-**Reconfiguração a quente (linha 6) continua a ser a diferença de fundo.** No docker e no
-podman mudar uma porta obriga a recriar o container; aqui o dataplane não pertence ao ciclo
-de vida do processo, e o PID prova-o — **4118 antes e 4118 depois**, com as duas portas
-activas. É a única linha em que os outros dois respondem `unknown flag`.
+**Hot reconfiguration (line 6) remains the fundamental difference.** On docker and
+podman, changing a port forces recreating the container; here the dataplane does not belong to the
+process lifecycle, and the PID proves it — **4118 before and 4118 after**, with both ports
+active. It is the only line where the other two answer `unknown flag`.
 
-**stdin e terminal chegam por omissão** (linhas 7 e 7b). Docker e podman **destacam** o
-stdin: sem `-i` o `cat` não recebe nada, e sem `-t` não há terminal mesmo quando o chamador
-tem um. O Delonix herda os dois, e é por isso que não tem as flags — o caso que elas servem
-já é o comportamento normal.
+**stdin and terminal arrive by default** (lines 7 and 7b). Docker and podman **detach**
+stdin: without `-i` `cat` receives nothing, and without `-t` there is no terminal even when the caller
+has one. Delonix inherits both, which is why it has no flags for them — the case they serve
+is already the normal behaviour.
 
-## Onde o Delonix perde
+## Where Delonix loses
 
-**A configuração SEGURA é a lenta, e o custo está no arranque a frio do plano de rede.** A
-comparação justa é a linha 4b, não a 4a: a `bridge` do docker **já** dá ao container a sua
-própria netns e o seu próprio IP, e o default `host` do Delonix não dá. Aí o Delonix faz
-**216 ms** contra 208 do docker — empate técnico, e não a derrota larga que uma primeira
-leitura desta bancada indicou (ver a nota de método abaixo). Mas a linha 4c mostra onde dói:
-quando o plano de rede tem de subir do zero, **344 ms**, e o docker/podman nunca pagam esse
-custo porque o daemon e a `docker0` são permanentes. Num nó que arranca containers em rajada
-o custo dilui-se; num nó ocioso que corre um container de vez em quando, paga-se sempre.
+**The SAFE configuration is the slow one, and the cost is in the cold start of the network plane.** The
+fair comparison is line 4b, not 4a: docker's `bridge` **already** gives the container its
+own netns and its own IP, and Delonix's `host` default does not. There, Delonix does
+**216 ms** versus docker's 208 — a technical tie, not the wide loss a first
+reading of this bench suggested (see the method note below). But line 4c shows where it hurts:
+when the network plane has to come up from scratch, **344 ms**, and docker/podman never
+pay that cost because the daemon and `docker0` are permanent. On a node that bursts containers,
+the cost dilutes; on an idle node that runs a container every now and then, it is always paid.
 
-Decomposto pelas três linhas: **91 ms** de base, **+125 ms** de attach real à SDN (veth,
-IPAM, ruleset, e o re-exec `nsenter … ip netns exec` que o rootless exige), **+128 ms** de
-reconstrução do pin/control/slirp quando o refcount chegou a zero.
+Broken down across the three lines: **91 ms** base, **+125 ms** of real attach to the SDN (veth,
+IPAM, ruleset, and the `nsenter … ip netns exec` re-exec that rootless requires), **+128 ms** of
+rebuilding the pin/control/slirp when the refcount hit zero.
 
-**Nota de método, e é a mesma armadilha que esta página denuncia mais abaixo.** A primeira
-corrida desta bancada mediu 333 ms e concluiu «o pior dos três, 60 % pior que o docker». O
-número estava certo e a conclusão errada: com `--rm` e um container de cada vez, o refcount
-da rede chega a **zero** entre iterações e o `release` faz `teardown()` do plano de rede
-inteiro — cada corrida estava a reconstruí-lo. Não se estava a medir o attach, estava-se a
-medir attach **mais** bring-up. Um número medido não é um número compreendido, e a diferença
-entre os dois foram 128 ms atribuídos ao sítio errado.
+**Method note, and it is the same trap this page calls out further below.** The first
+run of this bench measured 333 ms and concluded «the worst of the three, 60% worse than docker». The
+number was right and the conclusion wrong: with `--rm` and one container at a time, the network
+refcount reaches **zero** between iterations and `release` runs `teardown()` of the whole
+network plane — each run was rebuilding it. It was not the attach being measured, it was
+attach **plus** bring-up. A measured number is not an understood number, and the difference
+between the two was 128 ms attributed to the wrong place.
 
-**Não consegue forçar um TTY** (linha 7c). Quando o chamador não tem terminal — CI, um pipe,
-um cron — `docker run -t`/`podman run -t` dão na mesma um pty ao container, e o Delonix não
-tem como (`-t` é recusado como argumento desconhecido). Conta para o que muda de
-comportamento com `isatty`: cores, barras de progresso, um `read` que espera um terminal.
-Estreito, mas real, e **fazível** — o motor já tem a maquinaria de pty do modo consola.
+**Cannot force a TTY** (line 7c). When the caller has no terminal — CI, a pipe,
+a cron — `docker run -t`/`podman run -t` still give the container a pty, and Delonix has
+no way to (`-t` is refused as an unknown argument). It matters for whatever changes
+behaviour based on `isatty`: colours, progress bars, a `read` that expects a terminal.
+Narrow, but real, and **fixable** — the engine already has the pty machinery from console mode.
 
-## Porque a bateria de 2026-08-10 foi RETIRADA
+## Why the 2026-08-10 battery was WITHDRAWN
 
-A versão anterior desta tabela foi medida a 2026-08-10, e os seus números
-de latência eram: docker **1 406 ms**, podman **1 351 ms**, delonix **640 ms**. Nesta corrida,
-com **os mesmos docker 29.1.3 e podman 4.9.3**, na mesma distro e no mesmo kernel, os três
-deram **208 / 268 / 89 ms** — todos cerca de **6× mais rápidos**.
+The earlier version of this table was measured on 2026-08-10, and its
+latency numbers were: docker **1,406 ms**, podman **1,351 ms**, delonix **640 ms**. In this run,
+with **the same docker 29.1.3 and podman 4.9.3**, on the same distro and kernel, all three
+gave **208 / 268 / 89 ms** — all roughly **6× faster**.
 
-Três motores a acelerarem seis vezes ao mesmo tempo não é uma melhoria de nenhum deles: é a
-bancada. Aqueles números mediam a contenção da VM naquele momento, não as ferramentas. O
-rácio qualitativo sobreviveu (o Delonix ganha no default), os valores absolutos não valiam
-nada, e a linha 4b — a comparação que interessa — nunca chegou a ser corrida.
+Three engines all speeding up sixfold at once is not an improvement in any of them: it is the
+bench. Those numbers were measuring the VM's contention at that moment, not the tools. The
+qualitative ratio survived (Delonix wins on default), the absolute values were worthless,
+and line 4b — the comparison that matters — never got run.
 
-Duas afirmações dessa bateria também não sobreviveram:
+Two claims from that battery also did not survive:
 
-1. **«stdin interactivo NÃO existe»** era o **inverso** do comportamento real, e é hoje a
-   linha 7. O defeito foi de método: aquela célula não foi executada como as outras, foi um
-   `run --help | grep -E '^\s+-i,'`. Mediu a ausência de uma **flag** e concluiu a ausência
-   da **capacidade** — no documento que promete que cada linha foi corrida.
-2. **Os «dois achados» eram um só.** O primeiro dizia que `--net host` com `-p` falha por a
-   combinação ser contraditória; não é — `--net host` é o modo **por omissão** e `-p` sobre
-   ele é o caminho slirp-por-container normal e suportado
-   ([`container.rs:3466`](../crates/delonix-runtime-bin/src/cmd/container.rs)). O que fez o
-   `add_hostfwd` falhar foi o segundo achado: um `slirp4netns` órfão a segurar a porta. O
-   sintoma foi arquivado como bug independente, com um raciocínio que o código contradiz.
+1. **«interactive stdin does NOT exist»** was the **opposite** of the real behaviour, and is today
+   line 7. The defect was method: that cell was not run like the others, it was a
+   `run --help | grep -E '^\s+-i,'`. It measured the absence of a **flag** and concluded the absence
+   of the **capability** — in the very document that promises every line was run.
+2. **The «two findings» were one.** The first said `--net host` with `-p` fails because the
+   combination is contradictory; it isn't — `--net host` is the **default** mode and `-p` over
+   it is the normal, supported slirp-per-container path
+   ([`container.rs:3466`](../crates/delonix-runtime-bin/src/cmd/container.rs)). What made
+   `add_hostfwd` fail was the second finding: an orphaned `slirp4netns` holding the port. The
+   symptom was filed as an independent bug, with reasoning the code contradicts.
 
-## Um achado apanhado a montar esta bancada
+## A finding caught while setting up this bench
 
-**`delonix vm create` não tem forma de dimensionar o disco** — não há `--disk-size` nem
-equivalente, e o overlay herda os 2,4 GiB de raiz da golden. Instalar `docker.io` e `podman`
-dentro encheu-a a 100 % e o `apt` morreu a meio com `No space left on device`, deixando o
-`dpkg` por configurar. A saída foi parar a VM, `qemu-img resize +14G` à mão e voltar a
-arrancar (o `growpart` do cloud-init faz o resto no boot seguinte). É um gap real, sem
-fronteira de privilégio nova pelo meio.
+**`delonix vm create` has no way to size the disk** — there is no `--disk-size` or
+equivalent, and the overlay inherits the golden image's 2.4 GiB root. Installing `docker.io` and `podman`
+inside filled it to 100% and `apt` died midway with `No space left on device`, leaving
+`dpkg` unconfigured. The workaround was to stop the VM, `qemu-img resize +14G` by hand and boot it
+back up (cloud-init's `growpart` does the rest on the next boot). It is a real gap, with no
+new privilege boundary involved.
 
-Verificado de passagem, e **não** é bug: o aviso de cgroup delegation vai para **stderr**, não
-polui o stdout. Um `run … | cat` devolve exactamente a saída do container.
+Verified in passing, and it is **not** a bug: the cgroup delegation warning goes to **stderr**, not
+polluting stdout. A `run … | cat` returns exactly the container's output.
 
-## Recontagem de 2026-08-25 — feita, e o que a atrasou
+## Recount of 2026-08-25 — done, and what delayed it
 
-**À primeira tentativa foi RECUSADA**, e a recusa vale como registo. O host
-tinha `load average` de **55 a 72** em **32 threads** e as corridas cruas deram
-docker **5080 ms** e podman **4149 ms**. Isso não é regressão de ninguém — é a
-bancada, e é o que retirou a bateria de 2026-08-10. Horas depois, com o host em
-**load 3,3**, a mesma bancada passou e os números abaixo são dela.
+**Refused on the first attempt**, and the refusal counts as a record. The host
+had a `load average` of **55 to 72** on **32 threads** and the raw runs gave
+docker **5080 ms** and podman **4149 ms**. That is not anyone's regression — it is
+the bench, and it is what withdrew the 2026-08-10 battery. Hours later, with the host at
+**load 3.3**, the same bench passed and the numbers below are from it.
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Data | **2026-08-25** |
-| Onde | host de desenvolvimento — AMD Ryzen 9 8940HX (32 threads), 31 GiB, kernel 7.0.0-30 |
-| Delonix | rootless, root e runtime-dir isolados |
+| Date | **2026-08-25** |
+| Where | development host — AMD Ryzen 9 8940HX (32 threads), 31 GiB, kernel 7.0.0-30 |
+| Delonix | rootless, isolated root and runtime-dir |
 | Docker | 29.7.2 · Podman | 4.9.3 |
-| Harness | `scripts/bench.sh` (novo) |
+| Harness | `scripts/bench.sh` (new) |
 
-| # | linha | docker | podman | delonix |
+| # | line | docker | podman | delonix |
 |---|---|---|---|---|
-| 4a | `run --rm`, default de cada um (mediana de 10) | **299 ms** (min 267, max 351) | **277 ms** (min 270, max 296) | **80 ms** (min 69, max 92) |
-| 4b | rede isolada por container, plano JÁ de pé | — | — | **~300 ms** (297 / 297 / 392) |
-| 4c | idem, com o plano a subir DO ZERO | — | — | **~520 ms** (498 / 545) |
+| 4a | `run --rm`, each one's default (median of 10) | **299 ms** (min 267, max 351) | **277 ms** (min 270, max 296) | **80 ms** (min 69, max 92) |
+| 4b | isolated per-container network, plane ALREADY up | — | — | **~300 ms** (297 / 297 / 392) |
+| 4c | same, with the plane coming up FROM SCRATCH | — | — | **~520 ms** (498 / 545) |
 
-**O rácio sobreviveu, que é o que estas tabelas ensinam a olhar.** No default o
-Delonix continua ~3,5× mais rápido; com rede isolada continua em empate técnico
-com o docker (300 contra 299), exactamente como a bateria de 2026-08-13
-descrevia com outros valores absolutos (216 contra 208).
+**The ratio survived, which is what these tables teach you to look at.** On default,
+Delonix remains ~3.5× faster; with isolated networking it remains a technical tie
+with docker (300 against 299), exactly as the 2026-08-13 battery
+described with different absolute values (216 against 208).
 
-**O que NÃO foi atribuído:** as linhas 4b/4c são maiores do que em 2026-08-13
-(300 contra 216, 520 contra 344). O hardware é mais rápido e o root do bench é
-isolado, portanto a densidade do nó de produção não entra. Não medi a causa, e
-por isso não a nomeio.
+**What was NOT attributed:** lines 4b/4c are larger than on 2026-08-13
+(300 versus 216, 520 versus 344). The hardware is faster and the bench's root is
+isolated, so the production node's density is not a factor. The cause was not measured, and
+so it is not named.
 
-### Dois erros de método apanhados a fazer esta recontagem
+### Two method errors caught while doing this recount
 
-1. **O harness comparava um motor a frio com dois a quente.** O root do Delonix
-   é isolado e nasce VAZIO, por isso a primeira corrida pagava o pull e a
-   extracção da imagem — 6 275 / 7 408 / 7 359 ms num root virgem, e uma amostra
-   de **16 782 ms** na primeira versão desta bancada. A mediana absorveu-o, o que
-   é precisamente o perigo: com `--runs 1` o número publicado seria dezasseis
-   segundos. O `bench.sh` passou a aquecer os três explicitamente.
-2. **A primeira medição da linha 4c não mediu a linha 4c.** Foi feita com
-   `--net host`, que é o default e **não levanta plano de rede nenhum** — dava
-   74 ms contra 63-78 do controlo, ou seja, mediu a 4a três vezes. A 4c precisa
-   de `--net <rede-custom>`, que é o que obriga o holder a subir.
+1. **The harness was comparing one cold engine against two warm ones.** Delonix's root
+   is isolated and starts EMPTY, so the first run was paying for the pull and
+   extraction of the image — 6,275 / 7,408 / 7,359 ms on a virgin root, and a sample of
+   **16,782 ms** in the first version of this bench. The median absorbed it, which is
+   precisely the danger: with `--runs 1` the published number would be sixteen
+   seconds. `bench.sh` now explicitly warms up all three.
+2. **The first measurement of line 4c did not measure line 4c.** It was done with
+   `--net host`, which is the default and **raises no network plane at all** — it gave
+   74 ms against 63-78 for the control, i.e. it measured 4a three times. 4c needs
+   `--net <custom-network>`, which is what forces the holder to come up.
 
-## A tentativa recusada, em detalhe
+## The refused attempt, in detail
 
-Esta tabela é de **2026-08-13**. Uma tabela de desempenho que envelheceu
-semanas merece ser remedida, e foi tentado — a recontagem de **2026-08-25**
-acima.
+This table is from **2026-08-13**. A performance table that has aged
+weeks deserves to be re-measured, and it was tried — the **2026-08-25** recount
+above.
 
-**Recusou-se, e a recusa é o resultado.** O host de desenvolvimento tinha, no
-momento da tentativa, `load average` de **55 a 72** em **32 threads** — mais do
-dobro da capacidade — com 189 containers a correr e compilações de Rust em
-paralelo. As primeiras corridas cruas deram docker **5080 ms** e podman
-**4149 ms**, contra os 208/268 desta tabela.
+**It was refused, and the refusal is the result.** The development host had, at the
+moment of the attempt, a `load average` of **55 to 72** on **32 threads** — more than
+double capacity — with 189 containers running and Rust compiles happening in
+parallel. The first raw runs gave docker **5080 ms** and podman
+**4149 ms**, against this table's 208/268.
 
-Isso não é uma regressão de ninguém: é a bancada, e é **exactamente** o que
-retirou a bateria de 2026-08-10. A prova está na dispersão, que uma mediana
-esconderia — três corridas forçadas deram:
+That is not a regression of anyone's: it is the bench, and it is **exactly** what
+withdrew the 2026-08-10 battery. The proof is in the dispersion, which a median would
+hide — three forced runs gave:
 
-| motor | mediana | mínimo | máximo |
+| engine | median | min | max |
 |---|---|---|---|
-| docker | 540 ms | 509 | **5 660** |
+| docker | 540 ms | 509 | **5,660** |
 | podman | 628 ms | 584 | 709 |
-| delonix | 169 ms | 144 | **7 922** |
+| delonix | 169 ms | 144 | **7,922** |
 
-Um factor de **11×** entre a corrida mais rápida e a mais lenta do docker, e de
-**55×** no delonix. Publicar a mediana disto seria publicar ruído com um número
-à frente.
+A factor of **11×** between docker's fastest and slowest run, and
+**55×** on delonix. Publishing the median of this would be publishing noise with a number
+in front of it.
 
-**A lição passou a ser código.** O `scripts/bench.sh` caracteriza a bancada
-ANTES de medir seja o que for e **recusa-se a correr** (exit 3) quando o
-`load average` passa metade dos threads, dizendo porquê. `--force` corre na
-mesma e marca o resultado como NÃO PUBLICÁVEL. Publica sempre a dispersão ao
-lado da mediana, e a **densidade do nó** — que é parte da bancada e não um
-detalhe: duas chamadas do caminho de attach são dumps de `nft` que crescem com o
-número de containers, e a bateria abaixo correu num nó **vazio**.
+**The lesson became code.** `scripts/bench.sh` characterizes the bench
+BEFORE measuring anything and **refuses to run** (exit 3) when the
+`load average` passes half the threads, saying why. `--force` still runs
+and marks the result as NOT PUBLISHABLE. It always publishes the dispersion next
+to the median, and the **node density** — which is part of the bench, not a
+detail: two calls in the attach path are `nft` dumps that grow with the
+number of containers, and the battery below ran on an **empty** node.
 
-Para remedir a sério é preciso o mesmo que a bateria de 2026-08-13 usou: uma
-máquina ociosa e dedicada. Fica **por fazer**, e não convertido num número.
+Re-measuring properly needs the same thing the 2026-08-13 battery used: an
+idle, dedicated machine. It remains **to be done**, not turned into a number.
 
-## O que ficou por medir
+## What remains unmeasured
 
-- `docker compose` e `podman-compose` (linha 9): os plugins não estão instalados nesta VM.
-  Marcado `não verificado` em vez de convertido numa afirmação sobre as ferramentas.
-- Desempenho de `pull` e de `build`, e qualquer coisa com volumes ou com tráfego entre
-  containers: fora do âmbito desta passagem, que foi deliberadamente curta e executável de
-  uma vez.
-- A repartição FINA dos 125 ms de attach da linha 4b (quanto é o re-exec do binário, quanto é
-  o round-trip ao holder, quanto é o veth/nft/IPAM). Sabe-se que ~20-25 `fork`+`exec` de
-  `ip`/`sysctl`/`nft` correm por attach, contados no código, mas não medidos aqui.
-- Se estes números mudam com a DENSIDADE do nó. Duas chamadas do caminho de attach
-  (`nft -a list chain fwdeny`, `nft list sets`) são dumps de texto que crescem com o número de
-  containers e namespaces — medir num nó vazio subestima-as, e este nó estava vazio.
+- `docker compose` and `podman-compose` (line 9): the plugins are not installed on this VM.
+  Marked `not verified` rather than turned into a claim about the tools.
+- `pull` and `build` performance, and anything involving volumes or
+  inter-container traffic: out of scope for this pass, which was deliberately short and
+  runnable in one sitting.
+- The FINE breakdown of line 4b's 125 ms of attach (how much is the binary re-exec, how much is
+  the round trip to the holder, how much is veth/nft/IPAM). It is known that ~20-25 `fork`+`exec`
+  calls of `ip`/`sysctl`/`nft` run per attach, counted in the code, but not measured here.
+- Whether these numbers change with node DENSITY. Two calls in the attach path
+  (`nft -a list chain fwdeny`, `nft list sets`) are text dumps that grow with the number of
+  containers and namespaces — measuring on an empty node underestimates them, and this node was empty.
 
 ---
 
-## IPv6 — recontagem de 2026-11-01
+## IPv6 — recount of 2026-11-01
 
-> **Porquê agora.** As tabelas acima nunca mediram IPv6 — nenhuma das três colunas tinha
-> sequer uma linha de v6. O Delonix passou a governar dual-stack (ADR-0082), por isso a
-> lacuna ficou a pesar, e mediu-se. Os três na **mesma máquina, no mesmo dia**, como manda
-> este documento.
+> **Why now.** The tables above never measured IPv6 — none of the three columns had
+> even a v6 line. Delonix started governing dual-stack (ADR-0082), so the gap carried
+> weight, and it was measured. All three on the **same machine, same day**, as this document
+> requires.
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Data | **2026-11-01** |
-| Onde | host de desenvolvimento — AMD Ryzen 9 8940HX (32 threads), kernel 7.0.0-38-generic |
-| Docker | **29.9.2** — ROOTFUL (daemon `systemd`, `runtime nvidia`). Não é rootless; o eixo rootless-contra-rootless honesto é Podman × Delonix |
+| Date | **2026-11-01** |
+| Where | development host — AMD Ryzen 9 8940HX (32 threads), kernel 7.0.0-38-generic |
+| Docker | **29.9.2** — ROOTFUL (`systemd` daemon, `nvidia` runtime). Not rootless; the honest rootless-against-rootless axis is Podman × Delonix |
 | Podman | **4.9.3** rootless |
-| Delonix | **ramo `feat/ipv6-phase1` (Fase 4), rootless** — binário de debug do ramo, NÃO a release. **A `0.1.0` publicada tem v6 OFF e reprovaria estas linhas** |
-| Host sem uplink v6 | `ip -6 route show default` vazio → `v6 → Internet` **não é medível para NENHUM dos três** aqui; a célula fica `não verificado` para os três |
+| Delonix | **`feat/ipv6-phase1` branch (Phase 4), rootless** — a debug binary from the branch, NOT the release. **The published `0.1.0` has v6 OFF and would fail these lines** |
+| Host with no v6 uplink | `ip -6 route show default` empty → `v6 → Internet` **is not measurable for ANY of the three** here; the cell stays `not verified` for all three |
 
-| # | Capacidade v6 | Docker 29.9.2 (rootful) | Podman 4.9.3 (rootless) | Delonix Fase 4 (rootless) | Como foi medido |
+| # | v6 capability | Docker 29.9.2 (rootful) | Podman 4.9.3 (rootless) | Delonix Phase 4 (rootless) | How it was measured |
 |---|---|---|---|---|---|
-| v1 | Container recebe endereço v6 | **Não por omissão** (`bridge` com `EnableIPv6=false`); com `--ipv6 --subnet <v6>`: Sim (`fd00:dddd::2`) | **Não por omissão**; com `--subnet <v6>`: Sim (`fd00:9999::2`) | **Sim, por omissão** — ULA determinística `fd00:<o2>::<o3>:<o4>` (`fd00:254::143:123`) | `<eng> run … ; ip -6 addr show scope global` |
-| v2 | v6 east-west, MESMA rede | **Sim** — 0% perda | **Sim** — 0% perda | **Sim** — 0% perda | `ping -6 -c2` entre dois containers da mesma rede |
-| v3 | Isolamento v6 entre redes DIFERENTES | **Sim, por omissão** — 100% perda | **Não por omissão** — 0% perda (passa!); **só** com `--opt isolate=true` bloqueia (100% perda) | **Sim, por omissão** — 100% perda | dois containers em duas redes, `ping -6` cruzado |
-| v4 | Política v6 por-workload DENTRO de uma rede | **Não** — sem conceito; containers da mesma rede falam sempre | **Não** — idem | **Sim** — namespaces lógicos: na MESMA rede, cross-namespace v6 é **dropado** pela regra de isolamento (`ip6 … ip6 saddr @dlxall6 ct state new … drop`, contador +2) | dois containers mesma rede, namespaces diferentes, `ping -6` + contador no holder |
-| v5 | Rootless | **Não** (daemon root) | **Sim** | **Sim** | `docker info` / `podman info` / userns |
-| v6 | v6 → Internet | `não verificado` (host sem rota v6) | `não verificado` | `não verificado` — código pronto (`slirp4netns --enable-ipv6` + masquerade), **pende de uplink v6 no host** | `ping -6` a `2606:4700:4700::1111` falha nos três |
+| v1 | Container gets a v6 address | **Not by default** (`bridge` with `EnableIPv6=false`); with `--ipv6 --subnet <v6>`: Yes (`fd00:dddd::2`) | **Not by default**; with `--subnet <v6>`: Yes (`fd00:9999::2`) | **Yes, by default** — deterministic ULA `fd00:<o2>::<o3>:<o4>` (`fd00:254::143:123`) | `<eng> run … ; ip -6 addr show scope global` |
+| v2 | v6 east-west, SAME network | **Yes** — 0% loss | **Yes** — 0% loss | **Yes** — 0% loss | `ping -6 -c2` between two containers on the same network |
+| v3 | v6 isolation between DIFFERENT networks | **Yes, by default** — 100% loss | **Not by default** — 0% loss (passes through!); **only** with `--opt isolate=true` does it block (100% loss) | **Yes, by default** — 100% loss | two containers on two networks, cross `ping -6` |
+| v4 | Per-workload v6 policy WITHIN a network | **No** — no concept; containers on the same network always talk | **No** — same | **Yes** — logical namespaces: on the SAME network, cross-namespace v6 is **dropped** by the isolation rule (`ip6 … ip6 saddr @dlxall6 ct state new … drop`, counter +2) | two containers, same network, different namespaces, `ping -6` + holder counter |
+| v5 | Rootless | **No** (root daemon) | **Yes** | **Yes** | `docker info` / `podman info` / userns |
+| v6 | v6 → Internet | `not verified` (host has no v6 route) | `not verified` | `not verified` — code ready (`slirp4netns --enable-ipv6` + masquerade), **pending v6 uplink on the host** | `ping -6` to `2606:4700:4700::1111` fails on all three |
 
-### Onde o Delonix ganha, e porquê
+### Where Delonix wins, and why
 
-**v6 vem ligado e governado por omissão** (v1, v3, v4). O Docker precisa de uma rede
-`--ipv6` explícita e o Podman de uma `--subnet` v6; o Delonix dá a ULA sozinho. E a linha
-que os outros dois **não têm como preencher** é a v4: política por-workload DENTRO de uma
-rede. No Docker e no Podman, dois containers na mesma rede falam sempre — não existe o
-conceito; no Delonix, dois na mesma rede mas em namespaces diferentes não se alcançam sobre
-v6, pela mesma regra de isolamento que já governava v4 (o contador no holder prova-o).
+**v6 comes connected and governed by default** (v1, v3, v4). Docker needs an explicit
+`--ipv6` network and Podman a v6 `--subnet`; Delonix gives the ULA on its own. And the line
+the other two **have no way to fill** is v4: per-workload policy WITHIN a
+network. On Docker and Podman, two containers on the same network always talk — the
+concept does not exist; on Delonix, two on the same network but in different namespaces cannot reach
+each other over v6, under the same isolation rule that already governed v4 (the counter on the
+holder proves it).
 
-**Um achado medido do Podman, não do Delonix:** redes diferentes **não** estão isoladas por
-omissão (v3) — `pm_a` numa rede alcançou `pm_c` noutra, sobre v6 e v4. Fecha-se com
-`--opt isolate=true`, mas o default surpreende e vale registar.
+**A finding measured about Podman, not about Delonix:** different networks are **not**
+isolated by default (v3) — `pm_a` on one network reached `pm_c` on another, over both v6 and v4. It closes with
+`--opt isolate=true`, but the default is surprising and worth recording.
 
-### Onde o Delonix perde, ou ainda não prova
+### Where Delonix loses, or has not yet proven itself
 
-- **Não está numa release.** Isto foi medido num binário de ramo. A `0.1.0` publicada tem v6
-  OFF e reprovaria v1–v4. Até haver release, a coluna do Delonix é uma promessa com data, não
-  um produto que alguém possa instalar.
-- **v6 → Internet não foi provado** (v6). O código existe, mas o host não tem uplink v6 — e
-  nesse ponto o Docker rootful, num host COM rota v6, sai à frente hoje. Empate em `não
-  verificado` só porque a bancada não tem v6 de saída; não é mérito do Delonix.
-- **Regras de firewall com peer v6 explícito ainda não existem.** Uma regra que nomeia um
-  endereço (`ingress from 10.x`) governa só v4; o v6 desse peer cai no default + isolamento.
-  Docker/Podman não têm firewall por-container de todo, portanto a comparação não se aplica —
-  mas é um limite real do Delonix contra si próprio em v4.
+- **It is not in a release.** This was measured on a branch binary. The published `0.1.0` has v6
+  OFF and would fail v1–v4. Until there is a release, the Delonix column is a dated promise, not
+  a product anyone can install.
+- **v6 → Internet was not proven** (v6). The code exists, but the host has no v6 uplink — and
+  on that point rootful Docker, on a host WITH a v6 route, is ahead today. A tie in `not
+  verified` only because the bench has no v6 egress; it is not a merit of Delonix.
+- **Firewall rules with an explicit v6 peer do not yet exist.** A rule naming an
+  address (`ingress from 10.x`) governs only v4; that peer's v6 falls to the default plus isolation.
+  Docker/Podman have no per-container firewall at all, so the comparison does not apply —
+  but it is a real limit of Delonix against itself on v4.
 
-### O que ficou por medir (v6)
+### What remains unmeasured (v6)
 
-- Desempenho (latência de attach) com v6 ligado vs a bancada v4 acima — não remedido aqui.
-- `--opt isolate=true` do Podman sob carga / com muitas redes.
-- v6 → Internet em qualquer um dos três: precisa de um host com uplink v6.
+- Performance (attach latency) with v6 on versus the v4 bench above — not re-measured here.
+- Podman's `--opt isolate=true` under load / with many networks.
+- v6 → Internet on any of the three: needs a host with a v6 uplink.

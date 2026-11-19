@@ -1,81 +1,81 @@
-# 33 — Discovery: endurecimento do datapath de Ingress e Egress
+# 33 — Discovery: hardening the Ingress and Egress datapath
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Data | 2026-07-28 |
-| Linha de base do prompt | `0.35.1` (commit `60efdd6a7`) |
-| **Linha de base real no `main`** | **`0.37.0`** (commit `55db34d`) — duas versões à frente do prompt |
-| Método | Leitura de código + testes exploratórios ao vivo num host rootless real |
-| Alterações de produção | Nenhuma. Este documento é o único artefacto. |
+| Date | 2026-07-28 |
+| Prompt baseline | `0.35.1` (commit `60efdd6a7`) |
+| **Real baseline on `main`** | **`0.37.0`** (commit `55db34d`) — two versions ahead of the prompt |
+| Method | Code reading + live exploratory tests on a real rootless host |
+| Production changes | None. This document is the only artefact. |
 
-> **Aviso de leitura.** Tudo o que segue foi medido ou lido. Onde não foi possível
-> medir, está escrito `INDETERMINADO` e diz-se porquê. Nenhuma classificação é
-> inferida da documentação.
+> **Reading notice.** Everything that follows was measured or read. Where it was not
+> possible to measure, it is written `INDETERMINATE` and the reason is given. No
+> classification is inferred from the documentation.
 
-## Estado da execução
+## Execution status
 
-| Bloco | Requisitos | Estado |
+| Block | Requirements | Status |
 |---|---|---|
-| **0 — Segurança imediata** | RF-NET-11 (mitigação), RF-NET-02 | ✅ **FEITO** — ver `docs/releases/archive/v0.md`, secção v0.37.1 |
-| 1 — A′ | RF-NET-03, RF-NET-05 (reformulado) | por fazer |
-| 2 — A″ | RF-NET-01 (reformulado) | por fazer |
-| 3 — B | RF-NET-07 → RF-NET-06 | por fazer |
-| 4 — C | RF-NET-12, 13, 14(a) | por fazer |
-| 5 — D | RF-NET-04 | por fazer |
-| 6 — E | RF-NET-11 (paridade completa), 10, 09(reduzido) | por fazer |
-| — | RF-NET-08, RF-NET-14(b) | fora, à espera de ADR |
+| **0 — Immediate security** | RF-NET-11 (mitigation), RF-NET-02 | ✅ **DONE** — see `docs/releases/archive/v0.md`, section v0.37.1 |
+| 1 — A′ | RF-NET-03, RF-NET-05 (reframed) | to do |
+| 2 — A″ | RF-NET-01 (reframed) | to do |
+| 3 — B | RF-NET-07 → RF-NET-06 | to do |
+| 4 — C | RF-NET-12, 13, 14(a) | to do |
+| 5 — D | RF-NET-04 | to do |
+| 6 — E | RF-NET-11 (full parity), 10, 09 (reduced) | to do |
+| — | RF-NET-08, RF-NET-14(b) | out, pending an ADR |
 
 ---
 
-## 0. Passo 0 — delta de versões
+## 0. Step 0 — version delta
 
-### 0.1 A linha de base do prompt já está desactualizada
+### 0.1 The prompt's baseline is already out of date
 
-O prompt declara `0.35.1` e a fonte da especificação `0.32.2`. O `main` está em
-**`0.37.0`**. Entre `v0.32.2` e HEAD há **6 commits** a tocar `crates/adapters/delonix-net/`,
-dois deles substanciais:
+The prompt declares `0.35.1` and the spec source `0.32.2`. `main` is at
+**`0.37.0`**. Between `v0.32.2` and HEAD there are **6 commits** touching `crates/adapters/delonix-net/`,
+two of them substantial:
 
-| Commit | O que fez |
+| Commit | What it did |
 |---|---|
-| `3c0d1a4` | 5 bugs do flow `-p` ↔ firewall, **2 de segurança**: porta descartada em silêncio quando `proto: any`; multi-homing contornava firewall **e** isolamento de namespace |
-| `f8ab32b` | Endurecimento L4: `ct state` na política default, aplicação atómica, verdict map, `counter` em todas as regras, recusa de IPv6 na validação, ranges de portas |
+| `3c0d1a4` | 5 bugs in the `-p` ↔ firewall flow, **2 of them security**: port silently dropped when `proto: any`; multi-homing bypassed the firewall **and** namespace isolation |
+| `f8ab32b` | L4 hardening: `ct state` in the default policy, atomic application, verdict map, `counter` on every rule, refusal of IPv6 at validation, port ranges |
 
-`f8ab32b` foi produzido numa sessão de trabalho imediatamente anterior a este
-discovery e **fecha ou altera parcialmente 4 dos 14 requisitos** — ver a coluna
-"Evidência" de RF-NET-05, 09, 11 e 13.
+`f8ab32b` was produced in a work session immediately before this discovery and
+**closes or partially changes 4 of the 14 requirements** — see the "Evidence"
+column for RF-NET-05, 09, 11 and 13.
 
-### 0.2 O desvio de versão anunciada — confirmado
+### 0.2 The announced version drift — confirmed
 
 - `README.rst:18` → `:Version: 0.32.2`
 - `Cargo.toml` → `version = "0.37.0"`
 
-Cinco versões menores de desvio. O item 10 dos deliverables (verificação em CI) é,
-portanto, **justificado e confirmado**.
+Five minor versions of drift. Deliverable item 10 (CI verification) is,
+therefore, **justified and confirmed**.
 
-### 0.3 Divergência `--help` vs cheatsheet
+### 0.3 `--help` vs cheatsheet divergence
 
-`delonix net --help` na `0.37.0` expõe `netns`, `flow`, `ingress`, `egress`,
-`httproute`, `tunnel`, `boot`. A reorganização que criou o grupo `net` (v0.30.0) foi
-**breaking sem aliases**, pelo que qualquer cheatsheet anterior a essa versão
-documenta caminhos de CLI que já não existem (`delonix ingress …` em vez de
-`delonix net ingress …`). O cheatsheet da `0.32.2` é posterior a essa mudança, logo
-o desvio principal é de conteúdo (comandos novos ausentes), não de caminho.
+`delonix net --help` on `0.37.0` exposes `netns`, `flow`, `ingress`, `egress`,
+`httproute`, `tunnel`, `boot`. The reorganisation that created the `net` group (v0.30.0) was
+**breaking with no aliases**, so any cheatsheet predating that version
+documents CLI paths that no longer exist (`delonix ingress …` instead of
+`delonix net ingress …`). The `0.32.2` cheatsheet postdates that change, so
+the main drift is content (new commands missing), not path.
 
-### 0.4 Nota de processo — trabalho arrastado para um commit alheio
+### 0.4 Process note — work carried into someone else's commit
 
-O trabalho de `f8ab32b` foi escrito nesta árvore sem ser commitado, e foi **apanhado
-e commitado por uma sessão paralela** que estava a fechar a `v0.37.0`. Já está em
-`origin/main`. O conteúdo está correcto e testado, mas não foi revisto por quem o
-commitou. É a armadilha conhecida do worktree partilhado deste repositório e vale a
-pena confirmar o `f8ab32b` numa revisão dedicada.
+The work in `f8ab32b` was written in this tree without being committed, and was **picked
+up and committed by a parallel session** that was closing out `v0.37.0`. It is already in
+`origin/main`. The content is correct and tested, but it was not reviewed by whoever
+committed it. It is this repository's known shared-worktree pitfall, and it is worth
+confirming `f8ab32b` in a dedicated review.
 
 ---
 
-## 1. Inventário
+## 1. Inventory
 
-### 1.1 Mapa das cadeias nftables
+### 1.1 Map of the nftables chains
 
-Uma única tabela, no netns **efémero** do holder:
+A single table, in the holder's **ephemeral** netns:
 
 ```
 table ip dlxing
@@ -91,289 +91,289 @@ table ip dlxing
 └── chain fw<hash>                            uma por container (alvo do vmap)
 ```
 
-Confirmado ao vivo: `nft list tables` dentro do holder devolve **exactamente**
-`table ip dlxing`. Nada mais.
+Confirmed live: `nft list tables` inside the holder returns **exactly**
+`table ip dlxing`. Nothing else.
 
-**Excepção encontrada**: `bins/delonix-runtime-bin/src/cmd/vmbridge.rs:116-119,161-164`
-escreve `iptables -I FORWARD` na tabela **do host**. É o comando `vm bridge`
-(privilegiado, opt-in, root). Viola a restrição 5 da secção 5 do prompt.
+**Exception found**: `bins/delonix-runtime-bin/src/cmd/vmbridge.rs:116-119,161-164`
+writes `iptables -I FORWARD` on the **host's** table. This is the `vm bridge` command
+(privileged, opt-in, root). It violates restriction 5 of the prompt's section 5.
 
-### 1.2 Ponto de aplicação da política no ciclo de vida
+### 1.2 Where policy is applied in the lifecycle
 
 `cmd_start` (`bins/delonix-runtime-bin/src/cmd/container.rs`):
 
-| Linha | Instrução |
+| Line | Instruction |
 |---|---|
-| ~3196 | `infra::attach_container(&c.id, &n, &c.namespace)?` — cria a netns, o veth, junta aos sets de namespace |
-| ~3264 | `apply_firewall_everywhere(&c, fw)` — programa a chain por container |
-| ~3316 | `RunSpec { … }` — só depois é construído o spec do processo |
+| ~3196 | `infra::attach_container(&c.id, &n, &c.namespace)?` — creates the netns, the veth, joins the namespace sets |
+| ~3264 | `apply_firewall_everywhere(&c, fw)` — programs the per-container chain |
+| ~3316 | `RunSpec { … }` — the process spec is only built after this |
 
-**A ordem está correcta**: as regras são programadas antes de o processo existir. Não
-há janela de tráfego não filtrado no arranque. O que falha é o tratamento de erro —
-ver RF-NET-03.
+**The order is correct**: rules are programmed before the process exists. There is no
+window of unfiltered traffic at startup. What fails is error handling —
+see RF-NET-03.
 
-### 1.3 Caminho de aprendizagem DNS
+### 1.3 DNS learning path
 
 `handle_dns_query` (`infra.rs:~3690`) → `forward_dns(q)` → **`snoop_fqdn(&name, &resp)`**
-(`infra.rs:3701`). A aprendizagem ocorre **exclusivamente** sobre respostas que o
-próprio resolvedor do holder encaminhou. Não há sniffing promíscuo.
+(`infra.rs:3701`). Learning happens **exclusively** on responses that the
+holder's own resolver forwarded. There is no promiscuous sniffing.
 
-### 1.4 Precedência — medido, não presumido
+### 1.4 Precedence — measured, not assumed
 
-Três cenários, container real, `nginx:alpine` numa rede custom:
+Three scenarios, real container, `nginx:alpine` on a custom network:
 
-| Cenário | Resultado medido |
+| Scenario | Measured result |
 |---|---|
-| `allow tcp/80` → `deny tcp/80` (mesmo match) | **DENY** — o último comando substitui |
-| `deny tcp/80` → `allow tcp/80` (mesmo match) | **ALLOW** — idem, com nota `replaces the previous deny rule` |
-| `deny 80` → `allow tcp/80` (matches distintos, sobrepostos) | **DENY** — ganha a **ordem de inserção**, com aviso de sombra que nomeia a regra e o comando de remoção |
+| `allow tcp/80` → `deny tcp/80` (same match) | **DENY** — the last command replaces it |
+| `deny tcp/80` → `allow tcp/80` (same match) | **ALLOW** — same, with a note `replaces the previous deny rule` |
+| `deny 80` → `allow tcp/80` (distinct, overlapping matches) | **DENY** — **insertion order** wins, with a shadowing warning that names the rule and the removal command |
 
-Semântica efectiva: **substituição para match idêntico (ufw), ordem de inserção para
-matches sobrepostos**. Não existe campo `priority` em lado nenhum.
+Effective semantics: **replacement for an identical match (ufw), insertion order for
+overlapping matches**. There is no `priority` field anywhere.
 
-### 1.5 IPv6 — medido
+### 1.5 IPv6 — measured
 
-| Medição | Resultado |
+| Measurement | Result |
 |---|---|
-| Tabelas nft no holder | `table ip dlxing` — **só v4** |
-| `slirp4netns` argv | sem `--enable-ipv6` |
-| Saída v6 para a Internet | `Network is unreachable` |
-| Endereços v6 do container | **4** — link-local **e ULA global** |
-| Prefixo ULA | `fd00:<2º octeto>::/64` por rede, **atribuído deliberadamente** (`infra.rs:1184-1200`) |
-| Endereço ULA do container | `fd00:<o2>::<o3>:<o4>` — **derivável do IPv4** |
+| nft tables in the holder | `table ip dlxing` — **v4 only** |
+| `slirp4netns` argv | no `--enable-ipv6` |
+| v6 egress to the Internet | `Network is unreachable` |
+| Container's v6 addresses | **4** — link-local **and global ULA** |
+| ULA prefix | `fd00:<2nd octet>::/64` per network, **deliberately assigned** (`infra.rs:1184-1200`) |
+| Container's ULA address | `fd00:<o2>::<o3>:<o4>` — **derivable from the IPv4** |
 
-Ver RF-NET-11 — é o achado mais grave deste discovery.
+See RF-NET-11 — this is the most serious finding of this discovery.
 
-### 1.6 Modelo de dados das políticas
+### 1.6 Policy data model
 
-Não há store de políticas. A política vive **no próprio container**:
-`Container.firewall: Option<ContainerFw>` (`delonix-runtime-core/src/lib.rs:92`), com
+There is no policy store. The policy lives **on the container itself**:
+`Container.firewall: Option<ContainerFw>` (`delonix-runtime-core/src/lib.rs:92`), with
 `enabled`, `policy_in`, `policy_out`, `rules: Vec<FwRule>`, `namespace`.
 `FwRule { dir, proto, port, src, action, note }`.
 
-O manifesto `FirewallPolicy` (`FwDocSpec`, `cmd/firewall.rs:913`) tem `target: String`
-— um nome — e **não tem** `selector` nem `priority`. Compila para `ContainerFw` do
-container nomeado.
+The `FirewallPolicy` manifest (`FwDocSpec`, `cmd/firewall.rs:913`) has `target: String`
+— a name — and **has no** `selector` or `priority`. It compiles to the named
+container's `ContainerFw`.
 
-`Container.labels: BTreeMap<String,String>` **já existe** (`runtime-core:375`), pelo
-que os dados para RF-NET-06 estão disponíveis; falta o mecanismo.
+`Container.labels: BTreeMap<String,String>` **already exists** (`runtime-core:375`), so
+the data for RF-NET-06 is available; the mechanism is missing.
 
-### 1.7 Métricas
+### 1.7 Metrics
 
-`delonix-runtime-core/src/metrics.rs`: registo Prometheus partilhado, `Counter` e
-`Gauge` simples. **Zero `Family<…>`** — não há hoje nenhuma métrica com labels, que é
-precisamente a forma que RF-NET-13 exige (`{container, direction, rule_id}`).
+`delonix-runtime-core/src/metrics.rs`: a shared Prometheus registry, plain `Counter` and
+`Gauge`. **Zero `Family<…>`** — there is no metric with labels today, which is
+exactly the shape RF-NET-13 requires (`{container, direction, rule_id}`).
 
 ### 1.8 `system events`
 
-`delonix-runtime-core/src/events.rs`: `events.jsonl` append-only, `Event { ts, kind,
-action, id, name, … }`. O desenho é **deliberadamente sem lock**, apoiado na
-atomicidade de um `write` `O_APPEND` abaixo de `PIPE_BUF` (4 KiB) — está documentado
-no cabeçalho do módulo. Rotação oportunista para `.1`, uma só geração.
+`delonix-runtime-core/src/events.rs`: an append-only `events.jsonl`, `Event { ts, kind,
+action, id, name, … }`. The design is **deliberately lock-free**, relying on the
+atomicity of an `O_APPEND` `write` below `PIPE_BUF` (4 KiB) — this is documented
+in the module header. Opportunistic rotation to `.1`, a single generation.
 
-`grep events:: cmd/firewall.rs` → **vazio**: alterações de política de rede **não
-emitem eventos hoje**.
+`grep events:: cmd/firewall.rs` → **empty**: network policy changes **don't
+emit events today**.
 
 ---
 
-## 2. Classificação dos requisitos
+## 2. Requirement classification
 
-### RF-NET-01 — Aprendizagem de FQDN não falsificável
+### RF-NET-01 — Non-spoofable FQDN learning
 
-- **Estado: PARCIAL** (premissa central refutada, três sub-requisitos confirmados)
-- **Evidência:**
-  - *Refuta* o cenário do prompt: `infra.rs:3701` — `snoop_fqdn` é chamado **só** a
-    partir de `handle_dns_query`, sobre a resposta que o resolvedor do holder acabou
-    de encaminhar. Um container que corra o seu próprio resolvedor, ou que forje uma
-    resposta, **nunca alimenta o set**. Não há observação promíscua de tráfego.
-  - *Confirma* o sub-requisito 1: `infra.rs:2580-2581` — `egress_specs` emite
-    incondicionalmente `udp dport 53 accept` e `tcp dport 53 accept` para **qualquer
-    destino** sempre que há allowlist. Não existe DNAT da porta 53 para o resolvedor
-    interno. Consequências: (a) o resolvedor interno é contornável, (b) sob a política
-    de egress mais restritiva que o motor sabe exprimir, resta um **canal de
-    exfiltração por DNS tunnelling** para um resolvedor hostil.
-  - *Confirma* o sub-requisito 4: `infra.rs:~1943` — `timeout 1h` **hardcoded**. O TTL
-    da resposta é ignorado por completo. Não há `--ttl-floor` nem `--ttl-ceiling`.
-  - *Confirma* o sub-requisito 5: só o endereço entra no set. Não se regista FQDN,
-    instante, expiração nem container de origem; `egress show` lista IPs
+- **Status: PARTIAL** (central premise refuted, three sub-requirements confirmed)
+- **Evidence:**
+  - *Refutes* the prompt's scenario: `infra.rs:3701` — `snoop_fqdn` is called **only**
+    from `handle_dns_query`, on the response the holder's resolver just
+    forwarded. A container running its own resolver, or forging a
+    response, **never feeds the set**. There is no promiscuous traffic observation.
+  - *Confirms* sub-requirement 1: `infra.rs:2580-2581` — `egress_specs` unconditionally
+    emits `udp dport 53 accept` and `tcp dport 53 accept` for **any
+    destination** whenever there is an allowlist. There is no DNAT of port 53 to the
+    internal resolver. Consequences: (a) the internal resolver is bypassable, (b) under
+    the most restrictive egress policy the engine can express, an **exfiltration
+    channel via DNS tunnelling** to a hostile resolver remains.
+  - *Confirms* sub-requirement 4: `infra.rs:~1943` — `timeout 1h` **hardcoded**. The TTL
+    of the response is entirely ignored. There is no `--ttl-floor` or `--ttl-ceiling`.
+  - *Confirms* sub-requirement 5: only the address enters the set. No FQDN,
+    timestamp, expiry or source container is recorded; `egress show` lists IPs
     (`egress_set_members`).
-  - **Lacuna não prevista**: `snoop_fqdn(name, resp)` **não recebe o cliente**. Casa o
-    nome contra os sufixos de **todas** as redes registadas e injecta nos sets
-    correspondentes. Um container da rede A pode fazer com que entradas sejam
-    injectadas no set da rede B.
-- **Impacto real:** menor do que o prompt assume no vector de falsificação, maior no
-  de exfiltração. A allowlist de egress não contém dados: o DNS sai sempre.
-- **Esforço:** M
-- **Dependências:** nenhuma
-- **Recomendação: REFORMULAR** — reescrever o requisito em torno de (1) DNAT do :53,
-  (4) tecto/piso de TTL, (5) metadados da entrada, e (6) scoping por cliente. O ponto
-  2 do requisito original já é verdade hoje.
+  - **Unanticipated gap**: `snoop_fqdn(name, resp)` **does not receive the client**. It
+    matches the name against the suffixes of **every** registered network and injects into
+    the corresponding sets. A container on network A can cause entries to be
+    injected into network B's set.
+- **Real impact:** smaller than the prompt assumes on the spoofing vector, bigger on the
+  exfiltration one. The egress allowlist holds no data: DNS always gets out.
+- **Effort:** M
+- **Dependencies:** none
+- **Recommendation: REFRAME** — rewrite the requirement around (1) DNAT of :53,
+  (4) TTL ceiling/floor, (5) entry metadata, and (6) per-client scoping. Point
+  2 of the original requirement is already true today.
 
-### RF-NET-02 — Negação por omissão de destinos sensíveis
+### RF-NET-02 — Default-deny for sensitive destinations
 
-- **Estado: CONFIRMADO**
-- **Evidência:** `grep -rn "169.254|link-local"` sobre `crates/` → **zero ocorrências**
-  fora do código de VMs. Não existe qualquer negação por omissão de link-local, de
-  metadados, do loopback do host ou dos sockets de gestão.
-- **Impacto real:** alto e **agravado** pelo RF-NET-11: `fe80::/10` não é apenas
-  "não negado" — é o caminho por onde toda a política é contornável hoje.
-- **Esforço:** S
-- **Dependências:** deve ser feito **em conjunto** com RF-NET-11, senão a negação
-  v4 é decorativa.
-- **Recomendação: IMPLEMENTAR**
+- **Status: CONFIRMED**
+- **Evidence:** `grep -rn "169.254|link-local"` over `crates/` → **zero occurrences**
+  outside VM code. There is no default denial whatsoever of link-local, of
+  metadata, of the host's loopback or of management sockets.
+- **Real impact:** high and **made worse** by RF-NET-11: `fe80::/10` is not merely
+  "not denied" — it is the path by which the entire policy is bypassable today.
+- **Effort:** S
+- **Dependencies:** must be done **together** with RF-NET-11, otherwise v4
+  denial is decorative.
+- **Recommendation: IMPLEMENT**
 
-### RF-NET-03 — Aplicação fail-closed no arranque
+### RF-NET-03 — Fail-closed enforcement at startup
 
-- **Estado: PARCIAL** (ordem correcta, tratamento de erro incorrecto)
-- **Evidência:**
-  - *Ordem, refutada como problema*: `container.rs:~3196` (attach) e `~3264`
-    (`apply_firewall_everywhere`) correm **antes** da construção do `RunSpec` em
-    `~3316`. Não há janela.
-  - *Falha silenciosa, confirmada*: `container.rs:3264-3272` — em erro,
+- **Status: PARTIAL** (order correct, error handling incorrect)
+- **Evidence:**
+  - *Order, refuted as a problem*: `container.rs:~3196` (attach) and `~3264`
+    (`apply_firewall_everywhere`) run **before** the `RunSpec` is built at
+    `~3316`. There is no window.
+  - *Silent failure, confirmed*: `container.rs:3264-3272` — on error,
     `eprintln!("warning: firewall/isolation of '{name}' not reapplied on start: {e}")`
-    e **o container arranca à mesma**, sem política. O mesmo padrão em `~4300` e
-    `~4373` (caminhos de `update`). É literalmente o anti-padrão nº 3 da secção 5.
-- **Impacto real:** alto. Um falhanço transitório do holder produz um container a
-  correr sem isolamento, com um aviso em `stderr` que ninguém lê num pipeline.
-- **Esforço:** S para o `run`/`start`; M para a atomicidade do `update` (o prompt
-  exige "a transição é atómica ou reverte", e hoje não há rollback).
-- **Dependências:** nenhuma
-- **Recomendação: IMPLEMENTAR**
+    and **the container starts anyway**, with no policy. The same pattern at `~4300` and
+    `~4373` (`update` paths). It is literally anti-pattern No. 3 from section 5.
+- **Real impact:** high. A transient holder failure produces a container
+  running without isolation, with a warning on `stderr` that nobody reads in a pipeline.
+- **Effort:** S for `run`/`start`; M for the atomicity of `update` (the prompt
+  requires "the transition is atomic or it rolls back", and there is no rollback today).
+- **Dependencies:** none
+- **Recommendation: IMPLEMENT**
 
-### RF-NET-04 — Reconciliação e detecção de deriva
+### RF-NET-04 — Reconciliation and drift detection
 
-- **Estado: PARCIAL**
-- **Evidência:**
-  - *Sub-requisito 1, já satisfeito com ressalvas*: uma tabela própria, confirmada ao
-    vivo (`nft list tables` → só `table ip dlxing`). Ressalvas: a família é `ip` e não
-    `inet` (RF-NET-11), e `vmbridge.rs:116` escreve na `FORWARD` do host.
-  - *Sub-requisitos 2, 3, 5*: `policy verify` não existe; não há qualquer comparação
-    entre declarado e efectivo; nenhuma métrica de deriva.
-  - *Sub-requisito 4*: `net boot enable` **existe** e instala unidades systemd — o
-    ponto de extensão para o temporizador está disponível.
-  - **Lacuna não prevista, maior que a do prompt**: o estado nft vive no netns
-    **efémero do holder**. Não é preciso um `nft flush ruleset` para o perder — basta
-    o holder morrer. O `AGENTS.md` já regista que o isolamento de namespace **não é
-    reconstruído num respawn do holder**. A deriva por reinício do holder é o caso
-    comum; a do prompt (agente externo a escrever na tabela) é o caso raro, porque a
-    tabela vive num netns que mais ninguém vê.
-- **Impacto real:** alto, mas por uma razão diferente da que o prompt aponta.
-- **Esforço:** L
-- **Dependências:** RF-NET-13 (métricas) para instrumentar; RF-NET-14 (eventos).
-- **Recomendação: IMPLEMENTAR**, reformulando o alvo: reconciliação **contra o
-  respawn do holder** primeiro, contra escrita externa depois.
+- **Status: PARTIAL**
+- **Evidence:**
+  - *Sub-requirement 1, already satisfied with caveats*: a dedicated table, confirmed
+    live (`nft list tables` → only `table ip dlxing`). Caveats: the family is `ip`, not
+    `inet` (RF-NET-11), and `vmbridge.rs:116` writes to the host's `FORWARD`.
+  - *Sub-requirements 2, 3, 5*: `policy verify` doesn't exist; there is no comparison
+    at all between declared and effective; no drift metric.
+  - *Sub-requirement 4*: `net boot enable` **exists** and installs systemd units — the
+    extension point for the timer is available.
+  - **Unanticipated gap, bigger than the prompt's**: the nft state lives in the holder's
+    **ephemeral** netns. It doesn't take an `nft flush ruleset` to lose it — the
+    holder simply dying is enough. `AGENTS.md` already records that namespace isolation
+    **is not rebuilt on a holder respawn**. Drift from a holder restart is the common
+    case; the prompt's (an external agent writing to the table) is the rare case, because
+    the table lives in a netns nobody else sees.
+- **Real impact:** high, but for a different reason than the prompt points to.
+- **Effort:** L
+- **Dependencies:** RF-NET-13 (metrics) to instrument it; RF-NET-14 (events).
+- **Recommendation: IMPLEMENT**, reframing the target: reconciliation **against
+  holder respawn** first, against external writes second.
 
-### RF-NET-05 — Precedência determinística
+### RF-NET-05 — Deterministic precedence
 
-- **Estado: CONFIRMADO** (não há `priority`) — **mas a ordem proposta é breaking**
-- **Evidência:** secção 1.4 acima, três cenários medidos ao vivo. A semântica actual é
-  substituição por match idêntico + ordem de inserção para sobreposições, com aviso de
-  sombra explícito. Nenhum campo `priority` existe no `FwRule` nem no `FwDocSpec`.
-- **Impacto real:** a ausência de `priority` é uma limitação real de expressividade.
-  Mas adoptar "todos os `deny` antes de todos os `allow`" **inverte silenciosamente**
-  políticas já em produção: hoje um `allow` inserido antes de um `deny` sobreposto
-  ganha; sob a proposta passaria a perder. É exactamente o anti-padrão nº 10.
-- **Esforço:** M
-- **Dependências:** deve preceder RF-NET-06 e 07 (que multiplicam as regras por
-  container e tornam a ordem crítica).
-- **Recomendação: REFORMULAR** — acrescentar `priority` como campo **opcional**, com
-  a ordem de inserção preservada como critério de desempate e como comportamento por
-  omissão. Assim ganha-se determinismo explícito sem quebrar nada. Se o utilizador
-  insistir na reordenação global, é `breaking` e exige guia de migração e uma major.
+- **Status: CONFIRMED** (no `priority`) — **but the proposed ordering is breaking**
+- **Evidence:** section 1.4 above, three scenarios measured live. The current semantics
+  are replacement for an identical match + insertion order for overlaps, with an explicit
+  shadowing warning. No `priority` field exists in either `FwRule` or `FwDocSpec`.
+- **Real impact:** the absence of `priority` is a real expressiveness limitation.
+  But adopting "all `deny`s before all `allow`s" **silently inverts**
+  policies already in production: today an `allow` inserted before an overlapping `deny`
+  wins; under the proposal it would lose. It's exactly anti-pattern No. 10.
+- **Effort:** M
+- **Dependencies:** should precede RF-NET-06 and 07 (which multiply the rules per
+  container and make the order critical).
+- **Recommendation: REFRAME** — add `priority` as an **optional** field, with
+  insertion order preserved as the tie-breaker and as the default behaviour. That
+  gives explicit determinism without breaking anything. If the user
+  insists on the global reordering, it's `breaking` and needs a migration guide and a major.
 
-### RF-NET-06 — Selecção por label
+### RF-NET-06 — Label-based selection
 
-- **Estado: CONFIRMADO** (ausente)
-- **Evidência:** `FwDocSpec.target: String` (`cmd/firewall.rs:925`), sem `selector`.
-  `Container.labels: BTreeMap<String,String>` já existe (`runtime-core:375`), e a CLI
-  já tem `container run --label` — os dados estão lá.
-- **Impacto real:** alto para multi-tenancy. Sem isto, cada container criado obriga a
-  reaplicar política à mão, e o requisito "um container criado depois da política
-  herda-a" é impossível de exprimir.
-- **Esforço:** L
-- **Dependências:** **RF-NET-07** (a compilação para sets nomeados é o mecanismo que
-  torna o selector viável sem reprogramar regras a cada evento) e RF-NET-05.
-- **Recomendação: IMPLEMENTAR**, depois de 07.
+- **Status: CONFIRMED** (absent)
+- **Evidence:** `FwDocSpec.target: String` (`cmd/firewall.rs:925`), with no `selector`.
+  `Container.labels: BTreeMap<String,String>` already exists (`runtime-core:375`), and the CLI
+  already has `container run --label` — the data is there.
+- **Real impact:** high for multi-tenancy. Without this, every container created forces
+  a manual policy re-apply, and the requirement "a container created after the policy
+  inherits it" is impossible to express.
+- **Effort:** L
+- **Dependencies:** **RF-NET-07** (compiling into named sets is the mechanism that
+  makes the selector viable without reprogramming rules on every event) and RF-NET-05.
+- **Recommendation: IMPLEMENT**, after 07.
 
-### RF-NET-07 — Origem e destino por identidade
+### RF-NET-07 — Source and destination by identity
 
-- **Estado: CONFIRMADO** (ausente)
-- **Evidência:** `FwRule.src: String` validado por `fw_src_ok` — **só CIDR IPv4**. As
-  regras são geradas com **endereços literais** (`fw_rule_tail`, `infra.rs:~2148`),
-  que é o anti-padrão nº 4 do prompt descrito como estado actual.
-  *A favor da viabilidade*: o motor **já usa sets nomeados** em três sítios
-  (`@dlxall`, `@dlxns<hash>`, `@dlxfq<hash>`) e um verdict map (`@fwmap`). O padrão
-  está provado nesta base de código; falta generalizá-lo.
-- **Impacto real:** alto. É o requisito que desbloqueia 06 e o que torna a política
-  exprimível em termos de tenant.
-- **Esforço:** L
-- **Dependências:** RF-NET-05
-- **Recomendação: IMPLEMENTAR** — é a peça central do bloco B e deve vir antes de 06.
+- **Status: CONFIRMED** (absent)
+- **Evidence:** `FwRule.src: String` validated by `fw_src_ok` — **IPv4 CIDR only**. The
+  rules are generated with **literal addresses** (`fw_rule_tail`, `infra.rs:~2148`),
+  which is anti-pattern No. 4, described by the prompt as the current state.
+  *In favour of viability*: the engine **already uses named sets** in three places
+  (`@dlxall`, `@dlxns<hash>`, `@dlxfq<hash>`) and a verdict map (`@fwmap`). The pattern
+  is proven in this codebase; what's missing is generalising it.
+- **Real impact:** high. It's the requirement that unblocks 06 and the one that makes
+  policy expressible in tenant terms.
+- **Effort:** L
+- **Dependencies:** RF-NET-05
+- **Recommendation: IMPLEMENT** — it's the centrepiece of block B and should come before 06.
 
-### RF-NET-08 — Endereço de saída estável por rede
+### RF-NET-08 — Stable per-network egress address
 
-- **Estado: CONFIRMADO** (ausente) — **com dúvida séria de viabilidade em rootless**
-- **Evidência:** um único `slirp4netns` partilhado; `chain post` faz
-  `oifname "tap0" masquerade` sem distinção de rede. `network create` não tem
+- **Status: CONFIRMED** (absent) — **with serious doubt about rootless viability**
+- **Evidence:** a single shared `slirp4netns`; the `post` chain does
+  `oifname "tap0" masquerade` with no per-network distinction. `network create` has no
   `--egress-ip`.
-- **Impacto real:** real como requisito comercial, mas em **rootless o motor não tem
-  acesso às tabelas de encaminhamento do host** — o requisito 2 do prompt (policy
-  routing com tabela dedicada) não é satisfazível sem privilégio. As saídas viáveis
-  são: um `slirp4netns` **por rede** com `--outbound-addr` (a flag existe, é marcada
-  `experimental` pelo upstream), ou modo privilegiado explícito.
-- **Esforço:** L (por-rede via slirp) a XL (policy routing privilegiado)
-- **Dependências:** nenhuma
-- **Recomendação: REFORMULAR** — decidir primeiro, em ADR, entre "um slirp por rede"
-  e "modo privilegiado", e escrever o requisito contra a decisão. Como está, o
-  requisito 2 é irrealizável sob a restrição 2 da secção 5.
+- **Real impact:** real as a commercial requirement, but in **rootless the engine has no
+  access to the host's routing tables** — prompt requirement 2 (policy
+  routing with a dedicated table) is not satisfiable without privilege. The viable
+  escape routes are: a `slirp4netns` **per network** with `--outbound-addr` (the flag
+  exists, marked `experimental` upstream), or an explicit privileged mode.
+- **Effort:** L (per-network via slirp) to XL (privileged policy routing)
+- **Dependencies:** none
+- **Recommendation: REFRAME** — decide first, in an ADR, between "one slirp per
+  network" and "privileged mode", and write the requirement against the decision. As it
+  stands, requirement 2 is unachievable under restriction 2 of section 5.
 
-### RF-NET-09 — Endereço real do cliente
+### RF-NET-09 — Real client address
 
-- **Estado: PARCIAL** — a premissa principal está **REFUTADA por medição**
-- **Evidência:** medido nesta árvore com três clientes contra um `nginx` publicado,
-  lendo o log de acessos do próprio container:
+- **Status: PARTIAL** — the main premise is **REFUTED by measurement**
+- **Evidence:** measured in this tree with three clients against a published `nginx`,
+  reading the container's own access log:
 
-  | Cliente | Origem vista pelo container |
+  | Client | Origin seen by the container |
   |---|---|
-  | `127.0.0.1` | `10.0.2.2` (gateway do slirp) |
+  | `127.0.0.1` | `10.0.2.2` (slirp gateway) |
   | `172.16.31.103` (LAN) | **`172.16.31.103`** |
-  | `192.168.122.1` (gateway libvirt) | **`192.168.122.1`** |
+  | `192.168.122.1` (libvirt gateway) | **`192.168.122.1`** |
 
-  A libslirp só substitui a origem quando **não tem rota de volta** para ela, que é o
-  caso do loopback. Toda a origem roteável passa intacta. Documentado em
-  `delonix_net::SLIRP_GW` desde `f8ab32b`.
-  *Corolário verificado ao vivo*: `net ingress allow <c> <porta> --from <cidr>`
-  **funciona** contra um cliente remoto real (origem permitida 200, outra origem 000).
-  Logo os sub-requisitos 2 (PROXY protocol L4) e 3 (`net flow` pós-DNAT) **não têm
-  problema a resolver**.
-  *Confirma* o sub-requisito 1: `grep -i x-forwarded cmd/ingress_proxy.rs` → **vazio**.
-  O proxy L7 não propaga `X-Forwarded-For`/`-Proto`/`-Host`.
-- **Impacto real:** baixo, e circunscrito ao proxy L7.
-- **Esforço:** S
-- **Dependências:** nenhuma
-- **Recomendação: REFORMULAR** — reduzir ao sub-requisito 1 (cabeçalhos
-  `X-Forwarded-*` + `--trusted-proxies` no `httproute`). Descartar 2 e 3.
+  libslirp only substitutes the origin when it **has no route back** to it, which is the
+  case for loopback. Any routable origin passes through intact. Documented in
+  `delonix_net::SLIRP_GW` since `f8ab32b`.
+  *Verified corollary*: `net ingress allow <c> <port> --from <cidr>`
+  **works** against a real remote client (allowed origin 200, another origin 000).
+  So sub-requirements 2 (L4 PROXY protocol) and 3 (`net flow` post-DNAT) **have no
+  problem to solve**.
+  *Confirms* sub-requirement 1: `grep -i x-forwarded cmd/ingress_proxy.rs` → **empty**.
+  The L7 proxy does not propagate `X-Forwarded-For`/`-Proto`/`-Host`.
+- **Real impact:** low, and confined to the L7 proxy.
+- **Effort:** S
+- **Dependencies:** none
+- **Recommendation: REFRAME** — reduce to sub-requirement 1 (`X-Forwarded-*`
+  headers + `--trusted-proxies` on `httproute`). Drop 2 and 3.
 
-### RF-NET-10 — Limites no ingress
+### RF-NET-10 — Ingress limits
 
-- **Estado: PARCIAL**
-- **Evidência:** `do_l4guard` (`infra.rs:~1998`) já emite
-  `meter dlx_conn_rate { ip saddr limit rate over N/second burst … } counter drop` e
-  `meter dlx_conn_count { ip saddr ct count over N } counter drop`, com pré-voo
-  `nft -c` e degradação limpa se o kernel não suportar `meter`. Limitações: é
-  **global** ao ingress (não por rede, não por regra, não por porta), e só alcançável
-  por `kind: FirewallPolicy` com `rateLimit` — `grep set_l4_guard` fora do crate mostra
-  **zero comandos de CLI**.
-- **Impacto real:** médio. O mecanismo existe e funciona; falta granularidade e
-  superfície.
-- **Esforço:** M
-- **Dependências:** RF-NET-07 (para `ct count` por identidade e não por endereço)
-- **Recomendação: IMPLEMENTAR**, reaproveitando `do_l4guard` em vez de o reescrever.
+- **Status: PARTIAL**
+- **Evidence:** `do_l4guard` (`infra.rs:~1998`) already emits
+  `meter dlx_conn_rate { ip saddr limit rate over N/second burst … } counter drop` and
+  `meter dlx_conn_count { ip saddr ct count over N } counter drop`, with a pre-flight
+  `nft -c` and a clean degradation if the kernel doesn't support `meter`. Limitations: it's
+  **global** to ingress (not per network, not per rule, not per port), and only reachable
+  via `kind: FirewallPolicy` with `rateLimit` — `grep set_l4_guard` outside the crate shows
+  **zero CLI commands**.
+- **Real impact:** medium. The mechanism exists and works; granularity and
+  surface are missing.
+- **Effort:** M
+- **Dependencies:** RF-NET-07 (for `ct count` by identity instead of by address)
+- **Recommendation: IMPLEMENT**, reusing `do_l4guard` instead of rewriting it.
 
-### RF-NET-11 — Paridade IPv4/IPv6
+### RF-NET-11 — IPv4/IPv6 parity
 
-- **Estado: CONFIRMADO — CRÍTICO. Bypass reproduzido ao vivo.**
-- **Evidência (reprodução completa, dois containers na mesma rede):**
+- **Status: CONFIRMED — CRITICAL. Bypass reproduced live.**
+- **Evidence (full reproduction, two containers on the same network):**
 
   ```
   # firewall a NEGAR em IPv4
@@ -385,149 +385,149 @@ emitem eventos hoje**.
                                                              → ULA_BYPASS
   ```
 
-  Cadeia de factos que o produz:
-  1. `infra.rs:1184-1200` — a SDN **atribui deliberadamente** IPv6 ULA por rede
-     (`fd00:<2º octeto>::/64`), com endereço por container **derivável do IPv4**
-     (`fd00:<o2>::<o3>:<o4>`). Não é um acidente do kernel: é código.
-  2. A firewall inteira é `table ip` — **v4 apenas**. Confirmado: `nft list tables`
-     no holder devolve só `table ip dlxing`.
-  3. O `nginx:alpine` escuta em `:::80` por omissão (o próprio entrypoint da imagem
-     activa `listen [::]:80`), como a esmagadora maioria das imagens modernas.
-  4. Descoberta é trivial: um `ping -6 ff02::1%eth0` enumera **todos** os vizinhos da
-     bridge numa única passagem (medido: 3 respostas, incluindo o alvo).
-- **Impacto real:** **todo o modelo de política é contornável**, não apenas as regras
-  explícitas: `policy deny`, isolamento de namespace, `kind: Dependency` e os limites
-  do RF-NET-10 são todos `table ip`. Um tenant alcança containers de outro tenant por
-  ULA, sem privilégio, com um comando. O `--from` do RF-NET-07 herdaria o mesmo furo.
-- **Esforço:** M para a recusa explícita (desligar o ULA e dropar v6 na bridge);
-  L para paridade real (migrar para `table inet`, IPAM v6, sets duplos).
-- **Dependências:** nenhuma. **Bloqueia a utilidade de 02, 05, 06, 07 e 10.**
-- **Recomendação: IMPLEMENTAR PRIMEIRO** — sobe de P1 para P0, à frente de tudo o
-  resto. Recomenda-se a mitigação curta (desactivar o ULA + `ip6tables`/regra v6 de
-  drop na bridge, ou `table inet` com drop total de v6) numa versão de segurança
-  imediata, e a paridade completa como trabalho subsequente.
+  Chain of facts that produces it:
+  1. `infra.rs:1184-1200` — the SDN **deliberately assigns** a per-network IPv6 ULA
+     (`fd00:<2nd octet>::/64`), with a per-container address **derivable from the IPv4**
+     (`fd00:<o2>::<o3>:<o4>`). It's not a kernel accident: it's code.
+  2. The entire firewall is `table ip` — **v4 only**. Confirmed: `nft list tables`
+     in the holder returns only `table ip dlxing`.
+  3. `nginx:alpine` listens on `:::80` by default (the image's own entrypoint
+     enables `listen [::]:80`), like the vast majority of modern images.
+  4. Discovery is trivial: a `ping -6 ff02::1%eth0` enumerates **every** neighbour on the
+     bridge in a single pass (measured: 3 replies, including the target).
+- **Real impact:** **the entire policy model is bypassable**, not just the
+  explicit rules: `policy deny`, namespace isolation, `kind: Dependency` and the
+  RF-NET-10 limits are all `table ip`. One tenant reaches another tenant's containers
+  via ULA, without privilege, with a single command. RF-NET-07's `--from` would inherit the same hole.
+- **Effort:** M for the explicit refusal (disable ULA and drop v6 on the bridge);
+  L for real parity (migrate to `table inet`, v6 IPAM, dual sets).
+- **Dependencies:** none. **Blocks the usefulness of 02, 05, 06, 07 and 10.**
+- **Recommendation: IMPLEMENT FIRST** — raise it from P1 to P0, ahead of everything
+  else. The short mitigation is recommended (disable ULA + `ip6tables`/a v6
+  drop rule on the bridge, or `table inet` with a full v6 drop) in an immediate security
+  release, with full parity as follow-up work.
 
 ### RF-NET-12 — `delonix net policy explain`
 
-- **Estado: CONFIRMADO** (ausente)
-- **Evidência:** não existe grupo `net policy`. O mais próximo é o veredicto por
-  porta publicada (`published_reach`, `cmd/firewall.rs:781`, introduzido em `f8ab32b`),
-  que já resolve "esta porta responde, e a quem" — é o núcleo reutilizável.
-- **Impacto real:** alto em custo de suporte, nulo em segurança.
-- **Esforço:** M
-- **Dependências:** RF-NET-05 (a explicação só é correcta se a precedência for
-  determinística) e RF-NET-07.
-- **Recomendação: IMPLEMENTAR**, estendendo `published_reach` em vez de começar do
-  zero.
+- **Status: CONFIRMED** (absent)
+- **Evidence:** there is no `net policy` group. The closest thing is the verdict for a
+  published port (`published_reach`, `cmd/firewall.rs:781`, introduced in `f8ab32b`),
+  which already answers "does this port respond, and to whom" — it's the reusable core.
+- **Real impact:** high support cost, zero security impact.
+- **Effort:** M
+- **Dependencies:** RF-NET-05 (the explanation is only correct if precedence is
+  deterministic) and RF-NET-07.
+- **Recommendation: IMPLEMENT**, extending `published_reach` instead of starting from
+  scratch.
 
-### RF-NET-13 — Métricas de descarte
+### RF-NET-13 — Drop metrics
 
-- **Estado: PARCIAL**
-- **Evidência:** o registo Prometheus existe (`runtime-core/src/metrics.rs`) e é
-  exposto em `/metrics` pelo `delonix-mgmt` e pelo `delonix-cri`. **Não há nenhuma
-  métrica com labels** — zero `Family<…>` no ficheiro; todas as métricas actuais são
-  `Counter`/`Gauge` escalares. A forma `{container, direction, rule_id}` exige
-  plumbing novo.
-  *A favor*: desde `f8ab32b` **todas as regras emitem `counter`**, e existe já um
-  canal para os ler do holder (`fw_counters` → `fwstats`). A fonte de dados está
-  pronta; falta a exposição.
-- **Impacto real:** médio-alto (diagnóstico), nulo em segurança.
-- **Esforço:** M
-- **Dependências:** nenhuma para os dois primeiros contadores; RF-NET-04 para
-  `drift_total`; RF-NET-01 para `dns_learned_entries`.
-- **Recomendação: IMPLEMENTAR**
+- **Status: PARTIAL**
+- **Evidence:** the Prometheus registry exists (`runtime-core/src/metrics.rs`) and is
+  exposed at `/metrics` by `delonix-mgmt` and `delonix-cri`. **There is no metric with
+  labels at all** — zero `Family<…>` in the file; every current metric is a scalar
+  `Counter`/`Gauge`. The `{container, direction, rule_id}` shape requires
+  new plumbing.
+  *In favour*: since `f8ab32b` **every rule emits a `counter`**, and there is already a
+  channel to read them from the holder (`fw_counters` → `fwstats`). The data source is
+  ready; exposing it is what's missing.
+- **Real impact:** medium-to-high (diagnostics), zero on security.
+- **Effort:** M
+- **Dependencies:** none for the first two counters; RF-NET-04 for
+  `drift_total`; RF-NET-01 for `dns_learned_entries`.
+- **Recommendation: IMPLEMENT**
 
-### RF-NET-14 — Auditoria encadeada
+### RF-NET-14 — Chained audit
 
-- **Estado: PARCIAL — com conflito de desenho a resolver**
-- **Evidência:**
-  - `events.jsonl` existe e é append-only (`runtime-core/src/events.rs`).
-  - Alterações de política de rede **não emitem eventos**: `grep events:: cmd/firewall.rs`
-    → vazio. Falta o requisito antes ainda de falar em encadeamento.
-  - **Conflito**: o módulo é explicitamente **sem lock**, e o cabeçalho documenta
-    porquê — a atomicidade vem de um `write` `O_APPEND` abaixo de `PIPE_BUF`, o que
-    permite N processos efémeros a escrever em concorrência sem `flock`. Encadear por
-    hash **obriga a ler a última linha antes de escrever**, o que reintroduz uma
-    secção crítica entre processos. Ou se aceita um `flock` (e perde-se a propriedade
-    que o desenho protege), ou se usa um esquema que não dependa do predecessor
-    imediato (p.ex. assinatura por entrada, ou encadeamento por época com selagem
-    periódica).
-  - A rotação para `.1` com uma só geração também **quebra a cadeia** por desenho.
-- **Impacto real:** médio. Relevante para apresentação em auditoria, não para a
-  postura de segurança do datapath.
-- **Esforço:** M para emitir eventos; L para o encadeamento com o conflito resolvido.
-- **Dependências:** nenhuma
-- **Recomendação: REFORMULAR** — separar em dois: (a) emitir eventos de política de
-  rede, que é puro ganho e sem conflito; (b) encadeamento, que precisa de um ADR
-  próprio a decidir o compromisso com o desenho sem lock e com a rotação.
-
----
-
-## 3. Lacunas não previstas
-
-1. **Caminho de dados IPv6 paralelo e não filtrado** — ver RF-NET-11. Não é uma
-   omissão de v6: é uma SDN v6 **construída de propósito** e deixada sem política.
-   É o achado que reordena todo o plano.
-2. **`vm bridge` escreve na `FORWARD` do host** (`cmd/vmbridge.rs:116-119,161-164`,
-   `iptables -I FORWARD`). Viola a restrição 5. É privilegiado e opt-in, mas é estado
-   partilhado que o motor cria e de que ninguém reconcilia.
-3. **O anti-padrão nº 6 é o estado actual de todo o crate.** O prompt proíbe
-   "shell out para `nft` quando existe ligação netlink"; `delonix-net` invoca o
-   binário `nft` em **todos** os caminhos, e faz *parsing* de texto para descobrir
-   handles e elementos de mapa. Cumprir o requisito é reescrever o datapath sobre
-   netlink — trabalho de dimensão XL, independente dos catorze requisitos. **Tem de
-   ser negociado explicitamente**: ou se isenta o código existente e a proibição vale
-   só para código novo, ou entra como bloco próprio com o seu próprio orçamento.
-   Nota atenuante: as invocações são `Command::new` com argv vectorizado (sem shell),
-   e os campos interpolados passam por validadores dedicados (`fw_src_ok`,
-   `fw_port_ok`, `fw_proto_ok`, `validate_publish`), pelo que a superfície de injecção
-   é menor do que "shell out" sugere. O problema real é a ausência de transacção e a
-   fragilidade do parsing, não a injecção.
-4. **Estado no netns efémero do holder** — ver RF-NET-04. Toda a política desaparece
-   com o holder, e não é reconstruída.
-5. **Pods (CRI) e VMs fora do isolamento de namespace** — já registado no `AGENTS.md`
-   como limitação conhecida; relevante porque RF-NET-06 promete "todos os containers
-   que satisfaçam o selector" e o CRI atacha por outro caminho.
-6. **`l4guard` global e só por manifesto** — ver RF-NET-10.
-7. **Desvio de versão anunciada** — `README.rst` diz `0.32.2`, `Cargo.toml` diz
-   `0.37.0`. Confirma o deliverable 10.
+- **Status: PARTIAL — with a design conflict to resolve**
+- **Evidence:**
+  - `events.jsonl` exists and is append-only (`runtime-core/src/events.rs`).
+  - Network policy changes **don't emit events**: `grep events:: cmd/firewall.rs`
+    → empty. The requirement is missing before chaining even comes into play.
+  - **Conflict**: the module is explicitly **lock-free**, and the header documents
+    why — atomicity comes from an `O_APPEND` `write` below `PIPE_BUF`, which
+    lets N ephemeral processes write concurrently without `flock`. Chaining by
+    hash **requires reading the last line before writing**, which reintroduces a
+    critical section between processes. Either a `flock` is accepted (losing the property
+    the design protects), or a scheme is used that doesn't depend on the immediate
+    predecessor (e.g. a per-entry signature, or epoch-based chaining with periodic
+    sealing).
+  - The rotation to `.1` with a single generation also **breaks the chain** by design.
+- **Real impact:** medium. Relevant for audit presentation, not for the
+  datapath's security posture.
+- **Effort:** M to emit events; L for chaining once the conflict is resolved.
+- **Dependencies:** none
+- **Recommendation: REFRAME** — split in two: (a) emit network policy events,
+  which is pure gain with no conflict; (b) chaining, which needs its own ADR
+  to decide the trade-off with the lock-free design and with rotation.
 
 ---
 
-## 4. Sequência de implementação proposta
+## 3. Unanticipated gaps
 
-Diverge da secção 7 do prompt, e a razão é o RF-NET-11.
+1. **Parallel, unfiltered IPv6 data path** — see RF-NET-11. It's not an
+   omission of v6: it's a v6 SDN **built on purpose** and left without policy.
+   It's the finding that reorders the entire plan.
+2. **`vm bridge` writes to the host's `FORWARD`** (`cmd/vmbridge.rs:116-119,161-164`,
+   `iptables -I FORWARD`). It violates restriction 5. It's privileged and opt-in, but it's shared
+   state that the engine creates and that nobody reconciles.
+3. **Anti-pattern No. 6 is the current state of the entire crate.** The prompt forbids
+   "shelling out to `nft` when a netlink connection exists"; `delonix-net` invokes the
+   `nft` binary on **every** path, and parses text to discover
+   handles and map elements. Meeting the requirement means rewriting the datapath over
+   netlink — an XL-sized piece of work, independent of the fourteen requirements. **It has to
+   be negotiated explicitly**: either the existing code is exempted and the ban applies
+   only to new code, or it enters as its own block with its own budget.
+   Mitigating note: the invocations are `Command::new` with a vectorised argv (no shell),
+   and the interpolated fields go through dedicated validators (`fw_src_ok`,
+   `fw_port_ok`, `fw_proto_ok`, `validate_publish`), so the injection surface
+   is smaller than "shelling out" suggests. The real problem is the lack of transactions and
+   the fragility of the parsing, not injection.
+4. **State in the holder's ephemeral netns** — see RF-NET-04. The entire policy disappears
+   with the holder, and it is not rebuilt.
+5. **Pods (CRI) and VMs outside namespace isolation** — already recorded in `AGENTS.md`
+   as a known limitation; relevant because RF-NET-06 promises "every container
+   matching the selector" and the CRI attaches via a different path.
+6. **`l4guard` global and manifest-only** — see RF-NET-10.
+7. **Announced version drift** — `README.rst` says `0.32.2`, `Cargo.toml` says
+   `0.37.0`. Confirms deliverable 10.
 
-| Ordem | Bloco | Conteúdo | Porquê aqui |
+---
+
+## 4. Proposed implementation sequence
+
+Diverges from section 7 of the prompt, and the reason is RF-NET-11.
+
+| Order | Block | Content | Why here |
 |---|---|---|---|
-| **0** | **Segurança imediata** | **RF-NET-11 (mitigação) + RF-NET-02** | Enquanto o caminho v6 estiver aberto, toda a política é decorativa e qualquer trabalho nos blocos seguintes assenta em falso. Publicar como versão de segurança. |
-| 1 | A′ | RF-NET-03, RF-NET-05 (reformulado) | Fail-closed e precedência explícita são a base sobre a qual o modelo novo assenta. |
-| 2 | A″ | RF-NET-01 (reformulado) | DNAT do :53, TTL, metadados, scoping por cliente. Independente. |
-| 3 | B | RF-NET-07 → RF-NET-06 | Sets nomeados primeiro, selector depois — pela ordem inversa da do prompt, porque 06 sem 07 obriga a reprogramar regras a cada evento (anti-padrão nº 4). |
-| 4 | C | RF-NET-12, RF-NET-13, RF-NET-14(a) | Paga o suporte dos anteriores. `explain` estende `published_reach`. |
-| 5 | D | RF-NET-04 | Reconciliação, com as métricas de C já disponíveis. Alvo: respawn do holder. |
-| 6 | E | RF-NET-11 (paridade completa), RF-NET-10, RF-NET-09(reduzido) | Paralelizáveis. |
-| — | Fora | RF-NET-08, RF-NET-14(b) | Cada um precisa de ADR próprio antes de código. |
+| **0** | **Immediate security** | **RF-NET-11 (mitigation) + RF-NET-02** | While the v6 path stays open, the entire policy is decorative and any work on the following blocks rests on a false premise. Publish as a security release. |
+| 1 | A′ | RF-NET-03, RF-NET-05 (reframed) | Fail-closed and explicit precedence are the foundation the new model rests on. |
+| 2 | A″ | RF-NET-01 (reframed) | DNAT of :53, TTL, metadata, per-client scoping. Independent. |
+| 3 | B | RF-NET-07 → RF-NET-06 | Named sets first, selector after — the reverse order from the prompt, because 06 without 07 forces reprogramming rules on every event (anti-pattern No. 4). |
+| 4 | C | RF-NET-12, RF-NET-13, RF-NET-14(a) | Pays for the support cost of the previous ones. `explain` extends `published_reach`. |
+| 5 | D | RF-NET-04 | Reconciliation, with C's metrics already available. Target: holder respawn. |
+| 6 | E | RF-NET-11 (full parity), RF-NET-10, RF-NET-09 (reduced) | Parallelisable. |
+| — | Out | RF-NET-08, RF-NET-14(b) | Each needs its own ADR before code. |
 
 ---
 
-## 5. Critério de aceite da Fase 0 — verificação
+## 5. Phase 0 acceptance criteria — verification
 
-| Critério | Estado |
+| Criterion | Status |
 |---|---|
-| Catorze requisitos classificados | ✅ |
-| Nenhum `INDETERMINADO` nos P0 | ✅ — 01, 02, 03, 04, 05 todos com evidência medida ou lida |
-| Teste exploratório de precedência executado e registado | ✅ secção 1.4 |
-| Teste exploratório de IPv6 executado e registado | ✅ secção 1.5 e RF-NET-11 |
-| Sequência de implementação proposta e justificada | ✅ secção 4 |
+| Fourteen requirements classified | ✅ |
+| No `INDETERMINATE` among the P0s | ✅ — 01, 02, 03, 04, 05 all with measured or read evidence |
+| Precedence exploratory test run and recorded | ✅ section 1.4 |
+| IPv6 exploratory test run and recorded | ✅ section 1.5 and RF-NET-11 |
+| Implementation sequence proposed and justified | ✅ section 4 |
 
-**Pontos que exigem decisão do utilizador antes da Fase 1:**
+**Points that need a user decision before Phase 1:**
 
-1. **RF-NET-11 primeiro**, à frente do bloco A — confirmar a reordenação.
-2. **Anti-padrão nº 6 (netlink)** — isentar o código existente, ou orçamentar a
-   reescrita do datapath?
-3. **RF-NET-05** — `priority` aditivo com ordem de inserção preservada
-   (recomendado), ou reordenação global assumida como *breaking*?
-4. **RF-NET-08** — qual das duas saídas rootless, ou modo privilegiado?
-5. **RF-NET-09** — aceitar a redução ao sub-requisito 1, dado que a premissa
-   principal foi refutada por medição?
+1. **RF-NET-11 first**, ahead of block A — confirm the reordering.
+2. **Anti-pattern No. 6 (netlink)** — exempt the existing code, or budget the
+   datapath rewrite?
+3. **RF-NET-05** — additive `priority` with insertion order preserved
+   (recommended), or a global reordering assumed as `breaking`?
+4. **RF-NET-08** — which of the two rootless escape routes, or privileged mode?
+5. **RF-NET-09** — accept the reduction to sub-requirement 1, given that the main
+   premise was refuted by measurement?

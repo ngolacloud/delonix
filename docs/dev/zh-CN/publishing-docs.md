@@ -17,7 +17,7 @@
 | 表面 | 是什么 | 如何保持真实 |
 |---|---|---|
 | `README.rst` | 项目的门面页 | 手写，由 `docs_cli_gate.py` 检查 |
-| `docs/*.html`、`docs/comandos/*.html` | 用户站点 | 由 `docs/gen.py` 从二进制文件的 `--help` 加上生成器里的编辑文字**生成**；由 `docs` CI 任务以及发布时检查 |
+| `docs/*.html`、`docs/commands/*.html` | 用户站点 | 由 `docs/gen.py` 从二进制文件的 `--help` 加上生成器里的编辑文字**生成**；由 `docs` CI 任务以及发布时检查 |
 | `docs/releases/v<version>.md` | 发布说明，一个标签一份 | 在发布提交中手写；作为 GitHub Release 的正文发布 |
 | `docs/RELEASES.md` | 按发布版本划分的功能附录 | 由 `scripts/gen-releases.sh` 从 `docs/releases/` **生成**；绝不手动编辑 |
 | `ARCHITECTURE.md` | C4 架构图 | 手写，与代码保持同步；由 `docs/gen.py` 渲染进站点 |

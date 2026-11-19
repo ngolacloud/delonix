@@ -1,24 +1,24 @@
-# Estrutura de recursos
+# Resource structure
 
-O que se pode escrever num manifesto, com que `apiVersion`, e o que acontece a
-cada documento depois de carregado.
+What can be written in a manifest, with which `apiVersion`, and what happens to
+each document once loaded.
 
-Esta página não é escrita à mão a partir de uma lista: sai do mesmo registo que
-o parser, o schema, a completação e o reconciliador leem. Para a ver no teu
-próprio motor, em vez de aqui:
+This page is not written by hand from a list: it comes from the same registry the
+parser, the schema, completion and the reconciler read. To see it on your own
+engine, instead of here:
 
 ```bash
 delonix api-resources
 delonix api-resources -o json
 ```
 
-## Os grupos
+## The groups
 
-Cada Kind vive num grupo, e o grupo faz parte da identidade — um
-`apiVersion: storage.delonix.io/v1alpha1` num `kind: Pod` é recusado, com as
-duas formas aceites nomeadas no erro.
+Every Kind lives in a group, and the group is part of its identity — an
+`apiVersion: storage.delonix.io/v1alpha1` on a `kind: Pod` is refused, with both
+accepted forms named in the error.
 
-| grupo | Kinds |
+| group | Kinds |
 |---|---|
 | `core.delonix.io/v1alpha1` | `Secret`, `Stack` |
 | `compute.delonix.io/v1alpha1` | `Pod`, `VirtualMachine`, `Container`, `Workload` |
@@ -28,82 +28,84 @@ duas formas aceites nomeadas no erro.
 | `artifact.delonix.io/v1alpha1` | `Image` |
 | `infrastructure.delonix.io/v1alpha1` | `KubernetesCluster` |
 
-## `apiVersion: delonix.io/v1` continua a carregar
+## `apiVersion: delonix.io/v1` still loads
 
-Não é uma grafia legada a caminho da porta. A [promessa de
-estabilidade](estabilidade.html) diz que o `delonix.io/v1` só muda com um `v2`
-que o continue a aceitar, e essa promessa mantém-se: **um manifesto escrito antes
-desta reorganização carrega sem uma alteração**.
+It is not a legacy spelling on its way out the door. The [stability
+promise](estabilidade.html) says `delonix.io/v1` only changes with a `v2` that
+still accepts it, and that promise holds: **a manifest written before this
+reorganisation loads without a single change**.
 
-O corte limpo aplica-se a **comandos**. Um ficheiro que está em git, revisto em
-PR e apontado por `$schema` num editor, ganha um degrau — não um erro.
+The clean cut applies to **commands**. A file that is in git, reviewed in a PR and
+pointed at by `$schema` in an editor, gains a step — not an error.
 
-## O que acontece a cada documento
+## What happens to each document
 
-A coluna `FORM` do `api-resources` é a que não se adivinha: diz se um documento
-daquele Kind **sobrevive ao load com o próprio nome**. É a resposta a «porque é
-que o meu `kind: Dependency` nunca aparece no plano com esse nome».
+The `FORM` column of `api-resources` is the one you cannot guess: it says whether
+a document of that Kind **survives loading under its own name**. That is the
+answer to «why does my `kind: Dependency` never show up in the plan under that
+name».
 
-| forma | significado |
+| form | meaning |
 |---|---|
-| `primary` | tem apply próprio e sobrevive ao load |
-| `sugar → X` | é reescrito em `X` por conveniência |
-| `compat → X` | schema estrangeiro aceite tal e qual, compilado sobre o mecanismo de `X` |
-| `aggregate` | expande-se nos documentos que contém |
-| `sunset → X` | **funciona e não é reescrito** — mas `X` é o caminho a seguir |
+| `primary` | has its own apply and survives loading |
+| `sugar → X` | is rewritten as `X` for convenience |
+| `compat → X` | a foreign schema accepted as-is, compiled over `X`'s mechanism |
+| `aggregate` | expands into the documents it contains |
+| `sunset → X` | **works and is not rewritten** — but `X` is the way forward |
 
-### `sunset` é diferente de `deprecated`, e a diferença é o ponto
+### `sunset` is different from `deprecated`, and the difference is the point
 
-Um Kind `deprecated` é **reescrito** no load, e quem o escreveu ganha o
-comportamento do sucessor de graça. Um Kind `sunset` **não** é reescrito, porque
-reescrevê-lo mudaria o que o motor FAZ.
+A `deprecated` Kind is **rewritten** on load, and whoever wrote it gets the
+successor's behaviour for free. A `sunset` Kind is **not** rewritten, because
+rewriting it would change what the engine DOES.
 
-O `kind: Container` é o caso que forçou a distinção. Baixá-lo para um
-`kind: Pod` de um container parece uma renomeação e não é: um Pod constrói
-sempre uma netns partilhada e os membros entram nela por re-exec, portanto todo
-o container declarado passaria a ter um holder de netns extra e um caminho de
-rede diferente. A metade do nome era solúvel; a da netns não é.
+`kind: Container` is the case that forced the distinction. Lowering it to a
+`kind: Pod` with one container looks like a rename and is not: a Pod always
+builds a shared netns and its members join it by re-exec, so every declared
+container would gain an extra netns holder and a different network path. The
+name half was solvable; the netns half is not.
 
-Por isso é **anunciado, não reescrito**: continua a funcionar, com um aviso por
-carregamento a dizer que `kind: Pod` é o caminho. Uma major futura remove-o,
-depois de os manifestos terem migrado.
+So it is **announced, not rewritten**: it keeps working, with a warning on every
+load saying `kind: Pod` is the way forward. A future major removes it, once
+manifests have migrated.
 
-## Kinds removidos
+## Removed Kinds
 
-Três Kinds **deixaram de existir**. A recusa nomeia o que escrever em vez deles,
-em vez de dizer «Kind desconhecido» — que faria um manifesto correcto até ontem
-parecer um erro de escrita:
+Three Kinds **stopped existing**. The refusal names what to write instead, rather
+than saying «unknown Kind» — which would make a manifest that was correct until
+yesterday look like a typo:
 
-| removido | escrever |
+| removed | write |
 |---|---|
-| `Storage` | `kind: Volume` com um bloco `nfs:`/`cifs:`/`webdav:` |
-| `ShareVolume` | `kind: Volume` com um bloco `share:` |
-| `Egress` | `kind: NetworkPolicy` com `direction: egress` |
+| `Storage` | `kind: Volume` with an `nfs:`/`cifs:`/`webdav:` block |
+| `ShareVolume` | `kind: Volume` with a `share:` block |
+| `Egress` | `kind: NetworkPolicy` with `direction: egress` |
 
-Os três eram **reescritos** no load para exactamente estas formas, portanto o que
-o motor faz não mudou — mudou quem tem de escrever a forma final. Ver as notas
-da versão que os removeu para a migração.
+All three were **rewritten** on load into exactly these forms, so what the engine
+does did not change — what changed is who has to write the final form. See the
+release notes of the version that removed them for migration.
 
-## Nomes antigos que continuam a resolver
+## Old names that still resolve
 
-Quatro Kinds foram renomeados. O nome antigo é um **alias silencioso** — não há
-aviso, porque uma renomeação não muda o que o documento significa e não há nada
-para migrar:
+Four Kinds were renamed. The old name is a **silent alias** — there is no warning,
+because a rename does not change what the document means and there is nothing to
+migrate:
 
-| antes | agora |
+| before | now |
 |---|---|
 | `Vm` | `VirtualMachine` |
 | `FirewallPolicy` | `NetworkPolicy` |
 | `Tunnel` | `Gateway` |
 | `Cluster` | `KubernetesCluster` |
 
-O alias vale em todo o lado, não só no carregador: `delonix explain Cluster`
-resolve tanto quanto `delonix explain KubernetesCluster`.
+The alias works everywhere, not only in the loader: `delonix explain Cluster`
+resolves just as `delonix explain KubernetesCluster` does.
 
-## Plurais e abreviaturas
+## Plurals and abbreviations
 
-O `get`, o `describe` e o `explain` aceitam quatro grafias de cada Kind — o nome
-canónico, o singular em minúsculas, o plural e a abreviatura declarada:
+`get`, `describe` and `explain` accept four spellings of each Kind — the
+canonical name, the lowercase singular, the plural and the declared
+abbreviation:
 
 ```bash
 delonix explain Pod
@@ -112,11 +114,11 @@ delonix explain pods
 delonix explain po
 ```
 
-As abreviaturas são deliberadamente poucas — existe uma quando é inequívoca e
-vale a pena escrever. `delonix api-resources` lista as que há.
+Abbreviations are deliberately few — one exists when it is unambiguous and worth
+writing. `delonix api-resources` lists the ones there are.
 
-## O que ainda não existe
+## What does not exist yet
 
-O `kind: Service` está previsto e **ainda não foi implementado**. Hoje a
-publicação de portas faz-se pelo `-p` do `container run` e pelo
-`delonix net ingress publish`; a forma declarativa entra numa versão seguinte.
+`kind: Service` is planned and **not yet implemented**. Today port publishing is
+done via `container run`'s `-p` and `delonix net ingress publish`; the
+declarative form comes in a later version.

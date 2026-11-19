@@ -1,113 +1,115 @@
-# Lab 4 — Do Dockerfile à imagem, sem daemon
+# Lab 4 — From a Dockerfile to an image, without a daemon
 
-> **Identificador:** `lab-4` · **Nível:** intermédio · **Jornada:** primeiro contacto
+> **Identifier:** `lab-4` · **Level:** intermediate · **Track:** first contact
 
-## Objectivo concreto
+## Concrete objective
 
-Construir uma imagem a partir de um **`Delonixfile`** (sem `-f`, sem daemon) e
-correr o que construíste com `--wait`, provando de forma **funcional** que o
-`HEALTHCHECK` passou: a coluna STATUS de `container ps` mostra `(healthy)`, não
-apenas `Up`. O motor sonda o container **sozinho** — sem systemd, ao contrário
-do Podman rootless.
+Build an image from a **`Delonixfile`** (no `-f`, no daemon) and run what you
+built with `--wait`, proving **functionally** that the `HEALTHCHECK` passed: the
+STATUS column of `container ps` shows `(healthy)`, not just `Up`. The engine
+probes the container **on its own** — no systemd, unlike Podman rootless.
 
-## Conhecimentos prévios
+## Prerequisite knowledge
 
-Terminal Linux e noção de container/imagem. O Lab 1 ajuda mas não é obrigatório.
+A Linux terminal and a notion of container/image. Lab 1 helps but is not
+required.
 
-## Versão e ambiente testados
+## Version and environment tested
 
-> **Baseline histórica (linha 5.1.x):** os valores abaixo foram medidos na linha antiga e **ainda não foram re-medidos na linha 0.1.0 actual**.
+> **Historical baseline (line 5.1.x):** the values below were measured on the old line and **have not yet been re-measured on the current 0.1.0 line**.
 
-`delonix 5.1.1`, Linux com cgroup v2, execução rootless. Validado a 2026-10-24
-(build a partir do `Delonixfile` com precedência sobre o `Dockerfile`, e
-`(healthy)` lido de `container ps -o json` — positivo `EXIT=0`; os dois modos de
-falha — «build falhou» e «healthcheck nunca passou» — comprovados a dar
-`EXIT=1` com mensagens distintas).
+`delonix 5.1.1`, Linux with cgroup v2, rootless execution. Validated on
+2026-10-24 (building from the `Delonixfile` with precedence over the
+`Dockerfile`, and `(healthy)` read from `container ps -o json` — positive
+`EXIT=0`; both failure modes — «build failed» and «healthcheck never passed» —
+confirmed to give `EXIT=1` with distinct messages).
 
-## Recursos mínimos
+## Minimal resources
 
-~15 MiB de disco para `alpine:latest` + o `curl` instalado na camada; rede para
-o primeiro `pull` da base e para o `apk add`.
+~15 MiB of disk for `alpine:latest` + `curl` installed in the layer; network
+for the first base `pull` and for `apk add`.
 
-## Privilégios e acessos necessários
+## Privileges and access required
 
-Nenhum `sudo`. Build e execução correm rootless.
+No `sudo`. Build and run both run rootless.
 
-## Duração estimada
+## Estimated duration
 
-~10 segundos depois da base em cache (dominado pelo `apk add --no-cache curl` e
-por uma ou duas sondas do healthcheck).
+~10 seconds once the base is cached (dominated by `apk add --no-cache curl` and
+by one or two healthcheck probes).
 
-## Ficheiros de preparação
+## Preparation files
 
-Nenhum ficheiro externo. O `Delonixfile`, o `ola.txt` que ele faz `COPY` e um
-`Dockerfile`-**isco** (base inexistente, para provar a precedência) são **gerados
-pelo próprio lab** num diretório de build **no estado do lab** (nunca no repo) e
-removidos na limpeza. O arnês está nesta pasta:
+No external file. The `Delonixfile`, the `ola.txt` it `COPY`s, and a
+**decoy** `Dockerfile` (nonexistent base, to prove precedence) are **generated
+by the lab itself** in a build directory **under the lab's state** (never in
+the repo) and removed on cleanup. The harness lives in this folder:
 
-| Ficheiro | Fase |
+| File | Phase |
 |---|---|
-| `prepare.sh` | garante pré-requisitos e a imagem base; limpa restos |
-| `run.sh`     | escreve o `Delonixfile` (+ `Dockerfile`-isco), `build` sem `-f`, `run --wait` |
-| `verify.sh`  | asserção do build, da precedência e do `(healthy)` |
-| `cleanup.sh` | remove só o que o lab criou (container, imagem, diretório de build) |
-| `lab.sh`     | orquestrador `prepare → run → verify → cleanup` |
+| `prepare.sh` | ensures prerequisites and the base image; cleans up leftovers |
+| `run.sh`     | writes the `Delonixfile` (+ decoy `Dockerfile`), `build` without `-f`, `run --wait` |
+| `verify.sh`  | asserts the build, the precedence and the `(healthy)` |
+| `cleanup.sh` | removes only what the lab created (container, image, build directory) |
+| `lab.sh`     | `prepare → run → verify → cleanup` orchestrator |
 
-## Como correr
+## How to run
 
 ```bash
-# com o delonix no PATH (instalação normal):
+# with delonix on PATH (normal install):
 bash docs/labs/lab-4/lab.sh
 
-# apontando a um binário específico (ex.: build local):
-DELONIX=/caminho/para/delonix bash docs/labs/lab-4/lab.sh
+# pointing at a specific binary (e.g. a local build):
+DELONIX=/path/to/delonix bash docs/labs/lab-4/lab.sh
 
-# deixar o container e a imagem de pé para explorar:
+# leave the container and image standing to explore:
 bash docs/labs/lab-4/lab.sh --no-clean
 ```
 
-## Passos (o que `run.sh` faz) e porquê
+## Steps (what `run.sh` does) and why
 
-1. Escreve um `Delonixfile` (`FROM alpine` → `RUN apk add curl` → `COPY ola.txt`
-   → `HEALTHCHECK test -f /ola.txt` → `CMD`) e um `Dockerfile`-**isco** cuja base
-   não existe, ambos no diretório de build.
-2. `build -t minha-app:1.0 <dir>` **sem `-f`**: o `Delonixfile` é procurado
-   **antes** de qualquer `Dockerfile`. Como o isco falharia o build, o build a
-   passar é a prova da precedência.
-3. `container run -d --name a1 --wait --health-interval 2`: o `--wait` bloqueia
-   até o `HEALTHCHECK` passar (ou o `--wait-timeout` esgotar), poupando o
-   `until ...; do sleep 1; done` que todo o script acaba por escrever — e mal.
-4. `container ps` para veres o estado pelo CLI.
+1. Writes a `Delonixfile` (`FROM alpine` → `RUN apk add curl` → `COPY ola.txt`
+   → `HEALTHCHECK test -f /ola.txt` → `CMD`) and a **decoy** `Dockerfile` whose
+   base does not exist, both in the build directory.
+2. `build -t minha-app:1.0 <dir>` **without `-f`**: the `Delonixfile` is looked
+   for **before** any `Dockerfile`. Since the decoy would fail the build, a
+   passing build is the proof of precedence.
+3. `container run -d --name a1 --wait --health-interval 2`: `--wait` blocks
+   until the `HEALTHCHECK` passes (or `--wait-timeout` runs out), sparing the
+   `until ...; do sleep 1; done` every script ends up writing — and badly.
+4. `container ps` to see the state via the CLI.
 
-## Checkpoints / asserções de sucesso (o que `verify.sh` exige)
+## Checkpoints / success assertions (what `verify.sh` requires)
 
-- **A** — o **build produziu a imagem** (`minha-app:1.0` existe no store). É a
-  primeira bifurcação: sem imagem, dizemos **«BUILD FALHOU»** — não é o
-  healthcheck.
-- **B** — **precedência**: o `Dockerfile`-isco esteve presente e, ainda assim, o
-  build passou → `delonix build` sem `-f` escolheu o `Delonixfile` primeiro.
-- **C** — o container está **Up** (não saiu). Um processo que morre é dito como
-  tal, não confundido com um healthcheck que não passa.
-- **D** — a coluna STATUS de `container ps -o json` mostra **`(healthy)`**, com
-  **retry** (o `(healthy)` só surge depois de uma ou duas sondas, mesmo após o
-  `--wait`). O arnês **falha em voz alta** se nunca ficar healthy — e, como **A**
-  já provou o build, essa falha é **inequivocamente** o healthcheck, dita
-  **«HEALTHCHECK NUNCA PASSOU»**, nunca um build partido em silêncio.
+- **A** — the **build produced the image** (`minha-app:1.0` exists in the
+  store). This is the first fork: without an image, we say **«BUILD
+  FAILED»** — not the healthcheck.
+- **B** — **precedence**: the decoy `Dockerfile` was present and the build
+  still passed → `delonix build` without `-f` chose the `Delonixfile` first.
+- **C** — the container is **Up** (did not exit). A process that dies is
+  reported as such, never confused with a healthcheck that does not pass.
+- **D** — the STATUS column of `container ps -o json` shows **`(healthy)`**,
+  with **retry** (`(healthy)` only appears after one or two probes, even after
+  `--wait`). The harness **fails loudly** if it never becomes healthy — and,
+  since **A** already proved the build, that failure is **unambiguously** the
+  healthcheck, stated as **«HEALTHCHECK NEVER PASSED»**, never a silently
+  broken build.
 
-## Limpeza
+## Cleanup
 
-`cleanup.sh` remove o container `a1`, a imagem `minha-app:1.0` e o diretório de
-build. **Não** remove a base `alpine` (outros labs reutilizam-na).
+`cleanup.sh` removes the `a1` container, the `minha-app:1.0` image and the
+build directory. It does **not** remove the `alpine` base (other labs reuse
+it).
 
-## Resultado aprendido
+## Lesson learned
 
-Uma imagem nasce de um `Delonixfile` sem daemon e sem `-f`, e o motor passa a
-sondar a saúde do container **ele próprio**. A prova de que a imagem está boa
-nunca é «o build não deu erro»: é o container a atingir `(healthy)` por si — e o
-arnês separa, com palavras diferentes, uma imagem que não construiu de uma sonda
-de saúde que nunca ficou verde.
+An image is born from a `Delonixfile` with no daemon and no `-f`, and the
+engine goes on to probe the container's health **itself**. The proof the
+image is good is never «the build did not error»: it is the container
+reaching `(healthy)` on its own — and the harness separates, with different
+words, an image that did not build from a health probe that never turned
+green.
 
-## Próximo lab
+## Next lab
 
-**Lab 5 — Uma microVM a sério** (uma VM completa com o mesmo CLI dos
-containers).
+**Lab 5 — A real microVM** (a full VM with the same CLI as containers).

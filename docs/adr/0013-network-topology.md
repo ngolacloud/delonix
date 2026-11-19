@@ -180,124 +180,122 @@ complete bypass of the policy model). A routed topology is where v6 stops being 
 re-enabling it is a security decision, not a networking one.
 
 
-## Onde isto está (2026-08-12) e o que falta para «tudo funcional»
+## Where this stands (2026-08-12) and what's left for "fully functional"
 
-Implementado nesta série, com validação ao vivo em root isolado:
+Implemented in this series, with live validation in isolated root:
 
-| | estado |
+| | status |
 |---|---|
-| isolamento entre redes (set + verdict map, com contador) | **feito** — era uma malha O(n²) sem contadores; medido, 8 bridges → 73 regras → **2** |
-| camada B — `network route` + `kind: NetworkRoute` | **feito** — dirigida, e o retorno flui por `established`; **reversível** desde a série seguinte, ver abaixo |
-| camada C — `network vlan` (802.1Q) | **feito**, privilegiado e contido; falta uma corrida real com `sudo` |
-| camada A — o tipo `Cidr` e a sua aritmética | **fundação feita**, IPAM por ligar |
+| isolation between networks (set + verdict map, with counter) | **done** — it was an O(n²) mesh with no counters; measured, 8 bridges → 73 rules → **2** |
+| tier B — `network route` + `kind: NetworkRoute` | **done** — directed, and the return flows via `established`; **reversible** as of the next series, see below |
+| tier C — `network vlan` (802.1Q) | **done**, privileged and contained; a real run with `sudo` is still needed |
+| tier A — the `Cidr` type and its arithmetic | **foundation done**, IPAM still to be wired in |
 
-Falta exactamente isto, e nada mais, para o que o utilizador chamou «tudo
-funcional a nível de rede»:
+Exactly this, and nothing more, is missing for what the user called "fully
+functional at the networking level":
 
-### 0. A camada B ficou reversível (fechado)
+### 0. Tier B became reversible (closed)
 
-A camada B entregou o caminho e não o inverso: a `kind: NetworkRoute` era aplicada e validada mas
-ficava fora do `CONVERGING_KINDS`, sem posse e sem teardown. Tirá-la do manifesto e correr
-`stack apply --prune` **não a fechava**, o `stack destroy` também não, e o `stack ls` respondia
-`?  unsupported kind`. Uma excepção ao isolamento que o manifesto abria e não sabia fechar.
+Tier B delivered the path and not its reverse: `kind: NetworkRoute` was applied and validated but
+stayed outside `CONVERGING_KINDS`, with no ownership and no teardown. Removing it from the manifest and running
+`stack apply --prune` **did not close it**, neither did `stack destroy`, and `stack ls` answered
+`?  unsupported kind`. An exception to isolation that the manifest opened and didn't know how to close.
 
-O que a correcção decidiu, e vale reter porque inverteu o desenho óbvio: **o `actual` do plano vem
-de um REGISTO (`infra::RouteDef`) e não do `@netpair`**. O mapa vive na netns efémera do holder,
-que nasce a pedido e morre com o último container — num nó ocioso a sonda devolve vazio, o plano lê
-«a rota desapareceu», e o `--detailed-exitcode` fica em 2 para sempre, com o gate de deriva em CI
-vermelho todos os dias. É o mesmo problema que o `EgressState` já tinha, e a resposta é a mesma:
-persistir e repor no `ensure_net_bridge` quando a bridge renasce.
+What the fix decided, and is worth keeping because it reversed the obvious design: **the plan's `actual` comes
+from a REGISTRY (`infra::RouteDef`) and not from `@netpair`**. The map lives in the holder's ephemeral netns,
+which is born on demand and dies with the last container — on an idle node the probe returns empty, the plan reads
+«the route disappeared», and `--detailed-exitcode` stays at 2 forever, with the CI drift gate
+red every day. It's the same problem `EgressState` already had, and the answer is the same:
+persist it and restore it in `ensure_net_bridge` when the bridge is reborn.
 
-A identidade de uma rota é o **par**, não o `metadata.name` — com o nome do documento, renomeá-lo
-dava `Create`+`Delete` para o mesmo elemento nft, e o `--prune` (que corre em último) fecharia o
-caminho que o próprio apply acabara de abrir. Daí a recusa de dois documentos para o mesmo par.
+A route's identity is the **pair**, not `metadata.name` — with the document's name, renaming it
+would give `Create`+`Delete` for the same nft element, and `--prune` (which runs last) would close
+the path the apply itself had just opened. Hence the refusal of two documents for the same pair.
 
-Continua por fazer o que este ADR já assinalava: **as isenções não têm `counter`**, por isso «esta
-rota passou tráfego?» continua sem resposta.
+What this ADR already flagged is still undone: **the exemptions carry no `counter`**, so «did this
+route carry any traffic?» still has no answer.
 
-### 1. Ligar o IPAM ao `Cidr` (camada A, 2.ª fatia) — rootless
+### 1. Wire IPAM to `Cidr` (tier A, 2nd slice) — rootless
 
-O tipo existe e está provado; o que ainda recebe uma string `"10.X"` e assume um
-`/16` são três funções (`derive_ip_in`, `valid_ip_in_subnet`, `probe_free`) e o
-registo, que continua a guardar um octeto. Enquanto isso não mudar, `--subnet`
-só escolhe QUAL `10.<200-254>.0.0/16`, e `--gateway` só aceita o derivado.
+The type exists and is proven; what still receives a `"10.X"` string and assumes a
+`/16` are three functions (`derive_ip_in`, `valid_ip_in_subnet`, `probe_free`) and the
+registry, which still stores an octet. Until that changes, `--subnet`
+only picks WHICH `10.<200-254>.0.0/16`, and `--gateway` only accepts the derived one.
 
-**É a única peça que destrava CIDR e gateway à escolha**, e é a mais perigosa das
-que restam: um erro de máscara aqui não dá um erro, dá containers com endereços
-sobrepostos. Merece a sessão inteira, com o laboratório isolado que esta série
-deixou a funcionar.
+**It's the only piece that unlocks free choice of CIDR and gateway**, and it's the most dangerous of
+what remains: a mask error here doesn't give an error, it gives containers with overlapping
+addresses. It deserves a whole session, with the isolated lab this series left working.
 
-### 2. O `macvlan` pertence a uma FRONTEIRA, não a um inquilino (camada C) — privilegiado
+### 2. `macvlan` belongs to a BOUNDARY, not a tenant (tier C) — privileged
 
-**Decisão corrigida (2026-08-12), e a versão anterior desta secção estava pior.**
-Ela dizia «realizar o driver `macvlan`» e deixava por resolver o aviso que o
-próprio código emite: uma rede macvlan põe os containers DIRECTAMENTE na LAN
-física, FORA da firewall, do anti-spoof e do isolamento deste motor. Realizá-la
-como estava seria entregar uma funcionalidade cuja própria mensagem diz que
-desliga o modelo de segurança — e um aviso alto não deixa de ser um aviso sobre
-algo que não devia ser o caminho normal.
+**Corrected decision (2026-08-12), and the previous version of this section was worse.**
+It said "realize the `macvlan` driver" and left unresolved the warning the
+code itself emits: a macvlan network puts containers DIRECTLY on the physical
+LAN, OUTSIDE this engine's firewall, anti-spoofing, and isolation. Realizing it
+as it stood would mean shipping a feature whose own message says it
+turns off the security model — and a loud warning is still a warning about
+something that shouldn't be the normal path.
 
-**O `macvlan` passa a ser a perna EXTERNA de um workload de fronteira**, não uma
-rede a que um inquilino se liga. A forma:
+**`macvlan` becomes the EXTERNAL leg of a boundary workload**, not a
+network a tenant connects to. The shape:
 
-* um workload de fronteira (firewall/gateway) com DUAS pernas — uma `macvlan` na
-  NIC física, que tira endereço do DHCP da LAN do host como qualquer outra
-  máquina lá, e uma na `kind: Network` interna;
-* os containers e VMs ficam SÓ na rede interna, filtrada, isolada e com o
-  `fwcont` a decidir como sempre;
-* a saída deles para a LAN/internet passa pela fronteira, que é onde a política
-  de saída passa a viver.
+* a boundary workload (firewall/gateway) with TWO legs — a `macvlan` on the
+  physical NIC, which gets an address from the host LAN's DHCP like any other
+  machine there, and one on the internal `kind: Network`;
+* containers and VMs stay ONLY on the internal network, filtered, isolated, and with
+  `fwcont` deciding as always;
+* their egress to the LAN/internet goes through the boundary, which is where egress
+  policy now lives.
 
-O que isto compra, e é a razão de ser: a capacidade privilegiada fica confinada a
-UM workload declarado para isso, em vez de ser um atributo de qualquer rede a que
-alguém se ligue. É o mesmo princípio de contenção do `network vlan` — a linha
-atravessa-se num sítio nomeado, e não em toda a superfície.
+What this buys, and is the reason for it: privileged capability stays confined to
+ONE declared workload, instead of being an attribute of any network anyone
+connects to. It's the same containment principle as `network vlan` — the line
+is crossed at one named place, not across the whole surface.
 
-**O que isto exige e ainda não existe**: o masquerade. Hoje TUDO sai sob um
-`oifname "tap0" masquerade` único no holder, por isso a fronteira veria cada
-pacote com o mesmo endereço de origem — e um gateway cujas regras por-origem não
-distinguem ninguém não é um gateway. Mover o masquerade para a fronteira é o
-`via:` que este ADR já tinha deixado por decidir, e é agora pré-requisito desta
-peça em vez de um extra.
+**What this requires and doesn't yet exist**: masquerade. Today EVERYTHING leaves under a
+single `oifname "tap0" masquerade` on the holder, so the boundary would see every
+packet with the same source address — and a gateway whose per-source rules don't
+distinguish anyone isn't a gateway. Moving masquerade to the boundary is the
+`via:` this ADR had already left undecided, and is now a prerequisite for this
+piece rather than an extra.
 
-**Limite conhecido, medido nesta série**: uma fronteira em VM só serve se for
-Cloud Hypervisor, porque uma VM libvirt vive na `virbr0` do host e não na SDN.
-E o OPNsense — o appliance óbvio para o papel — NÃO arranca em Cloud Hypervisor
-(medido: firmware falha antes do kernel, com a golden Linux a arrancar no mesmo
-firmware como controlo). Portanto a primeira fronteira realizável é um
-CONTAINER, não uma VM appliance.
+**Known limit, measured in this series**: a VM boundary only works if it's
+Cloud Hypervisor, because a libvirt VM lives on the host's `virbr0`, not on the SDN.
+And OPNsense — the obvious appliance for the role — does NOT boot on Cloud Hypervisor
+(measured: firmware fails before the kernel, with the golden Linux booting on the same
+firmware as a control). So the first realizable boundary is a
+CONTAINER, not a VM appliance.
 
-### 2b. O que a realização do driver ainda precisa
+### 2b. What realizing the driver still needs
 
-«Uma rede que recebe IP da rede do host por DHCP e serve de gateway às VMs e
-containers» tem nome nesta base: é o driver `macvlan`. Hoje é REGISTADO e o
-`network create` avisa alto que **não foi realizado**
-(`Realized=False reason=DriverNotImplemented`) em vez de fingir — medido a
-2026-08-12. Bate na mesma parede que a VLAN: `CAP_NET_ADMIN` na init-netns do
-host.
+"A network that gets an IP from the host network via DHCP and serves as a gateway for VMs and
+containers" has a name in this stack: it's the `macvlan` driver. Today it is REGISTERED and
+`network create` loudly warns that it **was not realized**
+(`Realized=False reason=DriverNotImplemented`) instead of pretending — measured on
+2026-08-12. It hits the same wall as the VLAN: `CAP_NET_ADMIN` in the host's init-netns.
 
-Portanto entra pelo MESMO caminho que o `network vlan` já abriu — comando
-privilegiado à parte, dry-run por omissão, recusa clara sem root — e o trabalho
-é o plano `ip link add … type macvlan` mais o encaminhamento que a torna gateway
-das redes internas. O `network vlan` é o precedente pronto a copiar; não há
-modelo de privilégio novo a inventar.
+So it enters through the SAME path `network vlan` already opened — a separate
+privileged command, dry-run by default, a clear refusal without root — and the work
+is the `ip link add … type macvlan` plan plus the routing that makes it the gateway
+for the internal networks. `network vlan` is the ready-made precedent to copy; there's no
+new privilege model to invent.
 
-**Aviso que já está no código e tem de continuar visível**: uma rede macvlan põe
-os containers DIRECTAMENTE na LAN física, FORA da firewall, do anti-spoof e do
-isolamento deste motor. Realizá-la não pode calar esse aviso.
+**Warning already in the code that must stay visible**: a macvlan network puts
+containers DIRECTLY on the physical LAN, OUTSIDE this engine's firewall, anti-spoofing, and
+isolation. Realizing it must not silence that warning.
 
-### 3. O que continua fora, por decisão e não por esquecimento
+### 3. What stays out, by decision and not by oversight
 
-**IPv6.** Desligado de propósito desde a v0.37.1 — a SDN dava ULA a cada
-container e a firewall inteira é `table ip`, ou seja um segundo caminho de dados
-sem política nenhuma, que contornava `ingress`/`egress`, isolamento de namespace
-e `kind: Dependency`. Foi medido na altura: com a firewall a negar em IPv4, o
-mesmo alvo respondia pela ULA. Reactivá-lo é trabalho de segurança com o seu
-próprio ADR, não o alargamento de um campo.
+**IPv6.** Deliberately disabled since v0.37.1 — the SDN gave each
+container a ULA and the whole firewall is `table ip`, i.e. a second data path
+with no policy at all, bypassing `ingress`/`egress`, namespace isolation,
+and `kind: Dependency`. It was measured at the time: with the firewall denying over IPv4, the
+same target answered over the ULA. Re-enabling it is security work with its
+own ADR, not the extension of a field.
 
-**O `via:`** (mandar uma subnet por um appliance) continua onde este ADR já o
-deixou: depende de mover o masquerade para o appliance, senão ele vê todos os
-pacotes com um só endereço de origem.
+**`via:`** (routing a subnet through an appliance) remains where this ADR already
+left it: it depends on moving masquerade to the appliance, otherwise it sees all
+packets with a single source address.
 
 ## Addendum (2026-10-08) — a route has to be usable from an ADDITIONAL network
 

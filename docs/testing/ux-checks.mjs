@@ -15,7 +15,7 @@ catch { ({ chromium } = await import('playwright-core')); }
 const BASE = process.env.BASE || 'http://localhost:8100';
 const exe = process.env.PW_CHROME || undefined;
 const WIDTHS = [390, 768, 1440, 1920];
-const PAGES = ['index.html', 'kinds.html', 'comandos/container.html', 'labs.html', 'cheatsheet.html'];
+const PAGES = ['index.html', 'kinds.html', 'commands/container.html', 'labs.html', 'cheatsheet.html'];
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; } else { fail++; console.log('  ✗ FAIL', m); } };
@@ -96,7 +96,7 @@ for (const w of WIDTHS) {
 {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const p = await ctx.newPage();
-  const r = await p.goto(`${BASE}/comandos/container.html`, { waitUntil: 'networkidle' });
+  const r = await p.goto(`${BASE}/commands/container.html`, { waitUntil: 'networkidle' });
   ok(r && r.status() < 400, 'página profunda não carrega');
   ok(await p.$('nav.side'), 'página profunda sem sidebar');
   ok(await p.$('.breadcrumb'), 'página profunda sem breadcrumb');

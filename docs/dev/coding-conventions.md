@@ -553,7 +553,7 @@ doesn't support.
   `delonix-model/src/error.rs:Error::VmNotFound` → `"no such VM: {0} (see \`delonix vm ls\`)"`;
   `cmd/config.rs:refuse_unknown_key` names the valid keys. Name the missing **tool and its
   package** instead of passing on a raw `ENOENT`, which reads like a missing file (AGENTS.md §
-  "A bateria mede o `--help` de tudo", achado 1).
+  "A bateria mede o `--help` de tudo", finding 1).
 - **A partial measurement is not a success.** `--wait` must observe what it claims, and `✓ … is up`
   is only printed after checking. **Decided**: AGENTS.md § "O `--wait` de uma VM CH".
 - **Never parse an error message to decide what to do.** Messages are translated

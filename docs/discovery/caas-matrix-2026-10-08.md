@@ -1,229 +1,249 @@
-# Matriz CaaS do delonix-runtime (2026-10-08)
+# delonix-runtime CaaS matrix (2026-10-08)
 
-Levantamento read-only, feito a partir do HEAD deste worktree (`1cbe9639`, tag `v5.0.0`),
-para preparar o delonix-runtime como base técnica de um **Containers as a Service**
-externo. Metodologia: cada afirmação está confirmada no código actual (grep + `Read` dos
-ficheiros reais, assinaturas de função, testes existentes) — o `AGENTS.md` serviu só de
-mapa; onde ele e o código discordavam (ver nota sobre ACH-034 abaixo da matriz), venceu o
-código. Não se correu `cargo build`/`cargo test`/nada privilegiado — é inventário estático.
+Read-only survey, done from this worktree's HEAD (`1cbe9639`, tag `v5.0.0`),
+to prepare delonix-runtime as the technical base for an external **Containers
+as a Service**. Methodology: every statement is confirmed in the current code
+(grep + `Read` of the real files, function signatures, existing tests) —
+`AGENTS.md` served only as a map; where it and the code disagreed (see the
+note on ACH-034 below the matrix), the code won. No `cargo build`/`cargo
+test`/anything privileged was run — this is a static inventory.
 
-Convenção de **Estado**:
-- **PASS medido** — há teste automatizado ou um caminho de prova ao vivo já escrito no
-  próprio repo (`scripts/e2e.sh`, teste unitário que falha com a correcção revertida).
-- **PASS por leitura** — o código implementa a capacidade de forma consistente com o que
-  afirma, mas não encontrei um teste/`check` dedicado nesta passagem.
-- **PARTIAL** — funciona para um subconjunto de casos, com o resto explicitamente recusado
-  ou avisado (não é falha silenciosa).
-- **GAP** — a capacidade existe mas tem um defeito real, ou falta sem aviso.
-- **NOT SUPPORTED** — deliberadamente fora de escopo, com razão escrita no código.
+**Status** convention:
+- **PASS measured** — there is an automated test or a live proof path already
+  written in the repo itself (`scripts/e2e.sh`, a unit test that fails with
+  the fix reverted).
+- **PASS by reading** — the code implements the capability consistently with
+  what it claims, but no dedicated test/`check` was found in this pass.
+- **PARTIAL** — works for a subset of cases, with the rest explicitly refused
+  or warned about (not a silent failure).
+- **GAP** — the capability exists but has a real defect, or is missing with no
+  warning.
+- **NOT SUPPORTED** — deliberately out of scope, with a reason written in the
+  code.
 
-## 1. Matriz de capacidades
+## 1. Capability matrix
 
-| Capacidade | Backend(s) | Implementação | Evidência | Estado | Gap concreto | Teste de aceitação sugerido |
+| Capability | Backend(s) | Implementation | Evidence | Status | Concrete gap | Suggested acceptance test |
 |---|---|---|---|---|---|---|
-| **Compatibilidade OCI — Image Spec** (pull/push/manifest/layers) | `delonix-oci` | `crates/adapters/delonix-oci/src/registry.rs::{pull_from_registry_with_creds_full, push_to_registry, verify_manifest_digest}` (linhas ~1781-2300); CAS em `src/cas.rs::has` | Teste `pull_from_registry_with_creds_salta_blobs_ja_no_cas` (registry.rs:3522); retomada de blob cortado testada com correcção revertida | PASS medido | — | já cobre; manter |
-| **Compatibilidade OCI — Runtime Spec (bundle `config.json`/`runc create`)** | `delonix-linux` | `crates/adapters/delonix-linux/src/lib.rs` cabeçalho: *"It is Month 5's `mini-runc`, promoted to a library"* — reimplementação nativa que IMITA o comportamento observável do runc (ordem de mounts, dev nodes, `/proc/sys`), não consome nem produz um bundle OCI Runtime Spec | grep `runc\b` em lib.rs (10+ comentários de paridade de comportamento, nenhum `config.json`/`oci-runtime-spec` crate) | PARTIAL | Não há verbo `create <bundle>` compatível com a OCI Runtime CLI — não pode substituir `runc`/ser usado como `containerd-shim-runc-v2`. É CRI-first (servidor gRPC próprio), não bundle-first. Documentar explicitamente esta fronteira para quem vende isto como "OCI compliant" | Correr `oci-runtime-tool validate` contra um bundle gerado por este motor — hoje não há como gerar um |
-| **`kind: SystemContainer` nunca entra pelo caminho OCI/`Container`** | `delonix-compute::system_container` + `delonix-proxmox` (LXC) | `crates/contexts/delonix-compute/src/system_container.rs` (trait `SystemContainerProvider`, zero dependência de `RunOpts`/`Container`); CLI em `bins/delonix-runtime-bin/src/cmd/system_container.rs` importa só `delonix_compute::system_container::{...}`, nunca `cmd::container` | `kinds.rs:469-485` — `SYSTEM_CONTAINER` tem `Namespaced::Never` (o `CONTAINER` da linha seguinte não), `stack_group: "systemContainers"` próprio; campos de privilégio (`unprivileged`/`privileged`/`features`/`nesting`) recusados por nome, `manifest.rs:444-447` | PASS medido | Ver secção 2 abaixo | — |
-| **Autenticação em registries** | `delonix-oci` | `registry.rs` (Basic/Bearer, token cache em disco, `delonix image login`) | — | PASS por leitura | — | — |
-| **Pull by digest com verificação do MANIFESTO** (não só dos blobs) | `delonix-oci` | `registry.rs:1825 verify_manifest_digest` | teste dedicado citado no AGENTS.md (CRÍTICO #3 fechado) | PASS por leitura | — | — |
-| **Cache de conteúdo (CAS) com dedup e retomada** | `delonix-oci` | `cas.rs::has`, `blob_with_progress_capped` (retomada por `Range`) | testes de retomada citados (falham com correcção revertida) | PASS medido | — | — |
-| **Build de imagens (Delonixfile/Dockerfile, multi-stage, CNB)** | `delonix-oci` + `delonix-compute` | `cmd/build.rs`, `delonix-oci::buildpack.rs` | — | PASS por leitura | Build rootless com muitas layers reais usa a API `fsopen`/`fsconfig` nova (ADR-0037) — confirmado no overlay de EXECUÇÃO; não verifiquei se o `build`'s próprio container de trabalho usa o mesmo caminho | correr `delonix build` com uma imagem base de 90+ layers |
-| **Rede: isolamento por namespace lógico (default-deny cross-namespace)** | `delonix-sdn` | `infra.rs:3219 do_attach`, chains `@dlxall`/`@dlxns_<ns>`, `fwcont`/`fwdeny` (linhas 789, 3290, 5287) | testes com `ip saddr @dlxall ... drop` (infra.rs:10050-10225) | PASS medido | A isolação exige `br_netfilter`; sem ele é INERTE — mas desde a decisão D5 (2026-10-02) o motor RECUSA o workload (DX-6305) em vez de deixar passar em silêncio, salvo `DELONIX_ALLOW_UNENFORCED_ISOLATION=1` | — |
-| **Anti-spoofing de MAC/IP por porta** | `delonix-sdn` | `table bridge dlxspoof` (infra.rs:3537-3544) | testes com JSON real do `nft -j` (infra.rs:11340-11394) | PASS medido | — | — |
-| **DNS interno por serviço/namespace** | `delonix-sdn` | `dns_resolve`/`dns_resolve_multi_for`, `<nome>.<ns>.delonix.internal` | citado no AGENTS como E2E provado | PASS por leitura | — | — |
-| **Publish de porta com endereço de bind persistido** | `delonix-sdn` + CLI | `normalize_publish_spec`, `comparable_ports` | gate e2e.sh "publish: o endereço de bind é REGISTADO" (10/10 com fix, 6/10 sem) | PASS medido | `hostPort` SCTP em rootless é recusado pelo nome (ADR-0074) — PARTIAL por desenho, não bug | — |
-| **Firewall por container (`net ingress`/`net egress`, `NetworkPolicy`)** | `delonix-sdn` + `cmd/firewall.rs` | chain `fwcont`, verdict map `@fwmap` | contadores `nft` reais citados | PASS por leitura | — | — |
-| **Volumes nomeados e bind mounts** | `delonix-volume` | `VolumeStore::resolve_spec` | — | PASS por leitura | — | — |
-| **Path traversal em bind mounts/`COPY`** | `delonix-linux` + `delonix-oci` | `safe_bind_target` (lib.rs:1250), `confine_to` (build.rs) | auditoria de segurança #1 cita exploit reproduzido e corrigido | PASS medido | — | — |
-| **Posse/ownership de volumes e rootfs (USER da imagem)** | `delonix-linux` + `delonix-compute::run` | `resolve_run` (run.rs:89-144), índice `overlay-owners` (lib.rs:3732+) | `image_user_is_non_root` testado (run.rs:806-807) | PASS por leitura | **Ver Gap crítico #2 abaixo — o fallback para root é inobservável** | — |
-| **Secrets — valores nunca em claro no registo/`inspect`** | `delonix-state::SecretStore` + `delonix-compute::record` | `record.rs:396-402` (`secrets: Vec<String>` = NOMES, não valores), `secret.rs` (AEAD at-rest) | teste `value_encrypted_at_rest_and_legacy_plaintext_readable` (secret.rs:533) | PASS medido | — | — |
-| **Secrets — `--secret-files` nunca toca o disco do host/container** | `delonix-linux` | `write_secret_files` (lib.rs:2750-2780) | **ZERO testes** (confirmado por grep — só 1 chamador, nenhum `#[test]`) | **GAP** | **Ver Gap crítico #1 abaixo** | montar `/run/secrets` sobre um `tmpfs` que falha de propósito (ex. já montado como RO) e confirmar que NADA é escrito no overlay persistente |
-| **Limites de CPU/memória/PIDs aplicados de verdade em rootless delegado** | `delonix-linux` | `cgroup_limits_apply`, `leaf_controllers`, `preflight_controller_limits` (container.rs:2381) | validado ao vivo (citado), `DELONIX_ALLOW_UNENFORCED_LIMITS` fail-closed por omissão | PASS medido | `--cpuset`/`--io-weight`/`--device-*` recusados sem delegação explícita do systemd (não é gap, é recusa correcta) | — |
-| **`container update` aplica limites no cgroup REAL (não no caminho estático)** | `delonix-linux` | `update_limits` usa `live_cgroup(container)` (lib.rs:9184-9196) | — | PASS por leitura | — | — |
-| **Detecção de OOM-kill real** | `delonix-linux` | `oom_kill_count`/`died_of_oom` (lib.rs:108-145, 6932-7074) | testes `reads_the_oom_kill_counter...` (lib.rs:11407-11450) | PASS medido | Lido só pelo supervisor/`waitpid` no instante da morte — se o cgroup desaparecer antes (ver AGENTS), a detecção falha; mitigado mas documentado como janela estreita | — |
-| **Health checks (probe próprio ou do `HEALTHCHECK` da imagem)** | `delonix-compute`/CLI | `apply_probe` (puro, container.rs:6635-6660), `health_monitor_loop` (6845-6889) | testes `apply_probe_...` (8449-8489) | PASS medido | Só monitoriza containers DETACHED (thread do supervisor); um container em foreground não tem health loop — decisão deliberada ("you are looking at it"), não bug | — |
-| **Readiness/starting/retries com grace period** | `delonix-compute` | `apply_probe` (regra Docker: sucesso promove de imediato, falha na janela fica `starting`) | testes dedicados | PASS medido | — | — |
-| **Sinais e paragem controlada (SIGTERM → espera → SIGKILL)** | `delonix-linux` | `stop_waiting` (lib.rs:8334-8368), `parse_signal`/`cmd_kill` (container.rs) | — | PASS por leitura | `DX-8101`/`StillExiting`: um `stop` que desiste mantém o registo e já libertou portas — o processo pode continuar a existir noutro estado por minutos num disco saturado (documentado, não escondido) | — |
-| **Códigos de saída reais, sempre capturáveis para um container detached** | `delonix-compute::launch` + CLI | `should_supervise` (launch.rs:93-97, `detach && forkable`, ignora a policy), `wait_for_exit`/`exit_code_unknown` (container.rs:3549-3551, 4740-4766) | CRI e docker-api re-executam via `__apirun` num processo fresco single-threaded precisamente para tornar `forkable=true` (lifecycle.rs:1513-1517; dockerapi.rs:126,241) | PASS medido | `forkable=false` só no caso teórico de um chamador multi-thread que NÃO re-execute — hoje todos os 3 pontos de entrada (CLI, docker-api, CRI) já re-executam | — |
-| **Restart policies (`always`/`unless-stopped`/`on-failure[:N]`)** | `delonix-linux` + `delonix-compute` | `policy_supervised` (launch.rs:87-90), supervisor com `RESTARTS` | citado no AGENTS, `stopped_by_user` impede ressurreição indesejada (container.rs:4628-4634) | PASS por leitura | — | — |
-| **Actualização/substituição de workload (hot vs. replace)** | `delonix-stack::reconcile` + `container update` | `hot_fields`/`Action::Replace` (reconcile.rs:119-371) | testes (reconcile.rs:717,929) | PASS por leitura | — | — |
-| **Eliminação e limpeza — processo, cgroup, overlay, rede** | `delonix-linux` + `delonix-sdn` | `discard_child` (lib.rs:6162), `remove_container_cgroup` (8923), `reap_orphan_hostfwds` (infra.rs:7807, exige `AuthoritativeLivePorts` — tipo que impede fail-open), `reap_orphan_leases` (ipam.rs:577) | AGENTS documenta medição ao vivo (órfãos 391→47 antes/depois) | PASS por leitura (reaping existe); **PARTIAL** no agendamento | A ceifa de órfãos (IPAM/hostfwd/cgroup) é **só sob pedido** (`system prune`/`network ipam prune`) — nada neste repo agenda-a periodicamente; o AGENTS.md diz que o cron/timer vive no `delonix-deploy` (fora deste repo). Um CaaS construído SÓ sobre o delonix-runtime, sem esse outro repo, não tem GC automático | medir o tamanho de `ipam/*.json`/`containers/` depois de 1000 ciclos run+SIGKILL-do-holder sem nunca correr `system prune` |
-| **Rootless vs rootful — limitações explícitas** | `delonix-linux` | `can_map_id_range`, `DELONIX_ALLOW_UNENFORCED_LIMITS`, mensagens dirigidas em vez de falha muda | run.rs:120-144 | PASS por leitura | — | — |
+| **OCI compatibility — Image Spec** (pull/push/manifest/layers) | `delonix-oci` | `crates/adapters/delonix-oci/src/registry.rs::{pull_from_registry_with_creds_full, push_to_registry, verify_manifest_digest}` (lines ~1781-2300); CAS in `src/cas.rs::has` | Test `pull_from_registry_with_creds_salta_blobs_ja_no_cas` (registry.rs:3522); resumed download of a cut blob tested with the fix reverted | PASS measured | — | already covered; maintain |
+| **OCI compatibility — Runtime Spec (`config.json` bundle/`runc create`)** | `delonix-linux` | `crates/adapters/delonix-linux/src/lib.rs` header: *"It is Month 5's `mini-runc`, promoted to a library"* — a native reimplementation that MIMICS runc's observable behaviour (mount order, dev nodes, `/proc/sys`), neither consumes nor produces an OCI Runtime Spec bundle | grep `runc\b` in lib.rs (10+ comments on behavioural parity, no `config.json`/`oci-runtime-spec` crate) | PARTIAL | There is no `create <bundle>` verb compatible with the OCI Runtime CLI — it cannot substitute for `runc`/be used as `containerd-shim-runc-v2`. It is CRI-first (its own gRPC server), not bundle-first. Explicitly document this boundary for anyone selling this as "OCI compliant" | Run `oci-runtime-tool validate` against a bundle generated by this engine — today there is no way to generate one |
+| **`kind: SystemContainer` never enters through the OCI/`Container` path** | `delonix-compute::system_container` + `delonix-proxmox` (LXC) | `crates/contexts/delonix-compute/src/system_container.rs` (trait `SystemContainerProvider`, zero dependency on `RunOpts`/`Container`); the CLI in `bins/delonix-runtime-bin/src/cmd/system_container.rs` imports only `delonix_compute::system_container::{...}`, never `cmd::container` | `kinds.rs:469-485` — `SYSTEM_CONTAINER` has `Namespaced::Never` (the following line's `CONTAINER` does not), its own `stack_group: "systemContainers"`; privilege fields (`unprivileged`/`privileged`/`features`/`nesting`) refused by name, `manifest.rs:444-447` | PASS measured | See section 2 below | — |
+| **Registry authentication** | `delonix-oci` | `registry.rs` (Basic/Bearer, on-disk token cache, `delonix image login`) | — | PASS by reading | — | — |
+| **Pull by digest with MANIFEST verification** (not just blobs) | `delonix-oci` | `registry.rs:1825 verify_manifest_digest` | dedicated test cited in AGENTS.md (CRITICAL #3 closed) | PASS by reading | — | — |
+| **Content-addressable store (CAS) with dedup and resume** | `delonix-oci` | `cas.rs::has`, `blob_with_progress_capped` (resume via `Range`) | resume tests cited (fail with the fix reverted) | PASS measured | — | — |
+| **Image build (Delonixfile/Dockerfile, multi-stage, CNB)** | `delonix-oci` + `delonix-compute` | `cmd/build.rs`, `delonix-oci::buildpack.rs` | — | PASS by reading | Rootless build with many real layers uses the new `fsopen`/`fsconfig` API (ADR-0037) — confirmed on the RUN-time overlay; I did not check whether the build's own work container uses the same path | run `delonix build` with a base image of 90+ layers |
+| **Network: logical-namespace isolation (default-deny cross-namespace)** | `delonix-sdn` | `infra.rs:3219 do_attach`, chains `@dlxall`/`@dlxns_<ns>`, `fwcont`/`fwdeny` (lines 789, 3290, 5287) | tests with `ip saddr @dlxall ... drop` (infra.rs:10050-10225) | PASS measured | Isolation requires `br_netfilter`; without it, it is INERT — but since decision D5 (2026-10-02) the engine REFUSES the workload (DX-6305) instead of silently letting it through, unless `DELONIX_ALLOW_UNENFORCED_ISOLATION=1` | — |
+| **Per-port MAC/IP anti-spoofing** | `delonix-sdn` | `table bridge dlxspoof` (infra.rs:3537-3544) | tests with real `nft -j` JSON (infra.rs:11340-11394) | PASS measured | — | — |
+| **Internal DNS per service/namespace** | `delonix-sdn` | `dns_resolve`/`dns_resolve_multi_for`, `<name>.<ns>.delonix.internal` | cited in AGENTS as proven E2E | PASS by reading | — | — |
+| **Port publish with a persisted bind address** | `delonix-sdn` + CLI | `normalize_publish_spec`, `comparable_ports` | e2e.sh gate "publish: the bind address IS REGISTERED" (10/10 with fix, 6/10 without) | PASS measured | SCTP `hostPort` in rootless is refused by name (ADR-0074) — PARTIAL by design, not a bug | — |
+| **Per-container firewall (`net ingress`/`net egress`, `NetworkPolicy`)** | `delonix-sdn` + `cmd/firewall.rs` | chain `fwcont`, verdict map `@fwmap` | real `nft` counters cited | PASS by reading | — | — |
+| **Named volumes and bind mounts** | `delonix-volume` | `VolumeStore::resolve_spec` | — | PASS by reading | — | — |
+| **Path traversal in bind mounts/`COPY`** | `delonix-linux` + `delonix-oci` | `safe_bind_target` (lib.rs:1250), `confine_to` (build.rs) | security audit #1 cites a reproduced and fixed exploit | PASS measured | — | — |
+| **Volume/rootfs ownership (image's USER)** | `delonix-linux` + `delonix-compute::run` | `resolve_run` (run.rs:89-144), `overlay-owners` index (lib.rs:3732+) | `image_user_is_non_root` tested (run.rs:806-807) | PASS by reading | **See critical Gap #2 below — the fallback to root is unobservable** | — |
+| **Secrets — values never in the clear in the record/`inspect`** | `delonix-state::SecretStore` + `delonix-compute::record` | `record.rs:396-402` (`secrets: Vec<String>` = NAMES, not values), `secret.rs` (AEAD at rest) | test `value_encrypted_at_rest_and_legacy_plaintext_readable` (secret.rs:533) | PASS measured | — | — |
+| **Secrets — `--secret-files` never touch the host/container disk** | `delonix-linux` | `write_secret_files` (lib.rs:2750-2780) | **ZERO tests** (confirmed by grep — only 1 caller, no `#[test]`) | **GAP** | **See critical Gap #1 below** | mount `/run/secrets` over a `tmpfs` that fails on purpose (e.g. already mounted RO) and confirm that NOTHING is written to the persistent overlay |
+| **CPU/memory/PID limits genuinely applied in rootless-delegated mode** | `delonix-linux` | `cgroup_limits_apply`, `leaf_controllers`, `preflight_controller_limits` (container.rs:2381) | validated live (cited), `DELONIX_ALLOW_UNENFORCED_LIMITS` fail-closed by default | PASS measured | `--cpuset`/`--io-weight`/`--device-*` refused without explicit systemd delegation (not a gap, a correct refusal) | — |
+| **`container update` applies limits to the REAL cgroup (not the static path)** | `delonix-linux` | `update_limits` uses `live_cgroup(container)` (lib.rs:9184-9196) | — | PASS by reading | — | — |
+| **Real OOM-kill detection** | `delonix-linux` | `oom_kill_count`/`died_of_oom` (lib.rs:108-145, 6932-7074) | tests `reads_the_oom_kill_counter...` (lib.rs:11407-11450) | PASS measured | Read only by the supervisor/`waitpid` at the moment of death — if the cgroup disappears first (see AGENTS), detection fails; mitigated but documented as a narrow window | — |
+| **Health checks (own probe or the image's `HEALTHCHECK`)** | `delonix-compute`/CLI | `apply_probe` (pure, container.rs:6635-6660), `health_monitor_loop` (6845-6889) | tests `apply_probe_...` (8449-8489) | PASS measured | Only monitors DETACHED containers (supervisor thread); a foreground container has no health loop — a deliberate decision ("you are looking at it"), not a bug | — |
+| **Readiness/starting/retries with a grace period** | `delonix-compute` | `apply_probe` (Docker rule: success promotes immediately, failure within the window stays `starting`) | dedicated tests | PASS measured | — | — |
+| **Signals and controlled stop (SIGTERM → wait → SIGKILL)** | `delonix-linux` | `stop_waiting` (lib.rs:8334-8368), `parse_signal`/`cmd_kill` (container.rs) | — | PASS by reading | `DX-8101`/`StillExiting`: a `stop` that gives up keeps the record and has already released the ports — the process may keep existing in another state for minutes on a saturated disk (documented, not hidden) | — |
+| **Real exit codes, always capturable for a detached container** | `delonix-compute::launch` + CLI | `should_supervise` (launch.rs:93-97, `detach && forkable`, ignores the policy), `wait_for_exit`/`exit_code_unknown` (container.rs:3549-3551, 4740-4766) | CRI and docker-api re-exec via `__apirun` in a fresh, single-threaded process precisely to make `forkable=true` (lifecycle.rs:1513-1517; dockerapi.rs:126,241) | PASS measured | `forkable=false` only in the theoretical case of a multi-threaded caller that does NOT re-exec — today all 3 entry points (CLI, docker-api, CRI) already re-exec | — |
+| **Restart policies (`always`/`unless-stopped`/`on-failure[:N]`)** | `delonix-linux` + `delonix-compute` | `policy_supervised` (launch.rs:87-90), supervisor with `RESTARTS` | cited in AGENTS, `stopped_by_user` prevents unwanted resurrection (container.rs:4628-4634) | PASS by reading | — | — |
+| **Workload update/replace (hot vs. replace)** | `delonix-stack::reconcile` + `container update` | `hot_fields`/`Action::Replace` (reconcile.rs:119-371) | tests (reconcile.rs:717,929) | PASS by reading | — | — |
+| **Removal and cleanup — process, cgroup, overlay, network** | `delonix-linux` + `delonix-sdn` | `discard_child` (lib.rs:6162), `remove_container_cgroup` (8923), `reap_orphan_hostfwds` (infra.rs:7807, requires `AuthoritativeLivePorts` — a type that prevents fail-open), `reap_orphan_leases` (ipam.rs:577) | AGENTS documents a live measurement (orphans 391→47 before/after) | PASS by reading (reaping exists); **PARTIAL** on scheduling | Orphan reaping (IPAM/hostfwd/cgroup) is **on-demand only** (`system prune`/`network ipam prune`) — nothing in this repo schedules it periodically; AGENTS.md says the cron/timer lives in `delonix-deploy` (outside this repo). A CaaS built on delonix-runtime ALONE, without that other repo, has no automatic GC | measure the size of `ipam/*.json`/`containers/` after 1000 run+SIGKILL-the-holder cycles without ever running `system prune` |
+| **Rootless vs rootful — explicit limitations** | `delonix-linux` | `can_map_id_range`, `DELONIX_ALLOW_UNENFORCED_LIMITS`, targeted messages instead of a mute failure | run.rs:120-144 | PASS by reading | — | — |
 
-## 2. Containers de sistema vs OCI — a distinção mantém-se
+## 2. System containers vs OCI — the distinction holds
 
-Confirmado directamente no código (não só no AGENTS.md, que documenta a decisão ADR-0058
-mas não é prova):
+Confirmed directly in the code (not just in AGENTS.md, which documents the
+ADR-0058 decision but is not proof):
 
-- `crates/contexts/delonix-compute/src/system_container.rs` define um trait próprio,
-  `SystemContainerProvider`, com `create/observe/stop/destroy/update_resources/snapshot/...`
-  — **nenhuma das suas assinaturas usa `RunOpts`, `Container` ou qualquer tipo do caminho
-  OCI**.
-- `bins/delonix-runtime-bin/src/cmd/system_container.rs` (a casca CLI/manifesto do Kind)
-  importa só `delonix_compute::system_container::{...}` — não importa nada de
-  `cmd::container`.
-- `crates/contexts/delonix-stack/src/kinds.rs:469-485`: `SYSTEM_CONTAINER` e `CONTAINER`
-  são duas entradas distintas em `KindFacts`, com `Namespaced::Never` para o primeiro
-  (a isolação do motor não alcança o nó do provider — comentário explícito) contra o
-  `Namespaced` do `Container`.
-- `bins/delonix-runtime-bin/src/cmd/manifest.rs:444-447` e
-  `system_container.rs:394-409`: campos de privilégio (`unprivileged`, `privileged`,
-  `features`, `nesting`) são **recusados pelo nome** (DX-1540) no `kind: SystemContainer`
-  — nunca silenciosamente ignorados nem encaminhados para o motor de containers.
-- O backend real de `SystemContainerProvider` é o `delonix-proxmox` (LXC via API REST de
-  um nó Proxmox) — está fisicamente fora do motor de containers (`delonix-linux` nunca é
-  chamado para um `SystemContainer`).
+- `crates/contexts/delonix-compute/src/system_container.rs` defines its own
+  trait, `SystemContainerProvider`, with `create/observe/stop/destroy/
+  update_resources/snapshot/...` — **none of its signatures use `RunOpts`,
+  `Container`, or any type from the OCI path**.
+- `bins/delonix-runtime-bin/src/cmd/system_container.rs` (the CLI/manifest
+  shell for the Kind) imports only `delonix_compute::system_container::{...}`
+  — it imports nothing from `cmd::container`.
+- `crates/contexts/delonix-stack/src/kinds.rs:469-485`: `SYSTEM_CONTAINER` and
+  `CONTAINER` are two distinct entries in `KindFacts`, with `Namespaced::Never`
+  for the former (the engine's isolation does not reach the provider's node —
+  an explicit comment) against `Container`'s `Namespaced`.
+- `bins/delonix-runtime-bin/src/cmd/manifest.rs:444-447` and
+  `system_container.rs:394-409`: privilege fields (`unprivileged`,
+  `privileged`, `features`, `nesting`) are **refused by name** (DX-1540) on
+  `kind: SystemContainer` — never silently ignored nor forwarded to the
+  container engine.
+- The real backend of `SystemContainerProvider` is `delonix-proxmox` (LXC via
+  a Proxmox node's REST API) — physically outside the container engine
+  (`delonix-linux` is never called for a `SystemContainer`).
 
-**Conclusão**: a confusão que o enunciado pediu para evitar — tratar um LXC do Proxmox
-como se fosse um container OCI — **não existe no código actual**. É uma fronteira de tipo
-(trait diferente) e de Kind (campo `Namespaced` diferente), não apenas uma convenção de
-nomenclatura.
+**Conclusion**: the confusion the brief asked to guard against — treating a
+Proxmox LXC as if it were an OCI container — **does not exist in the current
+code**. It is a type boundary (a different trait) and a Kind boundary (a
+different `Namespaced` field), not merely a naming convention.
 
-## 3. Daemonless preservado
+## 3. Daemonless preserved
 
-Processos que precisam de continuar vivos para uma capacidade de CaaS funcionar, e o que
-confirma que nenhum é um daemon global residente por omissão:
+Processes that need to stay alive for a CaaS capability to work, and what
+confirms none of them is a resident global daemon by default:
 
-| Processo | Quando nasce | Vida | Confirmação |
+| Process | When it is born | Lifetime | Confirmation |
 |---|---|---|---|
-| **Holder de rede (pin+control)** | Lazy, no primeiro `container run`/`vm create` que precise de SDN | Por nó, sobrevive a um restart do plano de controlo (pin nunca morre; `control` reinicia) | `infra.rs:1449 start_control`, `infra.rs:1591 start_pin` — nenhum dos dois é iniciado no arranque do binário; só por `net netns up`/attach |
-| **`slirp4netns`** | Por container/por-ingress que publique porta OU peça rede custom | Até o container morrer (ligado ao ciclo de vida, com reaping de órfãos) | Secção "Slirp não sai com o alvo" do AGENTS, confirmado por `reap_slirp_for` |
-| **Supervisor por container detached** | Todo `run -d` (`should_supervise = detach && forkable`) | Morre com o container | `launch.rs:93-97` |
-| **Thread de health-check** | Spawnada pelo supervisor, só se `--health-cmd`/`HEALTHCHECK` existir | Morre com o supervisor | `container.rs:6845 health_monitor_loop` |
-| **Log shim** | Fork por container com `--log-cri` | Morre com o container | citado em AGENTS, lifecycle de fds fechado (#646-648) |
-| **Proxy L7 (`ingress-proxy`)** | Só quando um `HTTPRoute`/`--expose` existe | Persiste como a infra de SDN, mas só se algo o pedir | `cmd/httproute.rs`/`cmd/ingress_proxy.rs`, subcomando OCULTO |
-| **`delonix-cri`/`delonix-mgmt`/`delonix-mcp`/`delonix-node-api`** | Opt-in via `serve <x>` ou `install.sh --with-cri` | Resident enquanto o operador decidir correr | `delonix serve cri` faz `exec` de um binário irmão — nunca arranca sozinho |
+| **Network holder (pin+control)** | Lazy, on the first `container run`/`vm create` that needs SDN | Per node, survives a control-plane restart (the pin never dies; `control` restarts) | `infra.rs:1449 start_control`, `infra.rs:1591 start_pin` — neither is started at binary boot; only via `net netns up`/attach |
+| **`slirp4netns`** | Per container/per-ingress publishing a port OR requesting custom networking | Until the container dies (tied to the lifecycle, with orphan reaping) | AGENTS' "Slirp doesn't exit with the target" section, confirmed by `reap_slirp_for` |
+| **Per-detached-container supervisor** | Every `run -d` (`should_supervise = detach && forkable`) | Dies with the container | `launch.rs:93-97` |
+| **Health-check thread** | Spawned by the supervisor, only if `--health-cmd`/`HEALTHCHECK` exists | Dies with the supervisor | `container.rs:6845 health_monitor_loop` |
+| **Log shim** | A fork per container with `--log-cri` | Dies with the container | cited in AGENTS, fd lifecycle closed (#646-648) |
+| **L7 proxy (`ingress-proxy`)** | Only when an `HTTPRoute`/`--expose` exists | Persists like the SDN infra, but only if something requests it | `cmd/httproute.rs`/`cmd/ingress_proxy.rs`, a HIDDEN subcommand |
+| **`delonix-cri`/`delonix-mgmt`/`delonix-mcp`/`delonix-node-api`** | Opt-in via `serve <x>` or `install.sh --with-cri` | Resident for as long as the operator decides to run it | `delonix serve cri` does an `exec` of a sibling binary — it never starts on its own |
 
-**Confirmação de que não há daemon global por omissão**: `grep -rn "fn main"
-bins/delonix-runtime-bin/src/main.rs` mostra um binário CLI que termina depois de cada
-comando; nada no arranque do processo sobe um dos processos acima sem um gatilho explícito
-do utilizador (uma `run`, um `serve`, um `net netns up`). Isto confirma o princípio
-"daemonless" do AGENTS.md ao nível do código, não só da prosa.
+**Confirmation that there is no global daemon by default**: `grep -rn "fn main"
+bins/delonix-runtime-bin/src/main.rs` shows a CLI binary that terminates after
+each command; nothing at process startup brings up any of the processes above
+without an explicit user trigger (a `run`, a `serve`, a `net netns up`). This
+confirms the "daemonless" principle from AGENTS.md at the code level, not just
+in prose.
 
-## 4. Os 3 gaps mais graves
+## 4. The 3 most serious gaps
 
-### Gap #1 (SEGURANÇA + DADOS DO TENANT) — `--secret-files` pode escrever segredos em claro no disco persistente sem avisar
+### Gap #1 (SECURITY + TENANT DATA) — `--secret-files` can write secrets in the clear to persistent disk with no warning
 
-**Onde**: `crates/adapters/delonix-linux/src/lib.rs:2750-2780`, função `write_secret_files`.
+**Where**: `crates/adapters/delonix-linux/src/lib.rs:2750-2780`, function
+`write_secret_files`.
 
-**O que o comentário promete**: *"the values stay only in RAM (tmpfs) — they never touch
-the host fs nor the container's, nor the environment."*
+**What the comment promises**: *"the values stay only in RAM (tmpfs) — they
+never touch the host fs nor the container's, nor the environment."*
 
-**O que o código faz**: a função cria `/run/secrets` (`create_dir_all`, erro descartado com
-`if ...is_err() { return; }`), tenta montar um `tmpfs` ali (`let _ = mount(...)` — **o
-resultado do `mount()` é descartado por completo**, sem verificação), e **só depois**
-escreve os pares `(chave, valor)` para dentro de `/run/secrets/<chave>` com
-`std::fs::write`. Se o `mount()` do tmpfs falhar por qualquer razão (ordem de montagem,
-uma flag rejeitada por um kernel específico, `/run/secrets` já ocupado por outra coisa, um
-cgroup/userns mais restrito do que o esperado), o código **não detecta a falha** e continua
-a escrever os valores — que caem então no `/run/secrets` do **rootfs real do container**
-(a camada de escrita do overlay, persistida em disco no host) em vez de RAM. Zero teste
-cobre este caminho (confirmado: `grep -n write_secret_files` só devolve a definição e o
-único chamador, sem `#[test]` nenhum).
+**What the code does**: the function creates `/run/secrets` (`create_dir_all`,
+error discarded with `if ...is_err() { return; }`), tries to mount a `tmpfs`
+there (`let _ = mount(...)` — **the `mount()` result is completely discarded**,
+with no check), and **only then** writes the `(key, value)` pairs into
+`/run/secrets/<key>` with `std::fs::write`. If the tmpfs `mount()` fails for
+any reason (mount ordering, a flag rejected by a specific kernel,
+`/run/secrets` already occupied by something else, a more restrictive
+cgroup/userns than expected), the code **does not detect the failure** and
+goes on writing the values — which then land in the `/run/secrets` of the
+**container's real rootfs** (the overlay's write layer, persisted to disk on
+the host) instead of RAM. Zero tests cover this path (confirmed: `grep -n
+write_secret_files` returns only the definition and the single caller, with no
+`#[test]` at all).
 
-**Risco**: um segredo de um tenant (password de base de dados, chave de API) fica escrito
-em claro na camada persistente do container — sobrevive a um `container commit`
-(potencialmente entra numa imagem publicada) e sobrevive num backup/snapshot do volume de
-sistema de ficheiros, exactamente o cenário que `--secret-files` existe para evitar face a
-`--secret` (env vars).
+**Risk**: a tenant's secret (database password, API key) ends up written in
+the clear in the container's persistent layer — surviving a `container commit`
+(potentially ending up in a published image) and surviving a backup/snapshot
+of the filesystem volume, exactly the scenario `--secret-files` exists to
+avoid compared to `--secret` (env vars).
 
-**Teste de aceitação**: montar `/run/secrets` como só-leitura ANTES do spawn (ou injectar
-uma falha determinística no `mount()`, ex. via um mock/feature de teste) e confirmar que
-`write_secret_files` **recusa** (retorna erro, propagado até `cmd_run` que aborta o `run`)
-em vez de degradar para escrita no disco persistente. Hoje a função é `fn
-write_secret_files(pairs: &[...])` sem tipo de retorno — a correcção minimamente invasiva é
-mudar a assinatura para `-> Result<()>`, verificar o `mount()` e propagar o erro ao
-chamador em `container_init`.
+**Acceptance test**: mount `/run/secrets` read-only BEFORE the spawn (or
+inject a deterministic failure into `mount()`, e.g. via a mock/test feature)
+and confirm that `write_secret_files` **refuses** (returns an error,
+propagated up to `cmd_run`, which aborts the `run`) instead of degrading to a
+write on persistent disk. Today the function is `fn
+write_secret_files(pairs: &[...])` with no return type — the minimally
+invasive fix is to change the signature to `-> Result<()>`, check `mount()`,
+and propagate the error to the caller in `container_init`.
 
-### Gap #2 (SEGURANÇA + MENTE SOBRE O ESTADO REAL) — o fallback silencioso para root (ADR-0062) é inobservável por qualquer consumidor externo
+### Gap #2 (SECURITY + LIES ABOUT THE REAL STATE) — the silent fallback to root (ADR-0062) is unobservable by any external consumer
 
-**Onde**: `crates/contexts/delonix-compute/src/run.rs:120-144` (lógica do fallback);
-`bins/delonix-runtime-bin/src/cmd/container.rs:1029-1038` (`print_notices`, só
-`eprintln!`); `crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs:508-520`
-(`delonix_detached_why_in` — stderr capturado num ficheiro temporário e **descartado sem
-leitura** quando `status.success()`).
+**Where**: `crates/contexts/delonix-compute/src/run.rs:120-144` (the fallback
+logic); `bins/delonix-runtime-bin/src/cmd/container.rs:1029-1038`
+(`print_notices`, only an `eprintln!`); `crates/interfaces/delonix-cri/src/
+runtime_svc/lifecycle.rs:508-520` (`delonix_detached_why_in` — stderr captured
+to a temp file and **discarded unread** when `status.success()`).
 
-**O que acontece**: desde o ADR-0062 (major breaking change aceite), um container sem
-`--user` explícito corre por omissão com o `USER` que a IMAGEM declara. Num host sem
-intervalo de subuid/subgid (`host.can_map_id_range() == false` — rootless single-uid, ou
-qualquer sessão sem `/etc/subuid` configurado), o motor **não falha** — cai de volta para
-uid 0 (root) dentro do container e emite um `Notice` de aviso. Esse `Notice`:
-1. Nunca é persistido em `crates/contexts/delonix-compute/src/record.rs` — **não há campo
-   `run_user`/`effective_uid` no `Container` record** (confirmado por grep: `run_user` só
-   existe na struct transitória `ResolvedRun`, nunca chega ao `Container` guardado em
-   disco).
-2. É impresso só via `eprintln!` na CLI (`print_notices`), e num `run -d`/CRI a saída
-   padrão/erro do processo que o criou **não é o que fica acessível depois** — é descartada.
-3. No caminho CRI especificamente: o `StartContainer` chama
-   `delonix_detached_why_in(base, netns, &["__apirun", &spec_arg])`, que grava o stderr
-   do `__apirun` (onde o Notice seria impresso) num ficheiro temporário — mas **só lê esse
-   ficheiro quando o processo falha** (`if status.success() { return Ok(None); }`, linha
-   519-520, sem nunca inspeccionar `stderr` nesse ramo). O ficheiro é apagado a seguir
-   (linha 517, antes mesmo deste `if`).
+**What happens**: since ADR-0062 (an accepted major breaking change), a
+container with no explicit `--user` runs by default with the `USER` the IMAGE
+declares. On a host with no subuid/subgid range (`host.can_map_id_range() ==
+false` — rootless single-uid, or any session with no `/etc/subuid`
+configured), the engine **does not fail** — it falls back to uid 0 (root)
+inside the container and emits a warning `Notice`. That `Notice`:
+1. Is never persisted in `crates/contexts/delonix-compute/src/record.rs` —
+   **there is no `run_user`/`effective_uid` field on the `Container`
+   record** (confirmed by grep: `run_user` only exists in the transient
+   `ResolvedRun` struct, never reaching the `Container` stored on disk).
+2. Is printed only via `eprintln!` in the CLI (`print_notices`), and on a `run
+   -d`/CRI the standard output/error of the process that created it **is not
+   what remains accessible afterward** — it is discarded.
+3. On the CRI path specifically: `StartContainer` calls
+   `delonix_detached_why_in(base, netns, &["__apirun", &spec_arg])`, which
+   writes `__apirun`'s stderr (where the Notice would be printed) to a temp
+   file — but **only reads that file when the process fails**
+   (`if status.success() { return Ok(None); }`, line 519-520, never inspecting
+   `stderr` on that branch). The file is deleted right after (line 517, even
+   before this `if`).
 
-**Resultado**: um orquestrador CaaS que cria containers via CRI (o caminho natural para um
-kubelet) **não tem forma nenhuma** de descobrir, depois do facto, que um Pod/container que
-declarou um `USER` não-root está de facto a correr como root — nem via
-`ContainerStatus`/`inspect`, nem via logs, nem via o journal de eventos
-(`delonix_node::events::emit` não é chamado neste caminho). É exactamente a classe
-"comportamento que mente sobre o estado real" que o enunciado pede para caçar: o motor SABE
-que desviou da intenção declarada e NÃO guarda esse facto em lado nenhum consultável.
+**Result**: a CaaS orchestrator that creates containers via CRI (the natural
+path for a kubelet) **has no way at all** to discover, after the fact, that a
+Pod/container that declared a non-root `USER` is in fact running as root — not
+via `ContainerStatus`/`inspect`, not via logs, not via the event journal
+(`delonix_node::events::emit` is never called on this path). This is exactly
+the "behaviour that lies about the real state" class the brief asks to hunt
+for: the engine KNOWS it deviated from the declared intent and does NOT store
+that fact anywhere queryable.
 
-**Teste de aceitação**: criar um container (via CRI, para validar o caminho mais relevante
-para CaaS) com uma imagem cujo `USER` é não-root, num ambiente de teste onde
-`can_map_id_range()` é forçado a `false`; depois do `start_container` ter sucesso, chamar
-`ContainerStatus`/`container inspect` e exigir um campo explícito (`effective_uid: 0`
-+ uma flag `user_fallback: true`) — hoje nenhum dos dois existe. Como correcção minimamente
-invasiva: persistir `run_user`/o facto do fallback no `Container` record (ADR-0062 já tem a
-informação calculada em `resolve_run`, só falta transportá-la), e emitir
-`delonix_node::events::emit` com esse detalhe para o caminho CRI aparecer no journal mesmo
-quando a chamada tem sucesso.
+**Acceptance test**: create a container (via CRI, to validate the path most
+relevant to CaaS) with an image whose `USER` is non-root, in a test
+environment where `can_map_id_range()` is forced to `false`; after
+`start_container` succeeds, call `ContainerStatus`/`container inspect` and
+require an explicit field (`effective_uid: 0` + a `user_fallback: true` flag)
+— today neither exists. As a minimally invasive fix: persist
+`run_user`/the fallback fact on the `Container` record (ADR-0062 already has
+the computed information in `resolve_run`, it just needs to be carried
+through), and emit `delonix_node::events::emit` with that detail so the CRI
+path shows up in the journal even when the call succeeds.
 
-### Gap #3 (SEGURANÇA — ADMISSÃO MULTI-TENANT DESLIGADA POR OMISSÃO) — "sem política = sem tecto" e "sem tecto de capacidades = ilimitado" são os DOIS defaults
+### Gap #3 (SECURITY — MULTI-TENANT ADMISSION OFF BY DEFAULT) — "no policy = no ceiling" and "no capability ceiling = unlimited" are BOTH defaults
 
-**Onde**: `bins/delonix-runtime-bin/src/cmd/policy.rs:182-189` (doc-comment explícito: *"No
-policy = no ceiling"*, `enforce()` devolve `Ok(())` de imediato quando `load(root)?` é
-`None`); `crates/interfaces/delonix-cri/src/cap_ceiling.rs:84-94,127-132` (`CeilingMode::parse("")
-= Reject` mas o **spec** vazio dá `mask: None` = sem tecto nenhum de capacidades — um pedido
-`privileged: true` via CRI recebe TODAS as capabilities do kernel salvo o operador do nó ter
-configurado explicitamente `DELONIX_CRI_CAP_CEILING`/`--cap-ceiling`).
+**Where**: `bins/delonix-runtime-bin/src/cmd/policy.rs:182-189` (explicit doc
+comment: *"No policy = no ceiling"*, `enforce()` returns `Ok(())` immediately
+when `load(root)?` is `None`); `crates/interfaces/delonix-cri/src/
+cap_ceiling.rs:84-94,127-132` (`CeilingMode::parse("") = Reject` but an empty
+**spec** gives `mask: None` = no capability ceiling at all — a CRI request
+with `privileged: true` receives EVERY kernel capability unless the node
+operator has explicitly configured `DELONIX_CRI_CAP_CEILING`/`--cap-ceiling`).
 
-**Porque é grave especificamente para CaaS**: um motor de nó único (que é o que este
-repositório é, por desenho — "o motor não conhece nenhum consumidor") assume
-correctamente que o OPERADOR DO NÓ decide os limites. Mas um CaaS aceita `PodSpec`s/manifestos
-de TENANTS não confiáveis e encaminha-os, tipicamente sem tradução, para o CRI ou para a CLI.
-Sem que a camada CaaS acima deste motor configure explicitamente as DUAS coisas — um
-`kind: RuntimePolicy` aplicado E `DELONIX_CRI_CAP_CEILING` definido — **qualquer tenant pode
-pedir `privileged: true` e obter compromisso total do nó**, exactamente como um operador
-root teria. Isto não é um bug (está documentado e é intencional para o caso de uso
-single-tenant do motor), mas é o item de configuração que, se esquecido, dá a um CaaS
-inteiro uma fronteira de confiança inexistente — e o motor não oferece um modo
-"secure-by-default" alternativo (ex.: recusar `privileged`/capabilities extra salvo
-allowlist, por omissão, num nó sem política nenhuma carregada).
+**Why this is specifically serious for a CaaS**: a single-node engine (which
+is what this repository is, by design — "the engine knows no consumer")
+correctly assumes the NODE OPERATOR decides the limits. But a CaaS accepts
+`PodSpec`s/manifests from UNTRUSTED TENANTS and forwards them, typically
+untranslated, to the CRI or the CLI. Unless the CaaS layer above this engine
+explicitly configures BOTH things — an applied `kind: RuntimePolicy` AND
+`DELONIX_CRI_CAP_CEILING` set — **any tenant can request `privileged: true`
+and obtain full node compromise**, exactly as a root operator would. This is
+not a bug (it is documented and intentional for the engine's single-tenant use
+case), but it is the configuration item that, if forgotten, gives an entire
+CaaS a nonexistent trust boundary — and the engine offers no alternative
+"secure-by-default" mode (e.g. refusing `privileged`/extra capabilities unless
+allowlisted, by default, on a node with no policy loaded at all).
 
-**Teste de aceitação**: num nó limpo, SEM `kind: RuntimePolicy` aplicado e SEM
-`DELONIX_CRI_CAP_CEILING` definido, criar um container/Pod com `privileged: true`
-(CRI) ou `--privileged` (CLI) e confirmar que é **aceite** (hoje é — isto é o
-comportamento actual, não hipotético). Para um CaaS, a recomendação é: a camada de
-integração nunca expõe o motor sem primeiro aplicar ambos; o próprio motor poderia, no
-mínimo, emitir um AVISO estrutural (evento, não só texto) sempre que um pedido privilegiado
-é aceite SEM política nenhuma carregada — hoje não emite nenhum.
+**Acceptance test**: on a clean node, with NO `kind: RuntimePolicy` applied
+and NO `DELONIX_CRI_CAP_CEILING` set, create a container/Pod with
+`privileged: true` (CRI) or `--privileged` (CLI) and confirm it is
+**accepted** (today it is — this is current behaviour, not hypothetical). For
+a CaaS, the recommendation is: the integration layer never exposes the engine
+without first applying both; the engine itself could, at minimum, emit a
+structural WARNING (an event, not just text) whenever a privileged request is
+accepted with NO policy loaded at all — today it emits none.
 
 ---
 
-## Notas metodológicas (para quem continuar este levantamento)
+## Methodological notes (for whoever continues this survey)
 
-- **ACH-034 (`secret rotate-key`) — o AGENTS.md contradiz-se a si próprio, e o código
-  resolve a contradição**: uma secção do AGENTS.md ("ADR-0069 item 6") diz que o bug da
-  versão a recuar para 1 numa rotação de chave foi corrigido; outra secção, mais abaixo
-  ("A bateria mede o `--help` de tudo"), di-lo como `xfail` ainda activo. `git log` confirma
-  que o COMMIT da correcção (`bbf2a972`, 15:50) é posterior ao commit que introduziu o
-  `xfail` no `scripts/e2e.sh` (`d684526b`, 14:41), **no mesmo dia** — ambos são ancestrais do
-  HEAD actual. Ou seja: **o bug está corrigido no código** (`SecretStore::write` com
-  `keep_version`, chamado por `rotate_key`), mas o marcador `xfail ACH-034` no
-  `scripts/e2e.sh` ficou esquecido e devia ter saído por XPASS. Não é um gap funcional —
-  é uma dívida de housekeeping no próprio script de bateria, que valeria a pena limpar
-  numa sessão de manutenção (fora do âmbito desta investigação CaaS).
-- Não corri `cargo build`/`cargo test`/`scripts/e2e.sh` — toda a "evidência" citada como
-  "PASS medido" refere-se a testes/checks JÁ ESCRITOS no repositório (confirmados por
-  leitura), não a uma execução feita nesta sessão.
+- **ACH-034 (`secret rotate-key`) — AGENTS.md contradicts itself, and the code
+  resolves the contradiction**: one section of AGENTS.md ("ADR-0069 item 6")
+  says the bug where a key rotation's version rolled back to 1 was fixed;
+  another section, further down ("The battery measures everything's
+  `--help`"), still calls it an active `xfail`. `git log` confirms the FIX
+  commit (`bbf2a972`, 15:50) is later than the commit that introduced the
+  `xfail` in `scripts/e2e.sh` (`d684526b`, 14:41), **on the same day** — both
+  are ancestors of the current HEAD. In other words: **the bug is fixed in the
+  code** (`SecretStore::write` with `keep_version`, called by `rotate_key`),
+  but the `xfail ACH-034` marker in `scripts/e2e.sh` was forgotten and should
+  have come out as XPASS. It is not a functional gap — it is housekeeping debt
+  in the test-battery script itself, worth cleaning up in a maintenance
+  session (out of scope for this CaaS investigation).
+- No `cargo build`/`cargo test`/`scripts/e2e.sh` was run — all "evidence" cited
+  as "PASS measured" refers to tests/checks ALREADY WRITTEN in the repository
+  (confirmed by reading), not to a run performed in this session.
