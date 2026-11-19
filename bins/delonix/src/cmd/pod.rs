@@ -1327,6 +1327,7 @@ fn exec(
         &[], // `pod exec` has no `--env-file`; only `-e` is plumbed through
         workdir,
         user,
+        false, // `pod exec` is never privileged — inherits the container's profile
         command,
     )
 }
