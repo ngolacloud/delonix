@@ -53,9 +53,11 @@ revision.
   automatic crash diagnosis with reason+forensics).
 - **OCI image distribution** — pull/push/tag/history/login interoperable with registries,
   with built-in cosign signing and CVE scanning (differentiators).
-- **Single-node container networking** — `--net host/none/bridge-custom`, rootless publish
-  via slirp4netns, discovery DNS with per-namespace isolation, VXLAN+WireGuard overlay, L4
-  firewall/egress and shaping — surpasses podman rootless on several fronts.
+- **Single-node container networking** — `--net private` (the rootless default: own netns
+  + slirp4netns outbound uplink, like podman), `--net host/none/container:`, custom
+  networks, rootless publish via slirp4netns, discovery DNS with per-namespace isolation,
+  VXLAN+WireGuard overlay, L4 firewall/egress and shaping — surpasses podman rootless on
+  several fronts.
 - **Real multi-container Pods** (`kind: Pod`) — shared netns + IPC + UTS, validated E2E.
 - **Kubernetes bootstrap WITHOUT Docker** — a real CRI server for kubelet, golden VM image,
   `cluster kubeadm`, and **Kind mode (`kindest/node`) already BOOTS and a v1.34
