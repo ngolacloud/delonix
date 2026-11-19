@@ -10195,6 +10195,14 @@ struct DnsIndex {
     /// qualified (`<name>.<namespace>.delonix.internal`), so there is no bare
     /// form to also index.
     services: std::collections::HashMap<String, ServiceDnsEntry>,
+    /// Per-CLIENT directed-DNS allowlist (`--knows`/`--knows-none`), keyed by
+    /// the client's own address. ABSENT = no restriction (resolve everything,
+    /// the default). `Some([])` = `--knows-none` (resolve no other peer).
+    /// `Some([names])` = resolve only those. Persisted in the record as
+    /// `dns_knows` and, until now, written and never read — the flag was
+    /// accepted and silently did nothing, the failure shape this repo removes.
+    /// A presence-in-map convention: only a RESTRICTED client appears here.
+    knows_of_ip: std::collections::HashMap<[u8; 4], Vec<String>>,
 }
 
 /// Parses `a.b.c.d/len` into `(network, mask)`. A bare address is `/32`.
@@ -10249,6 +10257,38 @@ fn dns_scope_allows(entry: &DnsEntry, client_ns: &str, client_ip: [u8; 4]) -> bo
     // dependency that crosses namespaces would work by address and not by name,
     // which is the "accepted and then ignored" shape this repo keeps removing.
     entry.allow_in.iter().any(|c| cidr_contains(*c, client_ip))
+}
+
+/// DIRECTED-DNS filter (`--knows`/`--knows-none`): may THIS client resolve the
+/// peer it is asking for? A SECOND gate after `dns_scope_allows` and, unlike it,
+/// a restriction the CLIENT places on itself rather than one the target places
+/// on who may see it.
+///
+/// `knows` is the client's allowlist as stored in its record: `None` (absent
+/// from the index) = no restriction, resolve everything (the default);
+/// `Some([])` = `--knows-none`, resolve no other peer; `Some([names])` = resolve
+/// only those names. A client always resolves ITSELF (`target_ip == client_ip`)
+/// — `--knows-none` means "no OTHER container", and a workload looking itself up
+/// by name must not break. Matching is on the peer's bare container label, so
+/// both the bare query (`db`) and a qualified one (`db.prod`, whose `cname` is
+/// `db.prod`) check against `knows=[db]`. PURE, so the decision is a test table.
+fn dns_knows_allows(
+    knows: Option<&Vec<String>>,
+    target_cname: &str,
+    target_ip: [u8; 4],
+    client_ip: [u8; 4],
+) -> bool {
+    let Some(list) = knows else {
+        return true; // no restriction
+    };
+    if target_ip == client_ip {
+        return true; // always resolve oneself
+    }
+    // The peer's bare label: `db.prod` → `db`, `db` → `db`. The allowlist names
+    // containers, which carry no dots of their own.
+    let bare = target_cname.split('.').next().unwrap_or(target_cname);
+    list.iter()
+        .any(|k| k.eq_ignore_ascii_case(bare) || k.eq_ignore_ascii_case(target_cname))
 }
 
 /// Parses `ip -o neigh show` output into `(lowercased line, ip)` pairs — same
@@ -10371,6 +10411,18 @@ fn build_dns_index() -> DnsIndex {
             // Reverse map: the client is identified by its source address.
             idx.ns_of_ip.entry(ip).or_insert(ns.clone());
             idx.known_ns.insert(ns.to_lowercase());
+            // Directed-DNS allowlist (`--knows`/`--knows-none`): what THIS
+            // container, as a CLIENT, is allowed to resolve. Only recorded when
+            // the field is an array — `null`/absent means no restriction and
+            // stays out of the map. An empty array is `--knows-none`.
+            if let Some(arr) = v["dns_knows"].as_array() {
+                let list: Vec<String> = arr
+                    .iter()
+                    .filter_map(|x| x.as_str())
+                    .map(|s| s.to_lowercase())
+                    .collect();
+                idx.knows_of_ip.entry(ip).or_insert(list);
+            }
             // Network aliases (`--network-alias`, `networkAlias:`). They were
             // persisted from the start and NOTHING ever read them: the option
             // was accepted and silently did nothing, which is the failure shape
@@ -10596,10 +10648,20 @@ fn dns_owns_name(name: &str) -> bool {
 
 fn dns_resolve_for(name: &str, client: Option<[u8; 4]>) -> Option<[u8; 4]> {
     let (cname, want_ns) = parse_internal_name(name)?;
-    let idx = dns_index();
+    // `dns_client_ns` FIRST: it forces an index rebuild when the client is not
+    // yet placed (a container's first lookup, inside the TTL window). Capturing
+    // `idx` only after means the directed-DNS allowlist below reads the SAME
+    // fresh index — otherwise a just-started `--knows-none` client would miss
+    // its own allowlist and resolve everything on its first query.
     let client_ns = dns_client_ns(client);
+    let idx = dns_index();
     let client_ip = client.unwrap_or([0, 0, 0, 0]);
-    let visible = |e: &DnsEntry| dns_scope_allows(e, &client_ns, client_ip);
+    // The client's directed-DNS allowlist (`--knows`). Absent = no restriction.
+    let client_knows = idx.knows_of_ip.get(&client_ip);
+    let visible = |e: &DnsEntry| {
+        dns_scope_allows(e, &client_ns, client_ip)
+            && dns_knows_allows(client_knows, &cname, e.ip, client_ip)
+    };
 
     if let Some(ns) = &want_ns {
         // Fully-qualified: the namespace is named, so it must BE the one asked
@@ -10632,11 +10694,14 @@ fn dns_resolve_for(name: &str, client: Option<[u8; 4]>) -> Option<[u8; 4]> {
         }
     }
     // Bare name: the asker's OWN namespace first. This is what makes two tenants
-    // able to both own `db` and each get their own — container, then VM.
+    // able to both own `db` and each get their own — container, then VM. Scope
+    // is implicit (same namespace), but the client's `--knows` allowlist still
+    // applies: `--knows-none` must not resolve a same-namespace peer either.
     if let Some(e) = idx
         .by_key
         .get(&dns_index_ns_key(&cname, &client_ns))
         .or_else(|| idx.by_key.get(&dns_index_vm_ns_key(&cname, &client_ns)))
+        .filter(|e| dns_knows_allows(client_knows, &cname, e.ip, client_ip))
     {
         return Some(e.ip);
     }
@@ -10663,10 +10728,19 @@ fn dns_resolve_multi_for(name: &str, client: Option<[u8; 4]>) -> Option<Vec<[u8;
     let (cname, Some(ns)) = parse_internal_name(name)? else {
         return None;
     };
+    // `dns_client_ns` first (forces a rebuild for an unplaced client), then a
+    // fresh index — same ordering reason as `dns_resolve_for`.
+    let client_ns = dns_client_ns(client);
     let idx = dns_index();
     let entry = idx.services.get(&dns_index_ns_key(&cname, &ns))?;
-    let client_ns = dns_client_ns(client);
     if !entry.ns.eq_ignore_ascii_case(&client_ns) && !entry.ns.eq_ignore_ascii_case(NS_DEFAULT) {
+        return None;
+    }
+    // A client's `--knows` allowlist gates Services too: a multi-IP answer never
+    // carries a self-match, so `--knows-none` resolves no Service and `--knows`
+    // resolves only a named one.
+    let client_ip = client.unwrap_or([0, 0, 0, 0]);
+    if !dns_knows_allows(idx.knows_of_ip.get(&client_ip), &cname, [0, 0, 0, 0], client_ip) {
         return None;
     }
     if entry.ips.is_empty() {
@@ -12934,6 +13008,28 @@ Inter-|   Receive                                                |  Transmit
             dns_action_owned(15, is_internal_zone("weba"), Some(IP)),
             DnsAction::NoData
         ); // MX
+    }
+
+    #[test]
+    fn directed_dns_knows_is_a_decision_table() {
+        const PEER: [u8; 4] = [10, 89, 0, 2];
+        const SELF: [u8; 4] = [10, 89, 0, 9];
+        // No restriction (the default): the field is absent from the index, so
+        // the client resolves everything, exactly as before this gate existed.
+        assert!(dns_knows_allows(None, "db", PEER, SELF));
+        // `--knows-none` (empty allowlist): resolves no OTHER peer...
+        assert!(!dns_knows_allows(Some(&vec![]), "db", PEER, SELF));
+        // ...but a workload always resolves ITSELF by name.
+        assert!(dns_knows_allows(Some(&vec![]), "self", SELF, SELF));
+        // `--knows db`: resolves `db`, refuses everything else.
+        let knows = vec!["db".to_string()];
+        assert!(dns_knows_allows(Some(&knows), "db", PEER, SELF));
+        assert!(dns_knows_allows(Some(&knows), "DB", PEER, SELF)); // case-insensitive
+        assert!(!dns_knows_allows(Some(&knows), "cache", PEER, SELF));
+        // The qualified form (`db.prod`, whose cname carries the namespace) still
+        // matches an allowlist that names the bare container.
+        assert!(dns_knows_allows(Some(&knows), "db.prod", PEER, SELF));
+        assert!(!dns_knows_allows(Some(&knows), "cache.prod", PEER, SELF));
     }
 
     #[test]
