@@ -198,7 +198,7 @@ pub enum Distro {
 }
 
 impl Distro {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Distro::Ubuntu => "ubuntu",
             Distro::Debian => "debian",
@@ -219,6 +219,56 @@ fn distro_label(img: &VmImage) -> String {
         (None, Some(r)) => r.to_string(),
         (None, None) => "-".to_string(),
     }
+}
+
+/// `vm create --distro <d>` with neither `--disk` nor `--url-img`: the flag is
+/// a semantic selector. It FIRST verifies the official VM image repository is
+/// reachable — the guarantee the flag makes ("garantir que o repo das imagens
+/// de VM está acessível") — then picks the newest published `base` image for
+/// the distro and resolves-or-pulls it. A registry it cannot read fails with
+/// exactly that, never a misleading "no such tag"; a reachable registry with no
+/// image for the distro lists what IS published.
+pub(crate) fn resolve_or_pull_base_for_distro(
+    store: &VmImageStore,
+    distro: Distro,
+) -> Result<String> {
+    let repo = OFFICIAL_REPOS
+        .iter()
+        .find(|r| r.key == "base")
+        .expect("the 'base' official repository is a compile-time constant");
+    let root = state_root();
+    // Reachability FIRST.
+    let tags = delonix_oci::registry::list_remote_tags(&root, repo.repo).map_err(|e| {
+        Error::Invalid(super::po::tf(
+            "VM image repository '{repo}' is not reachable: {err} — check connectivity, or \
+             `delonix image login ghcr.io` for a private one",
+            &[
+                ("repo", repo.repo),
+                ("err", &delonix_model::Error::from(e).to_string()),
+            ],
+        ))
+    })?;
+    // Base images are tagged `<distro>-<release>` (e.g. `ubuntu-24.04`,
+    // `debian-13`). Newest wins (lexicographic last, which tracks the release
+    // ordering for these schemes); an explicit release is still available via
+    // `--disk <tag>`.
+    let prefix = format!("{}-", distro.as_str());
+    let mut matching: Vec<&String> = tags.iter().filter(|t| t.starts_with(&prefix)).collect();
+    matching.sort();
+    let best = matching.last().copied().ok_or_else(|| {
+        let mut all: Vec<&str> = tags.iter().map(String::as_str).collect();
+        all.sort_unstable();
+        Error::Invalid(super::po::tf(
+            "no '{distro}' image is published in '{repo}' — available tags: {tags}",
+            &[
+                ("distro", distro.as_str()),
+                ("repo", repo.repo),
+                ("tags", &all.join(", ")),
+            ],
+        ))
+    })?;
+    let full = format!("{}:{}", repo.repo, best);
+    super::cluster::resolve_or_pull_vm_image(store, Some(full), None)
 }
 
 pub struct VmImageStore {

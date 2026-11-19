@@ -14,7 +14,8 @@ stops the process at startup with every problem listed at once — read stderr.
 On `SIGTERM`/`SIGINT` the service: marks readiness `draining` (so the balancer
 stops routing), waits `DRAIN_DELAY`, finishes in-flight requests, then drains
 the outbound webhook queue within `SHUTDOWN_TIMEOUT`. `STOPSIGNAL SIGTERM` and
-the `exec` in the entrypoint make sure the signal reaches PID 1.
+the exec-form `ENTRYPOINT` (the binary runs directly, no shell wrapper) make
+sure the signal reaches the process as PID 1.
 
 ## Logs and tracing
 Structured JSON on stdout. Every line emitted while handling a request carries

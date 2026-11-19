@@ -54,12 +54,13 @@ services:
     volumes:
       - __NAME__-data:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:__PORT__/api/v1/health/live', timeout=2)"]
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:__PORT__/api/v1/health/live', timeout=2)"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
-    user: "app"
+    # Numeric uid:gid — the distroless image has no named "app" user.
+    user: "65532:65532"
     tmpfs:
       - /tmp
 
@@ -84,7 +85,8 @@ services:
     volumes:
       - __NAME__-data:/data
     command: ["/app/.venv/bin/python", "manage.py", "consume_events"]
-    user: "app"
+    # Numeric uid:gid — the distroless image has no named "app" user.
+    user: "65532:65532"
     tmpfs:
       - /tmp
 

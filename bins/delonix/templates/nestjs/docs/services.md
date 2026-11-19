@@ -6,7 +6,7 @@ Pinned, not floating — reproducibility comes from the tags here plus
 
 | Service | Image (pinned) | Role | Profile | State |
 |---|---|---|---|---|
-| app | built from `Dockerfile` (node:24-slim) | the NestJS service | default | validated |
+| app | built from `Dockerfile` (distroless/nodejs22) | the NestJS service | default | validated |
 | redis | `redis:7.4-alpine` | read-through cache | default | upstream-available |
 | rabbitmq | `rabbitmq:4.0-management-alpine` | `note.created` pub/sub | default | upstream-available |
 | sonarqube | `sonarqube:lts-community` | code quality | quality | upstream-available |
