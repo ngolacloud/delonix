@@ -1,11 +1,19 @@
-//! `delonix-node-api` — the node API (`delonix.node.v1`, gRPC and HTTP/JSON on a
-//! unix socket, the calling uid only). `delonix serve node-api` runs this binary.
+//! `delonix-node-api` — the node API (`delonix.node.v1`, gRPC and HTTP/JSON).
+//! `delonix serve node-api` runs this binary.
 //!
 //! A listening socket passed by systemd socket activation (`LISTEN_FDS`) is
 //! served as is; otherwise `--addr` beats `DELONIX_NODE_API_ADDR`, which beats
 //! `unix:///run/delonix-node.sock`. `--idle-timeout` (or
 //! `DELONIX_NODE_API_IDLE_TIMEOUT`) makes the server exit once idle — the
 //! default when socket-activated, so nothing stays resident (ADR-0040 P5).
+//!
+//! Two transports (ADR-0096): a **local unix socket** (the calling uid only,
+//! `SO_PEERCRED`, the default and the rootless path), or a **TCP socket with
+//! mutual TLS** when the address is `tcp://host:port` (or the inherited socket
+//! is TCP) and the TLS material is given — `--tls-cert`/`--tls-key`/
+//! `--tls-client-ca` or `DELONIX_NODE_API_TLS_CERT`/`_KEY`/`_CLIENT_CA`. A TCP
+//! listener without that material is refused: the contract is never served in
+//! cleartext over TCP.
 
 use std::os::fd::RawFd;
 use std::process::ExitCode;
@@ -767,6 +775,9 @@ fn wants_version(args: &[String]) -> bool {
 struct Args {
     addr: Option<String>,
     idle_timeout: Option<String>,
+    tls_cert: Option<String>,
+    tls_key: Option<String>,
+    tls_client_ca: Option<String>,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, Error> {
@@ -780,6 +791,10 @@ fn parse_args(args: &[String]) -> Result<Args, Error> {
         let slot = match flag {
             "--addr" => &mut out.addr,
             "--idle-timeout" => &mut out.idle_timeout,
+            // ADR-0096: the TCP transport's mutual-TLS material (PEM file paths).
+            "--tls-cert" => &mut out.tls_cert,
+            "--tls-key" => &mut out.tls_key,
+            "--tls-client-ca" => &mut out.tls_client_ca,
             _ => return Err(Error::Invalid(format!("unknown argument: {a}"))),
         };
         let value = match inline {
@@ -841,6 +856,51 @@ fn resolve(
     Ok((listen, idle))
 }
 
+/// The TCP transport's TLS material (ADR-0096), from the three file paths (a
+/// flag, else its `DELONIX_NODE_API_TLS_*` variable). `None` when none is given
+/// (the unix transport). Fail-closed on a PARTIAL configuration: all three are
+/// required together — a TCP listener that verifies clients needs the server
+/// cert, its key and the client CA, and a missing one must not read as «off».
+/// The PEM is read here; `serve` refuses a TCP listener that reaches it with
+/// `None`, and a unix listener that reaches it with `Some`.
+fn tls_material(
+    cert: Option<String>,
+    key: Option<String>,
+    client_ca: Option<String>,
+) -> Result<Option<delonix_node_api::Tls>, Error> {
+    match (cert, key, client_ca) {
+        (None, None, None) => Ok(None),
+        (Some(cert), Some(key), Some(client_ca)) => {
+            let read = |what: &str, path: &str| -> Result<String, Error> {
+                std::fs::read_to_string(path).map_err(|e| {
+                    Error::Invalid(format!("node API TLS: cannot read {what} '{path}': {e}"))
+                })
+            };
+            Ok(Some(delonix_node_api::Tls {
+                cert_pem: read("--tls-cert", &cert)?,
+                key_pem: read("--tls-key", &key)?,
+                client_ca_pem: read("--tls-client-ca", &client_ca)?,
+            }))
+        }
+        (cert, key, client_ca) => {
+            let missing: Vec<&str> = [
+                cert.is_none().then_some("--tls-cert"),
+                key.is_none().then_some("--tls-key"),
+                client_ca.is_none().then_some("--tls-client-ca"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            Err(Error::Invalid(format!(
+                "node API TLS is partially configured: {} missing. All of --tls-cert, \
+                 --tls-key and --tls-client-ca (or DELONIX_NODE_API_TLS_CERT/_KEY/_CLIENT_CA) \
+                 are required together to serve the TCP transport",
+                missing.join(", ")
+            )))
+        }
+    }
+}
+
 fn run() -> Result<(), Error> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     delonix_host::dispatch::check_version("delonix-node-api", env!("CARGO_PKG_VERSION"))
@@ -853,6 +913,18 @@ fn run() -> Result<(), Error> {
         std::env::var("DELONIX_NODE_API_IDLE_TIMEOUT").ok(),
         activation::from_env()?,
         root.clone(),
+    )?;
+    // The TCP transport's mutual-TLS material (ADR-0096): a flag beats its
+    // variable; `serve` decides, per transport, whether it is required or
+    // refused.
+    let env_tls = |flag: Option<String>, var: &str| flag.or_else(|| std::env::var(var).ok());
+    let tls = tls_material(
+        env_tls(parsed.tls_cert.clone(), "DELONIX_NODE_API_TLS_CERT"),
+        env_tls(parsed.tls_key.clone(), "DELONIX_NODE_API_TLS_KEY"),
+        env_tls(
+            parsed.tls_client_ca.clone(),
+            "DELONIX_NODE_API_TLS_CLIENT_CA",
+        ),
     )?;
     // Mount the engine and hand the server its VM port (ADR-0040 A5). The read
     // path resolves off the engine; the write half of the VM lifecycle still
@@ -902,6 +974,7 @@ fn run() -> Result<(), Error> {
     delonix_node_api::serve(
         listen,
         idle,
+        tls,
         vms,
         store,
         run_resolver,
@@ -939,6 +1012,41 @@ mod tests {
 
     fn args(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn tls_material_is_all_or_nothing_and_fail_closed() {
+        // Nothing given: the unix transport, no TLS.
+        assert!(tls_material(None, None, None).unwrap().is_none());
+        // A partial configuration is refused, naming exactly what is missing —
+        // never read as «TLS off».
+        let e = tls_material(Some("/c".into()), None, None).unwrap_err();
+        let m = e.to_string();
+        assert!(m.contains("partially configured"), "{m}");
+        assert!(
+            m.contains("--tls-key") && m.contains("--tls-client-ca"),
+            "the missing ones are named: {m}"
+        );
+        // All three given but a path cannot be read: still an error, never a
+        // silent cleartext fallback.
+        let e = tls_material(
+            Some("/no/such/cert".into()),
+            Some("/no/such/key".into()),
+            Some("/no/such/ca".into()),
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("cannot read"), "{e}");
+        // The flags are parsed (inline and spaced forms).
+        let a = parse_args(&args(&[
+            "--tls-cert=/c",
+            "--tls-key",
+            "/k",
+            "--tls-client-ca=/ca",
+        ]))
+        .unwrap();
+        assert_eq!(a.tls_cert.as_deref(), Some("/c"));
+        assert_eq!(a.tls_key.as_deref(), Some("/k"));
+        assert_eq!(a.tls_client_ca.as_deref(), Some("/ca"));
     }
 
     #[test]
