@@ -1,0 +1,19 @@
+=== bench_density — Delonix ===
+bin:        /home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix
+versão:     delonix 0.1.1
+kernel:     Linux 7.0.0-43-generic
+ncpu:       20   load1: 3.33   limiar: 10.00
+imagem:     busybox:1.36
+patamares:  1,10,25,50,100   amostras/patamar: 8
+AVISO: 1 container(s) alheios vivos — a base deles entra na curva.
+
+alvo     vivos    p50(ms)    p99(ms)    nft_sets     nft_fwdeny    
+--------------------------------------------------------------------
+1        1        142        150        null         null          
+10       10       142        604        null         null          
+25       25       136        150        null         null          
+50       50       146        150        null         null          
+100      100      150        780        null         null          
+
+NÃO PUBLICÁVEL: 1 container(s) alheios no nó durante a medição
+Para uma curva publicável: um nó OCIOSO e DEDICADO, sem containers alheios.
