@@ -1034,9 +1034,10 @@ pub(crate) fn net_mode_display(c: &delonix_compute::Container) -> String {
         (Some(asked), _) if asked.starts_with("container:") => asked.to_string(),
         // Attached to the network it asked for — the normal case.
         (_, Some(net)) => net.to_string(),
-        // Explicitly asked for host/none: there is nothing wrong.
+        // Explicitly asked for host/none, or the default private uplink: nothing wrong.
         (Some("host"), None) => "host".to_string(),
         (Some("none"), None) => "none".to_string(),
+        (Some("private"), None) => "private".to_string(),
         // Asked for a NETWORK and does not have it. This is the case that was mute.
         (Some(asked), None) => format!("host (degraded: asked for '{asked}')"),
         // Record predating this field: we do not invent intent.
@@ -1156,14 +1157,18 @@ pub struct RunArgs {
     /// `--user`). Names are resolved in the image's `/etc/passwd`/`/etc/group`.
     #[arg(short = 'u', long)]
     user: Option<String>,
-    /// Network: `host` (shares the host's, default), `none` (isolated netns with
-    /// no connectivity), `container:<name>` (shares an already-running container's
-    /// netns — same IP and ports, Docker/Podman parity), or the NAME of a network
-    /// created with `delonix network create`.
+    /// Network: `private` (default, rootless) — the container's own netns with a
+    /// slirp4netns outbound uplink, like Podman rootless; `host` (shares the
+    /// host's netns); `none` (isolated netns with no connectivity);
+    /// `container:<name>` (shares an already-running container's netns — same IP
+    /// and ports, Docker/Podman parity); or the NAME of a network created with
+    /// `delonix network create`.
     // `--network` is Docker/Podman's spelling for the same selection; a
     // `visible_alias` makes `docker run --network mynet` work verbatim without a
-    // second arg or a new help string to translate.
-    #[arg(long, visible_alias = "network", default_value = "host", add = ArgValueCandidates::new(super::complete::networks))]
+    // second arg or a new help string to translate. The default is `private` so a
+    // bare `delonix run` isolates the container's network (rootless) instead of
+    // sharing the host's; rootful treats `private` as host-shared for now.
+    #[arg(long, visible_alias = "network", default_value = "private", add = ArgValueCandidates::new(super::complete::networks))]
     net: String,
     /// Logical ISOLATION namespace (default `default`). Containers in different
     /// namespaces cannot reach each other (even on the same network); only a
@@ -2255,12 +2260,13 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     // explicit `--net <network>` is a contradiction, not a combination: refuse it
     // (Podman does the same) rather than let `--net` silently win — which it did,
     // in the `custom_net` branch of `cmd_run` that returns BEFORE the pod branch,
-    // leaving the container on its own IP, never joined to the pod. `host` is the
-    // default a lone `--pod` carries (the member joins the pod's netns), so only
-    // a NON-default `--net` trips this.
+    // leaving the container on its own IP, never joined to the pod. `private`
+    // (the default) and `host` are the modes a lone `--pod` carries (the member
+    // joins the pod's netns either way), so only a NON-default `--net` — a custom
+    // network, `none`, or `container:` — trips this.
     let pod = match pod {
         Some(name) => {
-            if net != "host" {
+            if net != "host" && net != "private" {
                 return Err(Error::Invalid(format!(
                     "--pod and --net '{net}' are mutually exclusive: a pod already defines its \
                      network (its `spec.network`). Run `--pod {name}` on its own — the container \
@@ -4136,16 +4142,21 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     print_notices(&notices);
     wired?;
 
-    // `-p` without a custom network (`--net host`, the default): the container
-    // stops sharing the host's network and gets its own netns with slirp4netns +
-    // the requested hostfwds — the behavior of `docker run -p` (NAT network by
-    // default), in podman's rootless model. The slirp dies with the netns.
+    // DEFAULT rootless network (`--net private`, the unset default): the container
+    // gets its own netns with a slirp4netns OUTBOUND uplink even with no published
+    // ports — the Podman-rootless model, replacing the old `--net host` default.
+    // `--net host` opts back into sharing the host netns; `-p` adds hostfwds on top
+    // of the same slirp. On rootful this stays false (that path shares the host
+    // netns as before and is governed separately). The slirp dies with the netns.
+    let rootless_uplink =
+        !reexec && net == "private" && custom_net.is_none() && pod.is_none() && runtime::is_rootless();
     let launch = delonix_compute::launch::Launch {
         slirp_ports: delonix_compute::launch::slirp_ports(
             custom_net.is_some(),
             pod.is_some(),
             &ports,
         ),
+        rootless_uplink,
         rootfs,
         mounts,
         detach,
@@ -4257,9 +4268,9 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
                     "container '{name}' exited immediately — see `delonix container logs {name}`",
                     &[("name", &cur.name)],
                 ));
-                if runtime::is_rootless() && custom_net.is_none() && ports.is_empty() {
+                if runtime::is_rootless() && net == "host" {
                     super::output::warn(super::po::t(
-                        "rootless with the default `--net host` cannot bind ports below 1024 — if the image binds one (nginx, httpd, ...), publish it (`-p 8080:80`) or use `--net <network>`",
+                        "rootless `--net host` shares the host netns and cannot bind ports below 1024 — if the image binds one (nginx, httpd, ...), drop `--net host` (the default `--net private` gives the container its own netns) or publish it (`-p 8080:80`)",
                     ));
                 }
             }
@@ -6011,6 +6022,15 @@ fn start_container(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
             c.pod.is_some(),
             &c.ports,
         ),
+        // Reconstruct the default rootless uplink from the record: a container
+        // created with `--net private` (the default) keeps its own netns + slirp
+        // across `start`. Records predating this field (net_mode None/"host") stay
+        // on the host netns, as they were created.
+        rootless_uplink: !reexec
+            && c.net_mode.as_deref() == Some("private")
+            && c.network.is_none()
+            && c.pod.is_none()
+            && runtime::is_rootless(),
         rootfs,
         mounts: c.mounts.clone(),
         detach: true,
@@ -6575,7 +6595,6 @@ pub(crate) fn cmd_rm(images: &ImageStore, store: &Store, id: &str, force: bool) 
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn cmd_exec(
     images: &ImageStore,
