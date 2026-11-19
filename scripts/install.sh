@@ -28,9 +28,12 @@
 # Flags:
 #   --no-vm        não instala as dependências de VMs (libvirt/qemu/cloud-init)
 #   --vm-provider <libvirt|cloud-hypervisor>
-#                  the node's default VM provider, written to providers.yaml
-#                  (ADR-0054) when that file does not exist yet. Default: libvirt.
-#                  An existing file is never rewritten.
+#                  pin the node's default VM provider in providers.yaml
+#                  (ADR-0054) when that file does not exist yet. OMITTED by
+#                  default: no defaultProvider is written, so the engine
+#                  auto-detects (native-VMM-first — Cloud Hypervisor when it can
+#                  boot the image, else libvirt). An existing file is never
+#                  rewritten.
 #   --no-tune      não aplica o tuning de kernel (sysctls/módulos)
 #   --no-gpu       não configura aceleradores (CDI da NVIDIA, grupo render).
 #                  Por omissão é LIGADO, e só faz algo se houver GPU.
@@ -104,8 +107,12 @@ REPO="ngolacloud/delonix"
 MINISIGN_PUBKEY="RWSiOqlKAnVVB+pJLQxgYHq/kdN6RbBQdlL5gOcZ6H/xkwSAPIqTo+GB"
 VERSION="latest"
 WITH_VM=1
-# The node's default VM provider (ADR-0054), written to providers.yaml.
-VM_PROVIDER=libvirt
+# The node's default VM provider (ADR-0054). Empty by default: the installer
+# does NOT pin a `defaultProvider` in providers.yaml, so the engine's
+# native-VMM-first heuristic decides per VM (Cloud Hypervisor when it can boot
+# the image — /dev/kvm + EDK2 firmware — otherwise libvirt). `--vm-provider`
+# pins one explicitly.
+VM_PROVIDER=""
 # Delegação de cgroup ligada POR OMISSÃO: sem ela `-m`/`--cpus`/`--pids-limit`
 # são silenciosamente inertes e um nó Kubernetes nem arranca. Instalar um motor
 # de containers cujos limites não pegam é entregar metade do produto.
@@ -163,11 +170,24 @@ die()   { printf '%serror%s %s\n' "$C_ERR" "$C_0" "$*" >&2; exit 1; }
 # the operator already has — written by hand or by their provisioning — is
 # never rewritten. `set -C` (noclobber) makes the shell refuse an existing path
 # at the moment of writing, symlink included, not just in the test before it.
+# An EMPTY <default-provider> pins nothing: no `defaultProvider` line is written,
+# both local compute backends are declared, and the engine auto-detects per VM
+# (native-VMM-first). A non-empty one pins that provider as the default.
 # Returns 0 when it wrote, 3 when the file was already there, 1 on failure.
 write_providers_config() {
   _pc_path="$1"; _pc_provider="$2"; _pc_priv="$3"
   if [ -e "$_pc_path" ] || [ -L "$_pc_path" ]; then return 3; fi
   $_pc_priv mkdir -p "$(dirname "$_pc_path")" || return 1
+  if [ -n "$_pc_provider" ]; then
+    _pc_default_line="defaultProvider: $_pc_provider"
+    _pc_providers_block="$(printf '%s\n' "providers:" "  - type: $_pc_provider")"
+  else
+    # No pin: the engine auto-detects (Cloud Hypervisor when it can boot, else
+    # libvirt). Declare both local compute backends; the engine uses whichever
+    # is actually available on this host.
+    _pc_default_line="# defaultProvider omitted: the engine auto-detects (native-VMM-first)."
+    _pc_providers_block="$(printf '%s\n' "providers:" "  - type: cloud-hypervisor" "  - type: libvirt")"
+  fi
   printf '%s\n' \
     "# The node's VM providers (ADR-0054), written by install.sh. A later install" \
     "# never rewrites this file. To add a Proxmox VE node, append an entry:" \
@@ -176,9 +196,8 @@ write_providers_config() {
     "#     node: <node name>" \
     "#     auth: { tokenId: 'user@realm!token', tokenSecretFile: /etc/delonix/proxmox.token }" \
     "apiVersion: config.delonix.io/v1" \
-    "defaultProvider: $_pc_provider" \
-    "providers:" \
-    "  - type: $_pc_provider" \
+    "$_pc_default_line" \
+    "$_pc_providers_block" \
     | $_pc_priv sh -c 'set -C; cat > "$1"' _ "$_pc_path" 2>/dev/null
   _pc_rc=$?
   if [ "$_pc_rc" -ne 0 ]; then
@@ -258,8 +277,10 @@ while [ $# -gt 0 ]; do
 done
 
 # Refused here, before anything on the host is touched: a typo must not leave
-# a providers.yaml naming a provider that does not exist.
+# a providers.yaml naming a provider that does not exist. Empty = no --vm-provider
+# was given, so no defaultProvider gets pinned (auto-detection); that is allowed.
 case "$VM_PROVIDER" in
+  "") ;;
   libvirt|cloud-hypervisor) ;;
   ch) VM_PROVIDER=cloud-hypervisor ;;
   *) die "--vm-provider must be libvirt or cloud-hypervisor, not '$VM_PROVIDER'" ;;
@@ -884,7 +905,7 @@ if [ "$WITH_VM" = 1 ]; then
       if [ "$USER_INSTALL" = 1 ] && [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
         chown -R "$REAL_USER": "$(dirname "$PROVIDERS_FILE")" 2>/dev/null || true
       fi
-      stepok vm "providers.yaml (default provider: $VM_PROVIDER) at $PROVIDERS_FILE" ;;
+      stepok vm "providers.yaml (${VM_PROVIDER:+default provider: $VM_PROVIDER}${VM_PROVIDER:-default: auto-detect — Cloud Hypervisor when it can boot, else libvirt}) at $PROVIDERS_FILE" ;;
     3) step vm providers.yaml "kept the existing $PROVIDERS_FILE (never rewritten)" ;;
     *) warn "could not write $PROVIDERS_FILE — VMs fall back to auto-detection until it exists" ;;
   esac
