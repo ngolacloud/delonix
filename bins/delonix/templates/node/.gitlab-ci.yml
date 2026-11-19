@@ -1,5 +1,5 @@
 # Same gate as .github/workflows/ci.yml.
-image: node:24-slim
+image: node:22-slim
 
 stages:
   - check

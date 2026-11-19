@@ -1,0 +1,368 @@
+{"leaf":"--version","group":"__startup__","runs":20,"min_ms":8.431,"p50_ms":9.894,"p95_ms":11.212,"p99_ms":11.256,"max_ms":11.256,"mean_ms":9.874,"informational":false}
+{"leaf":"--help","group":"__startup__","runs":20,"min_ms":8.379,"p50_ms":9.538,"p95_ms":12.253,"p99_ms":12.276,"max_ms":12.276,"mean_ms":9.886,"informational":false}
+{"leaf":"attach","group":"attach","runs":20,"min_ms":7.062,"p50_ms":8.281,"p95_ms":10.119,"p99_ms":10.469,"max_ms":10.469,"mean_ms":8.592,"informational":false}
+{"leaf":"container checkpoint","group":"container","runs":20,"min_ms":7.030,"p50_ms":8.047,"p95_ms":10.047,"p99_ms":11.067,"max_ms":11.067,"mean_ms":8.325,"informational":false}
+{"leaf":"container clone","group":"container","runs":20,"min_ms":7.762,"p50_ms":9.147,"p95_ms":12.064,"p99_ms":12.406,"max_ms":12.406,"mean_ms":9.616,"informational":false}
+{"leaf":"container create","group":"container","runs":20,"min_ms":7.027,"p50_ms":10.417,"p95_ms":12.260,"p99_ms":13.378,"max_ms":13.378,"mean_ms":10.443,"informational":false}
+{"leaf":"container kill","group":"container","runs":20,"min_ms":7.339,"p50_ms":8.988,"p95_ms":10.536,"p99_ms":10.897,"max_ms":10.897,"mean_ms":9.311,"informational":false}
+{"leaf":"container pause","group":"container","runs":20,"min_ms":8.009,"p50_ms":9.688,"p95_ms":10.761,"p99_ms":12.009,"max_ms":12.009,"mean_ms":9.483,"informational":false}
+{"leaf":"container restart","group":"container","runs":20,"min_ms":7.781,"p50_ms":9.825,"p95_ms":11.625,"p99_ms":24.068,"max_ms":24.068,"mean_ms":10.368,"informational":false}
+{"leaf":"container restore","group":"container","runs":20,"min_ms":7.374,"p50_ms":9.045,"p95_ms":10.870,"p99_ms":11.215,"max_ms":11.215,"mean_ms":9.231,"informational":false}
+{"leaf":"container rm","group":"container","runs":20,"min_ms":7.468,"p50_ms":8.588,"p95_ms":10.063,"p99_ms":10.911,"max_ms":10.911,"mean_ms":8.820,"informational":false}
+{"leaf":"container run","group":"container","runs":20,"min_ms":7.766,"p50_ms":9.595,"p95_ms":11.317,"p99_ms":11.466,"max_ms":11.466,"mean_ms":9.696,"informational":false}
+{"leaf":"container start","group":"container","runs":20,"min_ms":6.898,"p50_ms":8.341,"p95_ms":11.083,"p99_ms":11.579,"max_ms":11.579,"mean_ms":8.755,"informational":false}
+{"leaf":"container stop","group":"container","runs":20,"min_ms":6.870,"p50_ms":8.294,"p95_ms":9.461,"p99_ms":9.479,"max_ms":9.479,"mean_ms":8.264,"informational":false}
+{"leaf":"container unpause","group":"container","runs":20,"min_ms":7.444,"p50_ms":8.486,"p95_ms":10.443,"p99_ms":10.450,"max_ms":10.450,"mean_ms":8.746,"informational":false}
+{"leaf":"container wait","group":"container","runs":20,"min_ms":6.807,"p50_ms":8.065,"p95_ms":9.046,"p99_ms":9.103,"max_ms":9.103,"mean_ms":8.101,"informational":false}
+{"leaf":"container describe","group":"container","runs":20,"min_ms":7.736,"p50_ms":8.747,"p95_ms":12.292,"p99_ms":16.084,"max_ms":16.084,"mean_ms":9.522,"informational":false}
+{"leaf":"container diff","group":"container","runs":20,"min_ms":7.661,"p50_ms":8.449,"p95_ms":10.661,"p99_ms":10.987,"max_ms":10.987,"mean_ms":8.918,"informational":false}
+{"leaf":"container exists","group":"container","runs":20,"min_ms":7.074,"p50_ms":8.837,"p95_ms":11.071,"p99_ms":18.655,"max_ms":18.655,"mean_ms":9.586,"informational":false}
+{"leaf":"container healthcheck","group":"container","runs":20,"min_ms":7.181,"p50_ms":7.919,"p95_ms":9.224,"p99_ms":9.435,"max_ms":9.435,"mean_ms":8.078,"informational":false}
+{"leaf":"container inspect","group":"container","runs":20,"min_ms":7.558,"p50_ms":8.032,"p95_ms":9.755,"p99_ms":10.568,"max_ms":10.568,"mean_ms":8.451,"informational":false}
+{"leaf":"container logs","group":"container","runs":20,"min_ms":7.839,"p50_ms":9.808,"p95_ms":12.036,"p99_ms":13.082,"max_ms":13.082,"mean_ms":9.734,"informational":false}
+{"leaf":"container port","group":"container","runs":20,"min_ms":7.349,"p50_ms":8.871,"p95_ms":9.807,"p99_ms":11.301,"max_ms":11.301,"mean_ms":8.843,"informational":false}
+{"leaf":"container ps","group":"container","runs":20,"min_ms":6.855,"p50_ms":8.367,"p95_ms":9.987,"p99_ms":10.418,"max_ms":10.418,"mean_ms":8.573,"informational":false}
+{"leaf":"container stats","group":"container","runs":20,"min_ms":6.887,"p50_ms":8.745,"p95_ms":10.951,"p99_ms":12.061,"max_ms":12.061,"mean_ms":8.860,"informational":false}
+{"leaf":"container top","group":"container","runs":20,"min_ms":8.257,"p50_ms":9.535,"p95_ms":12.290,"p99_ms":21.967,"max_ms":21.967,"mean_ms":10.386,"informational":false}
+{"leaf":"container attach","group":"container","runs":20,"min_ms":7.769,"p50_ms":9.879,"p95_ms":11.816,"p99_ms":12.264,"max_ms":12.264,"mean_ms":9.810,"informational":false}
+{"leaf":"container commit","group":"container","runs":20,"min_ms":7.909,"p50_ms":9.952,"p95_ms":12.506,"p99_ms":13.924,"max_ms":13.924,"mean_ms":10.303,"informational":false}
+{"leaf":"container cp","group":"container","runs":20,"min_ms":7.571,"p50_ms":9.464,"p95_ms":10.982,"p99_ms":11.347,"max_ms":11.347,"mean_ms":9.512,"informational":false}
+{"leaf":"container exec","group":"container","runs":20,"min_ms":7.106,"p50_ms":7.928,"p95_ms":9.310,"p99_ms":9.596,"max_ms":9.596,"mean_ms":8.175,"informational":false}
+{"leaf":"container mount","group":"container","runs":20,"min_ms":6.837,"p50_ms":8.483,"p95_ms":10.624,"p99_ms":11.697,"max_ms":11.697,"mean_ms":8.695,"informational":false}
+{"leaf":"container unmount","group":"container","runs":20,"min_ms":7.240,"p50_ms":8.567,"p95_ms":10.796,"p99_ms":11.179,"max_ms":11.179,"mean_ms":8.821,"informational":false}
+{"leaf":"container rename","group":"container","runs":20,"min_ms":7.467,"p50_ms":8.887,"p95_ms":11.673,"p99_ms":11.832,"max_ms":11.832,"mean_ms":9.102,"informational":false}
+{"leaf":"container update","group":"container","runs":20,"min_ms":6.736,"p50_ms":8.088,"p95_ms":9.704,"p99_ms":10.936,"max_ms":10.936,"mean_ms":8.480,"informational":false}
+{"leaf":"container apply","group":"container","runs":20,"min_ms":7.033,"p50_ms":8.098,"p95_ms":9.364,"p99_ms":9.927,"max_ms":9.927,"mean_ms":8.149,"informational":false}
+{"leaf":"container init","group":"container","runs":20,"min_ms":7.799,"p50_ms":9.642,"p95_ms":12.441,"p99_ms":13.929,"max_ms":13.929,"mean_ms":10.124,"informational":false}
+{"leaf":"container prune","group":"container","runs":20,"min_ms":7.031,"p50_ms":9.038,"p95_ms":11.784,"p99_ms":12.905,"max_ms":12.905,"mean_ms":9.426,"informational":false}
+{"leaf":"container export","group":"container","runs":20,"min_ms":7.987,"p50_ms":8.868,"p95_ms":10.001,"p99_ms":12.346,"max_ms":12.346,"mean_ms":9.103,"informational":false}
+{"leaf":"cp","group":"cp","runs":20,"min_ms":8.256,"p50_ms":9.293,"p95_ms":10.306,"p99_ms":10.895,"max_ms":10.895,"mean_ms":9.458,"informational":false}
+{"leaf":"create","group":"create","runs":20,"min_ms":8.062,"p50_ms":9.552,"p95_ms":11.287,"p99_ms":12.769,"max_ms":12.769,"mean_ms":9.778,"informational":false}
+{"leaf":"exec","group":"exec","runs":20,"min_ms":7.799,"p50_ms":8.814,"p95_ms":10.512,"p99_ms":10.798,"max_ms":10.798,"mean_ms":8.886,"informational":false}
+{"leaf":"kill","group":"kill","runs":20,"min_ms":7.666,"p50_ms":8.858,"p95_ms":11.300,"p99_ms":11.564,"max_ms":11.564,"mean_ms":9.177,"informational":false}
+{"leaf":"logs","group":"logs","runs":20,"min_ms":7.890,"p50_ms":9.021,"p95_ms":11.383,"p99_ms":12.330,"max_ms":12.330,"mean_ms":9.567,"informational":false}
+{"leaf":"oci-runtime create","group":"oci-runtime","runs":20,"min_ms":8.282,"p50_ms":10.022,"p95_ms":13.115,"p99_ms":13.551,"max_ms":13.551,"mean_ms":10.457,"informational":false}
+{"leaf":"oci-runtime delete","group":"oci-runtime","runs":20,"min_ms":7.723,"p50_ms":8.452,"p95_ms":9.906,"p99_ms":10.066,"max_ms":10.066,"mean_ms":8.660,"informational":false}
+{"leaf":"oci-runtime kill","group":"oci-runtime","runs":20,"min_ms":7.563,"p50_ms":9.391,"p95_ms":11.984,"p99_ms":12.447,"max_ms":12.447,"mean_ms":9.768,"informational":false}
+{"leaf":"oci-runtime start","group":"oci-runtime","runs":20,"min_ms":7.238,"p50_ms":8.613,"p95_ms":10.281,"p99_ms":10.817,"max_ms":10.817,"mean_ms":8.905,"informational":false}
+{"leaf":"oci-runtime state","group":"oci-runtime","runs":20,"min_ms":7.022,"p50_ms":8.418,"p95_ms":10.112,"p99_ms":10.552,"max_ms":10.552,"mean_ms":8.547,"informational":false}
+{"leaf":"pause","group":"pause","runs":20,"min_ms":7.557,"p50_ms":8.942,"p95_ms":12.118,"p99_ms":13.828,"max_ms":13.828,"mean_ms":9.483,"informational":false}
+{"leaf":"pod create","group":"pod","runs":20,"min_ms":7.265,"p50_ms":8.659,"p95_ms":9.501,"p99_ms":9.757,"max_ms":9.757,"mean_ms":8.654,"informational":false}
+{"leaf":"pod kill","group":"pod","runs":20,"min_ms":7.169,"p50_ms":8.693,"p95_ms":10.264,"p99_ms":10.414,"max_ms":10.414,"mean_ms":8.851,"informational":false}
+{"leaf":"pod pause","group":"pod","runs":20,"min_ms":6.600,"p50_ms":8.173,"p95_ms":9.757,"p99_ms":9.889,"max_ms":9.889,"mean_ms":8.375,"informational":false}
+{"leaf":"pod prune","group":"pod","runs":20,"min_ms":6.997,"p50_ms":8.678,"p95_ms":9.886,"p99_ms":10.026,"max_ms":10.026,"mean_ms":8.557,"informational":false}
+{"leaf":"pod restart","group":"pod","runs":20,"min_ms":7.751,"p50_ms":9.887,"p95_ms":10.817,"p99_ms":10.860,"max_ms":10.860,"mean_ms":9.714,"informational":false}
+{"leaf":"pod rm","group":"pod","runs":20,"min_ms":8.098,"p50_ms":9.298,"p95_ms":10.804,"p99_ms":12.820,"max_ms":12.820,"mean_ms":9.473,"informational":false}
+{"leaf":"pod start","group":"pod","runs":20,"min_ms":7.890,"p50_ms":9.850,"p95_ms":11.851,"p99_ms":12.158,"max_ms":12.158,"mean_ms":10.060,"informational":false}
+{"leaf":"pod stop","group":"pod","runs":20,"min_ms":7.655,"p50_ms":9.445,"p95_ms":11.807,"p99_ms":12.147,"max_ms":12.147,"mean_ms":9.584,"informational":false}
+{"leaf":"pod unpause","group":"pod","runs":20,"min_ms":7.934,"p50_ms":9.353,"p95_ms":10.603,"p99_ms":11.725,"max_ms":11.725,"mean_ms":9.375,"informational":false}
+{"leaf":"pod exists","group":"pod","runs":20,"min_ms":7.458,"p50_ms":8.649,"p95_ms":10.050,"p99_ms":10.113,"max_ms":10.113,"mean_ms":8.698,"informational":false}
+{"leaf":"pod inspect","group":"pod","runs":20,"min_ms":8.078,"p50_ms":9.611,"p95_ms":10.987,"p99_ms":13.007,"max_ms":13.007,"mean_ms":9.587,"informational":false}
+{"leaf":"pod logs","group":"pod","runs":20,"min_ms":6.689,"p50_ms":8.530,"p95_ms":10.834,"p99_ms":10.862,"max_ms":10.862,"mean_ms":8.768,"informational":false}
+{"leaf":"pod ps","group":"pod","runs":20,"min_ms":6.810,"p50_ms":8.014,"p95_ms":9.019,"p99_ms":9.617,"max_ms":9.617,"mean_ms":8.073,"informational":false}
+{"leaf":"pod stats","group":"pod","runs":20,"min_ms":7.125,"p50_ms":8.134,"p95_ms":9.907,"p99_ms":10.138,"max_ms":10.138,"mean_ms":8.450,"informational":false}
+{"leaf":"pod top","group":"pod","runs":20,"min_ms":7.179,"p50_ms":8.759,"p95_ms":16.229,"p99_ms":25.777,"max_ms":25.777,"mean_ms":9.970,"informational":false}
+{"leaf":"pod attach","group":"pod","runs":20,"min_ms":7.104,"p50_ms":8.174,"p95_ms":9.987,"p99_ms":10.595,"max_ms":10.595,"mean_ms":8.333,"informational":false}
+{"leaf":"pod cp","group":"pod","runs":20,"min_ms":6.840,"p50_ms":8.554,"p95_ms":9.650,"p99_ms":9.721,"max_ms":9.721,"mean_ms":8.455,"informational":false}
+{"leaf":"pod exec","group":"pod","runs":20,"min_ms":6.996,"p50_ms":8.763,"p95_ms":10.779,"p99_ms":11.864,"max_ms":11.864,"mean_ms":8.879,"informational":false}
+{"leaf":"pod port-forward","group":"pod","runs":20,"min_ms":7.299,"p50_ms":8.229,"p95_ms":11.003,"p99_ms":15.164,"max_ms":15.164,"mean_ms":8.787,"informational":false}
+{"leaf":"port","group":"port","runs":20,"min_ms":6.712,"p50_ms":8.188,"p95_ms":9.138,"p99_ms":9.772,"max_ms":9.772,"mean_ms":8.188,"informational":false}
+{"leaf":"ps","group":"ps","runs":20,"min_ms":6.881,"p50_ms":8.332,"p95_ms":10.466,"p99_ms":10.748,"max_ms":10.748,"mean_ms":8.669,"informational":false}
+{"leaf":"rename","group":"rename","runs":20,"min_ms":7.614,"p50_ms":9.512,"p95_ms":11.240,"p99_ms":11.412,"max_ms":11.412,"mean_ms":9.573,"informational":false}
+{"leaf":"restart","group":"restart","runs":20,"min_ms":7.555,"p50_ms":8.802,"p95_ms":10.403,"p99_ms":10.569,"max_ms":10.569,"mean_ms":9.001,"informational":false}
+{"leaf":"rm","group":"rm","runs":20,"min_ms":7.397,"p50_ms":8.421,"p95_ms":18.231,"p99_ms":24.868,"max_ms":24.868,"mean_ms":9.972,"informational":false}
+{"leaf":"run","group":"run","runs":20,"min_ms":8.159,"p50_ms":10.333,"p95_ms":12.144,"p99_ms":12.262,"max_ms":12.262,"mean_ms":10.533,"informational":false}
+{"leaf":"start","group":"start","runs":20,"min_ms":7.888,"p50_ms":8.947,"p95_ms":10.876,"p99_ms":10.911,"max_ms":10.911,"mean_ms":9.272,"informational":false}
+{"leaf":"stats","group":"stats","runs":20,"min_ms":7.575,"p50_ms":8.380,"p95_ms":10.058,"p99_ms":10.131,"max_ms":10.131,"mean_ms":8.570,"informational":false}
+{"leaf":"stop","group":"stop","runs":20,"min_ms":7.661,"p50_ms":9.750,"p95_ms":12.352,"p99_ms":12.525,"max_ms":12.525,"mean_ms":9.925,"informational":false}
+{"leaf":"systemcontainer clone","group":"systemcontainer","runs":20,"min_ms":7.258,"p50_ms":9.230,"p95_ms":14.530,"p99_ms":17.749,"max_ms":17.749,"mean_ms":9.889,"informational":false}
+{"leaf":"systemcontainer move","group":"systemcontainer","runs":20,"min_ms":8.165,"p50_ms":10.033,"p95_ms":12.832,"p99_ms":13.072,"max_ms":13.072,"mean_ms":10.318,"informational":false}
+{"leaf":"systemcontainer snapshot create","group":"systemcontainer","runs":20,"min_ms":7.815,"p50_ms":9.116,"p95_ms":12.067,"p99_ms":12.104,"max_ms":12.104,"mean_ms":9.550,"informational":false}
+{"leaf":"systemcontainer snapshot restore","group":"systemcontainer","runs":20,"min_ms":7.300,"p50_ms":9.785,"p95_ms":12.356,"p99_ms":13.303,"max_ms":13.303,"mean_ms":9.933,"informational":false}
+{"leaf":"systemcontainer snapshot rm","group":"systemcontainer","runs":20,"min_ms":7.763,"p50_ms":9.119,"p95_ms":10.895,"p99_ms":11.105,"max_ms":11.105,"mean_ms":9.349,"informational":false}
+{"leaf":"systemcontainer snapshot ls","group":"systemcontainer","runs":20,"min_ms":7.653,"p50_ms":9.939,"p95_ms":12.857,"p99_ms":12.958,"max_ms":12.958,"mean_ms":10.018,"informational":false}
+{"leaf":"top","group":"top","runs":20,"min_ms":8.004,"p50_ms":9.217,"p95_ms":10.352,"p99_ms":10.755,"max_ms":10.755,"mean_ms":9.242,"informational":false}
+{"leaf":"unpause","group":"unpause","runs":20,"min_ms":7.437,"p50_ms":8.515,"p95_ms":12.330,"p99_ms":13.804,"max_ms":13.804,"mean_ms":9.246,"informational":false}
+{"leaf":"vm clone","group":"vm","runs":20,"min_ms":7.375,"p50_ms":8.173,"p95_ms":10.936,"p99_ms":18.147,"max_ms":18.147,"mean_ms":9.295,"informational":false}
+{"leaf":"vm cloud-init","group":"vm","runs":20,"min_ms":7.468,"p50_ms":9.160,"p95_ms":10.981,"p99_ms":11.307,"max_ms":11.307,"mean_ms":9.298,"informational":false}
+{"leaf":"vm create","group":"vm","runs":20,"min_ms":7.737,"p50_ms":8.898,"p95_ms":10.837,"p99_ms":12.762,"max_ms":12.762,"mean_ms":9.342,"informational":false}
+{"leaf":"vm destroy","group":"vm","runs":20,"min_ms":7.901,"p50_ms":9.551,"p95_ms":11.217,"p99_ms":13.409,"max_ms":13.409,"mean_ms":9.715,"informational":false}
+{"leaf":"vm migrate","group":"vm","runs":20,"min_ms":8.023,"p50_ms":9.489,"p95_ms":11.861,"p99_ms":12.152,"max_ms":12.152,"mean_ms":9.766,"informational":false}
+{"leaf":"vm move","group":"vm","runs":20,"min_ms":7.919,"p50_ms":9.390,"p95_ms":12.676,"p99_ms":14.033,"max_ms":14.033,"mean_ms":9.712,"informational":false}
+{"leaf":"vm pause","group":"vm","runs":20,"min_ms":7.417,"p50_ms":8.666,"p95_ms":10.149,"p99_ms":10.185,"max_ms":10.185,"mean_ms":8.691,"informational":false}
+{"leaf":"vm resize","group":"vm","runs":20,"min_ms":7.216,"p50_ms":8.803,"p95_ms":10.479,"p99_ms":11.479,"max_ms":11.479,"mean_ms":9.022,"informational":false}
+{"leaf":"vm restart","group":"vm","runs":20,"min_ms":7.739,"p50_ms":9.714,"p95_ms":11.530,"p99_ms":11.765,"max_ms":11.765,"mean_ms":9.647,"informational":false}
+{"leaf":"vm start","group":"vm","runs":20,"min_ms":6.880,"p50_ms":8.436,"p95_ms":10.564,"p99_ms":10.719,"max_ms":10.719,"mean_ms":8.704,"informational":false}
+{"leaf":"vm stop","group":"vm","runs":20,"min_ms":7.574,"p50_ms":8.894,"p95_ms":9.547,"p99_ms":10.814,"max_ms":10.814,"mean_ms":8.907,"informational":false}
+{"leaf":"vm template","group":"vm","runs":20,"min_ms":7.174,"p50_ms":9.127,"p95_ms":11.465,"p99_ms":12.020,"max_ms":12.020,"mean_ms":9.219,"informational":false}
+{"leaf":"vm unpause","group":"vm","runs":20,"min_ms":6.947,"p50_ms":8.632,"p95_ms":10.133,"p99_ms":10.345,"max_ms":10.345,"mean_ms":8.709,"informational":false}
+{"leaf":"vm update","group":"vm","runs":20,"min_ms":6.688,"p50_ms":8.211,"p95_ms":9.748,"p99_ms":10.151,"max_ms":10.151,"mean_ms":8.260,"informational":false}
+{"leaf":"vm ls","group":"vm","runs":20,"min_ms":7.222,"p50_ms":9.161,"p95_ms":10.427,"p99_ms":16.115,"max_ms":16.115,"mean_ms":9.600,"informational":false}
+{"leaf":"vm console","group":"vm","runs":20,"min_ms":7.300,"p50_ms":9.363,"p95_ms":11.860,"p99_ms":12.278,"max_ms":12.278,"mean_ms":9.632,"informational":false}
+{"leaf":"vm ssh","group":"vm","runs":20,"min_ms":7.803,"p50_ms":8.989,"p95_ms":10.527,"p99_ms":10.658,"max_ms":10.658,"mean_ms":9.023,"informational":false}
+{"leaf":"vm vnc","group":"vm","runs":20,"min_ms":7.229,"p50_ms":9.555,"p95_ms":12.358,"p99_ms":19.232,"max_ms":19.232,"mean_ms":10.011,"informational":false}
+{"leaf":"vm default-backend","group":"vm","runs":20,"min_ms":8.443,"p50_ms":9.557,"p95_ms":12.109,"p99_ms":15.277,"max_ms":15.277,"mean_ms":10.182,"informational":false}
+{"leaf":"vm bridge","group":"vm","runs":20,"min_ms":7.450,"p50_ms":9.075,"p95_ms":10.557,"p99_ms":10.960,"max_ms":10.960,"mean_ms":9.088,"informational":false}
+{"leaf":"vm reach","group":"vm","runs":20,"min_ms":7.717,"p50_ms":9.005,"p95_ms":10.540,"p99_ms":11.428,"max_ms":11.428,"mean_ms":9.285,"informational":false}
+{"leaf":"vm unbridge","group":"vm","runs":20,"min_ms":7.751,"p50_ms":8.946,"p95_ms":10.101,"p99_ms":10.483,"max_ms":10.483,"mean_ms":8.990,"informational":false}
+{"leaf":"vm image pull","group":"vm","runs":20,"min_ms":7.511,"p50_ms":9.072,"p95_ms":11.256,"p99_ms":11.375,"max_ms":11.375,"mean_ms":9.261,"informational":false}
+{"leaf":"vm image push","group":"vm","runs":20,"min_ms":6.770,"p50_ms":8.622,"p95_ms":10.241,"p99_ms":18.607,"max_ms":18.607,"mean_ms":9.065,"informational":false}
+{"leaf":"vm image rm","group":"vm","runs":20,"min_ms":8.218,"p50_ms":8.855,"p95_ms":11.846,"p99_ms":24.775,"max_ms":24.775,"mean_ms":10.126,"informational":false}
+{"leaf":"vm image build","group":"vm","runs":20,"min_ms":7.457,"p50_ms":8.829,"p95_ms":10.102,"p99_ms":10.839,"max_ms":10.839,"mean_ms":8.980,"informational":false}
+{"leaf":"vm image import","group":"vm","runs":20,"min_ms":7.082,"p50_ms":8.547,"p95_ms":10.107,"p99_ms":13.305,"max_ms":13.305,"mean_ms":8.774,"informational":false}
+{"leaf":"vm image init","group":"vm","runs":20,"min_ms":7.288,"p50_ms":8.253,"p95_ms":11.175,"p99_ms":20.542,"max_ms":20.542,"mean_ms":9.001,"informational":false}
+{"leaf":"vm image describe","group":"vm","runs":20,"min_ms":7.920,"p50_ms":8.651,"p95_ms":11.776,"p99_ms":11.912,"max_ms":11.912,"mean_ms":9.184,"informational":false}
+{"leaf":"vm image ls","group":"vm","runs":20,"min_ms":6.773,"p50_ms":8.449,"p95_ms":9.728,"p99_ms":10.772,"max_ms":10.772,"mean_ms":8.410,"informational":false}
+{"leaf":"vm image ls-remote","group":"vm","runs":20,"min_ms":6.772,"p50_ms":8.627,"p95_ms":10.398,"p99_ms":11.101,"max_ms":11.101,"mean_ms":8.802,"informational":false}
+{"leaf":"vm image convert","group":"vm","runs":20,"min_ms":7.876,"p50_ms":9.603,"p95_ms":10.763,"p99_ms":10.929,"max_ms":10.929,"mean_ms":9.576,"informational":false}
+{"leaf":"vm apply","group":"vm","runs":20,"min_ms":8.134,"p50_ms":9.625,"p95_ms":10.768,"p99_ms":11.780,"max_ms":11.780,"mean_ms":9.663,"informational":false}
+{"leaf":"vm init","group":"vm","runs":20,"min_ms":7.578,"p50_ms":8.981,"p95_ms":11.209,"p99_ms":11.614,"max_ms":11.614,"mean_ms":9.394,"informational":false}
+{"leaf":"vm prune","group":"vm","runs":20,"min_ms":7.415,"p50_ms":9.153,"p95_ms":10.293,"p99_ms":10.588,"max_ms":10.588,"mean_ms":9.050,"informational":false}
+{"leaf":"vm snapshot create","group":"vm","runs":20,"min_ms":7.873,"p50_ms":9.203,"p95_ms":11.697,"p99_ms":11.758,"max_ms":11.758,"mean_ms":9.510,"informational":false}
+{"leaf":"vm snapshot restore","group":"vm","runs":20,"min_ms":7.054,"p50_ms":9.148,"p95_ms":11.621,"p99_ms":11.997,"max_ms":11.997,"mean_ms":9.234,"informational":false}
+{"leaf":"vm snapshot rm","group":"vm","runs":20,"min_ms":7.521,"p50_ms":9.278,"p95_ms":11.076,"p99_ms":12.412,"max_ms":12.412,"mean_ms":9.455,"informational":false}
+{"leaf":"vm snapshot ls","group":"vm","runs":20,"min_ms":7.472,"p50_ms":8.279,"p95_ms":10.984,"p99_ms":12.212,"max_ms":12.212,"mean_ms":9.038,"informational":false}
+{"leaf":"workload rm","group":"workload","runs":20,"min_ms":7.020,"p50_ms":8.590,"p95_ms":10.130,"p99_ms":10.734,"max_ms":10.734,"mean_ms":8.753,"informational":false}
+{"leaf":"workload stop","group":"workload","runs":20,"min_ms":7.386,"p50_ms":10.029,"p95_ms":11.275,"p99_ms":13.546,"max_ms":13.546,"mean_ms":9.709,"informational":false}
+{"leaf":"workload describe","group":"workload","runs":20,"min_ms":8.247,"p50_ms":9.502,"p95_ms":12.119,"p99_ms":14.192,"max_ms":14.192,"mean_ms":9.688,"informational":false}
+{"leaf":"workload ls","group":"workload","runs":20,"min_ms":7.254,"p50_ms":9.279,"p95_ms":11.644,"p99_ms":11.741,"max_ms":11.741,"mean_ms":9.297,"informational":false}
+{"leaf":"build","group":"build","runs":20,"min_ms":6.404,"p50_ms":7.910,"p95_ms":9.261,"p99_ms":9.659,"max_ms":9.659,"mean_ms":8.125,"informational":false}
+{"leaf":"commit","group":"commit","runs":20,"min_ms":6.921,"p50_ms":7.808,"p95_ms":9.375,"p99_ms":10.089,"max_ms":10.089,"mean_ms":7.952,"informational":false}
+{"leaf":"export","group":"export","runs":20,"min_ms":7.457,"p50_ms":8.196,"p95_ms":10.583,"p99_ms":11.425,"max_ms":11.425,"mean_ms":8.561,"informational":false}
+{"leaf":"history","group":"history","runs":20,"min_ms":6.446,"p50_ms":7.875,"p95_ms":9.881,"p99_ms":12.662,"max_ms":12.662,"mean_ms":8.257,"informational":false}
+{"leaf":"image pull","group":"image","runs":20,"min_ms":6.903,"p50_ms":8.982,"p95_ms":10.894,"p99_ms":11.226,"max_ms":11.226,"mean_ms":9.043,"informational":false}
+{"leaf":"image push","group":"image","runs":20,"min_ms":8.121,"p50_ms":8.869,"p95_ms":10.800,"p99_ms":11.302,"max_ms":11.302,"mean_ms":9.197,"informational":false}
+{"leaf":"image remove","group":"image","runs":20,"min_ms":7.383,"p50_ms":10.551,"p95_ms":12.163,"p99_ms":12.878,"max_ms":12.878,"mean_ms":10.715,"informational":false}
+{"leaf":"image attestations","group":"image","runs":20,"min_ms":7.314,"p50_ms":8.886,"p95_ms":9.978,"p99_ms":10.304,"max_ms":10.304,"mean_ms":8.692,"informational":false}
+{"leaf":"image describe","group":"image","runs":20,"min_ms":7.306,"p50_ms":8.587,"p95_ms":10.513,"p99_ms":10.611,"max_ms":10.611,"mean_ms":8.830,"informational":false}
+{"leaf":"image diff","group":"image","runs":20,"min_ms":7.589,"p50_ms":8.803,"p95_ms":10.226,"p99_ms":11.377,"max_ms":11.377,"mean_ms":8.967,"informational":false}
+{"leaf":"image exists","group":"image","runs":20,"min_ms":7.247,"p50_ms":8.410,"p95_ms":9.908,"p99_ms":10.161,"max_ms":10.161,"mean_ms":8.521,"informational":false}
+{"leaf":"image history","group":"image","runs":20,"min_ms":6.884,"p50_ms":8.274,"p95_ms":10.072,"p99_ms":12.116,"max_ms":12.116,"mean_ms":8.573,"informational":false}
+{"leaf":"image inspect","group":"image","runs":20,"min_ms":7.290,"p50_ms":8.559,"p95_ms":10.413,"p99_ms":10.921,"max_ms":10.921,"mean_ms":8.719,"informational":false}
+{"leaf":"image ls","group":"image","runs":20,"min_ms":6.856,"p50_ms":8.297,"p95_ms":10.602,"p99_ms":10.661,"max_ms":10.661,"mean_ms":8.716,"informational":false}
+{"leaf":"image provenance","group":"image","runs":20,"min_ms":6.389,"p50_ms":7.736,"p95_ms":8.977,"p99_ms":9.381,"max_ms":9.381,"mean_ms":7.785,"informational":false}
+{"leaf":"image sbom","group":"image","runs":20,"min_ms":6.404,"p50_ms":8.234,"p95_ms":9.552,"p99_ms":9.983,"max_ms":9.983,"mean_ms":8.155,"informational":false}
+{"leaf":"image scan","group":"image","runs":20,"min_ms":7.143,"p50_ms":8.806,"p95_ms":11.399,"p99_ms":11.550,"max_ms":11.550,"mean_ms":9.136,"informational":false}
+{"leaf":"image tree","group":"image","runs":20,"min_ms":7.234,"p50_ms":8.601,"p95_ms":12.575,"p99_ms":23.758,"max_ms":23.758,"mean_ms":9.947,"informational":false}
+{"leaf":"image verify","group":"image","runs":20,"min_ms":6.965,"p50_ms":8.155,"p95_ms":10.369,"p99_ms":10.588,"max_ms":10.588,"mean_ms":8.384,"informational":false}
+{"leaf":"image login","group":"image","runs":20,"min_ms":6.784,"p50_ms":8.265,"p95_ms":9.840,"p99_ms":11.456,"max_ms":11.456,"mean_ms":8.410,"informational":false}
+{"leaf":"image logout","group":"image","runs":20,"min_ms":7.481,"p50_ms":8.895,"p95_ms":11.262,"p99_ms":12.187,"max_ms":12.187,"mean_ms":9.110,"informational":false}
+{"leaf":"image sign","group":"image","runs":20,"min_ms":7.226,"p50_ms":9.377,"p95_ms":10.950,"p99_ms":11.234,"max_ms":11.234,"mean_ms":9.389,"informational":false}
+{"leaf":"image tag","group":"image","runs":20,"min_ms":8.044,"p50_ms":9.993,"p95_ms":12.333,"p99_ms":16.251,"max_ms":16.251,"mean_ms":10.200,"informational":false}
+{"leaf":"image untag","group":"image","runs":20,"min_ms":7.618,"p50_ms":9.241,"p95_ms":11.536,"p99_ms":11.879,"max_ms":11.879,"mean_ms":9.676,"informational":false}
+{"leaf":"image export","group":"image","runs":20,"min_ms":7.397,"p50_ms":8.905,"p95_ms":9.802,"p99_ms":10.268,"max_ms":10.268,"mean_ms":8.874,"informational":false}
+{"leaf":"image import","group":"image","runs":20,"min_ms":7.522,"p50_ms":8.773,"p95_ms":10.308,"p99_ms":13.809,"max_ms":13.809,"mean_ms":9.180,"informational":false}
+{"leaf":"image load","group":"image","runs":20,"min_ms":8.255,"p50_ms":10.118,"p95_ms":12.182,"p99_ms":13.733,"max_ms":13.733,"mean_ms":10.479,"informational":false}
+{"leaf":"image save","group":"image","runs":20,"min_ms":6.891,"p50_ms":8.599,"p95_ms":10.876,"p99_ms":13.127,"max_ms":13.127,"mean_ms":8.892,"informational":false}
+{"leaf":"image search","group":"image","runs":20,"min_ms":6.924,"p50_ms":7.745,"p95_ms":8.939,"p99_ms":10.015,"max_ms":10.015,"mean_ms":7.936,"informational":false}
+{"leaf":"image apply","group":"image","runs":20,"min_ms":6.626,"p50_ms":8.506,"p95_ms":9.617,"p99_ms":10.766,"max_ms":10.766,"mean_ms":8.567,"informational":false}
+{"leaf":"image prune","group":"image","runs":20,"min_ms":7.450,"p50_ms":9.660,"p95_ms":10.544,"p99_ms":10.711,"max_ms":10.711,"mean_ms":9.381,"informational":false}
+{"leaf":"image build","group":"image","runs":20,"min_ms":7.607,"p50_ms":8.394,"p95_ms":9.681,"p99_ms":9.723,"max_ms":9.723,"mean_ms":8.602,"informational":false}
+{"leaf":"images","group":"images","runs":20,"min_ms":7.387,"p50_ms":8.144,"p95_ms":9.414,"p99_ms":9.911,"max_ms":9.911,"mean_ms":8.351,"informational":false}
+{"leaf":"import","group":"import","runs":20,"min_ms":6.617,"p50_ms":7.903,"p95_ms":9.537,"p99_ms":9.937,"max_ms":9.937,"mean_ms":8.110,"informational":false}
+{"leaf":"load","group":"load","runs":20,"min_ms":7.873,"p50_ms":9.411,"p95_ms":11.113,"p99_ms":11.193,"max_ms":11.193,"mean_ms":9.481,"informational":false}
+{"leaf":"login","group":"login","runs":20,"min_ms":7.336,"p50_ms":8.431,"p95_ms":11.097,"p99_ms":11.700,"max_ms":11.700,"mean_ms":9.019,"informational":false}
+{"leaf":"logout","group":"logout","runs":20,"min_ms":7.349,"p50_ms":9.675,"p95_ms":11.965,"p99_ms":13.337,"max_ms":13.337,"mean_ms":10.054,"informational":false}
+{"leaf":"pull","group":"pull","runs":20,"min_ms":8.227,"p50_ms":10.281,"p95_ms":11.729,"p99_ms":11.747,"max_ms":11.747,"mean_ms":10.271,"informational":false}
+{"leaf":"push","group":"push","runs":20,"min_ms":7.559,"p50_ms":8.949,"p95_ms":12.422,"p99_ms":12.511,"max_ms":12.511,"mean_ms":9.509,"informational":false}
+{"leaf":"rmi","group":"rmi","runs":20,"min_ms":7.600,"p50_ms":9.166,"p95_ms":10.535,"p99_ms":11.453,"max_ms":11.453,"mean_ms":9.120,"informational":false}
+{"leaf":"save","group":"save","runs":20,"min_ms":7.408,"p50_ms":9.800,"p95_ms":11.029,"p99_ms":11.627,"max_ms":11.627,"mean_ms":9.665,"informational":false}
+{"leaf":"search","group":"search","runs":20,"min_ms":7.135,"p50_ms":8.353,"p95_ms":9.580,"p99_ms":9.889,"max_ms":9.889,"mean_ms":8.409,"informational":false}
+{"leaf":"secret create","group":"secret","runs":20,"min_ms":7.035,"p50_ms":8.063,"p95_ms":9.779,"p99_ms":9.783,"max_ms":9.783,"mean_ms":8.284,"informational":false}
+{"leaf":"secret rm","group":"secret","runs":20,"min_ms":6.427,"p50_ms":8.802,"p95_ms":9.880,"p99_ms":12.830,"max_ms":12.830,"mean_ms":8.773,"informational":false}
+{"leaf":"secret inspect","group":"secret","runs":20,"min_ms":6.866,"p50_ms":8.362,"p95_ms":10.371,"p99_ms":11.469,"max_ms":11.469,"mean_ms":8.641,"informational":false}
+{"leaf":"secret ls","group":"secret","runs":20,"min_ms":7.483,"p50_ms":8.191,"p95_ms":9.847,"p99_ms":10.650,"max_ms":10.650,"mean_ms":8.521,"informational":false}
+{"leaf":"secret set","group":"secret","runs":20,"min_ms":6.877,"p50_ms":8.093,"p95_ms":10.895,"p99_ms":10.993,"max_ms":10.993,"mean_ms":8.670,"informational":false}
+{"leaf":"secret unset","group":"secret","runs":20,"min_ms":7.625,"p50_ms":9.281,"p95_ms":11.109,"p99_ms":11.611,"max_ms":11.611,"mean_ms":9.224,"informational":false}
+{"leaf":"secret apply","group":"secret","runs":20,"min_ms":7.173,"p50_ms":8.186,"p95_ms":11.162,"p99_ms":11.490,"max_ms":11.490,"mean_ms":8.605,"informational":false}
+{"leaf":"secret rotate","group":"secret","runs":20,"min_ms":7.080,"p50_ms":8.312,"p95_ms":10.325,"p99_ms":10.592,"max_ms":10.592,"mean_ms":8.406,"informational":false}
+{"leaf":"secret rotate-key","group":"secret","runs":20,"min_ms":7.288,"p50_ms":8.446,"p95_ms":11.075,"p99_ms":15.558,"max_ms":15.558,"mean_ms":9.022,"informational":false}
+{"leaf":"tag","group":"tag","runs":20,"min_ms":6.720,"p50_ms":8.615,"p95_ms":10.601,"p99_ms":11.309,"max_ms":11.309,"mean_ms":8.709,"informational":false}
+{"leaf":"untag","group":"untag","runs":20,"min_ms":7.440,"p50_ms":8.806,"p95_ms":10.283,"p99_ms":14.388,"max_ms":14.388,"mean_ms":9.180,"informational":false}
+{"leaf":"bucket rm","group":"bucket","runs":20,"min_ms":8.114,"p50_ms":9.007,"p95_ms":11.191,"p99_ms":11.680,"max_ms":11.680,"mean_ms":9.388,"informational":false}
+{"leaf":"bucket inspect","group":"bucket","runs":20,"min_ms":8.155,"p50_ms":10.218,"p95_ms":12.522,"p99_ms":16.929,"max_ms":16.929,"mean_ms":10.422,"informational":false}
+{"leaf":"bucket ls","group":"bucket","runs":20,"min_ms":7.443,"p50_ms":9.410,"p95_ms":11.033,"p99_ms":11.114,"max_ms":11.114,"mean_ms":9.246,"informational":false}
+{"leaf":"volume create","group":"volume","runs":20,"min_ms":7.402,"p50_ms":8.872,"p95_ms":9.861,"p99_ms":10.097,"max_ms":10.097,"mean_ms":8.972,"informational":false}
+{"leaf":"volume rm","group":"volume","runs":20,"min_ms":8.138,"p50_ms":9.295,"p95_ms":11.312,"p99_ms":12.986,"max_ms":12.986,"mean_ms":9.658,"informational":false}
+{"leaf":"volume describe","group":"volume","runs":20,"min_ms":7.865,"p50_ms":9.113,"p95_ms":12.612,"p99_ms":13.192,"max_ms":13.192,"mean_ms":9.704,"informational":false}
+{"leaf":"volume exists","group":"volume","runs":20,"min_ms":7.014,"p50_ms":8.383,"p95_ms":9.338,"p99_ms":9.730,"max_ms":9.730,"mean_ms":8.233,"informational":false}
+{"leaf":"volume inspect","group":"volume","runs":20,"min_ms":7.505,"p50_ms":8.214,"p95_ms":9.222,"p99_ms":9.308,"max_ms":9.308,"mean_ms":8.314,"informational":false}
+{"leaf":"volume ls","group":"volume","runs":20,"min_ms":7.109,"p50_ms":8.785,"p95_ms":11.171,"p99_ms":11.414,"max_ms":11.414,"mean_ms":9.047,"informational":false}
+{"leaf":"volume export","group":"volume","runs":20,"min_ms":8.024,"p50_ms":9.157,"p95_ms":10.444,"p99_ms":10.597,"max_ms":10.597,"mean_ms":9.221,"informational":false}
+{"leaf":"volume import","group":"volume","runs":20,"min_ms":6.934,"p50_ms":7.768,"p95_ms":9.959,"p99_ms":9.979,"max_ms":9.979,"mean_ms":8.232,"informational":false}
+{"leaf":"volume mount","group":"volume","runs":20,"min_ms":7.090,"p50_ms":7.827,"p95_ms":9.812,"p99_ms":10.476,"max_ms":10.476,"mean_ms":8.227,"informational":false}
+{"leaf":"volume unmount","group":"volume","runs":20,"min_ms":7.292,"p50_ms":8.906,"p95_ms":10.073,"p99_ms":10.551,"max_ms":10.551,"mean_ms":8.979,"informational":false}
+{"leaf":"volume apply","group":"volume","runs":20,"min_ms":7.510,"p50_ms":8.512,"p95_ms":9.922,"p99_ms":10.864,"max_ms":10.864,"mean_ms":8.785,"informational":false}
+{"leaf":"volume prune","group":"volume","runs":20,"min_ms":6.555,"p50_ms":8.218,"p95_ms":10.137,"p99_ms":10.250,"max_ms":10.250,"mean_ms":8.460,"informational":false}
+{"leaf":"volume snapshot create","group":"volume","runs":20,"min_ms":7.674,"p50_ms":9.916,"p95_ms":13.353,"p99_ms":14.342,"max_ms":14.342,"mean_ms":9.948,"informational":false}
+{"leaf":"volume snapshot rm","group":"volume","runs":20,"min_ms":7.621,"p50_ms":9.006,"p95_ms":10.446,"p99_ms":10.590,"max_ms":10.590,"mean_ms":9.080,"informational":false}
+{"leaf":"volume snapshot ls","group":"volume","runs":20,"min_ms":6.994,"p50_ms":8.838,"p95_ms":10.396,"p99_ms":11.595,"max_ms":11.595,"mean_ms":9.000,"informational":false}
+{"leaf":"volume snapshot restore","group":"volume","runs":20,"min_ms":7.359,"p50_ms":8.312,"p95_ms":10.388,"p99_ms":11.805,"max_ms":11.805,"mean_ms":8.768,"informational":false}
+{"leaf":"hosts sync","group":"hosts","runs":20,"min_ms":8.546,"p50_ms":9.787,"p95_ms":11.367,"p99_ms":11.826,"max_ms":11.826,"mean_ms":9.851,"informational":false}
+{"leaf":"net capture","group":"net","runs":20,"min_ms":7.900,"p50_ms":9.662,"p95_ms":11.211,"p99_ms":12.015,"max_ms":12.015,"mean_ms":9.715,"informational":false}
+{"leaf":"net flow","group":"net","runs":20,"min_ms":6.956,"p50_ms":8.219,"p95_ms":11.207,"p99_ms":11.931,"max_ms":11.931,"mean_ms":8.814,"informational":false}
+{"leaf":"net egress ls","group":"net","runs":20,"min_ms":7.539,"p50_ms":9.072,"p95_ms":10.318,"p99_ms":10.340,"max_ms":10.340,"mean_ms":8.948,"informational":false}
+{"leaf":"net egress show","group":"net","runs":20,"min_ms":6.522,"p50_ms":9.087,"p95_ms":10.824,"p99_ms":11.738,"max_ms":11.738,"mean_ms":9.185,"informational":false}
+{"leaf":"net egress allow","group":"net","runs":20,"min_ms":6.992,"p50_ms":9.031,"p95_ms":11.154,"p99_ms":11.208,"max_ms":11.208,"mean_ms":8.933,"informational":false}
+{"leaf":"net egress deny","group":"net","runs":20,"min_ms":7.809,"p50_ms":10.259,"p95_ms":11.708,"p99_ms":11.765,"max_ms":11.765,"mean_ms":9.983,"informational":false}
+{"leaf":"net egress host","group":"net","runs":20,"min_ms":7.817,"p50_ms":9.099,"p95_ms":10.794,"p99_ms":11.210,"max_ms":11.210,"mean_ms":9.362,"informational":false}
+{"leaf":"net egress net","group":"net","runs":20,"min_ms":7.423,"p50_ms":8.530,"p95_ms":11.612,"p99_ms":14.011,"max_ms":14.011,"mean_ms":8.838,"informational":false}
+{"leaf":"net egress policy","group":"net","runs":20,"min_ms":8.019,"p50_ms":8.968,"p95_ms":9.542,"p99_ms":11.033,"max_ms":11.033,"mean_ms":9.049,"informational":false}
+{"leaf":"net egress clear","group":"net","runs":20,"min_ms":7.869,"p50_ms":10.364,"p95_ms":12.460,"p99_ms":12.952,"max_ms":12.952,"mean_ms":10.500,"informational":false}
+{"leaf":"net egress rm","group":"net","runs":20,"min_ms":7.747,"p50_ms":9.745,"p95_ms":11.985,"p99_ms":13.207,"max_ms":13.207,"mean_ms":9.843,"informational":false}
+{"leaf":"net ingress ls","group":"net","runs":20,"min_ms":7.454,"p50_ms":8.512,"p95_ms":10.448,"p99_ms":10.933,"max_ms":10.933,"mean_ms":8.784,"informational":false}
+{"leaf":"net ingress allow","group":"net","runs":20,"min_ms":7.744,"p50_ms":8.854,"p95_ms":10.796,"p99_ms":11.917,"max_ms":11.917,"mean_ms":9.236,"informational":false}
+{"leaf":"net ingress deny","group":"net","runs":20,"min_ms":7.758,"p50_ms":9.089,"p95_ms":11.705,"p99_ms":21.332,"max_ms":21.332,"mean_ms":10.039,"informational":false}
+{"leaf":"net ingress policy","group":"net","runs":20,"min_ms":7.074,"p50_ms":8.438,"p95_ms":12.311,"p99_ms":13.102,"max_ms":13.102,"mean_ms":9.279,"informational":false}
+{"leaf":"net ingress publish","group":"net","runs":20,"min_ms":7.243,"p50_ms":8.161,"p95_ms":9.700,"p99_ms":10.022,"max_ms":10.022,"mean_ms":8.269,"informational":false}
+{"leaf":"net ingress unpublish","group":"net","runs":20,"min_ms":7.595,"p50_ms":9.730,"p95_ms":12.501,"p99_ms":12.679,"max_ms":12.679,"mean_ms":9.889,"informational":false}
+{"leaf":"net ingress clear","group":"net","runs":20,"min_ms":7.374,"p50_ms":8.881,"p95_ms":10.133,"p99_ms":10.406,"max_ms":10.406,"mean_ms":8.792,"informational":false}
+{"leaf":"net ingress rm","group":"net","runs":20,"min_ms":7.587,"p50_ms":8.840,"p95_ms":10.010,"p99_ms":10.671,"max_ms":10.671,"mean_ms":8.909,"informational":false}
+{"leaf":"net l4guard status","group":"net","runs":20,"min_ms":7.952,"p50_ms":8.743,"p95_ms":10.043,"p99_ms":10.235,"max_ms":10.235,"mean_ms":8.854,"informational":false}
+{"leaf":"net l4guard clear","group":"net","runs":20,"min_ms":7.073,"p50_ms":8.712,"p95_ms":10.151,"p99_ms":10.669,"max_ms":10.669,"mean_ms":8.736,"informational":false}
+{"leaf":"net l4guard set","group":"net","runs":20,"min_ms":6.904,"p50_ms":8.899,"p95_ms":10.584,"p99_ms":12.214,"max_ms":12.214,"mean_ms":8.864,"informational":false}
+{"leaf":"net httproute apply","group":"net","runs":20,"min_ms":6.929,"p50_ms":7.836,"p95_ms":8.845,"p99_ms":9.992,"max_ms":9.992,"mean_ms":7.970,"informational":false}
+{"leaf":"net httproute rm","group":"net","runs":20,"min_ms":6.792,"p50_ms":8.445,"p95_ms":9.842,"p99_ms":10.035,"max_ms":10.035,"mean_ms":8.495,"informational":false}
+{"leaf":"net tunnel expose","group":"net","runs":20,"min_ms":6.885,"p50_ms":8.859,"p95_ms":11.336,"p99_ms":11.530,"max_ms":11.530,"mean_ms":9.255,"informational":false}
+{"leaf":"net tunnel apply","group":"net","runs":20,"min_ms":6.658,"p50_ms":8.250,"p95_ms":9.228,"p99_ms":9.493,"max_ms":9.493,"mean_ms":8.244,"informational":false}
+{"leaf":"net netns down","group":"net","runs":20,"min_ms":7.473,"p50_ms":8.704,"p95_ms":10.467,"p99_ms":11.812,"max_ms":11.812,"mean_ms":8.851,"informational":false}
+{"leaf":"net netns gc","group":"net","runs":20,"min_ms":7.237,"p50_ms":9.214,"p95_ms":10.547,"p99_ms":11.230,"max_ms":11.230,"mean_ms":9.236,"informational":false}
+{"leaf":"net netns up","group":"net","runs":20,"min_ms":7.693,"p50_ms":8.787,"p95_ms":10.703,"p99_ms":11.053,"max_ms":11.053,"mean_ms":8.910,"informational":false}
+{"leaf":"net netns status","group":"net","runs":20,"min_ms":7.395,"p50_ms":9.379,"p95_ms":10.414,"p99_ms":10.578,"max_ms":10.578,"mean_ms":9.230,"informational":false}
+{"leaf":"net netns exec","group":"net","runs":20,"min_ms":7.800,"p50_ms":8.594,"p95_ms":9.712,"p99_ms":11.186,"max_ms":11.186,"mean_ms":8.873,"informational":false}
+{"leaf":"net netns attach","group":"net","runs":20,"min_ms":8.976,"p50_ms":9.534,"p95_ms":11.735,"p99_ms":13.652,"max_ms":13.652,"mean_ms":10.171,"informational":false}
+{"leaf":"net netns detach","group":"net","runs":20,"min_ms":7.397,"p50_ms":8.912,"p95_ms":9.734,"p99_ms":10.466,"max_ms":10.466,"mean_ms":8.936,"informational":false}
+{"leaf":"net netns firewall","group":"net","runs":20,"min_ms":7.675,"p50_ms":8.509,"p95_ms":10.537,"p99_ms":10.645,"max_ms":10.645,"mean_ms":8.966,"informational":false}
+{"leaf":"net netns publish","group":"net","runs":20,"min_ms":6.848,"p50_ms":9.275,"p95_ms":11.235,"p99_ms":11.456,"max_ms":11.456,"mean_ms":9.235,"informational":false}
+{"leaf":"net netns unpublish","group":"net","runs":20,"min_ms":6.605,"p50_ms":8.722,"p95_ms":11.923,"p99_ms":12.700,"max_ms":12.700,"mean_ms":9.082,"informational":false}
+{"leaf":"network connect","group":"network","runs":20,"min_ms":6.778,"p50_ms":9.061,"p95_ms":9.993,"p99_ms":10.256,"max_ms":10.256,"mean_ms":8.920,"informational":false}
+{"leaf":"network create","group":"network","runs":20,"min_ms":8.013,"p50_ms":9.040,"p95_ms":11.321,"p99_ms":11.890,"max_ms":11.890,"mean_ms":9.282,"informational":false}
+{"leaf":"network disconnect","group":"network","runs":20,"min_ms":6.351,"p50_ms":8.216,"p95_ms":10.123,"p99_ms":10.743,"max_ms":10.743,"mean_ms":8.445,"informational":false}
+{"leaf":"network prune","group":"network","runs":20,"min_ms":6.670,"p50_ms":8.207,"p95_ms":9.281,"p99_ms":9.827,"max_ms":9.827,"mean_ms":8.251,"informational":false}
+{"leaf":"network reload","group":"network","runs":20,"min_ms":7.759,"p50_ms":8.952,"p95_ms":10.714,"p99_ms":11.421,"max_ms":11.421,"mean_ms":9.217,"informational":false}
+{"leaf":"network rm","group":"network","runs":20,"min_ms":7.692,"p50_ms":8.774,"p95_ms":11.411,"p99_ms":18.397,"max_ms":18.397,"mean_ms":9.426,"informational":false}
+{"leaf":"network route","group":"network","runs":20,"min_ms":6.741,"p50_ms":8.587,"p95_ms":9.966,"p99_ms":10.674,"max_ms":10.674,"mean_ms":8.670,"informational":false}
+{"leaf":"network vlan","group":"network","runs":20,"min_ms":7.326,"p50_ms":7.757,"p95_ms":9.280,"p99_ms":9.774,"max_ms":9.774,"mean_ms":8.084,"informational":false}
+{"leaf":"network describe","group":"network","runs":20,"min_ms":8.145,"p50_ms":9.814,"p95_ms":10.994,"p99_ms":11.018,"max_ms":11.018,"mean_ms":9.679,"informational":false}
+{"leaf":"network diagnose","group":"network","runs":20,"min_ms":7.403,"p50_ms":8.491,"p95_ms":9.591,"p99_ms":11.137,"max_ms":11.137,"mean_ms":8.562,"informational":false}
+{"leaf":"network exists","group":"network","runs":20,"min_ms":7.215,"p50_ms":8.756,"p95_ms":12.604,"p99_ms":12.608,"max_ms":12.608,"mean_ms":9.406,"informational":false}
+{"leaf":"network inspect","group":"network","runs":20,"min_ms":7.610,"p50_ms":9.850,"p95_ms":11.956,"p99_ms":12.441,"max_ms":12.441,"mean_ms":9.830,"informational":false}
+{"leaf":"network ls","group":"network","runs":20,"min_ms":7.386,"p50_ms":8.952,"p95_ms":9.746,"p99_ms":10.349,"max_ms":10.349,"mean_ms":8.850,"informational":false}
+{"leaf":"network apply","group":"network","runs":20,"min_ms":7.541,"p50_ms":9.210,"p95_ms":10.762,"p99_ms":11.405,"max_ms":11.405,"mean_ms":9.389,"informational":false}
+{"leaf":"network ipam ls","group":"network","runs":20,"min_ms":7.626,"p50_ms":9.272,"p95_ms":10.379,"p99_ms":10.521,"max_ms":10.521,"mean_ms":9.252,"informational":false}
+{"leaf":"network ipam prune","group":"network","runs":20,"min_ms":7.916,"p50_ms":9.751,"p95_ms":11.369,"p99_ms":12.284,"max_ms":12.284,"mean_ms":9.849,"informational":false}
+{"leaf":"network node key","group":"network","runs":20,"min_ms":7.730,"p50_ms":8.685,"p95_ms":10.473,"p99_ms":10.550,"max_ms":10.550,"mean_ms":8.899,"informational":false}
+{"leaf":"network node init","group":"network","runs":20,"min_ms":7.322,"p50_ms":8.735,"p95_ms":10.020,"p99_ms":10.091,"max_ms":10.091,"mean_ms":8.769,"informational":false}
+{"leaf":"network vip-pool clear","group":"network","runs":20,"min_ms":6.678,"p50_ms":8.969,"p95_ms":10.000,"p99_ms":13.443,"max_ms":13.443,"mean_ms":9.040,"informational":false}
+{"leaf":"network vip-pool set","group":"network","runs":20,"min_ms":8.424,"p50_ms":9.839,"p95_ms":15.429,"p99_ms":19.024,"max_ms":19.024,"mean_ms":10.539,"informational":false}
+{"leaf":"network vip-pool show","group":"network","runs":20,"min_ms":8.235,"p50_ms":9.551,"p95_ms":11.851,"p99_ms":12.222,"max_ms":12.222,"mean_ms":9.915,"informational":false}
+{"leaf":"cluster backup","group":"cluster","runs":20,"min_ms":7.362,"p50_ms":8.721,"p95_ms":10.676,"p99_ms":10.985,"max_ms":10.985,"mean_ms":8.979,"informational":false}
+{"leaf":"cluster create","group":"cluster","runs":20,"min_ms":7.225,"p50_ms":9.409,"p95_ms":11.382,"p99_ms":12.507,"max_ms":12.507,"mean_ms":9.611,"informational":false}
+{"leaf":"cluster destroy","group":"cluster","runs":20,"min_ms":7.645,"p50_ms":8.521,"p95_ms":10.047,"p99_ms":10.560,"max_ms":10.560,"mean_ms":8.606,"informational":false}
+{"leaf":"cluster kubeadm","group":"cluster","runs":20,"min_ms":7.304,"p50_ms":8.178,"p95_ms":9.957,"p99_ms":11.606,"max_ms":11.606,"mean_ms":8.629,"informational":false}
+{"leaf":"cluster restore","group":"cluster","runs":20,"min_ms":7.248,"p50_ms":7.971,"p95_ms":9.936,"p99_ms":10.660,"max_ms":10.660,"mean_ms":8.432,"informational":false}
+{"leaf":"cluster start","group":"cluster","runs":20,"min_ms":7.731,"p50_ms":8.911,"p95_ms":10.757,"p99_ms":11.034,"max_ms":11.034,"mean_ms":9.204,"informational":false}
+{"leaf":"cluster stop","group":"cluster","runs":20,"min_ms":7.757,"p50_ms":8.662,"p95_ms":12.028,"p99_ms":12.281,"max_ms":12.281,"mean_ms":9.220,"informational":false}
+{"leaf":"cluster upgrade","group":"cluster","runs":20,"min_ms":6.926,"p50_ms":8.888,"p95_ms":10.912,"p99_ms":11.332,"max_ms":11.332,"mean_ms":9.101,"informational":false}
+{"leaf":"cluster init","group":"cluster","runs":20,"min_ms":7.687,"p50_ms":9.913,"p95_ms":11.773,"p99_ms":12.064,"max_ms":12.064,"mean_ms":10.076,"informational":false}
+{"leaf":"cluster drain","group":"cluster","runs":20,"min_ms":6.708,"p50_ms":8.174,"p95_ms":9.696,"p99_ms":10.971,"max_ms":10.971,"mean_ms":8.379,"informational":false}
+{"leaf":"cluster health","group":"cluster","runs":20,"min_ms":6.979,"p50_ms":8.295,"p95_ms":9.499,"p99_ms":10.642,"max_ms":10.642,"mean_ms":8.422,"informational":false}
+{"leaf":"cluster kubeconfig","group":"cluster","runs":20,"min_ms":7.572,"p50_ms":8.434,"p95_ms":10.396,"p99_ms":10.560,"max_ms":10.560,"mean_ms":8.872,"informational":false}
+{"leaf":"cluster load","group":"cluster","runs":20,"min_ms":7.543,"p50_ms":8.917,"p95_ms":10.994,"p99_ms":18.381,"max_ms":18.381,"mean_ms":9.534,"informational":false}
+{"leaf":"cluster ls","group":"cluster","runs":20,"min_ms":6.414,"p50_ms":8.106,"p95_ms":9.492,"p99_ms":9.499,"max_ms":9.499,"mean_ms":8.183,"informational":false}
+{"leaf":"cluster uncordon","group":"cluster","runs":20,"min_ms":6.984,"p50_ms":8.147,"p95_ms":9.466,"p99_ms":9.785,"max_ms":9.785,"mean_ms":8.196,"informational":false}
+{"leaf":"cluster apply","group":"cluster","runs":20,"min_ms":7.635,"p50_ms":9.387,"p95_ms":11.629,"p99_ms":12.467,"max_ms":12.467,"mean_ms":9.325,"informational":false}
+{"leaf":"cluster kube generate","group":"cluster","runs":20,"min_ms":7.293,"p50_ms":8.446,"p95_ms":10.489,"p99_ms":12.010,"max_ms":12.010,"mean_ms":8.794,"informational":false}
+{"leaf":"cluster kube play","group":"cluster","runs":20,"min_ms":7.603,"p50_ms":8.466,"p95_ms":9.420,"p99_ms":10.523,"max_ms":10.523,"mean_ms":8.556,"informational":false}
+{"leaf":"cluster prune","group":"cluster","runs":20,"min_ms":6.629,"p50_ms":8.138,"p95_ms":10.361,"p99_ms":10.368,"max_ms":10.368,"mean_ms":8.532,"informational":false}
+{"leaf":"cluster network fetch","group":"cluster","runs":20,"min_ms":7.192,"p50_ms":8.594,"p95_ms":10.851,"p99_ms":11.233,"max_ms":11.233,"mean_ms":8.891,"informational":false}
+{"leaf":"cluster network profiles","group":"cluster","runs":20,"min_ms":7.478,"p50_ms":9.140,"p95_ms":14.982,"p99_ms":15.924,"max_ms":15.924,"mean_ms":10.250,"informational":false}
+{"leaf":"cluster network status","group":"cluster","runs":20,"min_ms":7.474,"p50_ms":8.987,"p95_ms":11.263,"p99_ms":14.737,"max_ms":14.737,"mean_ms":9.338,"informational":false}
+{"leaf":"api-resources","group":"api-resources","runs":20,"min_ms":8.188,"p50_ms":9.029,"p95_ms":11.613,"p99_ms":12.589,"max_ms":12.589,"mean_ms":9.651,"informational":false}
+{"leaf":"apply","group":"apply","runs":20,"min_ms":7.322,"p50_ms":8.785,"p95_ms":9.987,"p99_ms":10.459,"max_ms":10.459,"mean_ms":8.827,"informational":false}
+{"leaf":"compose down","group":"compose","runs":20,"min_ms":7.375,"p50_ms":8.810,"p95_ms":10.692,"p99_ms":10.707,"max_ms":10.707,"mean_ms":8.959,"informational":false}
+{"leaf":"compose up","group":"compose","runs":20,"min_ms":7.837,"p50_ms":8.633,"p95_ms":9.434,"p99_ms":9.590,"max_ms":9.590,"mean_ms":8.671,"informational":false}
+{"leaf":"compose config","group":"compose","runs":20,"min_ms":7.378,"p50_ms":8.350,"p95_ms":10.433,"p99_ms":10.524,"max_ms":10.524,"mean_ms":8.685,"informational":false}
+{"leaf":"compose logs","group":"compose","runs":20,"min_ms":7.138,"p50_ms":8.063,"p95_ms":9.176,"p99_ms":9.579,"max_ms":9.579,"mean_ms":8.109,"informational":false}
+{"leaf":"compose ps","group":"compose","runs":20,"min_ms":7.140,"p50_ms":8.127,"p95_ms":9.630,"p99_ms":10.098,"max_ms":10.098,"mean_ms":8.512,"informational":false}
+{"leaf":"diff","group":"diff","runs":20,"min_ms":7.573,"p50_ms":9.172,"p95_ms":10.616,"p99_ms":11.310,"max_ms":11.310,"mean_ms":9.229,"informational":false}
+{"leaf":"drift","group":"drift","runs":20,"min_ms":6.279,"p50_ms":8.180,"p95_ms":9.449,"p99_ms":16.048,"max_ms":16.048,"mean_ms":8.457,"informational":false}
+{"leaf":"explain","group":"explain","runs":20,"min_ms":7.194,"p50_ms":8.348,"p95_ms":9.466,"p99_ms":9.483,"max_ms":9.483,"mean_ms":8.249,"informational":false}
+{"leaf":"gitops reconcile","group":"gitops","runs":20,"min_ms":6.790,"p50_ms":8.276,"p95_ms":10.146,"p99_ms":10.899,"max_ms":10.899,"mean_ms":8.495,"informational":false}
+{"leaf":"gitops status","group":"gitops","runs":20,"min_ms":7.226,"p50_ms":8.241,"p95_ms":9.461,"p99_ms":9.489,"max_ms":9.489,"mean_ms":8.341,"informational":false}
+{"leaf":"gitops resume","group":"gitops","runs":20,"min_ms":7.179,"p50_ms":8.072,"p95_ms":9.331,"p99_ms":11.858,"max_ms":11.858,"mean_ms":8.254,"informational":false}
+{"leaf":"gitops suspend","group":"gitops","runs":20,"min_ms":6.899,"p50_ms":8.048,"p95_ms":10.999,"p99_ms":13.941,"max_ms":13.941,"mean_ms":8.514,"informational":false}
+{"leaf":"manifest convert","group":"manifest","runs":20,"min_ms":8.129,"p50_ms":9.062,"p95_ms":11.818,"p99_ms":11.821,"max_ms":11.821,"mean_ms":9.381,"informational":false}
+{"leaf":"manifest render","group":"manifest","runs":20,"min_ms":7.575,"p50_ms":8.877,"p95_ms":10.489,"p99_ms":11.043,"max_ms":11.043,"mean_ms":8.902,"informational":false}
+{"leaf":"manifest schema","group":"manifest","runs":20,"min_ms":7.925,"p50_ms":8.783,"p95_ms":10.560,"p99_ms":10.740,"max_ms":10.740,"mean_ms":9.023,"informational":false}
+{"leaf":"manifest validate","group":"manifest","runs":20,"min_ms":7.849,"p50_ms":9.402,"p95_ms":11.518,"p99_ms":11.641,"max_ms":11.641,"mean_ms":9.584,"informational":false}
+{"leaf":"migrate assess","group":"migrate","runs":20,"min_ms":8.795,"p50_ms":9.888,"p95_ms":11.324,"p99_ms":11.689,"max_ms":11.689,"mean_ms":10.022,"informational":false}
+{"leaf":"plan","group":"plan","runs":20,"min_ms":8.056,"p50_ms":9.410,"p95_ms":10.703,"p99_ms":11.118,"max_ms":11.118,"mean_ms":9.530,"informational":false}
+{"leaf":"stack apply","group":"stack","runs":20,"min_ms":8.126,"p50_ms":9.343,"p95_ms":10.900,"p99_ms":11.301,"max_ms":11.301,"mean_ms":9.511,"informational":false}
+{"leaf":"stack destroy","group":"stack","runs":20,"min_ms":8.179,"p50_ms":9.193,"p95_ms":11.100,"p99_ms":11.372,"max_ms":11.372,"mean_ms":9.380,"informational":false}
+{"leaf":"stack wait","group":"stack","runs":20,"min_ms":7.805,"p50_ms":8.615,"p95_ms":9.804,"p99_ms":23.026,"max_ms":23.026,"mean_ms":9.441,"informational":false}
+{"leaf":"stack init","group":"stack","runs":20,"min_ms":8.211,"p50_ms":9.943,"p95_ms":12.019,"p99_ms":13.333,"max_ms":13.333,"mean_ms":10.013,"informational":false}
+{"leaf":"stack describe","group":"stack","runs":20,"min_ms":7.773,"p50_ms":9.225,"p95_ms":10.904,"p99_ms":12.226,"max_ms":12.226,"mean_ms":9.499,"informational":false}
+{"leaf":"stack history","group":"stack","runs":20,"min_ms":7.269,"p50_ms":9.362,"p95_ms":11.776,"p99_ms":12.231,"max_ms":12.231,"mean_ms":9.332,"informational":false}
+{"leaf":"stack ls","group":"stack","runs":20,"min_ms":7.025,"p50_ms":8.509,"p95_ms":10.271,"p99_ms":10.417,"max_ms":10.417,"mean_ms":8.530,"informational":false}
+{"leaf":"stack plan","group":"stack","runs":20,"min_ms":7.948,"p50_ms":9.313,"p95_ms":11.244,"p99_ms":11.401,"max_ms":11.401,"mean_ms":9.682,"informational":false}
+{"leaf":"stack validate","group":"stack","runs":20,"min_ms":7.735,"p50_ms":8.355,"p95_ms":10.374,"p99_ms":11.049,"max_ms":11.049,"mean_ms":8.682,"informational":false}
+{"leaf":"stack rollback","group":"stack","runs":20,"min_ms":7.323,"p50_ms":8.471,"p95_ms":10.796,"p99_ms":10.831,"max_ms":10.831,"mean_ms":8.723,"informational":false}
+{"leaf":"stack prune","group":"stack","runs":20,"min_ms":6.503,"p50_ms":8.258,"p95_ms":10.725,"p99_ms":10.859,"max_ms":10.859,"mean_ms":8.554,"informational":false}
+{"leaf":"wait","group":"wait","runs":20,"min_ms":8.142,"p50_ms":9.478,"p95_ms":10.849,"p99_ms":11.773,"max_ms":11.773,"mean_ms":9.606,"informational":false}
+{"leaf":"delete","group":"delete","runs":20,"min_ms":7.614,"p50_ms":9.488,"p95_ms":11.060,"p99_ms":11.280,"max_ms":11.280,"mean_ms":9.617,"informational":false}
+{"leaf":"describe","group":"describe","runs":20,"min_ms":8.137,"p50_ms":8.726,"p95_ms":9.729,"p99_ms":9.778,"max_ms":9.778,"mean_ms":8.757,"informational":false}
+{"leaf":"get","group":"get","runs":20,"min_ms":8.042,"p50_ms":9.711,"p95_ms":11.226,"p99_ms":11.339,"max_ms":11.339,"mean_ms":9.653,"informational":false}
+{"leaf":"compatibility compose","group":"compatibility","runs":20,"min_ms":7.740,"p50_ms":8.835,"p95_ms":10.452,"p99_ms":11.142,"max_ms":11.142,"mean_ms":8.915,"informational":false}
+{"leaf":"compatibility docker","group":"compatibility","runs":20,"min_ms":7.320,"p50_ms":8.596,"p95_ms":10.151,"p99_ms":19.329,"max_ms":19.329,"mean_ms":9.109,"informational":false}
+{"leaf":"mcp capabilities","group":"mcp","runs":20,"min_ms":7.136,"p50_ms":8.835,"p95_ms":10.938,"p99_ms":10.989,"max_ms":10.989,"mean_ms":9.201,"informational":false}
+{"leaf":"mcp doctor","group":"mcp","runs":20,"min_ms":7.213,"p50_ms":9.280,"p95_ms":12.336,"p99_ms":12.731,"max_ms":12.731,"mean_ms":9.209,"informational":false}
+{"leaf":"mcp serve","group":"mcp","runs":20,"min_ms":7.542,"p50_ms":10.077,"p95_ms":13.459,"p99_ms":13.863,"max_ms":13.863,"mean_ms":10.332,"informational":false}
+{"leaf":"serve api","group":"serve","runs":20,"min_ms":7.967,"p50_ms":9.120,"p95_ms":10.794,"p99_ms":12.012,"max_ms":12.012,"mean_ms":9.402,"informational":false}
+{"leaf":"serve cri","group":"serve","runs":20,"min_ms":6.775,"p50_ms":8.869,"p95_ms":9.934,"p99_ms":10.651,"max_ms":10.651,"mean_ms":8.901,"informational":false}
+{"leaf":"serve docker-api","group":"serve","runs":20,"min_ms":8.008,"p50_ms":8.984,"p95_ms":10.411,"p99_ms":10.495,"max_ms":10.495,"mean_ms":9.076,"informational":false}
+{"leaf":"serve node-api","group":"serve","runs":20,"min_ms":7.503,"p50_ms":8.713,"p95_ms":10.219,"p99_ms":11.094,"max_ms":11.094,"mean_ms":8.966,"informational":false}
+{"leaf":"backup inspect","group":"backup","runs":20,"min_ms":8.324,"p50_ms":9.367,"p95_ms":12.561,"p99_ms":23.158,"max_ms":23.158,"mean_ms":10.369,"informational":false}
+{"leaf":"backup ls","group":"backup","runs":20,"min_ms":7.472,"p50_ms":8.573,"p95_ms":10.148,"p99_ms":10.238,"max_ms":10.238,"mean_ms":8.742,"informational":false}
+{"leaf":"backup create","group":"backup","runs":20,"min_ms":7.545,"p50_ms":8.615,"p95_ms":10.678,"p99_ms":10.694,"max_ms":10.694,"mean_ms":8.852,"informational":false}
+{"leaf":"backup remove","group":"backup","runs":20,"min_ms":6.984,"p50_ms":9.611,"p95_ms":11.234,"p99_ms":11.238,"max_ms":11.238,"mean_ms":9.399,"informational":false}
+{"leaf":"backup restore","group":"backup","runs":20,"min_ms":8.055,"p50_ms":9.951,"p95_ms":12.275,"p99_ms":13.654,"max_ms":13.654,"mean_ms":10.292,"informational":false}
+{"leaf":"backup schedule","group":"backup","runs":20,"min_ms":7.840,"p50_ms":9.334,"p95_ms":12.203,"p99_ms":17.995,"max_ms":17.995,"mean_ms":9.742,"informational":false}
+{"leaf":"completion editor","group":"completion","runs":20,"min_ms":7.926,"p50_ms":10.420,"p95_ms":12.354,"p99_ms":18.402,"max_ms":18.402,"mean_ms":10.583,"informational":false}
+{"leaf":"completion shell","group":"completion","runs":20,"min_ms":6.967,"p50_ms":9.222,"p95_ms":12.159,"p99_ms":12.885,"max_ms":12.885,"mean_ms":9.619,"informational":false}
+{"leaf":"config get","group":"config","runs":20,"min_ms":7.556,"p50_ms":9.083,"p95_ms":10.389,"p99_ms":11.855,"max_ms":11.855,"mean_ms":9.216,"informational":false}
+{"leaf":"config set","group":"config","runs":20,"min_ms":7.130,"p50_ms":8.400,"p95_ms":10.487,"p99_ms":10.883,"max_ms":10.883,"mean_ms":8.704,"informational":false}
+{"leaf":"config unset","group":"config","runs":20,"min_ms":7.724,"p50_ms":8.952,"p95_ms":10.681,"p99_ms":10.722,"max_ms":10.722,"mean_ms":9.148,"informational":false}
+{"leaf":"dashboard","group":"dashboard","runs":20,"min_ms":7.319,"p50_ms":8.471,"p95_ms":9.675,"p99_ms":9.961,"max_ms":9.961,"mean_ms":8.540,"informational":false}
+{"leaf":"init","group":"init","runs":20,"min_ms":7.454,"p50_ms":8.901,"p95_ms":13.850,"p99_ms":13.912,"max_ms":13.912,"mean_ms":9.668,"informational":false}
+{"leaf":"man","group":"man","runs":20,"min_ms":7.206,"p50_ms":9.063,"p95_ms":11.166,"p99_ms":11.605,"max_ms":11.605,"mean_ms":9.365,"informational":false}
+{"leaf":"policy unset","group":"policy","runs":20,"min_ms":7.852,"p50_ms":9.334,"p95_ms":11.099,"p99_ms":13.626,"max_ms":13.626,"mean_ms":9.419,"informational":false}
+{"leaf":"provider config schema","group":"provider","runs":20,"min_ms":7.086,"p50_ms":8.359,"p95_ms":9.895,"p99_ms":10.623,"max_ms":10.623,"mean_ms":8.569,"informational":false}
+{"leaf":"provider config show","group":"provider","runs":20,"min_ms":7.468,"p50_ms":8.386,"p95_ms":9.822,"p99_ms":9.960,"max_ms":9.960,"mean_ms":8.547,"informational":false}
+{"leaf":"provider config validate","group":"provider","runs":20,"min_ms":7.868,"p50_ms":8.781,"p95_ms":11.563,"p99_ms":13.276,"max_ms":13.276,"mean_ms":9.130,"informational":false}
+{"leaf":"provider describe","group":"provider","runs":20,"min_ms":7.129,"p50_ms":8.709,"p95_ms":12.572,"p99_ms":18.554,"max_ms":18.554,"mean_ms":9.495,"informational":false}
+{"leaf":"provider ls","group":"provider","runs":20,"min_ms":6.975,"p50_ms":8.480,"p95_ms":9.152,"p99_ms":9.220,"max_ms":9.220,"mean_ms":8.501,"informational":false}
+{"leaf":"provider matrix","group":"provider","runs":20,"min_ms":7.114,"p50_ms":8.518,"p95_ms":10.545,"p99_ms":11.190,"max_ms":11.190,"mean_ms":8.671,"informational":false}
+{"leaf":"system df","group":"system","runs":20,"min_ms":6.598,"p50_ms":8.507,"p95_ms":10.210,"p99_ms":10.283,"max_ms":10.283,"mean_ms":8.512,"informational":false}
+{"leaf":"system doctor","group":"system","runs":20,"min_ms":7.185,"p50_ms":9.169,"p95_ms":10.269,"p99_ms":10.524,"max_ms":10.524,"mean_ms":8.972,"informational":false}
+{"leaf":"system events","group":"system","runs":20,"min_ms":8.125,"p50_ms":10.499,"p95_ms":13.162,"p99_ms":13.676,"max_ms":13.676,"mean_ms":10.431,"informational":false}
+{"leaf":"system features","group":"system","runs":20,"min_ms":8.222,"p50_ms":10.210,"p95_ms":12.568,"p99_ms":12.961,"max_ms":12.961,"mean_ms":10.621,"informational":false}
+{"leaf":"system info","group":"system","runs":20,"min_ms":6.833,"p50_ms":8.793,"p95_ms":11.873,"p99_ms":11.933,"max_ms":11.933,"mean_ms":9.416,"informational":false}
+{"leaf":"system metrics","group":"system","runs":20,"min_ms":7.425,"p50_ms":8.506,"p95_ms":10.186,"p99_ms":10.609,"max_ms":10.609,"mean_ms":8.621,"informational":false}
+{"leaf":"system namespace describe","group":"system","runs":20,"min_ms":7.669,"p50_ms":9.426,"p95_ms":11.821,"p99_ms":14.656,"max_ms":14.656,"mean_ms":10.126,"informational":false}
+{"leaf":"system namespace ls","group":"system","runs":20,"min_ms":7.661,"p50_ms":9.017,"p95_ms":13.559,"p99_ms":15.257,"max_ms":15.257,"mean_ms":9.818,"informational":false}
+{"leaf":"system resources","group":"system","runs":20,"min_ms":7.836,"p50_ms":9.152,"p95_ms":11.276,"p99_ms":11.442,"max_ms":11.442,"mean_ms":9.243,"informational":false}
+{"leaf":"system regulate","group":"system","runs":20,"min_ms":7.108,"p50_ms":9.148,"p95_ms":11.180,"p99_ms":12.131,"max_ms":12.131,"mean_ms":9.308,"informational":false}
+{"leaf":"system setup","group":"system","runs":20,"min_ms":6.567,"p50_ms":8.196,"p95_ms":10.012,"p99_ms":10.550,"max_ms":10.550,"mean_ms":8.303,"informational":false}
+{"leaf":"system snapshot create","group":"system","runs":20,"min_ms":6.885,"p50_ms":8.883,"p95_ms":11.276,"p99_ms":12.796,"max_ms":12.796,"mean_ms":9.060,"informational":false}
+{"leaf":"system snapshot restore","group":"system","runs":20,"min_ms":7.991,"p50_ms":8.901,"p95_ms":10.715,"p99_ms":10.852,"max_ms":10.852,"mean_ms":9.207,"informational":false}
+{"leaf":"system virt","group":"system","runs":20,"min_ms":7.303,"p50_ms":8.431,"p95_ms":10.778,"p99_ms":11.069,"max_ms":11.069,"mean_ms":8.927,"informational":false}
+{"leaf":"system prune","group":"system","runs":20,"min_ms":6.696,"p50_ms":8.523,"p95_ms":9.704,"p99_ms":9.766,"max_ms":9.766,"mean_ms":8.441,"informational":false}
+{"leaf":"system thermal","group":"system","runs":20,"min_ms":8.006,"p50_ms":9.292,"p95_ms":10.589,"p99_ms":10.641,"max_ms":10.641,"mean_ms":9.447,"informational":false}
+{"leaf":"system monitor","group":"system","runs":20,"min_ms":8.006,"p50_ms":9.235,"p95_ms":11.191,"p99_ms":11.285,"max_ms":11.285,"mean_ms":9.480,"informational":false}
+{"leaf":"system boot status","group":"system","runs":20,"min_ms":7.206,"p50_ms":8.617,"p95_ms":9.887,"p99_ms":9.994,"max_ms":9.994,"mean_ms":8.827,"informational":false}
+{"leaf":"system boot disable","group":"system","runs":20,"min_ms":7.651,"p50_ms":8.487,"p95_ms":10.097,"p99_ms":10.791,"max_ms":10.791,"mean_ms":8.741,"informational":false}
+{"leaf":"system boot enable","group":"system","runs":20,"min_ms":8.057,"p50_ms":9.107,"p95_ms":10.422,"p99_ms":11.295,"max_ms":11.295,"mean_ms":9.360,"informational":false}
+{"leaf":"version","group":"version","runs":20,"min_ms":7.881,"p50_ms":9.247,"p95_ms":11.634,"p99_ms":24.347,"max_ms":24.347,"mean_ms":10.068,"informational":false}
+{"leaf":"events","group":"events","runs":20,"min_ms":6.778,"p50_ms":8.529,"p95_ms":9.474,"p99_ms":10.939,"max_ms":10.939,"mean_ms":8.463,"informational":false}
+{"leaf":"info","group":"info","runs":20,"min_ms":6.591,"p50_ms":8.357,"p95_ms":11.767,"p99_ms":12.005,"max_ms":12.005,"mean_ms":8.837,"informational":false}

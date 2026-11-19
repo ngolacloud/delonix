@@ -4,10 +4,10 @@
 #
 #   docker build -t __NAME__:dev .          # or: docker compose build
 #
-# Stage 1 compiles a static binary; only that binary reaches the runtime image
-# (a few MB instead of the ~300 MB toolchain). go.mod and go.sum are copied
-# first so the module download is cached until they change. .dockerignore keeps
-# .env and the local build out of the context.
+# Stage 1 compiles a STATIC binary (CGO_ENABLED=0, required for the distroless
+# static runtime); only that binary reaches the runtime image. go.mod and go.sum
+# are copied first so the module download is cached until they change.
+# .dockerignore keeps .env and the local build out of the context.
 FROM golang:__TEMPLATE_VERSION__-alpine AS build
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 WORKDIR /src
@@ -18,21 +18,23 @@ COPY internal ./internal
 ARG VERSION=dev
 RUN go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/server ./cmd/__NAME__
 
-FROM alpine:3.24
-# CA roots for the outbound webhook over https, and an unprivileged user for
-# the service (uid 10001). Nothing in the image belongs to that user: it writes
-# nowhere but the manifest's tmpfs.
-RUN apk add --no-cache ca-certificates \
-    && addgroup -S -g 10001 app && adduser -S -D -H -u 10001 -G app app
+# Distroless static: no shell, no apk, no /bin/sh. It already ships the CA roots
+# for the outbound https webhook at /etc/ssl/certs/ca-certificates.crt, and the
+# :nonroot tag already defines the nonroot user (uid 65532), so there is no RUN
+# to add packages or create a user. __DISTROLESS_REGISTRY__ is substituted by the
+# scaffold (default gcr.io/distroless).
+FROM __DISTROLESS_REGISTRY__/static-debian12:nonroot
 COPY --from=build /out/server /usr/local/bin/server
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
 EXPOSE __PORT__
-# The runtime probes liveness; readiness is for the load balancer.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -qO- http://127.0.0.1:__PORT__/api/v1/health/live || exit 1
+# No shell, so no wget: the healthcheck runs the server's own `healthcheck`
+# subcommand in exec-form (a JSON array, executed WITHOUT a shell), which GETs
+# /api/v1/health/live over loopback.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/usr/local/bin/server", "healthcheck"]
 STOPSIGNAL SIGTERM
-USER app
-# The entrypoint is the one place for pre-flight; it execs the server, which
+# Numeric uid:gid: valid on the distroless image (nonroot) and on the conventional
+# fallback alike, without an /etc/passwd lookup.
+USER 65532:65532
+# Distroless runs no scripts: the server is the entrypoint and PID 1 directly. It
 # owns readiness, drain and the exit code.
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["/usr/local/bin/server"]
+ENTRYPOINT ["/usr/local/bin/server"]
+CMD []

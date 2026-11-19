@@ -17,6 +17,7 @@ pub mod credentials;
 pub mod dash;
 pub mod dependency;
 pub mod diff;
+pub mod distroless;
 pub mod dns_cleanup;
 pub mod dockerapi;
 pub mod drift;

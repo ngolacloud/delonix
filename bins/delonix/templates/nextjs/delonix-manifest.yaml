@@ -10,9 +10,10 @@ metadata:
 spec:
   image: __NAME__:dev
   restart: always
-  # The unprivileged user of the image (`node`, uid 1000). Named here because the engine
-  # applies an image's USER only when the manifest asks for it.
-  user: "node"
+  # The nonroot user of the distroless/nodejs image (uid 65532). Named here because the
+  # engine applies an image's USER only when the manifest asks for it; the numeric id
+  # needs no /etc/passwd entry, so it holds on the conventional fallback base too.
+  user: "65532"
   ports:
     - "__PORT__:__PORT__"
   env:

@@ -27,8 +27,10 @@ use delonix_model::{Error, Result};
 include!(concat!(env!("OUT_DIR"), "/templates.rs"));
 
 /// Default images — this is what fills the project when `--image` is NOT
-/// passed. Pinned by digest where reproducibility matters.
-const DEFAULT_APP_BASE: &str = "alpine:3.20";
+/// passed. Pinned by digest where reproducibility matters. The generic app
+/// base is no longer a constant here: with no `--image` the scaffold emits a
+/// distroless multi-stage build (see `delonixfile`), with the registry resolved
+/// at generation time from `DELONIX_DISTROLESS_REGISTRY`.
 const DEFAULT_DB_IMAGE: &str = "postgres:16-alpine";
 const DEFAULT_VM_IMAGE: &str = "k8s-golden";
 
@@ -370,13 +372,17 @@ fn python_module(name: &str) -> String {
 }
 
 /// Substitutes the `__NAME__`/`__MODULE__`/`__PORT__`/`__TLS_PORT__`/
-/// `__TEMPLATE_VERSION__` tokens (in contents AND paths).
+/// `__TEMPLATE_VERSION__`/`__DISTROLESS_REGISTRY__` tokens (in contents AND
+/// paths). The distroless registry is resolved from the environment at
+/// generation time (default `gcr.io/distroless`) and baked in, so a project is
+/// pinned to the registry that was configured when it was scaffolded.
 fn subst(s: &str, o: &InitOpts, module: &str, plan: &Plan, version: &str) -> String {
     s.replace("__NAME__", &o.name)
         .replace("__MODULE__", module)
         .replace("__TLS_PORT__", plan.tls_port.as_deref().unwrap_or(""))
         .replace("__PORT__", &plan.port)
         .replace("__TEMPLATE_VERSION__", version)
+        .replace(super::distroless::REGISTRY_TOKEN, &super::distroless::registry())
 }
 
 /// An optional key of a template's `template.meta` (`tls=`, `open=`, `login=`,
@@ -2095,34 +2101,71 @@ fn next_steps(target: Target, o: &InitOpts) -> String {
 // ---------------------------------------------------------------- templates
 
 fn delonixfile(o: &InitOpts) -> String {
-    let base = o
-        .image
-        .clone()
-        .unwrap_or_else(|| DEFAULT_APP_BASE.to_string());
+    // When the person pins a base with `--image`, respect it verbatim in a
+    // single stage (they chose the OS userland, shell included). With no
+    // `--image`, the scaffold is distroless-by-default: a multi-stage build
+    // whose RUNTIME stage is a distroless base (no shell, no package manager),
+    // with a static `busybox` copied in only so the untouched skeleton still
+    // serves out of the box. Delonix's third pillar beside rootless-first and
+    // daemonless. The registry is resolved at generation time from
+    // `DELONIX_DISTROLESS_REGISTRY` (default `gcr.io/distroless`).
+    if let Some(base) = o.image.clone() {
+        return format!(
+            "# Delonixfile — mesma gramática do Dockerfile, com extensões Delonix.\n\
+             # Constrói com:  delonix build -t {name}:dev .\n\
+             #\n\
+             # Base fixada com `--image`: build single-stage, com a userland que\n\
+             # escolheste. Para a base distroless por omissão, gera sem `--image`.\n\
+             FROM {base}\n\
+             \n\
+             WORKDIR /app\n\
+             \n\
+             # As dependências primeiro: esta camada só é reconstruída quando elas mudam.\n\
+             # RUN apk add --no-cache python3\n\
+             \n\
+             COPY . /app\n\
+             \n\
+             # Extensões Delonix (aceites pelo parser; ver AGENTS.md):\n\
+             #   CPUS 2\n\
+             #   MEMORY 512M\n\
+             #   HEALTHCHECK CMD wget -qO- http://localhost:8080/health || exit 1\n\
+             \n\
+             EXPOSE 8080\n\
+             CMD [\"sh\", \"-c\", \"echo 'a servir na 8080'; while true; do sleep 3600; done\"]\n",
+            name = o.name,
+            base = base
+        );
+    }
+    let registry = super::distroless::registry();
     format!(
         "# Delonixfile — mesma gramática do Dockerfile, com extensões Delonix.\n\
          # Constrói com:  delonix build -t {name}:dev .\n\
          #\n\
-         # NOTA: o build é single-stage. Um `FROM ... AS x` seguido doutro `FROM`\n\
-         # é recusado com erro claro (multi-stage ainda não está implementado).\n\
-         FROM {base}\n\
+         # Distroless por omissão: a imagem final não traz shell, gestor de\n\
+         # pacotes nem userland — só a tua aplicação. O `busybox` estático entra\n\
+         # apenas para este esqueleto servir sem edições; substitui o CMD (e o\n\
+         # stage `tools`) pelo teu binário/serviço. Registo distroless\n\
+         # configurável com DELONIX_DISTROLESS_REGISTRY (omissão: gcr.io/distroless).\n\
+         # Se a imagem distroless não existir no pull, o Delonix recorre à base\n\
+         # convencional equivalente automaticamente.\n\
+         FROM busybox:1.37-musl AS tools\n\
          \n\
+         FROM {registry}/base-debian12:nonroot\n\
          WORKDIR /app\n\
-         \n\
-         # As dependências primeiro: esta camada só é reconstruída quando elas mudam.\n\
-         # RUN apk add --no-cache python3\n\
-         \n\
+         COPY --from=tools /bin/busybox /bin/busybox\n\
          COPY . /app\n\
          \n\
          # Extensões Delonix (aceites pelo parser; ver AGENTS.md):\n\
          #   CPUS 2\n\
          #   MEMORY 512M\n\
-         #   HEALTHCHECK CMD wget -qO- http://localhost:8080/health || exit 1\n\
          \n\
          EXPOSE 8080\n\
-         CMD [\"sh\", \"-c\", \"echo 'a servir na 8080'; while true; do sleep 3600; done\"]\n",
+         # uid:gid numérico — válido na imagem distroless E na base de recurso.\n\
+         USER 65532:65532\n\
+         HEALTHCHECK CMD [\"/bin/busybox\", \"wget\", \"-qO-\", \"http://127.0.0.1:8080/\"]\n\
+         CMD [\"/bin/busybox\", \"httpd\", \"-f\", \"-v\", \"-p\", \"8080\", \"-h\", \"/app\"]\n",
         name = o.name,
-        base = base
+        registry = registry
     )
 }
 
@@ -3245,7 +3288,13 @@ mod tests {
                     let Ok(text) = std::fs::read_to_string(f) else {
                         continue;
                     };
-                    for token in ["__NAME__", "__MODULE__", "__PORT__", "__TEMPLATE_VERSION__"] {
+                    for token in [
+                        "__NAME__",
+                        "__MODULE__",
+                        "__PORT__",
+                        "__TEMPLATE_VERSION__",
+                        "__DISTROLESS_REGISTRY__",
+                    ] {
                         assert!(!text.contains(token), "{tpl} -v {v}: {token} left in {f:?}");
                     }
                     version_seen |= text.contains(v);
@@ -3447,6 +3496,7 @@ mod tests {
                     "__TLS_PORT__",
                     "__NAME__",
                     "__TEMPLATE_VERSION__",
+                    "__DISTROLESS_REGISTRY__",
                 ] {
                     assert!(
                         !text.contains(token),
