@@ -1,48 +1,48 @@
-# DEF-001 — `system doctor`/`system resources` anunciam a flag `--pids-limit`, que não existe
+# DEF-001 — `system doctor`/`system resources` advertise the `--pids-limit` flag, which does not exist
 
-- **Requisito / teste:** CLI-1/§6 (help coerente), SCOPE-1/§8 (limites). CONTAINER-3.
-- **Severidade:** **P3 (baixa)** — defeito de documentação/UX, não funcional. Não há perda de dados nem recusa indevida.
-- **Tipo:** defeito do produto (texto ao utilizador incorrecto).
-- **Ambiente:** `delonix 5.1.1` @ `bca34f6c3`, `target/release/delonix`, rootless.
+- **Requirement / test:** CLI-1/§6 (coherent help), SCOPE-1/§8 (limits). CONTAINER-3.
+- **Severity:** **P3 (low)** — documentation/UX defect, not functional. No data loss and no undue refusal.
+- **Type:** product defect (incorrect user-facing text).
+- **Environment:** `delonix 5.1.1` @ `bca34f6c3`, `target/release/delonix`, rootless.
 
-## Passos mínimos
+## Minimal steps
 
 ```
 $ delonix system doctor
   ✓ ok       cgroup2 delegation (--memory/--cpus/--pids-limit)
 ```
 
-E o doc-comment de `cmd_doctor` (`bins/delonix-runtime-bin/src/cmd/system.rs:2189`):
+And the doc-comment of `cmd_doctor` (`bins/delonix-runtime-bin/src/cmd/system.rs:2189`):
 > "Without it `-m`/`--cpus`/`--pids-limit` are accepted and ignored"
 
-## Esperado vs observado
+## Expected vs observed
 
-- **Esperado:** o texto ao utilizador só nomeia flags que existem.
-- **Observado:** `--pids-limit` é anunciada em `system.rs:2189` e `:2232`, mas `container run`/`update` **não têm** essa flag. É deliberadamente a grafia do Docker — `bins/delonix-runtime-bin/src/main.rs:1688-1697` tem um teste (`the_docker_spellings_are_not_ours`) que garante que `--pids-limit` **nunca** existe como flag.
+- **Expected:** the user-facing text only names flags that exist.
+- **Observed:** `--pids-limit` is advertised in `system.rs:2189` and `:2232`, but `container run`/`update` **do not have** that flag. It is deliberately the Docker spelling — `bins/delonix-runtime-bin/src/main.rs:1688-1697` has a test (`the_docker_spellings_are_not_ours`) that guarantees `--pids-limit` **never** exists as a flag.
 
-## Hipótese de causa
+## Hypothesised cause
 
-O comentário em `main.rs:1640-1647` identifica a classe exacta: "they are string literals in another crate, and the compiler has no opinion about the inside of a string." O teste `named_flags_all_exist` cobre `flags_of_controller`, mas **não** o texto livre do `doctor`/`resources` em `system.rs`. Quando a flag foi removida do `run`, estes dois literais em `system.rs` ficaram para trás.
+The comment in `main.rs:1640-1647` identifies the exact class: "they are string literals in another crate, and the compiler has no opinion about the inside of a string." The test `named_flags_all_exist` covers `flags_of_controller`, but **not** the free text of `doctor`/`resources` in `system.rs`. When the flag was removed from `run`, these two literals in `system.rs` were left behind.
 
-## Critério de encerramento
+## Closure criterion
 
-- Trocar `--pids-limit` por `--memory`/`--cpus` (as que existem) nos dois literais de `system.rs`, OU estender o gate para varrer também o texto do `system doctor`/`resources` contra o conjunto de flags reais.
-- Reexecutar `delonix system doctor` e confirmar que não aparece `--pids-limit`.
+- Swap `--pids-limit` for `--memory`/`--cpus` (the ones that exist) in the two literals of `system.rs`, OR extend the gate to also scan the text of `system doctor`/`resources` against the set of real flags.
+- Re-run `delonix system doctor` and confirm `--pids-limit` no longer appears.
 
-## Estado
+## Status
 
-CORRIGIDO (local, working tree, verificado ao vivo em 2026-10-23). Ver bloco «Correcção» abaixo.
+FIXED (local, working tree, verified live on 2026-10-23). See the «Fix» block below.
 
-## Correcção
+## Fix
 
-- `bins/delonix-runtime-bin/src/cmd/system.rs`: introduzidos 3 consts testáveis
+- `bins/delonix-runtime-bin/src/cmd/system.rs`: introduced 3 testable consts
   (`DELEGATION_CHECK_LABEL`, `DELEGATION_LIMITS_APPLY`, `DELEGATION_LIMITS_INERT`),
-  todos com `--memory/--cpus` (sem `--pids-limit`), usados no `doctor` e no `resources`;
-  corrigidos ainda o help do `Setup`, o doc-comment de `cmd_doctor` e o `DELEGATE_BODY`.
-- `bins/delonix-runtime-bin/data/pt.po`: `--pids-limit` removido das traduções correspondentes.
-- Teste: `main.rs::advisory_flag_tests::delegation_labels_name_only_real_flags` — assere que
-  os 3 consts não contêm nenhuma das 4 grafias do Docker. **PASSA.**
+  all with `--memory/--cpus` (no `--pids-limit`), used in `doctor` and `resources`;
+  also fixed the help of `Setup`, the doc-comment of `cmd_doctor` and the `DELEGATE_BODY`.
+- `bins/delonix-runtime-bin/data/pt.po`: `--pids-limit` removed from the corresponding translations.
+- Test: `main.rs::advisory_flag_tests::delegation_labels_name_only_real_flags` — asserts that
+  the 3 consts contain none of the 4 Docker spellings. **PASSES.**
 - Live: `delonix system doctor` → `cgroup2 delegation (--memory/--cpus)`; `grep -c pids-limit`
-  em `doctor`+`resources` = **0**.
+  in `doctor`+`resources` = **0**.
 
-**Commit:** `e489852b` (branch `fix/campaign-defects-doctor-rm-compose`, não empurrado).
+**Commit:** `e489852b` (branch `fix/campaign-defects-doctor-rm-compose`, not pushed).

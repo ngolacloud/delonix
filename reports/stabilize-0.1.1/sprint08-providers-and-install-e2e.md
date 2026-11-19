@@ -1,16 +1,16 @@
-# Sprint 08 — Validação de providers (§8) e E2E de instalação (ambiente limpo)
+# Sprint 08 — Provider validation (§8) and installation E2E (clean environment)
 
-- **Release alvo:** Delonix v0.1.1 (linha `0.x`)
-- **Binário medido:** `/home/walter/dlx-wt/stabilize-0.1.1/target/debug/delonix` → `delonix 0.1.0, catalog 1.4.0` (149 capacidades no catálogo)
-- **Data:** 2026-10-31
-- **Papel:** SRE. Nada foi construído, editado, commitado nem empurrado. Nenhuma VM pesada levantada. Apenas probes read-only.
-- **§18 (regra de ouro):** ausência de ambiente ≠ aprovação. Abaixo distingo **validado-live** / **disponível-não-validado** / **bloqueado-por-ambiente**.
+- **Target release:** Delonix v0.1.1 (`0.x` line)
+- **Measured binary:** `/home/walter/dlx-wt/stabilize-0.1.1/target/debug/delonix` → `delonix 0.1.0, catalog 1.4.0` (149 capabilities in the catalog)
+- **Date:** 2026-10-31
+- **Role:** SRE. Nothing was built, edited, committed or pushed. No heavy VM brought up. Read-only probes only.
+- **§18 (golden rule):** absence of environment ≠ approval. Below I distinguish **validated-live** / **available-not-validated** / **blocked-by-environment**.
 
 ---
 
-## A) §8 — Providers medidos no host
+## A) §8 — Providers measured on the host
 
-Saída real de `delonix provider ls` (contagem por estado contra o catálogo):
+Real output of `delonix provider ls` (count by state against the catalog):
 
 | ID | Kind | Avail | Health | SUP | PART | UNSUP | EXT | NOT-IMPL |
 |----|------|-------|--------|-----|------|-------|-----|----------|
@@ -23,103 +23,103 @@ Saída real de `delonix provider ls` (contagem por estado contra o catálogo):
 | linux | storage | yes | **NetworkSharesNeedRoot** | 6 | 0 | 0 | 2 | 0 |
 | opnsense | gateway | **no** | **NotConfigured** | 10 | 0 | 24 | 2 | 12 |
 
-### Estado por provider
+### State per provider
 
-#### libvirt (compute) — disponível, Ok
-- `available=true`; `provider ls` sonda `qemu:///system` e passa. libvirt 10 / QEMU 8.2.2 vivos no host.
-- **Validado-live aqui:** a disponibilidade e o health (`Ok`) são medidos neste host. As 41 células `supported` citam evidência (battery/scenario/test) conforme `describe`. É o `defaultProvider` recomendado pelo install.sh.
-- **Nota:** a 1ª capacidade (`provider.availability`) está marcada `partial` com limite escrito — `available()` só vê os 2 binários; é o `provider ls` que sonda de facto o `qemu:///system`.
+#### libvirt (compute) — available, Ok
+- `available=true`; `provider ls` probes `qemu:///system` and passes. libvirt 10 / QEMU 8.2.2 alive on the host.
+- **Validated-live here:** availability and health (`Ok`) are measured on this host. The 41 `supported` cells cite evidence (battery/scenario/test) per `describe`. It is the `defaultProvider` recommended by install.sh.
+- **Note:** the 1st capability (`provider.availability`) is marked `partial` with a written limit — `available()` only sees the 2 binaries; it is `provider ls` that actually probes `qemu:///system`.
 
-#### cloud-hypervisor (compute) — disponível, Ok
-- `available=true`; `provider ls` sonda `/dev/kvm` + firmware e passa.
-- **Validado-live aqui:** disponibilidade/health medidos. 37 `supported` com evidência declarada.
+#### cloud-hypervisor (compute) — available, Ok
+- `available=true`; `provider ls` probes `/dev/kvm` + firmware and passes.
+- **Validated-live here:** availability/health measured. 37 `supported` with declared evidence.
 
-#### linux (compute / network / storage) — disponível
-- compute/network **Ok**; storage **NetworkSharesNeedRoot** (nfs/cifs/webdav precisam de `CAP_SYS_ADMIN` para montar; volumes locais não afetados → `3 unavailable-on-host` são declarados, não falhas).
-- **Validado-live aqui.** `delonix system doctor` passa em todos os pré-requisitos (ver secção B).
+#### linux (compute / network / storage) — available
+- compute/network **Ok**; storage **NetworkSharesNeedRoot** (nfs/cifs/webdav need `CAP_SYS_ADMIN` to mount; local volumes unaffected → the `3 unavailable-on-host` are declared, not failures).
+- **Validated-live here.** `delonix system doctor` passes on all prerequisites (see section B).
 
-#### proxmox (compute + network) — **NotConfigured** → BLOQUEADO-POR-AMBIENTE
-- Confirmado `available=false`, `NotConfigured`. Hint: `set DELONIX_PROXMOX_URL/_NODE and a credential to register a target`.
-- O appliance **pve92 foi podado hoje** (disco já não existe). `virsh list --all` mostra `pve92 shut off` sem disco utilizável.
-- Todas as **47 células `supported`** (40 compute + 7 network) têm evidência que aponta para `crates/providers/delonix-proxmox/tests/live.rs` (ex.: `provider.readback`, `vm.create`, `net.dns.records`, `net.ipam.*`). Esses testes são `#[ignore]` e exigem um PVE alcançável via `DELONIX_PROXMOX_URL/_NODE` + credencial.
-- **Quantificação do que fica por demonstrar:** sem reprovisionar um alvo PVE (proibido nesta sessão), **nenhuma** das 47 células supported pode ser re-provada live para a v0.1.1. Ficam também por exercitar 12+7 `partial` e os caminhos de erro. A evidência histórica em `live.rs` existe mas **não é re-corrível neste host** → classificar como **disponível-não-validado-nesta-release** (código presente, sem re-prova live).
-- **Recomendação:** marcar proxmox como "regression não corrida" na matriz da v0.1.1; a prova live precisa de 1 nó PVE dedicado (reprovisionamento de pve92 ou equivalente) — fora do âmbito e do orçamento de ambiente desta sessão.
+#### proxmox (compute + network) — **NotConfigured** → BLOCKED-BY-ENVIRONMENT
+- Confirmed `available=false`, `NotConfigured`. Hint: `set DELONIX_PROXMOX_URL/_NODE and a credential to register a target`.
+- The **pve92 appliance was pruned today** (disk no longer exists). `virsh list --all` shows `pve92 shut off` with no usable disk.
+- All **47 `supported` cells** (40 compute + 7 network) have evidence pointing to `crates/providers/delonix-proxmox/tests/live.rs` (e.g. `provider.readback`, `vm.create`, `net.dns.records`, `net.ipam.*`). Those tests are `#[ignore]` and require a PVE reachable via `DELONIX_PROXMOX_URL/_NODE` + credential.
+- **Quantifying what is left undemonstrated:** without re-provisioning a PVE target (forbidden in this session), **none** of the 47 supported cells can be re-proven live for v0.1.1. Also left unexercised are the 12+7 `partial` and the error paths. The historical evidence in `live.rs` exists but is **not re-runnable on this host** → classify as **available-not-validated-in-this-release** (code present, no live re-proof).
+- **Recommendation:** mark proxmox as "regression not run" in the v0.1.1 matrix; the live proof needs 1 dedicated PVE node (re-provisioning pve92 or equivalent) — out of scope and out of the environment budget for this session.
 
-#### opnsense (gateway) — **NotConfigured**; VM viva mas INALCANÇÁVEL + SEM CREDENCIAL → BLOQUEADO-POR-AMBIENTE
-Investigação feita (tudo read-only):
-- A VM libvirt `opnsense` está **a correr** (`virsh list` → running; disco `/var/lib/libvirt/images/opnsense.qcow2`). Tem 5 NICs em bridges: `br-wan` (10.0.99.0/24), `br-lan` (192.168.10.0/24), `br-dmz` (192.168.20.0/24), `br-dev`, `br-backup`.
-- **Sem guest-agent:** `virsh domifaddr opnsense` (lease e arp) devolve vazio — o host não sabe o IP de nenhuma interface da appliance.
-- **GUI/API inalcançável a partir do host:**
-  - `curl -sk https://<ip>/` nos IPs prováveis (192.168.10.1/.2/.254, 10.0.99.2, 192.168.20.1) → todos `000` (sem resposta).
-  - Varrimento ping read-only em `192.168.10.0/24`: só responde `192.168.10.1` (que é o **próprio host** na br-lan); todas as entradas ARP para a appliance ficam `INCOMPLETE`. A appliance não responde no segmento LAN a partir do host (provável: firewall WAN a bloquear + a interface que o host vê não é a de gestão, ou a GUI escuta noutro segmento/porta não exposto ao host).
-- **Requisitos do provider opnsense** (de `crates/providers/delonix-opnsense/src/lib.rs` e `capabilities.rs`):
-  1. `DELONIX_OPNSENSE_URL` **https:// obrigatório** (`validate_target_url` recusa http — a key/secret iria em claro; recusa userinfo no URL);
-  2. **credencial = API key + secret** (OPNsense usa par key/secret, não user/password), via `auth` em `providers.yaml` ou `DELONIX_OPNSENSE_KEY/_SECRET`;
-  3. para o certificado self-signed: `tls.insecureSkipVerify` / `tls.caFile` ou `DELONIX_OPNSENSE_INSECURE_TLS=1`;
-  4. `Client::connect` **prova a credencial à cabeça** com `GET core/firmware/status` antes de qualquer coisa.
-- **O que falta exatamente para registar e sondar (§8 firewall/NAT/zonas):**
-  - (a) **URL de gestão alcançável** — a GUI da appliance não está exposta ao host por nenhum IP conhecido; seria preciso acesso à consola serial (`/dev/pts/1`) para descobrir/configurar a interface de gestão, o que é mais do que um probe read-only e toca na VM do dono → **não feito**.
-  - (b) **API key + secret** — têm de ser criadas DENTRO da GUI (System › Access › Users › API). Não foram fornecidas e não podem ser geradas sem login → **ausentes**.
-  - Conclusão: mesmo que o URL fosse descoberto, sem credencial o `connect` falharia no `firmware/status`. **Dois bloqueios independentes.**
-- **As 10 células `supported` do gateway** (`net.gateway.filter`, `net.gateway.alias`, `net.gateway.rule-order`, `net.nat.snat`, `net.nat.dnat`, `net.apply.staged`, `net.observe`, `net.ownership-marker`, `firewall.stateless`, `firewall.logging`) **citam todas evidência live** (`crates/providers/delonix-opnsense/tests/live.rs::*`, testes `#[ignore]` que exigem `DELONIX_OPNSENSE_TEST_URL/_KEY/_SECRET` + appliance alcançável).
-- **Veredicto opnsense:** **bloqueado-por-ambiente** (inalcançável + sem credencial). Zero células §8 re-provadas live nesta sessão. A VM estar "viva" NÃO conta como aprovação (§18).
+#### opnsense (gateway) — **NotConfigured**; VM alive but UNREACHABLE + NO CREDENTIAL → BLOCKED-BY-ENVIRONMENT
+Investigation done (all read-only):
+- The libvirt VM `opnsense` is **running** (`virsh list` → running; disk `/var/lib/libvirt/images/opnsense.qcow2`). It has 5 NICs on bridges: `br-wan` (10.0.99.0/24), `br-lan` (192.168.10.0/24), `br-dmz` (192.168.20.0/24), `br-dev`, `br-backup`.
+- **No guest-agent:** `virsh domifaddr opnsense` (lease and arp) returns empty — the host does not know the IP of any appliance interface.
+- **GUI/API unreachable from the host:**
+  - `curl -sk https://<ip>/` on the likely IPs (192.168.10.1/.2/.254, 10.0.99.2, 192.168.20.1) → all `000` (no response).
+  - Read-only ping sweep over `192.168.10.0/24`: only `192.168.10.1` responds (which is the **host itself** on br-lan); all ARP entries for the appliance stay `INCOMPLETE`. The appliance does not respond on the LAN segment from the host (likely: WAN firewall blocking + the interface the host sees is not the management one, or the GUI listens on another segment/port not exposed to the host).
+- **opnsense provider requirements** (from `crates/providers/delonix-opnsense/src/lib.rs` and `capabilities.rs`):
+  1. `DELONIX_OPNSENSE_URL` **https:// mandatory** (`validate_target_url` refuses http — the key/secret would go in the clear; refuses userinfo in the URL);
+  2. **credential = API key + secret** (OPNsense uses a key/secret pair, not user/password), via `auth` in `providers.yaml` or `DELONIX_OPNSENSE_KEY/_SECRET`;
+  3. for the self-signed certificate: `tls.insecureSkipVerify` / `tls.caFile` or `DELONIX_OPNSENSE_INSECURE_TLS=1`;
+  4. `Client::connect` **proves the credential up front** with `GET core/firmware/status` before anything else.
+- **What exactly is missing to register and probe (§8 firewall/NAT/zones):**
+  - (a) **A reachable management URL** — the appliance GUI is not exposed to the host on any known IP; it would require serial console access (`/dev/pts/1`) to discover/configure the management interface, which is more than a read-only probe and touches the owner's VM → **not done**.
+  - (b) **API key + secret** — these must be created INSIDE the GUI (System › Access › Users › API). They were not provided and cannot be generated without login → **absent**.
+  - Conclusion: even if the URL were discovered, without a credential the `connect` would fail at `firmware/status`. **Two independent blocks.**
+- **The 10 gateway `supported` cells** (`net.gateway.filter`, `net.gateway.alias`, `net.gateway.rule-order`, `net.nat.snat`, `net.nat.dnat`, `net.apply.staged`, `net.observe`, `net.ownership-marker`, `firewall.stateless`, `firewall.logging`) **all cite live evidence** (`crates/providers/delonix-opnsense/tests/live.rs::*`, `#[ignore]` tests that require `DELONIX_OPNSENSE_TEST_URL/_KEY/_SECRET` + a reachable appliance).
+- **opnsense verdict:** **blocked-by-environment** (unreachable + no credential). Zero §8 cells re-proven live in this session. The VM being "alive" does NOT count as approval (§18).
 
-### Resumo §8 — o que dá para validar aqui vs. bloqueado
+### §8 summary — what can be validated here vs. blocked
 
-| Provider | Validável nesta sessão | Classificação v0.1.1 |
+| Provider | Validatable in this session | v0.1.1 classification |
 |----------|------------------------|----------------------|
-| libvirt (compute) | SIM — avail/health Ok medidos | **validado-live** (disponibilidade/health) |
-| cloud-hypervisor (compute) | SIM — avail/health Ok medidos | **validado-live** (disponibilidade/health) |
-| linux (compute/network/storage) | SIM — doctor passa; storage shares precisam root | **validado-live** |
-| proxmox (compute+network) | NÃO — NotConfigured, pve92 podado | **bloqueado-por-ambiente** (47 supported por re-provar; precisa PVE dedicado) |
-| opnsense (gateway) | NÃO — VM viva mas inalcançável + sem API key/secret | **bloqueado-por-ambiente** (10 supported §8 por re-provar) |
+| libvirt (compute) | YES — avail/health Ok measured | **validated-live** (availability/health) |
+| cloud-hypervisor (compute) | YES — avail/health Ok measured | **validated-live** (availability/health) |
+| linux (compute/network/storage) | YES — doctor passes; storage shares need root | **validated-live** |
+| proxmox (compute+network) | NO — NotConfigured, pve92 pruned | **blocked-by-environment** (47 supported to re-prove; needs a dedicated PVE) |
+| opnsense (gateway) | NO — VM alive but unreachable + no API key/secret | **blocked-by-environment** (10 supported §8 to re-prove) |
 
-> Nota sobre "supported": a matriz marca `supported` com base em evidência (test/scenario/battery) gravada no catálogo. Para proxmox e opnsense essa evidência vem de testes **live** `#[ignore]` que **não são re-corríveis neste host na v0.1.1**. Para o gate de release, tratar como "código presente + evidência histórica, re-prova live pendente de ambiente", não como "aprovado agora".
+> Note on "supported": the matrix marks `supported` based on evidence (test/scenario/battery) recorded in the catalog. For proxmox and opnsense that evidence comes from **live** `#[ignore]` tests that are **not re-runnable on this host at v0.1.1**. For the release gate, treat as "code present + historical evidence, live re-proof pending environment", not as "approved now".
 
 ---
 
-## B) E2E de instalação em ambiente limpo (`scripts/install.sh`)
+## B) Installation E2E in a clean environment (`scripts/install.sh`)
 
-### O que o install.sh faz (1907 linhas, lido)
-- Instala uma **release publicada** (binário assinado + irmãos + deps de runtime + config de host). **Não compila** (isso é o Makefile). Uso documentado: `curl … | bash` — todo o corpo está dentro de `{ … }` como guarda contra download truncado.
-- **Detecção de distro** por `ID`/`ID_LIKE` de `/etc/os-release`, com fallback pelo gestor presente:
-  - `apt` (Debian/Ubuntu/Mint/Zorin/Pop) · `dnf` (Fedora/RHEL/CentOS/Rocky/Alma) · `zypper` (openSUSE/SLES) · `pacman` (Arch/Manjaro/Endeavour). Distro sem nenhum → `die`.
-- **Deps de runtime** (lição de instalações reais): `slirp4netns`, `uidmap` (newuidmap/newgidmap setuid), `nftables`, `iproute2`, `conntrack`; VMs: `libvirt+qemu`, `qemu-img`, `cloud-localds`; opcional `cloud-hypervisor`, `nvidia-container-toolkit`, `minisign` (verificação de assinatura), `delonix-cri` (`--with-cri`).
-- **Config de host rootless:** `/etc/subuid` + `/etc/subgid` (`ensure_subid`), perfil AppArmor, drop-in de **delegação de cgroup** (`Delegate=cpu cpuset io memory pids` em `/etc/systemd/system/user@.service.d/`), sysctls/módulos (`--no-tune` desliga), tuning `--production`/`--performance`.
-- **providers.yaml** (ADR-0054): escrito com `defaultProvider` = `--vm-provider` (default libvirt) **só se não existir**; nunca reescrito. Local: `/etc/delonix/providers.yaml` (sistema) ou `~/.config/delonix/providers.yaml` / `$XDG_CONFIG_HOME` (com `--user`).
-- **Verificação final (doctor embutido):** confere binário, `slirp4netns`, `newuidmap` (+ privilégio setuid/cap), `nft`, ranges subuid/subgid, `/dev/net/tun`, user-namespaces (via perfil AppArmor onde `kernel.apparmor_restrict_unprivileged_userns=1`), backend VM, default provider lido PELO binário (`delonix vm default-backend`), e **delegação de cgroup de verdade** (cria cgroup filho + tenta `+memory`, e verifica cpu/cpuset/io/memory/pids). É equivalente — mas não idêntico — a `delonix system doctor`.
+### What install.sh does (1907 lines, read)
+- Installs a **published release** (signed binary + siblings + runtime deps + host config). **Does not compile** (that is the Makefile). Documented usage: `curl … | bash` — the whole body is inside `{ … }` as a guard against a truncated download.
+- **Distro detection** via `ID`/`ID_LIKE` from `/etc/os-release`, with a fallback by the manager present:
+  - `apt` (Debian/Ubuntu/Mint/Zorin/Pop) · `dnf` (Fedora/RHEL/CentOS/Rocky/Alma) · `zypper` (openSUSE/SLES) · `pacman` (Arch/Manjaro/Endeavour). A distro with none → `die`.
+- **Runtime deps** (lesson from real installs): `slirp4netns`, `uidmap` (newuidmap/newgidmap setuid), `nftables`, `iproute2`, `conntrack`; VMs: `libvirt+qemu`, `qemu-img`, `cloud-localds`; optional `cloud-hypervisor`, `nvidia-container-toolkit`, `minisign` (signature verification), `delonix-cri` (`--with-cri`).
+- **Rootless host config:** `/etc/subuid` + `/etc/subgid` (`ensure_subid`), AppArmor profile, **cgroup delegation** drop-in (`Delegate=cpu cpuset io memory pids` in `/etc/systemd/system/user@.service.d/`), sysctls/modules (`--no-tune` turns off), `--production`/`--performance` tuning.
+- **providers.yaml** (ADR-0054): written with `defaultProvider` = `--vm-provider` (default libvirt) **only if it does not exist**; never rewritten. Location: `/etc/delonix/providers.yaml` (system) or `~/.config/delonix/providers.yaml` / `$XDG_CONFIG_HOME` (with `--user`).
+- **Final check (embedded doctor):** checks the binary, `slirp4netns`, `newuidmap` (+ setuid/cap privilege), `nft`, subuid/subgid ranges, `/dev/net/tun`, user-namespaces (via the AppArmor profile where `kernel.apparmor_restrict_unprivileged_userns=1`), VM backend, default provider as read BY the binary (`delonix vm default-backend`), and **real cgroup delegation** (creates a child cgroup + tries `+memory`, and checks cpu/cpuset/io/memory/pids). It is equivalent — but not identical — to `delonix system doctor`.
 
-### Peças do E2E e o que cada passo exige
+### E2E pieces and what each step requires
 
-| Passo | Exige | Observações |
+| Step | Requires | Observations |
 |-------|-------|-------------|
-| **Instalar** (binário + deps + config) | **root/sudo** (apt/dnf/zypper/pacman, escrever `/etc`, `/usr/local/bin`, AppArmor, drop-ins) + **gestor de pacotes da distro** + rede | 1ª chamada a sudo é a instalação do binário (`|| die` com mensagem acionável). `minisign` para verificar assinatura (ou `--insecure-skip-signature`). |
-| **`system doctor`** | nada destrutivo (read-only) | Precisa de **cgroup v2 + systemd user** para a delegação ler `Ok`; `--strict` para gate CI. |
-| **Re-correr = upgrade** | igual ao instalar | Preserva estado/imagens/volumes/config/sockets/serviços. Avisos de migração **só** se `PREV_VER` for `0.64.*` (3 Kinds removidos) ou `1.*–5.*` (re-base da linha `delonix-runtime` → `0.x`, deliberado, não downgrade). providers.yaml existente **nunca** reescrito → prova a preservação. |
-| **Remover** | **manual** | ⚠️ **Não há subcomando de uninstall** no install.sh nem `--uninstall`. Reverter é manual: `rm` dos binários, `rm /etc/delonix`, remover linhas de `/etc/subuid`/`/etc/subgid`, `rm` dos drop-ins (`user@.service.d`, `delonix-performance`, perfil AppArmor) + `systemctl daemon-reload`. **Lacuna da release para um "remover" limpo e script-ável.** |
+| **Install** (binary + deps + config) | **root/sudo** (apt/dnf/zypper/pacman, writing `/etc`, `/usr/local/bin`, AppArmor, drop-ins) + the **distro package manager** + network | The 1st sudo call is the binary install (`|| die` with an actionable message). `minisign` to verify the signature (or `--insecure-skip-signature`). |
+| **`system doctor`** | nothing destructive (read-only) | Needs **cgroup v2 + systemd user** for delegation to read `Ok`; `--strict` for a CI gate. |
+| **Re-run = upgrade** | same as install | Preserves state/images/volumes/config/sockets/services. Migration warnings **only** if `PREV_VER` is `0.64.*` (3 Kinds removed) or `1.*–5.*` (re-base of the `delonix-runtime` line → `0.x`, deliberate, not a downgrade). An existing providers.yaml **never** rewritten → proves preservation. |
+| **Remove** | **manual** | ⚠️ **There is no uninstall subcommand** in install.sh nor a `--uninstall`. Reverting is manual: `rm` the binaries, `rm /etc/delonix`, remove lines from `/etc/subuid`/`/etc/subgid`, `rm` the drop-ins (`user@.service.d`, `delonix-performance`, AppArmor profile) + `systemctl daemon-reload`. **A release gap for a clean, scriptable "remove".** |
 
-### Contentor vs VM como ambiente limpo — avaliação
+### Container vs VM as a clean environment — assessment
 
-- O install.sh é **systemd-cêntrico e root-cêntrico**: `systemctl enable --now libvirtd.socket`, drop-ins de `user@.service`, delegação de cgroup que **só toma efeito no próximo login**, AppArmor, módulos de kernel. Nada disto é exercitável de forma fiel sem **PID1 = systemd** e **root**.
-- **Contentor via o próprio delonix (rootless):** serve para um *smoke* da **detecção de distro** e do caminho de pacotes por distro (apt/dnf/zypper/pacman) **se** a imagem trouxer systemd como PID1 e se correr privilegiado — o que contraria o modelo rootless do delonix. Um contentor rootless comum **não** tem systemd PID1, **não** consegue carregar módulos de kernel, **não** aplica AppArmor do host, e a delegação de cgroup/`user@.service` não existe lá dentro. Logo um contentor **não** prova os passos que mais falham em campo (delegação, libvirtd, AppArmor, subuid a nível de host).
-- **Veredicto:** o E2E fiel por distro **exige uma VM** (uma por família de pacote: Debian/Ubuntu→apt, Fedora/Rocky→dnf, openSUSE→zypper, Arch→pacman), com **systemd + root + /dev/kvm** para também cobrir o backend VM. Um contentor serve, no máximo, como **pré-smoke barato** da ramificação de distro, não como prova de aceitação. **Nenhuma destas VMs foi levantada nesta sessão** (proibido levantar VMs pesadas) → o E2E multi-distro fica **bloqueado-por-ambiente / pendente**.
+- install.sh is **systemd-centric and root-centric**: `systemctl enable --now libvirtd.socket`, `user@.service` drop-ins, cgroup delegation that **only takes effect at the next login**, AppArmor, kernel modules. None of this is faithfully exercisable without **PID1 = systemd** and **root**.
+- **Container via delonix itself (rootless):** good for a *smoke* of **distro detection** and the per-distro package path (apt/dnf/zypper/pacman) **if** the image ships systemd as PID1 and runs privileged — which contradicts delonix's rootless model. A common rootless container does **not** have systemd PID1, **cannot** load kernel modules, **does not** apply the host AppArmor, and cgroup delegation/`user@.service` do not exist inside it. So a container does **not** prove the steps that most often fail in the field (delegation, libvirtd, AppArmor, host-level subuid).
+- **Verdict:** the faithful per-distro E2E **requires a VM** (one per package family: Debian/Ubuntu→apt, Fedora/Rocky→dnf, openSUSE→zypper, Arch→pacman), with **systemd + root + /dev/kvm** to also cover the VM backend. A container serves, at most, as a **cheap pre-smoke** of the distro branching, not as an acceptance proof. **None of these VMs were brought up in this session** (bringing up heavy VMs forbidden) → the multi-distro E2E is **blocked-by-environment / pending**.
 
-### Caminho `--user` rootless — é testável SEM tocar no HOME real nem sudo?
+### The rootless `--user` path — is it testable WITHOUT touching the real HOME or sudo?
 
-- `--user` instala o binário em `~/.local/bin` e escreve providers.yaml em `~/.config/delonix/` (ou `$XDG_CONFIG_HOME`). **Sem `--user`, o 1º sudo é a instalação do binário.**
-- Com `--user` E `--no-binary` (ou um binário já presente), e **redirecionando o HOME** (`HOME=<tmp> XDG_CONFIG_HOME=<tmp>/.config`), o troço `--user` escreve só em dir temporário. **MAS**: o install.sh real continua a chamar `require_dep`/`pkg_install` (que usam sudo) para as deps de runtime, e a secção de subuid/AppArmor/delegação precisa de root. Um `--user` "puro-binário" não cobre nada do que interessa validar na §B (deps + config de host).
-- **Decisão (honesta):** **não corri** uma instalação `--user` nesta máquina de dev. Mesmo com HOME redirecionado, o valor acrescentado seria quase nulo (só provaria que o binário aterra em `~/.local/bin`), e o host de dev já tem um `delonix` e um ambiente que não quero poluir/mascarar (o install.sh avisa explicitamente sobre binários que se fazem sombra no PATH). Fica **documentado como pendente**: testável em VM limpa, não aqui.
+- `--user` installs the binary in `~/.local/bin` and writes providers.yaml in `~/.config/delonix/` (or `$XDG_CONFIG_HOME`). **Without `--user`, the 1st sudo is the binary install.**
+- With `--user` AND `--no-binary` (or a binary already present), and **redirecting HOME** (`HOME=<tmp> XDG_CONFIG_HOME=<tmp>/.config`), the `--user` stretch writes only to a temporary dir. **BUT**: the real install.sh still calls `require_dep`/`pkg_install` (which use sudo) for the runtime deps, and the subuid/AppArmor/delegation section needs root. A "binary-only" `--user` covers none of what matters to validate in §B (deps + host config).
+- **Decision (honest):** I **did not run** a `--user` install on this dev machine. Even with HOME redirected, the added value would be almost nil (it would only prove the binary lands in `~/.local/bin`), and the dev host already has a `delonix` and an environment I do not want to pollute/mask (install.sh explicitly warns about binaries shadowing each other on the PATH). Left **documented as pending**: testable in a clean VM, not here.
 
-### Veredicto E2E de instalação
-- **Instalar / upgrade / doctor:** desenho sólido e completo (incl. doctor embutido rigoroso e avisos de migração 0.64→0.65 e 5.x→0.x). **Precisa de VM com systemd+root+pkg-manager por família de distro** para prova de aceitação fiel. **Pendente — bloqueado-por-ambiente** (VMs não levantadas nesta sessão).
-- **Remover:** **lacuna real** — não existe caminho de desinstalação script-ável; a remoção é manual e multi-ficheiro. Recomenda-se, para a v0.1.1, ou um `install.sh --uninstall`/script `uninstall.sh`, ou pelo menos documentar o procedimento de reversão num único sítio.
-- **Contentor:** insuficiente como ambiente de aceitação (sem systemd PID1 / root / cgroup-deleg / AppArmor / módulos); vale só como pré-smoke da ramificação de distro.
+### Installation E2E verdict
+- **Install / upgrade / doctor:** solid and complete design (incl. a rigorous embedded doctor and migration warnings 0.64→0.65 and 5.x→0.x). **Needs a VM with systemd+root+pkg-manager per distro family** for a faithful acceptance proof. **Pending — blocked-by-environment** (VMs not brought up in this session).
+- **Remove:** **a real gap** — there is no scriptable uninstall path; removal is manual and multi-file. For v0.1.1, recommend either an `install.sh --uninstall`/`uninstall.sh` script, or at least documenting the reversal procedure in one single place.
+- **Container:** insufficient as an acceptance environment (no systemd PID1 / root / cgroup-deleg / AppArmor / modules); good only as a pre-smoke of the distro branching.
 
 ---
 
-## Veredicto global (§18-consciente)
+## Global verdict (§18-aware)
 
-- **Validado-live neste host:** libvirt, cloud-hypervisor e linux (disponibilidade + health `Ok`; `system doctor` passa em todos os pré-requisitos; storage-shares precisam root, por desenho).
-- **Bloqueado-por-ambiente (NÃO aprovado):** proxmox (47 células supported, pve92 podado — precisa PVE dedicado) e opnsense (10 células §8, VM viva mas inalcançável + sem API key/secret — dois bloqueios independentes).
-- **E2E de instalação:** desenho completo para instalar/upgrade/doctor; **precisa de VM** (systemd+root+pkg-manager) por família de distro; **contentor não chega**; **remoção não tem caminho script-ável** (lacuna). Nada do E2E multi-distro foi corrido (proibido levantar VMs) → **pendente**.
-- A ausência de alvos proxmox/opnsense e de VMs de instalação **não** é aprovação — é dívida de verificação a agendar numa sessão com ambiente dedicado.
+- **Validated-live on this host:** libvirt, cloud-hypervisor and linux (availability + health `Ok`; `system doctor` passes on all prerequisites; storage-shares need root, by design).
+- **Blocked-by-environment (NOT approved):** proxmox (47 supported cells, pve92 pruned — needs a dedicated PVE) and opnsense (10 §8 cells, VM alive but unreachable + no API key/secret — two independent blocks).
+- **Installation E2E:** complete design for install/upgrade/doctor; **needs a VM** (systemd+root+pkg-manager) per distro family; **a container is not enough**; **removal has no scriptable path** (gap). None of the multi-distro E2E was run (bringing up VMs forbidden) → **pending**.
+- The absence of proxmox/opnsense targets and of installation VMs is **not** approval — it is verification debt to schedule in a session with a dedicated environment.

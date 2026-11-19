@@ -1,20 +1,20 @@
-# Consolidação — campanha de capacidades (checkpoint 126/274)
+# Consolidation — capability campaign (checkpoint 126/274)
 
-Data: 2026-10-25. Verificação integrada sobre develop HEAD de todo o corpo acumulado (67 commits desde `558e5f20`), antes de prosseguir. Cumpre o §17 do mandato (matriz antes/depois + contagens separadas, sem medir progresso só pela redução de negativos).
+Date: 2026-10-25. Integrated verification over develop HEAD of the whole accumulated body (67 commits since `558e5f20`), before proceeding. Meets §17 of the mandate (before/after matrix + separate counts, not measuring progress only by the reduction of negatives).
 
-## Estado verificado (todos os gates de CI verdes ao mesmo tempo)
+## Verified state (all CI gates green at the same time)
 
-- `make gates`: lang_ratchet **3181/1044/116**, arch_fitness (library_prints **82**, layer direction, env_writes 23, self_exec 29), version_gate (5.1.1=v5.1.1), adr_status (85 ADR/81 linhas), dev_docs/handbook, leaves 353/570 — **todos ok**.
+- `make gates`: lang_ratchet **3181/1044/116**, arch_fitness (library_prints **82**, layer direction, env_writes 23, self_exec 29), version_gate (5.1.1=v5.1.1), adr_status (85 ADR/81 lines), dev_docs/handbook, leaves 353/570 — **all ok**.
 - `capability_ratchet`: **126 of 274 (46.0 %)**.
-- Não-drift da matriz publicada + evidência-existe (cada `supported` cita teste real): **ok**.
-- Testes dos crates da campanha, juntos em HEAD: delonix-runtime-bin 233, delonix-proxmox 134, delonix-provider-libvirt 71, delonix-mgmt 36, delonix-telemetry 14, delonix-cri 95, delonix-compute 126, delonix-linux — **0 falhas**.
-- Worktrees e branches da campanha: **limpas**. Tag `v5.1.1`: **intacta**.
+- Published-matrix non-drift + evidence-exists (every `supported` cites a real test): **ok**.
+- Campaign crate tests, together at HEAD: delonix-runtime-bin 233, delonix-proxmox 134, delonix-provider-libvirt 71, delonix-mgmt 36, delonix-telemetry 14, delonix-cri 95, delonix-compute 126, delonix-linux — **0 failures**.
+- Campaign worktrees and branches: **clean**. Tag `v5.1.1`: **intact**.
 
-Durante a consolidação apanhou-se (e corrigiu-se, `d7c517ca`) uma dívida cross-pair que as verificações por-par tinham deixado passar: 3 `eprintln` de debug nos testes live do proxmox subiram `arch_fitness.library_prints` 82→85. Lição: correr `make gates` **completo** (não só a última linha) por frente.
+During consolidation a cross-pair debt that the per-pair checks had let slip was caught (and fixed, `d7c517ca`): 3 debug `eprintln` in the proxmox live tests raised `arch_fitness.library_prints` 82→85. Lesson: run the **complete** `make gates` (not just the last line) per front.
 
-## Matriz antes/depois
+## Before/after matrix
 
-| estado | relatório inicial | agora | Δ |
+| state | initial report | now | Δ |
 |---|---|---|---|
 | supported | 103 | **126** | **+23** |
 | partial | 93 | 78 | −15 |
@@ -25,49 +25,49 @@ Durante a consolidação apanhou-se (e corrigiu-se, `d7c517ca`) uma dívida cros
 | **total** | **515** | **515** | **0** |
 | proved/applicable (N2) | — | **126/274 (46.0 %)** | — |
 
-(Reconciliado: o relatório inicial media 103 supported sobre um build anterior à v5.1.1; a baseline regenerada deu 112. Dos 112, a campanha levou a 126.)
+(Reconciled: the initial report measured 103 supported on a build prior to v5.1.1; the regenerated baseline gave 112. From those 112, the campaign took it to 126.)
 
-## Contagens separadas (§17) — progresso qualificado
+## Separate counts (§17) — qualified progress
 
-**Novas capacidades implementadas (backend novo):**
-- `pod.shared-pid` (linux) — `shareProcessNamespace`: join do PID ns do infra no pai antes do clone + guard; cablado CLI e CRI.
-- `metrics.network.per-workload` (linux) — séries rx/tx por-container no `/metrics`.
-- `metrics.prometheus` (linux) — gauges de uso cpu/mem por-container (antes só contenção).
-- `host.capacity` (proxmox) — método `host_capacity` lendo `/nodes/{node}/status`.
-- `vm.snapshot.memory` (proxmox) — método `snapshot_config` expõe `vmstate`.
+**New capabilities implemented (new backend):**
+- `pod.shared-pid` (linux) — `shareProcessNamespace`: joining the infra PID ns in the parent before the clone + guard; wired to CLI and CRI.
+- `metrics.network.per-workload` (linux) — rx/tx per-container series in `/metrics`.
+- `metrics.prometheus` (linux) — per-container cpu/mem usage gauges (previously contention only).
+- `host.capacity` (proxmox) — `host_capacity` method reading `/nodes/{node}/status`.
+- `vm.snapshot.memory` (proxmox) — `snapshot_config` method exposes `vmstate`.
 
-**Funcionalidades completadas + validadas ao vivo (backend existia, faltava prova):**
-- libvirt hotplug add: `disk` (R/W no guest), `nic` (tráfego real), `cpu` (nproc↑), `memory` (MemTotal↑) — 4 níveis cada.
-- libvirt `vm.cloud-init` (guest consome NoCloud), `vm.snapshot-disk`/`vm.snapshot-restore` (recuperação de dados por guestfish).
-- linux `container.oom-detection` (crash_reason=oom_killed), `pod.shared-ipc-uts` (identidade de ns).
-- proxmox `vm.snapshot.persistent` (sobrevive a stop/start, nó real).
+**Features completed + validated live (backend existed, proof was missing):**
+- libvirt hotplug add: `disk` (R/W in the guest), `nic` (real traffic), `cpu` (nproc↑), `memory` (MemTotal↑) — 4 levels each.
+- libvirt `vm.cloud-init` (guest consumes NoCloud), `vm.snapshot-disk`/`vm.snapshot-restore` (data recovery via guestfish).
+- linux `container.oom-detection` (crash_reason=oom_killed), `pod.shared-ipc-uts` (ns identity).
+- proxmox `vm.snapshot.persistent` (survives a stop/start, real node).
 
-**Validações acrescentadas:** cenários chaos (`scen_oom`, `scen_pod_shared_ipc_uts`, `scen_pod_shared_pid`), secções e2e (6 novas), testes de integração (gRPC WatchEvents) e testes live proxmox (3).
+**Validations added:** chaos scenarios (`scen_oom`, `scen_pod_shared_ipc_uts`, `scen_pod_shared_pid`), e2e sections (6 new), integration tests (gRPC WatchEvents) and proxmox live tests (3).
 
-**Erros de classificação corrigidos (causa, não feature):** libvirt `vm.migration.live` unsupported→not-implemented; linux `storage.lvm-thin`/`storage.zfs-btrfs` not-impl→partial; linux `net.apply.rollback` not-impl→unsupported; CH `vm.ip.observed` unsupported→partial; CH `vm.network.bridge` razão corrigida; linux/proxmox `host.capacity`+`metrics` reclass.
+**Classification errors corrected (cause, not feature):** libvirt `vm.migration.live` unsupported→not-implemented; linux `storage.lvm-thin`/`storage.zfs-btrfs` not-impl→partial; linux `net.apply.rollback` not-impl→unsupported; CH `vm.ip.observed` unsupported→partial; CH `vm.network.bridge` reason corrected; linux/proxmox `host.capacity`+`metrics` reclassified.
 
-**Demoção por honestidade (métrica desce, confiança sobe):** libvirt `vm.snapshot.memory` supported→partial (recuperação de RAM não observável sem guest com SO).
+**Demotion for honesty (metric down, confidence up):** libvirt `vm.snapshot.memory` supported→partial (RAM recovery not observable without a guest with an OS).
 
-**Cobertura/robustez:** `shareProcessNamespace` cablado no caminho CRI (kubelet); recusa acionável de shared-pid em `--net host`/CNI (em vez de silêncio).
+**Coverage/robustness:** `shareProcessNamespace` wired on the CRI path (kubelet); actionable refusal of shared-pid under `--net host`/CNI (instead of silence).
 
-**Bloqueios de ambiente / limites upstream comprovados:** GPU/CDI — sem hardware, fica "implementado não validado". CH/libvirt `host.capacity` e `provider.events` — verificados correctos como not-implemented (capacidade VM ≠ cgroup; VMs não emitem eventos). Proxmox consola serial/VNC — websocket remoto, graduação exige mudança transversal (fica partial/not-impl honesto).
+**Environment blocks / proven upstream limits:** GPU/CDI — no hardware, stays "implemented not validated". CH/libvirt `host.capacity` and `provider.events` — verified correct as not-implemented (VM capacity ≠ cgroup; VMs do not emit events). Proxmox serial/VNC console — remote websocket, graduation requires a cross-cutting change (stays honestly partial/not-impl).
 
-## Invariante mantido
-Cada `+1` em supported passou pelo gate que exige evidência real (teste `check:`/`e2e:`/`live:`/`chaos:`/`test:` existente) — zero promoções só-etiqueta. 15 promoções líquidas a supported, todas com prova; progresso não medido só pela redução de negativos.
+## Invariant maintained
+Every `+1` in supported went through the gate that requires real evidence (an existing `check:`/`e2e:`/`live:`/`chaos:`/`test:` test) — zero label-only promotions. 15 net promotions to supported, all with proof; progress not measured only by the reduction of negatives.
 
 ---
 
-## Checkpoint 2 (2026-10-25, HEAD 722956f1) — verificação integrada repetida
+## Checkpoint 2 (2026-10-25, HEAD 722956f1) — integrated verification repeated
 
-Após mais 6 pares de frentes (firewall §10, clone/template, hotplug disco/NIC/cpu/mem add+remove, consolas, backups, migração cold, cloud-init, snapshots proxmox), re-corri a verificação integrada sobre todo o corpo acumulado (**121 commits** desde `558e5f20`):
+After 6 more pairs of fronts (firewall §10, clone/template, hotplug disk/NIC/cpu/mem add+remove, consoles, backups, cold migration, cloud-init, proxmox snapshots), I re-ran the integrated verification over the whole accumulated body (**121 commits** since `558e5f20`):
 
-- `make gates` COMPLETO verde: lang_ratchet 3181/1044/116, arch_fitness (library_prints **82**), version, dev_docs, adr (85/81), folhas (353/572).
+- `make gates` COMPLETE green: lang_ratchet 3181/1044/116, arch_fitness (library_prints **82**), version, dev_docs, adr (85/81), leaves (353/572).
 - `capability_ratchet`: **152 of 274 (55.5 %)**.
-- Testes dos crates da campanha, juntos em HEAD, **0 falhas**: delonix-runtime-bin 233, delonix-proxmox 136, delonix-provider-libvirt 72, delonix-provider-cloud-hypervisor 40, delonix-mgmt 36, delonix-cri 99, delonix-compute 130, delonix-telemetry 14.
+- Campaign crate tests, together at HEAD, **0 failures**: delonix-runtime-bin 233, delonix-proxmox 136, delonix-provider-libvirt 72, delonix-provider-cloud-hypervisor 40, delonix-mgmt 36, delonix-cri 99, delonix-compute 130, delonix-telemetry 14.
 
-### Antes/depois (atualizado)
+### Before/after (updated)
 
-| estado | relatório inicial | agora | Δ |
+| state | initial report | now | Δ |
 |---|---|---|---|
 | supported | 103 | **152** | **+49** |
 | partial | 93 | 64 | −29 |
@@ -75,7 +75,8 @@ Após mais 6 pares de frentes (firewall §10, clone/template, hotplug disco/NIC/
 | unsupported-by-provider | 230 | 229 | −1 |
 | proved/applicable | — | **152/274 (55.5 %)** | — |
 
-### Compatibilidade VM (domínios vm-compute/protection/mobility/console): **85/118 = 72.0 %**
+### VM compatibility (vm-compute/protection/mobility/console domains): **85/118 = 72.0 %**
 cloud-hypervisor 23/36 (63.9 %) · libvirt 32/45 (71.1 %) · proxmox 30/37 (81.1 %).
 
-Caminho restante para a % VM é maioritariamente **hardware-gated** (pci-passthrough/tpm/hugepages/guest-agent) e **arquitecturalmente partial honesto** (hot-remove de cpu/mem inseguro → cold resize; migração live/cold entre hosts precisa de 2.º nó; raw-definition é fronteira de segurança). O invariante mantém-se: cada promoção a supported tem evidência real verificada por gate; nenhuma promoção só-etiqueta.
+The remaining path to the VM % is mostly **hardware-gated** (pci-passthrough/tpm/hugepages/guest-agent) and **architecturally honestly partial** (cpu/mem hot-remove unsafe → cold resize; live/cold migration between hosts needs a 2nd node; raw-definition is a security boundary). The invariant holds: every promotion to supported has real evidence verified by a gate; no label-only promotion.
+</content>

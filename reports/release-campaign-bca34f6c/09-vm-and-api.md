@@ -1,49 +1,49 @@
-# 09 — VMs (providers) e APIs/MCP
+# 09 — VMs (providers) and APIs/MCP
 
 SUT: `delonix 5.1.1` @ `bca34f6c3`.
 
-## Providers (inventário medido — `delonix provider ls`)
+## Providers (measured inventory — `delonix provider ls`)
 
-| Provider | Kind | Disponível | Saúde | Supported caps |
+| Provider | Kind | Available | Health | Supported caps |
 |---|---|---|---|---|
-| libvirt | compute | **sim** | Ok | 18 |
-| cloud-hypervisor | compute | **sim** | Ok | 13 |
-| linux | compute/network/storage | sim | Ok / NetworkSharesNeedRoot | 11/10/4 |
-| proxmox | compute/network | **não** | NotConfigured | 33/7 |
-| opnsense | gateway | não | NotConfigured | 10 |
+| libvirt | compute | **yes** | Ok | 18 |
+| cloud-hypervisor | compute | **yes** | Ok | 13 |
+| linux | compute/network/storage | yes | Ok / NetworkSharesNeedRoot | 11/10/4 |
+| proxmox | compute/network | **no** | NotConfigured | 33/7 |
+| opnsense | gateway | no | NotConfigured | 10 |
 
-Imagens VM locais: **`k8s-golden`** (ubuntu 24.04, cloud-init, k8s 1.34, 634 MiB) e `delonix-vm-appliances:proxmox-ve-9.2` (1.45 GiB).
+Local VM images: **`k8s-golden`** (ubuntu 24.04, cloud-init, k8s 1.34, 634 MiB) and `delonix-vm-appliances:proxmox-ve-9.2` (1.45 GiB).
 
-## VM-1 — libvirt/KVM, ciclo completo (verificação independente em `virsh`)
+## VM-1 — libvirt/KVM, full cycle (independent verification in `virsh`)
 
-| Passo (§10) | Observado | Estado |
+| Step (§10) | Observed | State |
 |---|---|---|
-| criar+arrancar | `vm create relcvm --disk k8s-golden --backend libvirt --vcpus 2 --memory 2G` → overlay+rede+domínio+start | **PASSOU** |
-| guest arranca + rede/DNS | `vm ls`: Running, **IP 192.168.122.62** (DHCP libvirt, ~34s); **`virsh list` confirma domínio `relcvm running`** | **PASSOU** |
-| reachability | `ping` **2/2, 0% perda** | **PASSOU** |
-| stop | `vm stop` → `virsh` mostra shut off | **PASSOU** |
-| start | `vm start` → `virsh` Id 3 running | **PASSOU** |
-| destroy + limpeza | `vm destroy --force` remove `relcvm.qcow2`, overlay dir, `relcvm.xml`; **0 em delonix E 0 em libvirt** | **PASSOU** |
-| preservação | `opnsense` continua running, `pve92` shut off — intactos | **PASSOU** |
+| create+start | `vm create relcvm --disk k8s-golden --backend libvirt --vcpus 2 --memory 2G` → overlay+network+domain+start | **PASSED** |
+| guest boots + network/DNS | `vm ls`: Running, **IP 192.168.122.62** (libvirt DHCP, ~34s); **`virsh list` confirms domain `relcvm running`** | **PASSED** |
+| reachability | `ping` **2/2, 0% loss** | **PASSED** |
+| stop | `vm stop` → `virsh` shows shut off | **PASSED** |
+| start | `vm start` → `virsh` Id 3 running | **PASSED** |
+| destroy + cleanup | `vm destroy --force` removes `relcvm.qcow2`, overlay dir, `relcvm.xml`; **0 in delonix AND 0 in libvirt** | **PASSED** |
+| preservation | `opnsense` still running, `pve92` shut off — intact | **PASSED** |
 
-## VM-2/VM-3/VM-4 — estado
+## VM-2/VM-3/VM-4 — state
 
-- **cloud-hypervisor (VM-2):** provider available/Ok (13 caps); backend existe; **ciclo não corrido** nesta ronda (tempo/disco) → NÃO EXECUTADO.
-- **proxmox (VM-3):** `NotConfigured` — exige `DELONIX_PROXMOX_URL/_NODE`+credencial e um PVE vivo (`pve92` desligada). **BLOQUEADO (ambiente)**.
-- **build de imagem cloud (VM-4, §11):** não corrido — disco a 96%/44 G. **BLOQUEADO (ambiente)**. Nota: a golden `k8s-golden` já existe e arranca (provado acima), o que cobre o *boot* de uma imagem cloud-init; o *fluxo de build* em si não foi exercitado.
+- **cloud-hypervisor (VM-2):** provider available/Ok (13 caps); backend exists; **cycle not run** this round (time/disk) → NOT EXECUTED.
+- **proxmox (VM-3):** `NotConfigured` — requires `DELONIX_PROXMOX_URL/_NODE`+credential and a live PVE (`pve92` powered off). **BLOCKED (environment)**.
+- **cloud image build (VM-4, §11):** not run — disk at 96%/44 G. **BLOCKED (environment)**. Note: the `k8s-golden` golden image already exists and boots (proven above), which covers the *boot* of a cloud-init image; the *build flow* itself was not exercised.
 
-## API-2 — MCP (closes folhas gap E3: `tools/call` nunca correra)
+## API-2 — MCP (closes sheets gap E3: `tools/call` had never been run)
 
-Sidecar `delonix-mcp` construído **no mesmo commit** (o binário principal **recusa** uma cópia stale do PATH — `DX-6000`, boa defesa anti-mistura).
+`delonix-mcp` sidecar built **at the same commit** (the main binary **rejects** a stale copy from the PATH — `DX-6000`, good anti-mixing defence).
 
-- `mcp capabilities`: **tabela de risco/confirm** — cada tool tem `risk` (READ/…) e `requires_confirm`.
-- `mcp serve` + JSON-RPC `initialize`+`tools/list`: **15 tools** devolvidas (bate com o denominador `mcp=15`): `audit.query, container.restart, logs.query, metrics.query, network.inspect, resource.{list,get,describe}, resources.get, runtime.{health,info}, storage.inspect, task.{cancel,get}, workload.usage`.
-- Conjunto **dominado por leitura/observação**; as únicas mutações são `container.restart` e `task.cancel` — **nenhum exec privilegiado arbitrário**. Satisfaz "MCP não contorna o núcleo nem aceita comandos privilegiados arbitrários". | **PASSOU** |
+- `mcp capabilities`: **risk/confirm table** — each tool has `risk` (READ/…) and `requires_confirm`.
+- `mcp serve` + JSON-RPC `initialize`+`tools/list`: **15 tools** returned (matches the `mcp=15` denominator): `audit.query, container.restart, logs.query, metrics.query, network.inspect, resource.{list,get,describe}, resources.get, runtime.{health,info}, storage.inspect, task.{cancel,get}, workload.usage`.
+- Set **dominated by read/observation**; the only mutations are `container.restart` and `task.cancel` — **no arbitrary privileged exec**. Satisfies "MCP does not bypass the core nor accept arbitrary privileged commands". | **PASSED** |
 
-## API-1 — CLI vs REST vs gRPC vs MCP — PARCIAL
+## API-1 — CLI vs REST vs gRPC vs MCP — PARTIAL
 
-Validada a superfície **MCP** pelo protocolo (initialize+tools/list) e a **CLI** exaustivamente nas
-secções anteriores. A comparação ponta-a-ponta das 4 superfícies sobre a MESMA operação (identidade,
-autz, defaults, erros) **não foi corrida** — exigiria servir `node-api`/`mgmt`/`docker-api` do próprio
-SUT (mais sidecars/arranque). O serviço `delonix-engine prod` em `0.0.0.0:9443` é de **outra instalação**,
-não o SUT, e não foi usado. → cobertura parcial.
+The **MCP** surface was validated by the protocol (initialize+tools/list) and the **CLI** exhaustively in the
+earlier sections. The end-to-end comparison of the 4 surfaces over the SAME operation (identity,
+authz, defaults, errors) was **not run** — it would require serving the SUT's own `node-api`/`mgmt`/`docker-api`
+(more sidecars/startup). The `delonix-engine prod` service on `0.0.0.0:9443` belongs to **another installation**,
+not the SUT, and was not used. → partial coverage.

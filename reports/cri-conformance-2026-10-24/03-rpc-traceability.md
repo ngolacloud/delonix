@@ -1,59 +1,59 @@
-# Matriz de rastreabilidade RPC — CRI `runtime.v1` (34 RPCs)
+# RPC traceability matrix — CRI `runtime.v1` (34 RPCs)
 
-Legenda de estado: **IV** implementado e validado (critest/crictl/kubelet) ·
-**IN** implementado, validado só por round-trip gRPC/unit · **P** parcial ·
-**U** unimplemented (devolve `UNIMPLEMENTED`, não finge sucesso) · **N/A** não
-aplicável com fundamento.
+State legend: **IV** implemented and validated (critest/crictl/kubelet) ·
+**IN** implemented, validated only by gRPC round-trip/unit · **P** partial ·
+**U** unimplemented (returns `UNIMPLEMENTED`, does not fake success) · **N/A**
+not applicable with justification.
 
-Fonte: `crates/interfaces/delonix-cri/src/{lib.rs,runtime_svc.rs,runtime_svc/lifecycle.rs}`.
+Source: `crates/interfaces/delonix-cri/src/{lib.rs,runtime_svc.rs,runtime_svc/lifecycle.rs}`.
 
 ## RuntimeService
 
-| RPC | Estado | Validação / nota |
+| RPC | State | Validation / note |
 |---|---|---|
-| Version | IV | `runtime_api_version=v1`, nome `delonix`; `grpc_status.rs` + crictl |
-| RunPodSandbox | IV | netns rootless (holder/slirp); critest sandbox lifecycle |
-| StopPodSandbox | IV | idempotente; força `-t 0` (contrato: grace já dado); corrige órfãos do `kubeadm reset` |
-| RemovePodSandbox | IV | só apaga registo se o `rm -f` do motor vencer (regra do RemoveContainer) |
+| Version | IV | `runtime_api_version=v1`, name `delonix`; `grpc_status.rs` + crictl |
+| RunPodSandbox | IV | rootless netns (holder/slirp); critest sandbox lifecycle |
+| StopPodSandbox | IV | idempotent; forces `-t 0` (contract: grace already given); fixes `kubeadm reset` orphans |
+| RemovePodSandbox | IV | only deletes the record if the engine's `rm -f` wins (RemoveContainer rule) |
 | PodSandboxStatus | IV | critest |
-| ListPodSandbox | IV | filtro por id/estado (teste unitário) |
-| CreateContainer | IV | security context completo; cap-ceiling do nó aplicado aqui |
+| ListPodSandbox | IV | filter by id/state (unit test) |
+| CreateContainer | IV | full security context; node cap-ceiling applied here |
 | StartContainer | IV | critest |
-| StopContainer | IV | critest; timeout honrado |
-| RemoveContainer | IV | idempotente |
-| ListContainers | IV | filtro por sandbox (teste unitário) |
-| ContainerStatus | IV | exit code/137 OOM, timestamps estáveis, writable_layer real |
+| StopContainer | IV | critest; timeout honoured |
+| RemoveContainer | IV | idempotent |
+| ListContainers | IV | filter by sandbox (unit test) |
+| ContainerStatus | IV | exit code/137 OOM, stable timestamps, real writable_layer |
 | UpdateContainerResources | IV | honour-or-refuse cpuset/unified/hugepages (ADR 0038) |
-| ReopenContainerLog | IV | recria o ficheiro + shim segue o inode (rotação) |
-| ExecSync | IV | stdout/stderr separados, exit, timeout; entra em todos os ns incl. IPC |
-| Exec | IV | SPDY/WebSocket; token com entropia (fail-closed) |
-| Attach | IV | `logs -f`; stdin a PID 1 não suportado (por desenho) |
-| PortForward | **P** | servidor prepara URL; 2 specs de portforward falham (gap real #12/#17) |
-| ContainerStats | IV | cgroup v2 cpu/mem; eviction manager alimentado |
-| ListContainerStats | IV | filtro |
+| ReopenContainerLog | IV | recreates the file + shim follows the inode (rotation) |
+| ExecSync | IV | separate stdout/stderr, exit, timeout; enters all ns incl. IPC |
+| Exec | IV | SPDY/WebSocket; token with entropy (fail-closed) |
+| Attach | IV | `logs -f`; stdin to PID 1 not supported (by design) |
+| PortForward | **P** | server prepares URL; 2 portforward specs fail (real gap #12/#17) |
+| ContainerStats | IV | cgroup v2 cpu/mem; eviction manager fed |
+| ListContainerStats | IV | filter |
 | PodSandboxStats | IV | cgroup v2 |
-| ListPodSandboxStats | IV | filtro |
-| UpdateRuntimeConfig | IV | pod CIDR: honra CNI, avisa na SDN nativa (nunca `Ok` cego) |
-| Status | IV | `RuntimeReady`+`NetworkReady` reais (ref-count); `capabilityCeiling` em verbose |
-| CheckpointContainer | **U** | exige CRIU; opcional; não finge sucesso |
-| GetContainerEvents | **U** | Evented PLEG (opcional); kubelet cai no PLEG genérico |
-| ListMetricDescriptors | IN | real (cgroup v2); critest v1.36.0 não exercita — `grpc_status.rs` |
-| ListPodSandboxMetrics | IN | idem |
-| RuntimeConfig | IV | anuncia `cgroupfs` (teste `the_kubelet_is_told_cgroupfs`) |
+| ListPodSandboxStats | IV | filter |
+| UpdateRuntimeConfig | IV | pod CIDR: honours CNI, warns on the native SDN (never a blind `Ok`) |
+| Status | IV | real `RuntimeReady`+`NetworkReady` (ref-count); `capabilityCeiling` in verbose |
+| CheckpointContainer | **U** | requires CRIU; optional; does not fake success |
+| GetContainerEvents | **U** | Evented PLEG (optional); kubelet falls back to the generic PLEG |
+| ListMetricDescriptors | IN | real (cgroup v2); critest v1.36.0 does not exercise it — `grpc_status.rs` |
+| ListPodSandboxMetrics | IN | same |
+| RuntimeConfig | IV | advertises `cgroupfs` (test `the_kubelet_is_told_cgroupfs`) |
 
 ## ImageService
 
-| RPC | Estado | Validação / nota |
+| RPC | State | Validation / note |
 |---|---|---|
-| ListImages | IV | `repo_tags`/`repo_digests` partidos por tipo de referência (**corrigido** #18); `uid`/`username` (**corrigido** #19) |
-| ImageStatus | IV | idem; mapeamento partilhado `to_cri_image` |
-| PullImage | IV | creds do `imagePullSecrets` (user+pass); por tag e por digest |
-| RemoveImage | IV | idempotente (GC do kubelet) |
-| ImageFsInfo | **P** | `used_bytes` real; `inodes_used` = 0 (follow-up); devolve image+container fs |
+| ListImages | IV | `repo_tags`/`repo_digests` split by reference type (**fixed** #18); `uid`/`username` (**fixed** #19) |
+| ImageStatus | IV | same; shared `to_cri_image` mapping |
+| PullImage | IV | creds from `imagePullSecrets` (user+pass); by tag and by digest |
+| RemoveImage | IV | idempotent (kubelet GC) |
+| ImageFsInfo | **P** | real `used_bytes`; `inodes_used` = 0 (follow-up); returns image+container fs |
 
-## Cobertura
+## Coverage
 
-- **IV**: 27 · **IN**: 2 · **P**: 3 (PortForward, ImageFsInfo, e o conjunto de
-  rede rootless) · **U**: 2 (opcionais).
-- Nenhuma operação não implementada devolve `Ok`. Os `U` são `UNIMPLEMENTED`
-  explícito — o kubelet trata-os como ausência de feature.
+- **IV**: 27 · **IN**: 2 · **P**: 3 (PortForward, ImageFsInfo, and the rootless
+  network set) · **U**: 2 (optional).
+- No unimplemented operation returns `Ok`. The `U`s are explicit `UNIMPLEMENTED`
+  — the kubelet treats them as a missing feature.

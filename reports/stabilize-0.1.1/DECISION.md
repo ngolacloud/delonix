@@ -1,92 +1,92 @@
-# Delonix v0.1.1 — decisão de release
+# Delonix v0.1.1 — release decision
 
-**Data:** 2026-10-31 · **Linha:** `stabilize/0.1.1` (worktree, 20 commits, SEM push)
-· **Base:** `origin/develop` `8ab783dd` (= `v0.1.0` + 39) · **v0.1.0 já publicada
-e imutável** → estas correcções são para **`v0.1.1`**.
+**Date:** 2026-10-31 · **Line:** `stabilize/0.1.1` (worktree, 20 commits, NOT pushed)
+· **Base:** `origin/develop` `8ab783dd` (= `v0.1.0` + 39) · **v0.1.0 already published
+and immutable** → these fixes are for **`v0.1.1`**.
 
-## Veredicto: **GO** no âmbito explicitamente validado (o único residual foi root-caused e CORRIGIDO)
+## Verdict: **GO** within the explicitly validated scope (the only residual was root-caused and FIXED)
 
-A `v0.1.1` é uma melhoria inequívoca sobre a `v0.1.0` já no terreno: fecha 1 P1 de
-integridade, advisories de memory-safety alcançáveis, 1 TOCTOU de estado, e 3
-achados P2/P3 — todos com teste **e** prova live. O único residual (o hang do
-attach de rede custom) foi root-caused e CORRIGIDO: era um self-deadlock que o
-próprio P2-1 introduziu (name-claim segura através do re-exec) + um padrão
-sistémico de `flock(LOCK_EX)` sem timeout; ambos tratados. Custom-net attach
-completa em ~1s, e o DEF-003 original (compose não reconcilia) foi finalmente
-testável e NÃO reproduz.
+`v0.1.1` is an unequivocal improvement over the `v0.1.0` already in the field: it
+closes 1 P1 integrity issue, reachable memory-safety advisories, 1 state TOCTOU, and 3
+P2/P3 findings — all with a test **and** a live proof. The only residual (the custom-network
+attach hang) was root-caused and FIXED: it was a self-deadlock that
+P2-1 itself introduced (safe name-claim through the re-exec) + a systemic
+pattern of `flock(LOCK_EX)` with no timeout; both handled. Custom-net attach
+completes in ~1s, and the original DEF-003 (compose does not reconcile) was finally
+testable and does NOT reproduce.
 
-## 1. Correcções (todas: fix + teste + prova live)
+## 1. Fixes (all: fix + test + live proof)
 
-| Item | Severidade | Prova |
+| Item | Severity | Proof |
 |---|---|---|
-| F-1 cache de camadas envenenada no upgrade | P1 integridade | unit + A/B live (rabbitmq curado no 1º uso) |
-| SEC-01 bump zstd 0.14.3 | Médio segurança | `cargo deny advisories`=ok; 6 RUSTSEC alcançáveis por imagem eliminadas |
-| P2-1 `run --name` concorrente (TOCTOU) | P2 estado | 4× race live → 1 criado, 3 `DX-5000` |
-| P3 carimbo de versão + gate de downgrade | P3 recuperação | live: record formato 99 recusa `start`/`rm` |
-| S15-1 lock-files ilimitados | P3 escala | pool 256 shards + GC no `system prune` (live: 20 recuperados) |
-| restart_policy não-persistido | P2 (achado novo) | live: `--restart always` volta a Running; `no` fica Stopped |
+| F-1 poisoned layer cache on upgrade | P1 integrity | unit + A/B live (rabbitmq healthy on 1st use) |
+| SEC-01 bump zstd 0.14.3 | Medium security | `cargo deny advisories`=ok; 6 image-reachable RUSTSEC eliminated |
+| P2-1 concurrent `run --name` (TOCTOU) | P2 state | 4× race live → 1 created, 3 `DX-5000` |
+| P3 version stamp + downgrade gate | P3 recovery | live: record format 99 refuses `start`/`rm` |
+| S15-1 unbounded lock-files | P3 scale | 256-shard pool + GC on `system prune` (live: 20 reclaimed) |
+| non-persisted restart_policy | P2 (new finding) | live: `--restart always` returns to Running; `no` stays Stopped |
 
-Mais: `install.sh --uninstall`/`--purge`; aviso P2-2 (restart não sobrevive reboot sem `boot enable`).
+Plus: `install.sh --uninstall`/`--purge`; P2-2 warning (restart does not survive reboot without `boot enable`).
 
-## 2. Âmbito SUPORTADO para produção (validado)
+## 2. Scope SUPPORTED for production (validated)
 
-- **Containers/pods OCI rootless** (§7) — lifecycle/OOM/isolamento provados; **OOM imposto ao vivo** (32M mata, 128M sobrevive).
-- **VMs** CH/libvirt — matriz gated **180/270 N2** (tecto honesto 247).
-- **§8 rede/gateway** — **proxmox (47 células) e opnsense validados ao vivo com os appliances** (pve92/opnsense); evidência no repo, gate-enforced (`every_supported_capability_cites_evidence_that_exists`).
-- **Recuperação §12** — sem P1; reconcile de crash, escrita atómica, idempotência, backup/restore provados.
-- **Instalação/upgrade/remoção/preservação de dados §13** — **ciclo completo provado ao vivo numa Ubuntu 24.04 limpa** (família apt).
-- **Endpoint CRI** — `serve cri` + `crictl` handshake `runtime.v1`, **RuntimeReady=true**.
-- **Integridade/segurança de artefactos §16** — assinatura minisign, SHA256SUMS, SBOM 402 pkgs, `release_verify` 6/6; SEC-01 corrigido.
+- **Rootless OCI containers/pods** (§7) — lifecycle/OOM/isolation proven; **OOM enforced live** (32M kills, 128M survives).
+- **VMs** CH/libvirt — gated matrix **180/270 N2** (honest ceiling 247).
+- **§8 network/gateway** — **proxmox (47 cells) and opnsense validated live against the appliances** (pve92/opnsense); evidence in the repo, gate-enforced (`every_supported_capability_cites_evidence_that_exists`).
+- **§12 recovery** — no P1; crash reconcile, atomic writes, idempotency, backup/restore proven.
+- **§13 install/upgrade/removal/data preservation** — **full cycle proven live on a clean Ubuntu 24.04** (apt family).
+- **CRI endpoint** — `serve cri` + `crictl` handshake `runtime.v1`, **RuntimeReady=true**.
+- **§16 artefact integrity/security** — minisign signature, SHA256SUMS, SBOM 402 pkgs, `release_verify` 6/6; SEC-01 fixed.
 
-## 3. Experimentais / não-validados (não operar sem aceitação de risco)
+## 3. Experimental / unvalidated (do not operate without risk acceptance)
 
-42 células EXPERIMENTAL + 6 IMPLEMENTADA-NÃO-VALIDADA (ver `contrato-suporte-producao.md`).
+42 EXPERIMENTAL cells + 6 IMPLEMENTED-NOT-VALIDATED (see `contrato-suporte-producao.md`).
 
-## 4. Residual — ROOT-CAUSED e CORRIGIDO (eram DOIS defeitos)
+## 4. Residual — ROOT-CAUSED and FIXED (it was TWO defects)
 
-O "attach de rede custom pendura sem timeout" era **dois** defeitos, ambos agora
-corrigidos e provados ao vivo:
+The "custom-network attach hangs with no timeout" was **two** defects, both now
+fixed and proven live:
 
-1. **Self-deadlock introduzido pelo P2-1.** O `cmd_run` segurava a name-claim
-   (namespace,name) através de TODA a função — incluindo o caminho de rede
-   custom, que **re-exec** um SEGUNDO `cmd_run` e ESPERA por ele. O filho
-   re-exec'd re-adquiria a MESMA name-lock e bloqueava no próprio pai. Fix: a
-   claim + o check de unicidade só no 1º passo (`!reexec`) — o re-exec é o mesmo
-   create lógico. **Attach custom completa agora em ~1 s** (antes: pendura). A
-   garantia do P2-1 mantém-se (um create de utilizador é sempre 1º passo → 4×
-   `create --name` concorrentes = 1 criado + 3 recusados, re-provado).
+1. **Self-deadlock introduced by P2-1.** `cmd_run` held the name-claim
+   (namespace,name) through the ENTIRE function — including the custom-network
+   path, which **re-exec**s a SECOND `cmd_run` and WAITS for it. The re-exec'd
+   child re-acquired the SAME name-lock and blocked on its own parent. Fix: the
+   claim + the uniqueness check only on the 1st step (`!reexec`) — the re-exec is the same
+   logical create. **Custom attach now completes in ~1 s** (before: hangs). The
+   P2-1 guarantee still holds (a user create is always the 1st step → 4×
+   concurrent `create --name` = 1 created + 3 refused, re-proven).
 
-2. **Padrão sistémico de `flock(LOCK_EX)` sem timeout** (~7 sítios). Novo helper
-   partilhado `delonix_node::flock_exclusive` (NB + tecto 30s, EINTR-safe)
-   roteado em TODOS: `delonix-state` Store+secret, `delonix-sdn` infra +
-   ExclusiveLock + IpamLock, e os locks do bin ippool/ingress_proxy/
-   container-start/hosts_file (este ignorava o resultado). Cada um já tinha via
-   de recusa (Err/None) → passam a **falhar-limpo ao fim do tecto, nunca
-   pendurar** — foi também assim que #1 se diagnosticou (o timeout nomeou o lock).
+2. **Systemic pattern of `flock(LOCK_EX)` with no timeout** (~7 sites). New shared
+   helper `delonix_node::flock_exclusive` (NB + 30s ceiling, EINTR-safe)
+   routed through ALL: `delonix-state` Store+secret, `delonix-sdn` infra +
+   ExclusiveLock + IpamLock, and the bin locks ippool/ingress_proxy/
+   container-start/hosts_file (the last one ignored the result). Each already had
+   a refusal path (Err/None) → they now **fail cleanly at the ceiling, never
+   hang** — this is also how #1 was diagnosed (the timeout named the lock).
 
-**Prova live:** attach custom completa 1 s; P2-1 race holds; e o **DEF-003
-original** (compose não reconcilia serviço parado), finalmente testável, **NÃO
-reproduz** — `compose up -d` traz o `proj-cache` parado de volta a Running.
-Testes: delonix-node flock 20/20, state 22/22, sdn 325/325, node-api 14/14.
+**Live proof:** custom attach completes in 1 s; the P2-1 race holds; and the **original
+DEF-003** (compose does not reconcile a stopped service), finally testable, does **NOT
+reproduce** — `compose up -d` brings the stopped `proj-cache` back to Running.
+Tests: delonix-node flock 20/20, state 22/22, sdn 325/325, node-api 14/14.
 
-## 5. Breadth por fazer (não-bloqueadores)
+## 5. Breadth still to do (non-blocking)
 
-- E2E instalação dnf/zypper/pacman (apt provado; mesmo guião, +1 VM cada).
-- critest completo de CRI (endpoint provado; falta root + CNI + host limpo).
+- E2E install for dnf/zypper/pacman (apt proven; same script, +1 VM each).
+- Full CRI critest (endpoint proven; still needs root + CNI + clean host).
 
-## 6. Condições para cortar a `v0.1.1`
+## 6. Conditions to cut `v0.1.1`
 
-1. Integrar os 24 commits de `stabilize/0.1.1` em `develop` (merge do dono).
-2. Cortar/etiquetar `v0.1.1` via o pipeline de release (`release.yml` + `release_verify.py`); NÃO tocar na `v0.1.0`.
+1. Integrate the 24 commits of `stabilize/0.1.1` into `develop` (owner merge).
+2. Cut/tag `v0.1.1` via the release pipeline (`release.yml` + `release_verify.py`); DO NOT touch `v0.1.0`.
 
-(O residual §4 — o hang de attach — foi corrigido, por isso já não é uma
-condição; recomenda-se ainda uma passagem num nó de produção real com churn de
-rede para re-confirmar o attach custom sob carga concorrente.)
+(The §4 residual — the attach hang — was fixed, so it is no longer a
+condition; a pass on a real production node with network churn is still recommended
+to re-confirm the custom attach under concurrent load.)
 
-## 7. Rastreabilidade
+## 7. Traceability
 
-Commits `stabilize/0.1.1`: F-1(`80e37e7c`,`2bebab71`) · §3(`a61f3ded`) · §12/§16(`081421d5`)
+`stabilize/0.1.1` commits: F-1(`80e37e7c`,`2bebab71`) · §3(`a61f3ded`) · §12/§16(`081421d5`)
 · SEC-01(`7ecd2f11`) · P2-1(`9eaa0f76`,`be81ee84`) · P3(`4fbd6beb`) · fmt(`455b3490`)
-· §13 install(`dab971fe`,`7408805e`) · S15-1(lock-files) · P2-2(aviso) · restart_policy
-· uninstall · §8/install-E2E/env relatórios. Gates nas mudanças: verdes
-(folhas/contract FAIL = baseline/ambiente). `version_gate` ok.
+· §13 install(`dab971fe`,`7408805e`) · S15-1(lock-files) · P2-2(warning) · restart_policy
+· uninstall · §8/install-E2E/env reports. Gates on the changes: green
+(leaves/contract FAIL = baseline/environment). `version_gate` ok.

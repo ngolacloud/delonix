@@ -1,61 +1,61 @@
-# Matriz de rastreabilidade — Campanha dlxcamp-20261024
+# Traceability matrix — Campaign dlxcamp-20261024
 
-**Artefacto sob teste**
+**Artefact under test**
 - Repo: `/home/walter/workspaces/NgolaCloud/projects/delonix-runtime`
-- Estado testado começou em `fix/stabilize-develop-after-merges` @ `257a0ee4` (diff `c062d290`); o dono fez checkout para `develop` @ **`558e5f20`** a meio — binário final recompilado limpo de develop: digest **`350a6320…`**, `--version` = `558e5f201 (+258)`, built 2026-10-24.
-- Delta binário inicial↔develop = só `pt.po` (i18n) + `image.rs` em `mod tests` (não entra no release) → resultados pré-checkout válidos.
-- Host: Zorin OS 18.1, kernel 7.0.0-38, x86_64, 20 vCPU, 62 Gi RAM; rootless uid 1000; cgroup2 delegado: cpu/memory/pids (NÃO cpuset/io).
+- The tested state started at `fix/stabilize-develop-after-merges` @ `257a0ee4` (diff `c062d290`); the owner checked out to `develop` @ **`558e5f20`** mid-campaign — final binary recompiled clean from develop: digest **`350a6320…`**, `--version` = `558e5f201 (+258)`, built 2026-10-24.
+- Delta initial binary↔develop = only `pt.po` (i18n) + `image.rs` in `mod tests` (does not enter the release) → pre-checkout results valid.
+- Host: Zorin OS 18.1, kernel 7.0.0-38, x86_64, 20 vCPU, 62 Gi RAM; rootless uid 1000; cgroup2 delegated: cpu/memory/pids (NOT cpuset/io).
 - Providers: docker/podman/buildah/kind/kubectl/kubeadm/virsh/qemu/cloud-hypervisor/mkcert/cloudflared/ngrok; libvirt (opnsense, pve92).
-- Disco: 5 GB no arranque → +35 GB via `cargo clean` reversível do delonix-paas → 27 GB no fim.
+- Disk: 5 GB at startup → +35 GB via a reversible `cargo clean` of delonix-paas → 27 GB at the end.
 
-**Estados:** PASSOU · FALHOU · BLOQUEADO · NÃO EXECUTADO · NÃO APLICÁVEL
+**States:** PASSED · FAILED · BLOCKED · NOT EXECUTED · NOT APPLICABLE
 
-| ID | Requisito | Resultado esperado | Estado | Evidência |
+| ID | Requirement | Expected result | State | Evidence |
 |----|-----------|--------------------|--------|-----------|
-| CLI-01 | `--version` | coerente com estado | **PASSOU** | `558e5f201 (+258)` exit 0 |
-| CLI-02 | help principal + por recurso | exit 0 | **PASSOU** | help 84L + 8 recursos exit 0 |
-| CLI-03 | inválidos → erro+exit≠0 | stderr útil | **PASSOU** | subcmd/flag → exit 2 |
-| CLI-04 | arg obrigatório em falta | erro claro | **PASSOU** | `run` sem IMAGE → exit 2 |
-| CLI-05 | equivalência verbos raiz↔agrupados | idêntico | **PASSOU** | ps≡container ls≡container ps; images≡image ls (JSON idêntico) |
-| CLI-06 | output JSON | válido | **PASSOU** | `ps -o json`→`[]` exit 0 |
-| CONTAINER-01 | ciclo de vida completo | observável no SO | **PASSOU** | processo+cgroup rootless; stop 10.3s (SIGTERM ignorado PID1→SIGKILL); rm sem órfão |
-| CONTAINER-02 | porta + HTTP externo | HTTP 200 origem | **PASSOU** | `127.0.0.1:18090->80`; curl→`dlxcamp-20261024-OK` |
-| CONTAINER-03 | bind mount R/W | dados/permissões | **PASSOU** | `:ro` bloqueia escrita; conteúdo visível |
-| CONTAINER-04 | limites efectivos cpu/mem | na hierarquia | **PASSOU** | `memory.max=67108864`, `cpu.max=50000 100000` |
-| CONTAINER-04b | `--cpuset` (controller não delegado) | recusa fail-closed | **PASSOU** | DX-6000 exit 69, não cria; mensagem "não implementado, não impossível" |
-| CONTAINER-04c | limite de PIDs | aplicar | **FALHOU (lacuna)** | sem flag `--pids-limit` (ACHADO-1) |
-| CONTAINER-05 | `--rm`, detached, exit via wait | coerente | **PASSOU** | `wait` imprime exit 3 (= docker wait) |
-| CONTAINER-06 | erros negativos | diagnóstico+exit≠0 | **PASSOU** | img inexistente exit 4; conflito nome DX-5000 exit 5; conflito porta DX-1000 exit 1 |
-| IMAGE-01 | pull por digest + inspect | digest estável | **PASSOU** | pull busybox (linux/amd64); inspect tags/id/size |
-| IMAGE-02 | build (cache/cancel/falha parcial) | artefacto correcto | **NÃO EXECUTADO** | tempo; `go build`/Dockerfile do template gerado OK como proxy parcial |
-| IMAGE-03 | push→pull round-trip por digest | recupera | **NÃO EXECUTADO** | exigia registry local; tempo |
-| NETWORK-01 | topologia incl. `delonix0` | coerente | **PASSOU** | bridges SDN em netns dedicado (rootless); redes do dono preservadas |
-| NETWORK-02 | DNS + egress + comunicação | resolve/conecta | **PASSOU** | nslookup+wget por nome→origem; egress 1.1.1.1 OK |
-| NETWORK-03 | trocar porta a quente sem reiniciar proc | nova serve, pid igual | **PASSOU** | `+18090 -18080`: nova serve, antiga morre, **httpd pid inalterado** |
-| NETWORK-04 | persistência após restart do engine | regras repostas | **NÃO EXECUTADO** | daemonless; não exercitado restart explícito |
-| SCOPE-01 | isolamento entre âmbitos | bloqueio | **PASSOU** | alpha↔beta: wget timeout + ping 100% loss; `default` partilhado (ADR-0011, por design) |
-| SCOPE-02 | nomes iguais em âmbitos diferentes | resolve correcto | **PASSOU** | `web` em alpha+beta coexistem; motor exige qualificação `ns/nome` |
-| MANIFEST-01 | validar/plan/apply/reaplicar/drift/rm | idempotente+convergente | **PARCIAL (1 defeito)** | validate/plan/apply/idempotência/destroy OK; **DEF-002**: alterar `command` → "unchanged" (não converge nem sinaliza) |
-| VM-01 | libvirt ciclo + sem órfãos | VM vive e limpa | **PASSOU** | guest vivo (ssh, cloud-init done, 2vcpu); virsh domínio real; destroy 0 órfãos; VMs do dono intactas |
-| VM-02 | Cloud Hypervisor nativo ciclo | VM vive e limpa | **PASSOU** | guest vivo (hostname/nproc/mem efectivos); processo CH real; stop/start/restart/destroy sem órfãos |
-| VM-03 | Proxmox create/snapshot/destroy | sem órfãos | **BLOQUEADO** | appliance `pve92` shut off; exigiria arrancar + credenciais DELONIX_PROXMOX_* |
-| VM-04 | OpenStack | — | **NÃO APLICÁVEL** | não é provider do motor (recusado no load; ADR-0039 Proposed sem backend) |
-| CLUSTER-01 | kind: criar/kubeconfig/DNS/Service/workload+tráfego/remover | app serve tráfego | **PASSOU** | control-plane Ready v1.34.0; nginx Deployment+Service; pod→svc por **nome DNS** e **ClusterIP** servem nginx; destroy limpo |
-| CLUSTER-02 | carga de imagem local no kind | pod corre imagem local | **NÃO EXECUTADO** | tempo (CLUSTER-01 cobriu tráfego) |
-| KUBEADM-01 | kubeadm offline golden+kube-vip+CNI+HA | Ready offline | **NÃO EXECUTADO** | muito pesado (VMs+egress bloqueado+HA); ver auditoria separada em memória |
-| CLUSTER-03 | múltiplos clusters + kubeconfig preserva | contextos distintos | **NÃO EXECUTADO** | tempo |
-| TUNNEL-01 | pinggy HTTP(S) + origem responde | endpoint público serve | **PASSOU** | `https://…free.pinggy.net`→`dlxcamp-20261024-OK`; "origin ready"; sem software no visitante |
-| TUNNEL-02 | credencial inválida/reconexão/stop | tratamento correcto | **PARCIAL (1 defeito)** | **DEF-003**: kill do pai deixa `ssh -R` órfão (exposição persiste até SIGKILL) |
-| TUNNEL-cf/ngrok | cloudflare/ngrok | serve | **NÃO EXECUTADO** | cloudflare edge não-fiável no sandbox (memória); ngrok sem token |
-| API-01 | paridade CLI/REST/gRPC/MCP | coerente+autoriz. | **NÃO EXECUTADO** | exigia arrancar node-api; tempo |
-| RECOVERY-01 | falhas controladas → retoma | estado consistente | **NÃO EXECUTADO** | kill do supervisor/retoma não exercitado explicitamente |
-| RECOVERY-02 | GC não remove em uso nem dados | preserva em uso | **PASSOU** | `system prune --dry-run`: só parados/debris; vivos preservados; DECLARED≠DEBRIS; dry-run não destruiu nada do dono |
-| INIT-01 | init não-interactivo/nome/destino | projecto coerente | **PASSOU** | template `go` gerado completo (git, CI, compose, Delonixfile) |
-| INIT-02 | projecto gerado: build/test | app compila/testa | **PASSOU** | `go build` exit 0; `go test ./...` todos ok |
-| TEMPLATE-01 | estrutura/sem placeholders/segredos/compose | válido | **PASSOU** | 0 placeholders; `.env` segredos gerados + no .gitignore; `compose config` exit 0 |
+| CLI-01 | `--version` | consistent with state | **PASSED** | `558e5f201 (+258)` exit 0 |
+| CLI-02 | main help + per-resource | exit 0 | **PASSED** | help 84L + 8 resources exit 0 |
+| CLI-03 | invalid → error+exit≠0 | useful stderr | **PASSED** | subcmd/flag → exit 2 |
+| CLI-04 | missing required arg | clear error | **PASSED** | `run` without IMAGE → exit 2 |
+| CLI-05 | root↔grouped verb equivalence | identical | **PASSED** | ps≡container ls≡container ps; images≡image ls (identical JSON) |
+| CLI-06 | JSON output | valid | **PASSED** | `ps -o json`→`[]` exit 0 |
+| CONTAINER-01 | complete life cycle | observable in the OS | **PASSED** | process+cgroup rootless; stop 10.3s (SIGTERM ignored PID1→SIGKILL); rm with no orphan |
+| CONTAINER-02 | port + external HTTP | HTTP 200 origin | **PASSED** | `127.0.0.1:18090->80`; curl→`dlxcamp-20261024-OK` |
+| CONTAINER-03 | bind mount R/W | data/permissions | **PASSED** | `:ro` blocks writes; content visible |
+| CONTAINER-04 | effective cpu/mem limits | in the hierarchy | **PASSED** | `memory.max=67108864`, `cpu.max=50000 100000` |
+| CONTAINER-04b | `--cpuset` (controller not delegated) | fail-closed refusal | **PASSED** | DX-6000 exit 69, does not create; message "not implemented, not impossible" |
+| CONTAINER-04c | PIDs limit | apply | **FAILED (gap)** | no `--pids-limit` flag (ACHADO-1) |
+| CONTAINER-05 | `--rm`, detached, exit via wait | consistent | **PASSED** | `wait` prints exit 3 (= docker wait) |
+| CONTAINER-06 | negative errors | diagnostic+exit≠0 | **PASSED** | nonexistent img exit 4; name conflict DX-5000 exit 5; port conflict DX-1000 exit 1 |
+| IMAGE-01 | pull by digest + inspect | stable digest | **PASSED** | pull busybox (linux/amd64); inspect tags/id/size |
+| IMAGE-02 | build (cache/cancel/partial failure) | correct artefact | **NOT EXECUTED** | time; the generated template's `go build`/Dockerfile OK as a partial proxy |
+| IMAGE-03 | push→pull round-trip by digest | recovers | **NOT EXECUTED** | required a local registry; time |
+| NETWORK-01 | topology incl. `delonix0` | consistent | **PASSED** | SDN bridges in a dedicated netns (rootless); the owner's networks preserved |
+| NETWORK-02 | DNS + egress + communication | resolves/connects | **PASSED** | nslookup+wget by name→origin; egress 1.1.1.1 OK |
+| NETWORK-03 | hot port swap without restarting proc | new one serves, same pid | **PASSED** | `+18090 -18080`: new one serves, old one dies, **httpd pid unchanged** |
+| NETWORK-04 | persistence after engine restart | rules restored | **NOT EXECUTED** | daemonless; explicit restart not exercised |
+| SCOPE-01 | isolation between scopes | blocking | **PASSED** | alpha↔beta: wget timeout + ping 100% loss; `default` shared (ADR-0011, by design) |
+| SCOPE-02 | identical names in different scopes | resolves correctly | **PASSED** | `web` in alpha+beta coexist; engine requires `ns/name` qualification |
+| MANIFEST-01 | validate/plan/apply/reapply/drift/rm | idempotent+convergent | **PARTIAL (1 defect)** | validate/plan/apply/idempotency/destroy OK; **DEF-002**: changing `command` → "unchanged" (neither converges nor signals) |
+| VM-01 | libvirt cycle + no orphans | VM lives and cleans up | **PASSED** | guest alive (ssh, cloud-init done, 2vcpu); real virsh domain; destroy 0 orphans; the owner's VMs intact |
+| VM-02 | Cloud Hypervisor native cycle | VM lives and cleans up | **PASSED** | guest alive (hostname/nproc/mem effective); real CH process; stop/start/restart/destroy with no orphans |
+| VM-03 | Proxmox create/snapshot/destroy | no orphans | **BLOCKED** | appliance `pve92` shut off; would require booting + DELONIX_PROXMOX_* credentials |
+| VM-04 | OpenStack | — | **NOT APPLICABLE** | not an engine provider (refused on load; ADR-0039 Proposed with no backend) |
+| CLUSTER-01 | kind: create/kubeconfig/DNS/Service/workload+traffic/remove | app serves traffic | **PASSED** | control-plane Ready v1.34.0; nginx Deployment+Service; pod→svc by **DNS name** and **ClusterIP** serve nginx; clean destroy |
+| CLUSTER-02 | load local image into kind | pod runs local image | **NOT EXECUTED** | time (CLUSTER-01 covered traffic) |
+| KUBEADM-01 | kubeadm offline golden+kube-vip+CNI+HA | Ready offline | **NOT EXECUTED** | very heavy (VMs+blocked egress+HA); see separate audit in memory |
+| CLUSTER-03 | multiple clusters + kubeconfig preserved | distinct contexts | **NOT EXECUTED** | time |
+| TUNNEL-01 | pinggy HTTP(S) + origin responds | public endpoint serves | **PASSED** | `https://…free.pinggy.net`→`dlxcamp-20261024-OK`; "origin ready"; no software on the visitor |
+| TUNNEL-02 | invalid credential/reconnection/stop | correct handling | **PARTIAL (1 defect)** | **DEF-003**: killing the parent leaves `ssh -R` orphaned (exposure persists until SIGKILL) |
+| TUNNEL-cf/ngrok | cloudflare/ngrok | serves | **NOT EXECUTED** | cloudflare edge unreliable in the sandbox (memory); ngrok without a token |
+| API-01 | CLI/REST/gRPC/MCP parity | consistent+authoriz. | **NOT EXECUTED** | required booting node-api; time |
+| RECOVERY-01 | controlled failures → resume | consistent state | **NOT EXECUTED** | supervisor kill/resume not exercised explicitly |
+| RECOVERY-02 | GC removes neither in-use nor data | preserves in-use | **PASSED** | `system prune --dry-run`: only stopped/debris; live ones preserved; DECLARED≠DEBRIS; dry-run destroyed nothing of the owner's |
+| INIT-01 | init non-interactive/name/destination | consistent project | **PASSED** | template `go` generated complete (git, CI, compose, Delonixfile) |
+| INIT-02 | generated project: build/test | app compiles/tests | **PASSED** | `go build` exit 0; `go test ./...` all ok |
+| TEMPLATE-01 | structure/no placeholders/secrets/compose | valid | **PASSED** | 0 placeholders; `.env` secrets generated + in .gitignore; `compose config` exit 0 |
 
-## Achados / defeitos
-- **ACHADO-1 (CONTAINER-04c, P3):** `run` não expõe limite de PIDs (`--pids-limit`). Lacuna de paridade Docker (§7).
-- **DEF-001 (SCOPE, P3):** `--help` de `--namespace` não menciona a excepção do `default` partilhado (ADR-0011). Doc, não comportamento.
-- **DEF-002 (MANIFEST, P2):** `stack plan`/`apply` reporta "unchanged" ao alterar `command` de um Pod existente — não converge nem sinaliza (viola convergência declarativa; `--replace` resolve).
-- **DEF-003 (TUNNEL, P2):** kill do processo `tunnel expose` deixa `ssh -R` órfão — exposição pública persiste até SIGKILL.
+## Findings / defects
+- **ACHADO-1 (CONTAINER-04c, P3):** `run` does not expose a PIDs limit (`--pids-limit`). Docker parity gap (§7).
+- **DEF-001 (SCOPE, P3):** `--help` of `--namespace` does not mention the shared `default` exception (ADR-0011). Doc, not behaviour.
+- **DEF-002 (MANIFEST, P2):** `stack plan`/`apply` reports "unchanged" when changing an existing Pod's `command` — it neither converges nor signals (violates declarative convergence; `--replace` resolves it).
+- **DEF-003 (TUNNEL, P2):** killing the `tunnel expose` process leaves `ssh -R` orphaned — public exposure persists until SIGKILL.

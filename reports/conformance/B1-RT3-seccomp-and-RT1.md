@@ -1,37 +1,37 @@
-# B1 gaps isolados — GAP-RT-1 e GAP-RT-3 (corrigidos)
+# B1 isolated gaps — GAP-RT-1 and GAP-RT-3 (fixed)
 
-**Data:** 2026-10-24 · **Binário:** `delonix 5.1.1` (árvore de `ee615f3b` + estes fixes), rootless.
-Decisões: ambos vêm de [B1-oci-runtime-baseline.md](B1-oci-runtime-baseline.md).
+**Date:** 2026-10-24 · **Binary:** `delonix 5.1.1` (tree at `ee615f3b` + these fixes), rootless.
+Decisions: both come from [B1-oci-runtime-baseline.md](B1-oci-runtime-baseline.md).
 
-## GAP-RT-1 — `ociVersion` do bundle exportado · CORRIGIDO + verificado
+## GAP-RT-1 — `ociVersion` of the exported bundle · FIXED + verified
 
-- `cmd/image.rs build_runtime_spec`: `.version("1.0.2")` → `.version("1.3.0")` (a versão que o
-  `runc spec` 1.5.2 emite). Teste actualizado.
-- **Verificado:** `oci-runtime-tool validate` passou de *recusar* ("only handles 1.3.0") para
+- `cmd/image.rs build_runtime_spec`: `.version("1.0.2")` → `.version("1.3.0")` (the version that
+  `runc spec` 1.5.2 emits). Test updated.
+- **Verified:** `oci-runtime-tool validate` went from *rejecting* ("only handles 1.3.0") to
   **"Bundle validation succeeded"**.
 
-## GAP-RT-3 — seccomp no bundle exportado · CORRIGIDO + verificado
+## GAP-RT-3 — seccomp in the exported bundle · FIXED + verified
 
-### Decisão de desenho (porque NÃO o perfil standard moby)
+### Design decision (why NOT the standard moby profile)
 
-Ofereci duas vias: (a) a política **do próprio Delonix** ou (b) o perfil **standard containerd/moby**.
-Ao implementar descobri que o repo já tem o material para (a) de forma limpa — `const SYSCALLS`
-(tabela nome↔número, via `libc::SYS_*`) + `allowed_syscalls()` (a allowlist numérica). Logo (a)
-tornou-se **a melhor escolha**: sem vendoring de ~300 linhas, sem risco de transcrição, e
-**zero drift** — o bundle carrega **a mesma política que o init do Delonix impõe**, não uma política
-upstream diferente. (b) traria uma política divergente da real e um asset externo a manter.
+I offered two options: (a) **Delonix's own** policy or (b) the **standard containerd/moby** profile.
+When implementing I found that the repo already has the material for (a) in a clean way — `const SYSCALLS`
+(name↔number table, via `libc::SYS_*`) + `allowed_syscalls()` (the numeric allowlist). So (a)
+became **the best choice**: no vendoring of ~300 lines, no transcription risk, and
+**zero drift** — the bundle carries **the same policy that Delonix's init enforces**, not a different
+upstream policy. (b) would bring a policy diverging from the real one and an external asset to maintain.
 
-### Implementação
+### Implementation
 
-- `delonix-linux/seccomp_profile.rs`: novo `pub fn syscall_name(nr) -> Option<&str>` (o inverso de
+- `delonix-linux/seccomp_profile.rs`: new `pub fn syscall_name(nr) -> Option<&str>` (the inverse of
   `syscall_number`).
-- `delonix-linux/lib.rs`: novo `pub fn allowed_syscall_names()` — resolve `allowed_syscalls()`
-  (números) para nomes via a tabela, ordenado e dedup.
-- `cmd/image.rs build_runtime_spec`: constrói um `LinuxSeccomp` (`defaultAction = SCMP_ACT_ERRNO`,
-  arches x86_64+x86, `syscalls = [{names: <allowlist>, action: SCMP_ACT_ALLOW}]`) e liga-o ao
-  `linux.seccomp`. Teste de round-trip estende-se para exigir seccomp + default-deny + os essenciais.
+- `delonix-linux/lib.rs`: new `pub fn allowed_syscall_names()` — resolves `allowed_syscalls()`
+  (numbers) to names via the table, sorted and dedup.
+- `cmd/image.rs build_runtime_spec`: builds a `LinuxSeccomp` (`defaultAction = SCMP_ACT_ERRNO`,
+  arches x86_64+x86, `syscalls = [{names: <allowlist>, action: SCMP_ACT_ALLOW}]`) and wires it into
+  `linux.seccomp`. The round-trip test is extended to require seccomp + default-deny + the essentials.
 
-### Verificado ao vivo (`delonix image export alpine`)
+### Verified live (`delonix image export alpine`)
 
 ```
 seccomp present: True
@@ -43,16 +43,16 @@ ptrace/bpf/mount EXCLUÍDOS:           True
 oci-runtime-tool validate:           Bundle validation succeeded
 ```
 
-Antes: o bundle não tinha secção `seccomp` → um `runc`/`crun` corria-o **sem filtro nenhum**. Agora
-corre com a mesma allowlist default-deny que o Delonix aplica.
+Before: the bundle had no `seccomp` section → a `runc`/`crun` ran it **with no filter at all**. Now it
+runs with the same default-deny allowlist that Delonix applies.
 
-### Limitação documentada (follow-up)
+### Documented limitation (follow-up)
 
-As `architectures` são as do host de exportação (x86_64 + compat 32-bit). Um bundle para outra
-arquitectura (aarch64) precisa da lista de arches correspondente — `allowed_syscalls()` já é
-condicional por arch, falta só mapear o `Arch` do OCI. Follow-up pequeno, não bloqueia x86_64.
+The `architectures` are those of the export host (x86_64 + 32-bit compat). A bundle for another
+architecture (aarch64) needs the corresponding arch list — `allowed_syscalls()` is already
+conditional per arch, only the OCI `Arch` mapping is missing. Small follow-up, does not block x86_64.
 
-## Estado
+## Status
 
-Ambos **aplicados, compilam, verificados ao vivo**; na branch `fix/campaign-defects-doctor-rm-compose`,
-**não empurrados**. Teste unitário `build_runtime_spec` (agora cobre RT-1 e RT-3) a correr.
+Both **applied, compile, verified live**; on branch `fix/campaign-defects-doctor-rm-compose`,
+**not pushed**. Unit test `build_runtime_spec` (now covering RT-1 and RT-3) running.

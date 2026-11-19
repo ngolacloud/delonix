@@ -1,127 +1,127 @@
-# Guia — usar as skills para levar o Delonix à CNCF
+# Guide — using the skills to take Delonix to the CNCF
 
-Como cada skill/agente faz o seu trabalho, em que ordem se encadeiam, e o caminho
-até **submeter o Delonix à CNCF (Sandbox)**. Público-alvo: quem conduz sessões de
-engenharia no `delonix-runtime`.
+How each skill/agent does its work, in what order they chain together, and the
+path to **submitting Delonix to the CNCF (Sandbox)**. Audience: whoever drives
+engineering sessions in `delonix-runtime`.
 
-> Verdade incómoda, dita já: **100% nas 8 áreas técnicas é necessário mas não
-> suficiente** para a CNCF. A CNCF Sandbox também pesa **governança aberta,
-> neutralidade de fornecedor e adopção**. Por isso o plano tem duas pistas:
-> *técnica* (BUGs/GAPs) e *projecto* (GAP-0014).
+> Uncomfortable truth, stated up front: **100% across the 8 technical areas is
+> necessary but not sufficient** for the CNCF. The CNCF Sandbox also weighs
+> **open governance, vendor neutrality and adoption**. That is why the plan has
+> two tracks: *technical* (BUGs/GAPs) and *project* (GAP-0014).
 
-## 1. Catálogo — cada skill/agente e o seu papel
+## 1. Catalogue — each skill/agent and its role
 
-### Skills de condução (user-level, `~/.claude/skills/`)
-| Skill | Papel | Quando invocar |
+### Driving skills (user-level, `~/.claude/skills/`)
+| Skill | Role | When to invoke |
 |---|---|---|
-| `delonix-runtime-engineer` | **Contrato de entrada** — fronteiras do produto, comandos verificados, regras de delegação, referências por domínio | **Sempre primeiro**, em qualquer trabalho no motor |
-| `delonix-backlog-driver` | **Condutor** — escolhe o próximo item (dependências→tier→peso CNCF→WIP), dispara o prompt certo, revê alinhamento | "qual é o próximo", "implementar o backlog", "validar prompts" |
-| `delonix-rust-reviewers` | Painel Rust de elite (unsafe/ABI/perf/linking/libc) | rever PRs/crates/diffs Rust |
-| `escopo` | Abre o contrato da sessão (1 objectivo, ≤3 critérios, fora-de-âmbito) | ao arrancar cada item |
-| `fila` | Uma fila de prompts prontos, com WIP cap | "o que está aberto", "próxima" |
-| `fechar` | Fecha a sessão/consolida com registo | critérios cumpridos; "fecha isto" |
+| `delonix-runtime-engineer` | **Entry contract** — product boundaries, verified commands, delegation rules, references per domain | **Always first**, in any work on the engine |
+| `delonix-backlog-driver` | **Driver** — picks the next item (dependencies→tier→CNCF weight→WIP), fires the right prompt, reviews alignment | "what's next", "implement the backlog", "validate prompts" |
+| `delonix-rust-reviewers` | Elite Rust panel (unsafe/ABI/perf/linking/libc) | reviewing Rust PRs/crates/diffs |
+| `escopo` | Opens the session contract (1 objective, ≤3 criteria, out-of-scope) | when starting each item |
+| `fila` | A queue of ready prompts, with a WIP cap | "what's open", "next" |
+| `fechar` | Closes the session/consolidates with a record | criteria met; "close this" |
 
-### Skills do harness (no repo, `.ai/skills/`)
-| Skill | Papel |
+### Harness skills (in the repo, `.ai/skills/`)
+| Skill | Role |
 |---|---|
-| `delonix-runtime-e2e-quality` | **Produz** os backlogs (`reports/e2e/<versão>/`): só o *efeito* verificado conta |
-| `delonix-bug-triage` | **Groома** findings → fila deduplicada e ordenada (P0–P4) |
-| `delonix-architecture-review` | Revê mudança/desenho contra as camadas do motor (ADRs) |
-| `delonix-security-review` | Revê risco de isolamento/privilégio/segredos/supply-chain/MCP |
-| `delonix-release` | Leva «código pronto» → «humano publica em segurança» |
+| `delonix-runtime-e2e-quality` | **Produces** the backlogs (`reports/e2e/<version>/`): only the verified *effect* counts |
+| `delonix-bug-triage` | **Grooms** findings → a deduplicated, ordered queue (P0–P4) |
+| `delonix-architecture-review` | Reviews a change/design against the engine's layers (ADRs) |
+| `delonix-security-review` | Reviews isolation/privilege/secrets/supply-chain/MCP risk |
+| `delonix-release` | Takes «code ready» → «human publishes safely» |
 
-### Agentes do harness (no repo, `.ai/agents/`, por tier)
-| Agente | Tier | Papel |
+### Harness agents (in the repo, `.ai/agents/`, by tier)
+| Agent | Tier | Role |
 |---|---|---|
-| `delonix-auditor` | A (read-only) | «como funciona X / onde vive Y», com evidência file:line |
-| `delonix-builder-tester` | B (rootless) | build/test/gates + edições pequenas; **nunca root** |
-| `delonix-gatekeeper` | B | corre e interpreta os gates (arch_fitness, folhas, contract, version, lang…) + baselines |
-| `delonix-security-reviewer` | A | classifica risco em diffs de namespaces/cgroups/caps/seccomp/mounts/KVM |
-| `delonix-release-manager` | C (propõe) | valida prontidão de release; **humano publica** |
+| `delonix-auditor` | A (read-only) | «how X works / where Y lives», with file:line evidence |
+| `delonix-builder-tester` | B (rootless) | build/test/gates + small edits; **never root** |
+| `delonix-gatekeeper` | B | runs and interprets the gates (arch_fitness, leaves, contract, version, lang…) + baselines |
+| `delonix-security-reviewer` | A | classifies risk in namespaces/cgroups/caps/seccomp/mounts/KVM diffs |
+| `delonix-release-manager` | C (proposes) | validates release readiness; **human publishes** |
 
-Tiers (de `.ai/agents/permission-tiers.md`): **A** read-only · **B** rootless ·
-**C** aprovação humana · **D** privilegiado/root (rootful-VM; nunca shell root).
+Tiers (from `.ai/agents/permission-tiers.md`): **A** read-only · **B** rootless ·
+**C** human approval · **D** privileged/root (rootful-VM; never a root shell).
 
-## 2. O fluxo end-to-end (quem chama quem)
+## 2. The end-to-end flow (who calls whom)
 
 ```
-  medir            triar           enfileirar      conduzir            executar         verificar          fechar
+  measure          triage          enqueue         drive               execute          verify             close
 ┌───────────┐   ┌───────────┐   ┌─────────┐   ┌───────────────┐   ┌───────────┐   ┌─────────────┐   ┌─────────┐
-│ e2e-      │ → │ bug-      │ → │  fila   │ → │ backlog-driver│ → │ escopo +  │ → │ teste de    │ → │ fechar  │
-│ quality   │   │ triage    │   │         │   │ (ordem+revê)  │   │ agente    │   │ regressão   │   │         │
+│ e2e-      │ → │ bug-      │ → │  fila   │ → │ backlog-driver│ → │ escopo +  │ → │ regression  │ → │ fechar  │
+│ quality   │   │ triage    │   │         │   │ (order+review)│   │ agent     │   │ test        │   │         │
 └───────────┘   └───────────┘   └─────────┘   └───────────────┘   └───────────┘   └─────────────┘   └─────────┘
- reports/e2e     BACKLOG.md       prompts        Prompt N +          worktree         CI verde,         matriz
-                                                 checklist           + tier certo      não reaparece     8 áreas++
+ reports/e2e     BACKLOG.md       prompts        Prompt N +          worktree         CI green,         8-area
+                                                 checklist           + right tier      no re-appearance  matrix++
 ```
 
-Regra transversal **não-negociável**: um item só fecha com **teste de regressão
-automatizado** — é o que o impede de voltar ao próximo `report.md`.
+Cross-cutting **non-negotiable** rule: an item only closes with an **automated
+regression test** — that is what stops it coming back in the next `report.md`.
 
-## 3. Playbook — "quero X, uso Y"
+## 3. Playbook — "I want X, I use Y"
 
-| Quero… | Faço |
+| I want… | I do |
 |---|---|
-| Começar qualquer trabalho | Carregar `delonix-runtime-engineer` |
-| Saber o próximo item / avançar o backlog | `delonix-backlog-driver` → dá o Prompt N e a vaga |
-| Executar um item | Colar o Prompt N (abre com `/escopo`); 1 item = 1 worktree = 1 branch |
-| Correr build/test/gates sem root | agente `delonix-builder-tester` (Tier B) |
-| Mexer em AppArmor/host-ns/OOM/mount (root) | **rootful-VM** (Tier D), coordenar com o dono |
-| Entender código antes de mexer | agente `delonix-auditor` (Tier A) |
-| Perceber porque um gate está vermelho | agente `delonix-gatekeeper` |
-| Rever segurança de um diff | `delonix-security-review` / agente security-reviewer |
-| Rever qualidade Rust | `delonix-rust-reviewers` |
-| Medir conformância/paridade de novo | `delonix-runtime-e2e-quality` |
-| Preparar (não publicar) release | `delonix-release` / agente release-manager (Tier C) |
-| Consolidar e fechar | `fechar` |
+| Start any work | Load `delonix-runtime-engineer` |
+| Know the next item / advance the backlog | `delonix-backlog-driver` → gives Prompt N and the slot |
+| Execute an item | Paste Prompt N (opens with `/escopo`); 1 item = 1 worktree = 1 branch |
+| Run build/test/gates without root | the `delonix-builder-tester` agent (Tier B) |
+| Touch AppArmor/host-ns/OOM/mount (root) | **rootful-VM** (Tier D), coordinate with the owner |
+| Understand code before touching it | the `delonix-auditor` agent (Tier A) |
+| Understand why a gate is red | the `delonix-gatekeeper` agent |
+| Review the security of a diff | `delonix-security-review` / the security-reviewer agent |
+| Review Rust quality | `delonix-rust-reviewers` |
+| Measure conformance/parity again | `delonix-runtime-e2e-quality` |
+| Prepare (not publish) a release | `delonix-release` / the release-manager agent (Tier C) |
+| Consolidate and close | `fechar` |
 
-## 4. Caminho para a CNCF — duas pistas
+## 4. Path to the CNCF — two tracks
 
-### Pista técnica: 100% nas 8 áreas (ver `BACKLOG.md`)
-Ordem recomendada pela `delonix-backlog-driver`:
-1. **Vaga 1** — BUG-0001 + M-TEST-02 (Tier B): instalação limpa + harness honesto.
-2. **Vaga 2** — BUG-0004→GAP-0001/0003, BUG-0003/05/06 (Tier D, rootful-VM):
-   conformância CRI ≥95%.
-3. **Vaga 3** — GAP-0009→0008→0017, GAP-0013 (Tier B): supply-chain
-   (SBOM SPDX in-toto, SLSA, trust por policy, scanner CI) — **maior peso CNCF**.
-4. **Vaga 4** — GAP-0015 (interop k8s), GAP-0011 (Compose Spec), GAP-0016 (systemd).
-5. **Roadmap** — GAP-0012 (conformância publicada), GAP-0010 (multi-arch).
+### Technical track: 100% across the 8 areas (see `BACKLOG.md`)
+Order recommended by `delonix-backlog-driver`:
+1. **Slot 1** — BUG-0001 + M-TEST-02 (Tier B): clean install + honest harness.
+2. **Slot 2** — BUG-0004→GAP-0001/0003, BUG-0003/05/06 (Tier D, rootful-VM):
+   CRI conformance ≥95%.
+3. **Slot 3** — GAP-0009→0008→0017, GAP-0013 (Tier B): supply-chain
+   (SBOM SPDX in-toto, SLSA, policy-based trust, scanner CI) — **highest CNCF weight**.
+4. **Slot 4** — GAP-0015 (k8s interop), GAP-0011 (Compose Spec), GAP-0016 (systemd).
+5. **Roadmap** — GAP-0012 (published conformance), GAP-0010 (multi-arch).
 
-Marco técnico: a matriz das 8 áreas toda a ✔.
+Technical milestone: the whole 8-area matrix ✔.
 
-### Pista de projecto: prontidão CNCF Sandbox (GAP-0014)
-A CNCF Sandbox exige, além do código:
-- **Open-source com licença aprovada** — ✔ o repo tem `LICENSE` (Apache-2.0).
-- **Governança pública** — ✔ existem `GOVERNANCE.md`, `MAINTAINERS.md`,
-  `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODEOWNERS`.
-- **Repo público** — ✗ hoje é privado → **tornar público**.
-- **Releases assinadas + SBOM/proveniência** — liga à pista técnica (GAP-0008/09).
-- **Neutralidade e adopção** — mostrar utilizadores/adoptantes e roadmap público.
-- **CNCF Code of Conduct** adoptado; **DCO** nos commits.
+### Project track: CNCF Sandbox readiness (GAP-0014)
+Beyond the code, the CNCF Sandbox requires:
+- **Open-source with an approved license** — ✔ the repo has `LICENSE` (Apache-2.0).
+- **Public governance** — ✔ `GOVERNANCE.md`, `MAINTAINERS.md`,
+  `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODEOWNERS` exist.
+- **Public repo** — ✗ today it is private → **make it public**.
+- **Signed releases + SBOM/provenance** — ties into the technical track (GAP-0008/09).
+- **Neutrality and adoption** — show users/adopters and a public roadmap.
+- **CNCF Code of Conduct** adopted; **DCO** on the commits.
 
-Marco de projecto: repo público + governança + releases assinadas + 1ª submissão
-ao CNCF TOC (Sandbox).
+Project milestone: public repo + governance + signed releases + 1st submission
+to the CNCF TOC (Sandbox).
 
-## 5. Checklist de submissão (fechar antes de propor à CNCF)
-- [ ] Matriz das 8 áreas 100% ✔ (`BACKLOG.md`)
-- [ ] CRI ≥95% publicado + suites OCI image/distribution/runtime (GAP-0012)
-- [ ] Imagens com SBOM SPDX in-toto + SLSA provenance verificáveis (GAP-0008/09)
-- [ ] `delonix kube play/generate` (interop k8s) a funcionar (GAP-0015)
-- [ ] Repo **público**, Apache-2.0, DCO, CoC CNCF, governança e maintainers claros
-- [ ] Releases assinadas (PGP/sigstore), CHANGELOG, política de versões
-- [ ] Documentação de utilizador + página de adopção/roadmap públicos
-- [ ] Decisão ADR sobre runtime próprio vs containerd (GAP-0012)
+## 5. Submission checklist (close before proposing to the CNCF)
+- [ ] 8-area matrix 100% ✔ (`BACKLOG.md`)
+- [ ] CRI ≥95% published + OCI image/distribution/runtime suites (GAP-0012)
+- [ ] Images with verifiable SBOM SPDX in-toto + SLSA provenance (GAP-0008/09)
+- [ ] `delonix kube play/generate` (k8s interop) working (GAP-0015)
+- [ ] **Public** repo, Apache-2.0, DCO, CNCF CoC, clear governance and maintainers
+- [ ] Signed releases (PGP/sigstore), CHANGELOG, versioning policy
+- [ ] User documentation + public adoption/roadmap page
+- [ ] ADR decision on own runtime vs containerd (GAP-0012)
 
-## 6. Regras de ouro (nunca quebrar)
-- **Não tocar a árvore suja do dono** (committa em paralelo) — worktree próprio;
-  `reports/` só por acrescento.
-- **Tiers:** nunca root a um agente Tier B; itens Tier D só via rootful-VM.
-- **Distinguir** implementado / testado / proposto / bloqueado — sem teste de
-  regressão, não está fechado.
-- **Standards interoperáveis** no supply-chain (SPDX, in-toto, SLSA, OSV, sigstore)
-  — nunca formato proprietário.
-- **Reconfirmar `git status`** antes de qualquer operação de branch.
+## 6. Golden rules (never break)
+- **Do not touch the owner's dirty tree** (commits in parallel) — own worktree;
+  `reports/` by append only.
+- **Tiers:** never give root to a Tier B agent; Tier D items only via rootful-VM.
+- **Distinguish** implemented / tested / proposed / blocked — without a regression
+  test, it is not closed.
+- **Interoperable standards** in supply-chain (SPDX, in-toto, SLSA, OSV, sigstore)
+  — never a proprietary format.
+- **Re-confirm `git status`** before any branch operation.
 
 ---
-Fontes: `report.md`, `BUG_BACKLOG.md`, `GAP_BACKLOG.md`, `BACKLOG.md`,
-`PROMPTS.md`, `CNCF_GAP_DOCKER.md`, `CNCF_GAP_PODMAN.md`; skills em
-`~/.claude/skills/` e `.ai/{skills,agents}/`.
+Sources: `report.md`, `BUG_BACKLOG.md`, `GAP_BACKLOG.md`, `BACKLOG.md`,
+`PROMPTS.md`, `CNCF_GAP_DOCKER.md`, `CNCF_GAP_PODMAN.md`; skills in
+`~/.claude/skills/` and `.ai/{skills,agents}/`.
