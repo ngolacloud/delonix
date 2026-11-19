@@ -34,6 +34,13 @@ pub struct Launch {
     pub attached_ip: Option<String>,
     /// Ports published through the container's own slirp (see [`slirp_ports`]).
     pub slirp_ports: Vec<String>,
+    /// The DEFAULT rootless network (`--net private`, the unset default): the
+    /// container gets a netns of its own with a slirp4netns outbound uplink, even
+    /// with no published ports — the Podman-rootless model, replacing the old
+    /// `--net host` default. Set only when rootless and no other mode was asked
+    /// for; `--net host` clears it (back to sharing the host netns). On rootful
+    /// it stays false (that path is governed separately).
+    pub rootless_uplink: bool,
     /// The pod infra container whose IPC/UTS a member joins.
     pub pod_infra_pid: Option<i32>,
     /// k8s `shareProcessNamespace`: the member also joins the infra's PID
@@ -56,10 +63,19 @@ pub struct Launch {
 }
 
 impl Launch {
-    /// A netns of its own: `--net none`, or ports through its own slirp — never on
-    /// the re-exec's pass, which already runs inside the right one.
+    /// A netns of its own: `--net none`, ports through its own slirp, or the
+    /// default rootless uplink — never on the re-exec's pass, which already runs
+    /// inside the right one.
     pub fn new_netns(&self) -> bool {
-        !self.second_pass && (self.net_none || !self.slirp_ports.is_empty())
+        !self.second_pass
+            && (self.net_none || !self.slirp_ports.is_empty() || self.rootless_uplink)
+    }
+
+    /// Whether a slirp4netns uplink must be attached to the new netns: either for
+    /// published ports (`-p`) or for the default rootless outbound uplink. NOT for
+    /// `--net none` (a netns with deliberately no connectivity).
+    pub fn wants_slirp(&self) -> bool {
+        !self.slirp_ports.is_empty() || self.rootless_uplink
     }
 
     /// On the re-exec's pass the process inherits the holder's user namespace
@@ -379,5 +395,38 @@ mod tests {
         assert_eq!(slirp_ports(false, false, &p), p);
         assert!(slirp_ports(true, false, &p).is_empty());
         assert!(slirp_ports(false, true, &p).is_empty());
+    }
+
+    /// The default rootless uplink (`--net private`): its own netns WITH a slirp,
+    /// even with no published ports. `--net none` also gets a netns but NO slirp.
+    #[test]
+    fn the_rootless_uplink_gets_a_netns_and_a_slirp() {
+        let uplink = Launch {
+            rootless_uplink: true,
+            ..Default::default()
+        };
+        assert!(uplink.new_netns(), "default uplink must own a netns");
+        assert!(uplink.wants_slirp(), "default uplink must attach a slirp");
+
+        // `--net none`: a netns, but deliberately no connectivity (no slirp).
+        let none = Launch {
+            net_none: true,
+            ..Default::default()
+        };
+        assert!(none.new_netns());
+        assert!(!none.wants_slirp(), "--net none must NOT attach a slirp");
+
+        // The host default (nothing set): shares the host netns, no slirp.
+        let host = Launch::default();
+        assert!(!host.new_netns());
+        assert!(!host.wants_slirp());
+
+        // The re-exec pass never re-creates the netns even with the flag set.
+        let reexec = Launch {
+            rootless_uplink: true,
+            second_pass: true,
+            ..Default::default()
+        };
+        assert!(!reexec.new_netns(), "re-exec pass must not re-create the netns");
     }
 }

@@ -78,7 +78,7 @@ graph TB
 
         subgraph PERCONT["Por container — quando aplicavel"]
             CONT["processo do container<br>PID 1 proprio apos clone + exec"]
-            SLIRPN["slirp4netns por container<br>so em --net host com -p"]
+            SLIRPN["slirp4netns por container<br>default (--net private) e com -p"]
             SHIM["log shim<br>fork; escreve o log com rotacao<br>formato cru ou CRI"]
             WATCH["watcher --rm<br>fork; espera o fim e limpa"]
         end
@@ -419,11 +419,13 @@ Notes for reading the graph (all verified):
 
 ## System design — main flows
 
-### (a) rootless `container run` with `-p`, in `--net host` (default)
+### (a) rootless `container run` — default `--net private`
 
-With `-p` and no custom network, the container stops sharing the host's network and
-gains a netns of its own served by a dedicated `slirp4netns` — the behaviour of
-`docker run -p` in Podman's rootless model (`cmd_run` in
+By default (rootless, `--net private`) the container gets a netns of its own served
+by a dedicated `slirp4netns` outbound uplink, instead of sharing the host's network —
+the Podman-rootless model. `-p` adds host port-forwards on top of the same slirp;
+`--net host` opts back into sharing the host netns (the former default). This is the
+behaviour of `docker run` / `podman run` (`cmd_run` in
 `bins/delonix/src/cmd/container.rs`; `spawn` in
 `crates/adapters/delonix-linux/src/lib.rs`; `slirp_attach` in `crates/adapters/delonix-sdn/src/lib.rs`).
 
