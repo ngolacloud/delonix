@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Relatório do perfil do plano morno (ADR-0095).
+"""Warm-plane profile report (ADR-0095).
 
-Lê o JSONL que o `delonix __poolbench` escreve (profiler + bench) e emparelha,
-por corrida, a linha `parent` (spawn_total medido dentro do `spawn`) com a linha
-`bench` imediatamente a seguir (wall da corrida). Dá, por fase (cold/warm):
+Reads the JSONL that `delonix __poolbench` writes (profiler + bench) and pairs,
+per run, the `parent` line (spawn_total measured inside the `spawn`) with the
+`bench` line right after it (the run's wall). It gives, per phase (cold/warm):
 
     pre_spawn = wall − spawn_total
 
-que é a MESMA definição do `spawn_profile_report.py` — o custo fora da mecânica
-do container (processo + resolução de imagem/rootfs). O ponto do plano morno é
-fazer o `pre_spawn` cair de ~58 ms (cold) para perto de 0 (warm).
+which is the SAME definition as in `spawn_profile_report.py` — the cost outside the
+container mechanics (process + image/rootfs resolution). The point of the warm plane is
+to make `pre_spawn` drop from ~58 ms (cold) to near 0 (warm).
 
-Uso: warm_profile_report.py <ficheiro.jsonl>
+Usage: warm_profile_report.py <file.jsonl>
 """
 import json
 import statistics
@@ -19,10 +19,10 @@ import sys
 
 
 def load_pairs(path):
-    """Por corrida a sequência no ficheiro é `prespawn`, `parent`, `bench`.
+    """Per run the sequence in the file is `prespawn`, `parent`, `bench`.
 
-    Emparelha cada `bench` com a `parent` e a `prespawn` imediatamente anteriores.
-    Devolve uma lista de dicts por corrida.
+    Pairs each `bench` with the `parent` and the `prespawn` immediately before it.
+    Returns a list of dicts, one per run.
     """
     pending_parent = None
     pending_prespawn = None
@@ -75,7 +75,7 @@ def stats(values):
 
 
 def phase_report(runs):
-    """runs: lista de dicts de corrida. Devolve dict com as métricas por fase."""
+    """runs: list of per-run dicts. Returns a dict with the metrics per phase."""
     walls = [r["wall_us"] for r in runs]
     spawn_totals = [r["spawn_total_us"] for r in runs]
     prespawn_totals = [r["prespawn_total_us"] for r in runs]
@@ -84,7 +84,7 @@ def phase_report(runs):
         for r in runs
         if r["wall_us"] is not None and r["spawn_total_us"] is not None
     ]
-    # Média por sub-fase do pre_spawn (policy_preflight, claims, resolve_rootfs, ...).
+    # Mean per pre_spawn sub-phase (policy_preflight, claims, resolve_rootfs, ...).
     subphases = {}
     for r in runs:
         for k, v in r.get("prespawn_phases", {}).items():
@@ -100,8 +100,8 @@ def phase_report(runs):
 
 def fmt(s):
     if s is None:
-        return "    — sem dados —"
-    return f"    min {s['min']:7.2f} | mediana {s['median']:7.2f} | max {s['max']:8.2f} ms  (n={s['n']})"
+        return "    — no data —"
+    return f"    min {s['min']:7.2f} | median {s['median']:7.2f} | max {s['max']:8.2f} ms  (n={s['n']})"
 
 
 def main():
@@ -113,29 +113,29 @@ def main():
     for r in all_runs:
         by_phase.setdefault(r["phase"], []).append(r)
 
-    print("=== Perfil do plano morno (ADR-0095) — pre_spawn = wall − spawn_total ===\n")
+    print("=== Warm-plane profile (ADR-0095) — pre_spawn = wall − spawn_total ===\n")
     reports = {}
     for phase in ("cold", "warm"):
         rows = by_phase.get(phase, [])
         if not rows:
-            print(f"[{phase}] sem corridas\n")
+            print(f"[{phase}] no runs\n")
             continue
         r = phase_report(rows)
         reports[phase] = r
-        print(f"[{phase}]  ({len(rows)} corridas)")
-        print("  wall (processo→container pronto):")
+        print(f"[{phase}]  ({len(rows)} runs)")
+        print("  wall (process→container ready):")
         print(fmt(r["wall"]))
-        print("  spawn_total (mecânica do container — clone/cgroup/mounts):")
+        print("  spawn_total (container mechanics — clone/cgroup/mounts):")
         print(fmt(r["spawn_total"]))
-        print("  >> pre_spawn (o que o plano morno ataca) = wall − spawn_total:")
+        print("  >> pre_spawn (what the warm plane attacks) = wall − spawn_total:")
         print(fmt(r["pre_spawn"]))
-        print("     decomposto (cmd_run, medido): "
+        print("     decomposed (cmd_run, measured): "
               f"prespawn_total {fmt(r['prespawn_total']).strip()}")
         for k in ("policy_preflight", "claims", "resolve_rootfs", "record_net"):
             s = r["subphases"].get(k)
             if s:
                 print(f"       {k:16} {fmt(s).strip()}")
-        print("     (o resto do pre_spawn = carga do processo + handshake/socket)")
+        print("     (the rest of pre_spawn = process load + handshake/socket)")
         print()
 
     cold = reports.get("cold", {}).get("pre_spawn")
@@ -143,11 +143,11 @@ def main():
     if cold and warm:
         drop = cold["median"] - warm["median"]
         pct = 100.0 * drop / cold["median"] if cold["median"] else 0.0
-        print("=== Veredicto ===")
-        print(f"  pre_spawn cold (mediana): {cold['median']:7.2f} ms")
-        print(f"  pre_spawn warm (mediana): {warm['median']:7.2f} ms")
-        print(f"  queda: {drop:7.2f} ms  ({pct:5.1f} %)")
-        print("  baseline host 2026-11-18: pre_spawn ~57.9 ms (68 %) — comparar o cold acima.")
+        print("=== Verdict ===")
+        print(f"  pre_spawn cold (median): {cold['median']:7.2f} ms")
+        print(f"  pre_spawn warm (median): {warm['median']:7.2f} ms")
+        print(f"  drop: {drop:7.2f} ms  ({pct:5.1f} %)")
+        print("  host baseline 2026-11-18: pre_spawn ~57.9 ms (68 %) — compare with the cold above.")
 
 
 if __name__ == "__main__":
