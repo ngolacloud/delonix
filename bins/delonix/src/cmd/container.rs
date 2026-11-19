@@ -5434,6 +5434,69 @@ pub(crate) fn run_from_spec(path: &std::path::Path) -> Result<()> {
     cmd_run(&images, &store, opts)
 }
 
+/// The warm-plane's SECOND pass, run IN-PROCESS by a pooled runner already parked
+/// inside the holder (ADR-0095, `delonix-warm`). The cold custom-network path
+/// re-execs a fresh `nsenter … ip netns exec <netns> -- delonix netns run <spec>`
+/// child and re-pays the whole binary load + store open + image resolve — the
+/// +322 ms the isolated profile measured. The warm path pays none of it: the host
+/// side has already run `attach_container` (veth wired, IP leased, the named netns
+/// created), the runner is already resident inside the holder's userns+mountns
+/// (its `nsenter` launch prefix), and here we only
+///   1. `setns` into the holder-built `/run/netns/<netns>` (visible and enterable
+///      from inside the holder's userns+mountns),
+///   2. announce the id+IP through the SAME `DELONIX_REEXEC_*` env the cold
+///      re-exec sets, and
+///   3. call [`cmd_run`] with the runner's RESIDENT stores — its `reexec == true`
+///      branch then skips the attach and the re-exec and launches straight into
+///      this netns.
+///
+/// `/sys` staleness in THIS process is irrelevant: the container child clones a
+/// fresh mount namespace and mounts its own `/sys`/`/proc`/`/dev` after it is in
+/// the netns (the `mounts` spawn phase), exactly as the cold 2nd pass does.
+///
+/// Called only from `__poolrunner` on an isolated request, before any thread is
+/// spawned, so `setns` and the later `fork` both act on a single-threaded process.
+pub(crate) fn run_spec_resident_isolated(
+    images: &ImageStore,
+    store: &Store,
+    spec: &std::path::Path,
+    id: &str,
+    netns: &str,
+    ip: &str,
+) -> Result<()> {
+    enter_named_netns(netns)?;
+    // The same two variables the cold re-exec carries (`reexec_env`): the id
+    // becomes the record's id and flips `cmd_run` onto its second-pass branch;
+    // the IP is what that branch reads instead of re-attaching.
+    std::env::set_var("DELONIX_REEXEC_ID", id);
+    std::env::set_var("DELONIX_REEXEC_IP", ip);
+    let data = std::fs::read(spec)?;
+    let opts: RunOpts = serde_json::from_slice(&data).map_err(|e| Error::Invalid(e.to_string()))?;
+    cmd_run(images, store, opts)
+}
+
+/// `setns(2)` this (single-threaded) process into the holder's named netns at
+/// `/run/netns/<netns>`. The caller is already in the holder's userns (so it has
+/// the capability over a netns that userns owns) and mountns (so the path
+/// resolves to the holder's `/run` tmpfs where `ip netns add` pinned it).
+fn enter_named_netns(netns: &str) -> Result<()> {
+    use std::os::unix::io::AsRawFd;
+    let path = format!("/run/netns/{netns}");
+    let f = std::fs::File::open(&path).map_err(|e| Error::Runtime {
+        context: "open netns",
+        message: format!("{path}: {e}"),
+    })?;
+    // SAFETY: `f` is an open fd to a netns file we own; `setns` reads only the fd
+    // and the namespace-type flag, and the process is single-threaded here.
+    if unsafe { libc::setns(f.as_raw_fd(), libc::CLONE_NEWNET) } != 0 {
+        return Err(Error::Runtime {
+            context: "setns netns",
+            message: std::io::Error::last_os_error().to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// EVERY IP a container holds on the SDN: the primary first, then one per additional
 /// network (multi-homing). This is what the firewall has to be keyed on — keying it on
 /// `c.ip` alone left every extra network ungoverned, so `ingress policy deny` blocked the

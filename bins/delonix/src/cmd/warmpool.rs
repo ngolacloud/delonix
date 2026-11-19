@@ -22,12 +22,15 @@
 //! stays byte-for-byte unchanged, and the pool is opt-in on a live process only
 //! (ADR-0040 daemonless, ADR-0095).
 
-use super::container::{cmd_run, RunOpts};
+use super::container::{cmd_run, run_spec_resident_isolated, RunOpts};
 use super::util::state_root;
 use delonix_model::{exitcode, Result};
 use delonix_oci::ImageStore;
 use delonix_state::Store;
-use delonix_warm::{root_env, serve_parked, StartOutcome, WarmPool};
+use delonix_warm::{
+    root_env, serve_parked, ContainerPlane, StartOutcome, StartRequest, WarmPool,
+};
+use std::ffi::OsString;
 use std::os::unix::io::RawFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -69,8 +72,17 @@ fn run_poolrunner(fd: RawFd, hint: &str) -> i32 {
             let _ = images.resolve(hint);
         }
     };
-    let run = |spec: &Path| -> StartOutcome {
-        match run_spec_resident(&images, &store, spec) {
+    let run = |req: &StartRequest| -> StartOutcome {
+        // Host-net start → the engine directly, resident stores (as before).
+        // Isolated start → `setns` into the holder-built netns and run the SAME
+        // second-pass engine path in-process, never re-execing a cold child.
+        let result = match &req.plane {
+            None => run_spec_resident(&images, &store, &req.spec),
+            Some(p) => {
+                run_spec_resident_isolated(&images, &store, &req.spec, &p.id, &p.netns, &p.ip)
+            }
+        };
+        match result {
             Ok(()) => StartOutcome {
                 code: 0,
                 reason: None,
@@ -104,9 +116,16 @@ fn run_spec_resident(images: &ImageStore, store: &Store, spec: &Path) -> Result<
 // Bench (`__poolbench <image> <runs> <size>`)
 // ---------------------------------------------------------------------------
 
-/// Entry for `delonix __poolbench <image> <runs> <size>`. Never returns.
-pub fn poolbench(image: &str, runs: usize, size: usize) -> ! {
-    std::process::exit(match run_poolbench(image, runs, size) {
+/// Entry for `delonix __poolbench <image> <runs> <size> [net]`. Never returns.
+///
+/// `net` is the network the benched containers run on: `host` (the default,
+/// line 4a of the profile — no per-container network plane) or a custom network
+/// name (line 4b, the ISOLATED path whose +322 ms `pre_spawn` the warm plane is
+/// aimed at). The caller creates the network and warms the holder beforehand
+/// (`scripts/warm_profile.sh --net <name>`), so the bench measures the start
+/// cost, not the one-time plane bring-up.
+pub fn poolbench(image: &str, runs: usize, size: usize, net: &str) -> ! {
+    std::process::exit(match run_poolbench(image, runs, size, net) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("delonix: poolbench: {}", super::po::t_dyn(&e.to_string()));
@@ -115,26 +134,35 @@ pub fn poolbench(image: &str, runs: usize, size: usize) -> ! {
     });
 }
 
-fn run_poolbench(image: &str, runs: usize, size: usize) -> Result<()> {
+fn run_poolbench(image: &str, runs: usize, size: usize, net: &str) -> Result<()> {
     let root = state_root();
     let self_exe = std::env::current_exe()?;
     let specdir = root.join("warmbench");
     std::fs::create_dir_all(&specdir)?;
 
-    // One spec template: `<image> true`, detached + host-net + quiet, so the
-    // supervised path returns right after the fork handshake (no container wait,
-    // no `-d` id-print, no 400 ms death-at-birth delay) — the fairest wall for
-    // comparing pre_spawn across the two ways of reaching the SAME `spawn`.
+    // The network runtime dir (control/slirp sockets) must reach every child —
+    // the cold `__apirun`, the pooled runner, and the runner's own re-exec — or
+    // an isolated run resolves a different holder than the one the caller warmed
+    // and brings a cold plane up mid-measurement. Inherited on every path so the
+    // two ways reach the SAME holder; a no-op for host-net.
+    let (net_rt_var, net_rt_dir) = delonix_sdn::infra::runtime_dir_env();
+    let isolated = net != "host" && net != "none" && !net.is_empty();
+
+    // One spec template: `<image> true`, detached + quiet, so the supervised
+    // path returns right after the fork handshake (no container wait, no `-d`
+    // id-print, no 400 ms death-at-birth delay) — the fairest wall for comparing
+    // pre_spawn across the two ways of reaching the SAME `spawn`. `net` is the
+    // one knob that moves it between the host (4a) and isolated (4b) lines.
     let mk_opts = || RunOpts {
         image: image.to_string(),
         command: vec!["true".to_string()],
-        net: "host".to_string(),
+        net: net.to_string(),
         detach: true,
         quiet: true,
         ..Default::default()
     };
 
-    eprintln!("== bench == image={image} runs={runs} pool-size={size}");
+    eprintln!("== bench == image={image} runs={runs} pool-size={size} net={net}");
 
     // COLD: a fresh `__apirun` child per run — what the CRI/API do today.
     eprintln!("== cold (fresh __apirun per run) ==");
@@ -145,6 +173,7 @@ fn run_poolbench(image: &str, runs: usize, size: usize) -> Result<()> {
             .arg("__apirun")
             .arg(&spec)
             .env("DELONIX_ROOT", &root)
+            .env(net_rt_var, &net_rt_dir)
             .status()?;
         let wall = t0.elapsed();
         // `__apirun` removes the spec itself; only fall back if it somehow did not.
@@ -155,14 +184,36 @@ fn run_poolbench(image: &str, runs: usize, size: usize) -> Result<()> {
         append_bench("cold", wall.as_micros());
     }
 
-    // WARM: a pool of parked, pre-warmed runners; each start reuses one.
+    // WARM: a pool of parked, pre-warmed runners; each start reuses one. On the
+    // ISOLATED path the runners are parked INSIDE the holder (an `nsenter` prefix)
+    // and the host loop runs `attach_container` before each start, so the runner
+    // only `setns`'s into the holder-built netns and launches in-process — it
+    // never re-execs the cold `netns run` child the cold path above pays for.
     eprintln!("== warm (pooled __poolrunner, image pre-resolved) ==");
-    let env = vec![root_env(&root)];
-    let mut pool = WarmPool::new(&self_exe, image, env, size)?;
+    let env = vec![
+        root_env(&root),
+        (net_rt_var.into(), net_rt_dir.clone().into_os_string()),
+    ];
+    let prefix = if isolated {
+        isolated_runner_prefix()?
+    } else {
+        Vec::new()
+    };
+    let mut pool = WarmPool::with_prefix(&self_exe, image, env, size, prefix)?;
     for i in 0..runs {
         let spec = write_spec(&specdir, runs + i, &mk_opts())?;
+        // Isolated: wire the per-container plane on the HOST (IPAM lease + the
+        // holder's veth/netns via the control socket), exactly as the cold 1st
+        // pass does, then hand the runner only what it needs to `setns` in.
+        let request = if isolated {
+            let id = delonix_node::generate_id();
+            let (netns, ip) = delonix_sdn::infra::attach_container(&id, net, "")?;
+            StartRequest::isolated(&spec, ContainerPlane { id, netns, ip })
+        } else {
+            StartRequest::host(&spec)
+        };
         let t0 = Instant::now();
-        let outcome = pool.start(&spec)?;
+        let outcome = pool.start(&request)?;
         let wall = t0.elapsed();
         let _ = std::fs::remove_file(&spec);
         if !outcome.ok() {
@@ -179,6 +230,38 @@ fn run_poolbench(image: &str, runs: usize, size: usize) -> Result<()> {
 
     eprintln!("== done; records in DELONIX_PROFILE_SPAWN ==");
     Ok(())
+}
+
+/// The `nsenter` argv that parks a warm runner INSIDE the running holder's
+/// userns+mountns+netns (so it can `setns` into any per-container netns the
+/// holder builds). The holder must already be up — the cold bench loop brings it
+/// up on its first isolated attach, and `scripts/warm_profile.sh --net` warms it
+/// before the bench. Mirrors `infra::join_argv` minus its trailing
+/// `ip netns exec <netns>` (the runner enters the container netns per start).
+fn isolated_runner_prefix() -> Result<Vec<OsString>> {
+    let pin = delonix_sdn::infra::status().holder_pid.ok_or_else(|| {
+        delonix_model::Error::Runtime {
+            context: "warm isolated",
+            message: super::po::t(
+                "no network holder is up to park warm runners in — create the network \
+                 and start one isolated container first",
+            )
+            .into(),
+        }
+    })?;
+    Ok([
+        "nsenter",
+        "-t",
+        &pin.to_string(),
+        "-U",
+        "-m",
+        "-n",
+        "--preserve-credentials",
+        "--",
+    ]
+    .iter()
+    .map(OsString::from)
+    .collect())
 }
 
 /// Write one run spec (`0600`) and return its path.
