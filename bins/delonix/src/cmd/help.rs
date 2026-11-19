@@ -403,7 +403,11 @@ fn regroup(full: &str, classify: impl Fn(&str, usize) -> (usize, usize, String))
                 .get(2)
                 .is_some_and(|b| !b.is_ascii_whitespace());
         if is_head {
-            let name = line[2..].split_whitespace().next().unwrap_or("").to_string();
+            let name = line[2..]
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_string();
             entries.push((name, line.to_string()));
         } else if let Some(last) = entries.last_mut() {
             last.1.push('\n');
@@ -422,7 +426,9 @@ fn regroup(full: &str, classify: impl Fn(&str, usize) -> (usize, usize, String))
     let mut secs: BTreeMap<(usize, String), Vec<(usize, String)>> = BTreeMap::new();
     for (appear, (name, rendered)) in entries.into_iter().enumerate() {
         let (rank, order, heading) = classify(&name, appear);
-        secs.entry((rank, heading)).or_default().push((order, rendered));
+        secs.entry((rank, heading))
+            .or_default()
+            .push((order, rendered));
     }
 
     let mut grouped = String::new();
@@ -485,7 +491,9 @@ mod tests {
     #[test]
     fn top_help_renders_four_sections_in_order() {
         let out = render(crate::build_command());
-        let common = out.find("Common Commands:").expect("Common Commands heading");
+        let common = out
+            .find("Common Commands:")
+            .expect("Common Commands heading");
         let mgmt = out
             .find("Management Commands:")
             .expect("Management Commands heading");
@@ -497,10 +505,19 @@ mod tests {
             common < mgmt && mgmt < orch && orch < commands,
             "sections must render in Common → Management → Orchestration → Commands order"
         );
-        assert!(out.contains("COMMAND MAP:"), "the root manual tail must survive");
-        assert!(out.contains("Usage: delonix"), "the usage line must survive");
+        assert!(
+            out.contains("COMMAND MAP:"),
+            "the root manual tail must survive"
+        );
+        assert!(
+            out.contains("Usage: delonix"),
+            "the usage line must survive"
+        );
         let run = out.find("\n  run ").expect("run command line");
-        assert!(common < run && run < mgmt, "`run` must render under Common Commands");
+        assert!(
+            common < run && run < mgmt,
+            "`run` must render under Common Commands"
+        );
     }
 
     #[test]
@@ -551,7 +568,10 @@ mod tests {
         // A leaf, the top level and non-help argv do not fire.
         assert_eq!(group_help_path(&argv(&["run", "--help"]), &root), None);
         assert_eq!(group_help_path(&argv(&["--help"]), &root), None);
-        assert_eq!(group_help_path(&argv(&["container", "run", "--help"]), &root), None);
+        assert_eq!(
+            group_help_path(&argv(&["container", "run", "--help"]), &root),
+            None
+        );
         assert_eq!(group_help_path(&argv(&["container"]), &root), None);
         assert_eq!(group_help_path(&argv(&["nope", "--help"]), &root), None);
     }
@@ -645,7 +665,10 @@ mod tests {
         let ids: HashSet<&str> = run.get_arguments().map(|a| a.get_id().as_str()).collect();
         for (_, flags) in FLAG_SECTIONS {
             for f in *flags {
-                assert!(ids.contains(f), "FLAG_SECTIONS lists `{f}`, not a RunArgs flag");
+                assert!(
+                    ids.contains(f),
+                    "FLAG_SECTIONS lists `{f}`, not a RunArgs flag"
+                );
             }
         }
     }
