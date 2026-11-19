@@ -1,7 +1,11 @@
 # ADR-0036: macOS/Windows support is a guest-VM launcher, not a port — and only the Windows half is buildable without a real Mac
 
-- **Status:** Proposed
-- **Date:** 2026-09-06
+- **Status:** Accepted (2026-11-19, by the owner) — the decision (a guest-VM
+  launcher, not a port) is taken. **Phase 1 (Windows/WSL2) is greenlit to build**;
+  **Phase 2 (macOS/Virtualization.framework) is accepted in principle but gated**
+  on its own GO/NO-GO spike on real Mac hardware this sandbox cannot reach. See
+  the "Decision update (2026-11-19)" section at the end.
+- **Date:** 2026-09-06 (proposed), 2026-11-19 (accepted)
 - **Deciders:** Walter (owner)
 - **Related:** ADR-0006 (`type: microvm`, the existing VM-as-workload precedent this reuses),
   ADR-0008 (Proxmox backend — the phased "registry now, backend blocked on a real host" pattern
@@ -179,3 +183,43 @@ real host.
   doesn't need to re-decide it, only note that the Phase 2 spike should confirm the published
   guest image has (or gains) an `arm64` build — today's `delonix-vm-base` images are x86_64-only
   (see ADR-0018), which is itself a real, separate gap this ADR surfaces but does not fix.
+
+## Decision update (2026-11-19) — accepted, Phase 1 greenlit
+
+The owner accepted this ADR and greenlit **Phase 1 (Windows/WSL2)** for
+implementation. The decision in "Decision (proposed)" above is unchanged — this
+update only moves it from Proposed to Accepted and records the phasing and the
+one naming conflict the implementation must resolve.
+
+- **Why now.** The native-VMM-first default was just validated live on Linux
+  (`vm create` without `--backend` boots on Cloud Hypervisor, directly on
+  `/dev/kvm`), and the installer stopped pinning `defaultProvider` so the engine
+  auto-detects. With the Linux local-VMM story settled, the next gap is "run
+  Delonix on a non-Linux laptop", which this ADR answers.
+- **Phase 1 scope (Windows/WSL2), as approved.** A new `delonix-machine` crate
+  compiled ONLY for `target_os = "windows"` (and later `"macos"`), a `Machine`
+  variant on the CLI `Cmd` enum compiled only on those targets, and a thin Rust
+  wrapper shelling out to `wsl.exe`: `init` (`wsl --import` of the published
+  `delonix-vm-base` rootfs), `start`/`stop`/`rm`/`list`, `ssh`, and
+  `exec -- <any delonix command>`. Zero new dependencies and zero new `#[cfg]`
+  branches on any Linux crate (the dependency-clean, daemonless engine invariant
+  stays intact), and
+  the published image needs zero changes beyond the tar packaging `wsl --import`
+  expects.
+- **Naming conflict to resolve before code ships.** The CLI already uses
+  `delonix machine` for IaC-stack drift ("what the MACHINE changed since the last
+  apply"). The launcher cannot silently reuse that verb. Phase 1 must pick a
+  non-colliding surface — e.g. `delonix wsl …` on Windows, or a different noun —
+  and the issue tracks this as the first open design question, not an
+  afterthought.
+- **Phase 2 (macOS) stays gated.** No `Virtualization.framework` binding is
+  chosen or written here; a spike on real Mac hardware picks and proves the
+  binding (community crate vs. a small Swift/ObjC helper) and answers whether
+  GitHub-hosted `macos-latest` runners can validate it (nested virtualization for
+  third-party VMs is an open question). Until that spike returns GO, Phase 2
+  remains accepted-in-principle only.
+- **Honest CI bar.** Phase 1 adds a `windows-latest` job that compiles the crate
+  and round-trips `wsl --import`/`exec` against a real (GitHub-hosted) WSL2 — a
+  compiled-but-never-run binary is not "supported".
+
+Tracking issue: Phase 1 Windows/WSL2 implementation (see the repo's issues).
