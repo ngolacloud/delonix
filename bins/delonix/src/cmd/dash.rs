@@ -1813,6 +1813,8 @@ mod tui {
             supplementary_groups: &[],
             // Interactive shell from the dashboard — no deadline.
             timeout_secs: None,
+            // The dashboard shell is interactive (attached pty), never detached.
+            detach: false,
         };
         let _code = delonix_linux::exec_with(&c, &command, true, &overrides)?;
         Ok(())

@@ -10591,6 +10591,15 @@ pub struct ExecOverrides<'a> {
     /// a single-process probe (a healthcheck binary) is clean this way; a probe
     /// that forks its own children is the shell path's territory, not this one.
     pub timeout_secs: Option<u64>,
+    /// `exec -d`: daemonize the exec'd process inside the container and let the
+    /// CALLER return as soon as it is launched, instead of waiting for it to
+    /// finish. The grandchild gets its own session (`setsid`, no controlling
+    /// terminal) and stdio redirected to `/dev/null`, so a backgrounded command
+    /// neither holds nor writes to the operator's terminal after the CLI exits
+    /// — the same shape `docker exec -d` has. Mutually exclusive with a pty
+    /// (`-t`): a detached exec never allocates one. Always `false` for the CRI
+    /// and the health monitor, which need the exit code.
+    pub detach: bool,
 }
 
 pub fn exec(container: &Container, argv: &[String], tty: bool) -> Result<i32> {
@@ -10825,6 +10834,35 @@ pub fn exec_with(
                             unsafe { libc::_exit(126) };
                         }
                     }
+                    // `exec -d`: daemonize so the backgrounded command outlives the
+                    // CLI cleanly — a new session detaches it from the operator's
+                    // controlling terminal (no SIGHUP when that terminal closes),
+                    // and stdio goes to the container's `/dev/null` so it neither
+                    // reads from nor writes to the terminal the CLI just returned.
+                    // `-d` is mutually exclusive with `-t`, so there is never a pty
+                    // here. Docker `exec -d` has the same shape.
+                    if overrides.detach {
+                        // SAFETY: `setsid` takes no arguments and only detaches this
+                        // forked grandchild into a new session; `dup2`/`close` act on
+                        // the `/dev/null` fd opened just below (if the open failed we
+                        // simply keep the inherited fds).
+                        unsafe { libc::setsid() };
+                        if let Ok(devnull) =
+                            open("/dev/null", OFlag::O_RDWR | OFlag::O_CLOEXEC, Mode::empty())
+                        {
+                            // SAFETY: `devnull` is the fd just opened; `dup2` onto
+                            // 0/1/2 is valid and `devnull` is closed once when it is
+                            // not itself one of the std fds.
+                            unsafe {
+                                libc::dup2(devnull, 0);
+                                libc::dup2(devnull, 1);
+                                libc::dup2(devnull, 2);
+                                if devnull > 2 {
+                                    libc::close(devnull);
+                                }
+                            }
+                        }
+                    }
                     // pty: allocates in the container's devpts, sends the master to the parent, and
                     // uses the slave as stdio (new session + controlling terminal).
                     if let Some((sp, sc)) = pty_sock {
@@ -11051,6 +11089,18 @@ pub fn exec_with(
                 // SAFETY: the parent's copies of the namespace fds opened above; the child
                 // closes its own through `OwnedFd`, the parent closes these exactly once.
                 unsafe { libc::close(*fd) };
+            }
+            // `exec -d`: the launch is done — the middle process is already in the
+            // container's namespaces and has forked the grandchild that execs the
+            // command. Return now instead of waiting for it. The caller (the CLI)
+            // exits right after, so the middle reparents to init, reaps the
+            // grandchild, and _exits; the grandchild itself runs on inside the
+            // container's PID namespace, reparented to its PID 1. `docker exec -d`
+            // likewise returns before the command finishes and prints nothing. A
+            // detached exec never allocates a pty (it conflicts with `-t`), so
+            // there is nothing to drain below.
+            if overrides.detach {
+                return Ok(0);
             }
             if let Some((sp, sc)) = pty_sock {
                 // SAFETY: `sc` is the child's end; the parent's copy is closed once.
