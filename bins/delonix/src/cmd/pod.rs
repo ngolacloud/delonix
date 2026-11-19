@@ -1320,6 +1320,7 @@ fn exec(
         &images,
         &store,
         &target.name,
+        false, // `pod exec` stays foreground; `-d` is a `container exec` flag
         interactive,
         tty,
         env,
