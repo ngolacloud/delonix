@@ -6601,13 +6601,19 @@ pub(crate) fn cmd_exec(
                          // container itself sees it, which is the only view that works whether the
                          // rootfs is an overlay or the legacy flat copy. A numeric `-u` never reaches
                          // this at all.
-    let user_override = match user {
+    // `-u` resolves BOTH the uid/gid and the supplementary groups the image's
+    // `/etc/group` grants that user (getgrouplist), so `exec -u` matches
+    // docker/podman — which list a dozen groups for `exec -u 0` where delonix
+    // showed none. The rootfs is read once (it is the same `/proc/<pid>/root`).
+    let (user_override, user_groups) = match user {
         Some(u) => {
             let root = container_fs_root(images, &c)?;
-            let resolved = resolve_run_user(&root.path().to_string_lossy(), u)?;
-            Some(resolved)
+            let rootfs = root.path();
+            let resolved = resolve_run_user(&rootfs.to_string_lossy(), u)?;
+            let groups = delonix_oci::rootfs_user::supplementary_groups(rootfs, u);
+            (Some(resolved), groups)
         }
-        None => None,
+        None => (None, Vec::new()),
     };
     // `--secret` (env mode) values are no longer baked into `c.env` — they are
     // resolved from the vault at spawn time and live only in the init process's
@@ -6636,6 +6642,7 @@ pub(crate) fn cmd_exec(
         extra_env: &extra_env,
         workdir,
         user: user_override,
+        supplementary_groups: &user_groups,
         // An interactive `exec` runs for as long as the user wants it to.
         timeout_secs: None,
     };

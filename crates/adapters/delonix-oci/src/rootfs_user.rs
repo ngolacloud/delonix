@@ -81,6 +81,76 @@ fn group_lookup(rootfs: &Path, name: &str) -> Option<u32> {
     })
 }
 
+/// The supplementary groups the target user belongs to in the image's
+/// `/etc/group` — the `getgrouplist(3)` list, the groups whose member field
+/// names the user. docker/podman apply these when `--user` resolves against the
+/// image (`run`/`exec -u`), so a process that depends on membership of
+/// `wheel`/`disk`/`video`/… behaves the same inside the container; without them
+/// `exec -u 0` showed an empty `groups=` where docker lists a dozen.
+///
+/// `spec` is the same `--user` string [`resolve_user`] takes. `/etc/group` lists
+/// members BY NAME, so a numeric user part is first mapped back to its
+/// `/etc/passwd` login name (a uid with no passwd entry has no name and therefore
+/// no memberships — exactly what `getgrouplist` returns). The primary gid is NOT
+/// included here: the caller already holds it (from [`resolve_user`]) and seeds
+/// `setgroups` with it. The list is sorted and de-duplicated.
+pub fn supplementary_groups(rootfs: &Path, spec: &str) -> Vec<u32> {
+    let user_part = spec.split_once(':').map(|(u, _)| u).unwrap_or(spec);
+    if user_part.is_empty() {
+        return Vec::new();
+    }
+    // Resolve to the login name /etc/group keys on: a name is used verbatim; a
+    // numeric uid is mapped back through /etc/passwd (none → no memberships).
+    let name = match user_part.parse::<u32>() {
+        Ok(uid) => match passwd_name_for_uid(rootfs, uid) {
+            Some(n) => n,
+            None => return Vec::new(),
+        },
+        Err(_) => user_part.to_string(),
+    };
+    group_memberships(rootfs, &name)
+}
+
+/// `name:passwd:uid:…` — the login name whose uid matches, for the numeric
+/// `--user` case (`/etc/group` lists members by name, not uid).
+fn passwd_name_for_uid(rootfs: &Path, uid: u32) -> Option<String> {
+    let content = read_image_file(rootfs, "etc", "passwd")?;
+    content.lines().find_map(|line| {
+        let mut f = line.split(':');
+        let name = f.next()?;
+        if f.nth(1)?.parse::<u32>().ok()? == uid {
+            Some(name.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+/// Every gid in `/etc/group` whose member list (4th field, comma-separated)
+/// names `user`, sorted and de-duplicated.
+fn group_memberships(rootfs: &Path, user: &str) -> Vec<u32> {
+    let Some(content) = read_image_file(rootfs, "etc", "group") else {
+        return Vec::new();
+    };
+    let mut gids: Vec<u32> = content
+        .lines()
+        .filter_map(|line| {
+            let mut f = line.split(':');
+            let _name = f.next()?;
+            let _passwd = f.next()?;
+            let gid: u32 = f.next()?.parse().ok()?;
+            let members = f.next().unwrap_or("");
+            members
+                .split(',')
+                .any(|m| m == user)
+                .then_some(gid)
+        })
+        .collect();
+    gids.sort_unstable();
+    gids.dedup();
+    gids
+}
+
 /// `<dir>/<name>` as the container will see it.
 ///
 /// A regular file under `rootfs` wins: a flat rootfs, or an overlay already
@@ -160,6 +230,37 @@ mod tests {
         assert_eq!(resolve_user(r.path(), "app:staff"), Ok((1000, Some(50))));
         assert_eq!(resolve_user(r.path(), "app:0"), Ok((1000, Some(0))));
         assert_eq!(resolve_user(r.path(), "app:"), Ok((1000, Some(1001))));
+    }
+
+    #[test]
+    fn supplementary_groups_are_the_getgrouplist_of_the_user() {
+        // Alpine-shaped: root is a member of several groups by NAME; the primary
+        // gid (0) is NOT part of the supplementary list (the caller seeds it).
+        let d = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(d.path().join("etc")).unwrap();
+        std::fs::write(
+            d.path().join("etc/passwd"),
+            "root:x:0:0:root:/root:/bin/sh\napp:x:1000:1001::/home/app:/bin/sh\n",
+        )
+        .unwrap();
+        std::fs::write(
+            d.path().join("etc/group"),
+            "root:x:0:root\nbin:x:1:root,bin,daemon\nsys:x:3:root,bin,adm\n\
+             wheel:x:10:root\nstaff:x:50:app\nempty:x:99:\n",
+        )
+        .unwrap();
+        // Numeric uid 0 resolves to the name `root`, then its memberships.
+        assert_eq!(supplementary_groups(d.path(), "0"), vec![0, 1, 3, 10]);
+        // Same by name, and the `:group` part is ignored for membership lookup.
+        assert_eq!(supplementary_groups(d.path(), "root"), vec![0, 1, 3, 10]);
+        assert_eq!(supplementary_groups(d.path(), "root:0"), vec![0, 1, 3, 10]);
+        // `app` belongs only to `staff`; the empty-member `empty` group is excluded.
+        assert_eq!(supplementary_groups(d.path(), "app"), vec![50]);
+        assert_eq!(supplementary_groups(d.path(), "1000"), vec![50]);
+        // A uid with no /etc/passwd entry has no name → no memberships.
+        assert_eq!(supplementary_groups(d.path(), "4242"), Vec::<u32>::new());
+        // Empty user part → empty.
+        assert_eq!(supplementary_groups(d.path(), ""), Vec::<u32>::new());
     }
 
     #[test]

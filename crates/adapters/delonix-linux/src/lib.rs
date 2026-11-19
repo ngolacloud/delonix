@@ -10574,6 +10574,14 @@ pub struct ExecOverrides<'a> {
     /// Overrides the exec'd process's uid/gid for this call only — `exec -u`.
     /// `None` falls back to the container's own `run_uid`/`run_gid`.
     pub user: Option<(u32, Option<u32>)>,
+    /// Supplementary groups for the `-u` user — the image's `getgrouplist(3)`
+    /// for that user (every `/etc/group` line that names them), resolved by the
+    /// CLI against the rootfs. Empty unless `-u` was given. docker/podman apply
+    /// these on `exec -u` so group-gated access behaves the same inside; without
+    /// them `exec -u 0` showed an empty `groups=` where docker lists a dozen.
+    /// The grandchild filters them to the userns-mapped gid range (setgroups is
+    /// all-or-nothing) and applies them best-effort, never aborting the exec.
+    pub supplementary_groups: &'a [u32],
     /// Kills the exec'd process after this many seconds and reports it as 137
     /// (128+SIGKILL) — `None` waits forever (the `exec`/CRI default). Set by the
     /// health monitor so an EXEC-form probe needs no `/bin/sh` deadline script:
@@ -10587,6 +10595,46 @@ pub struct ExecOverrides<'a> {
 
 pub fn exec(container: &Container, argv: &[String], tty: bool) -> Result<i32> {
     exec_with(container, argv, tty, &ExecOverrides::default())
+}
+
+/// Keep only the gids that `pid`'s userns actually maps on the CONTAINER side,
+/// read from `/proc/<pid>/gid_map` in the host context (before the fork, while
+/// the path still resolves there). `setgroups` is all-or-nothing: a single
+/// unmapped gid makes the kernel reject the whole call (EINVAL), dropping even
+/// the valid supplementary groups. A rootless container that could not map a
+/// subgid range maps only gid 0 (`0 <egid> 1`), so the image's `wheel`/`disk`/…
+/// simply do not exist for it — filter them out rather than lose everything.
+///
+/// An unreadable or empty map (we share the host userns — no `user` ns joined)
+/// means every gid is valid: return the list untouched.
+fn gids_mapped_in(pid: i32, groups: &[u32]) -> Vec<u32> {
+    let Ok(map) = std::fs::read_to_string(format!("/proc/{pid}/gid_map")) else {
+        return groups.to_vec();
+    };
+    // Each line: `<inside> <outside> <count>` — gid g is mapped iff some line has
+    // inside <= g < inside + count (the container-side `inside` is what matters).
+    let ranges: Vec<(u32, u32)> = map
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split_whitespace();
+            let inside: u32 = f.next()?.parse().ok()?;
+            let _outside = f.next()?;
+            let count: u32 = f.next()?.parse().ok()?;
+            Some((inside, count))
+        })
+        .collect();
+    if ranges.is_empty() {
+        return groups.to_vec();
+    }
+    groups
+        .iter()
+        .copied()
+        .filter(|g| {
+            ranges
+                .iter()
+                .any(|(start, count)| *g >= *start && *g < start.saturating_add(*count))
+        })
+        .collect()
 }
 
 pub fn exec_with(
@@ -10678,6 +10726,11 @@ pub fn exec_with(
     // The container's cgroup, resolved in the PARENT while `/proc/<pid>/cgroup`
     // is still readable in the host context.
     let exec_cgroup = live_cgroup(container);
+    // Supplementary groups for `exec -u` (the image's getgrouplist for that
+    // user), filtered NOW to the gids the container's userns maps — read in the
+    // host context, before the fork, while `/proc/<pid>/gid_map` resolves here.
+    // `setgroups` is all-or-nothing; an unmapped gid would drop the whole list.
+    let exec_supp_groups = gids_mapped_in(pid, overrides.supplementary_groups);
     // SAFETY: `fork` from a process that is NOT always single-threaded: besides the CLI, `exec`
     // is called from the health-monitor THREAD of a `run -d` supervisor (`cmd/container.rs`).
     // glibc's `fork` resets malloc's locks, but not the std locks (stderr, environment) another
@@ -10903,7 +10956,14 @@ pub fn exec_with(
                     // branch below re-sets groups (with the primary gid), so this
                     // only has to cover the root / no-user-switch path.
                     if exec_user.filter(|(u, _)| *u != 0).is_none() {
+                        // Root / no uid switch: the container's own `--group-add`
+                        // plus, for an explicit `-u 0`, root's supplementary
+                        // groups from the image's `/etc/group` (docker lists them
+                        // for `exec -u 0`; an empty `exec_supp_groups` — a plain
+                        // exec with no `-u` — keeps the prior behavior exactly).
                         let mut groups = container.group_add.clone();
+                        groups.extend_from_slice(&exec_supp_groups);
+                        groups.sort_unstable();
                         groups.dedup();
                         // SAFETY: gids mapped in the container's userns; we are root there.
                         // A zero-length list with a dangling-but-valid ptr clears groups.
@@ -10926,8 +10986,13 @@ pub fn exec_with(
                         // mapped the range at startup); setgroups/setgid/setuid
                         // succeed while we are root in the userns.
                         unsafe {
+                            // Primary gid + `--group-add` + the `-u` user's
+                            // supplementary groups from the image's `/etc/group`
+                            // (getgrouplist parity with docker/podman `exec -u`).
                             let mut groups: Vec<u32> = vec![gid];
                             groups.extend_from_slice(&container.group_add);
+                            groups.extend_from_slice(&exec_supp_groups);
+                            groups.sort_unstable();
                             groups.dedup();
                             libc::setgroups(groups.len(), groups.as_ptr());
                             if libc::setgid(gid) != 0 {
