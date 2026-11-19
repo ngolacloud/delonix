@@ -1809,6 +1809,8 @@ mod tui {
             extra_env: &extra_env,
             workdir: None,
             user: None,
+            // No `-u` from the dashboard shell → no supplementary-group resolution.
+            supplementary_groups: &[],
             // Interactive shell from the dashboard — no deadline.
             timeout_secs: None,
         };
