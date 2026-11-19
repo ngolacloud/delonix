@@ -10,8 +10,9 @@
 # relabelled shows up without re-applying.
 #
 # spec fields: selector.matchLabels (logical AND), port (the CONTAINER-side
-# port, never a host/VIP port), type, vip, readiness, publish. An empty/no-match
-# selector resolves to an empty set — not an error, but apply warns.
+# port, never a host/VIP port), type, vip, readiness, publish. An empty selector,
+# or one matching NO declared or existing workload, is refused by `stack validate`
+# (nothing would answer the Service's name).
 #
 # Apply:    delonix stack apply -f examples/networking/service.yaml
 # ============================================================================
