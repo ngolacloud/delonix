@@ -638,7 +638,7 @@ annotated in the diagrams above.
    early crash in the entrypoint's cgroup detection, root cause still to isolate; there
    is already dedicated cgroup2 delegation logic for Kind nodes (`setup_node_cgroup_ns`,
    enabled by `--privileged` + the `io.x-k8s.kind.*` label), but it is not enough.
-   Investigation detail in `AGENTS.md` (section "Cluster modo Kind sem Docker").
+   Investigation detail in `AGENTS.md` (section "Kind-mode cluster without Docker").
 
 ---
 
