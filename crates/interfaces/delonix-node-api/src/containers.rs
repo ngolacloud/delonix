@@ -93,14 +93,22 @@ pub fn message(c: &Record) -> Container {
             last_transition_time: None,
         },
     };
+    // ADR-0099: surface generation/observedGeneration/storedVersion as typed
+    // fields; the engine's own `delonix.io/*` annotations (the counters and the
+    // last-applied fingerprint) stay on the record but off the contract's
+    // annotations map. Absent-safe: an unversioned record reads 0/"".
+    let rv = crate::versioning::read_version(&c.annotations);
     Container {
         meta: Some(ResourceMeta {
             name: c.name.clone(),
             namespace: c.namespace.clone(),
             labels: c.labels.clone().into_iter().collect(),
-            annotations: c.annotations.clone().into_iter().collect(),
+            annotations: rv.annotations.into_iter().collect(),
             etag: fnv(&format!("{c:?}")),
             create_time: Some(timestamp_secs(c.created_unix)),
+            generation: rv.generation,
+            observed_generation: rv.observed_generation,
+            stored_version: rv.stored_version,
             ..Default::default()
         }),
         spec: Some(ContainerSpec {

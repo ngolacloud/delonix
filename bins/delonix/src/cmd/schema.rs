@@ -73,6 +73,7 @@ const TYPED_KINDS: &[&str] = &[
     k::SERVICE,
     k::IPPOOL,
     k::IP_ADDRESS,
+    k::NODE,
     k::SNAPSHOT,
     k::STORAGE_POOL,
     k::GITOPS_SOURCE,
@@ -301,6 +302,11 @@ fn typed_spec_parts(
             generator.subschema_for::<super::ipaddress::IpAddressSpec>(),
             "IpAddressSpec",
             super::ipaddress::IP_ADDRESS_SPEC_FIELDS,
+        ),
+        k::NODE => (
+            generator.subschema_for::<super::node::NodeSpec>(),
+            "NodeSpec",
+            super::node::NODE_SPEC_FIELDS,
         ),
         k::SNAPSHOT => (
             generator.subschema_for::<super::snapshot::SnapshotSpec>(),

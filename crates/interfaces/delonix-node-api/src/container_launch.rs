@@ -365,6 +365,43 @@ fn create_fingerprint(req: &CreateContainerRequest, spec: &ContainerSpec) -> Str
     ])
 }
 
+/// The canonical desired-spec field map of a container record, for the
+/// `delonix.io/last-applied` fingerprint the ADR-0099 generation counter
+/// compares (the ADR-0090 rule). Derived from the RECORD so the create and the
+/// update path produce the SAME map for the same desired state — a resize that
+/// changes a limit changes the map (generation bumps), one that does not keeps
+/// it. Deliberately not the CLI reconciler's manifest-derived map: cross-writer
+/// fingerprint unification is deferred (ADR-0099); this is the node API's own
+/// canonical form over the fields this path can set.
+pub(crate) fn applied_fields(
+    c: &delonix_compute::Container,
+) -> std::collections::BTreeMap<String, String> {
+    let mut env = c.env.clone();
+    env.sort();
+    let mut ports = c.ports.clone();
+    ports.sort();
+    let mut f = std::collections::BTreeMap::new();
+    f.insert("image".to_string(), c.image.clone());
+    f.insert("command".to_string(), c.command.join("\u{1f}"));
+    f.insert("env".to_string(), env.join("\u{1f}"));
+    f.insert("workdir".to_string(), c.workdir.clone().unwrap_or_default());
+    f.insert("ports".to_string(), ports.join("\u{1f}"));
+    f.insert("memory_max".to_string(), c.memory_max.clone());
+    f.insert("cpus".to_string(), c.cpus.clone());
+    f.insert(
+        "cpu_weight".to_string(),
+        c.cpu_weight.clone().unwrap_or_default(),
+    );
+    f.insert("cpuset".to_string(), c.cpuset.clone().unwrap_or_default());
+    f.insert(
+        "pids_max".to_string(),
+        c.pids_max.clone().unwrap_or_default(),
+    );
+    f.insert("read_only".to_string(), c.read_only.to_string());
+    f.insert("init".to_string(), c.init.to_string());
+    f
+}
+
 /// The real create: resolve the image, prepare the rootfs, build the record,
 /// persist it `Created`. If `start` was asked, launch it (the re-exec).
 fn create_work(
@@ -414,7 +451,21 @@ fn create_work(
     for (k, v) in &req.annotations {
         c.annotations.insert(k.clone(), v.clone());
     }
+    // ADR-0099 desired stamp: bump `generation` for the spec just accepted and
+    // persist it BEFORE the reconcile (the launch below), leaving
+    // `observedGeneration` behind — so a reader catches the control plane's
+    // change the moment it is accepted, with `generation > observedGeneration`
+    // until the launch succeeds and the observed advance runs.
+    let fields = applied_fields(&c);
+    crate::versioning::stamp_desired(
+        &mut c.annotations,
+        &fields,
+        crate::versioning::CONTAINER_API_VERSION,
+    );
     store.container_save(&c)?;
+    // ADR-0100: make the accepted desired change visible on `WatchEvents` — the
+    // only line this mutation path emits (the runtime emits start/die, not this).
+    crate::versioning::emit_applied(root, "container", &id, &req.name);
     if req.start {
         // The same re-exec `StartContainer` uses: the fork-safe launch of the
         // record just written. A failed start fails the operation — but the
@@ -424,6 +475,16 @@ fn create_work(
             message: why,
         })?;
     }
+    // ADR-0099 observed advance: the reconcile reached the desired generation.
+    // Reload so the launch's own writes (status, pid, IP) are kept — only the
+    // `observedGeneration` annotation is added on top — then persist. A create
+    // whose launch failed never reaches here, so its record keeps
+    // `generation > observedGeneration`: a change asked for and not realized.
+    let mut persisted = store.container_load(&req.name)?;
+    crate::versioning::stamp_observed(&mut persisted.annotations);
+    store.container_save(&persisted)?;
+    // ADR-0100: the reconcile reached the desired generation — mark it on the stream.
+    crate::versioning::emit_converged(root, "container", &id, &req.name);
     Ok(id)
 }
 
@@ -456,6 +517,10 @@ pub fn create_in(
     if let Some(found) = operations::replay(root, "create", &target, &req.request_id, &fp)? {
         return Ok(operations::message(&found));
     }
+    // A cordoned node refuses a NEW create (ADR-0101 §3) — after the idempotent replay
+    // above, so a create accepted before the cordon still replays, and before the name
+    // is claimed, so a refused create leaves no trace.
+    crate::node_meta::ensure_schedulable(root).map_err(|e| status_of(&e))?;
     // Claim the NAME for the whole check-then-create. The record store is keyed
     // by id, so without this two `run --name X` racing would each generate a
     // distinct id, each pass `name_taken`, and each persist a record sharing the

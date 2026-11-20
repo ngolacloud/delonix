@@ -87,6 +87,7 @@ pub mod proto {
 }
 
 pub mod activation;
+pub mod authz;
 pub mod container_exec;
 pub mod container_launch;
 pub mod container_logs;
@@ -103,6 +104,7 @@ pub mod net_ops;
 pub mod network_ops;
 pub mod networks;
 pub mod node;
+pub mod node_meta;
 pub mod operations;
 pub mod page;
 pub mod pod_ops;
@@ -117,6 +119,7 @@ pub mod storage;
 pub mod storage_backend;
 pub mod store;
 pub mod transcode;
+pub mod versioning;
 pub mod vm_ops;
 pub mod vms;
 pub mod volume_ops;
@@ -188,6 +191,12 @@ pub struct Tls {
     pub key_pem: String,
     /// The CA bundle a client certificate must chain to (PEM).
     pub client_ca_pem: String,
+    /// An optional CRL (PEM, one or more `X509 CRL` blocks) the client verifier
+    /// consults: a client certificate whose serial is listed — or one past its
+    /// validity — is refused at the handshake (ADR-0097 A2). `None` or empty is
+    /// A1's behaviour: chain-to-CA is the only check. The CRL is produced by the
+    /// node CA (`delonix node-ca revoke`), external to this server.
+    pub client_crl_pem: Option<String>,
 }
 
 impl std::fmt::Debug for Tls {
@@ -197,6 +206,10 @@ impl std::fmt::Debug for Tls {
             .field("cert_pem", &"<pem>")
             .field("key_pem", &"<redacted>")
             .field("client_ca_pem", &"<pem>")
+            .field(
+                "client_crl_pem",
+                &self.client_crl_pem.as_ref().map(|_| "<pem>"),
+            )
             .finish()
     }
 }
@@ -214,7 +227,9 @@ fn build_server_config(
 ) -> Result<std::sync::Arc<tokio_rustls::rustls::ServerConfig>, Error> {
     use std::sync::Arc;
     use tokio_rustls::rustls::pki_types::pem::{Error as PemError, PemObject};
-    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    use tokio_rustls::rustls::pki_types::{
+        CertificateDer, CertificateRevocationListDer, PrivateKeyDer,
+    };
     use tokio_rustls::rustls::server::WebPkiClientVerifier;
     use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 
@@ -255,7 +270,27 @@ fn build_server_config(
                 .into(),
         ));
     }
-    let verifier = WebPkiClientVerifier::builder(Arc::new(roots))
+    // A CRL, if given, is consulted by the verifier: a listed (or expired) client
+    // certificate is refused at the handshake (ADR-0097 A2). Absent or empty, the
+    // builder is byte-for-byte A1's — chain-to-CA is the only check.
+    let mut builder = WebPkiClientVerifier::builder(Arc::new(roots));
+    if let Some(crl_pem) = tls
+        .client_crl_pem
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+    {
+        let crls: Vec<CertificateRevocationListDer<'static>> =
+            CertificateRevocationListDer::pem_slice_iter(crl_pem.as_bytes())
+                .collect::<std::result::Result<_, _>>()
+                .map_err(|e| tls_err("client CRL (PEM)", e.to_string()))?;
+        if crls.is_empty() {
+            return Err(Error::Invalid(
+                "node API TLS: client CRL PEM has no X509 CRL block".into(),
+            ));
+        }
+        builder = builder.with_crls(crls);
+    }
+    let verifier = builder
         .build()
         .map_err(|e| tls_err("client verifier", e.to_string()))?;
     let mut cfg = ServerConfig::builder()
@@ -288,6 +323,7 @@ pub fn serve_blocking(
         Listen::Path(addr.to_string()),
         None,
         None,
+        None,
         vms,
         store,
         run_resolver,
@@ -310,6 +346,7 @@ pub fn serve(
     listen: Listen,
     idle: Option<activation::IdleExit>,
     tls: Option<Tls>,
+    authz: Option<authz::Authz>,
     vms: std::sync::Arc<dyn VmPort>,
     store: std::sync::Arc<dyn StorePort>,
     run_resolver: std::sync::Arc<dyn RunResolver>,
@@ -324,6 +361,7 @@ pub fn serve(
         listen,
         idle,
         tls,
+        authz,
         vms,
         store,
         run_resolver,
@@ -352,6 +390,7 @@ fn serve_with(
     listen: Listen,
     idle: Option<activation::IdleExit>,
     tls: Option<Tls>,
+    authz: Option<authz::Authz>,
     vms: std::sync::Arc<dyn VmPort>,
     store: std::sync::Arc<dyn StorePort>,
     run_resolver: std::sync::Arc<dyn RunResolver>,
@@ -376,6 +415,18 @@ fn serve_with(
         Error::Invalid(
             "node API TLS material was given, but the listener is a local unix socket — \
              TLS applies to the TCP transport only (tcp://host:port)"
+                .into(),
+        )
+    };
+    // An authorization policy / audit config supplied for a unix listener is
+    // refused, not ignored: the unix socket has no client certificate to read a
+    // caller identity from (it is the owning uid, `SO_PEERCRED`), so a policy
+    // there would read as protection that cannot be applied (ADR-0098; symmetry
+    // with the TLS rule, ADR-0096 §3).
+    let authz_on_unix = || {
+        Error::Invalid(
+            "node API authorization was given, but the listener is a local unix socket — \
+             authorization by client-certificate identity applies to the TCP transport only"
                 .into(),
         )
     };
@@ -448,6 +499,12 @@ fn serve_with(
         }
     };
 
+    // Authorization is meaningful only on the TLS transport (a client cert to
+    // read an identity from). Refuse it on a unix listener, as TLS is refused.
+    if authz.is_some() && matches!(prepared, Prepared::Unix(_)) {
+        return Err(authz_on_unix());
+    }
+
     let idle = idle.filter(|i| !i.timeout.is_zero());
     let rt = tokio::runtime::Builder::new_multi_thread()
         // A local control-plane API: a couple of workers, the same reasoning as
@@ -487,9 +544,10 @@ fn serve_with(
                 tracing::info!(
                     addr = ?tcp.local_addr().ok().map(|a| a.to_string()),
                     idle_timeout = ?idle.as_ref().map(|i| i.timeout),
+                    authz = authz.is_some(),
                     "delonix-node-api (node API) listening (tcp, mutual TLS)"
                 );
-                serve_tls_listener(tcp, acceptor, router, idle).await
+                serve_tls_listener(tcp, acceptor, router, idle, authz.map(std::sync::Arc::new)).await
             }
         }
     })
@@ -605,8 +663,12 @@ fn idle_reached(
 /// client certificate, so a client with none — or one that does not chain to
 /// the configured client CA — fails the handshake and is dropped here, never
 /// reaching the router. ALPN picks `h2` (gRPC) or `http/1.1` (JSON) on the same
-/// listener. The identity in the client cert is not read yet (A3); a valid
-/// client is served every operation, as the unix path serves the owning uid.
+/// listener. When `authz` is given (ADR-0098 A3), the caller's identity is read
+/// once per connection from the verified client leaf, every request is checked
+/// against the policy before dispatch — a denied call is answered 403 /
+/// `PERMISSION_DENIED` and never reaches the router — and each mutating call (and
+/// every denial) is audited. With `authz` `None`, a valid client is served every
+/// operation, as the unix path serves the owning uid (A1/A2 posture).
 ///
 /// The idle exit is the same as the unix path ([`idle_reached`]): a handshake
 /// in progress or a live connection holds `open`, so the server does not exit
@@ -616,6 +678,7 @@ pub async fn serve_tls_listener(
     acceptor: tokio_rustls::TlsAcceptor,
     app: axum::Router,
     idle: Option<activation::IdleExit>,
+    authz: Option<std::sync::Arc<authz::Authz>>,
 ) -> Result<(), Error> {
     use hyper::body::Incoming;
     use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -649,7 +712,7 @@ pub async fn serve_tls_listener(
         };
         // Transient accept errors (EMFILE, ECONNABORTED) are retried, never
         // fatal — the same posture as the unix loop.
-        let (socket, _peer) = match accepted {
+        let (socket, peer) = match accepted {
             Ok(x) => x,
             Err(e) => {
                 tracing::warn!(error = %e, "accept() failed, retrying");
@@ -667,14 +730,41 @@ pub async fn serve_tls_listener(
             Err(never) => match never {},
         };
         open.fetch_add(1, Ordering::SeqCst);
-        let (open, last, acceptor) = (open.clone(), last.clone(), acceptor.clone());
+        let (open, last, acceptor, authz) =
+            (open.clone(), last.clone(), acceptor.clone(), authz.clone());
         tokio::spawn(async move {
             match acceptor.accept(socket).await {
                 Ok(tls) => {
+                    // The caller's identity, read once per connection from the
+                    // client leaf the handshake has already verified to the CA
+                    // (A1). An untrusted client never reaches here — it is
+                    // dropped at the handshake below — so the parse only ever
+                    // sees a chain-valid leaf (ADR-0098 §1).
+                    let identity = Arc::new(
+                        tls.get_ref()
+                            .1
+                            .peer_certificates()
+                            .and_then(|chain| chain.first())
+                            .map(|leaf| authz::CallerIdentity::from_leaf_der(leaf.as_ref()))
+                            .unwrap_or_default(),
+                    );
                     let io = TokioIo::new(tls);
                     let hyper_service =
                         hyper::service::service_fn(move |req: hyper::Request<Incoming>| {
-                            tower_service.clone().call(req)
+                            let mut svc = tower_service.clone();
+                            let authz = authz.clone();
+                            let identity = identity.clone();
+                            async move {
+                                // With a policy in effect, authorize before
+                                // dispatch: a denied call is answered here and
+                                // the handler never runs (ADR-0098 §3).
+                                if let Some(authz) = authz.as_deref() {
+                                    if let Some(denied) = authorize(authz, &identity, peer, &req) {
+                                        return Ok::<_, std::convert::Infallible>(denied);
+                                    }
+                                }
+                                svc.call(req).await
+                            }
                         });
                     let _ = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new())
                         .serve_connection_with_upgrades(io, hyper_service)
@@ -692,5 +782,85 @@ pub async fn serve_tls_listener(
             }
             open.fetch_sub(1, Ordering::SeqCst);
         });
+    }
+}
+
+/// Authorize one request against the policy before it is dispatched, and audit
+/// it (ADR-0098 §3–§5). Returns `Some(response)` when the call is denied (the
+/// `PERMISSION_DENIED` problem document the caller gets instead of the handler's
+/// answer), `None` when it is allowed (the caller forwards the request). Every
+/// mutating call — allowed or denied — and every denial is recorded; an allowed
+/// read is not (the high-volume, low-signal case). A path that is not a contract
+/// operation (the docs/OpenAPI routes, an unknown path) has nothing to
+/// authorize and is forwarded untouched — it was already authenticated at the
+/// handshake, and the router answers it (the doc, or 404/405).
+fn authorize(
+    authz: &authz::Authz,
+    identity: &authz::CallerIdentity,
+    peer: std::net::SocketAddr,
+    req: &hyper::Request<hyper::body::Incoming>,
+) -> Option<axum::response::Response> {
+    let (operation, scope, transport) = authz_classify(req.method().as_str(), req.uri().path())?;
+    let decision = authz.policy.decide(identity, &operation, &scope, transport);
+    if !decision.allow || authz::is_mutating(&operation) {
+        authz.audit.record(&authz::AuditRecord::new(
+            identity,
+            &operation,
+            &scope,
+            transport,
+            &decision,
+            &peer.to_string(),
+        ));
+    }
+    if decision.allow {
+        None
+    } else {
+        Some(service::permission_denied(
+            &operation,
+            scope.label(),
+            req.uri().path(),
+        ))
+    }
+}
+
+/// Resolve a request's method+path to the operation it invokes, its target
+/// namespace scope, and the transport — without reading the body. `None` when
+/// the path is not a contract operation (docs/OpenAPI/unknown), which needs no
+/// authorization.
+///
+/// gRPC paths are `/delonix.node.v1.<Service>/<Method>`; the namespace is in the
+/// protobuf body (not decoded here), so a gRPC call is scoped [`authz::Scope::Node`]
+/// as a placeholder — [`authz::Policy::decide`] consults the scope for a gRPC
+/// request only through a `*`-namespace rule, which grants node scope anyway, and
+/// a namespace-scoped rule fails closed over gRPC regardless (ADR-0098 §4). REST
+/// paths carry the namespace as the `{namespace}` path segment the contract's
+/// `google.api.http` templates declare, which [`transcode::resolve`] returns as a
+/// bound variable.
+fn authz_classify(method: &str, path: &str) -> Option<(String, authz::Scope, authz::Transport)> {
+    if let Some(rest) = path.strip_prefix("/delonix.node.v1.") {
+        let (service, grpc_method) = rest.split_once('/')?;
+        if service.is_empty() || grpc_method.is_empty() {
+            return None;
+        }
+        return Some((
+            format!("{service}.{grpc_method}"),
+            authz::Scope::Node,
+            authz::Transport::Grpc,
+        ));
+    }
+    match transcode::resolve(method, path) {
+        transcode::Resolved::Route(route, vars) => {
+            let scope = vars
+                .iter()
+                .find(|(k, _)| *k == "namespace")
+                .map(|(_, v)| authz::Scope::Namespace(v.clone()))
+                .unwrap_or(authz::Scope::Node);
+            Some((
+                format!("{}.{}", route.service, route.rpc),
+                scope,
+                authz::Transport::Rest,
+            ))
+        }
+        _ => None,
     }
 }

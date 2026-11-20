@@ -462,6 +462,7 @@ pub(crate) fn desired_of(
                 k::SYSTEM_CONTAINER => super::system_container::desired(doc)?,
                 k::HTTP_ROUTE | k::INGRESS => super::httproute::desired(doc)?,
                 k::GATEWAY => super::tunnel::desired(doc)?,
+                k::NODE => super::node::desired(doc)?,
                 k::GITOPS_SOURCE => super::gitops::desired(doc)?,
                 _ => reconcile::Desired {
                     kind: kind.to_string(),
@@ -513,6 +514,7 @@ pub(crate) fn actual_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile:
     out.extend(super::service::actual()?);
     out.extend(super::ippool::actual()?);
     out.extend(super::ipaddress::actual()?);
+    out.extend(super::node::actual()?);
     out.extend(super::snapshot::actual()?);
     out.extend(super::storage_pool::actual()?);
     out.extend(super::pod::actual()?);
@@ -912,6 +914,7 @@ pub(crate) fn compared_fields_table() -> Vec<(&'static str, &'static [&'static s
             k::IP_ADDRESS,
             super::ipaddress::RECONCILED_IP_ADDRESS_FIELDS,
         ),
+        (k::NODE, super::node::RECONCILED_NODE_FIELDS),
         (k::SNAPSHOT, super::snapshot::RECONCILED_SNAPSHOT_FIELDS),
         (
             k::STORAGE_POOL,
@@ -1732,6 +1735,7 @@ fn presence(
         k::SERVICE => super::service::presence_of(doc),
         k::IPPOOL => super::ippool::presence_of(doc),
         k::IP_ADDRESS => super::ipaddress::presence_of(doc),
+        k::NODE => super::node::presence_of(doc),
         k::SNAPSHOT => super::snapshot::presence_of(doc),
         k::STORAGE_POOL => super::storage_pool::presence_of(doc),
         k::NETWORK_GATEWAY => super::network_gateway::presence_of(doc),
@@ -2693,6 +2697,13 @@ const LAYERS: &[Layer] = &[
         kind: k::GATEWAY,
         icon: "🌍",
     },
+    // The node's own scheduling config (ADR-0101, A6): labels, taints, cordon. Near the
+    // end so a stack that both declares the node and its workloads sets the node up with
+    // the rest; only GitOps follows.
+    Layer {
+        kind: k::NODE,
+        icon: "🏷",
+    },
     // A pull source LAST of all (ADR-0021): its timer may fire the moment it is written.
     Layer {
         kind: k::GITOPS_SOURCE,
@@ -2971,6 +2982,7 @@ fn apply_layer(kind: &str, docs: &[manifest::ManifestDoc], base: &std::path::Pat
         k::NETWORK_GATEWAY => super::network_gateway::apply(docs),
         k::HTTP_ROUTE => super::httproute::apply(docs),
         k::GATEWAY => super::tunnel::apply(docs),
+        k::NODE => super::node::apply(docs),
         k::GITOPS_SOURCE => super::gitops::apply(docs),
         other => unreachable!("a layer with no applier: {other}"),
     }
@@ -3096,6 +3108,16 @@ pub(crate) fn no_teardown_reason(kind: &str) -> Option<&'static str> {
              remove one on purpose with `delonix delete config <name>`"
         }
         k::APP => "an App's output is an image — shared content-addressed cache, owned by no stack",
+        // The node's own config (ADR-0101): a singleton the engine never destroys.
+        // Dropping the record because a manifest stops naming it would silently
+        // uncordon or relabel the live node — the opposite of what a `destroy`/
+        // `--prune` should risk. Change it on purpose with `kind: Node` or the
+        // `node/v1` `SetNode*` RPCs.
+        k::NODE => {
+            "a node's own scheduling config is a singleton, owned by no stack; dropping it because \
+             a manifest stops naming it would silently uncordon or relabel the live node. Change it \
+             on purpose with `kind: Node` or the node API's `SetNode*` calls"
+        }
         // A tunnel's record is keyed by a live agent.
         k::GATEWAY => "a tunnel has no labels to stamp ownership on",
         _ => return None,
@@ -3558,6 +3580,20 @@ fn converge_and_stamp(
                             ))
                         })?;
                     super::tunnel::converge_doc(doc)?
+                }
+                // `node::apply_one` rewrites the shared record in place (nothing is
+                // recreated), so converging a Node IS applying it.
+                k::NODE => {
+                    let doc = docs
+                        .iter()
+                        .find(|d| d.kind == c.kind && manifest::plan_name(d) == c.name)
+                        .ok_or_else(|| {
+                            delonix_model::Error::Invalid(format!(
+                                "Node/{}: not in the manifest",
+                                c.name
+                            ))
+                        })?;
+                    super::node::converge_doc(doc)?
                 }
                 // A Pod has no hot field at all, so the planner can never emit
                 // `Update` for one. Saying so beats a silent no-op if that ever
@@ -6523,6 +6559,7 @@ spec: {}
             k::NETWORK_GATEWAY,
             k::HTTP_ROUTE,
             k::GATEWAY,
+            k::NODE,
             k::GITOPS_SOURCE,
         ]
     }

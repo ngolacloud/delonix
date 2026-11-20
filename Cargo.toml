@@ -157,6 +157,13 @@ tokio-rustls = { version = "0.26", default-features = false }
 # listener with a certificate. Same 0.23 line reqwest already resolves to.
 rustls = { version = "0.23", default-features = false }
 rcgen = { version = "0.13", default-features = false }
+# Already in the tree via rcgen's `x509-parser` feature (ADR-0097 §7); promoted to
+# a direct dep so the node API can read the caller's subject CN / URI SAN from the
+# verified client leaf (ADR-0098 A3).
+x509-parser = { version = "0.16" }
+# Already in the tree via rcgen; promoted to a direct dep so `node-enroll` can
+# set short-lived cert validity windows (`OffsetDateTime`, ADR-0097).
+time = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.12", default-features = false }
 # gRPC (CRI)
 tonic = "0.12"

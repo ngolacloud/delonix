@@ -322,7 +322,31 @@ pub fn update_in(
     if plan.cpuset.is_some() {
         c.cpuset = plan.cpuset.clone();
     }
+    // ADR-0099: a resize changes the desired spec. Stamp the bumped `generation`,
+    // then — because this path reconciles synchronously (the live cgroup write
+    // above already happened, or was deferred to the next start which rebuilds
+    // from this record) — advance `observedGeneration` in the same save. A resize
+    // to the SAME limits leaves the applied-spec fingerprint unchanged, so the
+    // generation is kept.
+    let fields = crate::container_launch::applied_fields(&c);
+    let gen_before = crate::versioning::read_version(&c.annotations).generation;
+    crate::versioning::stamp_desired(
+        &mut c.annotations,
+        &fields,
+        crate::versioning::CONTAINER_API_VERSION,
+    );
+    let gen_after = crate::versioning::read_version(&c.annotations).generation;
+    crate::versioning::stamp_observed(&mut c.annotations);
     store.container_save(&c).map_err(|e| status_of(&e))?;
+
+    // ADR-0100: a resize that changed the desired spec is a desired change — mark
+    // it on the stream (and its immediate convergence, this path reconciling
+    // synchronously). A resize to the same limits keeps the generation and emits
+    // nothing: no desired change happened.
+    if gen_after > gen_before {
+        crate::versioning::emit_applied(root, "container", &c.id, &req.name);
+        crate::versioning::emit_converged(root, "container", &c.id, &req.name);
+    }
 
     Ok(crate::containers::message(&c))
 }

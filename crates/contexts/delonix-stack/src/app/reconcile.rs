@@ -51,16 +51,22 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
+/// State-versioning primitives (ADR-0090/0099) live in `delonix-model` so the
+/// node API shares the exact counter rule and annotation keys without an
+/// interface→context edge (ADR-0099 §1). Re-exported so every call site in this
+/// crate and in the CLI keeps reaching them as `reconcile::*`, unchanged.
+pub use delonix_model::versioning::{
+    decode_last_applied, desired_annotations, encode_last_applied, next_generation,
+    observed_generation_entry, version_annotations, GENERATION, LAST_APPLIED, OBSERVED_GENERATION,
+    STORED_VERSION,
+};
+
 /// Label carrying the stack that owns a resource. Membership derived from a
 /// label, with no registry of its own, is the idiom this repo already uses for
 /// pods (`pod::POD_LABEL`) and compose projects
 /// (`compose::COMPOSE_PROJECT_LABEL`) — and the reason is the same: a second
 /// registry drifts out of sync with the thing it describes.
 pub const STACK_LABEL: &str = "delonix.io/stack";
-/// Annotation carrying the last applied field map (compact JSON). An
-/// annotation and not a label: it is not identifying and it is large — a whole
-/// spec inside a label would wreck every listing that prints labels.
-pub const LAST_APPLIED: &str = "delonix.io/last-applied";
 /// Annotation naming manifest fields that another actor owns, so the diff leaves
 /// them alone (ADR-0088 A5) — e.g. `spec.replicas` when a control plane scales.
 /// A comma-separated list of field names as the diff sees them. Absent (the
@@ -76,60 +82,6 @@ pub const IGNORE_FIELDS: &str = "delonix.io/ignore-fields";
 pub const PROTECT: &str = "delonix.io/protect";
 /// Label marking a resource as created by a declarative apply.
 pub const MANAGED_BY: &str = "delonix.io/managed-by";
-
-/// Annotation: the spec-version counter (ADR-0090). A monotonic integer, bumped
-/// at stamp when the applied spec changed vs the one already on the record, kept
-/// otherwise; `1` on first apply. Record metadata, akin to [`LAST_APPLIED`] —
-/// not a user knob (a `metadata.generation` in an input manifest is ignored).
-pub const GENERATION: &str = "delonix.io/generation";
-/// Annotation: the generation the machine was last reconciled to (ADR-0090).
-/// Written at stamp, which is post-success, so it equals [`GENERATION`] on the
-/// happy path — persisted so a reader states it without recomputing.
-pub const OBSERVED_GENERATION: &str = "delonix.io/observed-generation";
-/// Annotation: the `apiVersion` the record was written under (ADR-0090). One
-/// version per Kind today; the field a future `manifest convert` (ADR-0086)
-/// reads to migrate a stored record on read.
-pub const STORED_VERSION: &str = "delonix.io/stored-version";
-
-/// The next generation for a stamp (ADR-0090): bump when the applied spec
-/// changed vs the one already stored, keep it otherwise. A record with no stored
-/// generation counts as `0` (unversioned), so its first stamped apply writes `1`.
-/// Pure — the one place the counter's rule lives.
-pub fn next_generation(
-    prev_last_applied: Option<&str>,
-    prev_generation: Option<&str>,
-    new_last_applied: &str,
-) -> u64 {
-    let prev_gen: u64 = prev_generation.and_then(|s| s.parse().ok()).unwrap_or(0);
-    if prev_last_applied != Some(new_last_applied) {
-        prev_gen + 1
-    } else {
-        prev_gen.max(1)
-    }
-}
-
-/// The three ADR-0090 version annotations to write at stamp time, as `(key,
-/// value)` pairs to insert into the record's annotations ALONGSIDE
-/// [`LAST_APPLIED`]. `prev` is the record's annotations BEFORE this stamp (where
-/// the previous generation and last-applied are read); `new_last_applied` is
-/// what this stamp writes; `api_version` the Kind's stored version. Absent-safe:
-/// a `prev` with none of them yields generation `1` and the given version.
-pub fn version_annotations(
-    prev: &BTreeMap<String, String>,
-    new_last_applied: &str,
-    api_version: &str,
-) -> [(String, String); 3] {
-    let gen = next_generation(
-        prev.get(LAST_APPLIED).map(String::as_str),
-        prev.get(GENERATION).map(String::as_str),
-        new_last_applied,
-    );
-    [
-        (GENERATION.to_string(), gen.to_string()),
-        (OBSERVED_GENERATION.to_string(), gen.to_string()),
-        (STORED_VERSION.to_string(), api_version.to_string()),
-    ]
-}
 
 /// Write the whole apply stamp into a record's annotations map in one call: the
 /// [`LAST_APPLIED`] fingerprint AND the ADR-0090 version counters, so a Kind's
@@ -986,14 +938,6 @@ pub fn list_delta(from: Option<&str>, to: Option<&str>) -> (Vec<String>, Vec<Str
     (removed, added)
 }
 
-/// Serializes a field map for the [`LAST_APPLIED`] annotation. Compact JSON, so
-/// it survives the `key=value` line format of the network record (see
-/// `NetworkStore::set_metadata`) — `serde_json` escapes a newline inside a
-/// string as two characters, never a literal one.
-pub fn encode_last_applied(fields: &BTreeMap<String, String>) -> String {
-    serde_json::to_string(fields).unwrap_or_else(|_| "{}".to_string())
-}
-
 /// The plan field that carries a document's own `metadata.labels`.
 pub const LABELS_FIELD: &str = "labels";
 
@@ -1039,14 +983,6 @@ pub fn labels_delta(from: Option<&str>, to: Option<&str>) -> Vec<(String, Option
     out.extend(new.into_iter().map(|(k, v)| (k, Some(v))));
     out.retain(|(k, _)| !k.starts_with(RESERVED_LABEL_PREFIX));
     out
-}
-
-/// Reads back what [`encode_last_applied`] wrote. A corrupt or absent value is
-/// `None`, which degrades to «never applied by us» — the conservative side:
-/// the reconciler then only ever adds, and never reverts a field on the basis
-/// of a value it could not read.
-pub fn decode_last_applied(raw: &str) -> Option<BTreeMap<String, String>> {
-    serde_json::from_str(raw).ok()
 }
 
 #[cfg(test)]

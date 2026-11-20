@@ -2650,6 +2650,49 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["serve api", "provider ls", "system info"],
     },
     Entry {
+        path: "serve node-enroll",
+        group: "Advanced",
+        examples: &[
+            ("run the enrollment authority: trade a one-time token for a short client cert, auto-issuing its own server cert from the CA", "delonix serve node-enroll --addr tcp://0.0.0.0:7443 --ca-key node-ca.key --token s3cret --san 10.0.0.1"),
+            ("issue minute-lived certificates so expiry is observable, loading tokens from a file", "delonix serve node-enroll --addr tcp://0.0.0.0:7443 --token-file tokens.txt --cert-ttl 60s"),
+        ],
+        see_also: &["node-ca init", "node-enroll", "serve node-api"],
+    },
+    Entry {
+        path: "node-ca",
+        group: "Advanced",
+        examples: &[
+            ("create the node CA whose cert is every node's `--tls-client-ca` and whose key feeds the enrollment authority", "delonix node-ca init"),
+            ("take a member's certificate away by revoking its serial into a CRL", "delonix node-ca revoke --serial 9f3a…"),
+        ],
+        see_also: &["node-ca init", "node-ca revoke", "serve node-enroll"],
+    },
+    Entry {
+        path: "node-ca init",
+        group: "Advanced",
+        examples: &[
+            ("create the CA: `node-ca.crt` (the trust anchor) and `node-ca.key` (kept with the authority)", "delonix node-ca init"),
+            ("pick the subject name and output paths", "delonix node-ca init --cn fleet-ca --out-cert ca.crt --out-key ca.key"),
+        ],
+        see_also: &["serve node-enroll", "node-ca revoke", "serve node-api"],
+    },
+    Entry {
+        path: "node-ca revoke",
+        group: "Advanced",
+        examples: &[
+            ("revoke a certificate by its serial into the CRL a node loads with `--tls-client-crl`", "delonix node-ca revoke --ca-key node-ca.key --serial 9f3a7c…"),
+        ],
+        see_also: &["node-ca init", "serve node-api"],
+    },
+    Entry {
+        path: "node-enroll",
+        group: "Advanced",
+        examples: &[
+            ("enroll this host: generate a key and CSR, spend a one-time token, write `client.key`/`client.crt`", "delonix node-enroll --server tcp://10.0.0.1:7443 --ca node-ca.crt --token s3cret --cn worker-7"),
+        ],
+        see_also: &["serve node-enroll", "node-ca init"],
+    },
+    Entry {
         path: "serve cri",
         group: "Advanced",
         examples: &[
