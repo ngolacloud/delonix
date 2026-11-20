@@ -318,6 +318,14 @@ CLI_DESTINATION = {
     "codes": "delonix-cli", "init": "delonix-cli", "scaffold": "delonix-cli",
     "compatibility": "delonix-cli", "features": "delonix-cli", "config": "delonix-cli",
     "net": "delonix-cli", "manifestcmd": "delonix-cli", "mod": "delonix-cli", "serve": "delonix-cli",
+    # node identity / enrollment (ADR-0097): a local bootstrap surface — the node
+    # CA, the enrollment authority and the member client. It holds no node data.
+    "node_enroll": "delonix-cli",
+    # `kind: Node` declarative apply (ADR-0101): the node-API command family's CLI
+    # glue, beside `node_enroll`/`serve`. The substance (the record shape, the merge
+    # and the version rule) lives in `delonix-model::node_meta`; this module is the
+    # reconcile glue that writes that shared record from a manifest.
+    "node": "delonix-cli",
     # delonix-engine (composition root, R3)
     "vmbackends": "delonix-engine", "providers_config": "delonix-engine", "provider": "delonix-engine",
     "util": "delonix-engine", "engine_vms": "delonix-engine",

@@ -731,6 +731,23 @@ enum Cmd {
         #[command(subcommand)]
         action: cmd::serve::ServeCmd,
     },
+    /// Manage the node CA that signs fleet-member certificates (ADR-0097).
+    ///
+    /// `node-ca init` creates the CA whose cert is the node API's
+    /// `--tls-client-ca` trust anchor and whose key stays with the enrollment
+    /// authority (`serve node-enroll`); `node-ca revoke` lists a certificate's
+    /// serial in a CRL (`--tls-client-crl`). NOT stable: see `docs/cli-stability.md`.
+    NodeCa {
+        #[command(subcommand)]
+        action: cmd::node_enroll::NodeCaCmd,
+    },
+    /// Enroll this host as a fleet member: one-time token → CSR → short client cert.
+    ///
+    /// Generates a key pair and a CSR, exchanges a one-time token at an
+    /// enrollment authority (`serve node-enroll`) pinned to the node CA, and
+    /// writes the short-lived client certificate the node API (ADR-0096) then
+    /// accepts (ADR-0097). NOT stable: see `docs/cli-stability.md`.
+    NodeEnroll(cmd::node_enroll::NodeEnrollArgs),
     /// Model Context Protocol server — a LOCAL, tenancy-free AI control surface.
     ///
     /// ADR-0025. NOT stable: see `docs/cli-stability.md`.
@@ -2080,6 +2097,8 @@ fn run() -> Result<()> {
         Cmd::Compatibility { action } => cmd::compatibility::run(action),
         Cmd::Provider { action } => cmd::provider::run(action),
         Cmd::Serve { action } => cmd::serve::run(action),
+        Cmd::NodeCa { action } => cmd::node_enroll::run_node_ca(action),
+        Cmd::NodeEnroll(args) => cmd::node_enroll::run_node_enroll(args),
         Cmd::Mcp { action } => cmd::mcp::run(action),
         Cmd::Hosts { action } => cmd::hosts::run(action),
         Cmd::IngressProxy { config } => cmd::ingress_proxy::run(&config),
@@ -2824,6 +2843,8 @@ mod cli_stability_classification_tests {
         "mcp",
         "net",
         "network",
+        "node-ca",
+        "node-enroll",
         "oci-runtime",
         "plan",
         "pod",

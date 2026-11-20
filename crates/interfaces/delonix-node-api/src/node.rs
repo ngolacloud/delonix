@@ -13,7 +13,8 @@ use delonix_compute::capability::{HealthStatus, ProviderKind, ProviderReport};
 use delonix_model::records::Status;
 
 use crate::proto::v1::{
-    ApiRoot, Capacity, Condition, ConditionStatus, FilesystemCapacity, Health, Link, NodeInfo,
+    ApiRoot, Capacity, Condition, ConditionStatus, DeviceCapacity, FilesystemCapacity, Health,
+    IpPoolCapacity, Link, NodeInfo,
 };
 
 /// The engine's state root: `$DELONIX_ROOT`, else the rootless (`$XDG_DATA_HOME`/
@@ -111,10 +112,13 @@ pub fn supported_workload_types(reports: &[ProviderReport]) -> Vec<String> {
     out
 }
 
-/// `GetNodeInfo`.
+/// `GetNodeInfo`. `record` is the node's scheduling state (ADR-0101): its labels,
+/// taints, cordon flag and version come off the shared record, read by the service
+/// layer; the rest are host probes computed at call time.
 pub fn node_info(
     reports: &[ProviderReport],
     linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
+    record: &delonix_model::node_meta::NodeRecord,
 ) -> NodeInfo {
     NodeInfo {
         engine_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -129,6 +133,21 @@ pub fn node_info(
         cgroup_driver: "cgroupfs".to_string(),
         cgroup_delegated: linux.cgroup_limits_apply(),
         supported_workload_types: supported_workload_types(reports),
+        // Only the user's placement labels — the reconciler's own `delonix.io/*`
+        // bookkeeping is filtered out, as A4 filters the version annotations.
+        labels: delonix_model::node_meta::user_labels(&record.metadata.labels)
+            .into_iter()
+            .collect(),
+        taints: record
+            .spec
+            .taints
+            .iter()
+            .map(crate::node_meta::taint_to_proto)
+            .collect(),
+        unschedulable: !record.spec.schedulable,
+        unschedulable_reason: record.spec.unschedulable_reason.clone(),
+        generation: record.generation(),
+        observed_generation: record.observed_generation(),
         links: vec![
             link("self", "/v1/node"),
             link("root", "/v1"),
@@ -379,6 +398,7 @@ pub fn capacity(
     vms: &dyn crate::vms::VmPort,
     store: &dyn crate::store::StorePort,
     linux: &dyn crate::linux_lifecycle::LinuxLifecycle,
+    record: &delonix_model::node_meta::NodeRecord,
 ) -> Capacity {
     let mut c = Capacity::default();
     let mut unmeasured: Vec<&str> = Vec::new();
@@ -479,9 +499,131 @@ pub fn capacity(
         Err(_) => unmeasured.push("vms_running"),
     }
 
+    // Extended resources (ADR-0101, A6), each by the same doctrine as the axes above.
+
+    // GPU: a cheap probe of the NVIDIA driver's own listing — no `nvidia-smi` in a
+    // capacity read. Present ⇒ one device line per entry. Absent ⇒ unmeasured, because a
+    // missing driver cannot be told apart from "no GPU" with certainty (a non-NVIDIA
+    // accelerator would also be missed), and a silent zero would read as "no GPU here".
+    match gpu_count() {
+        Some(n) => c.devices.push(DeviceCapacity {
+            kind: "nvidia.com/gpu".to_string(),
+            total: n,
+            allocatable: n,
+        }),
+        None => unmeasured.push("devices.gpu"),
+    }
+
+    // IPs: the node's declarative IPPool inventory. No pool declared ⇒ nothing reported
+    // (absent, not unmeasured — the same rule the filesystems use just above).
+    c.ip_pools = ip_pool_capacities(&root);
+
+    // Overcommit: the operator's declaration on the node record (set via `kind: Node`).
+    // Unset ⇒ both ratios are unmeasured — the engine has no node-level overcommit of
+    // its own, so an un-declared one is unmeasured, not the misleading `1.0`.
+    match &record.spec.overcommit {
+        Some(oc) => c.overcommit = Some(crate::node_meta::overcommit_to_proto(oc)),
+        None => unmeasured.extend(["overcommit.cpu", "overcommit.memory"]),
+    }
+
     c.unmeasured = unmeasured.into_iter().map(str::to_string).collect();
     c.links = vec![link("self", "/v1/node/capacity"), link("node", "/v1/node")];
     c
+}
+
+/// The number of GPUs the NVIDIA driver lists under `/proc/driver/nvidia/gpus/`, or
+/// `None` when the driver is not present (so the caller reports GPU as `unmeasured`
+/// rather than `0`). One subdirectory per GPU; cheap, no subprocess.
+fn gpu_count() -> Option<i64> {
+    let entries = std::fs::read_dir("/proc/driver/nvidia/gpus").ok()?;
+    let n = entries.flatten().filter(|e| e.path().is_dir()).count();
+    Some(n as i64)
+}
+
+/// The node's IP inventory from the declarative IPPool ledger under `<root>/ippool/`.
+/// One entry per pool: `addresses_total` counted with the shared `delonix_sdn::Cidr`
+/// (so CIDR math never drifts from the binary's `expand`), `addresses_allocated` the
+/// live lease count. An absent directory yields an empty list (absent, not unmeasured).
+fn ip_pool_capacities(root: &Path) -> Vec<IpPoolCapacity> {
+    let dir = root.join("ippool");
+    let mut pools: Vec<IpPoolCapacity> = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| {
+            let v: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(e.path()).ok()?).ok()?;
+            let name = v.get("name")?.as_str()?.to_string();
+            let total: i64 = v
+                .get("addresses")
+                .and_then(|a| a.as_array())
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(|x| x.as_str())
+                        .map(address_entry_count)
+                        .sum()
+                })
+                .unwrap_or(0);
+            let allocated = v
+                .get("leases")
+                .and_then(|l| l.as_object())
+                .map_or(0, |m| m.len() as i64);
+            Some(IpPoolCapacity {
+                name,
+                addresses_total: total,
+                addresses_allocated: allocated,
+            })
+        })
+        .collect();
+    pools.sort_by(|a, b| a.name.cmp(&b.name));
+    pools
+}
+
+/// The number of host addresses one IPPool `addresses` entry covers — a single IP, an
+/// `a-b` range, or an `a.b.c.d/len` CIDR (network/broadcast excluded for a `/30` or wider,
+/// kept for `/31` and `/32`). Mirrors the arithmetic of the binary's
+/// `ippool::parse_entry`; computed with `std::net` so this interface crate takes no
+/// adapter dependency. An entry that does not parse counts as 0 rather than failing the
+/// whole report. Kept in lockstep with `bins/delonix/src/cmd/ippool.rs::parse_entry`.
+fn address_entry_count(entry: &str) -> i64 {
+    use std::net::Ipv4Addr;
+    let v4 = |s: &str| s.trim().parse::<Ipv4Addr>().ok().map(u32::from);
+    let (first, last) = if let Some((a, b)) = entry.split_once('-') {
+        match (v4(a), v4(b)) {
+            (Some(a), Some(b)) => (a, b),
+            _ => return 0,
+        }
+    } else if let Some((addr, len)) = entry.split_once('/') {
+        let (Some(base), Ok(len)) = (v4(addr), len.trim().parse::<u8>()) else {
+            return 0;
+        };
+        if len > 32 {
+            return 0;
+        }
+        // Mask the host bits off the base, then the broadcast is base | ~mask.
+        let mask: u32 = if len == 0 { 0 } else { u32::MAX << (32 - len) };
+        let network = base & mask;
+        let broadcast = network | !mask;
+        // A /30 or wider leaves out the network and broadcast addresses; a /31 and
+        // /32 have neither to leave out.
+        if len <= 30 {
+            (network + 1, broadcast - 1)
+        } else {
+            (network, broadcast)
+        }
+    } else {
+        match v4(entry) {
+            Some(a) => (a, a),
+            None => return 0,
+        }
+    };
+    if first > last {
+        0
+    } else {
+        i64::from(last - first) + 1
+    }
 }
 
 #[cfg(test)]
@@ -647,5 +789,74 @@ mod tests {
     #[test]
     fn worst_never_reads_nothing_as_healthy() {
         assert_eq!(worst(&[]), ConditionStatus::Unknown);
+    }
+
+    // --- A6 (ADR-0101): the scheduling surface on NodeInfo and Capacity. ---
+
+    #[test]
+    fn node_info_reflects_the_record_and_filters_reserved_labels() {
+        use delonix_model::node_meta::{NodeRecord, Taint};
+        let mut r = NodeRecord::default();
+        r.metadata.labels.insert("zone".into(), "lis1".into());
+        // A reconciler bookkeeping label must NOT surface to a control plane.
+        r.metadata
+            .labels
+            .insert("delonix.io/stack".into(), "s".into());
+        r.spec.taints.push(Taint {
+            key: "dedicated".into(),
+            value: "ml".into(),
+            effect: "NoSchedule".into(),
+        });
+        r.spec.schedulable = false;
+        r.spec.unschedulable_reason = "drain".into();
+        r.stamp();
+
+        let info = node_info(&host(true), &super::super::linux_lifecycle::NoLinux, &r);
+        assert_eq!(info.labels.get("zone").map(String::as_str), Some("lis1"));
+        assert!(
+            !info.labels.contains_key("delonix.io/stack"),
+            "reserved labels are hidden"
+        );
+        assert_eq!(info.taints.len(), 1);
+        assert_eq!(info.taints[0].effect, "NoSchedule");
+        assert!(info.unschedulable);
+        assert_eq!(info.unschedulable_reason, "drain");
+        assert_eq!(info.generation, 1);
+        assert_eq!(info.observed_generation, 1, "node metadata is single-phase");
+    }
+
+    #[test]
+    fn address_entry_count_covers_single_range_and_cidr() {
+        assert_eq!(address_entry_count("10.0.0.5"), 1);
+        assert_eq!(address_entry_count("10.0.0.10-10.0.0.19"), 10);
+        // /24 excludes network + broadcast ⇒ 254 host addresses.
+        assert_eq!(address_entry_count("10.0.0.0/24"), 254);
+        // /30 ⇒ 2 host addresses; /31 and /32 keep both/one.
+        assert_eq!(address_entry_count("10.0.0.0/30"), 2);
+        assert_eq!(address_entry_count("10.0.0.0/31"), 2);
+        assert_eq!(address_entry_count("10.0.0.5/32"), 1);
+        assert_eq!(address_entry_count("not-an-ip"), 0);
+        assert_eq!(address_entry_count("10.0.0.20-10.0.0.10"), 0);
+    }
+
+    #[test]
+    fn ip_pool_capacities_reads_total_and_allocated_from_the_ledger() {
+        let root = std::env::temp_dir().join(format!("delonix-node-ippool-{}", std::process::id()));
+        let dir = root.join("ippool");
+        std::fs::create_dir_all(&dir).unwrap();
+        // One pool of 254 addresses with two leased.
+        std::fs::write(
+            dir.join("edge.json"),
+            br#"{"name":"edge","addresses":["10.0.0.0/24"],"announce":"local","leases":{"a":"10.0.0.5","b":"10.0.0.6"}}"#,
+        )
+        .unwrap();
+        let pools = ip_pool_capacities(&root);
+        assert_eq!(pools.len(), 1);
+        assert_eq!(pools[0].name, "edge");
+        assert_eq!(pools[0].addresses_total, 254);
+        assert_eq!(pools[0].addresses_allocated, 2);
+        // No ippool directory ⇒ nothing reported (absent, not unmeasured).
+        assert!(ip_pool_capacities(std::path::Path::new("/nonexistent-xyz")).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

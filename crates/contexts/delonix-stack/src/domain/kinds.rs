@@ -124,12 +124,12 @@ pub const SNAPSHOT: &str = "Snapshot";
 /// ADR-0090 (it is NOT lowered into `Secret` — that would encrypt data the
 /// writer chose to keep in the clear).
 pub const CONFIG: &str = "Config";
-/// This node, as a resource one can read back (ADR-0086 D3, D7). **Reserved**:
-/// declared at `v1beta1` with no apply of its own yet — the capacity is already
-/// served by `NodeService.GetCapacity`, but what a declarative `kind: Node`
-/// writes (labels, taints, schedulability) is deliberately left for the phase
-/// that builds the uniform read-back surface (ResourceService, ADR-0087/0090).
-/// Node-scoped, like the other node resources of D7.
+/// This node, as a resource one can read back AND declare (ADR-0086 D3, D7;
+/// ADR-0101 A6). Its capacity is served by `NodeService.GetCapacity`; its
+/// placement labels, taints, schedulability (cordon) and overcommit are written
+/// by a declarative `kind: Node` apply and by the `node/v1` `SetNode*` RPCs, both
+/// over the one shared `delonix-model::node_meta` record. Node-scoped, like the
+/// other node resources of D7.
 pub const NODE: &str = "Node";
 pub const HTTP_ROUTE: &str = "HTTPRoute";
 pub const GATEWAY: &str = "Gateway";
@@ -819,6 +819,33 @@ const FACTS: &[KindFacts] = &[
         presence: Presence::Registry,
     },
     KindFacts {
+        // ADR-0101 (A6). This node as a declarative resource — its placement labels,
+        // taints, schedulability (cordon) and overcommit. Was RESERVED (no apply);
+        // A6 gives it one, writing the SAME `delonix-model::node_meta` record the
+        // `node/v1` `SetNode*` RPCs write. Node-scoped (D7), a node-wide singleton;
+        // it converges in place (the record is rewritten, nothing is recreated) and
+        // has no teardown (removing the node's own config does not destroy the node).
+        // Kept near the end of the apply order so a stack that both configures the
+        // node and declares workloads sets the node up with the rest, before GitOps.
+        kind: NODE,
+        plural: "nodes",
+        short: &[],
+        api_version: "core.delonix.io/v1beta1",
+        // The compute host itself — the substrate the compute Kinds run on.
+        domain: Domain::Compute,
+        form: Form::Primary,
+        in_stack: true,
+        // Applied by `stack apply -f node.yaml`, but NOT nestable in a `kind: Stack`
+        // aggregate: a node is a node-wide singleton, not a tenant resource a Stack
+        // groups and owns. `stack_group_absent_reason` says so.
+        stack_group: "",
+        converges: true,
+        teardown: false,
+        // Genuinely node-scoped (D7), not merely provisional like the others.
+        namespaced: Namespaced::Never,
+        presence: Presence::Registry,
+    },
+    KindFacts {
         // ADR-0021. LAST in apply order, after everything it could pull: the
         // timer it installs may fire as soon as it is written, and the stack it
         // reconciles into should already be what this same apply declared.
@@ -906,27 +933,6 @@ const FACTS: &[KindFacts] = &[
         // lowers it away, so a document that somehow reaches `ls` is described
         // rather than called unsupported.
         presence: Presence::Declarative,
-    },
-    KindFacts {
-        // ADR-0086 D3/D7. RESERVED: this node as a readable resource, declared at
-        // `v1beta1` with no apply yet — `NodeService.GetCapacity` already serves
-        // the capacity, but the declarative Kind's read-back/labels/taints land
-        // with the ResourceService (ADR-0087/0090). Node-scoped (D7), out of the
-        // stack cycle, no group, not observable.
-        kind: NODE,
-        plural: "nodes",
-        short: &[],
-        api_version: "core.delonix.io/v1beta1",
-        // The compute host itself — the substrate the compute Kinds run on.
-        domain: Domain::Compute,
-        form: Form::Reserved,
-        in_stack: false,
-        stack_group: "",
-        converges: false,
-        teardown: false,
-        // Genuinely node-scoped (D7), not merely provisional like the others.
-        namespaced: Namespaced::Never,
-        presence: Presence::NotObservable,
     },
     KindFacts {
         kind: STACK,
@@ -1051,9 +1057,9 @@ pub fn stack_group_absent_reason(kind: &str) -> Option<&'static str> {
              it would promise an apply that does not happen"
         }
         NODE => {
-            "a Reserved Kind has no apply yet (ADR-0086 D3, built under ADR-0090), so \
-             `stack apply` never runs it — grouping it would promise an apply that does \
-             not happen"
+            "a Node is the compute host itself, a node-wide singleton — `stack apply -f node.yaml` \
+             applies it, but nesting it in a `kind: Stack` aggregate would make a tenant's stack \
+             own and prune the node it runs on (ADR-0101)"
         }
         _ => return None,
     })

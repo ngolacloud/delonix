@@ -22,7 +22,7 @@ use crate::proto::v1::volume_service_server::{VolumeService, VolumeServiceServer
 use crate::proto::v1::{
     ApiRoot, Capacity, Event, GetApiRootRequest, GetCapacityRequest, GetHealthRequest,
     GetNodeInfoRequest, Health, ListProvidersRequest, ListProvidersResponse, NodeInfo,
-    WatchEventsRequest,
+    SetNodeLabelsRequest, SetNodeTaintsRequest, SetSchedulabilityRequest, WatchEventsRequest,
 };
 use crate::proto::v1::{ApplyStackRequest, DestroyStackRequest, PlanStackRequest, StackPlan};
 use crate::proto::v1::{
@@ -104,13 +104,15 @@ pub async fn node_info(
     providers: Arc<dyn crate::provider_reports::ProviderReports>,
     linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
 ) -> Result<NodeInfo, Status> {
-    blocking("node info", move || {
-        node::node_info(
+    blocking("node info", move || -> Result<NodeInfo, Status> {
+        let record = crate::node_meta::current().map_err(|e| Status::internal(e.to_string()))?;
+        Ok(node::node_info(
             &crate::providers::measured_reports(&*vms, &*net, &*providers),
             &*linux,
-        )
+            &record,
+        ))
     })
-    .await
+    .await?
 }
 
 /// `GetHealth`, the one function both encodings call.
@@ -135,7 +137,102 @@ pub async fn capacity(
     store: Arc<dyn crate::store::StorePort>,
     linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
 ) -> Result<Capacity, Status> {
-    blocking("capacity", move || node::capacity(&*vms, &*store, &*linux)).await
+    blocking("capacity", move || -> Result<Capacity, Status> {
+        let record = crate::node_meta::current().map_err(|e| Status::internal(e.to_string()))?;
+        Ok(node::capacity(&*vms, &*store, &*linux, &record))
+    })
+    .await?
+}
+
+/// The node scheduling-write path (ADR-0101, A6): load the shared record, apply ONE
+/// dimension, stamp the version single-phase (`NodeRecord::stamp` keeps the generation on
+/// an idempotent write), store atomically, and return the resulting `NodeInfo`. The
+/// `kind: Node` apply writes the same record the same way from the CLI.
+async fn write_node_record(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    mutate: impl FnOnce(&mut delonix_model::node_meta::NodeRecord) + Send + 'static,
+) -> Result<NodeInfo, Status> {
+    blocking("node record write", move || -> Result<NodeInfo, Status> {
+        let root = node::state_root();
+        let mut record =
+            crate::node_meta::load(&root).map_err(|e| Status::internal(e.to_string()))?;
+        mutate(&mut record);
+        record.stamp();
+        crate::node_meta::store(&root, &record).map_err(|e| Status::internal(e.to_string()))?;
+        Ok(node::node_info(
+            &crate::providers::measured_reports(&*vms, &*net, &*providers),
+            &*linux,
+            &record,
+        ))
+    })
+    .await?
+}
+
+/// `SetNodeLabels` — a full replace of the node's placement labels.
+pub async fn set_node_labels(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    req: SetNodeLabelsRequest,
+) -> Result<NodeInfo, Status> {
+    write_node_record(vms, net, providers, linux, move |r| {
+        r.metadata.labels = req.labels.into_iter().collect();
+    })
+    .await
+}
+
+/// `SetNodeTaints` — a full replace of the node's taints. Each effect must be one of the
+/// closed set, and a key is required; an invalid taint is refused BEFORE any write.
+pub async fn set_node_taints(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    req: SetNodeTaintsRequest,
+) -> Result<NodeInfo, Status> {
+    for t in &req.taints {
+        if t.key.trim().is_empty() {
+            return Err(Status::invalid_argument("taint: `key` is required"));
+        }
+        if !delonix_model::node_meta::TAINT_EFFECTS.contains(&t.effect.as_str()) {
+            return Err(Status::invalid_argument(format!(
+                "taint '{}': effect '{}' is not one of NoSchedule, PreferNoSchedule, NoExecute",
+                t.key, t.effect
+            )));
+        }
+    }
+    write_node_record(vms, net, providers, linux, move |r| {
+        r.spec.taints = req
+            .taints
+            .iter()
+            .map(crate::node_meta::taint_from_proto)
+            .collect();
+    })
+    .await
+}
+
+/// `SetSchedulability` — cordon (`unschedulable=true`) or uncordon. A cordon records the
+/// reason; an uncordon clears it.
+pub async fn set_schedulability(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    req: SetSchedulabilityRequest,
+) -> Result<NodeInfo, Status> {
+    write_node_record(vms, net, providers, linux, move |r| {
+        r.spec.schedulable = !req.unschedulable;
+        r.spec.unschedulable_reason = if req.unschedulable {
+            req.reason
+        } else {
+            String::new()
+        };
+    })
+    .await
 }
 
 /// `ListProviders`, the one function both encodings call (ADR-0050 D5).
@@ -245,6 +342,54 @@ impl NodeService for NodeApi {
         ))
     }
 
+    async fn set_node_labels(
+        &self,
+        req: Request<SetNodeLabelsRequest>,
+    ) -> Result<Response<NodeInfo>, Status> {
+        Ok(Response::new(
+            set_node_labels(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.net),
+                Arc::clone(&self.providers),
+                Arc::clone(&self.linux),
+                req.into_inner(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn set_node_taints(
+        &self,
+        req: Request<SetNodeTaintsRequest>,
+    ) -> Result<Response<NodeInfo>, Status> {
+        Ok(Response::new(
+            set_node_taints(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.net),
+                Arc::clone(&self.providers),
+                Arc::clone(&self.linux),
+                req.into_inner(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn set_schedulability(
+        &self,
+        req: Request<SetSchedulabilityRequest>,
+    ) -> Result<Response<NodeInfo>, Status> {
+        Ok(Response::new(
+            set_schedulability(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.net),
+                Arc::clone(&self.providers),
+                Arc::clone(&self.linux),
+                req.into_inner(),
+            )
+            .await?,
+        ))
+    }
+
     type WatchEventsStream =
         Pin<Box<dyn tokio_stream::Stream<Item = Result<Event, Status>> + Send + 'static>>;
 
@@ -253,10 +398,12 @@ impl NodeService for NodeApi {
         req: Request<WatchEventsRequest>,
     ) -> Result<Response<Self::WatchEventsStream>, Status> {
         let req = req.into_inner();
+        // ADR-0100: the watch resolves each event's version off the record store.
+        let store = Arc::clone(&self.store);
         // The replay reads files: off the workers, and the polling task it
         // spawns lands on the runtime (a blocking-pool thread is inside it).
         let stream = blocking("events watch", move || {
-            crate::events::watch(node::state_root(), req, crate::events::POLL)
+            crate::events::watch(node::state_root(), req, crate::events::POLL, store)
         })
         .await??;
         Ok(Response::new(Box::pin(stream)))
@@ -1695,6 +1842,29 @@ pub fn engine_error(status: &Status) -> (delonix_model::Error, hyper::StatusCode
             hyper::StatusCode::INTERNAL_SERVER_ERROR,
         ),
     }
+}
+
+/// A denied call's answer (ADR-0098 A3): `PermissionDenied` as the same RFC 9457
+/// problem document every other node error uses — HTTP 403 for a REST caller,
+/// gRPC `PERMISSION_DENIED` carried in `grpc_status` for a gRPC one (the mapping
+/// `engine_error` already has). The handler never runs; the authorization layer
+/// returns this before dispatch.
+pub fn permission_denied(
+    operation: &str,
+    namespace: &str,
+    instance: &str,
+) -> axum::response::Response {
+    let where_ = if namespace == "-" {
+        String::new()
+    } else {
+        format!(" in namespace '{namespace}'")
+    };
+    problem(
+        Status::permission_denied(format!(
+            "the client certificate is not authorized for {operation}{where_}"
+        )),
+        instance,
+    )
 }
 
 /// A failure as the RFC 9457 problem document the OpenAPI declares for every

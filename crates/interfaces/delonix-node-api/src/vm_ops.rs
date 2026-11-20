@@ -453,6 +453,8 @@ pub fn create_in(
     if let Some(found) = operations::replay(root, "create", &target, &req.request_id, &fp)? {
         return Ok(operations::message(&found));
     }
+    // A cordoned node refuses a NEW create (ADR-0101 §3), after the idempotent replay.
+    crate::node_meta::ensure_schedulable(root).map_err(|e| status_of(&e))?;
     if vms.exists(&req.name) {
         return Err(Status::already_exists(format!(
             "virtual machine '{}' already exists",

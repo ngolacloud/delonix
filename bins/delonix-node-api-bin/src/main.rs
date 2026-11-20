@@ -778,6 +778,9 @@ struct Args {
     tls_cert: Option<String>,
     tls_key: Option<String>,
     tls_client_ca: Option<String>,
+    tls_client_crl: Option<String>,
+    authz_policy: Option<String>,
+    audit_log: Option<String>,
 }
 
 fn parse_args(args: &[String]) -> Result<Args, Error> {
@@ -795,6 +798,14 @@ fn parse_args(args: &[String]) -> Result<Args, Error> {
             "--tls-cert" => &mut out.tls_cert,
             "--tls-key" => &mut out.tls_key,
             "--tls-client-ca" => &mut out.tls_client_ca,
+            // ADR-0097: an OPTIONAL CRL the client verifier consults.
+            "--tls-client-crl" => &mut out.tls_client_crl,
+            // ADR-0098: authorization by client-certificate identity (a JSON
+            // policy) and the per-call audit log. Both OPTIONAL and independent:
+            // a policy with no audit log audits to the tracing stream; an audit
+            // log with no policy audits an allow-all posture.
+            "--authz-policy" => &mut out.authz_policy,
+            "--audit-log" => &mut out.audit_log,
             _ => return Err(Error::Invalid(format!("unknown argument: {a}"))),
         };
         let value = match inline {
@@ -863,23 +874,34 @@ fn resolve(
 /// cert, its key and the client CA, and a missing one must not read as «off».
 /// The PEM is read here; `serve` refuses a TCP listener that reaches it with
 /// `None`, and a unix listener that reaches it with `Some`.
+///
+/// `client_crl` is OPTIONAL (ADR-0097 A2): a CRL the verifier consults so a
+/// revoked (or expired) client certificate is refused at the handshake. It is
+/// only meaningful alongside the three required materials; given without them it
+/// falls into the partial-configuration refusal below.
 fn tls_material(
     cert: Option<String>,
     key: Option<String>,
     client_ca: Option<String>,
+    client_crl: Option<String>,
 ) -> Result<Option<delonix_node_api::Tls>, Error> {
     match (cert, key, client_ca) {
-        (None, None, None) => Ok(None),
+        (None, None, None) if client_crl.is_none() => Ok(None),
         (Some(cert), Some(key), Some(client_ca)) => {
             let read = |what: &str, path: &str| -> Result<String, Error> {
                 std::fs::read_to_string(path).map_err(|e| {
                     Error::Invalid(format!("node API TLS: cannot read {what} '{path}': {e}"))
                 })
             };
+            let client_crl_pem = match client_crl {
+                Some(path) => Some(read("--tls-client-crl", &path)?),
+                None => None,
+            };
             Ok(Some(delonix_node_api::Tls {
                 cert_pem: read("--tls-cert", &cert)?,
                 key_pem: read("--tls-key", &key)?,
                 client_ca_pem: read("--tls-client-ca", &client_ca)?,
+                client_crl_pem,
             }))
         }
         (cert, key, client_ca) => {
@@ -899,6 +921,38 @@ fn tls_material(
             )))
         }
     }
+}
+
+/// The authorization and audit configuration (ADR-0098 A3), from the two file
+/// paths (a flag, else its `DELONIX_NODE_API_*` variable). `None` when neither is
+/// given — the A1/A2 posture, no per-call authorization and no audit log. A
+/// policy with no audit path audits to the tracing stream; an audit path with no
+/// policy audits an allow-all posture. `serve` refuses this on a unix listener
+/// (there is no client certificate to read an identity from), as it refuses TLS.
+fn authz_material(
+    policy_path: Option<String>,
+    audit_path: Option<String>,
+) -> Result<Option<delonix_node_api::authz::Authz>, Error> {
+    use delonix_node_api::authz::{Authz, AuditSink, Policy};
+    if policy_path.is_none() && audit_path.is_none() {
+        return Ok(None);
+    }
+    let policy = match policy_path {
+        Some(path) => {
+            let src = std::fs::read_to_string(&path).map_err(|e| {
+                Error::Invalid(format!("node API authz: cannot read --authz-policy '{path}': {e}"))
+            })?;
+            Policy::from_json(&src).map_err(Error::Invalid)?
+        }
+        None => Policy::AllowAll,
+    };
+    let audit = match audit_path {
+        Some(path) => AuditSink::to_file(&path).map_err(|e| {
+            Error::Invalid(format!("node API audit: cannot open --audit-log '{path}': {e}"))
+        })?,
+        None => AuditSink::tracing_only(),
+    };
+    Ok(Some(Authz { policy, audit }))
 }
 
 fn run() -> Result<(), Error> {
@@ -925,6 +979,17 @@ fn run() -> Result<(), Error> {
             parsed.tls_client_ca.clone(),
             "DELONIX_NODE_API_TLS_CLIENT_CA",
         ),
+        env_tls(
+            parsed.tls_client_crl.clone(),
+            "DELONIX_NODE_API_TLS_CLIENT_CRL",
+        ),
+    )?;
+    // Authorization by client-certificate identity + the per-call audit log
+    // (ADR-0098): a flag beats its variable; `serve` refuses it on a unix
+    // listener, as it does TLS.
+    let authz = authz_material(
+        env_tls(parsed.authz_policy.clone(), "DELONIX_NODE_API_AUTHZ_POLICY"),
+        env_tls(parsed.audit_log.clone(), "DELONIX_NODE_API_AUDIT_LOG"),
     )?;
     // Mount the engine and hand the server its VM port (ADR-0040 A5). The read
     // path resolves off the engine; the write half of the VM lifecycle still
@@ -975,6 +1040,7 @@ fn run() -> Result<(), Error> {
         listen,
         idle,
         tls,
+        authz,
         vms,
         store,
         run_resolver,
@@ -1017,36 +1083,72 @@ mod tests {
     #[test]
     fn tls_material_is_all_or_nothing_and_fail_closed() {
         // Nothing given: the unix transport, no TLS.
-        assert!(tls_material(None, None, None).unwrap().is_none());
+        assert!(tls_material(None, None, None, None).unwrap().is_none());
         // A partial configuration is refused, naming exactly what is missing —
         // never read as «TLS off».
-        let e = tls_material(Some("/c".into()), None, None).unwrap_err();
+        let e = tls_material(Some("/c".into()), None, None, None).unwrap_err();
         let m = e.to_string();
         assert!(m.contains("partially configured"), "{m}");
         assert!(
             m.contains("--tls-key") && m.contains("--tls-client-ca"),
             "the missing ones are named: {m}"
         );
+        // A CRL alone (no cert/key/CA) is still a partial configuration, not
+        // «TLS off» — a CRL means TLS was intended (ADR-0097).
+        let e = tls_material(None, None, None, Some("/crl".into())).unwrap_err();
+        assert!(e.to_string().contains("partially configured"), "{e}");
         // All three given but a path cannot be read: still an error, never a
         // silent cleartext fallback.
         let e = tls_material(
             Some("/no/such/cert".into()),
             Some("/no/such/key".into()),
             Some("/no/such/ca".into()),
+            None,
         )
         .unwrap_err();
         assert!(e.to_string().contains("cannot read"), "{e}");
-        // The flags are parsed (inline and spaced forms).
+        // The flags are parsed (inline and spaced forms), CRL optional.
         let a = parse_args(&args(&[
             "--tls-cert=/c",
             "--tls-key",
             "/k",
             "--tls-client-ca=/ca",
+            "--tls-client-crl=/crl",
         ]))
         .unwrap();
         assert_eq!(a.tls_cert.as_deref(), Some("/c"));
         assert_eq!(a.tls_key.as_deref(), Some("/k"));
         assert_eq!(a.tls_client_ca.as_deref(), Some("/ca"));
+        assert_eq!(a.tls_client_crl.as_deref(), Some("/crl"));
+    }
+
+    #[test]
+    fn authz_flags_are_parsed_and_material_is_optional() {
+        // ADR-0098: neither flag ⇒ no Authz (the A1/A2 posture).
+        assert!(authz_material(None, None).unwrap().is_none());
+        // The flags parse (inline and spaced forms).
+        let a = parse_args(&args(&[
+            "--authz-policy=/p.json",
+            "--audit-log",
+            "/var/log/a.jsonl",
+        ]))
+        .unwrap();
+        assert_eq!(a.authz_policy.as_deref(), Some("/p.json"));
+        assert_eq!(a.audit_log.as_deref(), Some("/var/log/a.jsonl"));
+        // A policy path that cannot be read is an error, never a silent
+        // allow-all.
+        let e = authz_material(Some("/no/such/policy.json".into()), None).unwrap_err();
+        assert!(e.to_string().contains("cannot read"), "{e}");
+        // An audit path with no policy is valid: an allow-all posture, audited.
+        let tmp = std::env::temp_dir().join("delonix-node-api-authz-test.jsonl");
+        let authz = authz_material(None, Some(tmp.display().to_string()))
+            .unwrap()
+            .expect("an audit path alone yields an Authz");
+        assert!(matches!(
+            authz.policy,
+            delonix_node_api::authz::Policy::AllowAll
+        ));
+        let _ = std::fs::remove_file(&tmp);
     }
 
     #[test]

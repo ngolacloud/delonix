@@ -78,7 +78,10 @@ base64 = { workspace = true }
 # cert/chave BYO (PEM do kind: Secret) usa `rustls-pki-types` re-exportado pelo
 # próprio rustls (ver ingress_proxy.rs); `rcgen` gera o self-signed.
 tokio-rustls = { workspace = true, features = ["ring", "logging", "tls12"] }
-rcgen = { workspace = true, features = ["ring", "pem"] }
+# `x509-parser` is needed to ingest a member's CSR (`CertificateSigningRequestParams::from_pem`,
+# ADR-0097); the CA reload itself parses no certificate.
+rcgen = { workspace = true, features = ["ring", "pem", "x509-parser"] }
+time = { workspace = true }
 # `__volsnap` (tar.gz do _data de um volume, no userns mapeado) — ja no workspace,
 # nao acrescenta nada a arvore de dependencias do repo publico.
 tar = { workspace = true }

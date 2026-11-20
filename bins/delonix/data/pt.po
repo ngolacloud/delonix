@@ -18000,3 +18000,171 @@ msgstr "Junta-se à netns partilhada de um pod existente (Podman `run --pod`): o
 msgid "Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION` (1.37, the latest stable on pkgs.k8s.io). 1.34/1.35/1.36 remain available by passing them here"
 msgstr "Versão do Kubernetes (ex. `1.31`) — omite para `DEFAULT_K8S_VERSION` (1.37, a última estável em pkgs.k8s.io). 1.34/1.35/1.36 continuam disponíveis passando-as aqui"
 
+
+# ---- help: node identity / enrollment (ADR-0097, node-ca / node-enroll) -----
+
+msgid "Serve the ENROLLMENT AUTHORITY (ADR-0097): trade a one-time token for a short client cert"
+msgstr "Serve a AUTORIDADE DE INSCRIÇÃO (ADR-0097): troca um token de uso único por um certificado de cliente curto"
+
+msgid "Serve the ENROLLMENT AUTHORITY (ADR-0097): trade a one-time token for a short client cert.\n\nA server-TLS-only endpoint (`POST /v1/enroll`) that signs a member's CSR with the node CA key it holds (`--ca-key`) and returns a short-lived client certificate. The member pins the node CA; the token authenticates it. This is NOT a node-API server and never holds a node's data — it holds the CA key, so run it deliberately, not by socket activation."
+msgstr "Serve a AUTORIDADE DE INSCRIÇÃO (ADR-0097): troca um token de uso único por um certificado de cliente curto.\n\nUm endpoint só com TLS de servidor (`POST /v1/enroll`) que assina o CSR de um membro com a chave da CA de nó que detém (`--ca-key`) e devolve um certificado de cliente de vida curta. O membro fixa a CA de nó; o token autentica-o. NÃO é um servidor da node-API e nunca detém os dados de um nó — detém a chave da CA, por isso corre-o deliberadamente, não por activação por socket."
+
+msgid "Manage the node CA that signs fleet-member certificates (ADR-0097)"
+msgstr "Gere a CA de nó que assina os certificados dos membros da frota (ADR-0097)"
+
+msgid "Manage the node CA that signs fleet-member certificates (ADR-0097).\n\n`node-ca init` creates the CA whose cert is the node API's `--tls-client-ca` trust anchor and whose key stays with the enrollment authority (`serve node-enroll`); `node-ca revoke` lists a certificate's serial in a CRL (`--tls-client-crl`). NOT stable: see `docs/cli-stability.md`."
+msgstr "Gere a CA de nó que assina os certificados dos membros da frota (ADR-0097).\n\n`node-ca init` cria a CA cujo certificado é a âncora de confiança `--tls-client-ca` da node-API e cuja chave fica com a autoridade de inscrição (`serve node-enroll`); `node-ca revoke` lista o número de série de um certificado numa CRL (`--tls-client-crl`). NÃO estável: ver `docs/cli-stability.md`."
+
+msgid "Create a node CA: a key and its self-signed certificate"
+msgstr "Cria uma CA de nó: uma chave e o seu certificado auto-assinado"
+
+msgid "Create a node CA: a key and its self-signed certificate.\n\nThe CERT is the trust anchor you pass to every server as `serve node-api --tls-client-ca`; the KEY stays with the enrollment authority (`serve node-enroll`) and no node-API server ever holds it (ADR-0097)."
+msgstr "Cria uma CA de nó: uma chave e o seu certificado auto-assinado.\n\nO CERTIFICADO é a âncora de confiança que passas a cada servidor como `serve node-api --tls-client-ca`; a CHAVE fica com a autoridade de inscrição (`serve node-enroll`) e nenhum servidor da node-API alguma vez a detém (ADR-0097)."
+
+msgid "Revoke client-certificate serials into a CRL the node CA signs"
+msgstr "Revoga números de série de certificados de cliente para uma CRL que a CA de nó assina"
+
+msgid "Revoke client-certificate serials into a CRL the node CA signs.\n\nSerials accumulate in a sidecar (`<out>.serials`) so each run lists every serial revoked so far; point `serve node-api --tls-client-crl` at the CRL."
+msgstr "Revoga números de série de certificados de cliente para uma CRL que a CA de nó assina.\n\nOs números de série acumulam-se num ficheiro lateral (`<out>.serials`) para que cada execução liste todos os revogados até agora; aponta `serve node-api --tls-client-crl` para a CRL."
+
+msgid "Enroll this host as a fleet member: one-time token → CSR → short client cert"
+msgstr "Inscreve este host como membro da frota: token de uso único → CSR → certificado de cliente curto"
+
+msgid "Enroll this host as a fleet member: one-time token → CSR → short client cert.\n\nGenerates a key pair and a CSR, exchanges a one-time token at an enrollment authority (`serve node-enroll`) pinned to the node CA, and writes the short-lived client certificate the node API (ADR-0096) then accepts (ADR-0097). NOT stable: see `docs/cli-stability.md`."
+msgstr "Inscreve este host como membro da frota: token de uso único → CSR → certificado de cliente curto.\n\nGera um par de chaves e um CSR, troca um token de uso único numa autoridade de inscrição (`serve node-enroll`) fixada à CA de nó, e escreve o certificado de cliente de vida curta que a node-API (ADR-0096) depois aceita (ADR-0097). NÃO estável: ver `docs/cli-stability.md`."
+
+# ---- help: args — node-api CRL + enrollment authority / member --------------
+
+msgid "TLS: an OPTIONAL CRL (PEM path) the node consults — a client whose certificate serial is listed, or one past its validity, is refused at the handshake (ADR-0097). Overrides `$DELONIX_NODE_API_TLS_CLIENT_CRL`. Only meaningful with a `tcp://` address"
+msgstr "TLS: uma CRL OPCIONAL (caminho PEM) que o nó consulta — um cliente cujo número de série do certificado esteja listado, ou um já fora de validade, é recusado no handshake (ADR-0097). Sobrepõe-se a `$DELONIX_NODE_API_TLS_CLIENT_CRL`. Só faz sentido com um endereço `tcp://`"
+
+msgid "Authorization: a JSON policy (ADR-0098) granting client-cert identities operations per namespace. Absent, every authenticated client is authorized for all operations. Overrides `$DELONIX_NODE_API_AUTHZ_POLICY`. Only meaningful with a `tcp://` address"
+msgstr "Autorização: uma política JSON (ADR-0098) que concede a identidades de certificado de cliente operações por espaço de nomes. Ausente, todo o cliente autenticado fica autorizado para todas as operações. Sobrepõe-se a `$DELONIX_NODE_API_AUTHZ_POLICY`. Só faz sentido com um endereço `tcp://`"
+
+msgid "Audit: append one JSON line per mutating call and per denial to this file (ADR-0098). Also emitted to the tracing stream. Overrides `$DELONIX_NODE_API_AUDIT_LOG`. Only meaningful with a `tcp://` address"
+msgstr "Auditoria: acrescenta uma linha JSON por chamada mutante e por recusa a este ficheiro (ADR-0098). Também emitida no fluxo de rasto. Sobrepõe-se a `$DELONIX_NODE_API_AUDIT_LOG`. Só faz sentido com um endereço `tcp://`"
+
+msgid "Address to listen on: `tcp://host:port` (server-authenticated TLS)"
+msgstr "Endereço onde escutar: `tcp://host:port` (TLS autenticado no servidor)"
+
+msgid "The node CA private key (PEM path) — used to sign CSRs and the authority's own cert"
+msgstr "A chave privada da CA de nó (caminho PEM) — usada para assinar CSRs e o próprio certificado da autoridade"
+
+msgid "The node CA certificate (PEM path) — echoed to members in the response"
+msgstr "O certificado da CA de nó (caminho PEM) — devolvido aos membros na resposta"
+
+msgid "The CA subject common name (must match `node-ca init --cn`)"
+msgstr "O common name do sujeito da CA (tem de coincidir com `node-ca init --cn`)"
+
+msgid "A valid one-time enrollment token. Repeatable"
+msgstr "Um token de inscrição de uso único válido. Repetível"
+
+msgid "A file of one-time tokens, one per line (`#` comments and blanks skipped)"
+msgstr "Um ficheiro de tokens de uso único, um por linha (comentários `#` e linhas vazias ignorados)"
+
+msgid "A SAN (IP/DNS) for the authority's own server certificate — the address members reach it at. Repeatable; 127.0.0.1 and localhost are always included"
+msgstr "Um SAN (IP/DNS) para o certificado de servidor da própria autoridade — o endereço por onde os membros lhe chegam. Repetível; 127.0.0.1 e localhost são sempre incluídos"
+
+msgid "Lifetime of the client certificates issued: `60s`, `30m`, `1h`. Default 1h"
+msgstr "Tempo de vida dos certificados de cliente emitidos: `60s`, `30m`, `1h`. Por omissão 1h"
+
+msgid "An explicit server certificate (PEM path) instead of auto-issuing one from the CA"
+msgstr "Um certificado de servidor explícito (caminho PEM) em vez de emitir um a partir da CA"
+
+msgid "The explicit server certificate's key (PEM path); required with `--server-cert`"
+msgstr "A chave do certificado de servidor explícito (caminho PEM); obrigatória com `--server-cert`"
+
+msgid "The CA's subject common name — the SAME value `serve node-enroll` and `node-ca revoke` must be given, since the issuer is reconstructed from it"
+msgstr "O common name do sujeito da CA — o MESMO valor que `serve node-enroll` e `node-ca revoke` têm de receber, já que o emissor é reconstruído a partir dele"
+
+msgid "Where to write the CA certificate (PEM)"
+msgstr "Onde escrever o certificado da CA (PEM)"
+
+msgid "Where to write the CA private key (PEM, written `0600`)"
+msgstr "Onde escrever a chave privada da CA (PEM, escrita a `0600`)"
+
+msgid "Overwrite existing output files"
+msgstr "Sobrescreve os ficheiros de saída existentes"
+
+msgid "The node CA private key (PEM) — the CRL is signed with it"
+msgstr "A chave privada da CA de nó (PEM) — a CRL é assinada com ela"
+
+msgid "A client-certificate serial to revoke (hex, as `node-enroll` printed). Repeatable"
+msgstr "Um número de série de certificado de cliente a revogar (hex, como `node-enroll` imprimiu). Repetível"
+
+msgid "Where to write the CRL (PEM)"
+msgstr "Onde escrever a CRL (PEM)"
+
+msgid "The enrollment authority address: `host:port` or `tcp://host:port`"
+msgstr "O endereço da autoridade de inscrição: `host:port` ou `tcp://host:port`"
+
+msgid "The node CA certificate (PEM) to PIN for the authority's server identity — this is what stops a man-in-the-middle from harvesting the token"
+msgstr "O certificado da CA de nó (PEM) a FIXAR para a identidade de servidor da autoridade — é isto que impede um man-in-the-middle de colher o token"
+
+msgid "The one-time enrollment token"
+msgstr "O token de inscrição de uso único"
+
+msgid "The subject common name = this member's identity in its certificate"
+msgstr "O common name do sujeito = a identidade deste membro no seu certificado"
+
+msgid "A subject alternative name (IP or DNS) for the client certificate. Repeatable; usually unnecessary for a client identity"
+msgstr "Um subject alternative name (IP ou DNS) para o certificado de cliente. Repetível; normalmente desnecessário para uma identidade de cliente"
+
+msgid "Where to write the generated private key (PEM, `0600`) — it never leaves this host"
+msgstr "Onde escrever a chave privada gerada (PEM, `0600`) — nunca sai deste host"
+
+msgid "Where to write the issued client certificate (PEM)"
+msgstr "Onde escrever o certificado de cliente emitido (PEM)"
+
+msgid "Where to also write the CA bundle the authority returned (PEM)"
+msgstr "Onde também escrever o pacote de CA que a autoridade devolveu (PEM)"
+
+msgid "Socket address: a unix path (`unix:///run/delonix-node.sock`, the default, or `$DELONIX_NODE_API_ADDR`) or a TCP address (`tcp://host:port`). A `tcp://` address serves mutual TLS and requires `--tls-cert`/`--tls-key`/`--tls-client-ca`"
+msgstr "Endereço do socket: um caminho unix (`unix:///run/delonix-node.sock`, o default, ou `$DELONIX_NODE_API_ADDR`) ou um endereço TCP (`tcp://host:port`). Um endereço `tcp://` serve TLS mútuo e exige `--tls-cert`/`--tls-key`/`--tls-client-ca`"
+
+msgid "TLS: the server certificate chain (PEM path). Required for a `tcp://` address (ADR-0096); together with `--tls-key` and `--tls-client-ca`. Overrides `$DELONIX_NODE_API_TLS_CERT`"
+msgstr "TLS: a cadeia de certificados do servidor (caminho PEM). Obrigatória para um endereço `tcp://` (ADR-0096); em conjunto com `--tls-key` e `--tls-client-ca`. Sobrepõe-se a `$DELONIX_NODE_API_TLS_CERT`"
+
+msgid "TLS: the server private key (PEM path). Overrides `$DELONIX_NODE_API_TLS_KEY`"
+msgstr "TLS: a chave privada do servidor (caminho PEM). Sobrepõe-se a `$DELONIX_NODE_API_TLS_KEY`"
+
+msgid "TLS: the CA a client certificate must chain to (PEM path) — the node verifies every client against it (mutual TLS). Overrides `$DELONIX_NODE_API_TLS_CLIENT_CA`"
+msgstr "TLS: a CA à qual o certificado de cliente tem de encadear (caminho PEM) — o nó verifica cada cliente contra ela (TLS mútuo). Sobrepõe-se a `$DELONIX_NODE_API_TLS_CLIENT_CA`"
+
+msgid "Write a systemd socket unit and its service (user units when rootless, system units as root), reload systemd and enable the socket, instead of serving. The node API then starts on the first connection and exits when idle (default `--idle-timeout` in the unit: 120s). With a `tcp://` address the unit carries the TLS material"
+msgstr "Escreve uma unit de socket do systemd e o seu serviço (units de utilizador em rootless, units de sistema como root), recarrega o systemd e activa o socket, em vez de servir. A node-API arranca então na primeira ligação e sai quando ociosa (`--idle-timeout` por omissão na unit: 120s). Com um endereço `tcp://` a unit transporta o material TLS"
+
+# ---- help: manual example comments (ADR-0097) -------------------------------
+
+msgid "run the enrollment authority: trade a one-time token for a short client cert, auto-issuing its own server cert from the CA"
+msgstr "corre a autoridade de inscrição: troca um token de uso único por um certificado de cliente curto, auto-emitindo o seu próprio certificado de servidor a partir da CA"
+
+msgid "issue minute-lived certificates so expiry is observable, loading tokens from a file"
+msgstr "emite certificados com vida de minutos para que a expiração seja observável, carregando tokens de um ficheiro"
+
+msgid "create the node CA whose cert is every node's `--tls-client-ca` and whose key feeds the enrollment authority"
+msgstr "cria a CA de nó cujo certificado é o `--tls-client-ca` de cada nó e cuja chave alimenta a autoridade de inscrição"
+
+msgid "take a member's certificate away by revoking its serial into a CRL"
+msgstr "retira o certificado de um membro revogando o seu número de série para uma CRL"
+
+msgid "create the CA: `node-ca.crt` (the trust anchor) and `node-ca.key` (kept with the authority)"
+msgstr "cria a CA: `node-ca.crt` (a âncora de confiança) e `node-ca.key` (guardada com a autoridade)"
+
+msgid "pick the subject name and output paths"
+msgstr "escolhe o nome do sujeito e os caminhos de saída"
+
+msgid "revoke a certificate by its serial into the CRL a node loads with `--tls-client-crl`"
+msgstr "revoga um certificado pelo seu número de série para a CRL que um nó carrega com `--tls-client-crl`"
+
+msgid "enroll this host: generate a key and CSR, spend a one-time token, write `client.key`/`client.crt`"
+msgstr "inscreve este host: gera uma chave e um CSR, gasta um token de uso único, escreve `client.key`/`client.crt`"
+
+msgid "the node is cordoned"
+msgstr "o nó está cordonado"
+
+msgid "The node is marked unschedulable (cordoned), so it refuses a new workload create (ADR-0101 §3). Unlike Kubernetes, where only the scheduler honours `unschedulable`, a node that serves a control plane directly enforces the cordon itself — it is the last line, not an advisory flag. Reads, updates to existing workloads, deletes and uncordon are unaffected."
+msgstr "O nó está marcado como não-agendável (cordonado), por isso recusa a criação de um novo workload (ADR-0101 §3). Ao contrário do Kubernetes, onde só o escalonador respeita `unschedulable`, um nó que serve um plano de controlo directamente aplica ele próprio o cordon — é a última linha, não uma marca consultiva. Leituras, actualizações a workloads existentes, remoções e uncordon não são afectadas."
+
+msgid "Uncordon the node (`SetSchedulability` with `unschedulable=false`, or `kind: Node` with `spec.schedulable: true`) before creating workloads on it, or place the workload on a node that is schedulable."
+msgstr "Retire o cordon do nó (`SetSchedulability` com `unschedulable=false`, ou `kind: Node` com `spec.schedulable: true`) antes de criar workloads nele, ou coloque o workload num nó que esteja agendável."
