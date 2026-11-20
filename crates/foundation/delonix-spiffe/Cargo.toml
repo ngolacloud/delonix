@@ -1,0 +1,20 @@
+[package]
+name = "delonix-spiffe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Foundation crate: the node's SPIFFE identity (X.509-SVID) as rustls material.
+# Non-dev deps are all non-HEAVY (arch_fitness): `tokio`/`tokio-rustls` are a
+# DEV dependency only — the async handshake belongs to the caller, not here.
+[dependencies]
+rustls = { workspace = true, features = ["ring", "std", "tls12", "logging"] }
+rustls-webpki = { workspace = true, features = ["ring", "std"] }
+rcgen = { workspace = true, features = ["ring", "pem"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util"] }
+tokio-rustls = { workspace = true, features = ["ring", "tls12", "logging"] }
+
+[lints]
+workspace = true

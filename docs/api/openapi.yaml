@@ -1616,6 +1616,35 @@ paths:
                         application/problem+json:
                             schema:
                                 $ref: '#/components/schemas/Problem'
+    /v1/node/workloads/{pid}:attest:
+        get:
+            tags:
+                - NodeService
+            description: |-
+                Workload attestation (ADR-0102): given a host PID, the workload that owns it,
+                 the image digest it runs and its labels — the facts a node-local SPIFFE
+                 attestor needs, exposed as a plain read-only operation. An unmatched PID is a
+                 normal answer (`found: false`), never an error.
+            operationId: NodeService_AttestWorkload
+            parameters:
+                - name: pid
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/delonix.node.v1.WorkloadAttestation'
+                default:
+                    description: An error, as an RFC 9457 problem document (ADR-0042 D2).
+                    content:
+                        application/problem+json:
+                            schema:
+                                $ref: '#/components/schemas/Problem'
     /v1/operations:
         get:
             tags:
@@ -3433,6 +3462,44 @@ components:
                     format: int32
                 reason:
                     type: string
+        delonix.node.v1.WorkloadAttestation:
+            type: object
+            properties:
+                pid:
+                    type: string
+                found:
+                    type: boolean
+                container_id:
+                    type: string
+                name:
+                    type: string
+                namespace:
+                    type: string
+                pod:
+                    type: string
+                image:
+                    type: string
+                image_digest:
+                    type: string
+                labels:
+                    type: object
+                    additionalProperties:
+                        type: string
+                annotations:
+                    type: object
+                    additionalProperties:
+                        type: string
+                links:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/delonix.node.v1.Link'
+            description: |-
+                The identity of the workload a host PID belongs to, plus the image and the
+                 labels an attestor selects on. Only what the node already records: the image
+                 digest is resolved best-effort from the image store (empty if the reference is
+                 not a stored tag), and the labels are the container's (OCI image-level labels
+                 are not persisted — ADR-0102). A PID that owns no live workload comes back with
+                 `found: false` and the pid echoed, the rest empty.
         google.protobuf.Any:
             type: object
             properties:

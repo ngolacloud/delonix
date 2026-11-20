@@ -12,17 +12,17 @@ This matrix is **generated** from the measured interoperability records in `test
 
 **Result.** ✅ pass (proven) · ◑ partial (measured, incomplete) · ✗ fail (measured not to work) · ☐ not tested (no proof yet).
 
-**Totals:** ✅ pass: 0 · ◑ partial: 8 · ✗ fail: 0 · ☐ not tested: 22 · records: 30
+**Totals:** ✅ pass: 1 · ◑ partial: 8 · ✗ fail: 0 · ☐ not tested: 21 · records: 30
 
 ## H0 — SPIFFE identity
 
 | Tool | Version | Delonix | Mode | Privilege | Host capabilities | Result | Proof |
 |---|---|---|---|---|---|---|---|
-| `spiffe-spire` | — | — | 1 (K8s) | rootless | — | ☐ not tested | — |
+| `spiffe-spire` | v1.16.0 | 0.1.2 | 2 (no-K8s) | rootless | — | ✅ pass | [reports/interop/h0-spiffe/README.md](../reports/interop/h0-spiffe/README.md) |
 
 <details><summary>Notes</summary>
 
-- **`spiffe-spire`** — Node mTLS uses an own CA (rustls/rcgen self-signed). No X.509-SVID / spiffe:// URI SAN yet, and no PID->workload attestation API. Acceptance: a lab SPIRE server issues the node certificate and the node API accepts it.
+- **`spiffe-spire`** — spire-server v1.16.0 mints the node X.509-SVID spiffe://example.org/node off its own CA; delonix-spiffe builds rustls server+client configs from it and completes a mutual-TLS handshake, verifying the peer by its spiffe:// URI-SAN against the SPIRE bundle. The own-CA (rcgen) fallback and the node contract's AttestWorkload RPC (PID->workload+digest+labels) land in the same phase (ADR-0102). Identity only: NOT wired onto a live node TCP listener (A1/ADR-0096), no SPIRE agent/Workload API/rotation (A2).
 
 </details>
 

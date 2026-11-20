@@ -20,9 +20,10 @@ use crate::proto::v1::virtual_machine_service_server::{
 };
 use crate::proto::v1::volume_service_server::{VolumeService, VolumeServiceServer};
 use crate::proto::v1::{
-    ApiRoot, Capacity, Event, GetApiRootRequest, GetCapacityRequest, GetHealthRequest,
-    GetNodeInfoRequest, Health, ListProvidersRequest, ListProvidersResponse, NodeInfo,
-    SetNodeLabelsRequest, SetNodeTaintsRequest, SetSchedulabilityRequest, WatchEventsRequest,
+    ApiRoot, AttestWorkloadRequest, Capacity, Event, GetApiRootRequest, GetCapacityRequest,
+    GetHealthRequest, GetNodeInfoRequest, Health, ListProvidersRequest, ListProvidersResponse,
+    NodeInfo, SetNodeLabelsRequest, SetNodeTaintsRequest, SetSchedulabilityRequest,
+    WatchEventsRequest, WorkloadAttestation,
 };
 use crate::proto::v1::{ApplyStackRequest, DestroyStackRequest, PlanStackRequest, StackPlan};
 use crate::proto::v1::{
@@ -235,6 +236,91 @@ pub async fn set_schedulability(
     .await
 }
 
+/// `AttestWorkload`, the one function both encodings call (ADR-0102). Matches a
+/// host PID to the LIVE container that owns it — `Container::is_live` reads
+/// `/proc` with the record's `pid_starttime`, so a PID recycled onto another
+/// process does not masquerade as the workload it replaced — resolves the image
+/// digest best-effort from the image store, and reports the container's labels
+/// and annotations. A PID that owns no live workload is a normal answer
+/// (`found: false`), never an error: an attestor asks about PIDs that may have
+/// already exited.
+pub async fn attest_workload(
+    store: Arc<dyn crate::store::StorePort>,
+    images: Arc<dyn crate::image_repo::ImageRepo>,
+    req: AttestWorkloadRequest,
+) -> Result<WorkloadAttestation, Status> {
+    let attestation = blocking("attest workload", move || -> Result<_, Status> {
+        let pid = req.pid;
+        let links = vec![
+            node::link("self", &format!("/v1/node/workloads/{pid}:attest")),
+            node::link("root", "/v1"),
+        ];
+        let not_found = || WorkloadAttestation {
+            pid,
+            found: false,
+            links: links.clone(),
+            ..Default::default()
+        };
+        // Container PIDs are i32; a value outside that range owns no container.
+        let Ok(target) = i32::try_from(pid) else {
+            return Ok(not_found());
+        };
+        let containers = store
+            .container_list()
+            .map_err(|e| crate::network_ops::status_of(&e))?;
+        let Some(c) = containers
+            .into_iter()
+            .find(|c| c.pid == Some(target) && c.is_live())
+        else {
+            return Ok(not_found());
+        };
+        let image_digest = resolve_image_digest(images.as_ref(), &node::state_root(), &c.image);
+        Ok(WorkloadAttestation {
+            pid,
+            found: true,
+            container_id: c.id,
+            name: c.name,
+            namespace: c.namespace,
+            pod: c.pod.unwrap_or_default(),
+            image: c.image,
+            image_digest,
+            labels: c.labels.into_iter().collect(),
+            annotations: c.annotations.into_iter().collect(),
+            links,
+        })
+    })
+    .await??;
+    Ok(attestation)
+}
+
+/// The `sha256:…` config digest the image store holds for `reference`, or `""`
+/// when the reference is not a stored tag/id. Best-effort and read-only: the
+/// node records the image REFERENCE on a container, not its resolved digest
+/// (ADR-0102), so attestation resolves it here rather than fabricate one.
+fn resolve_image_digest(
+    images: &dyn crate::image_repo::ImageRepo,
+    root: &std::path::Path,
+    reference: &str,
+) -> String {
+    if reference.is_empty() {
+        return String::new();
+    }
+    let Ok(stored) = images.list(root) else {
+        return String::new();
+    };
+    // A tag the container was created with…
+    if let Some(img) = stored.iter().find(|i| i.repo_tags.iter().any(|t| t == reference)) {
+        return img.id.clone();
+    }
+    // …or the reference was itself a digest (with or without the `sha256:`).
+    let wanted = images.strip_digest(reference);
+    stored
+        .iter()
+        .find(|i| images.strip_digest(&i.id) == wanted)
+        .map(|i| i.id.clone())
+        .unwrap_or_default()
+}
+
 /// `ListProviders`, the one function both encodings call (ADR-0050 D5).
 /// `kind` empty = all; a kind the catalog does not have is `INVALID_ARGUMENT`
 /// (the same refusal `provider ls --kind ceph` gives), not an empty list.
@@ -322,6 +408,20 @@ impl NodeService for NodeApi {
                 Arc::clone(&self.vms),
                 Arc::clone(&self.store),
                 Arc::clone(&self.linux),
+            )
+            .await?,
+        ))
+    }
+
+    async fn attest_workload(
+        &self,
+        req: Request<AttestWorkloadRequest>,
+    ) -> Result<Response<WorkloadAttestation>, Status> {
+        Ok(Response::new(
+            attest_workload(
+                Arc::clone(&self.store),
+                Arc::clone(&self.images),
+                req.into_inner(),
             )
             .await?,
         ))
@@ -1893,4 +1993,74 @@ fn problem_as(
         hyper::header::HeaderValue::from_static("application/problem+json"),
     );
     res
+}
+
+#[cfg(test)]
+mod attest_tests {
+    use super::*;
+    use crate::image_repo::{ImageRepo, StoredImage};
+    use crate::store::NoStore;
+    use delonix_model::Error;
+    use std::path::Path;
+
+    /// An [`ImageRepo`] over one fixed image, to exercise the best-effort digest
+    /// resolution without naming an OCI adapter.
+    struct OneImage(StoredImage);
+    impl ImageRepo for OneImage {
+        fn list(&self, _root: &Path) -> Result<Vec<StoredImage>, Error> {
+            Ok(vec![self.0.clone()])
+        }
+        fn remove(&self, _root: &Path, _reference: &str) -> Result<(), Error> {
+            Ok(())
+        }
+        fn strip_digest<'a>(&self, digest: &'a str) -> &'a str {
+            digest.strip_prefix("sha256:").unwrap_or(digest)
+        }
+    }
+
+    #[test]
+    fn resolve_digest_matches_a_tag_or_a_digest_else_empty() {
+        let repo = OneImage(StoredImage {
+            id: "sha256:abcd".into(),
+            repo_tags: vec!["nginx:latest".into()],
+            created_unix: 0,
+            size_bytes: 0,
+        });
+        let root = Path::new("/does-not-matter");
+        // by the tag the container was created with
+        assert_eq!(resolve_image_digest(&repo, root, "nginx:latest"), "sha256:abcd");
+        // by a digest reference, with or without the algorithm prefix
+        assert_eq!(resolve_image_digest(&repo, root, "sha256:abcd"), "sha256:abcd");
+        assert_eq!(resolve_image_digest(&repo, root, "abcd"), "sha256:abcd");
+        // a reference the store does not hold, and the empty reference
+        assert_eq!(resolve_image_digest(&repo, root, "absent:tag"), "");
+        assert_eq!(resolve_image_digest(&repo, root, ""), "");
+    }
+
+    #[tokio::test]
+    async fn attest_unknown_pid_is_a_found_false_answer_not_an_error() {
+        let store: Arc<dyn crate::store::StorePort> = Arc::new(NoStore);
+        let images: Arc<dyn crate::image_repo::ImageRepo> =
+            Arc::new(crate::image_repo::NoImages);
+
+        // An in-range PID that owns no live container in an empty store.
+        let wa = attest_workload(
+            Arc::clone(&store),
+            Arc::clone(&images),
+            AttestWorkloadRequest { pid: 4242 },
+        )
+        .await
+        .unwrap();
+        assert!(!wa.found);
+        assert_eq!(wa.pid, 4242);
+        assert!(wa.container_id.is_empty());
+        assert!(wa.links.iter().any(|l| l.rel == "self"));
+
+        // A PID outside i32 owns no container — the range guard, also found:false.
+        let wa = attest_workload(store, images, AttestWorkloadRequest { pid: i64::MAX })
+            .await
+            .unwrap();
+        assert!(!wa.found);
+        assert_eq!(wa.pid, i64::MAX);
+    }
 }
