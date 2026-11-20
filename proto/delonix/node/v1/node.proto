@@ -62,6 +62,13 @@ service NodeService {
   rpc WatchEvents(WatchEventsRequest) returns (stream Event) {
     option (google.api.http) = {get: "/v1/events:watch"};
   }
+  // Workload attestation (ADR-0102): given a host PID, the workload that owns it,
+  // the image digest it runs and its labels — the facts a node-local SPIFFE
+  // attestor needs, exposed as a plain read-only operation. An unmatched PID is a
+  // normal answer (`found: false`), never an error.
+  rpc AttestWorkload(AttestWorkloadRequest) returns (WorkloadAttestation) {
+    option (google.api.http) = {get: "/v1/node/workloads/{pid}:attest"};
+  }
 }
 
 message GetApiRootRequest {}
@@ -221,4 +228,28 @@ message Event {
   // happened (ADR-0100).
   int64 generation = 8;
   int64 observed_generation = 9;
+}
+
+message AttestWorkloadRequest {
+  int64 pid = 1; // host PID — the container's / pod sandbox's init (pid 1) process
+}
+
+// The identity of the workload a host PID belongs to, plus the image and the
+// labels an attestor selects on. Only what the node already records: the image
+// digest is resolved best-effort from the image store (empty if the reference is
+// not a stored tag), and the labels are the container's (OCI image-level labels
+// are not persisted — ADR-0102). A PID that owns no live workload comes back with
+// `found: false` and the pid echoed, the rest empty.
+message WorkloadAttestation {
+  int64 pid = 1;
+  bool found = 2;
+  string container_id = 3;
+  string name = 4;
+  string namespace = 5;
+  string pod = 6; // the owning pod/sandbox; empty for a lone container
+  string image = 7; // the image REFERENCE the workload was created with
+  string image_digest = 8; // resolved "sha256:…", empty when unknown
+  map<string, string> labels = 9;
+  map<string, string> annotations = 10;
+  repeated Link links = 11;
 }

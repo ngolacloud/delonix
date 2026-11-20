@@ -62,6 +62,7 @@ LAYERS = {
     "delonix-storage": CONTEXT,  # ADR-0067 D1: the storage pool port, its registry and the allowlist
     "delonix-node": CONTEXT,
     "delonix-net-rules": FOUNDATION,  # → delonix-networking/domain (P2)
+    "delonix-spiffe": FOUNDATION,  # ADR-0102: the node's SPIFFE X.509-SVID identity as rustls material
     "delonix-security": CONTEXT,  # → delonix-security (P2)
     "delonix-host": ADAPTER,  # the host adapter: the delonix-node split's process/fs mechanism (R2)
     "delonix-pool-helper": ADAPTER,  # the storage pool helper protocol, lifted out of the storage context (R2c)
