@@ -12,7 +12,7 @@ This matrix is **generated** from the measured interoperability records in `test
 
 **Result.** ✅ pass (proven) · ◑ partial (measured, incomplete) · ✗ fail (measured not to work) · ☐ not tested (no proof yet).
 
-**Totals:** ✅ pass: 1 · ◑ partial: 8 · ✗ fail: 0 · ☐ not tested: 21 · records: 30
+**Totals:** ✅ pass: 1 · ◑ partial: 9 · ✗ fail: 0 · ☐ not tested: 20 · records: 30
 
 ## H0 — SPIFFE identity
 
@@ -22,7 +22,7 @@ This matrix is **generated** from the measured interoperability records in `test
 
 <details><summary>Notes</summary>
 
-- **`spiffe-spire`** — spire-server v1.16.0 mints the node X.509-SVID spiffe://example.org/node off its own CA; delonix-spiffe builds rustls server+client configs from it and completes a mutual-TLS handshake, verifying the peer by its spiffe:// URI-SAN against the SPIRE bundle. The own-CA (rcgen) fallback and the node contract's AttestWorkload RPC (PID->workload+digest+labels) land in the same phase (ADR-0102). Identity only: NOT wired onto a live node TCP listener (A1/ADR-0096), no SPIRE agent/Workload API/rotation (A2).
+- **`spiffe-spire`** — spire-server v1.16.0 mints the node X.509-SVID spiffe://example.org/node off its own CA; delonix-spiffe builds rustls server+client configs from it and completes a mutual-TLS handshake, verifying the peer by its spiffe:// URI-SAN against the SPIRE bundle. The own-CA (rcgen) fallback and the node contract's AttestWorkload RPC (PID->workload+digest+labels) land in the same phase (ADR-0097). Identity only: NOT wired onto a live node TCP listener (A1/ADR-0096), no SPIRE agent/Workload API/rotation (A2).
 
 </details>
 
@@ -31,13 +31,13 @@ This matrix is **generated** from the measured interoperability records in `test
 | Tool | Version | Delonix | Mode | Privilege | Host capabilities | Result | Proof |
 |---|---|---|---|---|---|---|---|
 | `kubeadm` | 1.37 | 0.1.2 | 1 (K8s) | root | privileged, hostNetwork | ◑ partial | [reports/ha-multinode-0.1.2/report.md](../reports/ha-multinode-0.1.2/report.md) |
-| `kubernetes-conformance` | — | — | 1 (K8s) | root | — | ☐ not tested | — |
+| `kubernetes-conformance` | v0.57.5 | 0.1.2 | 1 (K8s) | root | privileged | ◑ partial | [reports/interop/h1-sonobuoy/README.md](../reports/interop/h1-sonobuoy/README.md) |
 | `kubernetes-cri` | v1.36.0 | 0.1.2 | 1 (K8s) | root | privileged | ◑ partial | [reports/cri-conformance-0.1.2/report.md](../reports/cri-conformance-0.1.2/report.md) |
 
 <details><summary>Notes</summary>
 
 - **`kubeadm`** — HA control plane with stacked etcd brought up and Ready; this is a bootstrap proof, not a conformance claim.
-- **`kubernetes-conformance`** — No sonobuoy certified-conformance run yet. Target: the three supported Kubernetes minor releases, published per release alongside critest.
+- **`kubernetes-conformance`** — Sonobuoy->Delonix-CRI pipeline proven end to end: Delonix CRI pulled the aggregator+conformance images and ran the aggregator + e2e + systemd-logs plugins; e2e passed (8 passed/0 failed/7578 skipped), the real quick test '[sig-node] Pods should be submitted and removed [NodeConformance][Conformance]' PASSED, systemd-logs 1/1. This is a pipeline proof, NOT a certified-conformance claim (--mode certified-conformance over the 3 supported minors is the follow-up). FINDING (finding-home-nonroot.md): Delonix CRI sets HOME=/root for a non-root uid (runc uses /), breaking client-go workloads' in-cluster fallback; worked around for this run with HOME=/tmp.
 - **`kubernetes-cri`** — ~101/103 effective; 2 real gaps CRI-F1 (simultaneous RemoveImage) and CRI-F2 (drop ALL caps). The cncf-acceptance summary claims later closure to 103/103, but no fresh clean critest console is in-tree yet. H1 produces the clean run.
 
 </details>

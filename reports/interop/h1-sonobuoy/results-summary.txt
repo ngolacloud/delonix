@@ -1,0 +1,35 @@
+Plugin: e2e
+Status: passed
+Total: 7586
+Passed: 8
+Failed: 0
+Skipped: 7578
+
+Plugin: systemd-logs
+Status: passed
+Total: 1
+Passed: 1
+Failed: 0
+Skipped: 0
+
+Run Details:
+API Server version: v1.36.6
+Node health: 1/1 (100%)
+Pods health: 10/10 (100%)
+Errors detected in files:
+Errors:
+70 podlogs/kube-system/kube-apiserver-h1quick-cp1/logs/kube-apiserver.txt
+21 podlogs/kube-system/kube-scheduler-h1quick-cp1/logs/kube-scheduler.txt
+10 podlogs/kube-system/coredns-589f44dc88-h5hng/logs/coredns.txt
+10 podlogs/kube-system/coredns-589f44dc88-mh8pr/logs/coredns.txt
+ 5 podlogs/kube-system/kube-controller-manager-h1quick-cp1/logs/kube-controller-manager.txt
+ 1 podlogs/sonobuoy/sonobuoy-e2e-job-3bd86f8bc0644566/logs/e2e.txt
+ 1 podlogs/kube-system/etcd-h1quick-cp1/logs/etcd.txt
+ 1 podlogs/kube-system/kube-proxy-k57d7/logs/kube-proxy.txt
+Warnings:
+233 podlogs/kube-system/etcd-h1quick-cp1/logs/etcd.txt
+102 podlogs/kube-system/kube-apiserver-h1quick-cp1/logs/kube-apiserver.txt
+ 11 podlogs/kube-system/kube-controller-manager-h1quick-cp1/logs/kube-controller-manager.txt
+  6 podlogs/sonobuoy/sonobuoy/logs/kube-sonobuoy.txt
+  3 podlogs/kube-system/kube-scheduler-h1quick-cp1/logs/kube-scheduler.txt
+  1 podlogs/sonobuoy/sonobuoy-e2e-job-3bd86f8bc0644566/logs/e2e.txt
