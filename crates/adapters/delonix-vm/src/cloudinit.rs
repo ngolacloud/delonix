@@ -261,7 +261,10 @@ mod tests {
         assert!(ud.contains("    lock_passwd: true\n"), "{ud}");
         let keys_at = ud.find("ssh_authorized_keys").unwrap();
         let user_at = ud.find("  - name: delonix").unwrap();
-        assert!(user_at < keys_at, "the key slipped out from under the account:\n{ud}");
+        assert!(
+            user_at < keys_at,
+            "the key slipped out from under the account:\n{ud}"
+        );
     }
 
     /// `ci_user` governs the TWO things that depend on the account — the key and
@@ -272,7 +275,10 @@ mod tests {
         let ud = build_user_data("no1", "operador", &["ssh-ed25519 AAAA".into()], &[]);
         assert!(ud.contains("  - name: operador\n"), "{ud}");
         assert!(ud.contains("--autologin operador "), "{ud}");
-        assert!(!ud.contains("delonix"), "the old account was left behind:\n{ud}");
+        assert!(
+            !ud.contains("delonix"),
+            "the old account was left behind:\n{ud}"
+        );
     }
 
     /// Even WITHOUT keys the `users:` block exists and CREATES the `delonix`
@@ -320,7 +326,10 @@ mod tests {
     fn the_network_matches_by_mac_and_never_by_name() {
         let nc = build_network_config("no1");
         assert!(nc.contains("macaddress:"), "{nc}");
-        assert!(!nc.contains("name:"), "it went back to matching by name:\n{nc}");
+        assert!(
+            !nc.contains("name:"),
+            "it went back to matching by name:\n{nc}"
+        );
         assert!(nc.contains(&mac_for("no1")), "{nc}");
     }
 

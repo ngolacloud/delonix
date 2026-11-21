@@ -107,7 +107,7 @@ Engine for **daemonless, rootless-first, kernel-native containers and microVMs, 
 - [Volume reads in the node API, and ADR-0059's F6 deferred (ADR-0042 step E, slice E3, 2026-10-03)](#volume-reads-in-the-node-api-and-adr-0059s-f6-deferred-adr-0042-step-e-slice-e3-2026-10-03)
 - [Storage pools: ADR-0067's P0 (`kind: StoragePool`, driver `dir`, 2026-10-03)](#storage-pools-adr-0067s-p0-kind-storagepool-driver-dir-2026-10-03)
 - [Golden rule: the engine compiles and answers on its own](#golden-rule-the-engine-compiles-and-answers-on-its-own)
-- [Architecture (40 crates)](#architecture-40-crates)
+- [Architecture (41 crates in the `crates/` workspace)](#architecture-41-crates-in-the-crates-workspace)
 - [History](#history)
 - [VMfile, `vm build` and `--network` (v0.44.0/v0.45.0)](#vmfile-vm-build-and---network-v0440v0450)
 - [cgroup delegation: `cpu` fatal, `cpuset`/`io` optional (v0.44.0)](#cgroup-delegation-cpu-fatal-cpusetio-optional-v0440)
@@ -8680,7 +8680,7 @@ before any commit:
    SDN. Deciding WHEN and FOR WHOM to publish ports in a multi-tenant fleet is not the
    engine's job.
 
-## Architecture (40 crates)
+## Architecture (41 crates in the `crates/` workspace)
 
 | Crate | Responsibility |
 |---|---|
@@ -8695,6 +8695,7 @@ before any commit:
 | `delonix-networking` | Networking context (`networking.delonix.io`, ADR-0059 D7): the network ports by role (`GatewayProvider`, `NetworkZoneProvider`), their registries by name and the ownership marks of the remote objects. They left `delonix-sdn` in ADR-0059's F2a, with the shape the `VmBackend` had in P4b.2; `delonix-sdn` re-exports the three modules, and OPNsense and Proxmox stopped depending on the native dataplane |
 | `delonix-storage` | Storage context (`storage.delonix.io`, ADR-0067): the port a storage pool driver implements (`StoragePoolDriver`: probe, allocate, release, usage), the driver registry by name, the administrator's allowlist (`/etc/delonix/storage-pools.yaml`, read with the decoder that the composition root hands it — the context does not bring a YAML parser) and the ownership mark of a pool volume. The `dir` driver lives in `delonix-volume`; the block ones (btrfs, ZFS, LVM-thin) come in as provider crates |
 | `delonix-net-rules` | PURE network rules, **zero dependencies** — `Cidr`, bridge name, IPAM inside a prefix, rate reading. It exists so the `delonix-paas` control-plane computes the SAME as the engine without a network hop in between; `delonix-sdn` re-exports everything, so no consumer had to change |
+| `delonix-spiffe` | the node's SPIFFE identity as rustls material (ADR-0102, phase H0). It turns the three PEM artefacts a SPIFFE authority delivers — the X.509-SVID chain, its key and the trust bundle — into a rustls `ServerConfig`/`ClientConfig` that PRESENTS the node's SVID and VERIFIES a peer's by its `spiffe://` id, so an external authority such as SPIRE can be the issuer with no product-specific code here; `self_signed` keeps the engine's own CA as a first-class fallback with the same shape. It is NOT a SPIRE agent and NOT the Workload API — no resident process, no rotation loop (daemonless). **And it has no consumer in the workspace yet**: measured 2026-11-21, nothing outside the crate names it, which is what phase H0 means — the campaign that consumes it comes next |
 | `delonix-oci` | OCI images: pull/registry/build, CNB buildpacks, internal registry, signature verification |
 | `delonix-vm` | the VMs' composition root until P5 (ADR-0044 P4b.4): seeds the compute registry with the local backends, assembles the `VmEngine` per call (`JsonStore`, local disk and seed, network) and keeps the public functions as wrappers. Since P4b.4c it has no backend: the two local ones are provider crates |
 | `delonix-provider-cloud-hypervisor` | Cloud Hypervisor `VmBackend` backend (one microVM per process, via the api-socket), with its ADR-0050 declaration, the host probe and the offline snapshots. Left `delonix-vm` in P4b.4c; it reaches the node network through `delonix_compute::vm_registry::network()`, and the composition root seeds it with `registration()` |

@@ -3747,7 +3747,13 @@ tcp 6 100 ESTABLISHED src=10.0.0.5 dst=10.0.0.6 sport=3000 dport=5432 src=10.0.0
         // The measured device name, byte for byte.
         assert_eq!(bridge_name("lab-net"), "dlxn0536623e");
 
-        for name in ["lab-net", "frontend", "a", "kaeso-net", "with-hyphen_and_under"] {
+        for name in [
+            "lab-net",
+            "frontend",
+            "a",
+            "kaeso-net",
+            "with-hyphen_and_under",
+        ] {
             let expected = bridge_name(name);
             // Physical-plane direction: the `NetDef` that gets serialized to
             // disk and whose `bridge` the holder creates the link with. Asserted
@@ -3874,7 +3880,10 @@ tcp 6 100 ESTABLISHED src=10.0.0.5 dst=10.0.0.6 sport=3000 dport=5432 src=10.0.0
         assert!(s.get("nope").is_err());
         let a = s.create("alpha").unwrap();
         let b = s.create("beta").unwrap();
-        assert_ne!(a.subnet, b.subnet, "distinct networks have distinct subnets");
+        assert_ne!(
+            a.subnet, b.subnet,
+            "distinct networks have distinct subnets"
+        );
         assert_eq!(s.list().unwrap().len(), 2);
         assert!(s.create("alpha").is_err(), "a duplicate must fail");
         assert!(s.create("bridge").is_err(), "a reserved name must fail");
@@ -4302,7 +4311,10 @@ mod tests_16_allocation {
         let err = store.create("one-too-many").expect_err("should refuse");
         let t = err.to_string();
         assert!(t.contains("no free /16"), "unclear error: {t}");
-        assert!(t.contains("one-too-many"), "the error should name the network: {t}");
+        assert!(
+            t.contains("one-too-many"),
+            "the error should name the network: {t}"
+        );
         assert!(
             !store.dir.join("one-too-many").exists(),
             "refused but wrote the record anyway"

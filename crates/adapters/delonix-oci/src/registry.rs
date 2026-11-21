@@ -4230,7 +4230,8 @@ mod tests {
         ); // an error is expected (2nd 401) — we only care about the captured Authorization.
 
         let captured = handle.join().unwrap();
-        let auth = captured.expect("the client should have requested a token (with Authorization Basic)");
+        let auth =
+            captured.expect("the client should have requested a token (with Authorization Basic)");
         // "Basic " + base64("cri-user:cri-pass")
         let expected_b64 = {
             use base64::Engine;
@@ -4316,8 +4317,8 @@ mod tests {
 
         let target = format!("127.0.0.1:{port}/cas-skip:tag");
         let store = crate::ImageStore::open(tmp.path()).unwrap();
-        let img1 = pull_from_registry_with_creds(&store, &target, None)
-            .expect("1st pull should succeed");
+        let img1 =
+            pull_from_registry_with_creds(&store, &target, None).expect("1st pull should succeed");
         let gets_after_first = blob_gets.load(std::sync::atomic::Ordering::SeqCst);
         assert!(
             gets_after_first > 0,
@@ -5479,10 +5480,7 @@ mod tests {
             "the manifest's re-serialisation must be byte-identical (stable digest)"
         );
         // 3) the re-parse is structurally equal (PartialEq of ImageManifest).
-        assert_eq!(
-            m, m2,
-            "the manifest round-trip must preserve the structure"
-        );
+        assert_eq!(m, m2, "the manifest round-trip must preserve the structure");
     }
 
     // ---- resume of an interrupted blob --------------------------------------

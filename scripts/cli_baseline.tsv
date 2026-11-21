@@ -202,6 +202,9 @@
 ~	network vip-pool set
 ~	network vip-pool show
 ~	network vlan
+~	node-ca init
+~	node-ca revoke
+~	node-enroll
 ~	oci-runtime create
 ~	oci-runtime delete
 ~	oci-runtime kill
@@ -259,6 +262,7 @@
 =	serve cri
 =	serve docker-api
 ~	serve node-api
+~	serve node-enroll
 ~	stack apply
 ~	stack describe
 ~	stack destroy
@@ -323,6 +327,7 @@
 ~	vm image push
 ~	vm image rm
 ~	vm init
+~	vm logs
 ~	vm ls
 ~	vm migrate
 ~	vm move

@@ -2,7 +2,7 @@
 
 C4 model (Context → Containers → Components) and functional system design of the
 **Delonix Engine**: a **daemonless, rootless-first, kernel-native** container and
-microVM engine, written in Rust (40 crates, `crates/` workspace). This document is
+microVM engine, written in Rust (41 crates, `crates/` workspace). This document is
 canonical and kept in sync with the code — every structural claim carries a reference
 to the crate/file where it was confirmed. Where limits exist, they appear in the
 diagrams, not hidden away in footnotes.
@@ -129,7 +129,7 @@ before replying to the kubelet.
 
 ---
 
-## C4 — Level 3: Components (the 40 crates)
+## C4 — Level 3: Components (the 41 crates)
 
 Arrows = **real** dependencies, confirmed in the `Cargo.toml` files of `crates/*/` and
 in the `use delonix_*` of the `src/`. There are no cycles; `delonix-model` is the
@@ -151,6 +151,7 @@ graph TB
     SCAN["delonix-scanner<br>SBOM e varredura de CVE — image scan<br>e a imposicao de scan-on-pull"]
     SEC["delonix-security<br>decisoes de seguranca do no: politica, admissao<br>unica (container E VM), evento, score, redaccao<br>(ADR-0026) — puro, sem sensores e sem inquilino"]
     RULES["delonix-net-rules<br>regras de rede PURAS, ZERO dependencias — Cidr, nome de bridge,<br>IPAM dentro de um prefixo, leitura de taxas, o PolicyIr (ADR-0059 D6); partilhado com o PaaS"]
+    SPIFFE["delonix-spiffe<br>SPIFFE identity of the node as rustls material (ADR-0102, H0):<br>X.509-SVID chain, key and trust bundle (PEM) into a rustls ServerConfig/ClientConfig;<br>external authority (SPIRE) or the engine's own CA via self_signed.<br>NO consumer in the workspace yet — hence no inbound edge"]
     CHV["delonix-provider-cloud-hypervisor<br>backend VmBackend Cloud Hypervisor (microVM por processo, api-socket)<br>(ADR-0044 P4b.4c) — saiu do delonix-vm, que o regista"]
     LVIRT["delonix-provider-libvirt<br>backend VmBackend libvirt/KVM (QEMU via virsh)<br>(ADR-0044 P4b.4b) — saiu do delonix-vm, que o regista"]
     PVE["delonix-provider-proxmox<br>backend VmBackend REMOTO contra a API de UM no Proxmox VE<br>(ADR-0008) — fora do delonix-vm por trazer cliente HTTP"]

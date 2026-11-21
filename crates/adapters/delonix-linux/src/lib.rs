@@ -1227,7 +1227,13 @@ fn drop_capabilities(caps: &CapSets) {
         if (caps.ambient >> cap) & 1 == 1 {
             // SAFETY: as above; raising a cap already in permitted∩inheritable.
             unsafe {
-                libc::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, cap as libc::c_ulong, 0, 0);
+                libc::prctl(
+                    PR_CAP_AMBIENT,
+                    PR_CAP_AMBIENT_RAISE,
+                    cap as libc::c_ulong,
+                    0,
+                    0,
+                );
             }
         }
     }
@@ -1326,7 +1332,15 @@ fn verify_confinement(
         }
     }
     confinement_ok(
-        nnp, sec, bnd, eff, inh, amb, seccomp_expected, cap_keep, nnp_expected,
+        nnp,
+        sec,
+        bnd,
+        eff,
+        inh,
+        amb,
+        seccomp_expected,
+        cap_keep,
+        nnp_expected,
     )
 }
 
@@ -5457,14 +5471,14 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     // so a non-root `USER`/`runAsUser` without an entry no longer inherits a
     // hardcoded `/root`. The uid 0 default matches a root container.
     apply_env(hostname, env, run_uid.unwrap_or(0)); // clean environment + image/stack/CLI ENV
-                              // Supplementary groups with NO uid switch. The block above only runs for a
-                              // non-root `USER`, and a container that stays root still needs its groups —
-                              // that is exactly the `SupplementalGroups` case, and reading `id -G` was how
-                              // it showed up as missing.
-                              // UNCONDITIONAL when no uid switch: even with an empty `group_add` we must
-                              // reset, or the init keeps the groups inherited from the host `delonix`
-                              // process — unmapped in the userns, they surface as a row of 65534 and leak
-                              // the host's identity. An empty list clears them.
+                                                    // Supplementary groups with NO uid switch. The block above only runs for a
+                                                    // non-root `USER`, and a container that stays root still needs its groups —
+                                                    // that is exactly the `SupplementalGroups` case, and reading `id -G` was how
+                                                    // it showed up as missing.
+                                                    // UNCONDITIONAL when no uid switch: even with an empty `group_add` we must
+                                                    // reset, or the init keeps the groups inherited from the host `delonix`
+                                                    // process — unmapped in the userns, they surface as a row of 65534 and leak
+                                                    // the host's identity. An empty list clears them.
     if !user_switched {
         let mut groups: Vec<u32> = group_add.to_vec();
         groups.dedup();
@@ -11067,9 +11081,7 @@ pub fn exec_with(
                         .unwrap_or("/");
                     if let Err(e) = chdir(workdir) {
                         if explicit_workdir.is_some() {
-                            eprintln!(
-                                "delonix: exec: cannot change directory to {workdir}: {e}"
-                            );
+                            eprintln!("delonix: exec: cannot change directory to {workdir}: {e}");
                             // SAFETY: `_exit` in the forked grandchild: it must not run
                             // the parent's destructors or atexit handlers, and it never
                             // returns. 126 = "command cannot execute", the same code the
@@ -14328,7 +14340,10 @@ mod tests {
                       daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n\
                       app:x:1000:1000:app user:/home/app:/bin/sh\n";
         // A uid present in passwd → its home field.
-        assert_eq!(super::parse_passwd_home(passwd, 0).as_deref(), Some("/root"));
+        assert_eq!(
+            super::parse_passwd_home(passwd, 0).as_deref(),
+            Some("/root")
+        );
         assert_eq!(
             super::parse_passwd_home(passwd, 1000).as_deref(),
             Some("/home/app")
@@ -14612,7 +14627,7 @@ mod tests {
         // --host-pid but NOT a /proc path: still fail-closed.
         assert!(!super::ro_failure_is_tolerable(true, "/data"));
         assert!(!super::ro_failure_is_tolerable(true, "/proc")); // the mount itself, not a subtree
-        // No --host-pid: /proc is our own fresh procfs, so never tolerate.
+                                                                 // No --host-pid: /proc is our own fresh procfs, so never tolerate.
         assert!(!super::ro_failure_is_tolerable(false, "/proc/sys"));
         assert!(!super::ro_failure_is_tolerable(false, "/data"));
     }
@@ -14917,10 +14932,7 @@ mod tests {
             before, after,
             "the host file OUTSIDE the rootfs was modified/truncated — traversal via --device"
         );
-        assert!(
-            !after.is_empty(),
-            "the host file was truncated to 0 bytes"
-        );
+        assert!(!after.is_empty(), "the host file was truncated to 0 bytes");
     }
 
     /// The raw memory/port device nodes are never handed to a container.
@@ -15480,7 +15492,10 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
                 assert_eq!(fields.len(), 3, "`MAJ:MIN rbps=N wbps=N`, got `{v}`");
                 let (maj, min) = fields[0].split_once(':').expect("MAJ:MIN");
                 assert!(maj.parse::<u32>().is_ok() && min.parse::<u32>().is_ok());
-                assert_ne!(maj, "0", "maj 0 is a virtual device and is no use as a ceiling");
+                assert_ne!(
+                    maj, "0",
+                    "maj 0 is a virtual device and is no use as a ceiling"
+                );
                 for (field, prefix) in [(fields[1], "rbps="), (fields[2], "wbps=")] {
                     let n = field.strip_prefix(prefix).expect(prefix);
                     assert!(
@@ -15975,14 +15990,30 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         )
         .is_ok());
         // cap fields absent = unverifiable = aborts (fail-closed)
-        assert!(
-            confinement_ok(Some(1), Some(2), None, Some(keep), Some(0), Some(0), true, keep, true)
-                .is_err()
-        );
-        assert!(
-            confinement_ok(Some(1), Some(2), Some(keep), None, Some(0), Some(0), true, keep, true)
-                .is_err()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            None,
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            None,
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // CapInh / CapAmb absent are equally unverifiable → abort.
         assert!(confinement_ok(
             Some(1),
@@ -17345,7 +17376,10 @@ mod spawn_step_tests {
         let i = InitInputs::gather(&c, "/r", &spec, "h".into(), vec![], vec![]);
         // Single-mask model (no explicit OCI sets): bounding = kept mask, and
         // effective/permitted mirror it with inheritable/ambient empty.
-        assert_eq!(i.caps, CapSets::from_keep(resolve_cap_keep(&c.cap_drop, &c.cap_add)));
+        assert_eq!(
+            i.caps,
+            CapSets::from_keep(resolve_cap_keep(&c.cap_drop, &c.cap_add))
+        );
         assert!(!i.seccomp_unconfined && !i.seccomp_detect && !i.privileged);
         // `no_new_privs` is ON unless the record says otherwise.
         assert!(i.no_new_privs);

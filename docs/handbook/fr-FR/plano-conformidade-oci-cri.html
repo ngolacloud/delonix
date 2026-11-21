@@ -209,7 +209,7 @@ th:first-child,td:first-child{white-space:nowrap}
 <nav class="side" aria-label="Guide du contributeur"><div class="group"><div class="gtitle">Vue d&#x27;ensemble</div><a href="index.html"><span class="n">·</span><span>Delonix — Manuel du contributeur</span></a></div><div class="group"><div class="gtitle">Démarrer</div><a href="start-here.html"><span class="n">01</span><span>Commencer ici</span></a><a href="iaas-and-cloud-native.html"><span class="n">02</span><span>IaaS et cloud native — où s’inscrit le moteur</span></a></div><div class="group"><div class="gtitle">Fondamentaux</div><a href="linux-foundations.html"><span class="n">03</span><span>Fondations Linux</span></a><a href="cloud-native-primer.html"><span class="n">04</span><span>Initiation au cloud native</span></a><a href="rust-primer.html"><span class="n">05</span><span>Initiation à Rust pour cette base de code</span></a></div><div class="group"><div class="gtitle">Préparer et compiler</div><a href="environment.html"><span class="n">06</span><span>Préparer votre environnement</span></a><a href="build-and-test.html"><span class="n">07</span><span>Cloner, compiler et tester</span></a></div><div class="group"><div class="gtitle">Architecture</div><a href="project-structure.html"><span class="n">08</span><span>Structure du projet</span></a><a href="architecture.html"><span class="n">09</span><span>Architecture</span></a><a href="crates.html"><span class="n">10</span><span>Les crates</span></a><a href="system-design-interview.html"><span class="n">11</span><span>Entretien de conception de système — le Delonix Engine</span></a></div><div class="group"><div class="gtitle">Images et microVM</div><a href="delonixfile-and-vmfile.html"><span class="n">12</span><span>Delonixfile et VMfile</span></a><a href="microvm-setup.html"><span class="n">13</span><span>Construire des microVMs</span></a></div><div class="group"><div class="gtitle">Exploiter et diagnostiquer</div><a href="troubleshooting.html"><span class="n">14</span><span>Dépannage</span></a><a href="service-names-and-hosts.html"><span class="n">15</span><span>Comment les noms atteignent /etc/hosts</span></a></div><div class="group"><div class="gtitle">Contribuer</div><a href="coding-conventions.html"><span class="n">16</span><span>Conventions de code</span></a><a href="adding-a-kind.html"><span class="n">17</span><span>Ajouter un Kind</span></a><a href="engineering-process.html"><span class="n">18</span><span>Processus d&#x27;ingénierie (canonique)</span></a><a href="harness-governance.html"><span class="n">19</span><span>Harness governance — changing a control needs a reason and a reviewer</span></a><a href="evidence-schema.html"><span class="n">20</span><span>Evidence schema — a result is only evidence if it says where it ran</span></a><a href="contributing-workflow.html"><span class="n">21</span><span>Flux de contribution</span></a><a href="releases-and-stability.html"><span class="n">22</span><span>Releases et stabilité</span></a><a href="publishing-docs.html"><span class="n">23</span><span>Publier la documentation</span></a></div><div class="group"><div class="gtitle">Référence</div><a href="cloud-native-standards.html"><span class="n">24</span><span>Standards cloud native, couche par couche</span></a><a class="on" aria-current="page" href="plano-conformidade-oci-cri.html"><span class="n">25</span><span>Plan de conformité OCI + CRI — aligner Delonix avec Docker/Podman</span></a><a href="environment-variables.html"><span class="n">26</span><span>Variables d’environnement (DELONIX_*)</span></a><a href="glossary.html"><span class="n">27</span><span>Glossaire</span></a></div></nav>
 <main><div class="content">
 <p class="kicker">Référence</p>
-<div class="notice" role="note"><span>Cette traduction peut être en retard sur la page anglaise, modifiée depuis la traduction. <a href="../en/plano-conformidade-oci-cri.html">Lire la page en anglais</a></span></div><h1 id="plano-de-conformidade-oci-cri-alinhar-o-delonix-com-dockerpodman">Plan de conformité OCI + CRI — aligner Delonix avec Docker/Podman</h1>
+<div class="notice" role="note"><span>Cette traduction peut être en retard sur la page anglaise, modifiée depuis la traduction. <a href="../en/plano-conformidade-oci-cri.html">Lire la page en anglais</a></span></div><h1 id="plan-de-conformite-oci-cri-aligner-delonix-avec-dockerpodman">Plan de conformité OCI + CRI — aligner Delonix avec Docker/Podman</h1>
 <blockquote>
 <p><strong>Objectif.</strong> Faire passer à Delonix les <strong>mêmes contrats d'interopérabilité</strong> que le
 containerd/CRI-O (CRI) et que n'importe quel runtime OCI (image/distribution/runtime) passent, pour
@@ -226,7 +226,7 @@ véritable substitut. La Docker Engine API (Track D) est une commodité d'écosy
 lui-même déconseille de poursuivre la parité totale avec la Docker CLI, c'est pourquoi le Track D
 ne couvre que ce que des outils automatiques appellent, pas <code>docker run</code> interactif.</p>
 </blockquote>
-<h2 id="baseline-medido-binario-ee615f3b-2026-10-24">Baseline mesurée (binaire <code>ee615f3b</code>, 2026-10-24)<a class="hanchor" href="#baseline-medido-binario-ee615f3b-2026-10-24" aria-label="#">#</a></h2>
+<h2 id="baseline-mesuree-binaire-ee615f3b-2026-10-24">Baseline mesurée (binaire <code>ee615f3b</code>, 2026-10-24)<a class="hanchor" href="#baseline-mesuree-binaire-ee615f3b-2026-10-24" aria-label="#">#</a></h2>
 <div class="tablewrap"><table>
 <thead>
 <tr>
@@ -278,7 +278,7 @@ v3.1.0.</strong> Un « gap » n'entre que s'il SE REPRODUIT sur la v5.1.1.</p>
 </blockquote>
 <p><strong>Les 24 échecs du CRI, par domaine :</strong> AppArmor 9 · Security Context 4 · Mount Propagation 3 ·
 Image Manager 2 · Streaming 2 · Multiple Containers 1 · Networking 1 · RO-mount 1 · OOM 1.</p>
-<h2 id="decisoes-do-dono-2026-10-24">Décisions du propriétaire (2026-10-24)<a class="hanchor" href="#decisoes-do-dono-2026-10-24" aria-label="#">#</a></h2>
+<h2 id="decisions-du-proprietaire-2026-10-24">Décisions du propriétaire (2026-10-24)<a class="hanchor" href="#decisions-du-proprietaire-2026-10-24" aria-label="#">#</a></h2>
 <ol>
 <li><strong>Priorité : CRI d'abord</strong> (kubelet drop-in — le différenciateur container+VM+k8s).</li>
 <li><strong><code>NoNewPrivs=false</code> :</strong> honorer la demande du CRI (passe la conformité) <strong>tout en gardant NNP
@@ -289,7 +289,7 @@ Image Manager 2 · Streaming 2 · Multiple Containers 1 · Networking 1 · RO-mo
    n'est pas N/A.</li>
 </ol>
 <hr />
-<h2 id="track-c-cri-prioritario-gate-re-medir-na-v511-depois-100103-em-rootful">Track C — CRI (PRIORITAIRE) · gate : re-mesurer sur la v5.1.1, puis → ~100/103 en rootful<a class="hanchor" href="#track-c-cri-prioritario-gate-re-medir-na-v511-depois-100103-em-rootful" aria-label="#">#</a></h2>
+<h2 id="track-c-cri-prioritaire-gate-re-mesurer-sur-la-v511-puis-100103-en-rootful">Track C — CRI (PRIORITAIRE) · gate : re-mesurer sur la v5.1.1, puis → ~100/103 en rootful<a class="hanchor" href="#track-c-cri-prioritaire-gate-re-mesurer-sur-la-v511-puis-100103-en-rootful" aria-label="#">#</a></h2>
 <p><strong>Étape zéro : re-mesurer le critest sur la v5.1.1</strong> (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/critest.sh" target="_blank" rel="noopener"><code>scripts/critest.sh</code></a>). Le 79/103 est de v0.63
 (2026-08) et la répartition des échecs ci-dessous est de cette exécution — elle peut déjà ne plus
 correspondre. Le propriétaire fait tourner ceci maintenant (worktrees
@@ -357,7 +357,7 @@ Aucune autre.</p>
 </blockquote>
 <p><strong>Pré-requis du Track B :</strong> C4 dépend de B2 (mount propagation). Faire B2 au démarrage du Track C.</p>
 <hr />
-<h2 id="track-b-oci-runtime-spec-habilita-o-cri">Track B — OCI Runtime Spec (active le CRI)<a class="hanchor" href="#track-b-oci-runtime-spec-habilita-o-cri" aria-label="#">#</a></h2>
+<h2 id="track-b-oci-runtime-spec-active-le-cri">Track B — OCI Runtime Spec (active le CRI)<a class="hanchor" href="#track-b-oci-runtime-spec-active-le-cri" aria-label="#">#</a></h2>
 <div class="tablewrap"><table>
 <thead>
 <tr>
@@ -384,7 +384,7 @@ Aucune autre.</p>
 </tr>
 </tbody>
 </table></div>
-<h2 id="track-a-oci-image-distribution-fundacao-de-interop-de-imagens">Track A — OCI Image + Distribution (fondation d'interop d'images)<a class="hanchor" href="#track-a-oci-image-distribution-fundacao-de-interop-de-imagens" aria-label="#">#</a></h2>
+<h2 id="track-a-oci-image-distribution-fondation-dinterop-dimages">Track A — OCI Image + Distribution (fondation d'interop d'images)<a class="hanchor" href="#track-a-oci-image-distribution-fondation-dinterop-dimages" aria-label="#">#</a></h2>
 <p><strong>Re-baseline sur la v5.1.1 (2026-10-24) : ce track est en grande partie FAIT — le reste est
 optionnel.</strong> L'interop OCI d'image a été <strong>prouvée en conditions réelles</strong> sur les trois moteurs
 (IMG-1 corrigé : <code>push</code> publie un manifeste OCI, tirable par docker ET podman). Les « gaps »
@@ -427,7 +427,7 @@ G-033/035/039 du rapport v3.1.0 <strong>sont sortis</strong> après re-mesure :<
 <code>distribution-spec</code> est server-side — donc la preuve d'image sur la v5.1.1 est l'<strong>interop entre
 moteurs</strong>, pas une suite.</p>
 </blockquote>
-<h2 id="track-d-docker-engine-api-ecossistema-ressalva-5">Track D — Docker Engine API (écosystème ; réserve §5)<a class="hanchor" href="#track-d-docker-engine-api-ecossistema-ressalva-5" aria-label="#">#</a></h2>
+<h2 id="track-d-docker-engine-api-ecosysteme-reserve-5">Track D — Docker Engine API (écosystème ; réserve §5)<a class="hanchor" href="#track-d-docker-engine-api-ecosysteme-reserve-5" aria-label="#">#</a></h2>
 <div class="tablewrap"><table>
 <thead>
 <tr>
@@ -459,7 +459,7 @@ moteurs</strong>, pas une suite.</p>
 Go), et la parité de <code>--format</code>/CLI que le <code>§5</code> déconseille.</p>
 </blockquote>
 <hr />
-<h2 id="sequencia-e-dependencias">Séquence et dépendances<a class="hanchor" href="#sequencia-e-dependencias" aria-label="#">#</a></h2>
+<h2 id="sequence-et-dependances">Séquence et dépendances<a class="hanchor" href="#sequence-et-dependances" aria-label="#">#</a></h2>
 <p><strong>État sur la v5.1.1 :</strong> Track A (image) <strong>prouvé</strong> (IMG-1) ; Track B RT-1/2/3 + B2 <strong>faits</strong> — il ne
 reste que <strong>RT-4</strong> (CLI runc, ADR-0080, GO-gated). Le vrai travail restant est RT-4, le Track C (à
 re-mesurer) et le Track D.</p>
@@ -477,7 +477,7 @@ re-mesurer) et le Track D.</p>
    streaming).</li>
 <li><strong>Track A</strong> : seulement l'optionnel (sbom/scan/sign, manifest-list) — l'interop est déjà prouvée.</li>
 </ol>
-<h2 id="como-medir-reproduzivel-por-fase">Comment mesurer (reproductible, par phase)<a class="hanchor" href="#como-medir-reproduzivel-por-fase" aria-label="#">#</a></h2>
+<h2 id="comment-mesurer-reproductible-par-phase">Comment mesurer (reproductible, par phase)<a class="hanchor" href="#comment-mesurer-reproductible-par-phase" aria-label="#">#</a></h2>
 <ul>
 <li>CRI : <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/critest.sh" target="_blank" rel="noopener"><code>scripts/critest.sh</code></a> → <code>Ran N of 122 ... X Passed | Y Failed</code>. Publier le diff de X à chaque phase.</li>
 <li>OCI runtime : validation <code>runtime-tools</code> (installer en A1/B1) ; publier pass/fail par section du spec.</li>
@@ -485,7 +485,7 @@ re-mesurer) et le Track D.</p>
 <li>Docker API : <code>delonix serve docker-api --matrix</code> (routes servies/refusées) + <code>tests/compat/docker_api_smoke.py</code> et un run de testcontainers.</li>
 <li>Chaque phase apporte un test qui échoue sans la correction (la méthode du projet).</li>
 </ul>
-<h2 id="riscos-tensoes-conhecidas">Risques / tensions connues<a class="hanchor" href="#riscos-tensoes-conhecidas" aria-label="#">#</a></h2>
+<h2 id="risques-tensions-connues">Risques / tensions connues<a class="hanchor" href="#risques-tensions-connues" aria-label="#">#</a></h2>
 <ul>
 <li><strong>NNP vs CRI</strong> (décision 2) : le chemin qui relâche NNP ne peut être atteignable que par le CRI, jamais par la CLI.</li>
 <li><strong>AppArmor rootless</strong> (C7) : une partie des 9 specs est une limite de privilège, pas une lacune — mesurer en rootful pour séparer.</li>
@@ -497,15 +497,15 @@ re-mesurer) et le Track D.</p>
 </div></main>
 <aside class="toc"><p class="ttitle">Sur cette page</p><div class="toc">
 <ul>
-<li><a href="#baseline-medido-binario-ee615f3b-2026-10-24">Baseline mesurée (binaire ee615f3b, 2026-10-24)</a></li>
-<li><a href="#decisoes-do-dono-2026-10-24">Décisions du propriétaire (2026-10-24)</a></li>
-<li><a href="#track-c-cri-prioritario-gate-re-medir-na-v511-depois-100103-em-rootful">Track C — CRI (PRIORITAIRE) · gate : re-mesurer sur la v5.1.1, puis → ~100/103 en rootful</a></li>
-<li><a href="#track-b-oci-runtime-spec-habilita-o-cri">Track B — OCI Runtime Spec (active le CRI)</a></li>
-<li><a href="#track-a-oci-image-distribution-fundacao-de-interop-de-imagens">Track A — OCI Image + Distribution (fondation d'interop d'images)</a></li>
-<li><a href="#track-d-docker-engine-api-ecossistema-ressalva-5">Track D — Docker Engine API (écosystème ; réserve §5)</a></li>
-<li><a href="#sequencia-e-dependencias">Séquence et dépendances</a></li>
-<li><a href="#como-medir-reproduzivel-por-fase">Comment mesurer (reproductible, par phase)</a></li>
-<li><a href="#riscos-tensoes-conhecidas">Risques / tensions connues</a></li>
+<li><a href="#baseline-mesuree-binaire-ee615f3b-2026-10-24">Baseline mesurée (binaire ee615f3b, 2026-10-24)</a></li>
+<li><a href="#decisions-du-proprietaire-2026-10-24">Décisions du propriétaire (2026-10-24)</a></li>
+<li><a href="#track-c-cri-prioritaire-gate-re-mesurer-sur-la-v511-puis-100103-en-rootful">Track C — CRI (PRIORITAIRE) · gate : re-mesurer sur la v5.1.1, puis → ~100/103 en rootful</a></li>
+<li><a href="#track-b-oci-runtime-spec-active-le-cri">Track B — OCI Runtime Spec (active le CRI)</a></li>
+<li><a href="#track-a-oci-image-distribution-fondation-dinterop-dimages">Track A — OCI Image + Distribution (fondation d'interop d'images)</a></li>
+<li><a href="#track-d-docker-engine-api-ecosysteme-reserve-5">Track D — Docker Engine API (écosystème ; réserve §5)</a></li>
+<li><a href="#sequence-et-dependances">Séquence et dépendances</a></li>
+<li><a href="#comment-mesurer-reproductible-par-phase">Comment mesurer (reproductible, par phase)</a></li>
+<li><a href="#risques-tensions-connues">Risques / tensions connues</a></li>
 </ul>
 </div>
 </aside>
