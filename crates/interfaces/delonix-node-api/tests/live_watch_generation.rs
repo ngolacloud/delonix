@@ -309,7 +309,7 @@ async fn watch_over_tcp_mtls_tells_a_desired_change_from_a_state_event() {
                 let tls = connector
                     .connect(server_name, tcp)
                     .await
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                    .map_err(std::io::Error::other)?;
                 Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(tls))
             }
         }))
