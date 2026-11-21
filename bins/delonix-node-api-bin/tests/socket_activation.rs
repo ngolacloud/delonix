@@ -16,7 +16,27 @@ use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BIN: &str = env!("CARGO_BIN_EXE_delonix-node-api");
+/// The `delonix-node-api` executable under test.
+///
+/// Cargo exports `CARGO_BIN_EXE_<bin>` to an integration test, but with cargo
+/// 1.96 (the pinned toolchain) a bin name with a HYPHEN is not visible to the
+/// compile-time `env!`: `env!("CARGO_BIN_EXE_delonix-node-api")` fails the
+/// build with «environment variable not defined at compile time», and the test
+/// target did not compile at all — so `cargo test` and `cargo clippy
+/// --all-targets` were both red for the whole workspace. Measured against a
+/// throwaway crate on the same toolchain: the same `env!` compiles with a bin
+/// named `probe_bin` and does not with `probe-bin`. The variable IS there at
+/// RUN time, which is what rustc's own help points at, so it is read there.
+///
+/// Renaming the bin is not an option: `delonix-node-api` is the executable
+/// `delonix serve node-api` runs and the one `install.sh` ships.
+fn bin() -> String {
+    std::env::var("CARGO_BIN_EXE_delonix-node-api").expect(
+        "CARGO_BIN_EXE_delonix-node-api is unset — cargo sets it when IT runs this \
+         test (`cargo test -p delonix-node-api-bin`); a test binary invoked by hand \
+         gets no such variable",
+    )
+}
 
 /// The started server, killed and reaped when the test ends — a failed
 /// assertion included, so a server the test expected to refuse and that
@@ -49,7 +69,7 @@ fn activate(fd: RawFd, root: &std::path::Path, args: &[&str]) -> Server {
     let mut cmd = Command::new("/bin/sh");
     cmd.arg("-c")
         .arg(r#"export LISTEN_PID=$$ LISTEN_FDS=1; exec "$0" "$@""#)
-        .arg(BIN)
+        .arg(bin())
         .args(args)
         .env("DELONIX_ROOT", root)
         .env_remove("DELONIX_NODE_API_ADDR")
