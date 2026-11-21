@@ -3335,17 +3335,50 @@ mod exec_separator_tests {
                         ..
                     }),
             } => {
-                let (id, command) = ExecArgs::split_id_command(id_command);
+                let (id, command) = ExecArgs::split_id_command(id_command)
+                    .expect("the split accepts this container");
                 (user, env, id, command)
             }
             _ => panic!("not container exec"),
         }
     }
 
+    /// A mistyped flag is not taken as the CONTAINER. Before this guard,
+    /// `exec --no-such-flag` answered `no such container:
+    /// --no-such-flag` — naming a container when what was misspelled was
+    /// a flag. Docker and Podman answer `unknown flag`. Measured on 0.1.2; see
+    /// `cmd::container::refuse_leading_dash_operand`.
+    #[test]
+    fn a_mistyped_flag_is_not_taken_as_the_container() {
+        let cli = Cli::try_parse_from(["delonix", "container", "exec", "--no-such-flag"])
+            .expect("the parser accepts it: the positional carries allow_hyphen_values");
+        let Cmd::Container {
+            action: ContainerCmd::Exec(ExecArgs { id_command, .. }),
+        } = cli.cmd
+        else {
+            panic!("not container exec")
+        };
+        let err = ExecArgs::split_id_command(id_command)
+            .expect_err("a container beginning with `-` has to be refused");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--no-such-flag"),
+            "the refusal has to NAME the token: {msg}"
+        );
+        assert!(
+            msg.contains("container"),
+            "the refusal has to say which operand it is about: {msg}"
+        );
+    }
+
     /// The argv the CRI builds for `kubectl exec <pod> -- -u 0 sh`
     /// (`delonix_cri::streaming::subprocess_args`): the command stays the
     /// command, and the container's own user stays in force. The `--` separator
     /// still works (clap consumes it) — the CRI path keeps relying on it.
+    ///
+    /// This is also the control for the guard above: the separator puts the
+    /// container FIRST in the trailing list, so the guard never sees a leading
+    /// `-` and the CRI path is untouched.
     #[test]
     fn a_command_after_the_separator_is_never_an_option_of_exec() {
         let (user, env, id, command) = exec_of(&[

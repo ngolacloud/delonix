@@ -18180,3 +18180,9 @@ msgstr "Imagem (ex.: `alpine:3.19`), depois o comando + argumentos (por omissão
 
 msgid "Container, then the command + arguments (omit the command for the bash/sh fallback shell)"
 msgstr "Container, depois o comando + argumentos (omita o comando para a shell de recurso bash/sh)"
+
+msgid "'{token}' begins with `-`, so it is not a valid image reference. If you meant a flag, it is not one this command has — and flags go BEFORE the image. If you meant a literal image, a reference cannot begin with `-`."
+msgstr "'{token}' começa por `-`, por isso não é uma referência de imagem válida. Se queria uma flag, esta não existe neste comando — e as flags vão ANTES da imagem. Se queria mesmo uma imagem com esse nome, uma referência não pode começar por `-`."
+
+msgid "'{token}' begins with `-`, so it is not a valid container name. If you meant a flag, it is not one this command has — and flags go BEFORE the container. If you meant a literal container, a name cannot begin with `-`."
+msgstr "'{token}' começa por `-`, por isso não é um nome de container válido. Se queria uma flag, esta não existe neste comando — e as flags vão ANTES do container. Se queria mesmo um container com esse nome, um nome não pode começar por `-`."
