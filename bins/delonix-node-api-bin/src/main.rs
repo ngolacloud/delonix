@@ -933,14 +933,16 @@ fn authz_material(
     policy_path: Option<String>,
     audit_path: Option<String>,
 ) -> Result<Option<delonix_node_api::authz::Authz>, Error> {
-    use delonix_node_api::authz::{Authz, AuditSink, Policy};
+    use delonix_node_api::authz::{AuditSink, Authz, Policy};
     if policy_path.is_none() && audit_path.is_none() {
         return Ok(None);
     }
     let policy = match policy_path {
         Some(path) => {
             let src = std::fs::read_to_string(&path).map_err(|e| {
-                Error::Invalid(format!("node API authz: cannot read --authz-policy '{path}': {e}"))
+                Error::Invalid(format!(
+                    "node API authz: cannot read --authz-policy '{path}': {e}"
+                ))
             })?;
             Policy::from_json(&src).map_err(Error::Invalid)?
         }
@@ -948,7 +950,9 @@ fn authz_material(
     };
     let audit = match audit_path {
         Some(path) => AuditSink::to_file(&path).map_err(|e| {
-            Error::Invalid(format!("node API audit: cannot open --audit-log '{path}': {e}"))
+            Error::Invalid(format!(
+                "node API audit: cannot open --audit-log '{path}': {e}"
+            ))
         })?,
         None => AuditSink::tracing_only(),
     };

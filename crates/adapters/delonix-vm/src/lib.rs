@@ -1682,7 +1682,10 @@ mod tests {
             "proxmox exists in this workspace — it must not come out as unknown: {e}"
         );
         assert!(e.contains("not available in this build"), "{e}");
-        assert!(e.contains("0008"), "the message has to point at the ADR: {e}");
+        assert!(
+            e.contains("0008"),
+            "the message has to point at the ADR: {e}"
+        );
         // The message has to say what to DO, not just what is missing: the
         // backend can be configured, and an operator reading this wants the next
         // step, not a status report.
@@ -2338,7 +2341,10 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(e.contains("kvm") && e.contains("libvirt"), "{e}");
-        assert!(!backend_is_registered("impostor"), "it must not have been entered");
+        assert!(
+            !backend_is_registered("impostor"),
+            "it must not have been entered"
+        );
 
         // Auto-detection asks `available()`, and a backend from outside may only
         // be able to answer that over the network (ADR-0008).

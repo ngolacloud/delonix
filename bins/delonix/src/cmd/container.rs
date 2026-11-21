@@ -2657,18 +2657,18 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         }) => {
             let (id, command) = ExecArgs::split_id_command(id_command);
             cmd_exec(
-            &images,
-            &store,
-            &id,
-            detach,
-            interactive,
-            tty,
-            &env,
-            &env_file,
-            workdir.as_deref(),
-            user.as_deref(),
-            privileged,
-            &command,
+                &images,
+                &store,
+                &id,
+                detach,
+                interactive,
+                tty,
+                &env,
+                &env_file,
+                workdir.as_deref(),
+                user.as_deref(),
+                privileged,
+                &command,
             )
         }
         ContainerCmd::Pause { ids } => for_each_id(&ids, |id| cmd_freeze(&store, id, true)),
@@ -11355,8 +11355,13 @@ mod run_arg_parity_tests {
     /// stolen by `run`'s own `--config` flag; now it is the container's command.
     #[test]
     fn a_container_flag_after_the_image_is_the_command_not_a_run_flag() {
-        let (image, command) =
-            run_image_command(&["delonix", "container", "run", "otel/collector", "--config=/c.yaml"]);
+        let (image, command) = run_image_command(&[
+            "delonix",
+            "container",
+            "run",
+            "otel/collector",
+            "--config=/c.yaml",
+        ]);
         assert_eq!(image, "otel/collector");
         assert_eq!(command, ["--config=/c.yaml"]);
     }
@@ -11365,7 +11370,14 @@ mod run_arg_parity_tests {
     #[test]
     fn run_flags_before_the_image_still_parse() {
         let (image, command) = run_image_command(&[
-            "delonix", "container", "run", "--name", "x", "alpine:3.19", "echo", "hi",
+            "delonix",
+            "container",
+            "run",
+            "--name",
+            "x",
+            "alpine:3.19",
+            "echo",
+            "hi",
         ]);
         assert_eq!(image, "alpine:3.19");
         assert_eq!(command, ["echo", "hi"]);
@@ -11374,8 +11386,15 @@ mod run_arg_parity_tests {
     /// The `--` separator still works and is consumed (not passed as argv[0]).
     #[test]
     fn a_leading_double_dash_in_the_command_is_consumed() {
-        let (image, command) =
-            run_image_command(&["delonix", "container", "run", "alpine:3.19", "--", "-n", "x"]);
+        let (image, command) = run_image_command(&[
+            "delonix",
+            "container",
+            "run",
+            "alpine:3.19",
+            "--",
+            "-n",
+            "x",
+        ]);
         assert_eq!(image, "alpine:3.19");
         assert_eq!(command, ["-n", "x"]);
     }
@@ -11387,7 +11406,10 @@ mod run_arg_parity_tests {
             super::strip_leading_separator(vec!["--".into(), "--".into(), "x".into()]),
             vec!["--".to_string(), "x".to_string()]
         );
-        assert_eq!(super::strip_leading_separator(vec!["a".into()]), vec!["a".to_string()]);
+        assert_eq!(
+            super::strip_leading_separator(vec!["a".into()]),
+            vec!["a".to_string()]
+        );
         assert!(super::strip_leading_separator(vec![]).is_empty());
     }
 }

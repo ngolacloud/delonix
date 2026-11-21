@@ -504,7 +504,10 @@ pub enum ArgOp {
     Ge(u64),
     Gt(u64),
     /// Matches when `(arg & mask) == datum` — `SCMP_CMP_MASKED_EQ`.
-    MaskedEq { mask: u64, datum: u64 },
+    MaskedEq {
+        mask: u64,
+        datum: u64,
+    },
 }
 
 impl ArgCond {
@@ -759,7 +762,8 @@ pub fn compile(p: &Profile) -> Result<seccompiler::BpfProgram, String> {
             .iter()
             .map(|c| c.to_condition())
             .collect::<Result<_, _>>()?;
-        let rule = SeccompRule::new(conds).map_err(|e| format!("failed to build seccomp rule: {e}"))?;
+        let rule =
+            SeccompRule::new(conds).map_err(|e| format!("failed to build seccomp rule: {e}"))?;
         map.entry(r.nr).or_default().push(rule);
     }
     SeccompFilter::new(

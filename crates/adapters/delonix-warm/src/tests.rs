@@ -129,7 +129,10 @@ fn serve_parked_reports_failure_reason() {
     reader.read_line(&mut line).unwrap();
     let o = parse_outcome(line.trim());
     assert_eq!(o.code, 125);
-    assert_eq!(o.reason.as_deref(), Some("policy refused the source override"));
+    assert_eq!(
+        o.reason.as_deref(),
+        Some("policy refused the source override")
+    );
 
     handle.join().unwrap().unwrap();
 }
@@ -216,7 +219,9 @@ fn refill_recipe_wants_a_runner_for_an_empty_pool_and_carries_the_pin() {
     plane.ensure_pool("a");
     // The empty pool is below its target size → the refiller is asked for one,
     // and the recipe carries the pin so a deposit can detect a holder restart.
-    let recipe = plane.refill_recipe("a").expect("an empty pool wants a runner");
+    let recipe = plane
+        .refill_recipe("a")
+        .expect("an empty pool wants a runner");
     assert_eq!(recipe.holder_pid(), 4242);
     // No sub-pool for an unknown image → nothing to refill.
     assert!(plane.refill_recipe("missing").is_none());

@@ -454,7 +454,10 @@ fn spawn_runner(
         libc::close(child_fd);
     }
     let child = child?;
-    let mut runner = Runner { child, sock: parent };
+    let mut runner = Runner {
+        child,
+        sock: parent,
+    };
     wait_ready(&mut runner)?;
     Ok(runner)
 }
@@ -733,9 +736,7 @@ impl WarmPlane {
     /// more runners stays within `total_cap`. Dropping a sub-pool reaps its
     /// runners (see [`WarmPool`]'s `Drop`).
     fn evict_for(&mut self, incoming: usize) {
-        while !self.pools.is_empty()
-            && self.parked() + incoming > self.total_cap
-        {
+        while !self.pools.is_empty() && self.parked() + incoming > self.total_cap {
             // Pop the least-recently-used (last) sub-pool; its `Drop` reaps it.
             self.pools.pop();
         }

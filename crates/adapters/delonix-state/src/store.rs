@@ -1047,10 +1047,7 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .filter(|n| n != "state.json")
             .collect();
-        assert!(
-            leftovers.is_empty(),
-            "orphan temp files: {leftovers:?}"
-        );
+        assert!(leftovers.is_empty(), "orphan temp files: {leftovers:?}");
     }
 
     /// `load` by prefix/name must keep EXACTLY the previous semantics after it
@@ -1180,7 +1177,10 @@ mod tests {
 
         write_atomic_mode(&target, b"selado", Some(0o600)).unwrap();
         let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "the secret was born with the wrong mode: {mode:o}");
+        assert_eq!(
+            mode, 0o600,
+            "the secret was born with the wrong mode: {mode:o}"
+        );
         assert_eq!(fs::read(&target).unwrap(), b"selado");
 
         // With no explicit mode, the old behaviour (umask) stays — not a change

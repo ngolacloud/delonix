@@ -1856,7 +1856,12 @@ mod tests {
         // `/metrics` is served, with the full registry.
         let resp = app
             .clone()
-            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -2268,10 +2273,7 @@ mod tests {
         };
         let args = build_run_args(spec);
         // Network flag is `--net=…` (the runtime's), NEVER `--network`.
-        assert!(
-            args.contains(&"--net=my-net".to_string()),
-            "args: {args:?}"
-        );
+        assert!(args.contains(&"--net=my-net".to_string()), "args: {args:?}");
         assert!(
             !args.iter().any(|a| a.starts_with("--network")),
             "must not use --network"

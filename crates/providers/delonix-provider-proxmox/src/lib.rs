@@ -8783,7 +8783,10 @@ mod tests {
             waited += w;
             reqs += 1;
             w = next_poll_wait(w);
-            assert!(w <= POLL_MAX, "the interval must not grow without a ceiling");
+            assert!(
+                w <= POLL_MAX,
+                "the interval must not grow without a ceiling"
+            );
         }
         assert!(
             reqs < 250,
