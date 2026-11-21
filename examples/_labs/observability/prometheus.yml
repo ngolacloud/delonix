@@ -1,0 +1,22 @@
+# Prometheus scrape config for the Delonix observability lab.
+#
+# Target: the Delonix management server's TCP /metrics endpoint, enabled with
+# DELONIX_MGMT_METRICS_ADDR (full registry: resource gauges + per-workload
+# series, recomputed on every scrape). The lab runs every component as a
+# Delonix-managed container sharing the host network namespace, so `localhost`
+# here reaches the host's listeners directly.
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: delonix-runtime
+    # OpenMetrics text exposition served by delonix-mgmt.
+    static_configs:
+      - targets: ['localhost:9199']
+        labels:
+          source: delonix-mgmt
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9091']

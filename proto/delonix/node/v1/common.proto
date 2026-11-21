@@ -51,6 +51,19 @@ message ResourceMeta {
   // Opaque version for optimistic concurrency. Send it back on update/delete; a stale
   // etag is FAILED_PRECONDITION, never a silent overwrite.
   string etag = 8;
+  // ADR-0090/0099 record metadata — record metadata, never a user knob (a value set
+  // on an input spec is ignored, so a get→apply round-trip is clean). Absent (0 / "")
+  // means "unversioned": a record whose write path has not stamped it yet, a defined
+  // state and not an error.
+  //
+  // generation counts the distinct desired specs this record has been applied with,
+  // bumped on a mutating apply whose spec changed. observed_generation is the
+  // generation the node last reconciled to: equal to generation means realized,
+  // behind it means converging (or, if the reconcile failed, stuck at the last
+  // success). stored_version is the apiVersion the record was written under.
+  int64 generation = 9;
+  int64 observed_generation = 10;
+  string stored_version = 11;
 }
 
 // Kubernetes-style condition: the observed state, with the reason machine-readable.

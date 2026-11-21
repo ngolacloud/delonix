@@ -1,5 +1,5 @@
 #cloud-config
-# lab-dhcp — servidor DHCP (ISC) da LAN 10.50.0.0/24
+# lab-dhcp — DHCP server (ISC) for the LAN 10.50.0.0/24
 hostname: lab-dhcp
 fqdn: dhcp.lab.ngola
 
@@ -28,9 +28,9 @@ write_files:
             set-name: lab0
             addresses: [10.50.0.11/24]
 
-  # Serve SÓ na placa do lab. Sem esta linha o dhcpd também escuta na `default`,
-  # onde já há um servidor DHCP do libvirt — dois servidores no mesmo domínio de
-  # difusão entregam a resposta de quem chegar primeiro.
+  # Serves ONLY on the lab NIC. Without this line dhcpd also listens on `default`,
+  # where there is already a libvirt DHCP server — two servers in the same broadcast
+  # domain hand out whichever reply arrives first.
   - path: /etc/default/isc-dhcp-server
     content: |
       INTERFACESv4="lab0"
@@ -45,13 +45,13 @@ write_files:
 
       subnet 10.50.0.0 netmask 255.255.255.0 {
         range 10.50.0.100 10.50.0.200;
-        option routers 10.50.0.254;              # o OPNsense, quando existir
-        option domain-name-servers 10.50.0.10;   # o BIND do lab
+        option routers 10.50.0.254;              # the OPNsense, once it exists
+        option domain-name-servers 10.50.0.10;   # the lab BIND
         option domain-name "lab.ngola";
       }
 
-      # Reserva por MAC: o cliente do lab tem sempre o mesmo endereço, o que
-      # torna o registo no DNS e as regras de firewall estáveis.
+      # Reservation by MAC: the lab client always has the same address, which
+      # keeps the DNS record and the firewall rules stable.
       host lab-cli {
         hardware ethernet 52:54:00:5a:b0:13;
         fixed-address 10.50.0.50;
@@ -59,7 +59,7 @@ write_files:
 
 runcmd:
   - netplan apply
-  # O dhcpd recusa arrancar se a placa ainda não tiver endereço; o netplan
-  # acima acabou de o dar, e esta ordem é o que torna o arranque fiável.
+  # dhcpd refuses to start if the NIC does not yet have an address; the netplan
+  # above has just given it one, and this ordering is what makes the startup reliable.
   - systemctl enable isc-dhcp-server
   - systemctl restart isc-dhcp-server

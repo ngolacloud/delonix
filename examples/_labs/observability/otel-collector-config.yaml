@@ -1,0 +1,30 @@
+# OpenTelemetry Collector config for the Delonix observability lab.
+#
+# Delonix exports its `tracing` spans over OTLP/HTTP (DELONIX_OTLP_ENDPOINT).
+# The collector receives them here, logs them (so `delonix logs otel-collector`
+# shows the spans arriving), and forwards them to Jaeger for the trace UI.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: detailed
+  # Jaeger's OTLP intake is bound to a non-default port in this lab so it does
+  # not clash with the collector's own 4318 on the shared host netns.
+  otlp/jaeger:
+    endpoint: localhost:14317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp/jaeger]

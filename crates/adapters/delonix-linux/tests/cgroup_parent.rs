@@ -36,8 +36,8 @@ fn build_rootfs(dir: &Path) -> Option<()> {
 /// Removes the containers and the cgroup dirs even when an assert blows up midway —
 /// otherwise a failed run leaves processes burning on the host forever.
 struct Cleanup {
-    /// Reaberto no `Drop` — o `Store` não é `Clone`, e guardar uma referência
-    /// prendia o guard ao tempo de vida do `store` local.
+    /// Reopened in `Drop` — `Store` is not `Clone`, and holding a reference
+    /// would tie the guard to the lifetime of the local `store`.
     store_dir: PathBuf,
     ids: Vec<Container>,
     root: PathBuf,
@@ -88,7 +88,7 @@ fn two_containers_of_a_group_share_one_intermediate_cgroup_with_its_ceiling() {
     for n in 0..2 {
         let mut c = Container::new(
             format!("{:016x}", 0xc0ffee00u64 + n),
-            format!("carga-{n}"),
+            format!("workload-{n}"),
             rootfs.to_string_lossy().to_string(),
             vec![
                 "/bin/sh".into(),

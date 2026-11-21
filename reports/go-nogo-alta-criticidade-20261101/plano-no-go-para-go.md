@@ -1,247 +1,247 @@
-# Plano NO-GO → GO (alta criticidade)
+# NO-GO → GO plan (high criticality)
 
-> Fecha os 6 pontos do portão do [veredicto](README.md). Cada ponto tem: **estado
-> actual** (baseline da avaliação), **critério de GO** (mensurável — como sabemos
-> que fechou), **tarefas**, e **quem** pode fazê-las:
-> `[agente]` executável por mim no repo · `[dono]` decisão/acção do dono
-> (merge/release/commissão) · `[externo]` terceira parte independente.
+> Closes the 6 gate points of the [verdict](README.md). Each point has: **current
+> state** (assessment baseline), **GO criterion** (measurable — how we know it is
+> closed), **tasks**, and **who** can do them:
+> `[agent]` executable by me in the repo · `[owner]` owner decision/action
+> (merge/release/commissioning) · `[external]` independent third party.
 >
-> **Definição de GO global:** os 6 critérios verdes **E** uma re-execução desta
-> avaliação na versão enviada confirma que nenhum desqualificador sobrevive.
+> **Global GO definition:** the 6 criteria green **AND** a re-run of this
+> assessment on the shipped version confirms that no disqualifier survives.
 
-## Ordem recomendada (porquê)
+## Recommended order (why)
 
 ```
-Onda 1 (base de verdade)   G6 re-medir ───┐
-Onda 2 (confiança)         G1 segurança   ├─► G2 release validada
-Onda 3 (segurança op.)     G3 upgrade/rollback   G5 escala/densidade
-Onda 4 (tecto)             G4 HA/multi-nó  (ou decisão de excluir failover)
+Wave 1 (base of truth)     G6 re-measure ───┐
+Wave 2 (confidence)        G1 security      ├─► G2 validated release
+Wave 3 (op. safety)        G3 upgrade/rollback   G5 scale/density
+Wave 4 (ceiling)           G4 HA/multi-node  (or decision to exclude failover)
 ```
 
-- **G6 primeiro:** toda a outra afirmação assenta em números actuais; a evidência
-  hoje é de v0.x–v3.1.0/5.1.1 (`reports/.../stale-evidence.md`). Sem G6, G1/G2
-  validam um alvo em movimento.
-- **G1 antes de G2:** uma release "de confiança" exige que o pipeline que a produz
-  seja ele próprio confiável (cadeia de fornecimento).
-- **G4 por último:** é o maior investimento e pode ser **substituído por uma
-  decisão de âmbito** (excluir failover e documentar o tecto single-node).
+- **G6 first:** every other claim rests on current numbers; the evidence today is
+  from v0.x–v3.1.0/5.1.1 (`reports/.../stale-evidence.md`). Without G6, G1/G2
+  validate a moving target.
+- **G1 before G2:** a "trustworthy" release requires that the pipeline producing
+  it be trustworthy itself (supply chain).
+- **G4 last:** it is the biggest investment and can be **replaced by a scope
+  decision** (exclude failover and document the single-node ceiling).
 
 ---
 
-## G1 — Segurança assegurada externamente
+## G1 — Security assured externally
 
-**Estado actual.** Auditorias só internas (AI-adversarial); cadeia de fornecimento:
-G-020 0/20 Actions SHA-pinned; sem `cargo-audit`/trivy no CI; scanner CVE sem feed
-(`delonix-scanner/src/lib.rs:371`); assinatura/SLSA/SBOM "por desenho", não
-verificados contra artefactos. Rootful/SELinux nunca avaliados.
+**Current state.** Audits internal only (AI-adversarial); supply chain:
+G-020 0/20 Actions SHA-pinned; no `cargo-audit`/trivy in CI; CVE scanner with no
+feed (`delonix-scanner/src/lib.rs:371`); signing/SLSA/SBOM "by design", not
+verified against artefacts. Rootful/SELinux never assessed.
 
-**Critério de GO.** (a) Pentest externo da linha enviada com relatório e achados
-HIGH/CRITICAL fechados; (b) 20/20 Actions SHA-pinned; (c) `cargo-audit` + scan de
-imagem no CI a falhar o build em CVE conhecido; (d) scanner com feed real
-(OSV/NVD/Alpine secdb) provado a apanhar um CVE conhecido; (e) assinatura +
-provenance + SBOM **verificados contra os artefactos reais** da release; (f)
-rootful e SELinux-enforcing avaliados (ou declarados fora de âmbito por escrito).
+**GO criterion.** (a) External pentest of the shipped line with report and
+HIGH/CRITICAL findings closed; (b) 20/20 Actions SHA-pinned; (c) `cargo-audit` +
+image scan in CI failing the build on a known CVE; (d) scanner with a real feed
+(OSV/NVD/Alpine secdb) proven to catch a known CVE; (e) signing +
+provenance + SBOM **verified against the real release artefacts**; (f)
+rootful and SELinux-enforcing assessed (or declared out of scope in writing).
 
-**Tarefas.**
-- `[agente]` SHA-pin todos os `.github/workflows/*` (tag→SHA) + comentário com a versão legível.
-- `[agente]` Adicionar `cargo-audit` (ou `cargo deny advisories` já existe — estender a CVE) e um passo de scan de imagem ao CI, a falhar o build.
-- `[agente]` Ligar o scanner a um feed real (OSV/NVD/Alpine secdb), com teste que apanha um CVE conhecido plantado.
-- `[agente]` Script que **verifica** assinatura/provenance/SBOM contra os assets de uma release candidata (fecha o "PASS por desenho").
-- `[agente]` Bateria rootful + SELinux-enforcing (numa VM) e registo dos resultados; OU ADR a excluir esses modos.
-- `[dono]`/`[externo]` **Comissionar o pentest externo** — não é auto-satisfazível; é o item que define "independente".
+**Tasks.**
+- `[agent]` SHA-pin all `.github/workflows/*` (tag→SHA) + comment with the human-readable version.
+- `[agent]` Add `cargo-audit` (or `cargo deny advisories` already exists — extend it to CVE) and an image-scan step to CI, failing the build.
+- `[agent]` Wire the scanner to a real feed (OSV/NVD/Alpine secdb), with a test that catches a known planted CVE.
+- `[agent]` Script that **verifies** signing/provenance/SBOM against a release candidate's assets (closes the "PASS by design").
+- `[agent]` Rootful + SELinux-enforcing battery (in a VM) and record the results; OR an ADR excluding those modes.
+- `[owner]`/`[external]` **Commission the external pentest** — it is not self-satisfiable; it is the item that defines "independent".
 
 ---
 
-## G2 — Release tagueada e validada
+## G2 — Tagged and validated release
 
-**Estado actual.** Nada publicado na linha 0.x (`CHANGELOG` "[Não lançado]"); a
-última legacy (v5.1.1) foi mal validada (pushes diretos a `main`, CI vermelho,
-`release.yml` falhou 3× — `docs/RELEASES.md:78-99`).
+**Current state.** Nothing published on the 0.x line (`CHANGELOG` "[Unreleased]");
+the last legacy (v5.1.1) was poorly validated (direct pushes to `main`, red CI,
+`release.yml` failed 3× — `docs/RELEASES.md:78-99`).
 
-**Critério de GO.** Uma tag cuja CI está **verde** e em que `cargo test` + `e2e.sh`
-+ `chaos.sh` + `critest` correram **na própria tag** (não "na develop há semanas"),
-com os artefactos assinados e verificados (liga-se a G1).
+**GO criterion.** A tag whose CI is **green** and in which `cargo test` + `e2e.sh`
++ `chaos.sh` + `critest` ran **on the tag itself** (not "on develop weeks ago"),
+with the artefacts signed and verified (ties into G1).
 
-**Tarefas.**
-- `[agente]` Endurecer `release.yml`/`gitflow.py`: gate que recusa taguear com CI não-verde e sem as suites corridas na tag.
-- `[agente]` Fechar os gates de baseline que hoje falham (rustfmt/lang_ratchet) — ver [[delonix-merge-ci-pitfalls]] — para o "verde" ser real.
-- `[dono]` Merge da linha estável → `main` e **cortar a tag** (acção do dono; o hook recusa push do agente).
+**Tasks.**
+- `[agent]` Harden `release.yml`/`gitflow.py`: a gate that refuses to tag with non-green CI and without the suites run on the tag.
+- `[agent]` Close the baseline gates that fail today (rustfmt/lang_ratchet) — see [[delonix-merge-ci-pitfalls]] — so that "green" is real.
+- `[owner]` Merge the stable line → `main` and **cut the tag** (owner action; the hook refuses the agent's push).
 
 ---
 
 ## G3 — Upgrade/rollback
 
-**Estado actual.** NÃO TESTADO (`release-verdict.md`); supervisores vivos correm o
-código com que nasceram — sem hot-patch (`RELATORIO-PRE-PRODUCAO.md:116`); sem
-rollback a meio de `apply` (`47_IAC_REVISAO.md:400`). Existe só
-`e2e_state_upgrade.sh` (formato de estado em disco).
+**Current state.** NOT TESTED (`release-verdict.md`); live supervisors run the
+code they were born with — no hot-patch (`RELATORIO-PRE-PRODUCAO.md:116`); no
+rollback mid-`apply` (`47_IAC_REVISAO.md:400`). Only
+`e2e_state_upgrade.sh` exists (on-disk state format).
 
-**Critério de GO.** (a) Teste E2E: instalar vN, correr cargas, actualizar para
-vN+1 **com containers/VMs vivos**, confirmar que sobrevivem e reconciliam; (b)
-rollback para vN provado (binário anterior + `netns down/up` numa janela) sem perda
-de estado; (c) procedimento escrito para corrigir um supervisor vivo (ou ADR que
-assuma o limite e o runbook de "recriar em janela").
+**GO criterion.** (a) E2E test: install vN, run workloads, upgrade to
+vN+1 **with live containers/VMs**, confirm they survive and reconcile; (b)
+rollback to vN proven (previous binary + `netns down/up` in a window) without loss
+of state; (c) written procedure to fix a live supervisor (or an ADR that
+accepts the limit and the "recreate in a window" runbook).
 
-**Tarefas.**
-- `[agente]` ✅ **FEITO (mecanismo):** `scripts/e2e_upgrade_rollback.sh` — vN→vN+1→vN
-  com container vivo + rede + marca de estado; 17 asserções VERDES (2026-11-02):
-  sobrevivência (container `Up`, MESMO id após a troca do binário), gestão pelo
-  motor novo (`exec`/`logs` sobre container nascido sob o antigo), reconciliação
-  (`stop`/`start` preserva a camada gravável), e rollback. Param. `--old`/`--new`.
-  **FALTA a compatibilidade CRUZADA de versões** (binário novo a ler estado de
-  versão antiga): precisa de uma tag anterior compilada para `--old` — o harness
-  já a mede sem mais mudanças. (O estado em disco entre versões fica em
+**Tasks.**
+- `[agent]` ✅ **DONE (mechanism):** `scripts/e2e_upgrade_rollback.sh` — vN→vN+1→vN
+  with a live container + network + state mark; 17 assertions GREEN (2026-11-02):
+  survival (container `Up`, SAME id after the binary swap), management by the new
+  engine (`exec`/`logs` over a container born under the old one), reconciliation
+  (`stop`/`start` preserves the writable layer), and rollback. Params `--old`/`--new`.
+  **MISSING the CROSS version compatibility** (new binary reading old-version
+  state): needs a prior tag compiled for `--old` — the harness
+  already measures it with no further changes. (On-disk state across versions is in
   `e2e_state_upgrade.sh`.)
-- `[agente]` ✅ **FEITO:** hot-reattach medido e documentado. Achados-chave:
-  **(1)** `cp` in-place do binário em uso → **ETXTBSY** (kernel recusa); upgrade
-  TEM de ser por **rename atómico** (dpkg/rpm/`install(1)` já o fazem).
-  **(2)** containers vivos **sobrevivem** à troca do binário (supervisor fica no
-  inode antigo, mapeado). **(3)** NÃO há hot-patch do supervisor vivo: ele corre
-  o código com que nasceu até ser recriado — um fix no caminho de supervisão só
-  chega a um container existente via recriação faseada.
-- `[agente]` ✅ **FEITO:** runbook `docs/operations/upgrade-rollback.md` (procedimento
-  rename-atómico, tabela do que sobrevive, rollback, validação, e a secção
-  Limites: compat-cruzada por provar, sem hot-patch, sem rollback-a-meio-de-apply
+- `[agent]` ✅ **DONE:** hot-reattach measured and documented. Key findings:
+  **(1)** in-place `cp` of the binary in use → **ETXTBSY** (kernel refuses); upgrade
+  MUST be by **atomic rename** (dpkg/rpm/`install(1)` already do this).
+  **(2)** live containers **survive** the binary swap (the supervisor stays on the
+  old inode, mapped). **(3)** there is NO hot-patch of the live supervisor: it runs
+  the code it was born with until recreated — a fix in the supervision path only
+  reaches an existing container via phased recreation.
+- `[agent]` ✅ **DONE:** runbook `docs/operations/upgrade-rollback.md` (atomic-rename
+  procedure, table of what survives, rollback, validation, and the section
+  Limits: cross-compat unproven, no hot-patch, no rollback-mid-apply
   `47_IAC_REVISAO.md:400`).
 
 ---
 
-## G4 — HA / multi-nó
+## G4 — HA / multi-node
 
-**Estado actual.** Single-node por desenho; frota delegada ao `delonix-paas`
-(ADR-0010). Overlay inter-nó (VXLAN/WireGuard) não provado E2E; VM HA/replicação =
-`requires-external-component`; migração ao vivo NO-GO (ADR-0031); kubeadm HA offline
-não executado nas campanhas. Há trabalho feito (5 VMs + 3 CP etcd stacked + HAProxy
-provado numa sessão anterior — ver [[delonix-kubeadm-ha-offline-findings]]).
+**Current state.** Single-node by design; fleet delegated to `delonix-paas`
+(ADR-0010). Inter-node overlay (VXLAN/WireGuard) not proven E2E; VM HA/replication =
+`requires-external-component`; live migration NO-GO (ADR-0031); kubeadm HA offline
+not executed in the campaigns. There is work done (5 VMs + 3 CP etcd stacked + HAProxy
+proven in a prior session — see [[delonix-kubeadm-ha-offline-findings]]).
 
-**Critério de GO (um dos dois).**
-- **Via prova:** overlay inter-nó forwarding E2E entre ≥2 nós + um control-plane k8s HA (≥3 CP, etcd stacked, VIP) a sobreviver à queda de um CP, tudo sobre o Delonix; OU
-- **Via âmbito:** ADR explícito que exclui failover do produto, documenta o tecto single-node, e aponta a frota para `delonix-paas`/k8s externo — tornando "alta criticidade COM HA" um não-objetivo honesto em vez de uma lacuna.
+**GO criterion (one of two).**
+- **Via proof:** inter-node overlay forwarding E2E between ≥2 nodes + a k8s HA control-plane (≥3 CP, etcd stacked, VIP) surviving the loss of one CP, all on Delonix; OR
+- **Via scope:** an explicit ADR excluding failover from the product, documenting the single-node ceiling, and pointing the fleet to `delonix-paas`/external k8s — making "high criticality WITH HA" an honest non-goal instead of a gap.
 
-**Tarefas.**
-- `[dono]` ✅ **DECIDIDO (2026-11-02): via PROVA — o Delonix quer SER HA.** Logo o
-  critério é o primeiro bullet acima (overlay inter-nó E2E + control-plane k8s HA).
-  Próximos passos: (1) correr `scripts/e2e_overlay_multinode.sh` contra 2 nós reais
-  (2 VMs delonix ou 2 hosts SSH); (2) retomar a cadeia kubeadm HA (≥3 CP, etcd
-  stacked, VIP), hoje bloqueada por [[delonix-cri-entrypoint-override-bug]] (fix em
-  `fix/cri-command-entrypoint-override`, por integrar). O caminho "via âmbito"
-  (ADR a excluir failover) fica DESCARTADO.
-- `[agente]` **BANCADA CORRIDA EM 2 NÓS REAIS (2026-11-02) — ver
-  `g4-overlay-forwarding.md`:** 2 VMs do golden k8s (virbr0, IPs roteáveis, pubkeys
-  WG trocadas, binário 0.1.0 da linha atual). RESULTADO: **forwarding = 100% de
-  perda** nos dois sentidos. CAUSA-RAIZ cravada: `ss -ulnp` no nó mostra NADA em
-  UDP 51820/4789 — o overlay faz `wg-up`/VXLAN DENTRO do holder (slirp4netns), mas
-  o `slirp_add_hostfwd` só liga portas publicadas, nunca 51820/4789 → o handshake
-  WG do peer bate em porta fechada. Confirma (com dado) o `Partial` da matriz.
-  Achado 2º: **`--subnet` ignorado** (overlay em 10.234/16 auto, cada nó
-  independente), reproduzido em VMs reais. **DOIS bloqueios de SDN-core a fechar
-  antes de "via prova" passar:** (1) hostfwd do slirp p/ 51820(WG)+4789(VXLAN)
-  quando há overlay — ou um modo rootful com WG numa interface real; (2) honrar
-  `--subnet` + coordenar o /16 entre nós. São mudanças com implicações de
-  firewall/ADR → carecem de desenho do dono antes de implementar.
-- `[agente]` ✅ **FEITO (bancada):** `scripts/e2e_overlay_multinode.sh` — a bancada
-  multi-nó do caminho "via prova", topologia-agnóstica (`--via ssh A B`). Assere:
-  identidade WireGuard em cada nó, criar o MESMO overlay (`--driver overlay --vni`)
-  com o outro como `--peer <ip>=<pub>=<wg_ip>`, um container em cada nó na rede,
-  **forwarding E2E** A→B e B→A pelos IPs-overlay, e **prova de caminho** (handshake
-  WireGuard + peer). **MEDIDO e provado que uma só caixa NÃO corre isto** (`node
-  init` ok, mas `network create --driver overlay` em rootful dá `DX-9301 timeout
-  waiting for the netns holder`; rootless está atrás de slirp, sem inbound) — por
-  isso o harness **recusa fingir** (exit 3) e imprime o runbook. Confere com a
-  razão que a própria matriz já dá para marcar o overlay `Partial`. **FALTA**:
-  correr contra 2 nós reais (SSH) — ou retomar a cadeia kubeadm HA bloqueada por
-  [[delonix-cri-entrypoint-override-bug]] para o control-plane HA.
-- `[agente]` ✅ **OVERLAY INTER-NÓ: PROVADO E2E (2026-11-02).** Três fixes (WG
-  hostfwd ADR-0084 + `--subnet` honrado + firewall `dlxinput` aceita a VXLAN de
-  entrada `iifname "wgo*" udp dport 4789`): ping container-a-container entre 2 VMs
-  reais a **0% de perda** nos dois sentidos. `net.overlay.{vxlan,encrypted}`
-  Partial→Supported na matriz (183/271). Ver `g4-overlay-forwarding.md`.
-- `[agente]` ✅ **CONTROL-PLANE k8s HA: PROVADO (2026-11-03) — ver
-  `g4-ha-controlplane.md`.** Depois de libertar disco (`cargo clean` do
-  DORM/target, 54.9 GiB → 99G livres), `delonix cluster kubeadm --control-plane 3
-  --workers 0 --cni default` provisionou 3 CP + **HAProxy LB (VIP)** + etcd
-  stacked + Cilium, **tudo sobre delonix** (`delonix-cri` como CRI de cada nó,
-  `CONTAINER-RUNTIME delonix://0.1.0`). `3/3 Ready`, kubectl via o VIP, um pod real
-  com IP Cilium (o CNI que o bug CRI bloqueava, agora vivo). **FAILOVER:**
-  `vm stop g4ha-cp1` → a API sobrevive via o VIP, **escrita no etcd OK** (configmap
-  `survived=yes`, quórum 2/3), **pod novo agendado** em cp3; cp1 vai a `NotReady`.
-  **Self-heal:** `vm start g4ha-cp1` → 3/3 Ready em ~20 s. Critério G4-HA fechado.
-  Candidato de produto que esta prova revelou — **FECHADO (ADR-0085):** o
-  `cluster create` kind-mode passou a provisionar um **container HAProxy** e a fazer
-  HA em containers (`--control-planes 3` → 3 CP + LB, failover provado, sem VMs).
-- `[agente]` (se via âmbito) Escrever o ADR + a secção "tecto single-node" no handbook.
-
----
-
-## G5 — Escala / densidade
-
-**Estado actual.** Não medida. Única amostra: chaos `scale(30)` com teardown limpo.
-O caminho de attach faz ~20-25 `fork`+`exec` + 2 dumps `nft` que crescem com o nº
-de containers/namespaces; todos os números foram tirados em nó vazio
-(`comparacao-medida.md:207-230`).
-
-**Critério de GO.** Tecto de densidade declarado (ex. "N containers/nó com p99 de
-attach < X ms e teardown estável"), medido num nó dedicado, com a curva de latência
-vs densidade (não um ponto em nó vazio) e as SLOs correspondentes.
-
-**Tarefas.**
-- `[agente]` ✅ **FEITO (arnês):** `scripts/bench_density.sh` — rampa de patamares
-  (`--tiers 1,10,25,50,100`), attach p50/p99 por patamar + tamanho dos dois dumps
-  `nft` (`list sets`, `-a list chain fwdeny`); emite a CURVA em JSON (contrato
-  `publishable` do `bench.sh`), herda o juízo de bancada do `bancada.sh` (recusa
-  acima do limiar), marca NÃO PUBLICÁVEL quando há containers alheios, e limpa
-  tudo o que cria (prefixo `benchdens-`). Provado ponta-a-ponta em rootless (curva
-  + cleanup + JSON). As colunas `nft` enchem em **rootful** (tabela `inet dlxing`
-  visível do host); em rootless ficam `null` por desenho (o holder não se
-  `nsenter`a de fora). **Falta correr num nó DEDICADO** (esta caixa tem as BDs do
-  dono → não publicável) para produzir a curva a sério.
-- `[agente]` ✅ **CURVA MEDIDA (2026-11-03) — ver `g5-density.md`.** Rampa 1→100
-  containers (`bench_density.sh`, não publicável: caixa partilhada + 1 container
-  do dono): **attach p50 PLANA** (193→215 ms, ~11 % = ruído); p99 ruidosa mas sem
-  tendência. **A latência de attach NÃO cresce com a densidade até 100.** A
-  suspeita O(N) (`drop_from_every_ns_set` `nft list sets`, `fwdeny` scans) **NÃO
-  se confirma na prática**: o `list sets` conta NAMESPACES, não containers (os 100
-  estavam em `default` → ~1 ns-set). **DECISÃO: não otimizar** — seria resolver um
-  não-problema no datapath de segurança; o alvo fica documentado se um dia um
-  workload com muitos namespaces mostrar a curva a subir.
-- `[agente]` SLOs + a curva PUBLICÁVEL ficam para um **nó dedicado** (a forma já é
-  conhecida e tranquilizadora).
+**Tasks.**
+- `[owner]` ✅ **DECIDED (2026-11-02): via PROOF — Delonix wants to BE HA.** So the
+  criterion is the first bullet above (inter-node overlay E2E + k8s HA control-plane).
+  Next steps: (1) run `scripts/e2e_overlay_multinode.sh` against 2 real nodes
+  (2 delonix VMs or 2 SSH hosts); (2) resume the kubeadm HA chain (≥3 CP, etcd
+  stacked, VIP), today blocked by [[delonix-cri-entrypoint-override-bug]] (fix in
+  `fix/cri-command-entrypoint-override`, to be integrated). The "via scope" path
+  (ADR excluding failover) is DISCARDED.
+- `[agent]` **BENCH RUN ON 2 REAL NODES (2026-11-02) — see
+  `g4-overlay-forwarding.md`:** 2 VMs of the golden k8s (virbr0, routable IPs, WG
+  pubkeys exchanged, 0.1.0 binary of the current line). RESULT: **forwarding = 100%
+  loss** in both directions. ROOT CAUSE pinned: `ss -ulnp` on the node shows NOTHING on
+  UDP 51820/4789 — the overlay does `wg-up`/VXLAN INSIDE the holder (slirp4netns), but
+  `slirp_add_hostfwd` only wires published ports, never 51820/4789 → the peer's WG
+  handshake hits a closed port. Confirms (with data) the `Partial` in the matrix.
+  2nd finding: **`--subnet` ignored** (overlay at 10.234/16 auto, each node
+  independent), reproduced on real VMs. **TWO SDN-core blocks to close before "via proof"
+  can pass:** (1) slirp hostfwd for 51820(WG)+4789(VXLAN)
+  when there is an overlay — or a rootful mode with WG on a real interface; (2) honour
+  `--subnet` + coordinate the /16 across nodes. These are changes with
+  firewall/ADR implications → they need owner design before implementing.
+- `[agent]` ✅ **DONE (bench):** `scripts/e2e_overlay_multinode.sh` — the
+  multi-node bench of the "via proof" path, topology-agnostic (`--via ssh A B`). It asserts:
+  WireGuard identity on each node, creating the SAME overlay (`--driver overlay --vni`)
+  with the other as `--peer <ip>=<pub>=<wg_ip>`, a container on each node on the network,
+  **E2E forwarding** A→B and B→A over the overlay IPs, and **path proof** (WireGuard
+  handshake + peer). **MEASURED and proven that a single box does NOT run this** (`node
+  init` ok, but `network create --driver overlay` in rootful gives `DX-9301 timeout
+  waiting for the netns holder`; rootless is behind slirp, no inbound) — so
+  the harness **refuses to fake it** (exit 3) and prints the runbook. Matches the
+  reason the matrix itself already gives for marking the overlay `Partial`. **MISSING**:
+  run against 2 real nodes (SSH) — or resume the kubeadm HA chain blocked by
+  [[delonix-cri-entrypoint-override-bug]] for the HA control-plane.
+- `[agent]` ✅ **INTER-NODE OVERLAY: PROVEN E2E (2026-11-02).** Three fixes (WG
+  hostfwd ADR-0084 + `--subnet` honoured + firewall `dlxinput` accepting the inbound
+  VXLAN `iifname "wgo*" udp dport 4789`): container-to-container ping between 2 real
+  VMs at **0% loss** in both directions. `net.overlay.{vxlan,encrypted}`
+  Partial→Supported in the matrix (183/271). See `g4-overlay-forwarding.md`.
+- `[agent]` ✅ **k8s HA CONTROL-PLANE: PROVEN (2026-11-03) — see
+  `g4-ha-controlplane.md`.** After freeing disk (`cargo clean` of
+  DORM/target, 54.9 GiB → 99G free), `delonix cluster kubeadm --control-plane 3
+  --workers 0 --cni default` provisioned 3 CP + **HAProxy LB (VIP)** + etcd
+  stacked + Cilium, **all on delonix** (`delonix-cri` as each node's CRI,
+  `CONTAINER-RUNTIME delonix://0.1.0`). `3/3 Ready`, kubectl via the VIP, a real pod
+  with a Cilium IP (the CNI the CRI bug blocked, now live). **FAILOVER:**
+  `vm stop g4ha-cp1` → the API survives via the VIP, **etcd write OK** (configmap
+  `survived=yes`, quorum 2/3), **new pod scheduled** on cp3; cp1 goes `NotReady`.
+  **Self-heal:** `vm start g4ha-cp1` → 3/3 Ready in ~20 s. G4-HA criterion closed.
+  Product candidate this proof revealed — **CLOSED (ADR-0085):** the
+  `cluster create` kind-mode now provisions an **HAProxy container** and does
+  HA in containers (`--control-planes 3` → 3 CP + LB, failover proven, no VMs).
+- `[agent]` (if via scope) Write the ADR + the "single-node ceiling" section in the handbook.
 
 ---
 
-## G6 — Re-medir a evidência stale
+## G5 — Scale / density
 
-**Estado actual.** CRI/bench/E2E/Docker-API medidos em v0.x–v3.1.0/5.1.1; "quase
-nenhum número publicado foi medido em 3.x+" (`stale-evidence.md`). O veredicto
-assenta nisto com aviso.
+**Current state.** Not measured. Only sample: chaos `scale(30)` with clean teardown.
+The attach path does ~20-25 `fork`+`exec` + 2 `nft` dumps that grow with the number
+of containers/namespaces; all numbers were taken on an empty node
+(`measured-comparison.md:207-230`).
 
-**Critério de GO.** `critest`, `bench.sh`, `e2e.sh`, `chaos.sh` e a matriz de
-capacidades **re-corridos na versão enviada**, com as datas e o commit a bater
-certo; os documentos de comparação actualizados a partir dessas corridas.
+**GO criterion.** A declared density ceiling (e.g. "N containers/node with attach p99
+< X ms and stable teardown"), measured on a dedicated node, with the latency curve
+vs density (not a point on an empty node) and the corresponding SLOs.
 
-**Tarefas.**
-- `[agente]` ✅ **FEITO (matriz):** `capability-matrix.md` re-gerada do binário atual
-  (2026-11-02): **181/271 (66,8 %)**, engine 0.1.0 — era 180/270@5.1.1; `net.ipv6`
-  passou a `supported` (ADR-0082). Drift fechado: o teste `the_published_matrix_is_
-  the_generated_one` volta a VERDE. README deste relatório + `stale-evidence.md`
-  actualizados com data/commit.
-- `[agente]` **FALTA (nó dedicado/infra):** re-correr `bench.sh` (recusa-se em nó
-  carregado — por desenho), `bench_density.sh` (curva — nó ocioso), `critest`
-  (k8s/CRI) e `chaos.sh`/`e2e.sh` (criam VMs/kind). Esta caixa tem carga alheia
-  (BDs do dono) → não publicável. Actualizar `cri-conformance.md`/`comparacao-medida.md`
-  quando houver essas corridas.
-- `[agente]` ✅ **FEITO:** `stale-evidence.md` marca a matriz como FRESCA e lista o
-  que continua STALE (e porquê).
+**Tasks.**
+- `[agent]` ✅ **DONE (harness):** `scripts/bench_density.sh` — a tier ramp
+  (`--tiers 1,10,25,50,100`), attach p50/p99 per tier + size of the two
+  `nft` dumps (`list sets`, `-a list chain fwdeny`); it emits the CURVE in JSON (the
+  `bench.sh` `publishable` contract), inherits the bench judgement of `bancada.sh` (refuses
+  above the threshold), marks NOT PUBLISHABLE when there are foreign containers, and cleans
+  up everything it creates (prefix `benchdens-`). Proven end-to-end in rootless (curve
+  + cleanup + JSON). The `nft` columns fill in **rootful** (`inet dlxing` table
+  visible from the host); in rootless they stay `null` by design (the holder cannot be
+  `nsenter`ed from outside). **Still missing a run on a DEDICATED node** (this box has the
+  owner's DBs → not publishable) to produce the real curve.
+- `[agent]` ✅ **CURVE MEASURED (2026-11-03) — see `g5-density.md`.** Ramp 1→100
+  containers (`bench_density.sh`, not publishable: shared box + 1 owner
+  container): **attach p50 FLAT** (193→215 ms, ~11 % = noise); p99 noisy but with no
+  trend. **Attach latency does NOT grow with density up to 100.** The
+  O(N) suspicion (`drop_from_every_ns_set` `nft list sets`, `fwdeny` scans) **does
+  NOT hold in practice**: `list sets` counts NAMESPACES, not containers (the 100
+  were in `default` → ~1 ns-set). **DECISION: do not optimise** — it would solve a
+  non-problem in the security datapath; the target stays documented if one day a
+  workload with many namespaces shows the curve rising.
+- `[agent]` SLOs + the PUBLISHABLE curve are left for a **dedicated node** (the shape is
+  already known and reassuring).
 
 ---
 
-## O que posso começar já (sem merge/release, sem terceiros)
+## G6 — Re-measure the stale evidence
 
-Executável por mim de imediato, de maior para menor alavanca:
-1. **G1 (b,c,d,e):** SHA-pin dos Actions, `cargo-audit`+scan no CI, feed CVE real, verificador de artefactos. *(a cadeia de fornecimento é o elo mais fraco e é todo in-repo.)*
-2. **G6:** re-correr as suites e refrescar os números — destrava a confiança em tudo o resto.
-3. **G5:** bench de densidade (dá o primeiro tecto de escala que nunca existiu).
-4. **G3:** harness de upgrade/rollback.
+**Current state.** CRI/bench/E2E/Docker-API measured on v0.x–v3.1.0/5.1.1; "almost
+no published number was measured on 3.x+" (`stale-evidence.md`). The verdict
+rests on this with a caveat.
 
-Fica para o dono/terceiros: o **pentest externo** (G1a), a **tag/release** (G2), e
-a **decisão de âmbito de HA** (G4). Diz-me por qual das quatro começo.
+**GO criterion.** `critest`, `bench.sh`, `e2e.sh`, `chaos.sh` and the capability
+matrix **re-run on the shipped version**, with dates and commit matching up;
+the comparison documents updated from those runs.
+
+**Tasks.**
+- `[agent]` ✅ **DONE (matrix):** `capability-matrix.md` regenerated from the current binary
+  (2026-11-02): **181/271 (66.8 %)**, engine 0.1.0 — was 180/270@5.1.1; `net.ipv6`
+  became `supported` (ADR-0082). Drift closed: the test `the_published_matrix_is_
+  the_generated_one` is GREEN again. This report's README + `stale-evidence.md`
+  updated with date/commit.
+- `[agent]` **MISSING (dedicated node/infra):** re-run `bench.sh` (refuses on a loaded
+  node — by design), `bench_density.sh` (curve — idle node), `critest`
+  (k8s/CRI) and `chaos.sh`/`e2e.sh` (create VMs/kind). This box has foreign load
+  (owner's DBs) → not publishable. Update `cri-conformance.md`/`measured-comparison.md`
+  once those runs exist.
+- `[agent]` ✅ **DONE:** `stale-evidence.md` marks the matrix as FRESH and lists what
+  remains STALE (and why).
+
+---
+
+## What I can start right now (no merge/release, no third parties)
+
+Executable by me immediately, highest to lowest leverage:
+1. **G1 (b,c,d,e):** SHA-pin the Actions, `cargo-audit`+scan in CI, real CVE feed, artefact verifier. *(the supply chain is the weakest link and it is all in-repo.)*
+2. **G6:** re-run the suites and refresh the numbers — it unblocks confidence in everything else.
+3. **G5:** density bench (gives the first scale ceiling that never existed).
+4. **G3:** upgrade/rollback harness.
+
+Left for the owner/third parties: the **external pentest** (G1a), the **tag/release** (G2), and
+the **HA scope decision** (G4). Tell me which of the four I start with.

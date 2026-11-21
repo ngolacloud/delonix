@@ -59,6 +59,7 @@ pub mod provider_report;
 pub mod route_plan;
 pub mod run_network;
 pub mod service_lb;
+pub mod uplink;
 pub mod vm_network;
 pub mod wg;
 
@@ -1378,10 +1379,10 @@ impl NetworkStore {
         // 3 to 5, with up to FIVE networks on `10.220.0.0/16`. The bridges differ
         // (the name derives from the network's), so the networks look separate in
         // `network ls` — and the workloads draw addresses from the same space.
-        let trinco = self.lock_path();
-        let _lock = flock::ExclusiveLock::acquire(&trinco).ok_or_else(|| {
+        let lock_file = self.lock_path();
+        let _lock = flock::ExclusiveLock::acquire(&lock_file).ok_or_else(|| {
             flock::ExclusiveLock::unavailable(
-                &trinco,
+                &lock_file,
                 "an unsynchronised allocation can put two networks on the same /16",
             )
         })?;
@@ -1499,27 +1500,27 @@ impl NetworkStore {
     /// `create` — there is no access to the store here, and fetching it would make
     /// this function impossible to test without one.
     pub fn validate_subnet(subnet: &str) -> Result<Cidr> {
-        let porque = |why: &str| {
+        let reject = |why: &str| {
             Error::SubnetInvalid(format!(
                 "subnet '{subnet}': {why}. Use a private range — `10.0.0.0/8`, \
                  `172.16.0.0/12` or `192.168.0.0/16` — with a prefix between /8 \
                  and /28, or omit --subnet to let the engine pick a free one"
             ))
         };
-        let c = Cidr::parse(subnet).ok_or_else(|| porque("not an IPv4 prefix"))?;
+        let c = Cidr::parse(subnet).ok_or_else(|| reject("not an IPv4 prefix"))?;
         if subnet.split_once('/').is_none() {
-            return Err(porque("no prefix length"));
+            return Err(reject("no prefix length"));
         }
-        let privado = [("10.0.0.0/8"), ("172.16.0.0/12"), ("192.168.0.0/16")]
+        let is_private = [("10.0.0.0/8"), ("172.16.0.0/12"), ("192.168.0.0/16")]
             .iter()
             .filter_map(|r| Cidr::parse(r))
             .any(|r| r.len <= c.len && r.contains(c.base));
-        if !privado {
-            return Err(porque("outside the private address space (RFC 1918)"));
+        if !is_private {
+            return Err(reject("outside the private address space (RFC 1918)"));
         }
-        c.usable_for_network().map_err(|e| porque(&e))?;
+        c.usable_for_network().map_err(|e| reject(&e))?;
         if let Some((r, what)) = reserved_overlap(&c) {
-            return Err(porque(&format!("overlaps {r}, {what}")));
+            return Err(reject(&format!("overlaps {r}, {what}")));
         }
         Ok(c)
     }
@@ -1536,7 +1537,7 @@ impl NetworkStore {
     /// the link, and the route does not even install), and it cannot be the network
     /// or the broadcast address.
     pub fn validate_gateway(cidr: &Cidr, gw: &str) -> Result<()> {
-        let porque = |why: &str| {
+        let reject = |why: &str| {
             Error::InvalidGateway(format!(
                 "gateway '{gw}': {why}. It must be an address INSIDE {} that a workload on that \
                  network actually answers on (a firewall/appliance) — the holder keeps owning the \
@@ -1544,12 +1545,12 @@ impl NetworkStore {
                 cidr.to_string_cidr()
             ))
         };
-        let a = Cidr::parse_addr(gw).ok_or_else(|| porque("not an IPv4 address"))?;
+        let a = Cidr::parse_addr(gw).ok_or_else(|| reject("not an IPv4 address"))?;
         if !cidr.contains(a) {
-            return Err(porque("outside the network's prefix"));
+            return Err(reject("outside the network's prefix"));
         }
         if a == cidr.base || a == cidr.last() {
-            return Err(porque("is the network or broadcast address"));
+            return Err(reject("is the network or broadcast address"));
         }
         Ok(())
     }
@@ -1567,22 +1568,22 @@ impl NetworkStore {
         // '../evil' --subnet 10.231.0.0/24` wrote the record OUTSIDE
         // `networks/` and answered 0.
         Self::validate_name(name)?;
-        if let Ok(existente) = self.get(name) {
-            return Ok(existente);
+        if let Ok(existing) = self.get(name) {
+            return Ok(existing);
         }
         // Same lock as `create`, for the same reason: checking overlap against the
         // registry and only then writing is read-then-write. Two concurrent
         // creations of overlapping CIDRs both used to pass the check — and the
         // conflict this function exists to refuse ended up written.
-        let trinco = self.lock_path();
-        let _lock = flock::ExclusiveLock::acquire(&trinco).ok_or_else(|| {
+        let lock_file = self.lock_path();
+        let _lock = flock::ExclusiveLock::acquire(&lock_file).ok_or_else(|| {
             flock::ExclusiveLock::unavailable(
-                &trinco,
+                &lock_file,
                 "two overlapping subnets can both pass the overlap check",
             )
         })?;
-        if let Ok(existente) = self.get(name) {
-            return Ok(existente);
+        if let Ok(existing) = self.get(name) {
+            return Ok(existing);
         }
         if let Some((r, what)) = reserved_overlap(&cidr) {
             return Err(Error::SubnetOverlap(format!(
@@ -2655,15 +2656,35 @@ pub struct Connection {
 /// that involve containers (`ip2name`: container IP → name). It's the basis of the
 /// **engine**'s security monitor — only the host (global netns, root) sees this; each
 /// container, in its own netns and without `CAP_NET_ADMIN`, sees only its
-/// own connections, never another's. Best-effort: without `conntrack`, empty.
-pub fn list_connections(ip2name: &std::collections::HashMap<String, String>) -> Vec<Connection> {
+/// own connections, never another's. Returns `None` when the count is
+/// UNMEASURED — `conntrack` absent, or `conntrack -L` refused (EPERM in
+/// rootless, where it runs in the host netns the user cannot read) — so a
+/// caller never shows an unreadable count as a real `0`.
+pub fn list_connections(
+    ip2name: &std::collections::HashMap<String, String>,
+) -> Option<Vec<Connection>> {
     if ip2name.is_empty() {
-        return vec![];
+        return Some(vec![]); // genuinely zero: no containers to match against
     }
-    let text = match Command::new("conntrack").arg("-L").output() {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).into_owned(),
-        Err(_) => return vec![],
-    };
+    // `Ok` alone is NOT success: in rootless `conntrack -L` exits non-zero with
+    // an empty stdout, which used to read as "0 connections". Distinguish an
+    // unmeasured count from a true zero — the module's "unreadable is not zero"
+    // rule (`Usage { bytes, unreadable }`): `None` = unmeasured.
+    let output = Command::new("conntrack").arg("-L").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    Some(classify_conntrack(&text, ip2name))
+}
+
+/// Classifies `conntrack -L` text into container connections. Split out of
+/// `list_connections` (which does the I/O) so the parsing is testable without a
+/// kernel. PURE.
+fn classify_conntrack(
+    text: &str,
+    ip2name: &std::collections::HashMap<String, String>,
+) -> Vec<Connection> {
     let is_cont = |ip: &str| ip2name.contains_key(ip);
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -2728,21 +2749,57 @@ pub fn list_connections(ip2name: &std::collections::HashMap<String, String>) -> 
 #[cfg(test)]
 mod tests {
 
+    /// #809: a genuine zero (no containers) is `Some([])`, never `None` — and
+    /// `None` is reserved for an UNMEASURED count (conntrack absent / EPERM in
+    /// rootless), so the monitor never shows an unreadable count as `0`. Also
+    /// pins the conntrack classification (external_in / egress / internal).
+    #[test]
+    fn connections_tell_zero_from_unmeasured_and_classify() {
+        use std::collections::HashMap;
+        // No containers → a genuine zero, `Some([])`, not `None`/unmeasured.
+        assert!(matches!(
+            super::list_connections(&HashMap::new()),
+            Some(v) if v.is_empty()
+        ));
+        let mut m = HashMap::new();
+        m.insert("10.0.0.5".to_string(), "web".to_string());
+        m.insert("10.0.0.6".to_string(), "db".to_string());
+        // original tuple then reply tuple, as `conntrack -L` prints them.
+        let text = "\
+tcp 6 100 ESTABLISHED src=1.2.3.4 dst=10.0.0.5 sport=5000 dport=80 src=10.0.0.5 dst=1.2.3.4 sport=80 dport=5000
+tcp 6 100 ESTABLISHED src=10.0.0.5 dst=9.9.9.9 sport=4000 dport=443 src=9.9.9.9 dst=10.0.0.5 sport=443 dport=4000
+tcp 6 100 ESTABLISHED src=10.0.0.5 dst=10.0.0.6 sport=3000 dport=5432 src=10.0.0.6 dst=10.0.0.5 sport=5432 dport=3000";
+        let out = super::classify_conntrack(text, &m);
+        assert!(
+            out.iter().any(|c| c.kind == "external_in"
+                && c.container == "web"
+                && c.peer == "1.2.3.4"
+                && c.port == "80"),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|c| c.kind == "egress" && c.container == "web" && c.peer == "9.9.9.9"),
+            "{out:?}"
+        );
+        assert!(out.iter().any(|c| c.kind == "internal"), "{out:?}");
+    }
+
     /// **The installed base must not move.** Every network that exists today has
     /// leases derived from the /16 formula, and the generalisation has nothing to
     /// gain by changing it. This test pins the OLD formula, value by value, so that
     /// a future generalisation does not "tidy it away" without noticing.
     #[test]
-    fn o_16_continua_byte_a_byte_como_estava() {
+    fn the_16_stays_byte_for_byte_as_it_was() {
         // ids chosen to touch the three branches of the clamp: b<2, b normal, b=255.
-        for (id, esperado) in [
+        for (id, expected) in [
             ("00000000", "10.210.0.2"),   // b=0 -> 2
             ("00000001", "10.210.0.2"),   // b=1 -> 2
             ("0000010f", "10.210.1.15"),  // normal
             ("000000ff", "10.210.0.254"), // b=255 -> 254
             ("abcdef12", "10.210.239.18"),
         ] {
-            assert_eq!(derive_ip_in("10.210", id), esperado, "id={id}");
+            assert_eq!(derive_ip_in("10.210", id), expected, "id={id}");
         }
     }
 
@@ -2750,17 +2807,17 @@ mod tests {
     /// (network, gateway, broadcast), which is what makes the general rule the same
     /// rule and not a different one.
     #[test]
-    fn um_prefixo_arbitrario_aloca_dentro_de_si_e_respeita_as_exclusoes() {
+    fn an_arbitrary_prefix_allocates_within_itself_and_respects_the_exclusions() {
         for cidr in ["172.20.4.0/22", "192.168.1.0/28", "10.0.0.0/8"] {
             let net = Cidr::parse(cidr).unwrap();
             for id in ["00000000", "deadbeef", "0000000a", "ffffffff"] {
                 let ip = derive_ip_in(cidr, id);
                 let a = Cidr::parse_addr(&ip).unwrap_or_else(|| panic!("{ip} does not parse"));
-                assert!(net.contains(a), "{cidr}: {ip} fora do prefixo");
-                assert_ne!(a, net.base, "{cidr}: {ip} é o endereço de rede");
-                assert_ne!(a, net.base + 1, "{cidr}: {ip} é o gateway");
-                assert_ne!(a, net.last(), "{cidr}: {ip} é o broadcast");
-                assert!(valid_ip_in_subnet(cidr, &ip), "{cidr}: {ip} recusado");
+                assert!(net.contains(a), "{cidr}: {ip} outside the prefix");
+                assert_ne!(a, net.base, "{cidr}: {ip} is the network address");
+                assert_ne!(a, net.base + 1, "{cidr}: {ip} is the gateway");
+                assert_ne!(a, net.last(), "{cidr}: {ip} is the broadcast");
+                assert!(valid_ip_in_subnet(cidr, &ip), "{cidr}: {ip} rejected");
             }
         }
     }
@@ -2769,18 +2826,18 @@ mod tests {
     /// «is inside» would let the gateway be handed to a container, a collision that
     /// only shows up when the network stops working for everyone.
     #[test]
-    fn a_rede_o_gateway_e_o_broadcast_sao_os_unicos_excluidos() {
+    fn the_network_gateway_and_broadcast_are_the_only_ones_excluded() {
         let cidr = "192.168.1.0/28"; // 16 addresses: easy to enumerate in full
         let net = Cidr::parse(cidr).unwrap();
-        let mut aceites = 0;
+        let mut accepted = 0;
         for a in net.base..=net.last() {
             let ip = Cidr::fmt_u32(a);
             let ok = valid_ip_in_subnet(cidr, &ip);
-            let deve = a != net.base && a != net.base + 1 && a != net.last();
-            assert_eq!(ok, deve, "{ip}");
-            aceites += ok as u32;
+            let should = a != net.base && a != net.base + 1 && a != net.last();
+            assert_eq!(ok, should, "{ip}");
+            accepted += ok as u32;
         }
-        assert_eq!(aceites, 13, "um /28 tem 16 endereços menos os 3 reservados");
+        assert_eq!(accepted, 13, "a /28 has 16 addresses minus the 3 reserved");
         // And an address from OUTSIDE is never accepted, however similar it looks.
         assert!(!valid_ip_in_subnet(cidr, "192.168.2.5"));
         assert!(!valid_ip_in_subnet(cidr, "192.168.1.16"));
@@ -2792,7 +2849,7 @@ mod tests {
     ///
     /// Five invariants a prefix must ALWAYS respect:
     #[test]
-    fn invariantes_de_todos_os_prefixos_de_0_a_32() {
+    fn invariants_of_every_prefix_from_0_to_32() {
         for len in 0u8..=32 {
             for base_s in [
                 "0.0.0.0",
@@ -2804,26 +2861,26 @@ mod tests {
                 let c = Cidr::parse(&format!("{base_s}/{len}")).expect("valid prefix");
 
                 // 1. contains its own base and its own last address.
-                assert!(c.contains(c.base), "{c:?} não contém a base");
-                assert!(c.contains(c.last()), "{c:?} não contém o último");
+                assert!(c.contains(c.base), "{c:?} does not contain the base");
+                assert!(c.contains(c.last()), "{c:?} does not contain the last");
 
                 // 2. the last is never smaller than the base.
                 assert!(c.last() >= c.base, "{c:?} last < base");
 
                 // 3. overlaps with itself, always (reflexive).
-                assert!(c.overlaps(&c), "{c:?} não se sobrepõe a si mesmo");
+                assert!(c.overlaps(&c), "{c:?} does not overlap itself");
 
                 // 4. the gateway, when it exists, is INSIDE the prefix — this is
                 //    exactly what failed on /31 and /32.
                 if let Some(gw) = c.gateway() {
                     let g = Cidr::parse_addr(&gw).expect("parseable gateway");
-                    assert!(c.contains(g), "{c:?} gateway {gw} fora do prefixo");
-                    assert!(c.len <= 30, "{c:?} não devia ter gateway");
+                    assert!(c.contains(g), "{c:?} gateway {gw} outside the prefix");
+                    assert!(c.len <= 30, "{c:?} should not have a gateway");
                 }
 
                 // 5. round-trip: the text it prints parses back to the same prefix.
-                let volta = Cidr::parse(&c.to_string_cidr()).expect("round-trip");
-                assert_eq!(volta, c, "round-trip mudou {c:?}");
+                let roundtrip = Cidr::parse(&c.to_string_cidr()).expect("round-trip");
+                assert_eq!(roundtrip, c, "round-trip changed {c:?}");
             }
         }
     }
@@ -2833,14 +2890,14 @@ mod tests {
     /// was a panic; in RELEASE it was a silent wrap to `0.0.0.0` — a network with
     /// the null address as its gateway, configured without a word.
     #[test]
-    fn o_topo_do_espaco_de_enderecos_nao_transborda() {
-        let topo = Cidr::parse("255.255.255.255/32").unwrap();
-        assert_eq!(topo.gateway(), None, "um /32 não tem gateway");
-        assert_eq!(topo.last(), u32::MAX);
+    fn the_top_of_the_address_space_does_not_overflow() {
+        let top = Cidr::parse("255.255.255.255/32").unwrap();
+        assert_eq!(top.gateway(), None, "a /32 has no gateway");
+        assert_eq!(top.last(), u32::MAX);
         // And a /30 right at the top, where there is still a gateway but the +1 is
         // close to the end.
-        let quase = Cidr::parse("255.255.255.252/30").unwrap();
-        assert_eq!(quase.gateway().as_deref(), Some("255.255.255.253"));
+        let almost = Cidr::parse("255.255.255.252/30").unwrap();
+        assert_eq!(almost.gateway().as_deref(), Some("255.255.255.253"));
     }
 
     /// `/31` (RFC 3021, point-to-point) and `/32` are VALID prefixes — `parse` has
@@ -2848,12 +2905,12 @@ mod tests {
     /// they are not workload networks. The two questions are separated on purpose,
     /// and merging them would make the type useless for everything else.
     #[test]
-    fn parse_aceita_o_que_nao_serve_como_rede_e_a_validacao_e_que_recusa() {
+    fn parse_accepts_what_cannot_serve_as_a_network_and_validation_is_what_refuses() {
         for s in ["10.0.0.1/32", "10.0.0.0/31", "10.0.0.0/30", "10.0.0.0/0"] {
-            assert!(Cidr::parse(s).is_some(), "parse recusou {s}");
+            assert!(Cidr::parse(s).is_some(), "parse refused {s}");
             assert!(
                 Cidr::parse(s).unwrap().usable_for_network().is_err(),
-                "{s} não devia servir como rede de workloads"
+                "{s} should not serve as a workload network"
             );
         }
         for s in [
@@ -2864,7 +2921,7 @@ mod tests {
         ] {
             assert!(
                 Cidr::parse(s).unwrap().usable_for_network().is_ok(),
-                "{s} devia servir"
+                "{s} should serve"
             );
         }
     }
@@ -2874,23 +2931,23 @@ mod tests {
     /// is symmetric in ALL cases. It is the fencepost bug across every combination,
     /// not just the one that happened to get written.
     #[test]
-    fn sobreposicao_e_simetrica_e_hierarquica_em_todo_o_espaco() {
-        let pai = Cidr::parse("192.168.0.0/24").unwrap();
-        let mut filhos = Vec::new();
+    fn overlap_is_symmetric_and_hierarchical_across_the_whole_space() {
+        let parent = Cidr::parse("192.168.0.0/24").unwrap();
+        let mut children = Vec::new();
         for i in (0..256).step_by(16) {
-            filhos.push(Cidr::parse(&format!("192.168.0.{i}/28")).unwrap());
+            children.push(Cidr::parse(&format!("192.168.0.{i}/28")).unwrap());
         }
-        for (i, a) in filhos.iter().enumerate() {
-            assert!(pai.overlaps(a) && a.overlaps(&pai), "{a:?} vs pai");
-            for (j, b) in filhos.iter().enumerate() {
-                let esperado = i == j;
-                assert_eq!(a.overlaps(b), esperado, "{a:?} vs {b:?}");
-                assert_eq!(a.overlaps(b), b.overlaps(a), "assimétrico: {a:?} {b:?}");
+        for (i, a) in children.iter().enumerate() {
+            assert!(parent.overlaps(a) && a.overlaps(&parent), "{a:?} vs parent");
+            for (j, b) in children.iter().enumerate() {
+                let expected = i == j;
+                assert_eq!(a.overlaps(b), expected, "{a:?} vs {b:?}");
+                assert_eq!(a.overlaps(b), b.overlaps(a), "asymmetric: {a:?} {b:?}");
             }
         }
         // And a neighbour from another space never overlaps.
-        let outro = Cidr::parse("192.168.1.0/24").unwrap();
-        assert!(!pai.overlaps(&outro) && !outro.overlaps(&pai));
+        let other = Cidr::parse("192.168.1.0/24").unwrap();
+        assert!(!parent.overlaps(&other) && !other.overlaps(&parent));
     }
 
     /// The LEGACY form still means what it always meant.
@@ -2900,19 +2957,19 @@ mod tests {
     /// would start pointing to a different address space — the worst migration
     /// possible, and a silent one.
     #[test]
-    fn a_forma_legada_de_dois_octetos_e_um_slash_16() {
-        let legado = Cidr::parse("10.210").expect("two octets");
-        assert_eq!(legado.len, 16);
-        assert_eq!(legado.to_string_cidr(), "10.210.0.0/16");
-        assert_eq!(legado, Cidr::parse("10.210.0.0/16").unwrap());
+    fn the_legacy_two_octet_form_is_a_slash_16() {
+        let legacy = Cidr::parse("10.210").expect("two octets");
+        assert_eq!(legacy.len, 16);
+        assert_eq!(legacy.to_string_cidr(), "10.210.0.0/16");
+        assert_eq!(legacy, Cidr::parse("10.210.0.0/16").unwrap());
         // And the gateway is still the `.0.1` it always was.
-        assert_eq!(legado.gateway().as_deref(), Some("10.210.0.1"));
+        assert_eq!(legacy.gateway().as_deref(), Some("10.210.0.1"));
     }
 
     /// Host bits are CLEARED, not refused: `10.210.5.7/16` is how you write «the
     /// /16 this address sits in», and refusing it would be pedantry.
     #[test]
-    fn os_bits_de_host_sao_limpos_em_vez_de_recusados() {
+    fn host_bits_are_cleared_instead_of_refused() {
         assert_eq!(
             Cidr::parse("10.210.5.7/16").unwrap().to_string_cidr(),
             "10.210.0.0/16"
@@ -2930,22 +2987,22 @@ mod tests {
     /// not have the same base and overlaps all the same. Comparing the bases only
     /// works after masking them by the SHORTER prefix.
     #[test]
-    fn sobreposicao_apanha_um_prefixo_dentro_de_outro() {
-        let dezasseis = Cidr::parse("10.210.0.0/16").unwrap();
-        let dentro = Cidr::parse("10.210.7.0/24").unwrap();
-        assert!(dezasseis.overlaps(&dentro), "um /24 dentro de um /16");
-        assert!(dentro.overlaps(&dezasseis), "e é simétrico");
+    fn overlap_catches_a_prefix_inside_another() {
+        let sixteen = Cidr::parse("10.210.0.0/16").unwrap();
+        let inside = Cidr::parse("10.210.7.0/24").unwrap();
+        assert!(sixteen.overlaps(&inside), "a /24 inside a /16");
+        assert!(inside.overlaps(&sixteen), "and it is symmetric");
 
-        let fora = Cidr::parse("10.211.0.0/16").unwrap();
-        assert!(!dezasseis.overlaps(&fora));
+        let outside = Cidr::parse("10.211.0.0/16").unwrap();
+        assert!(!sixteen.overlaps(&outside));
         // Adjacent ones do not overlap, which is the classic fencepost bug.
         let a = Cidr::parse("192.168.0.0/25").unwrap();
         let b = Cidr::parse("192.168.0.128/25").unwrap();
-        assert!(!a.overlaps(&b), "adjacentes não se sobrepõem");
+        assert!(!a.overlaps(&b), "adjacent ones do not overlap");
     }
 
     #[test]
-    fn tamanho_e_pertenca() {
+    fn size_and_membership() {
         let c = Cidr::parse("172.20.4.0/22").unwrap();
         assert_eq!(c.size(), 1024);
         assert_eq!(c.gateway().as_deref(), Some("172.20.4.1"));
@@ -2956,8 +3013,8 @@ mod tests {
     }
 
     #[test]
-    fn recusa_o_que_nao_e_um_prefixo() {
-        for mau in [
+    fn refuses_what_is_not_a_prefix() {
+        for bad in [
             "",
             "10.210.0.0/33",
             "10.300.0.0/16",
@@ -2965,7 +3022,7 @@ mod tests {
             "10.1.1.1.1/8",
             "/16",
         ] {
-            assert!(Cidr::parse(mau).is_none(), "aceitou {mau:?}");
+            assert!(Cidr::parse(bad).is_none(), "accepted {bad:?}");
         }
     }
 
@@ -2980,7 +3037,7 @@ mod tests {
     /// --detailed-exitcode` answered **2** on an unchanged manifest — a drift gate
     /// in CI red every single day.
     #[test]
-    fn uma_rede_com_cidr_nao_perde_a_posse() {
+    fn a_network_with_cidr_does_not_lose_its_ownership() {
         use super::NetworkStore;
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
@@ -3003,7 +3060,7 @@ mod tests {
         assert_eq!(
             n.labels.get("delonix.io/stack").map(String::as_str),
             Some("loja"),
-            "a posse tem de sobreviver à leitura, senão o plano readopta para sempre"
+            "ownership has to survive the read, otherwise the plan re-adopts forever"
         );
         assert_eq!(
             n.annotations
@@ -3029,7 +3086,7 @@ mod tests {
     /// exact same bridge/prefix/subnet it had, because containers are already
     /// attached to them.
     #[test]
-    fn set_metadata_actualiza_um_registo_legado_sem_mudar_a_rede() {
+    fn set_metadata_updates_a_legacy_record_without_changing_the_network() {
         use super::NetworkStore;
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
@@ -3087,7 +3144,7 @@ mod tests {
     /// unsupported subnet is refused (not silently auto-picked); omitting it keeps
     /// the auto-pick.
     #[test]
-    fn create_overlay_honra_o_subnet_explicito() {
+    fn create_overlay_honours_the_explicit_subnet() {
         let tmp = tempfile::tempdir().unwrap();
         let st = NetworkStore::open(tmp.path()).unwrap();
 
@@ -3114,11 +3171,11 @@ mod tests {
         assert!(d.subnet.starts_with("10.") && d.subnet.ends_with(".0.0/16"));
     }
 
-    /// Same technique as `store.rs`'s `save_concorrente_nunca_publica_json_corrompido`:
-    /// writers of DIFFERENT sizes so the interleaving is observable. Reverting
+    /// Same technique as `store.rs`'s concurrent-save-never-publishes-corrupted-JSON
+    /// test: writers of DIFFERENT sizes so the interleaving is observable. Reverting
     /// `write_atomic` to `fs::write` makes this fail.
     #[test]
-    fn escrita_de_rede_nunca_deixa_um_leitor_ver_registo_parcial() {
+    fn a_network_write_never_lets_a_reader_see_a_partial_record() {
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
         let st = NetworkStore::open(tmp).unwrap();
@@ -3133,8 +3190,8 @@ mod tests {
                     let _ = st.add_overlay_peer("ov", &peer);
                     // Whatever the interleaving, a reader sees a COMPLETE record.
                     let n = st.get("ov").expect("partial record published by the write");
-                    assert_eq!(n.driver, "overlay", "driver perdido num corpo truncado");
-                    assert_eq!(n.vni, Some(42), "vni perdido num corpo truncado");
+                    assert_eq!(n.driver, "overlay", "driver lost in a truncated body");
+                    assert_eq!(n.vni, Some(42), "vni lost in a truncated body");
                 });
             }
         });
@@ -3145,7 +3202,7 @@ mod tests {
     }
 
     #[test]
-    fn set_metadata_preserva_vni_e_peers_de_um_overlay() {
+    fn set_metadata_preserves_an_overlays_vni_and_peers() {
         use super::NetworkStore;
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
@@ -3182,7 +3239,7 @@ mod tests {
     /// file would lose them, and the symptom would be an overlay that stops knowing
     /// its own VNI after losing a peer.
     #[test]
-    fn remove_overlay_peer_tira_o_peer_e_preserva_vni_wgip_e_labels() {
+    fn remove_overlay_peer_removes_the_peer_and_preserves_vni_wgip_and_labels() {
         use super::NetworkStore;
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
@@ -3216,7 +3273,7 @@ mod tests {
             "{:?}",
             after.peers
         );
-        assert_eq!(after.vni, Some(42), "o vni não pode desaparecer");
+        assert_eq!(after.vni, Some(42), "the vni must not disappear");
         assert_eq!(after.wg_ip.as_deref(), Some("10.9.0.1"));
         assert_eq!(after.driver, super::DRIVER_OVERLAY);
         assert_eq!(after.labels.get("delonix.io/stack").unwrap(), "infra");
@@ -3224,13 +3281,13 @@ mod tests {
         // Idempotent: removing what is no longer there is `Ok`, symmetric with an
         // add that replaces instead of duplicating. An error here would turn a no-op
         // into a failed apply.
-        let de_novo = store.remove_overlay_peer("malha", "10.0.0.7").unwrap();
-        assert_eq!(de_novo.peers, vec!["10.0.0.8".to_string()]);
+        let again = store.remove_overlay_peer("malha", "10.0.0.7").unwrap();
+        assert_eq!(again.peers, vec!["10.0.0.8".to_string()]);
 
         // And the last peer leaves the line present and empty, not absent.
-        let vazio = store.remove_overlay_peer("malha", "10.0.0.8").unwrap();
-        assert!(vazio.peers.is_empty(), "{:?}", vazio.peers);
-        assert_eq!(vazio.vni, Some(42));
+        let empty = store.remove_overlay_peer("malha", "10.0.0.8").unwrap();
+        assert!(empty.peers.is_empty(), "{:?}", empty.peers);
+        assert_eq!(empty.vni, Some(42));
 
         // Not an overlay → refuse, like the add.
         store.create("simples").unwrap();
@@ -3242,7 +3299,7 @@ mod tests {
     /// record that means something different from what was asked. (Compact JSON
     /// is safe — `serde_json` escapes newlines as two characters.)
     #[test]
-    fn set_metadata_recusa_um_valor_com_newline() {
+    fn set_metadata_refuses_a_value_with_a_newline() {
         use super::NetworkStore;
         let tmp = tempfile::tempdir().unwrap();
         let tmp = tmp.path();
@@ -3314,7 +3371,7 @@ mod tests {
     /// must be REFUSED, never silently truncated to the shorter side (which would
     /// publish some ports and quietly skip others).
     #[test]
-    fn expand_publish_range_expande_e_recusa_larguras_diferentes() {
+    fn expand_publish_range_expands_and_refuses_different_widths() {
         use super::expand_publish_range;
         assert_eq!(
             expand_publish_range("8000-8002:9000-9002").unwrap(),
@@ -3341,7 +3398,7 @@ mod tests {
     /// A range that reaches `parse_publish_addr` unexpanded has to say so — the generic
     /// "invalid port" left the user unable to tell a typo from an unsupported shape.
     #[test]
-    fn parse_publish_addr_nomeia_o_range_em_vez_de_porta_invalida() {
+    fn parse_publish_addr_names_the_range_instead_of_invalid_port() {
         let err = super::parse_publish_addr("8000-8010:80")
             .unwrap_err()
             .to_string();
@@ -3369,7 +3426,7 @@ mod tests {
     /// port has its own diagnosis (which names the owner) and this check must not
     /// shadow it with a "needs privilege" that would be plain wrong.
     #[test]
-    fn can_bind_host_port_separa_privilegio_de_porta_ocupada() {
+    fn can_bind_host_port_separates_privilege_from_a_busy_port() {
         use super::{can_bind_host_port, Proto};
         use std::net::TcpListener;
         let held = TcpListener::bind("127.0.0.1:0").expect("bind an ephemeral port");
@@ -3521,9 +3578,9 @@ mod tests {
     /// failed ("IP ... outside the ingress space"). A test over real and random
     /// names catches the divergence as soon as it comes back.
     #[test]
-    fn prefixo_de_rede_cai_sempre_no_espaco_de_ingress() {
+    fn a_networks_prefix_always_lands_in_the_ingress_space() {
         use delonix_compute::workload_net::is_workload_ipv4;
-        let mut nomes: Vec<String> = vec![
+        let mut names: Vec<String> = vec![
             "kind".into(),
             "dlx-delonix".into(),
             "dlx-delonix-01".into(),
@@ -3531,16 +3588,16 @@ mod tests {
             "lab-net".into(),
             "a".into(),
             "".into(),
-            "rede-com-nome-muito-comprido-mesmo".into(),
+            "a-really-very-long-network-name-indeed".into(),
         ];
         // Serious coverage: 500 generated names, not just the ones I remembered.
-        nomes.extend((0..500).map(|i| format!("net-{i}")));
-        for n in &nomes {
+        names.extend((0..500).map(|i| format!("net-{i}")));
+        for n in &names {
             let base = Network::base_for(n);
             let ip: std::net::Ipv4Addr = format!("10.{base}.1.2").parse().unwrap();
             assert!(
                 is_workload_ipv4(ip),
-                "a rede '{n}' ficou em 10.{base}.x — fora do espaço de ingress; o `-p` falharia lá"
+                "network '{n}' landed on 10.{base}.x — outside the ingress space; `-p` would fail there"
             );
         }
     }
@@ -3634,7 +3691,7 @@ mod tests {
     }
 
     #[test]
-    fn valid_ip_in_subnet_aceita_e_rejeita() {
+    fn valid_ip_in_subnet_accepts_and_rejects() {
         // within the subnet, usable unicast
         assert!(valid_ip_in_subnet("10.88", "10.88.0.77"));
         assert!(valid_ip_in_subnet("10.88", "10.88.255.254"));
@@ -3653,19 +3710,19 @@ mod tests {
     }
 
     #[test]
-    fn default_base_evita_docker_e_podman() {
+    fn default_base_avoids_docker_and_podman() {
         // the default base can never be 88 (Podman) nor land in 172/16 (Docker
         // is not 10.x). pick_free_base always picks outside the used octets.
         let used = used_10_octets();
         assert!(
             used.contains(&88),
-            "Podman (10.88) tem de estar marcado como usado"
+            "Podman (10.88) has to be marked as used"
         );
-        assert!(used.contains(&90), "VIPs (10.90) reservado");
+        assert!(used.contains(&90), "VIPs (10.90) reserved");
         let base = pick_free_base();
         assert!(
             !used.contains(&base),
-            "a base escolhida ({base}) colide com algo já usado"
+            "the chosen base ({base}) collides with something already in use"
         );
         assert!(base != 88 && base != 90);
     }
@@ -3686,11 +3743,11 @@ mod tests {
     /// makes a change to the shared formula itself fail here, rather than
     /// silently renaming every bridge in the fleet.
     #[test]
-    fn o_nome_da_bridge_e_o_mesmo_nos_dois_stores() {
+    fn the_bridge_name_is_the_same_in_both_stores() {
         // The measured device name, byte for byte.
         assert_eq!(bridge_name("lab-net"), "dlxn0536623e");
 
-        for name in ["lab-net", "frontend", "a", "kaeso-net", "com-hifen_e_under"] {
+        for name in ["lab-net", "frontend", "a", "kaeso-net", "with-hyphen_and_under"] {
             let expected = bridge_name(name);
             // Physical-plane direction: the `NetDef` that gets serialized to
             // disk and whose `bridge` the holder creates the link with. Asserted
@@ -3798,7 +3855,7 @@ mod tests {
     /// `delonix-volume::parse_size_bytes`; it was written there and never
     /// carried over here. A value out of range is an input error, never a clamp.
     #[test]
-    fn um_valor_fora_de_alcance_e_recusado_em_vez_de_saturar() {
+    fn a_value_out_of_range_is_refused_instead_of_saturating() {
         assert!(parse_rate_bits("99999999999g").is_err());
         assert!(parse_rate_bits("1e400").is_err());
         // The largest sane values still parse — no over-eager rejection.
@@ -3817,10 +3874,10 @@ mod tests {
         assert!(s.get("nope").is_err());
         let a = s.create("alpha").unwrap();
         let b = s.create("beta").unwrap();
-        assert_ne!(a.subnet, b.subnet, "redes distintas têm subnets distintas");
+        assert_ne!(a.subnet, b.subnet, "distinct networks have distinct subnets");
         assert_eq!(s.list().unwrap().len(), 2);
-        assert!(s.create("alpha").is_err(), "duplicado deve falhar");
-        assert!(s.create("bridge").is_err(), "nome reservado deve falhar");
+        assert!(s.create("alpha").is_err(), "a duplicate must fail");
+        assert!(s.create("bridge").is_err(), "a reserved name must fail");
         s.remove("alpha").unwrap();
         assert_eq!(s.list().unwrap().len(), 1);
     }
@@ -3862,7 +3919,7 @@ mod tests {
     }
 
     #[test]
-    fn base_from_subnet_aceita_a_forma_suportada() {
+    fn base_from_subnet_accepts_the_supported_form() {
         assert_eq!(
             NetworkStore::base_from_subnet("10.200.0.0/16").unwrap(),
             200
@@ -3874,7 +3931,7 @@ mod tests {
     }
 
     #[test]
-    fn base_from_subnet_recusa_e_diz_o_que_e_suportado() {
+    fn base_from_subnet_refuses_and_says_what_is_supported() {
         // Each of these used to be ACCEPTED and silently dropped, which is the
         // whole reason this function exists. The message has to name the shape
         // that works, or the refusal is just a different way of being useless.
@@ -3887,17 +3944,17 @@ mod tests {
             "banana",
         ] {
             let e = NetworkStore::base_from_subnet(bad)
-                .expect_err("devia recusar {bad}")
+                .expect_err("should refuse {bad}")
                 .to_string();
             assert!(
                 e.contains("10.<200-254>.0.0/16"),
-                "a recusa de {bad} tem de dizer o que e suportado: {e}"
+                "the refusal of {bad} has to say what is supported: {e}"
             );
         }
     }
 
     #[test]
-    fn create_with_base_e_idempotente_mas_nao_renumera() {
+    fn create_with_base_is_idempotent_but_does_not_renumber() {
         let dir = tempfile::tempdir().unwrap();
         let dir = dir.path();
         let store = NetworkStore::open(dir).unwrap();
@@ -3913,14 +3970,14 @@ mod tests {
 
         // And two networks may not share a /16 — their IPAM ranges would collide.
         let e = store
-            .create_with_base("outra", 210)
+            .create_with_base("other", 210)
             .unwrap_err()
             .to_string();
         assert!(e.contains("already used by network 'vpc'"), "{e}");
     }
 
     #[test]
-    fn create_with_base_recusa_fora_do_espaco_de_workload() {
+    fn create_with_base_refuses_outside_the_workload_space() {
         let dir = tempfile::tempdir().unwrap();
         let dir = dir.path();
         let store = NetworkStore::open(dir).unwrap();
@@ -4154,17 +4211,17 @@ mod tests_network_name {
 }
 
 #[cfg(test)]
-mod tests_alocacao_16 {
+mod tests_16_allocation {
     use super::*;
     use std::collections::HashSet;
 
     /// `n` names that ALL fall on the same initial candidate.
-    fn nomes_que_colidem(n: usize) -> Vec<String> {
-        let mut por_base: std::collections::HashMap<u8, Vec<String>> = Default::default();
+    fn colliding_names(n: usize) -> Vec<String> {
+        let mut by_base: std::collections::HashMap<u8, Vec<String>> = Default::default();
         for i in 0..20_000 {
-            let nome = format!("corp{i}");
-            let e = por_base.entry(Network::base_for(&nome)).or_default();
-            e.push(nome);
+            let name = format!("corp{i}");
+            let e = by_base.entry(Network::base_for(&name)).or_default();
+            e.push(name);
             if e.len() == n {
                 return e.clone();
             }
@@ -4173,17 +4230,17 @@ mod tests_alocacao_16 {
     }
 
     #[test]
-    fn criacoes_concorrentes_com_nomes_a_colidir_nao_partilham_o_mesmo_16() {
-        let nomes = nomes_que_colidem(8);
+    fn concurrent_creations_with_colliding_names_do_not_share_the_same_16() {
+        let names = colliding_names(8);
         // Removed when the test ends, also when an assert fails.
         let root = tempfile::tempdir().unwrap();
         let store = std::sync::Arc::new(NetworkStore::open(root.path()).unwrap());
-        let barreira = std::sync::Arc::new(std::sync::Barrier::new(nomes.len()));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(names.len()));
 
-        let hs: Vec<_> = nomes
+        let hs: Vec<_> = names
             .iter()
             .map(|n| {
-                let (s, b, n) = (store.clone(), barreira.clone(), n.clone());
+                let (s, b, n) = (store.clone(), barrier.clone(), n.clone());
                 std::thread::spawn(move || {
                     // They all start at the same time — starting in line hides
                     // exactly the race this test exists to catch.
@@ -4192,14 +4249,14 @@ mod tests_alocacao_16 {
                 })
             })
             .collect();
-        let redes: Vec<Network> = hs.into_iter().map(|h| h.join().unwrap()).collect();
+        let networks: Vec<Network> = hs.into_iter().map(|h| h.join().unwrap()).collect();
 
-        let prefixos: HashSet<&str> = redes.iter().map(|r| r.prefix.as_str()).collect();
+        let prefixes: HashSet<&str> = networks.iter().map(|r| r.prefix.as_str()).collect();
         assert_eq!(
-            prefixos.len(),
-            redes.len(),
-            "duas redes ficaram no mesmo /16: {:?}",
-            redes
+            prefixes.len(),
+            networks.len(),
+            "two networks landed on the same /16: {:?}",
+            networks
                 .iter()
                 .map(|r| (&r.name, &r.prefix))
                 .collect::<Vec<_>>()
@@ -4207,58 +4264,58 @@ mod tests_alocacao_16 {
 
         // And the disk has to agree with what was returned: one write stepping on
         // another gives unique prefixes in memory and duplicates in the registry.
-        let em_disco: HashSet<String> = store
+        let on_disk: HashSet<String> = store
             .list()
             .unwrap()
             .into_iter()
             .map(|r| r.prefix)
             .collect();
         assert_eq!(
-            em_disco.len(),
-            redes.len(),
-            "prefixos duplicados no registo"
+            on_disk.len(),
+            networks.len(),
+            "duplicate prefixes in the registry"
         );
     }
 
     #[test]
-    fn sem_16_livre_recusa_em_vez_de_entregar_um_duplicado() {
+    fn no_free_16_refuses_instead_of_handing_out_a_duplicate() {
         // The USER space: the workload space minus the ingress `/16` (10.200),
         // which this test used to count as a free slot — 55 instead of 54.
-        let capacidade = usize::from(last_user_base() - first_user_base()) + 1;
+        let capacity = usize::from(last_user_base() - first_user_base()) + 1;
 
         let root = tempfile::tempdir().unwrap();
         let store = NetworkStore::open(root.path()).unwrap();
-        for i in 0..capacidade {
+        for i in 0..capacity {
             store
                 .create(&format!("r{i}"))
-                .unwrap_or_else(|e| panic!("network {i} should fit ({capacidade} slots): {e}"));
+                .unwrap_or_else(|e| panic!("network {i} should fit ({capacity} slots): {e}"));
         }
         assert_eq!(
             store.list().unwrap().len(),
-            capacidade,
-            "o espaço de workloads tem {capacidade} /16"
+            capacity,
+            "the workload space has {capacity} /16"
         );
 
         // The one past the ceiling: until now the loop ran out, left with the last
         // candidate tried and wrote it anyway — the network silently landed on
         // another one's /16.
-        let erro = store.create("a-mais").expect_err("should refuse");
-        let t = erro.to_string();
-        assert!(t.contains("no free /16"), "erro pouco claro: {t}");
-        assert!(t.contains("a-mais"), "o erro devia nomear a rede: {t}");
+        let err = store.create("one-too-many").expect_err("should refuse");
+        let t = err.to_string();
+        assert!(t.contains("no free /16"), "unclear error: {t}");
+        assert!(t.contains("one-too-many"), "the error should name the network: {t}");
         assert!(
-            !store.dir.join("a-mais").exists(),
-            "recusou mas escreveu o registo à mesma"
+            !store.dir.join("one-too-many").exists(),
+            "refused but wrote the record anyway"
         );
 
         // And no /16 ended up shared.
-        let prefixos: HashSet<String> = store
+        let prefixes: HashSet<String> = store
             .list()
             .unwrap()
             .into_iter()
             .map(|r| r.prefix)
             .collect();
-        assert_eq!(prefixos.len(), capacidade);
+        assert_eq!(prefixes.len(), capacity);
     }
 }
 
@@ -4268,11 +4325,11 @@ mod tests_alocacao_16 {
 /// podman-shaped slirp with a dead target was flagged for SIGTERM by the old
 /// `argv[0]`-only identification, while four real delonix slirps were spared.
 #[cfg(test)]
-mod tests_posse_do_slirp {
+mod tests_slirp_ownership {
     use super::*;
 
     /// argv exactly as `slirp_attach` writes it (`--api-socket=<path>`).
-    fn nosso_de_container(target: i32) -> Vec<String> {
+    fn our_container_slirp(target: i32) -> Vec<String> {
         vec![
             "slirp4netns".into(),
             "--configure".into(),
@@ -4291,15 +4348,15 @@ mod tests_posse_do_slirp {
     }
 
     #[test]
-    fn o_slirp_de_um_container_nosso_e_reconhecido() {
-        let s = parse(&nosso_de_container(1234)).expect("é um slirp4netns");
+    fn the_slirp_of_one_of_our_containers_is_recognised() {
+        let s = parse(&our_container_slirp(1234)).expect("it is a slirp4netns");
         assert_eq!(s.pid, 4242);
         assert_eq!(s.target, 1234);
-        assert!(s.is_ours(), "o socket está no caminho que NÓS escolhemos");
+        assert!(s.is_ours(), "the socket is on the path WE chose");
     }
 
     #[test]
-    fn o_slirp_do_ingress_e_nosso() {
+    fn the_ingress_slirp_is_ours() {
         // The ingress socket's path comes from `DELONIX_NET_RUNTIME_DIR`, read
         // twice here (the argv, then `is_ours`). A test that writes that variable
         // in between turned this into a 1-in-12 failure under the workspace
@@ -4317,7 +4374,7 @@ mod tests_posse_do_slirp {
 
     /// The finding. Same binary, same argv shape, socket somewhere else.
     #[test]
-    fn um_slirp_estranho_nao_e_nosso_e_nao_e_ceifado() {
+    fn a_foreign_slirp_is_not_ours_and_is_not_reaped() {
         let argv = vec![
             "slirp4netns".to_string(),
             "--disable-host-loopback".into(),
@@ -4330,19 +4387,19 @@ mod tests_posse_do_slirp {
         let s = parse(&argv).expect("still a slirp4netns");
         assert_eq!(
             s.target, 1234,
-            "a forma separada tem de ser parseada na mesma"
+            "the separate form has to be parsed all the same"
         );
         assert!(!s.is_ours());
         assert!(
             !should_reap_orphan(&s, false),
-            "um slirp de outra ferramenta, mesmo órfão, NUNCA é ceifado"
+            "a slirp from another tool, even orphaned, is NEVER reaped"
         );
     }
 
     /// Without the ownership token there is no way to prove it is ours — so it is
     /// not destroyed.
     #[test]
-    fn sem_api_socket_nao_ha_posse_provavel() {
+    fn without_an_api_socket_there_is_no_provable_ownership() {
         let argv = vec![
             "slirp4netns".to_string(),
             "--configure".into(),
@@ -4357,23 +4414,23 @@ mod tests_posse_do_slirp {
     /// The other side: an orphan that is OURS is still reaped — otherwise the fix
     /// would have traded one bug for another (the published port stayed stuck).
     #[test]
-    fn um_orfao_nosso_continua_a_ser_ceifado() {
-        let s = parse(&nosso_de_container(1234)).unwrap();
-        assert!(should_reap_orphan(&s, false), "alvo morto + nosso = órfão");
+    fn an_orphan_of_ours_is_still_reaped() {
+        let s = parse(&our_container_slirp(1234)).unwrap();
+        assert!(should_reap_orphan(&s, false), "dead target + ours = orphan");
         assert!(
             !should_reap_orphan(&s, true),
-            "alvo vivo nunca é órfão, seja de quem for"
+            "a live target is never an orphan, no matter whose it is"
         );
     }
 
     #[test]
-    fn o_alvo_e_o_ultimo_numerico_e_nao_o_mtu() {
-        let s = parse(&nosso_de_container(9)).unwrap();
-        assert_eq!(s.target, 9, "o 65520 do --mtu não pode ganhar");
+    fn the_target_is_the_last_numeric_and_not_the_mtu() {
+        let s = parse(&our_container_slirp(9)).unwrap();
+        assert_eq!(s.target, 9, "the 65520 from --mtu must not win");
     }
 
     #[test]
-    fn um_processo_qualquer_nao_e_um_slirp() {
+    fn any_process_is_not_a_slirp() {
         let argv = vec!["/usr/bin/qemu-system-x86_64".to_string(), "1234".into()];
         assert!(parse(&argv).is_none());
         assert!(slirp_from_argv(1, &[]).is_none());

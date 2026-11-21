@@ -4,7 +4,7 @@
 # ## O que este script existe para impedir
 #
 # A bateria de 2026-08-10 deste projecto foi RETIRADA e a razão está escrita no
-# `docs/comparacao-medida.md`: dava docker 1406 ms, podman 1351 ms, delonix
+# `docs/measured-comparison.md`: dava docker 1406 ms, podman 1351 ms, delonix
 # 640 ms, e a corrida seguinte — nas mesmas ferramentas, mesma distro, mesmo
 # kernel — deu 208 / 268 / 89. Três motores a acelerarem seis vezes ao mesmo
 # tempo não é melhoria de nenhum: é a bancada. Aqueles números mediam a
@@ -101,7 +101,7 @@ MEM=$(awk '/MemTotal/{printf "%.0f GiB", $2/1048576}' /proc/meminfo)
 
 # A densidade do nó é PARTE da bancada e não um detalhe: duas chamadas do
 # caminho de attach (`nft -a list chain fwdeny`, `nft list sets`) são dumps de
-# texto que crescem com o número de containers. O `comparacao-medida.md` marca
+# texto que crescem com o número de containers. O `measured-comparison.md` marca
 # isto como por medir e diz que o nó da altura estava VAZIO — comparar com uma
 # corrida num nó cheio compara duas perguntas diferentes.
 DENSITY=$("$BIN" container ls 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
@@ -243,7 +243,7 @@ row delonix "delonix (host)"  env DELONIX_ROOT="$SANDBOX/root" DELONIX_NET_RUNTI
     "$BIN" container run --rm alpine true
 echo
 echo "Nota: os defaults NÃO são a mesma configuração. O do delonix é \`--net host\`;"
-echo "para a comparação com rede isolada ver o \`docs/comparacao-medida.md\`, linha 4b."
+echo "para a comparação com rede isolada ver o \`docs/measured-comparison.md\`, linha 4b."
 
 # ---------------------------------------------------------------------------
 # A saída máquina-legível (`--json`), no fd 3 — ver a nota de `--json` no topo.

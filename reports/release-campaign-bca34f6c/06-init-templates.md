@@ -1,31 +1,31 @@
-# 06 — init / templates (geração)
+# 06 — init / templates (generation)
 
-SUT: `delonix 5.1.1` @ `bca34f6c3`. Templates disponíveis (13): django, fastapi, go, haproxy, httpd, laravel, nestjs, nextjs, nginx, node, odoo, rust, wordpress.
+SUT: `delonix 5.1.1` @ `bca34f6c3`. Available templates (13): django, fastapi, go, haproxy, httpd, laravel, nestjs, nextjs, nginx, node, odoo, rust, wordpress.
 
-| # | Caso (§15) | Observado | Estado |
+| # | Case (§15) | Observed | State |
 |---|---|---|---|
-| INIT-1 | gerar não-interactivo, nome, template (`fastapi`, `nginx`) | ambos gerados, exit 0; estrutura completa (compose/Dockerfile/Delonixfile/manifest/Makefile/tests/CI/tunnel/TLS) | **PASSOU** |
-| INIT-2 | sem placeholders por resolver | `grep` de `{{`/`__X__`/`CHANGEME`/`<REPLACE` em py/yaml/Dockerfile/Delonixfile → **0 ocorrências** | **PASSOU** |
-| INIT-3 | sem segredos fixos | `POSTGRES_PASSWORD`/`RABBITMQ_DEFAULT_PASS` (32 chars) **diferem entre duas gerações** (hash distinto) → gerados por projecto | **PASSOU** |
-| INIT-4 | `.env` protegido | `.env` em `.gitignore` (linha 12); `.env` (1396 B) distinto de `.env.example` (2763 B) | **PASSOU** |
-| INIT-5 | manifesto gerado válido | `compose config` no projecto gerado → exit 0, 3 serviços resolvidos (offline) | **PASSOU** |
-| INIT-6 | TLS mkcert no scaffold | `tls/tls.crt|key|pem` emitidos pela CA mkcert local p/ localhost/127.0.0.1/::1 | **PASSOU** (geração; confiança do cliente não testada) |
+| INIT-1 | non-interactive generation, name, template (`fastapi`, `nginx`) | both generated, exit 0; complete structure (compose/Dockerfile/Delonixfile/manifest/Makefile/tests/CI/tunnel/TLS) | **PASSED** |
+| INIT-2 | no unresolved placeholders | `grep` of `{{`/`__X__`/`CHANGEME`/`<REPLACE` in py/yaml/Dockerfile/Delonixfile → **0 occurrences** | **PASSED** |
+| INIT-3 | no hardcoded secrets | `POSTGRES_PASSWORD`/`RABBITMQ_DEFAULT_PASS` (32 chars) **differ between two generations** (distinct hash) → generated per project | **PASSED** |
+| INIT-4 | `.env` protected | `.env` in `.gitignore` (line 12); `.env` (1396 B) distinct from `.env.example` (2763 B) | **PASSED** |
+| INIT-5 | generated manifest valid | `compose config` in the generated project → exit 0, 3 services resolved (offline) | **PASSED** |
+| INIT-6 | mkcert TLS in the scaffold | `tls/tls.crt|key|pem` issued by the local mkcert CA for localhost/127.0.0.1/::1 | **PASSED** (generation; client trust not tested) |
 
-## Observações
+## Observations
 
-- O `init` detecta/despacha para `stack init`/`vm init` e **adopta** projectos existentes
-  (só escreve o glue Delonix/CI, não toca no código) — comportamento documentado e coerente.
-- O projecto `nginx` fez `git init` (tem `.git/`); o `fastapi` não — diferença entre templates,
-  não defeito.
-- `WEBHOOK_INBOUND_SECRET` fica **vazio** no `.env` (a preencher pelo utilizador) — é um campo em
-  branco, não um segredo hardcoded; aceitável.
+- `init` detects/dispatches to `stack init`/`vm init` and **adopts** existing projects
+  (only writes the Delonix/CI glue, does not touch the code) — documented and coherent behaviour.
+- The `nginx` project ran `git init` (has `.git/`); `fastapi` did not — a difference between templates,
+  not a defect.
+- `WEBHOOK_INBOUND_SECRET` stays **empty** in `.env` (to be filled by the user) — it is a blank field,
+  not a hardcoded secret; acceptable.
 
-## Cobertura e limites (honestidade)
+## Coverage and limits (honesty)
 
-- Testada a **geração** e a **validade estática** de 2 dos 13 templates (um monólito web+DB+fila,
-  um estático). As combinações declaradas (stack×versão, monólito×microserviços, destino existente,
-  nome com espaços, cancelamento, falha a meio) **não foram todas exercitadas** — estratégia
-  baseada em risco, como o próprio âmbito admite. → cobertura parcial, não "catálogo validado".
-- **TEMPLATE-1 (correr o projecto gerado: `make doctor`/`dev`/build/test/lint, pedido funcional,
-  Redis, RabbitMQ)**: **NÃO EXECUTADO** nesta ronda (pesado: toolchains + containers de apoio;
-  disco a 96%). Risco médio: a geração está provada; a execução ponta-a-ponta do stack gerado não.
+- Tested the **generation** and **static validity** of 2 of the 13 templates (one web+DB+queue monolith,
+  one static). The declared combinations (stack×version, monolith×microservices, existing destination,
+  name with spaces, cancellation, failure midway) **were not all exercised** — a risk-based
+  strategy, as the scope itself admits. → partial coverage, not "catalogue validated".
+- **TEMPLATE-1 (running the generated project: `make doctor`/`dev`/build/test/lint, functional request,
+  Redis, RabbitMQ)**: **NOT EXECUTED** this round (heavy: toolchains + supporting containers;
+  disk at 96%). Medium risk: generation is proven; end-to-end execution of the generated stack is not.

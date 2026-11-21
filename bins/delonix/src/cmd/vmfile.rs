@@ -653,9 +653,9 @@ pub(crate) fn build_parsed(
         // A VMfile build starts `FROM` a cloud image and is customized by
         // cloud-init on first boot — that is the whole premise of the format.
         cloud_init: Some(true),
-        // Um build de VMfile corre a receita de quem o escreveu, não a
-        // dourada, por isso não emite inventário — mas a proveniência do
-        // construtor vale na mesma.
+        // A VMfile build runs the recipe its author wrote, not the golden
+        // one, so it emits no inventory — but the builder's provenance still
+        // holds.
         packages: None,
         packages_sha256: None,
         built_by: Some(format!("delonix {}", env!("CARGO_PKG_VERSION"))),
@@ -1028,10 +1028,10 @@ mod tests {
     }
 
     #[test]
-    fn parseia_o_scaffold_que_escrevemos() {
-        // O scaffold é documentação que as pessoas correm — se não parseia,
-        // o primeiro contacto de alguém com a funcionalidade é um erro.
-        let vf = parse(&scaffold("demo")).expect("o scaffold tem de parsear");
+    fn parses_the_scaffold_we_write() {
+        // The scaffold is documentation people actually run — if it does not
+        // parse, someone's first contact with the feature is an error.
+        let vf = parse(&scaffold("demo")).expect("the scaffold must parse");
         assert_eq!(vf.stages.len(), 1);
         assert_eq!(vf.final_stage().from, "ubuntu:24.04");
         assert_eq!(vf.final_stage().size.as_deref(), Some("20G"));
@@ -1040,7 +1040,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_stage_com_copy_from() {
+    fn multi_stage_with_copy_from() {
         let vf = parse(
             "FROM ubuntu:24.04 AS builder\n\
              RUN make\n\
@@ -1061,9 +1061,9 @@ mod tests {
     }
 
     #[test]
-    fn copy_from_de_um_estagio_inexistente_e_erro() {
-        // Sem isto, o engano aparece como uma cópia vazia numa imagem que
-        // arranca na mesma — descoberto muito depois e longe daqui.
+    fn copy_from_a_nonexistent_stage_is_an_error() {
+        // Without this, the mistake shows up as an empty copy in an image that
+        // boots anyway — discovered much later and far from here.
         let e = parse("FROM ubuntu:24.04\nCOPY --from=nada /a /b\n").unwrap_err();
         assert!(
             e.to_string().contains("no earlier stage named 'nada'"),
@@ -1072,7 +1072,7 @@ mod tests {
     }
 
     #[test]
-    fn hypervisor_normaliza_alias_e_recusa_desconhecido() {
+    fn hypervisor_normalizes_alias_and_refuses_unknown() {
         let vf = parse("FROM ubuntu:24.04\nHYPERVISOR ch\n").unwrap();
         assert_eq!(vf.backend.as_deref(), Some("cloud-hypervisor"));
 
@@ -1084,23 +1084,24 @@ mod tests {
     }
 
     #[test]
-    fn instrucao_desconhecida_falha_fechado() {
+    fn unknown_instruction_fails_closed() {
         let e = parse("FROM ubuntu:24.04\nENTRYPOINT /bin/sh\n").unwrap_err();
         assert!(e.to_string().contains("unknown instruction"), "{e}");
-        // E diz quais são as válidas, em vez de mandar ler a documentação.
+        // And it says which ones are valid, instead of telling you to go read
+        // the documentation.
         assert!(e.to_string().contains("CLOUDINIT"), "{e}");
     }
 
     #[test]
-    fn instrucao_antes_do_from_e_erro() {
+    fn instruction_before_from_is_an_error() {
         let e = parse("RUN echo oi\nFROM ubuntu:24.04\n").unwrap_err();
         assert!(e.to_string().contains("before any FROM"), "{e}");
     }
 
     #[test]
-    fn continuacao_de_linha_e_comentarios() {
+    fn line_continuation_and_comments() {
         let vf = parse(
-            "# comentário\n\
+            "# comment\n\
              FROM ubuntu:24.04\n\
              \n\
              RUN apt-get install -y \\\n\
@@ -1115,9 +1116,9 @@ mod tests {
     }
 
     #[test]
-    fn cardinal_dentro_de_um_run_nao_e_comentario() {
-        // `sed -i 's/#foo/bar/'` é shell corrente. Cortar no primeiro `#`
-        // mutilava o comando em silêncio.
+    fn hash_inside_a_run_is_not_a_comment() {
+        // `sed -i 's/#foo/bar/'` is ordinary shell. Cutting at the first `#`
+        // mutilated the command silently.
         let vf =
             parse("FROM ubuntu:24.04\nRUN sed -i 's/#PermitRoot/PermitRoot/' /etc/ssh\n").unwrap();
         assert_eq!(
@@ -1127,7 +1128,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_base_distingue_as_tres_formas() {
+    fn classify_base_distinguishes_the_three_forms() {
         assert_eq!(
             classify_base("ubuntu:24.04"),
             Base::Distro {
@@ -1139,9 +1140,9 @@ mod tests {
             classify_base("https://x/y.qcow2"),
             Base::Url("https://x/y.qcow2".into())
         );
-        // Uma tag local COM dois pontos não é uma distro desconhecida — é a
-        // forma mais comum de todas, e tratá-la como distro transformaria uma
-        // referência boa num erro.
+        // A local tag WITH a colon is not an unknown distro — it is the most
+        // common form of all, and treating it as a distro would turn a good
+        // reference into an error.
         assert_eq!(
             classify_base("my-image:1.0"),
             Base::Local("my-image:1.0".into())
@@ -1150,13 +1151,13 @@ mod tests {
     }
 
     #[test]
-    fn as_em_minusculas_tambem_nomeia_o_estagio() {
+    fn lowercase_as_also_names_the_stage() {
         let vf = parse("FROM ubuntu:24.04 as builder\nRUN true\nFROM debian:bookworm\n").unwrap();
         assert_eq!(vf.stages[0].name.as_deref(), Some("builder"));
     }
 
     #[test]
-    fn env_password_e_label_exigem_a_forma_certa() {
+    fn env_password_and_label_require_the_right_form() {
         assert!(parse("FROM ubuntu:24.04\nENV SEM_IGUAL\n").is_err());
         assert!(parse("FROM ubuntu:24.04\nPASSWORD semdoispontos\n").is_err());
         assert!(parse("FROM ubuntu:24.04\nLABEL semigual\n").is_err());

@@ -43,8 +43,13 @@ fi
 BASELINE="$repo/scripts/cli_baseline.tsv"
 
 subs_of() {  # imprime os subcomandos listados no --help de um caminho
+  # O `--help` de TOPO agrupa os comandos em quatro secções estilo Docker
+  # («Common Commands:», «Management Commands:», «Orchestration Commands:» e
+  # «Commands:»); os sub-helps mantêm o único «Commands:» do clap. Reconhecem-se
+  # TODOS os cabeçalhos terminados em «Commands:» para não perder nenhum comando
+  # de topo — senão a árvore ficaria só com a última secção.
   "$BIN" $1 --help 2>/dev/null | awk '
-    /^Commands:/ { inc=1; next }
+    /Commands:$/ { inc=1; next }
     /^Options:/  { inc=0 }
     inc && /^  [a-z]/ { print $1 }'
 }

@@ -62,9 +62,12 @@ LAYERS = {
     "delonix-storage": CONTEXT,  # ADR-0067 D1: the storage pool port, its registry and the allowlist
     "delonix-node": CONTEXT,
     "delonix-net-rules": FOUNDATION,  # → delonix-networking/domain (P2)
+    "delonix-spiffe": FOUNDATION,  # ADR-0102: the node's SPIFFE X.509-SVID identity as rustls material
     "delonix-security": CONTEXT,  # → delonix-security (P2)
     "delonix-host": ADAPTER,  # the host adapter: the delonix-node split's process/fs mechanism (R2)
     "delonix-pool-helper": ADAPTER,  # the storage pool helper protocol, lifted out of the storage context (R2c)
+    "delonix-warm": ADAPTER,  # the warm-plane runner pool (ADR-0095): OS process/socket orchestration, no engine knowledge
+
     "delonix-linux": ADAPTER,
     "delonix-sdn": ADAPTER,
     "delonix-oci": ADAPTER,
@@ -316,12 +319,24 @@ CLI_DESTINATION = {
     "codes": "delonix-cli", "init": "delonix-cli", "scaffold": "delonix-cli",
     "compatibility": "delonix-cli", "features": "delonix-cli", "config": "delonix-cli",
     "net": "delonix-cli", "manifestcmd": "delonix-cli", "mod": "delonix-cli", "serve": "delonix-cli",
+    # node identity / enrollment (ADR-0097): a local bootstrap surface — the node
+    # CA, the enrollment authority and the member client. It holds no node data.
+    "node_enroll": "delonix-cli",
+    # `kind: Node` declarative apply (ADR-0101): the node-API command family's CLI
+    # glue, beside `node_enroll`/`serve`. The substance (the record shape, the merge
+    # and the version rule) lives in `delonix-model::node_meta`; this module is the
+    # reconcile glue that writes that shared record from a manifest.
+    "node": "delonix-cli",
     # delonix-engine (composition root, R3)
     "vmbackends": "delonix-engine", "providers_config": "delonix-engine", "provider": "delonix-engine",
     "util": "delonix-engine", "engine_vms": "delonix-engine",
     # adapters
     "mapped": "delonix-linux", "ingress_proxy": "delonix-l7proxy", "remote": "delonix-ssh",
     "gitops_git": "delonix-git", "cni_plugins": "delonix-sdn",
+    # warm plane (ADR-0095): the runner (`__poolrunner`) and the measurement bench
+    # (`__poolbench`) drive the `delonix-warm` pool; `prespawn` is the pre_spawn
+    # profiler that justified it (env-gated, a no-op by default).
+    "warmpool": "delonix-warm", "prespawn": "delonix-warm",
     # local surfaces
     "dockerapi": "delonix-docker-api", "mcp": "delonix-mcp",
     # tests

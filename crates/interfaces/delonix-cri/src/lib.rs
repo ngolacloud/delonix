@@ -268,6 +268,60 @@ pub trait NetworkOps: Send + Sync {
     fn publishable_proto(&self, name: &str) -> Option<&'static str>;
 }
 
+/// The warm-plane port (ADR-0095, `delonix-warm`): serve a container start from a
+/// holder-resident, pre-warmed runner instead of a cold `__apirun`/`netns run`
+/// child, on the ISOLATED native-SDN path. The interface names only this port;
+/// `delonix-cri-bin` provides the real implementation over a
+/// `delonix_warm::WarmPlane` (it alone may name `delonix-warm`/`delonix-sdn`).
+///
+/// The default is [`NoWarm`] — warming off, every start takes the cold path —
+/// which is what the crate's own tests and any non-isolated deployment use. See
+/// `crates/adapters/delonix-warm/PER-IMAGE-CRI-WARMING.md` for the design.
+pub trait WarmOps: Send + Sync {
+    /// Try to serve a native-SDN pod member's start warm.
+    ///
+    /// `image` is what the sub-pool must be warmed for; `pod` is the sandbox's pod
+    /// name (`cri-<sandbox_id>`) whose shared netns the member joins; `container_id`
+    /// is the member; `spec` is the run-spec file the runner reads.
+    ///
+    /// Returns `Some(Ok(()))` when a runner served the start — the caller SKIPS the
+    /// cold path; `Some(Err(reason))` when a runner served it but the engine refused
+    /// — the caller surfaces `reason`, exactly like the cold path's
+    /// `delonix_detached_why`; and `None` when nothing served it (no hot sub-pool,
+    /// the holder is down, warming is disabled, or the runner died before running
+    /// the engine) — the caller runs the cold path and then calls
+    /// [`seed`](WarmOps::seed) so the next start is warm.
+    fn try_start_warm(
+        &self,
+        image: &str,
+        pod: &str,
+        container_id: &str,
+        spec: &std::path::Path,
+    ) -> Option<std::result::Result<(), String>>;
+
+    /// Seed or grow the sub-pool for `image`, OFF the hot path (a `PullImage`, or a
+    /// cold miss for warm-on-second-use). Best-effort; never fails the caller.
+    fn seed(&self, image: &str);
+}
+
+/// The default [`WarmOps`]: warming off. Every start takes the cold path and
+/// `seed` is a no-op — the behaviour of every deployment that has not wired a
+/// `WarmPlane`, and of the crate's own tests.
+pub struct NoWarm;
+
+impl WarmOps for NoWarm {
+    fn try_start_warm(
+        &self,
+        _image: &str,
+        _pod: &str,
+        _container_id: &str,
+        _spec: &std::path::Path,
+    ) -> Option<std::result::Result<(), String>> {
+        None
+    }
+    fn seed(&self, _image: &str) {}
+}
+
 // ---------------------------------------------------------------------------
 // ImageService — fully functional over the Delonix engine (R3h).
 // ---------------------------------------------------------------------------
@@ -277,6 +331,9 @@ pub struct DelonixImage {
     /// reads/writes themselves go through `engine`.
     pub base: PathBuf,
     pub engine: Arc<dyn ImageOps>,
+    /// The warm plane: a successful `PullImage` is the natural signal to seed the
+    /// image's sub-pool (the image is now local and about to run). [`NoWarm`] off.
+    pub warm: Arc<dyn WarmOps>,
 }
 
 #[tonic::async_trait]
@@ -332,11 +389,17 @@ impl ImageService for DelonixImage {
             .filter(|a| !a.username.is_empty())
             .map(|a| (a.username, a.password));
         let engine = self.engine.clone();
+        let name_for_seed = name.clone();
         let image_ref = tokio::task::spawn_blocking(move || engine.pull_image(&name, creds))
             .await
             .map_err(st)?
             .map_err(st)?;
         delonix_telemetry::metrics::inc_image_pulled();
+        // The image is now local and about to run: seed its warm sub-pool off the
+        // hot path so the StartContainer that follows serves from a resident
+        // runner. Best-effort ([`NoWarm`] is a no-op); never fails the pull.
+        let warm = self.warm.clone();
+        tokio::task::spawn_blocking(move || warm.seed(&name_for_seed));
         Ok(Response::new(PullImageResponse { image_ref }))
     }
 
@@ -536,12 +599,14 @@ async fn metrics_handler() -> impl axum::response::IntoResponse {
 /// lifts it and must be asked for. `runtime` is the engine's Linux-mechanism port
 /// (R3h): the server reaches `is_rootless`, the cgroup/process primitives and the
 /// capability dictionary through it, never through the adapter directly.
+#[allow(clippy::too_many_arguments)]
 pub fn serve_blocking(
     base: PathBuf,
     images: Arc<dyn ImageOps>,
     containers: Arc<dyn ContainerOps>,
     runtime: Arc<dyn RuntimeOps>,
     network: Arc<dyn NetworkOps>,
+    warm: Arc<dyn WarmOps>,
     addr: &str,
     ceiling: CapCeiling,
 ) -> Result<(), delonix_model::Error> {
@@ -671,9 +736,11 @@ pub fn serve_blocking(
         let img = DelonixImage {
             base: base.clone(),
             engine: images,
+            warm: warm.clone(),
         };
         let rtsvc =
-            runtime_svc::DelonixRuntime::new(base, containers, runtime, network, streamer, ceiling);
+            runtime_svc::DelonixRuntime::new(base, containers, runtime, network, streamer, ceiling)
+                .with_warm(warm);
         tonic::transport::Server::builder()
             .add_service(RuntimeServiceServer::new(rtsvc))
             .add_service(ImageServiceServer::new(img))
@@ -1081,6 +1148,7 @@ mod tests {
         DelonixImage {
             base,
             engine: Arc::new(images),
+            warm: Arc::new(crate::NoWarm),
         }
     }
 

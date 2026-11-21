@@ -1,259 +1,359 @@
-# Análise de Gaps — delonix-runtime vs Docker/Podman rootless em produção
+# Gap Analysis — delonix-runtime vs Docker/Podman rootless in production
 
-> Actualizado 2026-07-26. Nesta revisão: os 4 gaps "bloqueantes" da secção 2a fechados (paridade
-> de verbos CLI v0.25.0, mutações da Docker Engine API v0.26.0, BuildKit-lite v0.27.0, GPU/CDI
-> v0.28.0); `docker-compose.yml` nativo + `depends_on` + teardown de projecto fechados (v0.29.0);
-> e **as DUAS auditorias adversariais independentes que faltavam foram feitas** — núcleo de
-> syscalls + holder de rede (zero achados novos, secção 1b) e os 6 HIGH da auditoria original de
-> 2026-07-21 (5/6 confirmados sólidos, 1/6 tinha um TOCTOU residual real, agora corrigido, secção
-> 1a). A Fase 0 de segurança está fechada; o que resta é a triagem dos 10 achados candidatos e
-> gaps "importantes" não-bloqueantes (secção 2b).
+> Updated 2026-07-26. In this revision: the 4 "blocking" gaps in section 2a closed (CLI verb
+> parity v0.25.0, Docker Engine API mutations v0.26.0, BuildKit-lite v0.27.0, GPU/CDI
+> v0.28.0); native `docker-compose.yml` + `depends_on` + project teardown closed (v0.29.0);
+> and **the TWO missing independent adversarial audits were done** — the syscall core +
+> network holder (zero new findings, section 1b) and the 6 HIGH from the original
+> 2026-07-21 audit (5/6 confirmed solid, 1/6 had a real residual TOCTOU, now fixed, section
+> 1a). Phase 0 of security is closed; what remains is triaging the 10 candidate findings and
+> the non-blocking "important" gaps (section 2b).
 >
-> **Re-comparação de 2026-07-26 (mesmo dia, revisão posterior)**: a reorganização da CLI (v0.30.0/
-> v0.30.1, `net`/`serve`/`cluster kube`) foi um corte limpo de ROTEAMENTO, sem features novas — não
-> altera nenhum veredicto de gap. Verificação linha-a-linha de 7 itens abertos das secções 2a/2b
-> contra o código actual encontrou 2 correcções ao próprio documento (nenhuma mudança de
-> comportamento no motor): (1) a fuga de rootfs no `--rm` rootless (listada como achado "por
-> verificar" na auditoria original) **já estava corrigida** desde o commit `7bde467`, o
-> `AUDITORIA-E2E.md` é que estava desactualizado; (2) `container update --memory/--cpus` estava
-> descrito como "no-op silencioso" — na verdade **nunca existiu como flag** (não há `--memory`/
-> `--cpus` nenhum em `UpdateOpts`, e a função do motor que os aplicaria não tem UM chamador em todo
-> o histórico do repo) — corrigido para "não implementado", que é a caracterização honesta. Os
-> outros 5 itens verificados (`--format`, cpuset/weights delegados, seccomp custom, bind `:z/:Z`,
-> `--network-alias`, compose `profiles`/`extends`) continuam exactamente como descrito.
+> **2026-07-26 re-comparison (same day, later revision)**: the CLI reorganization (v0.30.0/
+> v0.30.1, `net`/`serve`/`cluster kube`) was a clean ROUTING cut, with no new features — it
+> does not change any gap verdict. Line-by-line verification of 7 open items from sections
+> 2a/2b against the current code found 2 corrections to the document itself (no behaviour
+> change in the engine): (1) the rootfs leak on rootless `--rm` (listed as a finding "to be
+> verified" in the original audit) **was already fixed** as of commit `7bde467`, it was
+> `AUDITORIA-E2E.md` that was out of date; (2) `container update --memory/--cpus` was
+> described as a "silent no-op" — it actually **never existed as a flag** (there is no
+> `--memory`/`--cpus` at all in `UpdateOpts`, and the engine function that would apply them
+> has not had a SINGLE caller in the repo's entire history) — corrected to "not implemented",
+> which is the honest characterization. The other 5 verified items (`--format`, delegated
+> cpuset/weights, custom seccomp, bind `:z/:Z`, `--network-alias`, compose
+> `profiles`/`extends`) remain exactly as described.
 >
-> **Correcção real (2026-07-26, mesmo dia, terceira revisão)**: o único gap "importante"
-> genuinamente aberto identificado na re-comparação anterior — `cpuset`/`cpu.weight`/`io.weight`
-> ignorados no cgroup rootless-delegado — **está FEITO**. `try_delegated_base` já delegava os
-> controladores certos mas nunca escrevia os ficheiros na leaf; corrigido e **validado ao vivo**
-> neste host real (`--cpu-weight 500` confirmado na leaf de um container real). `cpuset`/`io`
-> continuam sem confirmação ao vivo por este host específico não os delegar ao `user@.service`
-> (limite de systemd/distro, não do código — confirmado tentando forçar com `systemd-run --scope
-> -p Delegate=cpuset`), mas o código agora escreve-os sempre que o kernel permitir, best-effort,
-> exactamente como o caminho root já fazia. Ver secção 2b.
+> **Real fix (2026-07-26, same day, third revision)**: the only genuinely open "important"
+> gap identified in the previous re-comparison — `cpuset`/`cpu.weight`/`io.weight` ignored in
+> the rootless-delegated cgroup — **is DONE**. `try_delegated_base` already delegated the
+> right controllers but never wrote the files at the leaf; fixed and **validated live** on
+> this real host (`--cpu-weight 500` confirmed at the leaf of a real container). `cpuset`/`io`
+> remain unconfirmed live on this specific host because it does not delegate them to
+> `user@.service` (a systemd/distro limitation, not a code one — confirmed by trying to force
+> it with `systemd-run --scope -p Delegate=cpuset`), but the code now writes them whenever
+> the kernel allows, best-effort, exactly as the root path already did. See section 2b.
 
-## 1. Veredicto executivo
+## 1. Executive verdict
 
-O **delonix-runtime está muito mais perto de um substituto de produção do Docker/Podman rootless
-do que o AGENTS.md sugeria há poucos dias** — e em várias dimensões já ultrapassa ambos. Os 4 gaps
-"bloqueantes" de compatibilidade (API Docker, BuildKit-lite, GPU/CDI, compose nativo) estão FEITOS
-(v1, com limitações documentadas, nunca silenciosas). **Em segurança, as duas auditorias
-independentes que faltavam foram concluídas nesta revisão**: o núcleo de syscalls + o holder de
-rede (secção 1b, zero achados novos) e os 6 HIGH da auditoria original (secção 1a — 5
-confirmados, 1 corrigido de novo). Não há mais nenhuma peça de segurança "por confirmar" em
-aberto — o que resta é a triagem dos 10 achados candidatos menores (nunca confirmados nem
-refutados) e o `--format` Go-template (scripting/CI). O único gap "importante" genuinamente
-aberto — cpuset/weights no cgroup rootless-delegado — foi FECHADO nesta mesma revisão.
+**delonix-runtime is much closer to a production substitute for Docker/Podman rootless than
+the AGENTS.md suggested a few days ago** — and on several dimensions it already surpasses
+both. The 4 "blocking" compatibility gaps (Docker API, BuildKit-lite, GPU/CDI, native
+compose) are DONE (v1, with documented limitations, never silent). **On security, the two
+missing independent audits were completed in this revision**: the syscall core + the
+network holder (section 1b, zero new findings) and the 6 HIGH from the original audit
+(section 1a — 5 confirmed, 1 fixed again). There is no longer any open "to be confirmed"
+security piece — what remains is triaging the 10 minor candidate findings (never confirmed
+nor refuted) and the Go-template `--format` (scripting/CI). The only genuinely open
+"important" gap — cpuset/weights on the rootless-delegated cgroup — was CLOSED in this same
+revision.
 
-**Para que casos JÁ serve (com confiança):**
-- **Execução e operação interactiva de containers** — run/ps/stop/exec/logs/inspect + extras que o Docker não tem (reconfiguração a quente, pause via freezer, describe estilo kubectl, diagnóstico automático de crash com razão+forense).
-- **Distribuição de imagens OCI** — pull/push/tag/history/login interoperáveis com registos, com assinatura cosign e scan de CVE embutidos (diferenciais).
-- **Rede de container single-node** — `--net host/none/bridge-custom`, publish rootless via slirp4netns, DNS de descoberta com isolamento por namespace, overlay VXLAN+WireGuard, firewall L4/egress e shaping — supera o podman rootless em várias frentes.
-- **Pods reais multi-container** (`kind: Pod`) — netns + IPC + UTS partilhados, validado E2E.
-- **Bootstrap de Kubernetes SEM Docker** — servidor CRI real para kubelet, imagem VM dourada, `cluster kubeadm`, e **modo Kind (`kindest/node`) já ARRANCA e um control-plane v1.34 fica `Ready`** (netfilter/cgroup2/containerd todos resolvidos). Terreno onde é motor único (container + VM + k8s), ninguém no espaço Docker/Podman cobre este arco.
-- **API Docker-compatível, BuildKit-lite, GPU/CDI e `docker-compose.yml` nativo** — mutações de ciclo de vida, `--mount=secret`/`--platform`, `--gpus`/CDI, `compose up/down/ps/logs` com `depends_on` real, todos v1 validados ao vivo (ver secções 2a/2b).
+**What it ALREADY serves (with confidence):**
+- **Interactive container execution and operation** — run/ps/stop/exec/logs/inspect + extras
+  that Docker does not have (hot reconfiguration, pause via freezer, kubectl-style describe,
+  automatic crash diagnosis with reason+forensics).
+- **OCI image distribution** — pull/push/tag/history/login interoperable with registries,
+  with built-in cosign signing and CVE scanning (differentiators).
+- **Single-node container networking** — `--net private` (the rootless default: own netns
+  + slirp4netns outbound uplink, like podman), `--net host/none/container:`, custom
+  networks, rootless publish via slirp4netns, discovery DNS with per-namespace isolation,
+  VXLAN+WireGuard overlay, L4 firewall/egress and shaping — surpasses podman rootless on
+  several fronts.
+- **Real multi-container Pods** (`kind: Pod`) — shared netns + IPC + UTS, validated E2E.
+- **Kubernetes bootstrap WITHOUT Docker** — a real CRI server for kubelet, golden VM image,
+  `cluster kubeadm`, and **Kind mode (`kindest/node`) already BOOTS and a v1.34
+  control-plane becomes `Ready`** (netfilter/cgroup2/containerd all resolved). Territory
+  where it is a single engine (container + VM + k8s), nobody in the Docker/Podman space
+  covers this arc.
+- **Docker-compatible API, BuildKit-lite, GPU/CDI, and native `docker-compose.yml`** —
+  lifecycle mutations, `--mount=secret`/`--platform`, `--gpus`/CDI, `compose up/down/ps/logs`
+  with real `depends_on`, all v1, validated live (see sections 2a/2b).
 
-**Para que NÃO serve (ainda):**
-- **Compatibilidade de ecossistema residual (limita o âmbito, não a segurança nem a confiança)** — sem `--format` Go-template (scripting/CI), `profiles`/`extends`/multi-ficheiro do compose ainda por fazer (erro claro, não silencioso).
+**What it does NOT serve (yet):**
+- **Residual ecosystem compatibility (limits scope, not security nor confidence)** — no
+  Go-template `--format` (scripting/CI), compose `profiles`/`extends`/multi-file still
+  pending (clear error, not silent).
 
-**Posição global:** um runtime rootless-first **sólido em desenho, confirmado por duas rondas de auditoria adversarial independente, e já à par ou à frente do Docker/Podman em ciclo de vida, rede, build e compatibilidade de API**. A barreira que existia — "segurança não confirmada de fora para dentro" — está fechada. O único gap "importante" genuinamente aberto (cgroups rootless-delegados) foi fechado nesta revisão. O que resta é compatibilidade de superfície residual (scripting `--format`), não mais uma questão de confiança nem de correctude silenciosa.
+**Overall position:** a rootless-first runtime **solid by design, confirmed by two rounds of
+independent adversarial audit, and already on par with or ahead of Docker/Podman in
+lifecycle, networking, build, and API compatibility**. The barrier that existed —
+"security unconfirmed from the outside in" — is closed. The only genuinely open "important"
+gap (rootless-delegated cgroups) was closed in this revision. What remains is residual
+surface compatibility (`--format` scripting), no longer a matter of confidence nor of silent
+correctness.
 
 ---
 
-## 1a. Segurança — 6 HIGH da auditoria de 2026-07-21, CORRIGIDOS em 2026-07-23, CONFIRMADOS de forma independente em 2026-07-26
+## 1a. Security — 6 HIGH from the 2026-07-21 audit, FIXED on 2026-07-23, INDEPENDENTLY CONFIRMED on 2026-07-26
 
-Fonte completa: [`docs/AUDITORIA-E2E.md`](AUDITORIA-E2E.md) (24 achados confirmados por 2 céticos adversariais + 11 candidatos ainda por verificar).
+Full source: [`docs/AUDITORIA-E2E.md`](AUDITORIA-E2E.md) (24 findings confirmed by 2 adversarial
+skeptics + 11 candidates still to be verified).
 
-| # | Achado | Impacto | Local | Estado |
+| # | Finding | Impact | Location | Status |
 |---|---|---|---|---|
-| 1 | Path traversal em whiteouts OCI | Imagem maliciosa apaga ficheiros/directórios arbitrários do utilizador (ex.: a home inteira) — reachable no `container run` rootless DEFAULT | `delonix-image/src/overlay.rs` | ✅ **CONFIRMADO FIXO (2026-07-26)** — `safe_rel` no ramo de whiteout + confinamento contra symlink plantado; auditoria independente tentou reconstruir o exploit e não conseguiu |
-| 2 | IDs do CRI sem validação | Kubelet comprometido apaga/lê `*.json` arbitrário via `../` | `delonix-cri/src/runtime_svc/lifecycle.rs` | ✅ **CONFIRMADO FIXO (2026-07-26)** — whitelist centralizada em `write_rec`/`read_rec`/`remove_rec`, confirmado como o ÚNICO caminho de construção de path no crate |
-| 3 | Nome de VM ainda escapa o fix anterior | `generate_seed_iso` escrevia ficheiros fora do state-dir ANTES de `create()` validar o nome | `cmd/vm.rs` | ✅ **CONFIRMADO FIXO (2026-07-26)** — `valid_vm_name` no topo de `generate_seed_iso`, com um 2º gate independente em `delonix_vm::create_with` |
-| 4 | kubeconfig cluster-admin em `/tmp` modo 0644 | Qualquer utilizador local no host do control-plane lia credenciais cluster-admin | `cmd/cluster.rs` | ⚠️ **PARCIALMENTE fixo → CORRIGIDO AGORA (2026-07-26)** — o lado remoto estava correcto (`sudo cat` para stdout do SSH, nunca toca em disco remoto), mas a auditoria independente reproduziu um TOCTOU residual no lado LOCAL: `fs::write` cria o ficheiro no modo do umask (664 medido ao vivo neste host) e só DEPOIS aplica `chmod 600` — uma janela real em que outro utilizador local podia ler as credenciais cluster-admin. Corrigido: `OpenOptions::mode(0o600)` define o modo ATOMICAMENTE na criação (mesmo padrão já usado por `ensure_libvirt_network`) |
-| 5 | `safe_join` do build é só léxico | Symlink na imagem/contexto reabria leitura/escrita arbitrária de ficheiros do host | `cmd/build.rs` | ✅ **CONFIRMADO FIXO (2026-07-26)** — `confine_to` reatribui o caminho já canonicalizado antes de qualquer `fs::copy`/`create_dir_all`, `copy_dir_all` revalida recursivamente cada entrada aninhada |
-| 6 | Socket de gestão sem autenticação de peer | Sem `SO_PEERCRED`/chmod — condições comuns davam `container exec` = execução arbitrária em qualquer container a qualquer processo local | `delonix-mgmt/src/lib.rs` | ✅ **CONFIRMADO FIXO (2026-07-26)** — `SO_PEERCRED` verificado DENTRO do loop de accept, antes de qualquer dispatch; mesmo padrão confirmado em `delonix-cri` |
+| 1 | Path traversal in OCI whiteouts | Malicious image deletes arbitrary user files/directories (e.g. the entire home) — reachable in `container run` rootless by DEFAULT | `delonix-image/src/overlay.rs` | ✅ **CONFIRMED FIXED (2026-07-26)** — `safe_rel` on the whiteout branch + confinement against a planted symlink; independent audit tried to reconstruct the exploit and could not |
+| 2 | Unvalidated CRI IDs | A compromised kubelet deletes/reads an arbitrary `*.json` via `../` | `delonix-cri/src/runtime_svc/lifecycle.rs` | ✅ **CONFIRMED FIXED (2026-07-26)** — centralized whitelist in `write_rec`/`read_rec`/`remove_rec`, confirmed as the ONLY path-construction path in the crate |
+| 3 | VM name still escapes the previous fix | `generate_seed_iso` wrote files outside the state-dir BEFORE `create()` validated the name | `cmd/vm.rs` | ✅ **CONFIRMED FIXED (2026-07-26)** — `valid_vm_name` at the top of `generate_seed_iso`, with a 2nd independent gate in `delonix_vm::create_with` |
+| 4 | cluster-admin kubeconfig in `/tmp` mode 0644 | Any local user on the control-plane host read cluster-admin credentials | `cmd/cluster.rs` | ⚠️ **PARTIALLY fixed → CORRECTED NOW (2026-07-26)** — the remote side was correct (`sudo cat` to SSH stdout, never touches remote disk), but the independent audit reproduced a residual TOCTOU on the LOCAL side: `fs::write` creates the file with the umask's mode (664, measured live on this host) and only AFTERWARDS applies `chmod 600` — a real window in which another local user could read the cluster-admin credentials. Fixed: `OpenOptions::mode(0o600)` sets the mode ATOMICALLY on creation (same pattern already used by `ensure_libvirt_network`) |
+| 5 | Build's `safe_join` is only lexical | A symlink in the image/context reopened arbitrary host-file read/write | `cmd/build.rs` | ✅ **CONFIRMED FIXED (2026-07-26)** — `confine_to` reassigns the already-canonicalized path before any `fs::copy`/`create_dir_all`, `copy_dir_all` recursively revalidates each nested entry |
+| 6 | Management socket with no peer authentication | No `SO_PEERCRED`/chmod — common conditions gave `container exec` = arbitrary execution in any container from any local process | `delonix-mgmt/src/lib.rs` | ✅ **CONFIRMED FIXED (2026-07-26)** — `SO_PEERCRED` checked INSIDE the accept loop, before any dispatch; same pattern confirmed in `delonix-cri` |
 
-Validado com `cargo build`/`test`/`clippy --workspace` limpos. **2026-07-26: uma auditoria adversarial INDEPENDENTE destes 6 fixes foi finalmente feita** (o item que faltava desde 2026-07-23) — releu cada local, tentou reconstruir cada exploit original, e correu a suite de testes existente como verificação adicional. 5/6 confirmados sólidos; 1/6 (kubeconfig) tinha um gap residual real, agora também corrigido. **Este item da Fase 0 está agora FECHADO.**
-- **10 achados candidatos por verificar** — o 11.º (HIGH: `container run --rm` deixava o rootfs inteiro no disco em rootless, mesmo padrão do incidente de disk-pressure já documentado) **está CONFIRMADO FIXO** (re-comparação de 2026-07-26): ambos os caminhos de auto-remove (`cmd_run` em primeiro plano e `spawn_rm_watcher`) já chamam `images.remove_container_dir(&c.id)` desde o commit `7bde467` (v0.19.0) — o `docs/AUDITORIA-E2E.md` ainda o listava como aberto por lapso (o achado irmão, "egress global apaga silenciosamente", já estava correctamente marcado como corrigido na secção 1b deste documento).
+Validated with clean `cargo build`/`test`/`clippy --workspace`. **2026-07-26: an INDEPENDENT
+adversarial audit of these 6 fixes was finally done** (the piece that had been missing since
+2026-07-23) — it reread each location, tried to reconstruct every original exploit, and ran
+the existing test suite as additional verification. 5/6 confirmed solid; 1/6 (kubeconfig) had
+a real residual gap, now also fixed. **This Phase 0 item is now CLOSED.**
+- **10 candidate findings still to be verified** — the 11th (HIGH: `container run --rm` left
+  the entire rootfs on disk in rootless, the same pattern as the already-documented
+  disk-pressure incident) **is CONFIRMED FIXED** (2026-07-26 re-comparison): both
+  auto-remove paths (`cmd_run` in the foreground and `spawn_rm_watcher`) already call
+  `images.remove_container_dir(&c.id)` since commit `7bde467` (v0.19.0) — `
+  docs/AUDITORIA-E2E.md` still listed it as open by oversight (the sibling finding, "global
+  egress silently deletes", was already correctly marked as fixed in section 1b of this
+  document).
 
 ---
 
-## 1b. Segurança — núcleo de syscalls + holder de rede, DUAS rondas adversariais (2026-07-23 e 2026-07-26)
+## 1b. Security — syscall core + network holder, TWO adversarial rounds (2026-07-23 and 2026-07-26)
 
-Ao contrário do que uma versão anterior deste doc afirmava, `delonix-runtime/src/lib.rs` (104 blocos
-`unsafe`: `clone`/`fork`/`mount`/`pivot_root`/`setns`/`unshare`/seccomp-BPF/mapeamento uid-gid) e
-`delonix-net/src/infra.rs` (holder + socket de controlo) **já tinham sido auditados** — a "2ª ronda"
-de 2026-07-23 (ver AGENTS.md) encontrou e corrigiu 2 CRITICAL + 3 HIGH nesses dois ficheiros
-específicos (todos em produção desde o v0.10.1). O que faltava era a **confirmação independente de
-fora para dentro** desses fixes — feita em 2026-07-26.
+Contrary to what an earlier version of this doc claimed, `delonix-runtime/src/lib.rs` (104
+`unsafe` blocks: `clone`/`fork`/`mount`/`pivot_root`/`setns`/`unshare`/seccomp-BPF/uid-gid
+mapping) and `delonix-net/src/infra.rs` (holder + control socket) **had already been
+audited** — the "2nd round" of 2026-07-23 (see AGENTS.md) found and fixed 2 CRITICAL + 3
+HIGH in those two specific files (all in production since v0.10.1). What was missing was the
+**independent outside-in confirmation** of those fixes — done on 2026-07-26.
 
-**Resultado da auditoria independente de 2026-07-26: zero achados novos CRITICAL/HIGH.** Verificado
-explicitamente, com raciocínio concreto (não apenas "parece ok"):
+**Result of the 2026-07-26 independent audit: zero new CRITICAL/HIGH findings.** Explicitly
+verified, with concrete reasoning (not just "looks ok"):
 
-| Área | Verificação | Resultado |
+| Area | Verification | Result |
 |---|---|---|
-| Mapeamento uid/gid (`CLONE_NEWUSER`) | Nenhum caminho (root, rootless single-uid, rootless com subuid) mapeia o uid 0 do container para o uid 0 REAL do host | ✅ Sólido |
-| Check fail-closed pós-seccomp/caps/NNP | Lê `/proc/self/status` e aborta (exit 126) se `NoNewPrivs≠1`/seccomp não activo/qualquer capability sobrevive fora do `cap_keep` — corre no `spawn` E no `exec` | ✅ Sólido |
-| `allowed_syscalls()` (seccomp) | `mount`/`umount2`/`pivot_root`/`setns`/`unshare`/`ptrace`/`bpf` ausentes por omissão; `clone3` forçado a `ENOSYS` especificamente para não contornar o filtro de `CLONE_NEWUSER` do `clone` clássico via a struct de flags (inacessível ao BPF clássico) | ✅ Sólido |
-| `safe_bind_target`/`bind_volume` (TOCTOU de symlink plantado pela imagem) | Resolve o alvo do bind componente a componente contra o rootfs, recusa qualquer componente symlink, ANTES do `mount` — mesma protecção em `mount_live`/`unmount_live` (hot-plug) | ✅ Sólido |
-| eBPF do device-cgroup | Offsets da struct `bpf_attr` construída à mão conferidos byte a byte contra o layout real do kernel | ✅ Sólido |
-| Higiene de fd através de forks | Todos os forks (`log_shim`, `exec` duplo-fork, `mount_live`/`unmount_live`, `reexec_mapped`) fecham fds herdados explicitamente ou usam `close_range` | ✅ Sólido |
-| Socket de controlo do holder (`infra.rs`) | `SO_PEERCRED` verificado em TODAS as ~25 formas de comando ANTES de qualquer dispatch; todo o campo controlado pelo atacante que chega a um argv `nft`/`ip` passa primeiro por um validador de charset ou é derivado de hash/IPAM | ✅ Sólido |
-| Bug da substring do egress global (`infra.rs:1531`, já documentado como achado aberto noutra secção) | `is_global_egress_drop_line` já exclui linhas com `iifname` | ✅ Já corrigido |
+| uid/gid mapping (`CLONE_NEWUSER`) | No path (root, rootless single-uid, rootless with subuid) maps the container's uid 0 to the host's REAL uid 0 | ✅ Solid |
+| Fail-closed check post-seccomp/caps/NNP | Reads `/proc/self/status` and aborts (exit 126) if `NoNewPrivs≠1`/seccomp inactive/any capability survives outside `cap_keep` — runs on both `spawn` AND `exec` | ✅ Solid |
+| `allowed_syscalls()` (seccomp) | `mount`/`umount2`/`pivot_root`/`setns`/`unshare`/`ptrace`/`bpf` absent by default; `clone3` forced to `ENOSYS` specifically so it cannot bypass classic `clone`'s `CLONE_NEWUSER` filter via the flags struct (inaccessible to classic BPF) | ✅ Solid |
+| `safe_bind_target`/`bind_volume` (TOCTOU of a symlink planted by the image) | Resolves the bind target component by component against the rootfs, refuses any symlink component, BEFORE `mount` — same protection in `mount_live`/`unmount_live` (hot-plug) | ✅ Solid |
+| Device-cgroup eBPF | Hand-built `bpf_attr` struct offsets checked byte by byte against the real kernel layout | ✅ Solid |
+| Fd hygiene across forks | Every fork (`log_shim`, double-fork `exec`, `mount_live`/`unmount_live`, `reexec_mapped`) explicitly closes inherited fds or uses `close_range` | ✅ Solid |
+| Holder control socket (`infra.rs`) | `SO_PEERCRED` checked on ALL ~25 command forms BEFORE any dispatch; every attacker-controlled field that reaches an `nft`/`ip` argv first passes through a charset validator or is derived from a hash/IPAM | ✅ Solid |
+| Global-egress substring bug (`infra.rs:1531`, already documented as an open finding in another section) | `is_global_egress_drop_line` already excludes lines with `iifname` | ✅ Already fixed |
 
-**Achado BAIXO, não um exploit concreto, registado para vigilância futura:** o `nft` real
-reconcatena o seu próprio argv com espaços e reanalisa isso como uma única linha de script — um
-único elemento de argv com um espaço/chaveta poderia em teoria agir como vários tokens de gramática
-para o `nft`, mesmo sem shell nenhum envolvido. Nenhuma string alcançável por um atacante chega hoje
-a um argv `nft` sem passar primeiro por um validador de charset/formato ou ser derivada de
-hash/IPAM — mas é um invariante estruturalmente frágil (um único validador em falta num futuro
-comando de controlo reabre esta classe). Recomendação: uma vigilância (`grep -n '"nft"'`) sempre
-que um novo tipo de comando for adicionado ao socket de controlo.
+**LOW finding, not a concrete exploit, recorded for future watchfulness:** the real `nft`
+reconcatenates its own argv with spaces and reparses it as a single script line — a single
+argv element with a space/brace could in theory act as several grammar tokens for `nft`, even
+with no shell involved at all. No attacker-reachable string today reaches an `nft` argv
+without first passing through a charset/format validator or being derived from a hash/IPAM —
+but it is a structurally fragile invariant (a single missing validator on a future control
+command reopens this class). Recommendation: a watch (`grep -n '"nft"'`) whenever a new
+command type is added to the control socket.
 
-**O que isto NÃO cobre** (continua em aberto, ver secção 1a): os 6 HIGH da auditoria original de
-2026-07-21 (path traversal em whiteouts OCI, IDs do CRI, nome de VM, kubeconfig em `/tmp`, symlink
-no `COPY` do build, socket do `delonix-mgmt`) — nenhum destes vive em `lib.rs`/`infra.rs`, por isso
-esta auditoria de 2026-07-26 não os re-confirma. Continuam a precisar do seu próprio 2º par de olhos.
+**What this does NOT cover** (remains open, see section 1a): the 6 HIGH from the original
+2026-07-21 audit (path traversal in OCI whiteouts, CRI IDs, VM name, kubeconfig in `/tmp`,
+symlink in the build's `COPY`, `delonix-mgmt` socket) — none of these lives in
+`lib.rs`/`infra.rs`, so this 2026-07-26 audit does not re-confirm them. They still need their
+own second pair of eyes.
 
 ---
 
 ## 2. Gaps
 
-### 2a. BLOQUEANTES
+### 2a. BLOCKING
 
-| Feature | Docker/Podman tem | delonix | Evidência |
+| Feature | Docker/Podman has | delonix | Evidence |
 |---|---|---|---|
-| **`--format` (Go template)** | ps/inspect/info com `--format '{{json .}}'`/`{{.Names}}` — scripts e o próprio `kind` dependem disto | **Ausente** — nenhuma flag de formato; inspect emite JSON fixo | `grep long="format"` em `bins/delonix-runtime-bin/src/` = 0; `cmd_inspect` container.rs:2394 |
-| ~~**Multi-stage build** (`FROM…AS x` + `COPY --from`)~~ | Total; é a norma de quase todo o Dockerfile de produção | ✅ **FEITO (2026-07-23)** — cada estágio ganha o seu próprio container/rootfs; `COPY --from=<nome-ou-índice>` lê do estágio já construído; `FROM <estágio-anterior>` clona via `cp -a --reflink=auto`. Gap conhecido: no modo root (overlay), o estágio FINAL ainda tem de ser uma imagem real (sem lineage OCI para um estágio clonado) — erro claro, não falha silenciosa | cmd/build.rs (`build_one_stage`/`resolve_stage_base`/`clone_rootfs`) |
-| **BuildKit/buildx** (`RUN --mount=secret/ssh/cache`, heredocs, `--platform`, `--cache-from/to`) | docker buildx / buildah | ✅ **FEITO parcial (v0.27.0)** — `RUN --mount=type=secret,id=<nome>[,target=][,required=]` (bind-mount ao vivo via `mount_live`/`unmount_live` na janela do próprio `RUN`, nunca chega a uma layer/cache) + `--platform linux/<arch>` (resolve a imagem base do arch certo, carimba-a no resultado, preflight claro de binfmt_misc/qemu antes de arrancar um build cross-arch). **Ausente**: `type=ssh`/`type=cache`/`type=bind` (erro claro, nunca mal-interpretado como shell), heredocs, `--cache-from/to`, manifest-list multi-arch no push (só constrói UM arch por invocação, como o `docker build --platform` sem buildx) | cmd/build.rs (`parse_run_flags`/`mount_run_secrets`), `--platform` em `cmd/build.rs`/`cmd/util.rs::resolve_or_pull_platform` |
-| **Docker Engine API (`/v1.4x` docker-compatível)** | docker.sock e `podman system service` expõem a MESMA API — é o que faz docker CLI/compose/testcontainers falarem via `DOCKER_HOST` | ✅ **FEITO (v0.26.0)** — `delonix serve docker-api` ganhou as mutações de ciclo de vida: `POST /containers/create\|start\|stop\|kill\|wait\|restart\|rename`, `DELETE /containers/{id}`, `GET /containers/{id}/json`, reutilizando tal-e-qual o `cmd_run`/`cmd_stop`/etc. do CLI. **Validado contra um `docker` CLI real** (27.3.1): `docker create`+`start`+`inspect`+`kill`+`wait`+`restart`+`rename`+`stop`+`rm` — todos correctos e instantâneos (é o caminho que `docker compose up/down` usa). **Limitação documentada, não silenciosa**: o subcomando de conveniência `docker run` (create+start num só comando) não devolve o controlo ao terminal de forma fiável contra este servidor — parece ser um comportamento interno do próprio CLI Go (sinalização/cleanup) não replicável com `create`+`start` separados; usa esses dois em vez de `run`. `exec` (hijacking HTTP interactivo) continua fora de escopo; `--restart` (supervisor) é recusado com erro claro em vez de arriscar um `fork()` de um processo multi-thread | cmd/dockerapi.rs |
-| **Ler `docker-compose.yml`** + **`depends_on` com condições** + **teardown de projecto** | docker compose / podman-compose nativos; ordena arranque e espera saúde; `down` remove tudo do projecto | ✅ **FEITO (v0.29.0)** — `delonix compose up\|down\|ps\|logs\|config`, um parser tipado (sem dependência nova) do Compose Spec v2.x traduzido directamente para `RunOpts` (mesma família de `pod_to_run_opts`/`docker_config_to_run_opts`) ou para `ManifestDoc`s reaproveitando `image`/`network`/`volume::apply` tal-e-qual. `depends_on` com as 3 condições (`service_started`/`service_healthy`/`service_completed_successfully`) via ordenação topológica (ciclo → erro claro, nunca uma ordem arbitrária) + espera pelo healthcheck real (inline ou da imagem). Projecto = `delonix.io/compose-project=<nome>` nos containers (mesma ideia de `pod.rs`) + nomes determinísticos `<projecto>_<nome>` para redes/volumes (sem label própria). **Validado ao vivo de ponta-a-ponta**: `web` só arrancou depois do `pg_isready` do `db` ter sucesso; `down -v` removeu os 2 containers + rede + volume sem deixar nada para trás; re-`up` idempotente. `build.target` (selecção de estágio multi-stage) **FEITO** — forwarded para o `build.target` de `kind: Image`, o `--target` do `delonix build`. **Por fazer**: `profiles`/`extends`/`configs`/`secrets` top-level/multi-ficheiro (erro claro, nunca ignorados em silêncio), réplicas≠1, `ipv4_address` fixo, volumes anónimos, porta sem host explícito | `cmd/compose.rs` |
-| **testcontainers / CI via `DOCKER_HOST`** | Falam a Engine API contra docker/podman rootless | **Ausente** — consequência da falta de API docker-compatível | delonix-mgmt/src/lib.rs:100-148 |
-| **Passagem de GPU real (CDI/nvidia-container-toolkit)** | `--gpus all` / `--device nvidia.com/gpu=all` montam libnvidia-*, nvidia-smi, ldcache — sem isto CUDA não corre | ✅ **FEITO parcial (v0.28.0)** — `cmd/cdi.rs` é um CONSUMIDOR de CDI (parseia specs já gerados por `nvidia-ctk cdi generate` em `/etc/cdi`/`/var/run/cdi`), nunca um `nvidia-container-cli configure --pid=` (esse modelo exigiria `setns` por PID num userns alheio — o mesmo problema de privilégio cross-namespace que o `--net` já contorna com re-exec, não com attach externo). `deviceNodes`/`mounts`/`env` do spec traduzem-se para o `Vec<Mount>`/`Vec<String>` que `-v`/`--device` já alimentam — aplicados pelo PRÓPRIO init do container, antes do `pivot_root`, **zero modelo de privilégio novo** (o mesmo mecanismo já rootless do `-v`/`--device`). `--gpus nvidia\|all` e `--device nvidia.com/gpu=<nome\|all>` recusam com erro claro e accionável se não houver spec CDI nem `nvidia-ctk` no PATH (nunca cai em silêncio para o bind cru de `/dev/nvidia*`, que falharia com um erro confuso do CUDA). `ldconfig -r <rootfs>` best-effort após o mount (substituto mais simples do hook `createContainer` real do CDI, que precisa do protocolo OCI-hook-stdin-state). `--gpus dri` inalterado (Mesa/VAAPI é open-source, já vem no pacote da imagem). **Por confirmar num host GPU real** (impossível neste sandbox): precedência exacta `/etc/cdi` vs `/var/run/cdi`; se `ldconfig -r` chega para substituir os hooks reais | `cmd/cdi.rs` (`resolve_cdi_device`/`ensure_cdi_available`), `cmd/container.rs` (`--gpus`/`--device` wiring), `crates/adapters/delonix-runtime/src/lib.rs::setup_rootfs` (`ldconfig -r`) |
+| **`--format` (Go template)** | ps/inspect/info with `--format '{{json .}}'`/`{{.Names}}` — scripts and `kind` itself depend on this | **Missing** — no format flag at all; inspect emits fixed JSON | `grep long="format"` in `bins/delonix-runtime-bin/src/` = 0; `cmd_inspect` container.rs:2394 |
+| ~~**Multi-stage build** (`FROM…AS x` + `COPY --from`)~~ | Full; it is the norm of almost every production Dockerfile | ✅ **DONE (2026-07-23)** — each stage gets its own container/rootfs; `COPY --from=<name-or-index>` reads from the already-built stage; `FROM <previous-stage>` clones via `cp -a --reflink=auto`. Known gap: in root mode (overlay), the FINAL stage still has to be a real image (no OCI lineage for a cloned stage) — clear error, not silent failure | cmd/build.rs (`build_one_stage`/`resolve_stage_base`/`clone_rootfs`) |
+| **BuildKit/buildx** (`RUN --mount=secret/ssh/cache`, heredocs, `--platform`, `--cache-from/to`) | docker buildx / buildah | ✅ **PARTIALLY DONE (v0.27.0)** — `RUN --mount=type=secret,id=<name>[,target=][,required=]` (live bind-mount via `mount_live`/`unmount_live` within the `RUN`'s own window, never reaching a layer/cache) + `--platform linux/<arch>` (resolves the base image for the right arch, stamps it on the result, clear binfmt_misc/qemu preflight before starting a cross-arch build). **Missing**: `type=ssh`/`type=cache`/`type=bind` (clear error, never misinterpreted as shell), heredocs, `--cache-from/to`, multi-arch manifest-list on push (only builds ONE arch per invocation, like `docker build --platform` without buildx) | cmd/build.rs (`parse_run_flags`/`mount_run_secrets`), `--platform` in `cmd/build.rs`/`cmd/util.rs::resolve_or_pull_platform` |
+| **Docker Engine API (`/v1.4x` docker-compatible)** | docker.sock and `podman system service` expose the SAME API — this is what lets the docker CLI/compose/testcontainers talk via `DOCKER_HOST` | ✅ **DONE (v0.26.0)** — `delonix serve docker-api` gained the lifecycle mutations: `POST /containers/create\|start\|stop\|kill\|wait\|restart\|rename`, `DELETE /containers/{id}`, `GET /containers/{id}/json`, reusing the CLI's `cmd_run`/`cmd_stop`/etc. verbatim. **Validated against a real `docker` CLI** (27.3.1): `docker create`+`start`+`inspect`+`kill`+`wait`+`restart`+`rename`+`stop`+`rm` — all correct and instant (this is the path `docker compose up/down` uses). **Documented limitation, not silent**: the convenience subcommand `docker run` (create+start in one command) does not reliably return control to the terminal against this server — this appears to be internal behaviour of the Go CLI itself (signaling/cleanup) not replicable with separate `create`+`start`; use those two instead of `run`. `exec` (interactive HTTP hijacking) remains out of scope; `--restart` (supervisor) is refused with a clear error instead of risking a `fork()` of a multi-threaded process | cmd/dockerapi.rs |
+| **Reading `docker-compose.yml`** + **`depends_on` with conditions** + **project teardown** | native docker compose / podman-compose; orders startup and waits for health; `down` removes everything in the project | ✅ **DONE (v0.29.0)** — `delonix compose up\|down\|ps\|logs\|config`, a typed parser (no new dependency) of the Compose Spec v2.x translated directly into `RunOpts` (same family as `pod_to_run_opts`/`docker_config_to_run_opts`) or into `ManifestDoc`s reusing `image`/`network`/`volume::apply` verbatim. `depends_on` with all 3 conditions (`service_started`/`service_healthy`/`service_completed_successfully`) via topological ordering (cycle → clear error, never an arbitrary order) + waiting for the real healthcheck (inline or from the image). Project = `delonix.io/compose-project=<name>` on containers (same idea as `pod.rs`) + deterministic `<project>_<name>` names for networks/volumes (no dedicated label). **Validated live end to end**: `web` only started after the `db`'s `pg_isready` succeeded; `down -v` removed the 2 containers + network + volume leaving nothing behind; idempotent re-`up`. `build.target` (multi-stage stage selection) **DONE** — forwarded to `kind: Image`'s `build.target`, `delonix build`'s `--target`. **To do**: top-level/multi-file `profiles`/`extends`/`configs`/`secrets` (clear error, never silently ignored), replicas≠1, fixed `ipv4_address`, anonymous volumes, port with no explicit host | `cmd/compose.rs` |
+| **testcontainers / CI via `DOCKER_HOST`** | Talk to the Engine API against rootless docker/podman | **Missing** — a consequence of the lack of a docker-compatible API | delonix-mgmt/src/lib.rs:100-148 |
+| **Real GPU passthrough (CDI/nvidia-container-toolkit)** | `--gpus all` / `--device nvidia.com/gpu=all` mount libnvidia-*, nvidia-smi, ldcache — without this CUDA does not run | ✅ **PARTIALLY DONE (v0.28.0)** — `cmd/cdi.rs` is a CDI CONSUMER (parses specs already generated by `nvidia-ctk cdi generate` in `/etc/cdi`/`/var/run/cdi`), never a `nvidia-container-cli configure --pid=` (that model would require `setns` by PID into a foreign userns — the same cross-namespace privilege problem `--net` already works around via re-exec, not external attach). The spec's `deviceNodes`/`mounts`/`env` translate into the `Vec<Mount>`/`Vec<String>` that `-v`/`--device` already feed — applied by the container's OWN init, before `pivot_root`, **zero new privilege model** (the same already-rootless mechanism as `-v`/`--device`). `--gpus nvidia\|all` and `--device nvidia.com/gpu=<name\|all>` refuse with a clear, actionable error if there is no CDI spec and no `nvidia-ctk` on PATH (never silently falling back to a raw bind of `/dev/nvidia*`, which would fail with a confusing CUDA error). Best-effort `ldconfig -r <rootfs>` after the mount (a simpler substitute for CDI's real `createContainer` hook, which needs the OCI-hook-stdin-state protocol). `--gpus dri` unchanged (Mesa/VAAPI is open-source, already shipped in the image). **To confirm on a real GPU host** (impossible in this sandbox): the exact precedence of `/etc/cdi` vs `/var/run/cdi`; whether `ldconfig -r` is enough to substitute the real hooks | `cmd/cdi.rs` (`resolve_cdi_device`/`ensure_cdi_available`), `cmd/container.rs` (`--gpus`/`--device` wiring), `crates/adapters/delonix-runtime/src/lib.rs::setup_rootfs` (`ldconfig -r`) |
 
-> **Nota:** três dos bloqueantes (Engine API, compose, testcontainers) são **o mesmo problema-raiz** — ausência de superfície docker-compatível. Resolver a Engine API destrava os outros dois de uma vez.
+> **Note:** three of the blockers (Engine API, compose, testcontainers) are **the same root
+> problem** — the absence of a docker-compatible surface. Solving the Engine API unblocks the
+> other two at once.
 
-### 2b. IMPORTANTES
+### 2b. IMPORTANT
 
-| Feature | Docker/Podman tem | delonix | Evidência |
+| Feature | Docker/Podman has | delonix | Evidence |
 |---|---|---|---|
-| Perfil seccomp custom (`--security-opt seccomp=/x.json`) | Carrega JSON arbitrário | **Silenciosamente ignorado** — só `==unconfined`/`detect`; caminho .json cai no allowlist embutido enquanto o utilizador julga o seu perfil activo | container.rs:1307 grava; lib.rs:3002-3003 só compara strings |
-| ~~`container exec` com `-e/-w/-u`~~ | Todos suportados | ✅ **FEITO (v0.25.0)** — overrides por-chamada, nunca persistidos; `-w` também corrigiu um bug real: `exec` fazia `chdir("/")` incondicional, ignorando o `workdir` da imagem mesmo sem `-w` nenhum. `--privileged`/`-i` reais continuam por fazer | container.rs (`ExecOverrides`, `cmd_exec`) |
-| ~~`attach` (reanexar stdio)~~ | sim | ✅ **FEITO (v0.25.0), só saída** — reaproveita o mecanismo de `logs -f`; `-i` é recusado com erro claro (este motor não guarda um conduíte de stdin vivo para um container já arrancado em detached, ao contrário de um shim persistente por-container) | container.rs (`cmd_attach`) |
-| ~~`wait` (bloquear + exit code)~~ | sim (CI/scripts) | ✅ **FEITO (v0.25.0)** — bloqueia e imprime o exit code real SÓ quando um supervisor `--restart` é o pai real do processo (o único caso em que há um `waitpid` genuíno); sem supervisor, a morte continua a aparecer como `Crashed`/137 — limitação arquitectural pré-existente (o motor não é o pai real), não um bug do `wait` | container.rs (`cmd_wait`) |
-| ~~`kill -s <sinal>`~~ | Qualquer sinal | ✅ **FEITO (v0.25.0)** — nome ou número, sem forçar `Stopped` (o resultado real, ex. `Crashed` para um sinal que mata mesmo, só se reflecte na próxima observação) | container.rs (`cmd_kill`, `runtime::send_signal`) |
-| ~~`restart` subcomando~~ | Para+arranca num comando | ✅ **FEITO (v0.25.0)** — reaproveita `stop`+`start` tal-e-qual (imprime 2 linhas em vez de 1, trade-off aceite para não duplicar a lógica de rede/namespace de nenhum dos dois) | container.rs (`cmd_restart`) |
-| ~~`logs --tail/--since/--timestamps`~~ | sim | ✅ **FEITO (v0.25.0)** — só para containers corridos com `--log-cri` (o único formato com timestamps reais por linha); sem isso, erro claro em vez de uma coluna de timestamp em branco | container.rs (`parse_cri_log_line`, `cmd_logs`) |
-| `rename` / `port` (subcomandos) | Ausentes | ✅ **FEITO (v0.25.0)** | container.rs (`cmd_rename`, `cmd_port`) |
-| `--net <custom>` em rootless | podman fiável | **Limitação documentada** (mas o re-exec via nsenter já existe — a nota do AGENTS.md está desactualizada) | infra.rs:2421, container.rs:1403-1425 |
-| `--network-alias` | aardvark-dns resolve aliases | **No-op** — gravado e mostrado mas nunca consultado no `dns_resolve` | container.rs:1346; infra.rs:3217 só casa `name` |
-| Driver macvlan/ipvlan | Realizado | **Não realizado** em rootless (`Realized=False`, precisa CAP_NET_ADMIN na init-netns) | network.rs:244-250 |
-| Overlay multi-nó (forwarding real) | swarm encaminha entre nós | **Parcial** — device+FDB criados; forwarding inter-nó não provado E2E | AGENTS.md secção overlay |
-| Publish com host-IP (`127.0.0.1:8080:80`) | sim | **Rejeitado** — `parse_publish` exige host_port só dígitos | lib.rs:337-357 |
-| Backend pasta/passt | Default moderno do podman (mais rápido) | **Ausente** — só slirp4netns, um processo por container publicado | lib.rs:2190-2224 |
-| `--ip` fixo | sim | **Recusado** — IPAM por hash do id | container.rs:1360-1364 |
-| Storage NFS/CIFS/WebDAV em rootless | Também precisam de privilégio | **Parcial** — validado E2E mas exige CAP_SYS_ADMIN; rootless puro falha | delonix-volume/src/lib.rs:182-226 |
-| Sintaxe `--mount type=...` | docker+podman (recomendada) | **Ausente** — só `-v` e `--tmpfs` | container.rs:252-254 |
-| Opções de bind além de `:ro` (`:z/:Z` SELinux, `:U`, propagação) | Críticas em RHEL/Fedora SELinux enforcing | **Silenciosamente ignoradas** — 3.º campo só reconhece `ro` | delonix-volume/src/lib.rs:516-524 |
-| `volume inspect` / `network inspect` em JSON | sim | **Parcial** — só texto PT; migrar seria breaking change | cmd/volume.rs:253-265 |
-| AppArmor por omissão | docker-default automático | **Ausente** — só com `--apparmor` explícito | container.rs:1304 |
-| userns `keep-id/auto/nomap` | Essencial p/ posse em bind mounts rootless | **Ausente** — só booleano; ficheiros aparecem com subuids altos | container.rs:327-331; lib.rs:1336-1382 |
-| ~~`--build-arg` / `ARG`~~ | Quase todo o CI | ✅ **FEITO (2026-07-23)** — substituição `${NAME}`/`$NAME`, incluindo antes do 1º `FROM` | delonix-image/build.rs (`parse_dockerfile_with_args`) |
-| ~~Cache de layers / rebuild incremental~~ | Por instrução | ✅ **FEITO (2026-07-23), rootless** — cadeia de hash por instrução, clonagem via `cp -a --reflink=auto`; modo root nunca usa cache (ver nota na secção 2a) | cmd/build.rs (`build_one_stage`, `try_clone_cached`) |
-| ~~ENTRYPOINT/USER preservados no build rootless~~ | Sempre gravados | ✅ **FEITO (2026-07-23)** — ambos sobrevivem ao commit rootless agora | delonix-image/build.rs (`commit_flat_rootfs*`) |
-| save/load/import de imagem (air-gap) | sim | **Parcial** — `load_docker_archive` existe mas não ligado à CLI; `export` produz bundle runc, não tar portátil | delonix-image/src/load.rs; cmd/image.rs:626-652 |
-| Recriar serviço em drift de config | `compose up` compara e substitui | **Parcial** — idempotência só por nome; mudar imagem/porta e re-aplicar é no-op | cmd/manifest.rs:8 |
-| Healthcheck declarativo a gatear arranque/restart | `healthcheck:` no compose | **Parcial** — só da imagem, corre sob pedido; restart por exit code, nunca por saúde | container.rs:2470-2489, 1794-1890 |
-| Quadlet / units declaráveis versionáveis | podman generate systemd / Quadlet | **Parcial** — `boot enable` fotografa containers vivos, não é ficheiro declarativo | boot.rs:131-135 |
-| Auto-update de imagens | podman auto-update + timer | **Ausente** | grep autoupdate = 0 |
-| `--pids-limit` configurável | por container | **Ausente** — fixo em 512 | lib.rs:2205 |
-| ~~cpuset/cpu.weight/io.weight no rootless-delegado (o normal)~~ | podman aplica no cgroup delegado | ✅ **FEITO (2026-07-26)** — `try_delegated_base` já activava `+cpuset`/`+io` no `subtree_control` mas nunca escrevia os ficheiros na leaf; corrigido para escrever os três, tal como o caminho root já fazia. Validado ao vivo (kaeso-sys-01): `--cpu-weight 500` confirmado na leaf real (`cpu` está delegado neste host). `cpuset`/`io` continuam sem confirmação ao vivo — este host não os delega ao `user@.service` (confirmado com `systemd-run --scope -p Delegate=cpuset`), limite da distro/systemd, não do código; o `fs::write` fica best-effort aí, mesmo comportamento já aceite no caminho root | `try_delegated_base` em `crates/adapters/delonix-runtime/src/lib.rs` |
-| ~~`container update --memory/--cpus`~~ | Reescreve o cgroup real, a quente | ✅ **FEITO (2026-07-27)** — `--memory`/`--cpus` novos em `UpdateOpts`/`cmd_update`, a chamar `runtime::update_limits` (existia no motor, nunca tinha chamador). **Bug encontrado ao ligar** (mesmo padrão de `mount_live`/`set_net_rate`): `update_limits` usava `container.cgroup()` — a fórmula estática só válida em root — em vez de `live_cgroup()` (a mesma que `pause`/`unpause` já usam), pelo que a actualização "confirmava" sem tocar no cgroup real em rootless delegado (o caminho normal); só um `restart` aplicava. Corrigido para usar `live_cgroup()`. Validado ao vivo: `update --memory 128M --cpus 1.0` muda `memory.max`/`cpu.max` do cgroup REAL de imediato, sem `restart` | `cmd/container.rs` (`UpdateOpts`/`cmd_update`), `delonix-runtime/src/lib.rs::update_limits` |
-| Limites garantidos em rootless SEM delegação systemd | podman assume Delegate=yes por omissão | **Best-effort** — memory/cpu/pids não aplicados; fork-bomb pode matar o host | lib.rs:2736-2768 |
+| Custom seccomp profile (`--security-opt seccomp=/x.json`) | Loads arbitrary JSON | **Silently ignored** — only `==unconfined`/`detect`; a .json path falls into the built-in allowlist while the user believes their profile is active | container.rs:1307 records it; lib.rs:3002-3003 only compares strings |
+| ~~`container exec` with `-e/-w/-u`~~ | All supported | ✅ **DONE (v0.25.0)** — per-call overrides, never persisted; `-w` also fixed a real bug: `exec` did an unconditional `chdir("/")`, ignoring the image's `workdir` even with no `-w` at all. Real `--privileged`/`-i` remain to be done | container.rs (`ExecOverrides`, `cmd_exec`) |
+| ~~`attach` (reattach stdio)~~ | yes | ✅ **DONE (v0.25.0), output only** — reuses the `logs -f` mechanism; `-i` is refused with a clear error (this engine keeps no live stdin pipe for a container already started detached, unlike a persistent per-container shim) | container.rs (`cmd_attach`) |
+| ~~`wait` (block + exit code)~~ | yes (CI/scripts) | ✅ **DONE (v0.25.0)** — blocks and prints the real exit code ONLY when a `--restart` supervisor is the process's real parent (the only case with a genuine `waitpid`); without a supervisor, the death still shows as `Crashed`/137 — a pre-existing architectural limitation (the engine is not the real parent), not a `wait` bug | container.rs (`cmd_wait`) |
+| ~~`kill -s <signal>`~~ | Any signal | ✅ **DONE (v0.25.0)** — name or number, without forcing `Stopped` (the real outcome, e.g. `Crashed` for a signal that actually kills, only shows up on the next observation) | container.rs (`cmd_kill`, `runtime::send_signal`) |
+| ~~`restart` subcommand~~ | Stop+start in one command | ✅ **DONE (v0.25.0)** — reuses `stop`+`start` verbatim (prints 2 lines instead of 1, an accepted trade-off to avoid duplicating either's network/namespace logic) | container.rs (`cmd_restart`) |
+| ~~`logs --tail/--since/--timestamps`~~ | yes | ✅ **DONE (v0.25.0)** — only for containers run with `--log-cri` (the only format with real per-line timestamps); without it, a clear error instead of a blank timestamp column | container.rs (`parse_cri_log_line`, `cmd_logs`) |
+| `rename` / `port` (subcommands) | Missing | ✅ **DONE (v0.25.0)** | container.rs (`cmd_rename`, `cmd_port`) |
+| `--net <custom>` in rootless | reliable in podman | **Documented limitation** (but the re-exec via nsenter already exists — the AGENTS.md note is stale) | infra.rs:2421, container.rs:1403-1425 |
+| `--network-alias` | aardvark-dns resolves aliases | **No-op** — recorded and shown but never consulted in `dns_resolve` | container.rs:1346; infra.rs:3217 only matches `name` |
+| macvlan/ipvlan driver | Realized | **Not realized** in rootless (`Realized=False`, needs CAP_NET_ADMIN in the init-netns) | network.rs:244-250 |
+| Multi-node overlay (real forwarding) | swarm routes between nodes | **Partial** — device+FDB created; inter-node forwarding not proven E2E | AGENTS.md overlay section |
+| Publish with host-IP (`127.0.0.1:8080:80`) | yes | **Rejected** — `parse_publish` requires host_port to be digits only | lib.rs:337-357 |
+| pasta/passt backend | podman's modern default (faster) | **Missing** — only slirp4netns, one process per published container | lib.rs:2190-2224 |
+| Fixed `--ip` | yes | **Refused** — IPAM by id hash | container.rs:1360-1364 |
+| NFS/CIFS/WebDAV storage in rootless | Also need privilege | **Partial** — validated E2E but requires CAP_SYS_ADMIN; pure rootless fails | delonix-volume/src/lib.rs:182-226 |
+| `--mount type=...` syntax | docker+podman (recommended) | **Missing** — only `-v` and `--tmpfs` | container.rs:252-254 |
+| Bind options beyond `:ro` (`:z/:Z` SELinux, `:U`, propagation) | Critical on RHEL/Fedora SELinux enforcing | **Silently ignored** — 3rd field only recognizes `ro` | delonix-volume/src/lib.rs:516-524 |
+| `volume inspect` / `network inspect` in JSON | yes | **Partial** — PT text only; migrating would be a breaking change | cmd/volume.rs:253-265 |
+| AppArmor by default | automatic docker-default | **Missing** — only with explicit `--apparmor` | container.rs:1304 |
+| userns `keep-id/auto/nomap` | Essential for ownership in rootless bind mounts | **Missing** — only a boolean; files show up with high subuids | container.rs:327-331; lib.rs:1336-1382 |
+| ~~`--build-arg` / `ARG`~~ | Almost every CI | ✅ **DONE (2026-07-23)** — `${NAME}`/`$NAME` substitution, including before the 1st `FROM` | delonix-image/build.rs (`parse_dockerfile_with_args`) |
+| ~~Layer cache / incremental rebuild~~ | Per instruction | ✅ **DONE (2026-07-23), rootless** — per-instruction hash chain, cloning via `cp -a --reflink=auto`; root mode never uses the cache (see note in section 2a) | cmd/build.rs (`build_one_stage`, `try_clone_cached`) |
+| ~~ENTRYPOINT/USER preserved on rootless build~~ | Always recorded | ✅ **DONE (2026-07-23)** — both now survive the rootless commit | delonix-image/build.rs (`commit_flat_rootfs*`) |
+| Image save/load/import (air-gap) | yes | **Partial** — `load_docker_archive` exists but is not wired into the CLI; `export` produces a runc bundle, not a portable tar | delonix-image/src/load.rs; cmd/image.rs:626-652 |
+| Recreating a service on config drift | `compose up` compares and replaces | **Partial** — idempotency only by name; changing image/port and reapplying is a no-op | cmd/manifest.rs:8 |
+| Declarative healthcheck gating startup/restart | `healthcheck:` in compose | **Partial** — image-only, runs on demand; restart by exit code, never by health | container.rs:2470-2489, 1794-1890 |
+| Quadlet / versionable declared units | podman generate systemd / Quadlet | **Partial** — `boot enable` snapshots live containers, it is not a declarative file | boot.rs:131-135 |
+| Image auto-update | podman auto-update + timer | **Missing** | grep autoupdate = 0 |
+| Configurable `--pids-limit` | per container | **Missing** — fixed at 512 | lib.rs:2205 |
+| ~~cpuset/cpu.weight/io.weight on rootless-delegated (the normal case)~~ | podman applies to the delegated cgroup | ✅ **DONE (2026-07-26)** — `try_delegated_base` already enabled `+cpuset`/`+io` in `subtree_control` but never wrote the files at the leaf; fixed to write all three, as the root path already did. Validated live (kaeso-sys-01): `--cpu-weight 500` confirmed at the real leaf (`cpu` is delegated on this host). `cpuset`/`io` remain unconfirmed live — this host does not delegate them to `user@.service` (confirmed with `systemd-run --scope -p Delegate=cpuset`), a distro/systemd limit, not a code one; `fs::write` stays best-effort there, the same behaviour already accepted in the root path | `try_delegated_base` in `crates/adapters/delonix-runtime/src/lib.rs` |
+| ~~`container update --memory/--cpus`~~ | Rewrites the real cgroup, hot | ✅ **DONE (2026-07-27)** — new `--memory`/`--cpus` in `UpdateOpts`/`cmd_update`, calling `runtime::update_limits` (existed in the engine, never had a caller). **Bug found while wiring it up** (same pattern as `mount_live`/`set_net_rate`): `update_limits` used `container.cgroup()` — the static formula only valid in root mode — instead of `live_cgroup()` (the same one `pause`/`unpause` already use), so the update "confirmed" without touching the real cgroup in rootless delegated mode (the normal path); only a `restart` applied it. Fixed to use `live_cgroup()`. Validated live: `update --memory 128M --cpus 1.0` changes the REAL cgroup's `memory.max`/`cpu.max` immediately, with no `restart` | `cmd/container.rs` (`UpdateOpts`/`cmd_update`), `delonix-runtime/src/lib.rs::update_limits` |
+| Guaranteed limits in rootless WITHOUT systemd delegation | podman assumes Delegate=yes by default | **Best-effort** — memory/cpu/pids not applied; a fork-bomb can kill the host | lib.rs:2736-2768 |
 
-### 2c. MENORES
+### 2c. MINOR
 
-| Feature | delonix | Evidência |
+| Feature | delonix | Evidence |
 |---|---|---|
-| `stats` em stream contínuo | Só uma amostra (dash TUI cobre o live) | container.rs:3173-3218 |
-| Portas <1024 em rootless | Auto-rotas forçadas a :8080 (paridade prática c/ podman) | ingress_proxy.rs:498-499 |
-| Estabilidade de hostfwd / refcount ingress | Causa externa (delonix-engine privado); reaper morto fail-open + refcount vaza | AGENTS.md secção "portas morriam" |
-| IPAM por hash | Colide por aniversário ~300 containers (mitigado por lease) | lib.rs:469-471 |
-| Cloud Native Buildpacks / registo interno | Scaffolding, sem CLI/E2E | buildpack.rs, internal_registry.rs |
-| `image prune` dangling / `image inspect` JSON | Só `system prune` global / só describe texto | cmd/system.rs:180-249 |
-| Layers de build comprimidos | tar não-comprimido (incha o registo, válido OCI) | build.rs:456 |
-| Base CVE fiável por omissão | 5 entradas placeholder; precisa `scan --update` | cmd/scan.rs:7-21 |
-| Volume driver plugins de terceiros | Conjunto de drivers fechado | delonix-volume/lib.rs:131-172 |
-| Auto-criação de dir de bind inexistente | Erra em vez de criar | delonix-volume/lib.rs:533-534 |
-| Quota dura por-volume em rootless | Só monitor (cap duro só em root) | delonix-volume/lib.rs:338-342 |
-| MCS SELinux automático / NNP desligável / `--security-opt label=,mask` | Ausentes | lib.rs:1615-1616; container.rs:1305-1311 |
-| `--memory-swap/reservation/swappiness/oom-kill-disable` | Ausentes (swap fixo a 0) | lib.rs:2789 |
-| GPU selectiva (count/device index) / `--device` de bloco / io.max por container | Ausentes/por desenho | container.rs:845-846; lib.rs:1119-1127; lib.rs:2333-2338 |
-| `podman play kube` / `kind: Pod` no manifesto / escopo de projecto | Só `kube generate`; pods só imperativos | cmd/kube.rs; stack.rs:113 |
-| API: eventos por polling / logs-exec não-streaming / sem TCP+TLS | Sem daemon (polling); API só request/response e unix socket | system.rs:578-591; delonix-mgmt/lib.rs:119-121 |
+| Continuous `stats` stream | Single sample only (the dash TUI covers live) | container.rs:3173-3218 |
+| Ports <1024 in rootless | Forced auto-routes to :8080 (practical parity with podman) | ingress_proxy.rs:498-499 |
+| hostfwd stability / ingress refcount | External cause (private delonix-engine); dead reaper fails open + refcount leaks | AGENTS.md "ports were dying" section |
+| Hash-based IPAM | Collides at a birthday bound of ~300 containers (mitigated by lease) | lib.rs:469-471 |
+| Cloud Native Buildpacks / internal registry | Scaffolding, no CLI/E2E | buildpack.rs, internal_registry.rs |
+| Dangling `image prune` / JSON `image inspect` | Only global `system prune` / text-only describe | cmd/system.rs:180-249 |
+| Compressed build layers | Uncompressed tar (bloats the registry, still valid OCI) | build.rs:456 |
+| Reliable default CVE base | 5 placeholder entries; needs `scan --update` | cmd/scan.rs:7-21 |
+| Third-party volume driver plugins | Closed set of drivers | delonix-volume/lib.rs:131-172 |
+| Auto-create of a missing bind dir | Errors instead of creating it | delonix-volume/lib.rs:533-534 |
+| Hard per-volume quota in rootless | Monitor only (hard cap only in root) | delonix-volume/lib.rs:338-342 |
+| Automatic SELinux MCS / disabling NNP / `--security-opt label=,mask` | Missing | lib.rs:1615-1616; container.rs:1305-1311 |
+| `--memory-swap/reservation/swappiness/oom-kill-disable` | Missing (swap fixed at 0) | lib.rs:2789 |
+| Selective GPU (count/device index) / block `--device` / per-container io.max | Missing/by design | container.rs:845-846; lib.rs:1119-1127; lib.rs:2333-2338 |
+| `podman play kube` / `kind: Pod` in the manifest / project scope | Only `kube generate`; pods are imperative only | cmd/kube.rs; stack.rs:113 |
+| API: events by polling / non-streaming logs-exec / no TCP+TLS | No daemon (polling); API is request/response and unix socket only | system.rs:578-591; delonix-mgmt/lib.rs:119-121 |
 
 ---
 
-## 3. Diferenciais do delonix (o que faz melhor/diferente)
+## 3. delonix's differentiators (what it does better/differently)
 
-Honestamente, não é só "Docker com menos features" — há genuíno valor novo:
+Honestly, it is not just "Docker with fewer features" — there is genuine new value:
 
-- **Reconfiguração a quente sem parar o container** (`container update`) — muda portas/volumes/redes/banda com o **PID inalterado**. O dataplane não pertence ao ciclo de vida do processo; no Docker mudar uma porta obriga a recriar. (container.rs:507-549)
-- **Daemonless real** — não há dockerd/podman-service; cada comando actua directamente, infra (holder/slirp/proxy) sobe on-demand só quando há rede/carga. Persistência no boot via systemd. É o modelo do Podman, provado. (system.rs:721-753)
-- **Um só motor: container + microVM + Kubernetes** — `delonix vm` (Cloud Hypervisor/libvirt), servidor CRI para kubelet real (substitui containerd/CRI-O), imagem VM dourada e `cluster kubeadm`. Ninguém no espaço Docker/Podman cobre este arco.
-- **Segurança mais estrita por omissão** — no-new-privs **sempre** ligado, e uma **verificação fail-closed** que lê `/proc/self/status` e aborta se seccomp/caps/NNP não vigoram — garantia que docker/podman **não** dão. (lib.rs:706-757)
-- **Assinatura cosign/sigstore + scan de CVE + SBOM embutidos** no próprio motor de imagens, sem trivy/grype externos. (sign.rs, scan.rs)
-- **Rede rootless acima do podman** — overlay VXLAN+WireGuard rootless (docker exige swarm; podman não tem overlay rootless nativo), egress/namespace firewall dirigido (`kind: Dependency`), shaping de banda por container, DNS de descoberta com isolamento por namespace.
-- **Storage de rede estilo PersistentVolume** — NFS/CIFS/WebDAV como volume nomeado montável, validado E2E com NAS real. (delonix volume create --type)
-- **Snapshots e quota por-volume** — tar crash-consistente rootless-safe + cap por loopback ext4. Docker CLI puro não tem.
-- **describe estilo kubectl** (aditivo ao inspect), **healthcheck/ssh/dash TUI** como extras de operação.
-- **Limites obrigatórios** — o arranque falha se o cgroup não aplicar o limite (Docker por omissão não limita nada).
-- **Tectos DERIVADOS quando o manifesto não os declara** — uma carga sem `-m`/`--cpus` recebe
-  **um quarto do orçamento do motor** (o `delonix.slice`, que é `DELONIX_RESERVE_PCT`% do host),
-  não `max`. Quatro cargas sem limites enchem o orçamento exactamente, e nenhuma pode sozinha
-  consumir tudo o que o motor tem. O declarado sobrepõe sempre: `-m 12G` continua a dar 12G.
-  Afinável com `DELONIX_DEFAULT_PCT` (1..=100, omissão 25); um valor fora do intervalo cai no
-  default em vez de desligar o tecto. O CPU toma o **menor** entre este quarto e o histórico de
-  1 core — a regra só aperta, nunca alarga (num host de 32 threads um quarto seriam 6.8 cores).
-  Docker e Podman deixam ambos a memória sem tecto por omissão.
-- **i18n** — fonte EN + catálogo gettext pt.po embutido, help do clap traduzido em runtime.
-- **Pods reais multi-container** (`kind: Pod` / `delonix pod`) — N containers a partilhar netns+IPC+UTS como um Pod do k8s, validado E2E (2026-07). Nenhum destes dois concorrentes tem isto fora do próprio k8s.
-- **`kindest/node` (Kind) a arrancar sem Docker** — cgroup2, netfilter (nft) e containerd resolvidos em rootless; um control-plane Kubernetes v1.34 completo ficou `Ready` a correr sobre o Delonix, com o kube-proxy a programar netfilter no nosso netns. Prova viva do "container+VM+k8s num só motor".
-- **`vm bridge`** (experimental, opt-in, privilegiado) — VM libvirt e container comunicam por IP directo, sem SNAT, com firewall por-container a continuar a valer. Fecha a única lacuna que o modelo rootless não fazia sozinho.
-- **Diagnóstico automático de crash** — `container describe`/`ls` mostram a RAZÃO (`process_gone`/`pid_reused`) e a hora de um `Crashed`, com um snapshot forense (tail do log) gravado automaticamente; `container start` volta a supervisionar `--restart` mesmo que o supervisor anterior tenha morrido com o host. Nem docker nem podman expõem esta razão — só "Exited"/"Dead".
+- **Hot reconfiguration without stopping the container** (`container update`) — changes
+  ports/volumes/networks/bandwidth with the **PID unchanged**. The dataplane does not belong
+  to the process's lifecycle; on Docker, changing a port requires recreating it.
+  (container.rs:507-549)
+- **Truly daemonless** — there is no dockerd/podman-service; each command acts directly,
+  infra (holder/slirp/proxy) comes up on-demand only when there is network/load. Persistence
+  on boot via systemd. It is the Podman model, proven. (system.rs:721-753)
+- **A single engine: container + microVM + Kubernetes** — `delonix vm` (Cloud
+  Hypervisor/libvirt), a real CRI server for kubelet (replacing containerd/CRI-O), a golden
+  VM image, and `cluster kubeadm`. Nobody in the Docker/Podman space covers this arc.
+- **Stricter security by default** — no-new-privs **always** on, and a **fail-closed check**
+  that reads `/proc/self/status` and aborts if seccomp/caps/NNP are not in force — a
+  guarantee docker/podman do **not** give. (lib.rs:706-757)
+- **Built-in cosign/sigstore signing + CVE scan + SBOM** in the image engine itself, without
+  external trivy/grype. (sign.rs, scan.rs)
+- **Rootless networking ahead of podman** — rootless VXLAN+WireGuard overlay (docker requires
+  swarm; podman has no native rootless overlay), targeted egress/namespace firewall
+  (`kind: Dependency`), per-container bandwidth shaping, discovery DNS with per-namespace
+  isolation.
+- **PersistentVolume-style network storage** — NFS/CIFS/WebDAV as a mountable named volume,
+  validated E2E with a real NAS. (delonix volume create --type)
+- **Per-volume snapshots and quotas** — crash-consistent rootless-safe tar + a loopback ext4
+  cap. The plain Docker CLI does not have this.
+- **kubectl-style describe** (additive to inspect), **healthcheck/ssh/dash TUI** as
+  operational extras.
+- **Mandatory limits** — startup fails if the cgroup cannot apply the limit (Docker, by
+  default, limits nothing).
+- **DERIVED ceilings when the manifest does not declare them** — a workload with no
+  `-m`/`--cpus` receives **a quarter of the engine's budget** (`delonix.slice`, which is
+  `DELONIX_RESERVE_PCT`% of the host), not `max`. Four unlimited workloads exactly fill the
+  budget, and none of them alone can consume everything the engine has. The declared value
+  always takes precedence: `-m 12G` still gives 12G. Tunable with `DELONIX_DEFAULT_PCT`
+  (1..=100, default 25); an out-of-range value falls back to the default instead of
+  disabling the ceiling. CPU takes the **lesser** of this quarter and the historical 1-core
+  figure — the rule only tightens, never widens (on a 32-thread host a quarter would be 6.8
+  cores). Docker and Podman both leave memory with no ceiling by default.
+- **i18n** — EN source + a built-in gettext pt.po catalog, clap help translated at runtime.
+- **Real multi-container Pods** (`kind: Pod` / `delonix pod`) — N containers sharing
+  netns+IPC+UTS like a k8s Pod, validated E2E (2026-07). Neither of these two competitors has
+  this outside k8s itself.
+- **`kindest/node` (Kind) booting without Docker** — cgroup2, netfilter (nft), and containerd
+  resolved in rootless; a complete Kubernetes v1.34 control-plane became `Ready` running on
+  Delonix, with kube-proxy programming netfilter in our netns. Live proof of "container+VM+k8s
+  in a single engine".
+- **`vm bridge`** (experimental, opt-in, privileged) — a libvirt VM and a container
+  communicate via direct IP, with no SNAT, with per-container firewalling still holding.
+  Closes the one gap the rootless model could not close on its own.
+- **Automatic crash diagnosis** — `container describe`/`ls` show the REASON
+  (`process_gone`/`pid_reused`) and the time of a `Crashed`, with an automatically recorded
+  forensic snapshot (log tail); `container start` resumes supervising `--restart` even if the
+  previous supervisor died with the host. Neither docker nor podman expose this reason — only
+  "Exited"/"Dead".
 
 ---
 
-## 4. Roadmap priorizado para paridade de produção
+## 4. Prioritized roadmap toward production parity
 
-**Fase 0 — SEGURANÇA, antes de qualquer exposição pública (bloqueia tudo o resto):**
-- ✅ **FEITO (2026-07-23)**: os 6 HIGH da auditoria original (secção 1a) — path traversal no whiteout OCI, IDs do CRI, nome de VM em `generate_seed_iso`, kubeconfig em `/tmp`, symlink no `COPY` do build, socket de gestão sem `SO_PEERCRED`.
-- ✅ **FEITO (2026-07-23, confirmado 2026-07-26)**: núcleo de syscalls (`delonix-runtime/lib.rs`, 104 `unsafe`) + `delonix-net/infra.rs` — 2 CRITICAL + 3 HIGH encontrados e corrigidos na "2ª ronda", e agora com uma 2.ª auditoria independente (zero achados novos) — ver secção 1b.
-- ✅ **FEITO (2026-07-26)**: 2.ª auditoria adversarial independente dos 6 HIGH da secção 1a — 5/6 confirmados sólidos, 1/6 (kubeconfig, TOCTOU residual local) tinha um gap real, agora também corrigido. Os dois itens "por confirmar" da Fase 0 estão FECHADOS.
-- **Ainda por fazer**: triar os 10 achados candidatos restantes da auditoria original (o 11.º, HIGH — fuga de rootfs no `--rm` rootless — já confirmado corrigido, ver secção 1a).
+**Phase 0 — SECURITY, before any public exposure (blocks everything else):**
+- ✅ **DONE (2026-07-23)**: the 6 HIGH from the original audit (section 1a) — path traversal
+  in OCI whiteouts, CRI IDs, VM name in `generate_seed_iso`, kubeconfig in `/tmp`, symlink in
+  build's `COPY`, management socket with no `SO_PEERCRED`.
+- ✅ **DONE (2026-07-23, confirmed 2026-07-26)**: syscall core (`delonix-runtime/lib.rs`, 104
+  `unsafe`) + `delonix-net/infra.rs` — 2 CRITICAL + 3 HIGH found and fixed in the "2nd round",
+  and now with a 2nd independent audit (zero new findings) — see section 1b.
+- ✅ **DONE (2026-07-26)**: 2nd independent adversarial audit of the 6 HIGH from section 1a —
+  5/6 confirmed solid, 1/6 (kubeconfig, residual local TOCTOU) had a real gap, now also fixed.
+  The two "to be confirmed" Phase 0 items are now CLOSED.
+- **Still to do**: triage the remaining 10 candidate findings from the original audit (the
+  11th, HIGH — rootfs leak on rootless `--rm` — already confirmed fixed, see section 1a).
 
-**Fase 1 — destrava o ecossistema (maior alavanca, um investimento resolve três bloqueantes):**
-1. ✅ **FEITO (v0.26.0)**: `delonix serve docker-api` — leitura (2026-07-23) + mutações de ciclo de vida (`create`/`start`/`stop`/`kill`/`wait`/`restart`/`rename`/`remove`/`inspect`), validado contra um `docker` CLI real e o caminho `create`+`start` que o `docker compose up/down` usa. `exec`/attach interactivo continua fora de escopo.
-2. **`--format` / Go-template** em ps/inspect/info — bloqueante isolado para scripting. O modo Kind já não precisa disto para arrancar (resolvido — ver Diferenciais), mas continua útil para scripting/CI em geral.
+**Phase 1 — unlocks the ecosystem (biggest leverage, one investment solves three blockers):**
+1. ✅ **DONE (v0.26.0)**: `delonix serve docker-api` — reads (2026-07-23) + lifecycle
+   mutations (`create`/`start`/`stop`/`kill`/`wait`/`restart`/`rename`/`remove`/`inspect`),
+   validated against a real `docker` CLI and the `create`+`start` path that `docker compose
+   up/down` uses. Interactive `exec`/attach remain out of scope.
+2. **`--format` / Go-template** in ps/inspect/info — an isolated blocker for scripting. Kind
+   mode no longer needs this to boot (resolved — see Differentiators), but it remains useful
+   for general scripting/CI.
 
-**Fase 2 — build de produção:**
-3. ✅ **FEITO (2026-07-23)**: multi-stage build (`FROM…AS` + `COPY --from`) — ver secção 2a.
-4. ✅ **FEITO (2026-07-23)**: `--build-arg`/`ARG` (com `${NAME}`/`$NAME`, incluindo antes do 1º `FROM`) + `USER`/`ENTRYPOINT` já sobrevivem ao commit rootless (antes só o `ENTRYPOINT` do modo root sobrevivia; `USER` perdia-se sempre, em ambos os modos, e nem chegava ao JSON de config OCI). **Gap novo, separado, encontrado ao validar**: `container run` nunca lê o `User` guardado na imagem para definir o uid em runtime — só um `--user` explícito o faz. Guardar o `USER` (feito) e aplicá-lo automaticamente no `run` são features distintas; a resolução de nome→uid (`resolve_run_user`) já existe, falta só o default.
-5. ✅ **FEITO (2026-07-23), rootless**: cache de layers por instrução (`--no-cache` para saltar) — ver secção 2a/2b. Modo root continua sem cache (executa sempre a sério — ver a nota na secção 2a sobre `commit_upper` precisar de um `upper/` real).
-6. ✅ **FEITO parcial (v0.27.0)**: `RUN --mount=type=secret` e `--platform` — ver secção 2b.
+**Phase 2 — production build:**
+3. ✅ **DONE (2026-07-23)**: multi-stage build (`FROM…AS` + `COPY --from`) — see section 2a.
+4. ✅ **DONE (2026-07-23)**: `--build-arg`/`ARG` (with `${NAME}`/`$NAME`, including before the
+   1st `FROM`) + `USER`/`ENTRYPOINT` now survive the rootless commit (previously only root
+   mode's `ENTRYPOINT` survived; `USER` was always lost, in both modes, and did not even reach
+   the OCI config JSON). **New, separate gap found while validating**: `container run` never
+   reads the `User` stored in the image to set the uid at runtime — only an explicit `--user`
+   does. Storing `USER` (done) and automatically applying it on `run` are distinct features;
+   the name→uid resolution (`resolve_run_user`) already exists, only the default is missing.
+5. ✅ **DONE (2026-07-23), rootless**: per-instruction layer cache (`--no-cache` to skip it) —
+   see section 2a/2b. Root mode still has no cache (it always actually executes — see the note
+   in section 2a about `commit_upper` needing a real `upper/`).
+6. ✅ **PARTIALLY DONE (v0.27.0)**: `RUN --mount=type=secret` and `--platform` — see section 2b.
 
-**Fase 3 — compose e orquestração local:**
-7. ✅ **FEITO (v0.29.0)**: parser de `docker-compose.yml` + `depends_on` (as 3 condições) + `compose down/ps/logs` por projecto — ver secção 2b.
+**Phase 3 — compose and local orchestration:**
+7. ✅ **DONE (v0.29.0)**: `docker-compose.yml` parser + `depends_on` (all 3 conditions) +
+   per-project `compose down/ps/logs` — see section 2b.
 
-**Fase 4 — correcções de correctude silenciosas restantes:**
-- ✅ **FEITO**: perfil seccomp custom (erro explícito), opções de bind `:z/:Z` SELinux (erro explícito), `--network-alias` no-op (agora avisa), fuga de rootfs no `--rm` rootless (confirmado fixo 2026-07-26 — ver secção 2a/o achado da auditoria original).
-8. ✅ **FEITO (2026-07-26)**: `cpuset`/`cpu.weight`/`io.weight` no cgroup rootless-delegado (o modo normal) — `try_delegated_base` corrigido para escrever os três na leaf, validado ao vivo neste host (`--cpu-weight`). `container update --memory/--cpus` continua **não implementado** de todo — não é um bug de no-op, é uma feature em falta (ver secção 2b).
+**Phase 4 — remaining silent-correctness fixes:**
+- ✅ **DONE**: custom seccomp profile (explicit error), SELinux `:z/:Z` bind options
+  (explicit error), `--network-alias` no-op (now warns), rootfs leak on rootless `--rm`
+  (confirmed fixed 2026-07-26 — see section 2a/the original audit's finding).
+- ✅ **DONE (2026-07-26)**: `cpuset`/`cpu.weight`/`io.weight` on the rootless-delegated cgroup
+  (the normal mode) — `try_delegated_base` fixed to write all three at the leaf, validated
+  live on this host (`--cpu-weight`). `container update --memory/--cpus` remains **not
+  implemented** at all — it is not a no-op bug, it is a missing feature (see section 2b).
 
-**Fase 5 — paridade de CLI de operação:**
-- ✅ **FEITO (v0.25.0)**: `wait`, `kill -s`, `attach` (só saída), `restart` (subcomando), `logs --tail/--since/--timestamps`, `exec -e/-w/-u`, `rename`, `port` — ver secção 2b para o detalhe e as limitações honestas de cada um.
+**Phase 5 — operational CLI parity:**
+- ✅ **DONE (v0.25.0)**: `wait`, `kill -s`, `attach` (output only), `restart` (subcommand),
+  `logs --tail/--since/--timestamps`, `exec -e/-w/-u`, `rename`, `port` — see section 2b for
+  the detail and each one's honest limitations.
 
-**Fase 6 — rede/GPU/recursos avançados:**
-10. ✅ **FEITO parcial (v0.28.0)**: GPU real via CDI/nvidia-container-toolkit — ver secção 2b.
-11. Publish com host-IP, backend pasta/passt (perf), `--ip` fixo, macvlan/ipvlan rootless (limitado por CAP_NET_ADMIN), `--pids-limit`, tuning de memória/swap.
+**Phase 6 — advanced networking/GPU/resources:**
+10. ✅ **PARTIALLY DONE (v0.28.0)**: real GPU via CDI/nvidia-container-toolkit — see section 2b.
+11. Publish with host-IP, pasta/passt backend (perf), fixed `--ip`, rootless macvlan/ipvlan
+    (limited by CAP_NET_ADMIN), `--pids-limit`, memory/swap tuning.
 
-**Racional da ordem:** a Fase 0 tem a maior razão valor/esforço — a maioria do "não serve em produção" vem de **incompatibilidade de superfície**, não de falta de capacidade de kernel (onde o motor já está a par ou à frente). A Fase 3 é barata e deve entrar cedo porque são **falhas silenciosas de segurança/correctude** — piores que uma feature em falta, porque o utilizador julga que está protegido.
+**Rationale for the ordering:** Phase 0 has the highest value/effort ratio — most of "not
+production-ready" comes from **surface incompatibility**, not a lack of kernel capability
+(where the engine is already on par with or ahead). Phase 3 is cheap and should land early
+because these are **silent security/correctness failures** — worse than a missing feature,
+because the user believes they are protected.

@@ -213,8 +213,9 @@ delonix stack destroy                 # removes what the manifest created
 
 The manifest publishes `__PORT__`, sets `APP_ENV=production`, 512M/1 CPU,
 read-only root filesystem with a `/tmp` tmpfs, and `restart: always`.
-The image runs as the unprivileged user `node` (uid 1000), which owns nothing
-in the image. The manifest names it (`user:`) because the engine applies an
+The runtime image is distroless/nodejs22 (no shell, no package manager) and
+runs as the pre-created nonroot user (uid 65532), which owns nothing in the
+image. The manifest names it (`user:`) because the engine applies an
 image's USER only when asked — see
 [docs/adr/0003](docs/adr/0003-container-image.md). The
 image installs from `pnpm-lock.yaml` when the context has one and resolves

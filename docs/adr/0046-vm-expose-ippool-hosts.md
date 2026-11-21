@@ -269,18 +269,18 @@ Everything above is design. Not measured yet: that a host-netns proxy reaches a 
 SLIRP — so this may only hold for `qemu:///system`); that the guest agent is present in the
 published images; and the L2 announcement on any real network.
 
-## Notas de implementação (revisão da fase 3)
+## Implementation notes (phase 3 review)
 
-- **`apply` acrescenta, `--prune`/`destroy` removem.** O config do proxy é colectivo, mas um
-  `apply` já não o substitui pelo que o manifesto tem à mão: mantém as contribuições dos
-  documentos que não estão a ser aplicados (`merge_with_existing`). Retirar uma route é
-  trabalho do `--prune`/`destroy`, como em todos os Kinds. Limite conhecido: o certificado
-  `selfSigned` é gerado com os hosts do apply em curso; uma route TLS aplicada antes pode
-  ficar fora dos SAN se a seguinte também for TLS.
-- **Um apply que falha volta atrás**: o config anterior é reposto e os leases sem dono
-  libertados; os leases só se largam depois de o proxy servir.
-- **Porto ocupado por outro processo** falha o apply (antes lia-se «já publicado»).
-- **Route para VM parada** é recusada com o estado da VM.
-- **`/etc/hosts`**: escrita sob `flock`, ficheiro temporário `O_EXCL` com nome imprevisível,
-  `fsync`; um bloco sem linha END é recusado em vez de apagar o resto do ficheiro.
-- **Ledger do IPPool ilegível** é erro; nunca se sobrescreve.
+- **`apply` adds, `--prune`/`destroy` remove.** The proxy config is collective, but an
+  `apply` no longer replaces it with just what the manifest has at hand: it keeps the
+  contributions of documents that are not being applied (`merge_with_existing`). Removing a
+  route is `--prune`/`destroy`'s job, as with every Kind. Known limit: the
+  `selfSigned` certificate is generated with the hosts of the in-progress apply; a TLS route
+  applied before may end up outside the SANs if the next one is also TLS.
+- **A failed apply rolls back**: the previous config is restored and ownerless leases are
+  released; leases are only let go after the proxy is serving.
+- **A port taken by another process** fails the apply (it used to read "already published").
+- **A route to a stopped VM** is refused, with the VM's state.
+- **`/etc/hosts`**: written under `flock`, with an `O_EXCL` temporary file with an unpredictable name,
+  `fsync`; a block with no END line is refused instead of erasing the rest of the file.
+- **An unreadable IPPool ledger** is an error; it is never overwritten.

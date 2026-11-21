@@ -11,7 +11,9 @@
 //! at, what every published hardening profile is written in, and what the CRI
 //! conformance suite hands over.
 
-use seccompiler::{SeccompAction, SeccompFilter, SeccompRule};
+use seccompiler::{
+    SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter, SeccompRule,
+};
 use std::collections::BTreeMap;
 
 /// Syscall NAME to number, for THIS architecture — the calls every supported
@@ -368,11 +370,11 @@ const SYSCALLS_ARCH: &[(&str, i64)] = &[
     ("chmod", libc::SYS_chmod),
     ("chown", libc::SYS_chown),
     ("creat", libc::SYS_creat),
-    // create_module (174), get_kernel_syms (177) e query_module (178) foram
-    // removidos do kernel (Linux 5.18) e o `libc` 0.2.191 deixou de expor as
-    // constantes. O número de syscall x86_64 é ABI estável e nunca reutilizado,
-    // por isso mantemos a entrada na denylist por defesa-em-profundidade (kernel
-    // antigo) com o literal em vez da constante.
+    // create_module (174), get_kernel_syms (177) and query_module (178) were
+    // removed from the kernel (Linux 5.18) and `libc` 0.2.191 stopped exposing
+    // the constants. The x86_64 syscall number is stable ABI and never reused,
+    // so we keep the denylist entry for defense-in-depth (old kernels) with the
+    // literal instead of the constant.
     ("create_module", 174),
     ("dup2", libc::SYS_dup2),
     ("epoll_create", libc::SYS_epoll_create),
@@ -385,7 +387,7 @@ const SYSCALLS_ARCH: &[(&str, i64)] = &[
     ("fork", libc::SYS_fork),
     ("futimesat", libc::SYS_futimesat),
     ("getdents", libc::SYS_getdents),
-    ("get_kernel_syms", 177), // ver nota em create_module (constante removida do libc 0.2.191)
+    ("get_kernel_syms", 177), // see note on create_module (constant removed from libc 0.2.191)
     ("getpgrp", libc::SYS_getpgrp),
     ("getpmsg", libc::SYS_getpmsg),
     ("get_thread_area", libc::SYS_get_thread_area),
@@ -404,7 +406,7 @@ const SYSCALLS_ARCH: &[(&str, i64)] = &[
     ("pipe", libc::SYS_pipe),
     ("poll", libc::SYS_poll),
     ("putpmsg", libc::SYS_putpmsg),
-    ("query_module", 178), // ver nota em create_module (constante removida do libc 0.2.191)
+    ("query_module", 178), // see note on create_module (constant removed from libc 0.2.191)
     ("readlink", libc::SYS_readlink),
     ("rename", libc::SYS_rename),
     ("rmdir", libc::SYS_rmdir),
@@ -463,9 +465,68 @@ pub fn syscall_name(nr: i64) -> Option<&'static str> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Profile {
     pub default_action: Act,
-    /// `(syscall number, action)` — already resolved, so nothing downstream has
-    /// to know about names.
-    pub rules: Vec<(i64, Act)>,
+    /// One entry per `(syscall, action)` with its argument conditions — syscall
+    /// names are already resolved to this architecture's numbers, so nothing
+    /// downstream has to know about names.
+    pub rules: Vec<Rule>,
+}
+
+/// A single resolved syscall rule: when `nr` is invoked and every condition in
+/// `args` holds, the kernel applies `act`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rule {
+    pub nr: i64,
+    pub act: Act,
+    /// Argument conditions, **AND-ed** together (libseccomp/runc semantics for
+    /// the args inside one rule). Empty means the rule matches the syscall
+    /// unconditionally, whatever its arguments.
+    pub args: Vec<ArgCond>,
+}
+
+/// One `(argument, comparison)` test, mirroring an OCI `linux.seccomp.syscalls[].args[]`
+/// entry once resolved to a concrete operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArgCond {
+    /// Which syscall argument, `0..=5`.
+    pub index: u8,
+    pub op: ArgOp,
+}
+
+/// The per-argument comparisons OCI allows. The `MaskedEq` form carries both the
+/// mask and the datum because the OCI arg puts the mask in `value` and the datum
+/// in `valueTwo`; the others compare the argument directly against `value`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArgOp {
+    Ne(u64),
+    Lt(u64),
+    Le(u64),
+    Eq(u64),
+    Ge(u64),
+    Gt(u64),
+    /// Matches when `(arg & mask) == datum` — `SCMP_CMP_MASKED_EQ`.
+    MaskedEq { mask: u64, datum: u64 },
+}
+
+impl ArgCond {
+    /// Lowers one condition to the seccompiler form.
+    ///
+    /// The width is always `Qword`: libseccomp (hence runc) compares the full
+    /// 64-bit syscall argument, and the engine's own built-in allowlist already
+    /// uses `Qword` — narrowing to `Dword` here would silently ignore the high
+    /// 32 bits of a flag the operator meant to match.
+    fn to_condition(self) -> Result<SeccompCondition, String> {
+        let (op, value) = match self.op {
+            ArgOp::Ne(v) => (SeccompCmpOp::Ne, v),
+            ArgOp::Lt(v) => (SeccompCmpOp::Lt, v),
+            ArgOp::Le(v) => (SeccompCmpOp::Le, v),
+            ArgOp::Eq(v) => (SeccompCmpOp::Eq, v),
+            ArgOp::Ge(v) => (SeccompCmpOp::Ge, v),
+            ArgOp::Gt(v) => (SeccompCmpOp::Gt, v),
+            ArgOp::MaskedEq { mask, datum } => (SeccompCmpOp::MaskedEq(mask), datum),
+        };
+        SeccompCondition::new(self.index, SeccompCmpArgLen::Qword, op, value)
+            .map_err(|e| format!("invalid seccomp argument condition: {e}"))
+    }
 }
 
 /// The subset of `SCMP_ACT_*` this engine implements.
@@ -529,6 +590,56 @@ fn parse_action(s: &str, errno_ret: Option<u32>) -> Result<Act, String> {
 /// profile written for x86_64 naming `arch_prctl` is not wrong on aarch64, it
 /// is inapplicable, and refusing it would make portable profiles impossible.
 /// Those are counted and reported by the caller, never silently dropped.
+/// Parses the `args` array of one syscall entry into AND-ed conditions.
+///
+/// Fail-closed like the rest of the parser: an unknown operator, a
+/// non-integer field, or an argument index outside `0..=5` (a syscall has at
+/// most six register arguments) is an error that stops the container, never a
+/// skipped condition — a dropped condition is exactly the silent weakening of
+/// the operator's policy this module exists to refuse.
+fn parse_args(entry: &serde_json::Value) -> Result<Vec<ArgCond>, String> {
+    let Some(arr) = entry.get("args").and_then(|a| a.as_array()) else {
+        return Ok(Vec::new());
+    };
+    let mut conds = Vec::with_capacity(arr.len());
+    for a in arr {
+        let index = a
+            .get("index")
+            .and_then(|i| i.as_u64())
+            .ok_or_else(|| "seccomp arg has no integer 'index'".to_string())?;
+        if index > 5 {
+            return Err(format!(
+                "seccomp arg 'index' {index} is out of range (a syscall has arguments 0..=5)"
+            ));
+        }
+        let index = index as u8;
+        // `value` defaults to 0 (OCI treats it as optional); `valueTwo` only
+        // matters for the masked form and likewise defaults to 0.
+        let value = a.get("value").and_then(|v| v.as_u64()).unwrap_or(0);
+        let value_two = a.get("valueTwo").and_then(|v| v.as_u64()).unwrap_or(0);
+        let op = a
+            .get("op")
+            .and_then(|o| o.as_str())
+            .ok_or_else(|| "seccomp arg has no 'op'".to_string())?;
+        let op = match op {
+            "SCMP_CMP_NE" => ArgOp::Ne(value),
+            "SCMP_CMP_LT" => ArgOp::Lt(value),
+            "SCMP_CMP_LE" => ArgOp::Le(value),
+            "SCMP_CMP_EQ" => ArgOp::Eq(value),
+            "SCMP_CMP_GE" => ArgOp::Ge(value),
+            "SCMP_CMP_GT" => ArgOp::Gt(value),
+            // The OCI arg carries the mask in `value` and the datum in `valueTwo`.
+            "SCMP_CMP_MASKED_EQ" => ArgOp::MaskedEq {
+                mask: value,
+                datum: value_two,
+            },
+            other => return Err(format!("unsupported seccomp arg operator '{other}'")),
+        };
+        conds.push(ArgCond { index, op });
+    }
+    Ok(conds)
+}
+
 pub fn parse(json: &str) -> Result<(Profile, Vec<String>), String> {
     let v: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("invalid seccomp profile JSON: {e}"))?;
@@ -551,18 +662,15 @@ pub fn parse(json: &str) -> Result<(Profile, Vec<String>), String> {
                 .and_then(|e| e.as_u64())
                 .map(|e| e as u32);
             let act = parse_action(action, errno_ret)?;
-            // `args` narrows a rule to particular argument values. Not
-            // implemented, and NOT ignored: a rule that only meant to block
-            // `clone(CLONE_NEWUSER)` would otherwise become "block clone",
-            // breaking every threaded program in the container.
-            if entry
-                .get("args")
-                .is_some_and(|a| !a.as_array().is_none_or(|v| v.is_empty()))
-            {
-                return Err(
-                    "seccomp rule with 'args' is not supported (argument-filtered rules)".into(),
-                );
-            }
+            // `args` narrows a rule to particular argument values — the shape
+            // the default Docker/containerd/runtime-tools profile uses to allow
+            // `clone` only when it does NOT create a namespace, and to allow
+            // just the safe `personality` values. These are translated, NOT
+            // dropped: silently widening a rule that meant to block
+            // `clone(CLONE_NEWUSER)` into "block clone" would break every
+            // threaded program in the container, and silently dropping it would
+            // open the hole the operator wrote the rule to close.
+            let args = parse_args(entry)?;
             let names = entry
                 .get("names")
                 .and_then(|n| n.as_array())
@@ -572,7 +680,11 @@ pub fn parse(json: &str) -> Result<(Profile, Vec<String>), String> {
                     .as_str()
                     .ok_or_else(|| "syscall name is not a string".to_string())?;
                 match syscall_number(n) {
-                    Some(nr) => rules.push((nr, act)),
+                    Some(nr) => rules.push(Rule {
+                        nr,
+                        act,
+                        args: args.clone(),
+                    }),
                     None => unknown.push(n.to_string()),
                 }
             }
@@ -602,13 +714,12 @@ pub fn compile(p: &Profile) -> Result<seccompiler::BpfProgram, String> {
     // two valid profiles were refused and the container aborted: an allow-all
     // profile with no rules (`{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[]}`),
     // and one that restates the default for some syscalls.
-    let effective: Vec<(i64, Act)> = p
+    let effective: Vec<&Rule> = p
         .rules
         .iter()
-        .filter(|(_, a)| *a != p.default_action)
-        .copied()
+        .filter(|r| r.act != p.default_action)
         .collect();
-    let rule_actions: std::collections::BTreeSet<Act> = effective.iter().map(|(_, a)| *a).collect();
+    let rule_actions: std::collections::BTreeSet<Act> = effective.iter().map(|r| r.act).collect();
     if rule_actions.len() > 1 {
         return Err(format!(
             "profile mixes {} different rule actions; only one non-default action is supported",
@@ -626,9 +737,30 @@ pub fn compile(p: &Profile) -> Result<seccompiler::BpfProgram, String> {
             } else {
                 Act::Allow
             });
+    // A syscall named with NO argument conditions matches unconditionally, so
+    // such an entry SUPERSEDES any arg-filtered entry for the same syscall (it
+    // already matches every call of it). Collect those first, then build only
+    // the conditioned rules for the syscalls that lack an unconditional entry —
+    // seccompiler ORs the per-syscall rule list, and an empty list is itself the
+    // "match the whole syscall" case.
+    let unconditional: std::collections::BTreeSet<i64> = effective
+        .iter()
+        .filter(|r| r.args.is_empty())
+        .map(|r| r.nr)
+        .collect();
     let mut map: BTreeMap<i64, Vec<SeccompRule>> = BTreeMap::new();
-    for (nr, _) in &effective {
-        map.insert(*nr, vec![]);
+    for r in &effective {
+        if unconditional.contains(&r.nr) {
+            map.insert(r.nr, vec![]); // whole-syscall match
+            continue;
+        }
+        let conds: Vec<SeccompCondition> = r
+            .args
+            .iter()
+            .map(|c| c.to_condition())
+            .collect::<Result<_, _>>()?;
+        let rule = SeccompRule::new(conds).map_err(|e| format!("failed to build seccomp rule: {e}"))?;
+        map.entry(r.nr).or_default().push(rule);
     }
     SeccompFilter::new(
         map,
@@ -662,23 +794,24 @@ mod tests {
     }"#;
 
     #[test]
-    fn parseia_o_perfil_do_conformance() {
+    fn parses_the_conformance_profile() {
         let (p, unknown) = parse(BLOCK_HOSTNAME).unwrap();
         assert_eq!(p.default_action, Act::Allow);
         assert_eq!(p.rules.len(), 1);
-        assert_eq!(p.rules[0].0, libc::SYS_sethostname);
-        assert_eq!(p.rules[0].1, Act::Errno(libc::EPERM as u32));
+        assert_eq!(p.rules[0].nr, libc::SYS_sethostname);
+        assert_eq!(p.rules[0].act, Act::Errno(libc::EPERM as u32));
+        assert!(p.rules[0].args.is_empty());
         assert!(unknown.is_empty());
         assert!(compile(&p).is_ok());
     }
 
     #[test]
-    fn nomes_resolvem_para_o_numero_desta_arquitectura() {
-        // Não são literais: em aarch64 os números são outros, e uma tabela
-        // fixa estaria silenciosamente errada numa das duas.
+    fn names_resolve_to_this_architectures_number() {
+        // Not literals: on aarch64 the numbers differ, and a fixed table would
+        // be silently wrong on one of the two.
         assert_eq!(syscall_number("read"), Some(libc::SYS_read));
         assert_eq!(syscall_number("mount"), Some(libc::SYS_mount));
-        assert_eq!(syscall_number("nao_existe_isto"), None);
+        assert_eq!(syscall_number("this_does_not_exist"), None);
     }
 
     /// The two tables must not name the same syscall twice.
@@ -740,16 +873,16 @@ mod tests {
     }
 
     #[test]
-    fn falha_fechado_no_que_nao_percebe() {
-        // Acção desconhecida: erro, não «ignora a regra».
+    fn fails_closed_on_what_it_does_not_understand() {
+        // Unknown action: an error, not "skip the rule".
         assert!(parse(r#"{"defaultAction":"SCMP_ACT_BANANA"}"#).is_err());
-        // Sem defaultAction não há política nenhuma para aplicar.
+        // With no defaultAction there is no policy to apply at all.
         assert!(parse(r#"{"syscalls":[]}"#).is_err());
-        // JSON partido.
+        // Broken JSON.
         assert!(parse("{").is_err());
-        // TRACE/NOTIFY entregam a decisão a um supervisor que não existe aqui:
-        // transformá-los em «allow» seria um buraco numa política que o
-        // operador julga aplicada.
+        // TRACE/NOTIFY hand the decision to a supervisor that does not exist
+        // here: turning them into "allow" would be a hole in a policy the
+        // operator believes is enforced.
         assert!(parse(
             r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["read"],"action":"SCMP_ACT_NOTIFY"}]}"#
         )
@@ -757,24 +890,123 @@ mod tests {
     }
 
     #[test]
-    fn regras_com_args_sao_recusadas_e_nao_alargadas() {
-        // Uma regra que só queria bloquear `clone(CLONE_NEWUSER)` viraria
-        // «bloquear clone» — partindo todo o programa com threads lá dentro.
+    fn rules_with_args_are_translated_not_widened() {
+        // A rule that only means to block `clone(CLONE_NEWUSER)` must stay
+        // argument-filtered — widening it to "block clone" would break every
+        // threaded program, and dropping it would open the hole it closes. It is
+        // now translated faithfully into a masked-eq condition on arg 0.
         let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
             {"names":["clone"],"action":"SCMP_ACT_ERRNO",
              "args":[{"index":0,"value":268435456,"op":"SCMP_CMP_MASKED_EQ"}]}]}"#;
+        let (p, unknown) = parse(j).unwrap();
+        assert!(unknown.is_empty());
+        assert_eq!(p.rules.len(), 1);
+        assert_eq!(p.rules[0].nr, libc::SYS_clone);
+        assert_eq!(
+            p.rules[0].args,
+            vec![ArgCond {
+                index: 0,
+                op: ArgOp::MaskedEq {
+                    mask: 268435456, // CLONE_NEWUSER
+                    datum: 0,
+                },
+            }]
+        );
+        assert!(compile(&p).is_ok());
+    }
+
+    #[test]
+    fn every_oci_arg_operator_is_accepted() {
+        // One rule per comparator, all sharing a single non-default action so the
+        // two-action filter model still holds. Each must parse and lower cleanly.
+        let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
+            {"names":["read"],"action":"SCMP_ACT_ERRNO","args":[{"index":0,"value":1,"op":"SCMP_CMP_NE"}]},
+            {"names":["write"],"action":"SCMP_ACT_ERRNO","args":[{"index":1,"value":2,"op":"SCMP_CMP_LT"}]},
+            {"names":["openat"],"action":"SCMP_ACT_ERRNO","args":[{"index":2,"value":3,"op":"SCMP_CMP_LE"}]},
+            {"names":["close"],"action":"SCMP_ACT_ERRNO","args":[{"index":0,"value":4,"op":"SCMP_CMP_EQ"}]},
+            {"names":["dup3"],"action":"SCMP_ACT_ERRNO","args":[{"index":0,"value":5,"op":"SCMP_CMP_GE"}]},
+            {"names":["fcntl"],"action":"SCMP_ACT_ERRNO","args":[{"index":1,"value":6,"op":"SCMP_CMP_GT"}]},
+            {"names":["ioctl"],"action":"SCMP_ACT_ERRNO",
+             "args":[{"index":1,"value":15,"valueTwo":1,"op":"SCMP_CMP_MASKED_EQ"}]}]}"#;
+        let (p, unknown) = parse(j).unwrap();
+        assert!(unknown.is_empty());
+        assert_eq!(p.rules.len(), 7);
+        assert!(compile(&p).is_ok());
+    }
+
+    #[test]
+    fn two_args_on_one_rule_are_anded() {
+        // Both conditions sit on the SAME rule, so the kernel AND-s them — this
+        // is the libseccomp/runc meaning of several args in one entry.
+        let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
+            {"names":["socket"],"action":"SCMP_ACT_ERRNO",
+             "args":[{"index":0,"value":2,"op":"SCMP_CMP_EQ"},
+                     {"index":1,"value":1,"op":"SCMP_CMP_EQ"}]}]}"#;
+        let (p, _) = parse(j).unwrap();
+        assert_eq!(p.rules.len(), 1);
+        assert_eq!(p.rules[0].args.len(), 2);
+        assert!(compile(&p).is_ok());
+    }
+
+    #[test]
+    fn the_runtime_tools_default_profile_shape_compiles() {
+        // The exact shape `generate.New()` hands the suite: an ERRNO default, an
+        // ALLOW list, `personality` pinned to safe values with SCMP_CMP_EQ, and
+        // `clone` allowed only when it creates none of the listed namespaces via
+        // SCMP_CMP_MASKED_EQ. This is the profile whose refusal the suite reported
+        // as "linux.seccomp is outside the supported subset"; it must now build.
+        let j = r#"{"defaultAction":"SCMP_ACT_ERRNO","syscalls":[
+            {"names":["read","write","close","sethostname"],"action":"SCMP_ACT_ALLOW","args":[]},
+            {"names":["personality"],"action":"SCMP_ACT_ALLOW","args":[{"index":0,"value":0,"op":"SCMP_CMP_EQ"}]},
+            {"names":["personality"],"action":"SCMP_ACT_ALLOW","args":[{"index":0,"value":8,"op":"SCMP_CMP_EQ"}]},
+            {"names":["personality"],"action":"SCMP_ACT_ALLOW","args":[{"index":0,"value":4294967295,"op":"SCMP_CMP_EQ"}]},
+            {"names":["clone"],"action":"SCMP_ACT_ALLOW",
+             "args":[{"index":0,"value":2114060288,"valueTwo":0,"op":"SCMP_CMP_MASKED_EQ"}]}]}"#;
+        let (p, unknown) = parse(j).unwrap();
+        assert!(unknown.is_empty());
+        assert_eq!(p.default_action, Act::Errno(libc::EPERM as u32));
+        // read/write/close/sethostname + 3×personality + clone = 8 resolved rules.
+        assert_eq!(p.rules.len(), 8);
+        // The one non-default action (ALLOW) keeps it inside the two-action model.
+        assert!(compile(&p).is_ok());
+    }
+
+    #[test]
+    fn an_unknown_arg_operator_fails_closed() {
+        let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
+            {"names":["read"],"action":"SCMP_ACT_ERRNO",
+             "args":[{"index":0,"value":1,"op":"SCMP_CMP_BANANA"}]}]}"#;
+        assert!(parse(j).is_err());
+        // An argument index no syscall has is refused, not clamped.
+        let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
+            {"names":["read"],"action":"SCMP_ACT_ERRNO",
+             "args":[{"index":9,"value":1,"op":"SCMP_CMP_EQ"}]}]}"#;
         assert!(parse(j).is_err());
     }
 
     #[test]
-    fn nome_inaplicavel_nesta_arquitectura_e_reportado_nao_descartado() {
-        // Um perfil portátil nomeia syscalls que só existem num dos arcos. Isso
-        // é inaplicável, não errado — mas quem o aplica tem de saber.
+    fn an_unconditional_entry_supersedes_an_arg_filtered_one() {
+        // If a syscall is allowed both unconditionally and under an arg filter,
+        // the OR of the two is "allowed always" — the compiler must collapse to a
+        // whole-syscall match, not emit a redundant narrower rule beside it.
+        let j = r#"{"defaultAction":"SCMP_ACT_ERRNO","syscalls":[
+            {"names":["clone"],"action":"SCMP_ACT_ALLOW","args":[]},
+            {"names":["clone"],"action":"SCMP_ACT_ALLOW",
+             "args":[{"index":0,"value":268435456,"op":"SCMP_CMP_MASKED_EQ"}]}]}"#;
+        let (p, _) = parse(j).unwrap();
+        assert!(compile(&p).is_ok());
+    }
+
+    #[test]
+    fn name_inapplicable_on_this_architecture_is_reported_not_dropped() {
+        // A portable profile names syscalls that only exist on one of the
+        // architectures. That is inapplicable, not wrong — but whoever applies
+        // it has to know.
         let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
-            {"names":["read","uma_syscall_de_outro_arco"],"action":"SCMP_ACT_ERRNO"}]}"#;
+            {"names":["read","a_syscall_from_another_arch"],"action":"SCMP_ACT_ERRNO"}]}"#;
         let (p, unknown) = parse(j).unwrap();
         assert_eq!(p.rules.len(), 1);
-        assert_eq!(unknown, vec!["uma_syscall_de_outro_arco"]);
+        assert_eq!(unknown, vec!["a_syscall_from_another_arch"]);
     }
 
     #[test]
@@ -808,9 +1040,9 @@ mod tests {
     }
 
     #[test]
-    fn perfil_com_duas_accoes_distintas_e_recusado() {
-        // O modelo do seccompiler é «casou → uma acção, não casou → outra».
-        // Aproximar seria aplicar uma política diferente da escrita.
+    fn profile_with_two_distinct_actions_is_refused() {
+        // seccompiler's model is "matched → one action, no match → another".
+        // Approximating would apply a policy different from the one written.
         let j = r#"{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[
             {"names":["read"],"action":"SCMP_ACT_ERRNO"},
             {"names":["write"],"action":"SCMP_ACT_KILL"}]}"#;

@@ -1,44 +1,44 @@
-# Laboratório de rede em VMs
+# VM network lab
 
-Uma rede de empresa em miniatura, declarada em manifestos: DNS autoritativo, DHCP,
-autenticação de utilizadores, um posto de trabalho, armazenamento em NAS e uma
-firewall de perímetro.
+A miniature enterprise network, declared in manifests: authoritative DNS, DHCP,
+user authentication, a workstation, NAS storage and a perimeter firewall.
 
-**O guia completo, com a saída medida de cada passo e as armadilhas encontradas,
-está em [`docs/guia-vm-lab.md`](../../docs/guia-vm-lab.md).** Este ficheiro é só o
-mínimo para pôr o laboratório de pé.
+**The complete guide, with the measured output of each step and the pitfalls
+encountered, is in [`docs/guia-vm-lab.md`](../../docs/guia-vm-lab.md).** This file
+is just the minimum to get the lab up.
 
-| Ficheiro | VM | Papel | Endereço na LAN | Memória |
+| File | VM | Role | LAN address | Memory |
 |---|---|---|---|---|
-| `10-dns.yaml` | `lab-dns` | BIND 9, zona `lab.ngola` | 10.50.0.10 | 1 GiB |
+| `10-dns.yaml` | `lab-dns` | BIND 9, zone `lab.ngola` | 10.50.0.10 | 1 GiB |
 | `20-dhcp.yaml` | `lab-dhcp` | ISC DHCP | 10.50.0.11 | 1 GiB |
-| `30-samba.yaml` | `lab-samba` | Samba (autenticação + partilha) | 10.50.0.12 | 1 GiB |
-| `40-cliente.yaml` | `lab-cli` | posto de trabalho | 10.50.0.50 (por DHCP) | 1 GiB |
+| `30-samba.yaml` | `lab-samba` | Samba (authentication + sharing) | 10.50.0.12 | 1 GiB |
+| `40-cliente.yaml` | `lab-cli` | workstation | 10.50.0.50 (via DHCP) | 1 GiB |
 | `50-nas.yaml` | `lab-nas` | TrueNAS SCALE | 10.50.0.20 | 4 GiB |
-| `60-storage.yaml` | — | dataset + quota + export NFS na NAS | — | — |
+| `60-storage.yaml` | — | dataset + quota + NFS export on the NAS | — | — |
 | `70-firewall.yaml` | `lab-fw` | OPNsense | 10.50.0.254 | 3 GiB |
 
-Tudo junto pede ~11 GiB de RAM. O motor recusa criar uma VM que não caiba (reserva
-2 GiB para o host), por isso arranque por fases se a máquina for partilhada.
+All together it asks for ~11 GiB of RAM. The engine refuses to create a VM that
+does not fit (it reserves 2 GiB for the host), so start in phases if the machine
+is shared.
 
-## Pré-requisitos
+## Prerequisites
 
-- `delonix` 0.51.0 ou superior, com libvirt acessível (utilizador no grupo `libvirt`)
-- a imagem base e as dos *appliances*:
+- `delonix` 0.51.0 or later, with libvirt accessible (user in the `libvirt` group)
+- the base image and the *appliance* images:
 
 ```bash
 delonix vm image ls        # ver o que já existe
 delonix vm image ls-remote  # ver o que há publicado
 ```
 
-O laboratório usa `delonix-vm-base:ubuntu-24.04`, `truenas-scale:25.10` e
+The lab uses `delonix-vm-base:ubuntu-24.04`, `truenas-scale:25.10` and
 `opnsense:26.1`.
 
-## Passo 0 — a rede do laboratório
+## Step 0 — the lab network
 
-Uma rede **libvirt**, isolada e **sem DHCP** (quem serve DHCP aqui é o `lab-dhcp`).
-Note que `kind: Network` **não** serve para isto: cria redes de contentores, não de
-VMs — ver a secção 8 do guia.
+A **libvirt** network, isolated and **without DHCP** (here DHCP is served by
+`lab-dhcp`). Note that `kind: Network` does **not** serve this purpose: it creates
+container networks, not VM networks — see section 8 of the guide.
 
 ```bash
 cat > /tmp/labnet.xml <<'EOF'
@@ -54,10 +54,10 @@ virsh -c qemu:///system net-start labnet
 virsh -c qemu:///system net-autostart labnet
 ```
 
-## Passo 1 — a sua chave SSH
+## Step 1 — your SSH key
 
-Os ficheiros de cloud-init trazem `SSH_KEY_PLACEHOLDER` para poderem ser partilhados
-sem a chave de ninguém lá dentro. Substitua-o pela sua:
+The cloud-init files ship with `SSH_KEY_PLACEHOLDER` so they can be shared without
+anyone's key inside them. Replace it with yours:
 
 ```bash
 mkdir -p /tmp/labrun/cloud-init
@@ -70,7 +70,7 @@ for f in 10-dns 20-dhcp 30-samba 40-cliente; do
 done
 ```
 
-## Passo 2 — aplicar
+## Step 2 — apply
 
 ```bash
 for f in 10-dns 20-dhcp 30-samba 40-cliente; do
@@ -78,18 +78,18 @@ for f in 10-dns 20-dhcp 30-samba 40-cliente; do
 done
 ```
 
-Cada `apply` responde em cerca de 1 s; o cloud-init leva depois **2 a 4 minutos** a
-instalar e configurar os serviços dentro de cada VM:
+Each `apply` responds in about 1 s; cloud-init then takes **2 to 4 minutes** to
+install and configure the services inside each VM:
 
 ```bash
 delonix vm ssh lab-dns -- cloud-init status     # → status: done
 ```
 
-> **Nunca use `--prune` com estes ficheiros.** O nome do *stack* vem do
-> **directório**, portanto os sete ficheiros são o mesmo *stack*: um `--prune` num
-> deles vê as outras VMs como órfãs e apaga-as.
+> **Never use `--prune` with these files.** The *stack* name comes from the
+> **directory**, so the seven files are the same *stack*: a `--prune` on one of
+> them sees the other VMs as orphans and deletes them.
 
-## Passo 3 — verificar
+## Step 3 — verify
 
 ```bash
 delonix vm ssh lab-cli -- '
@@ -99,13 +99,13 @@ delonix vm ssh lab-cli -- '
 '
 ```
 
-## NAS e firewall
+## NAS and firewall
 
-Estes dois têm passos próprios (criar o disco de dados e a *pool* no TrueNAS,
-configurar a LAN do OPNsense pela consola). Estão descritos, com a saída real de
-cada comando, nos passos 6 e 7 do [guia](../../docs/guia-vm-lab.md#passo-6--o-nas).
+These two have their own steps (creating the data disk and the *pool* on TrueNAS,
+configuring the OPNsense LAN from the console). They are described, with the real
+output of each command, in steps 6 and 7 of the [guide](../../docs/guia-vm-lab.md#passo-6--o-nas).
 
-## Desmontar
+## Tear down
 
 ```bash
 for v in lab-dns lab-dhcp lab-samba lab-cli lab-nas lab-fw; do delonix delete vm $v; done
@@ -113,15 +113,15 @@ virsh -c qemu:///system net-destroy labnet
 virsh -c qemu:///system net-undefine labnet
 ```
 
-## Credenciais
+## Credentials
 
-São de laboratório e estão nos manifestos de propósito, para arrancar sem passos
-manuais. **Num ambiente a sério vêm de um `kind: Secret`**, nunca de um ficheiro em
-git — e o motor avisa disso a cada `apply`:
+These are lab credentials and are in the manifests on purpose, so the lab starts
+without manual steps. **In a real environment they come from a `kind: Secret`**,
+never from a file in git — and the engine warns about this on every `apply`:
 
-| Serviço | Utilizador | Password |
+| Service | User | Password |
 |---|---|---|
-| VMs Linux (SSH) | `delonix` | só chave |
+| Linux VMs (SSH) | `delonix` | key only |
 | Samba | `ana` | `Lab#2026Ngola` |
-| TrueNAS (API e web) | `truenas_admin` | `delonix-admin` |
-| OPNsense (consola e web) | `root` | `opnsense` |
+| TrueNAS (API and web) | `truenas_admin` | `delonix-admin` |
+| OPNsense (console and web) | `root` | `opnsense` |

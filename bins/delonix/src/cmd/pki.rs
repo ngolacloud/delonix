@@ -82,7 +82,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generate_ca_produz_pem_valido() {
+    fn generate_ca_produces_valid_pem() {
         let ca = generate_ca("test-etcd-ca").unwrap();
         assert!(ca.cert_pem.contains("BEGIN CERTIFICATE"));
         assert!(ca.key_pem.contains("PRIVATE KEY"));
@@ -92,7 +92,7 @@ mod tests {
     /// key reuse across members, which would let any member impersonate any
     /// other over etcd's peer mTLS.
     #[test]
-    fn issue_leaf_gera_chaves_e_certificados_distintos_por_folha() {
+    fn issue_leaf_produces_distinct_keys_and_certs_per_leaf() {
         let ca = generate_ca("test-etcd-ca").unwrap();
         let leaf1 = issue_leaf(&ca, "etcd-1", &["10.0.0.1".to_string()]).unwrap();
         let leaf2 = issue_leaf(&ca, "etcd-2", &["10.0.0.2".to_string()]).unwrap();
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn issue_leaf_nunca_e_igual_a_ca_que_o_assinou() {
+    fn issue_leaf_is_never_equal_to_the_ca_that_signed_it() {
         let ca = generate_ca("test-etcd-ca").unwrap();
         let leaf = issue_leaf(&ca, "etcd-1", &["10.0.0.1".to_string()]).unwrap();
         assert_ne!(leaf.cert_pem, ca.cert_pem);
@@ -111,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn issue_leaf_aceita_mistura_de_ip_e_hostname_como_sans() {
+    fn issue_leaf_accepts_mix_of_ip_and_hostname_as_sans() {
         let ca = generate_ca("test-etcd-ca").unwrap();
         let leaf = issue_leaf(
             &ca,

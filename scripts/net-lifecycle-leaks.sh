@@ -40,9 +40,9 @@ bridge_of() { "$BIN" network ls 2>/dev/null | awk -v n="$1" '$1==n {print $3}'; 
 in_ls() { "$BIN" network ls 2>/dev/null | awk -v n="$1" '$1==n' | wc -l; }
 
 # Quantas vezes a bridge é nomeada em cada peça do dataplane.
-count_dlxbr() { inholder nft list set ip dlxing dlxbr 2>/dev/null | grep -o "\"$1\"" | wc -l; }
-count_netpair() { inholder nft list map ip dlxing netpair 2>/dev/null | grep -o "\"$1\"" | wc -l; }
-count_fwdeny() { inholder nft list chain ip dlxing fwdeny 2>/dev/null | grep -c "\"$1\""; }
+count_dlxbr() { inholder nft list set inet dlxing dlxbr 2>/dev/null | grep -o "\"$1\"" | wc -l; }
+count_netpair() { inholder nft list map inet dlxing netpair 2>/dev/null | grep -o "\"$1\"" | wc -l; }
+count_fwdeny() { inholder nft list chain inet dlxing fwdeny 2>/dev/null | grep -c "\"$1\""; }
 count_dhcp() { inholder ss -uanH 'sport = :67' 2>/dev/null | grep -c "%$1:"; }
 # Sockets DHCP presos a um ifindex que já não existe (o kernel mostra `%if<N>`).
 count_dhcp_orphan() { inholder ss -uanH 'sport = :67' 2>/dev/null | grep -cE '%if[0-9]+:'; }

@@ -1,37 +1,37 @@
-# Constrói a imagem VM dourada oficial e publica-a no ghcr — a que o
-# `delonix vm pull` (sem argumento) descarrega. Reprodutível e independente
-# de qualquer máquina de desenvolvimento: corre no runner, com o binário
-# construído do próprio commit.
+# Builds the official golden VM image and publishes it to ghcr — the one
+# `delonix vm pull` (no argument) downloads. Reproducible and independent of
+# any development machine: it runs on the runner, with the binary built from
+# the commit itself.
 #
-# Disparo MANUAL (`workflow_dispatch`) — publicar a imagem oficial é uma
-# decisão explícita, não um efeito de cada push. O `GITHUB_TOKEN` do Actions
-# já traz `packages: write`, por isso não são precisos segredos.
+# MANUAL trigger (`workflow_dispatch`) — publishing the official image is an
+# explicit decision, not a side effect of every push. The Actions
+# `GITHUB_TOKEN` already carries `packages: write`, so no secrets are needed.
 #
-# Nota: o `virt-customize` corre com o modo `--offline` do delonix (obtém os
-# .deb do k8s no host, verificados, e instala-os sem rede no appliance) — é o
-# caminho que dispensa DHCP/DNS no guest. Os runners Linux do GitHub têm
-# /dev/kvm (nested virt); sem ele, o libguestfs cai para TCG (mais lento, mas
-# funciona).
+# Note: `virt-customize` runs with delonix's `--offline` mode (it fetches the
+# k8s .deb packages on the host, verified, and installs them without network in
+# the appliance) — this is the path that needs no DHCP/DNS in the guest.
+# GitHub's Linux runners have /dev/kvm (nested virt); without it, libguestfs
+# falls back to TCG (slower, but it works).
 name: VM image (golden)
 
 on:
   workflow_dispatch:
     inputs:
       k8s_version:
-        description: "Versão do Kubernetes (tag da imagem) — ignorado se no_k8s=true"
+        description: "Kubernetes version (image tag) — ignored if no_k8s=true"
         default: "1.36"
       ubuntu_release:
-        description: "Cloud image Ubuntu base (usado quando distro=ubuntu)"
+        description: "Base Ubuntu cloud image (used when distro=ubuntu)"
         default: "24.04"
       image:
-        description: "Repositório OCI de destino"
+        description: "Destination OCI repository"
         default: "ghcr.io/ngolacloud/delonix-vm-k8s"
       no_k8s:
-        description: "Construir a variante SEM Kubernetes (só delonix + rootless)"
+        description: "Build the variant WITHOUT Kubernetes (delonix + rootless only)"
         type: boolean
         default: false
       distro:
-        description: "Distro base para builds --no-k8s"
+        description: "Base distro for --no-k8s builds"
         type: choice
         options:
           - ubuntu
@@ -40,13 +40,13 @@ on:
           - fedora
         default: ubuntu
       debian_release:
-        description: "Codinome Debian (usado quando distro=debian, builds --no-k8s)"
+        description: "Debian codename (used when distro=debian, --no-k8s builds)"
         default: "trixie"
       rocky_release:
-        description: "Versão major do Rocky (usado quando distro=rocky, builds --no-k8s)"
+        description: "Rocky major version (used when distro=rocky, --no-k8s builds)"
         default: "9"
       fedora_release:
-        description: "Release E build do Fedora (ex.: 42-1.1) — o build não se deduz da versão"
+        description: "Fedora release AND build (e.g. 42-1.1) — the build is not deduced from the version"
         default: "44-1.1"
 
 permissions:
@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Ferramentas de build da golden
+      - name: Golden build tools
         run: |
           sudo apt-get update
           # isc-dhcp-client (dhclient): the supermin appliance virt-customize boots
@@ -81,14 +81,14 @@ jobs:
             echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
             sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
           fi
-          # O supermin/libguestfs precisa de ler o kernel do host (runners: 0600).
+          # supermin/libguestfs needs to read the host kernel (runners: 0600).
           sudo chmod 0644 /boot/vmlinuz-* || true
-      - name: Instala toolchain fixada
+      - name: Install the pinned toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-      - name: Compila delonix + delonix-cri
+      - name: Build delonix + delonix-cri
         run: cargo build --release --locked -p delonix-bin -p delonix-cri-bin
-      - name: Calcula tag/repositório de destino
+      - name: Compute destination tag/repository
         id: vars
         run: |
           if [ "${{ inputs.no_k8s }}" = "true" ]; then
@@ -99,11 +99,12 @@ jobs:
               echo "tag=delonix-vm-base:rocky-${{ inputs.rocky_release }}" >> "$GITHUB_OUTPUT"
               echo "dest_tag=rocky-${{ inputs.rocky_release }}" >> "$GITHUB_OUTPUT"
             elif [ "${{ inputs.distro }}" = "fedora" ]; then
-              # A tag leva só o MAJOR. O `--fedora-release` tem de trazer o build
-              # (`42-1.1`) porque o nome do artefacto do fabricante o carrega e a
-              # versão não o determina — mas `fedora-42-1.1` como tag OCI não diz
-              # mais nada a quem a lê do que `fedora-42`, e desalinhava-se das
-              # irmãs (`ubuntu-24.04`, `rocky-9`).
+              # The tag carries only the MAJOR. `--fedora-release` has to carry
+              # the build (`42-1.1`) because the vendor's artefact name carries
+              # it and the version does not determine it — but `fedora-42-1.1`
+              # as an OCI tag tells its reader nothing more than `fedora-42`, and
+              # would fall out of line with its siblings (`ubuntu-24.04`,
+              # `rocky-9`).
               FED_MAJOR="${{ inputs.fedora_release }}"; FED_MAJOR="${FED_MAJOR%%-*}"
               echo "tag=delonix-vm-base:fedora-${FED_MAJOR}" >> "$GITHUB_OUTPUT"
               echo "dest_tag=fedora-${FED_MAJOR}" >> "$GITHUB_OUTPUT"
@@ -117,7 +118,7 @@ jobs:
             echo "dest_tag=${{ inputs.k8s_version }}" >> "$GITHUB_OUTPUT"
             echo "dest_repo=${{ inputs.image }}" >> "$GITHUB_OUTPUT"
           fi
-      - name: Constrói a imagem VM dourada (offline)
+      - name: Build the golden VM image (offline)
         if: ${{ !inputs.no_k8s }}
         env:
           LIBGUESTFS_BACKEND: direct
@@ -130,23 +131,24 @@ jobs:
             --delonix-bin ./target/release/delonix \
             --offline
           ./target/release/delonix vm image ls
-      # Ao contrário da golden (`--offline`, sem rede no appliance), uma build
-      # `--no-k8s` INSTALA pacotes lá dentro e precisa mesmo de rede. Quem a dá é
-      # o passt, e o do Ubuntu 24.04 — o runner — é o mesmo que falha nos dois
-      # modos já medidos: ou recusa o `$XDG_RUNTIME_DIR` do libguestfs por
-      # AppArmor, ou arranca, nunca dá lease, deixa o `dhclient` pendurar 300s e
-      # o build segue SEM rede até o gestor de pacotes não resolver um mirror.
-      # Daí as duas metades: um runtime dir que o perfil permite, e um passt
-      # actual PRIMEIRO no PATH (o libguestfs procura-o com `passt --help`, logo
-      # compilá-lo sem o pôr no PATH não muda nada).
-      - name: passt actual (a build --no-k8s precisa de rede no appliance)
+      # Unlike the golden one (`--offline`, no network in the appliance), a
+      # `--no-k8s` build INSTALLS packages in there and really does need network.
+      # What provides it is passt, and Ubuntu 24.04's — the runner's — is the one
+      # that fails in both already-measured modes: it either refuses libguestfs's
+      # `$XDG_RUNTIME_DIR` via AppArmor, or it starts, never hands out a lease,
+      # leaves `dhclient` hanging for 300s and the build carries on WITHOUT
+      # network until the package manager fails to resolve a mirror. Hence the
+      # two halves: a runtime dir the profile allows, and a current passt FIRST
+      # on PATH (libguestfs looks for it with `passt --help`, so building it
+      # without putting it on PATH changes nothing).
+      - name: current passt (the --no-k8s build needs network in the appliance)
         if: ${{ inputs.no_k8s }}
         run: |
           git clone --depth 1 https://passt.top/passt /tmp/passt-src
           make -C /tmp/passt-src -j"$(nproc)"
           mkdir -p /tmp/delonix-run && chmod 700 /tmp/delonix-run
           echo "/tmp/passt-src" >> "$GITHUB_PATH"
-      - name: Constrói a imagem VM dourada (sem Kubernetes)
+      - name: Build the golden VM image (without Kubernetes)
         if: ${{ inputs.no_k8s }}
         env:
           LIBGUESTFS_BACKEND: direct
@@ -189,11 +191,12 @@ jobs:
         run: |
           img="${DELONIX_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/delonix}/vm-images/$(echo '${{ steps.vars.outputs.tag }}' | tr ':' '_').qcow2"
           scripts/vm_boot_probe.sh "$img" both
-      - name: Login no ghcr e push
+      - name: Login to ghcr and push
         env:
-          # Um PAT com `write:packages` (secret GHCR_TOKEN) tem precedência; sem
-          # ele, o GITHUB_TOKEN — que só publica quando as "Workflow permissions"
-          # do repo estão em "Read and write" (Settings → Actions → General).
+          # A PAT with `write:packages` (GHCR_TOKEN secret) takes precedence;
+          # without it, the GITHUB_TOKEN — which only publishes when the repo's
+          # "Workflow permissions" are set to "Read and write" (Settings →
+          # Actions → General).
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -202,7 +205,7 @@ jobs:
           ./target/release/delonix vm image push \
             "${{ steps.vars.outputs.tag }}" \
             "${{ steps.vars.outputs.dest_repo }}:${{ steps.vars.outputs.dest_tag }}"
-      - name: Sumário
+      - name: Summary
         run: |
-          echo "### Imagem VM dourada publicada" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`${{ steps.vars.outputs.dest_repo }}:${{ steps.vars.outputs.dest_tag }}\` — testa com \`delonix vm pull\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "### Golden VM image published" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.vars.outputs.dest_repo }}:${{ steps.vars.outputs.dest_tag }}\` — test with \`delonix vm pull\`." >> "$GITHUB_STEP_SUMMARY"

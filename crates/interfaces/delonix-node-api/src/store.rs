@@ -111,8 +111,10 @@ impl StateRepository<Container> for PortRepo<'_> {
 /// An empty [`StorePort`] for the default `router` (no composed engine): reads are
 /// empty, writes are accepted and discarded. The production server never uses it —
 /// `delonix-node-api-bin` hands in the engine-backed port — exactly as `NoVms` is
-/// to [`crate::vms::VmPort`].
-pub(crate) struct NoStore;
+/// to [`crate::vms::VmPort`]. Public so the crate's integration tests (which drive
+/// `events::watch` without composing an engine) can hand it in; such a watch then
+/// resolves every version to `0/0` (unversioned), which is all those tests need.
+pub struct NoStore;
 
 impl StorePort for NoStore {
     fn container_list(&self) -> Result<Vec<Container>, delonix_model::Error> {

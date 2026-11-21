@@ -2048,8 +2048,23 @@ msgstr "Aplica o(s) documento(s) `kind: KubernetesCluster` de um manifesto."
 msgid "Also list the VMs that are not up (stopped or crashed)"
 msgstr "Lista também as VMs que não estão de pé (paradas ou caídas)"
 
-msgid "Also list the VMs that are not up (stopped or crashed).\n\nWithout it `ls` shows what is UP — running or paused — the same cut `docker ps` makes."
-msgstr "Lista também as VMs que não estão de pé (paradas ou caídas).\n\nSem ela, o `ls` mostra o que está de pé — a correr ou pausado —, o mesmo corte que o `docker ps` faz."
+msgid "Also list the VMs that are not up (stopped or crashed).\n\nWithout it `ls` shows what is UP — running or paused — the same cut `docker ps` makes. `-a` is accepted too, for `docker ps -a` parity."
+msgstr "Lista também as VMs que não estão de pé (paradas ou caídas).\n\nSem ela, o `ls` mostra o que está de pé — a correr ou pausado —, o mesmo corte que o `docker ps` faz. O `-a` também é aceite, por paridade com `docker ps -a`."
+
+msgid "Print only the VM names, one per line (to compose with `rm`/`stop`) — the VM analogue of `container ls -q`. Ignored with `-o json`"
+msgstr "Imprime só os nomes das VMs, um por linha (para compor com `rm`/`stop`) — o análogo do `container ls -q` para VMs. Ignorado com `-o json`"
+
+msgid "Accepted for Docker/Podman parity (`docker images -a`): Delonix already lists every image, the untagged `<none>` ones included, so there is no hidden intermediate-image set for this to reveal — it has no effect"
+msgstr "Aceite por paridade com Docker/Podman (`docker images -a`): o Delonix já lista todas as imagens, incluindo as sem tag `<none>`, portanto não há conjunto escondido de imagens intermédias para revelar — não tem efeito"
+
+msgid "Print only the image IDs, one per image and deduplicated across tags — `docker images -q`. Composes with `rm`/`rmi`. Ignored with `-o json`"
+msgstr "Imprime só os ids das imagens, um por imagem e sem duplicados entre tags — `docker images -q`. Compõe com `rm`/`rmi`. Ignorado com `-o json`"
+
+msgid "Also reclaim the ENTIRE build cache now, ignoring the 7-day last-use TTL that `prune` otherwise honours. Implied by `--all`"
+msgstr "Reclama também TODA a cache de build agora, ignorando o TTL de 7 dias por último-uso que o `prune` normalmente respeita. Implicado por `--all`"
+
+msgid "Also reclaim the ENTIRE build cache now, ignoring the 7-day last-use TTL that `prune` otherwise honours. Implied by `--all`.\n\nThe build cache is rebuildable content and is often the single biggest reclaimable block, yet the TTL can hold a day-old 6 GiB out of reach: this is the on-demand counterpart of deleting the `build-cache/` directory by hand, which `system df` used to be the only way to suggest. The next build simply repopulates what it needs."
+msgstr "Reclama também TODA a cache de build agora, ignorando o TTL de 7 dias por último-uso que o `prune` normalmente respeita. Implicado por `--all`.\n\nA cache de build é conteúdo reconstruível e é muitas vezes o maior bloco recuperável, mas o TTL pode manter 6 GiB de um dia fora de alcance: este é o equivalente, a pedido, de apagar o directório `build-cache/` à mão, que o `system df` era a única forma de sugerir. A build seguinte repovoa apenas o que precisar."
 
 msgid "List this host's clusters — kind-mode AND VM-based"
 msgstr "Lista os clusters desta máquina — em modo kind E baseados em VM"
@@ -5548,6 +5563,12 @@ msgstr "Corre como este utilizador só nesta chamada: `uid[:gid]` ou `nome[:grup
 
 msgid "Run in the background and print the ID"
 msgstr "Corre em segundo plano e imprime o id"
+
+msgid "Run the command in the background and return immediately."
+msgstr "Corre o comando em segundo plano e devolve imediatamente."
+
+msgid "Run this command with full capabilities (seccomp/AppArmor off) for this call only — does not change the container or other execs."
+msgstr "Corre este comando com todas as capacidades (seccomp/AppArmor desligados) só nesta chamada — não altera o container nem os outros exec."
 
 msgid "Run the process as this user: `uid[:gid]` or `name[:group]` (docker `--user`). Names are resolved in the image's `/etc/passwd`/`/etc/group`"
 msgstr "Corre o processo como este utilizador: `uid[:gid]` ou `nome[:grupo]` (o `--user` do docker). Os nomes resolvem-se no `/etc/passwd`/`/etc/group` da imagem"
@@ -14240,8 +14261,14 @@ msgstr "Versão major do Rocky Linux (`8`, `9`, `10`) — só usada com `--distr
 msgid "Fedora release AND build, as shown on Fedora's download page (e.g. `42-1.1`) — only used with `--distro fedora`. The build number is not derivable from the release, and Fedora's redirector offers no listing to look it up, so it is asked for rather than guessed"
 msgstr "Release E build do Fedora, como aparece na página de downloads do Fedora (ex.: `42-1.1`) — só usado com `--distro fedora`. O número de build não se deduz da release e o redirector do Fedora não dá listagem para o consultar, por isso pede-se em vez de se adivinhar"
 
-msgid "Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION` (1.37, o estável mais recente do pkgs.k8s.io). 1.34/1.35/1.36 continuam disponíveis passando-as aqui"
-msgstr "Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION` (1.37, o estável mais recente do pkgs.k8s.io). 1.34/1.35/1.36 continuam disponíveis passando-as aqui"
+msgid "Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION` (1.37, the latest stable on pkgs.k8s.io). 1.34/1.35/1.36 remain available by passing them here"
+msgstr "Versão do Kubernetes (ex.: `1.31`) — omita para usar `DEFAULT_K8S_VERSION` (1.37, o estável mais recente do pkgs.k8s.io). 1.34/1.35/1.36 continuam disponíveis passando-as aqui"
+
+msgid "Join an existing pod's shared netns (Podman `run --pod`): the container gets the pod's IP and ports and reaches its peers on `127.0.0.1`. The pod (declared with `kind: Pod`) defines the network, so do NOT combine with `--net <network>`"
+msgstr "Junta-se ao netns partilhado de um pod existente (`run --pod` do Podman): o container recebe o IP e as portas do pod e alcança os seus pares em `127.0.0.1`. O pod (declarado com `kind: Pod`) define a rede, por isso NÃO combinar com `--net <network>`"
+
+msgid "How to render: `markdown` (the canonical, published form) or `pretty` (a compact terminal grid with glyphs)"
+msgstr "Como apresentar: `markdown` (a forma canónica, publicada) ou `pretty` (uma grelha compacta de terminal com glifos)"
 
 msgid "Build a golden image with NO Kubernetes at all — just the `delonix` engine binary, ready for rootless containers (mutually exclusive with `--k8s-version`/`--offline`, which don't apply)"
 msgstr "Constrói uma golden SEM Kubernetes — só o binário do motor `delonix`, pronta para containers rootless (mutuamente exclusiva com `--k8s-version`/`--offline`, que não se aplicam)"
@@ -17901,3 +17928,249 @@ msgstr "anexa-a à imagem no seu registo como attestation in-toto"
 # container foreground de um delonix anterior à captura
 msgid "no logs for {name} at {path}: {err} (a container started in foreground by an older delonix wrote no log file — restart it to begin capturing)"
 msgstr "sem logs para {name} em {path}: {err} (um container arrancado em foreground por um delonix mais antigo não escrevia ficheiro de log — reinicia-o para começar a capturar)"
+
+# ---- distroless-por-omissão + vm --distro (sessão feat/distroless-default-vm-distro) ----
+
+msgid "distroless image {reference} not found; falling back to {fallback}"
+msgstr "imagem distroless {reference} não encontrada; a recorrer a {fallback}"
+
+msgid "--distro is ignored with --url-img (the URL is the image)"
+msgstr "--distro é ignorado com --url-img (o URL é a imagem)"
+
+msgid "--distro {want} does not match image '{disk}', which is {have}"
+msgstr "--distro {want} não corresponde à imagem '{disk}', que é {have}"
+
+msgid "--distro {want}: image '{disk}' records no distro, cannot verify"
+msgstr "--distro {want}: a imagem '{disk}' não regista distro, não é possível verificar"
+
+msgid "VM image repository '{repo}' is not reachable: {err} — check connectivity, or `delonix image login ghcr.io` for a private one"
+msgstr "o repositório de imagens de VM '{repo}' está inacessível: {err} — verifica a ligação, ou `delonix image login ghcr.io` se for privado"
+
+msgid "no '{distro}' image is published in '{repo}' — available tags: {tags}"
+msgstr "nenhuma imagem '{distro}' está publicada em '{repo}' — tags disponíveis: {tags}"
+
+msgid "Base distro of the VM (semantic selector: `ubuntu`|`debian`|`rocky`|`fedora`). Without `--disk`/`--url-img` it picks the matching official `base` image and first checks the VM image repository is reachable; with `--disk` it cross-checks the resolved image's own distro and refuses a mismatch"
+msgstr "Distro base da VM (selector semântico: `ubuntu`|`debian`|`rocky`|`fedora`). Sem `--disk`/`--url-img` escolhe a imagem `base` oficial correspondente e verifica primeiro que o repositório de imagens de VM está acessível; com `--disk` confronta a distro da própria imagem resolvida e recusa uma divergência"
+
+# ---------------------------------------------------------------------------
+# `vm logs` + `vm create --capture-serial` (campanha de observabilidade: logs
+# dos recursos prontos para expedidores externos — Loki/Graylog/Elasticsearch).
+# ---------------------------------------------------------------------------
+
+msgid "Read the VM's captured serial console — boot/kernel/systemd/app output."
+msgstr "Lê a consola série capturada da VM — saída de arranque/kernel/systemd/aplicação."
+
+msgid "Needs the VM created with `--capture-serial` (the file a log shipper tails). Mirrors `container logs`: non-interactive, follows on `-f`."
+msgstr "Precisa que a VM tenha sido criada com `--capture-serial` (o ficheiro que um expedidor de logs segue). Espelha `container logs`: não-interactivo, segue com `-f`."
+
+msgid ""
+"Read the VM's captured serial console — boot/kernel/systemd/app output."
+"\n"
+"\n"
+"Needs the VM created with `--capture-serial` (the file a log shipper tails). Mirrors `container logs`: non-interactive, follows on `-f`."
+msgstr ""
+"Lê a consola série capturada da VM — saída de arranque/kernel/systemd/aplicação."
+"\n"
+"\n"
+"Precisa que a VM tenha sido criada com `--capture-serial` (o ficheiro que um expedidor de logs segue). Espelha `container logs`: não-interactivo, segue com `-f`."
+
+msgid "Capture the serial console to a file for `delonix vm logs` (and log shippers) instead of keeping it interactive — `vm console` is then unavailable (one guest serial port)."
+msgstr "Captura a consola série para um ficheiro, para `delonix vm logs` (e expedidores de logs), em vez de a manter interactiva — `vm console` fica então indisponível (uma só porta série no convidado)."
+
+msgid "Follow the serial log as new lines arrive (Ctrl-C to stop)."
+msgstr "Segue o log série à medida que chegam novas linhas (Ctrl-C para parar)."
+
+msgid "Print only the last N lines of the existing log first."
+msgstr "Mostra primeiro só as últimas N linhas do log existente."
+
+msgid "VM '{name}' was not created with --capture-serial, so it keeps an interactive console and writes no serial log — recreate it with `delonix vm create {name} … --capture-serial`, or attach live with `delonix vm console {name}`"
+msgstr "A VM '{name}' não foi criada com --capture-serial, por isso mantém uma consola interactiva e não escreve log série — recria-a com `delonix vm create {name} … --capture-serial`, ou liga-te ao vivo com `delonix vm console {name}`"
+
+msgid "no serial log yet for VM '{name}' at {path} — it appears once the VM boots with capture on"
+msgstr "ainda não há log série para a VM '{name}' em {path} — aparece assim que a VM arranca com a captura ligada"
+
+msgid "serial log of VM '{name}' at {path} is not readable by this user — the system hypervisor wrote it as root; recreate the VM on a rootless backend (`--backend cloud-hypervisor`) or read it with elevated privileges"
+msgstr "o log série da VM '{name}' em {path} não é legível por este utilizador — o hypervisor de sistema escreveu-o como root; recria a VM num backend sem privilégios (`--backend cloud-hypervisor`) ou lê-o com privilégios elevados"
+
+msgid "read the captured serial console of a VM created with --capture-serial (a log shipper tails the same file)"
+msgstr "lê a consola série capturada de uma VM criada com --capture-serial (um expedidor de logs segue o mesmo ficheiro)"
+
+msgid "follow the serial console live"
+msgstr "segue a consola série ao vivo"
+
+# Dívida de tradução pré-existente em develop (ARG_HELP_PENDING=0 mas estes arg
+# help nunca foram traduzidos) — resolvida aqui para manter o gate verde.
+msgid "Join an existing pod's shared netns (Podman `run --pod`): the container gets the pod's IP and ports and reaches its peers on `127.0.0.1`. The pod (declared with `kind: Pod`) defines the network, so do NOT combine with `--net <network>`"
+msgstr "Junta-se à netns partilhada de um pod existente (Podman `run --pod`): o container recebe o IP e as portas do pod e alcança os seus pares em `127.0.0.1`. O pod (declarado com `kind: Pod`) define a rede, por isso NÃO combinar com `--net <rede>`"
+
+msgid "Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION` (1.37, the latest stable on pkgs.k8s.io). 1.34/1.35/1.36 remain available by passing them here"
+msgstr "Versão do Kubernetes (ex. `1.31`) — omite para `DEFAULT_K8S_VERSION` (1.37, a última estável em pkgs.k8s.io). 1.34/1.35/1.36 continuam disponíveis passando-as aqui"
+
+
+# ---- help: node identity / enrollment (ADR-0097, node-ca / node-enroll) -----
+
+msgid "Serve the ENROLLMENT AUTHORITY (ADR-0097): trade a one-time token for a short client cert"
+msgstr "Serve a AUTORIDADE DE INSCRIÇÃO (ADR-0097): troca um token de uso único por um certificado de cliente curto"
+
+msgid "Serve the ENROLLMENT AUTHORITY (ADR-0097): trade a one-time token for a short client cert.\n\nA server-TLS-only endpoint (`POST /v1/enroll`) that signs a member's CSR with the node CA key it holds (`--ca-key`) and returns a short-lived client certificate. The member pins the node CA; the token authenticates it. This is NOT a node-API server and never holds a node's data — it holds the CA key, so run it deliberately, not by socket activation."
+msgstr "Serve a AUTORIDADE DE INSCRIÇÃO (ADR-0097): troca um token de uso único por um certificado de cliente curto.\n\nUm endpoint só com TLS de servidor (`POST /v1/enroll`) que assina o CSR de um membro com a chave da CA de nó que detém (`--ca-key`) e devolve um certificado de cliente de vida curta. O membro fixa a CA de nó; o token autentica-o. NÃO é um servidor da node-API e nunca detém os dados de um nó — detém a chave da CA, por isso corre-o deliberadamente, não por activação por socket."
+
+msgid "Manage the node CA that signs fleet-member certificates (ADR-0097)"
+msgstr "Gere a CA de nó que assina os certificados dos membros da frota (ADR-0097)"
+
+msgid "Manage the node CA that signs fleet-member certificates (ADR-0097).\n\n`node-ca init` creates the CA whose cert is the node API's `--tls-client-ca` trust anchor and whose key stays with the enrollment authority (`serve node-enroll`); `node-ca revoke` lists a certificate's serial in a CRL (`--tls-client-crl`). NOT stable: see `docs/cli-stability.md`."
+msgstr "Gere a CA de nó que assina os certificados dos membros da frota (ADR-0097).\n\n`node-ca init` cria a CA cujo certificado é a âncora de confiança `--tls-client-ca` da node-API e cuja chave fica com a autoridade de inscrição (`serve node-enroll`); `node-ca revoke` lista o número de série de um certificado numa CRL (`--tls-client-crl`). NÃO estável: ver `docs/cli-stability.md`."
+
+msgid "Create a node CA: a key and its self-signed certificate"
+msgstr "Cria uma CA de nó: uma chave e o seu certificado auto-assinado"
+
+msgid "Create a node CA: a key and its self-signed certificate.\n\nThe CERT is the trust anchor you pass to every server as `serve node-api --tls-client-ca`; the KEY stays with the enrollment authority (`serve node-enroll`) and no node-API server ever holds it (ADR-0097)."
+msgstr "Cria uma CA de nó: uma chave e o seu certificado auto-assinado.\n\nO CERTIFICADO é a âncora de confiança que passas a cada servidor como `serve node-api --tls-client-ca`; a CHAVE fica com a autoridade de inscrição (`serve node-enroll`) e nenhum servidor da node-API alguma vez a detém (ADR-0097)."
+
+msgid "Revoke client-certificate serials into a CRL the node CA signs"
+msgstr "Revoga números de série de certificados de cliente para uma CRL que a CA de nó assina"
+
+msgid "Revoke client-certificate serials into a CRL the node CA signs.\n\nSerials accumulate in a sidecar (`<out>.serials`) so each run lists every serial revoked so far; point `serve node-api --tls-client-crl` at the CRL."
+msgstr "Revoga números de série de certificados de cliente para uma CRL que a CA de nó assina.\n\nOs números de série acumulam-se num ficheiro lateral (`<out>.serials`) para que cada execução liste todos os revogados até agora; aponta `serve node-api --tls-client-crl` para a CRL."
+
+msgid "Enroll this host as a fleet member: one-time token → CSR → short client cert"
+msgstr "Inscreve este host como membro da frota: token de uso único → CSR → certificado de cliente curto"
+
+msgid "Enroll this host as a fleet member: one-time token → CSR → short client cert.\n\nGenerates a key pair and a CSR, exchanges a one-time token at an enrollment authority (`serve node-enroll`) pinned to the node CA, and writes the short-lived client certificate the node API (ADR-0096) then accepts (ADR-0097). NOT stable: see `docs/cli-stability.md`."
+msgstr "Inscreve este host como membro da frota: token de uso único → CSR → certificado de cliente curto.\n\nGera um par de chaves e um CSR, troca um token de uso único numa autoridade de inscrição (`serve node-enroll`) fixada à CA de nó, e escreve o certificado de cliente de vida curta que a node-API (ADR-0096) depois aceita (ADR-0097). NÃO estável: ver `docs/cli-stability.md`."
+
+# ---- help: args — node-api CRL + enrollment authority / member --------------
+
+msgid "TLS: an OPTIONAL CRL (PEM path) the node consults — a client whose certificate serial is listed, or one past its validity, is refused at the handshake (ADR-0097). Overrides `$DELONIX_NODE_API_TLS_CLIENT_CRL`. Only meaningful with a `tcp://` address"
+msgstr "TLS: uma CRL OPCIONAL (caminho PEM) que o nó consulta — um cliente cujo número de série do certificado esteja listado, ou um já fora de validade, é recusado no handshake (ADR-0097). Sobrepõe-se a `$DELONIX_NODE_API_TLS_CLIENT_CRL`. Só faz sentido com um endereço `tcp://`"
+
+msgid "Authorization: a JSON policy (ADR-0098) granting client-cert identities operations per namespace. Absent, every authenticated client is authorized for all operations. Overrides `$DELONIX_NODE_API_AUTHZ_POLICY`. Only meaningful with a `tcp://` address"
+msgstr "Autorização: uma política JSON (ADR-0098) que concede a identidades de certificado de cliente operações por espaço de nomes. Ausente, todo o cliente autenticado fica autorizado para todas as operações. Sobrepõe-se a `$DELONIX_NODE_API_AUTHZ_POLICY`. Só faz sentido com um endereço `tcp://`"
+
+msgid "Audit: append one JSON line per mutating call and per denial to this file (ADR-0098). Also emitted to the tracing stream. Overrides `$DELONIX_NODE_API_AUDIT_LOG`. Only meaningful with a `tcp://` address"
+msgstr "Auditoria: acrescenta uma linha JSON por chamada mutante e por recusa a este ficheiro (ADR-0098). Também emitida no fluxo de rasto. Sobrepõe-se a `$DELONIX_NODE_API_AUDIT_LOG`. Só faz sentido com um endereço `tcp://`"
+
+msgid "Address to listen on: `tcp://host:port` (server-authenticated TLS)"
+msgstr "Endereço onde escutar: `tcp://host:port` (TLS autenticado no servidor)"
+
+msgid "The node CA private key (PEM path) — used to sign CSRs and the authority's own cert"
+msgstr "A chave privada da CA de nó (caminho PEM) — usada para assinar CSRs e o próprio certificado da autoridade"
+
+msgid "The node CA certificate (PEM path) — echoed to members in the response"
+msgstr "O certificado da CA de nó (caminho PEM) — devolvido aos membros na resposta"
+
+msgid "The CA subject common name (must match `node-ca init --cn`)"
+msgstr "O common name do sujeito da CA (tem de coincidir com `node-ca init --cn`)"
+
+msgid "A valid one-time enrollment token. Repeatable"
+msgstr "Um token de inscrição de uso único válido. Repetível"
+
+msgid "A file of one-time tokens, one per line (`#` comments and blanks skipped)"
+msgstr "Um ficheiro de tokens de uso único, um por linha (comentários `#` e linhas vazias ignorados)"
+
+msgid "A SAN (IP/DNS) for the authority's own server certificate — the address members reach it at. Repeatable; 127.0.0.1 and localhost are always included"
+msgstr "Um SAN (IP/DNS) para o certificado de servidor da própria autoridade — o endereço por onde os membros lhe chegam. Repetível; 127.0.0.1 e localhost são sempre incluídos"
+
+msgid "Lifetime of the client certificates issued: `60s`, `30m`, `1h`. Default 1h"
+msgstr "Tempo de vida dos certificados de cliente emitidos: `60s`, `30m`, `1h`. Por omissão 1h"
+
+msgid "An explicit server certificate (PEM path) instead of auto-issuing one from the CA"
+msgstr "Um certificado de servidor explícito (caminho PEM) em vez de emitir um a partir da CA"
+
+msgid "The explicit server certificate's key (PEM path); required with `--server-cert`"
+msgstr "A chave do certificado de servidor explícito (caminho PEM); obrigatória com `--server-cert`"
+
+msgid "The CA's subject common name — the SAME value `serve node-enroll` and `node-ca revoke` must be given, since the issuer is reconstructed from it"
+msgstr "O common name do sujeito da CA — o MESMO valor que `serve node-enroll` e `node-ca revoke` têm de receber, já que o emissor é reconstruído a partir dele"
+
+msgid "Where to write the CA certificate (PEM)"
+msgstr "Onde escrever o certificado da CA (PEM)"
+
+msgid "Where to write the CA private key (PEM, written `0600`)"
+msgstr "Onde escrever a chave privada da CA (PEM, escrita a `0600`)"
+
+msgid "Overwrite existing output files"
+msgstr "Sobrescreve os ficheiros de saída existentes"
+
+msgid "The node CA private key (PEM) — the CRL is signed with it"
+msgstr "A chave privada da CA de nó (PEM) — a CRL é assinada com ela"
+
+msgid "A client-certificate serial to revoke (hex, as `node-enroll` printed). Repeatable"
+msgstr "Um número de série de certificado de cliente a revogar (hex, como `node-enroll` imprimiu). Repetível"
+
+msgid "Where to write the CRL (PEM)"
+msgstr "Onde escrever a CRL (PEM)"
+
+msgid "The enrollment authority address: `host:port` or `tcp://host:port`"
+msgstr "O endereço da autoridade de inscrição: `host:port` ou `tcp://host:port`"
+
+msgid "The node CA certificate (PEM) to PIN for the authority's server identity — this is what stops a man-in-the-middle from harvesting the token"
+msgstr "O certificado da CA de nó (PEM) a FIXAR para a identidade de servidor da autoridade — é isto que impede um man-in-the-middle de colher o token"
+
+msgid "The one-time enrollment token"
+msgstr "O token de inscrição de uso único"
+
+msgid "The subject common name = this member's identity in its certificate"
+msgstr "O common name do sujeito = a identidade deste membro no seu certificado"
+
+msgid "A subject alternative name (IP or DNS) for the client certificate. Repeatable; usually unnecessary for a client identity"
+msgstr "Um subject alternative name (IP ou DNS) para o certificado de cliente. Repetível; normalmente desnecessário para uma identidade de cliente"
+
+msgid "Where to write the generated private key (PEM, `0600`) — it never leaves this host"
+msgstr "Onde escrever a chave privada gerada (PEM, `0600`) — nunca sai deste host"
+
+msgid "Where to write the issued client certificate (PEM)"
+msgstr "Onde escrever o certificado de cliente emitido (PEM)"
+
+msgid "Where to also write the CA bundle the authority returned (PEM)"
+msgstr "Onde também escrever o pacote de CA que a autoridade devolveu (PEM)"
+
+msgid "Socket address: a unix path (`unix:///run/delonix-node.sock`, the default, or `$DELONIX_NODE_API_ADDR`) or a TCP address (`tcp://host:port`). A `tcp://` address serves mutual TLS and requires `--tls-cert`/`--tls-key`/`--tls-client-ca`"
+msgstr "Endereço do socket: um caminho unix (`unix:///run/delonix-node.sock`, o default, ou `$DELONIX_NODE_API_ADDR`) ou um endereço TCP (`tcp://host:port`). Um endereço `tcp://` serve TLS mútuo e exige `--tls-cert`/`--tls-key`/`--tls-client-ca`"
+
+msgid "TLS: the server certificate chain (PEM path). Required for a `tcp://` address (ADR-0096); together with `--tls-key` and `--tls-client-ca`. Overrides `$DELONIX_NODE_API_TLS_CERT`"
+msgstr "TLS: a cadeia de certificados do servidor (caminho PEM). Obrigatória para um endereço `tcp://` (ADR-0096); em conjunto com `--tls-key` e `--tls-client-ca`. Sobrepõe-se a `$DELONIX_NODE_API_TLS_CERT`"
+
+msgid "TLS: the server private key (PEM path). Overrides `$DELONIX_NODE_API_TLS_KEY`"
+msgstr "TLS: a chave privada do servidor (caminho PEM). Sobrepõe-se a `$DELONIX_NODE_API_TLS_KEY`"
+
+msgid "TLS: the CA a client certificate must chain to (PEM path) — the node verifies every client against it (mutual TLS). Overrides `$DELONIX_NODE_API_TLS_CLIENT_CA`"
+msgstr "TLS: a CA à qual o certificado de cliente tem de encadear (caminho PEM) — o nó verifica cada cliente contra ela (TLS mútuo). Sobrepõe-se a `$DELONIX_NODE_API_TLS_CLIENT_CA`"
+
+msgid "Write a systemd socket unit and its service (user units when rootless, system units as root), reload systemd and enable the socket, instead of serving. The node API then starts on the first connection and exits when idle (default `--idle-timeout` in the unit: 120s). With a `tcp://` address the unit carries the TLS material"
+msgstr "Escreve uma unit de socket do systemd e o seu serviço (units de utilizador em rootless, units de sistema como root), recarrega o systemd e activa o socket, em vez de servir. A node-API arranca então na primeira ligação e sai quando ociosa (`--idle-timeout` por omissão na unit: 120s). Com um endereço `tcp://` a unit transporta o material TLS"
+
+# ---- help: manual example comments (ADR-0097) -------------------------------
+
+msgid "run the enrollment authority: trade a one-time token for a short client cert, auto-issuing its own server cert from the CA"
+msgstr "corre a autoridade de inscrição: troca um token de uso único por um certificado de cliente curto, auto-emitindo o seu próprio certificado de servidor a partir da CA"
+
+msgid "issue minute-lived certificates so expiry is observable, loading tokens from a file"
+msgstr "emite certificados com vida de minutos para que a expiração seja observável, carregando tokens de um ficheiro"
+
+msgid "create the node CA whose cert is every node's `--tls-client-ca` and whose key feeds the enrollment authority"
+msgstr "cria a CA de nó cujo certificado é o `--tls-client-ca` de cada nó e cuja chave alimenta a autoridade de inscrição"
+
+msgid "take a member's certificate away by revoking its serial into a CRL"
+msgstr "retira o certificado de um membro revogando o seu número de série para uma CRL"
+
+msgid "create the CA: `node-ca.crt` (the trust anchor) and `node-ca.key` (kept with the authority)"
+msgstr "cria a CA: `node-ca.crt` (a âncora de confiança) e `node-ca.key` (guardada com a autoridade)"
+
+msgid "pick the subject name and output paths"
+msgstr "escolhe o nome do sujeito e os caminhos de saída"
+
+msgid "revoke a certificate by its serial into the CRL a node loads with `--tls-client-crl`"
+msgstr "revoga um certificado pelo seu número de série para a CRL que um nó carrega com `--tls-client-crl`"
+
+msgid "enroll this host: generate a key and CSR, spend a one-time token, write `client.key`/`client.crt`"
+msgstr "inscreve este host: gera uma chave e um CSR, gasta um token de uso único, escreve `client.key`/`client.crt`"
+
+msgid "the node is cordoned"
+msgstr "o nó está cordonado"
+
+msgid "The node is marked unschedulable (cordoned), so it refuses a new workload create (ADR-0101 §3). Unlike Kubernetes, where only the scheduler honours `unschedulable`, a node that serves a control plane directly enforces the cordon itself — it is the last line, not an advisory flag. Reads, updates to existing workloads, deletes and uncordon are unaffected."
+msgstr "O nó está marcado como não-agendável (cordonado), por isso recusa a criação de um novo workload (ADR-0101 §3). Ao contrário do Kubernetes, onde só o escalonador respeita `unschedulable`, um nó que serve um plano de controlo directamente aplica ele próprio o cordon — é a última linha, não uma marca consultiva. Leituras, actualizações a workloads existentes, remoções e uncordon não são afectadas."
+
+msgid "Uncordon the node (`SetSchedulability` with `unschedulable=false`, or `kind: Node` with `spec.schedulable: true`) before creating workloads on it, or place the workload on a node that is schedulable."
+msgstr "Retire o cordon do nó (`SetSchedulability` com `unschedulable=false`, ou `kind: Node` com `spec.schedulable: true`) antes de criar workloads nele, ou coloque o workload num nó que esteja agendável."

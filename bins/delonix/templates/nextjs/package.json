@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.34.6",
   "engines": {
-    "node": ">=24"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "next dev --port __PORT__",
@@ -38,7 +38,7 @@
   "devDependencies": {
     "@next/eslint-plugin-next": "^__TEMPLATE_VERSION__",
     "@types/amqplib": "^0.10.5",
-    "@types/node": "^24.0.0",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "eslint": "^10.11.0",

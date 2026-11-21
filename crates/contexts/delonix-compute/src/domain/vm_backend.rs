@@ -77,19 +77,21 @@ pub struct VmConfig {
     /// guest runs elsewhere cannot open it. Prefer the intent fields below and
     /// let each backend realize them; keep this for a seed you built yourself.
     pub seed: Option<String>,
-    /// Tamanho do disco do nó, em GiB. `None` = herda o da imagem base.
+    /// Node disk size, in GiB. `None` = inherits the base image's.
     ///
-    /// Existe porque sem ele **todo o nó herdava o tamanho da golden**, e não
-    /// havia como dimensionar um nó pelo armazenamento que o inquilino paga —
-    /// uma quota de armazenamento, de quem a tiver, conta-se sobre o
-    /// PROVISIONADO, logo é aqui que ela se aplica.
+    /// Exists because without it **every node inherited the golden's size**, and
+    /// there was no way to size a node by the storage the tenant pays for — a
+    /// storage quota, for whoever has one, is counted against the PROVISIONED
+    /// amount, so this is where it applies.
     ///
-    /// O overlay é fino: pedir 40 GiB não escreve 40 GiB: cresce à medida do
-    /// uso. Mas o número PROMETIDO é o que a quota do inquilino paga, e é este.
+    /// The overlay is thin: asking for 40 GiB does not write 40 GiB: it grows as
+    /// it is used. But the PROMISED number is what the tenant's quota pays for,
+    /// and it is this one.
     ///
-    /// **Não pode ser menor que a imagem base** — um overlay qcow2 não encolhe
-    /// o seu backing file, e tentar fazê-lo produz uma VM que arranca e corrompe
-    /// o filesystem. Validado antes de criar (ver `prepare_local_overlay`).
+    /// **It cannot be smaller than the base image** — a qcow2 overlay does not
+    /// shrink its backing file, and trying to do so produces a VM that boots and
+    /// corrupts the filesystem. Validated before creation (see
+    /// `prepare_local_overlay`).
     pub disk_size_gib: Option<u32>,
     // --- cloud-init INTENT ------------------------------------------------
     // What the operator MEANT, as opposed to `seed` above, which is one way of

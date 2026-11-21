@@ -160,6 +160,56 @@ pub fn default_kept_mask() -> u64 {
     KEPT_CAPS.iter().fold(0u64, |m, &c| m | (1u64 << c))
 }
 
+/// Bitmask of the named capabilities (`CAP_NET_RAW` or `NET_RAW`). Names are
+/// expected to have been validated upstream (an unknown name is a `create`-time
+/// refusal in `oci-runtime`); any that still fail to resolve here are skipped
+/// rather than panicking, exactly as [`resolve_cap_keep`] skips unknown deltas.
+pub fn mask_from_names(names: &[String]) -> u64 {
+    names
+        .iter()
+        .filter_map(|n| cap_num(n))
+        .fold(0u64, |m, n| m | (1u64 << n))
+}
+
+/// The five OCI capability sets as kernel bitmasks. The OCI/runtime-spec model
+/// keeps these DISTINCT — bounding, effective, permitted, inheritable and
+/// ambient — and a conformant runtime must install each one exactly (the
+/// `runtime-tools` suite reads all five back from `/proc/self/status`). The
+/// engine's older model carried a SINGLE kept mask; [`CapSets::from_keep`] is
+/// that model expressed in these terms, so the docker/CRI path keeps
+/// byte-for-byte the confinement it always had.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CapSets {
+    /// Ceiling: a cap outside this set cannot be reacquired via setuid/exec.
+    pub bounding: u64,
+    /// The caps active for permission checks right now.
+    pub effective: u64,
+    /// The caps the thread may make effective.
+    pub permitted: u64,
+    /// The caps a child may inherit across an `execve`.
+    pub inheritable: u64,
+    /// The caps that SURVIVE an `execve` into a non-privileged program — raised
+    /// with `PR_CAP_AMBIENT_RAISE`, which requires each one to be in both
+    /// `permitted` and `inheritable` first.
+    pub ambient: u64,
+}
+
+impl CapSets {
+    /// The single-mask model: `bounding = effective = permitted = keep`, with
+    /// inheritable and ambient empty. This is EXACTLY what the engine applied
+    /// before it learned the five-set model, so every caller that has no
+    /// distinct sets (docker `run`, the CRI, `exec`) keeps the same confinement.
+    pub fn from_keep(keep: u64) -> Self {
+        Self {
+            bounding: keep,
+            effective: keep,
+            permitted: keep,
+            inheritable: 0,
+            ambient: 0,
+        }
+    }
+}
+
 /// The names of every capability set in `mask`, in ascending capability number
 /// (stable order, so the argv this feeds is reproducible). Bits without a known
 /// name are skipped — see [`cap_name`].
@@ -179,39 +229,39 @@ mod tests {
     /// other, so a single mismatched entry would silently drop a capability the
     /// operator explicitly allowed.
     #[test]
-    fn cap_name_e_cap_num_sao_inversas_uma_da_outra() {
+    fn cap_name_and_cap_num_are_inverses() {
         for n in 0u8..=40 {
-            let name = cap_name(n).unwrap_or_else(|| panic!("cap {n} sem nome"));
-            assert_eq!(cap_num(name), Some(n), "round-trip falhou para {name}");
+            let name = cap_name(n).unwrap_or_else(|| panic!("cap {n} has no name"));
+            assert_eq!(cap_num(name), Some(n), "round-trip failed for {name}");
             assert_eq!(
                 cap_num(&format!("CAP_{name}")),
                 Some(n),
-                "prefixo CAP_ devia ser aceite para {name}"
+                "CAP_ prefix should be accepted for {name}"
             );
         }
-        assert_eq!(cap_name(41), None, "41 ainda não está na tabela");
+        assert_eq!(cap_name(41), None, "41 is not in the table yet");
     }
 
     #[test]
-    fn names_from_mask_e_ordenada_e_ignora_bits_sem_nome() {
+    fn names_from_mask_is_ordered_and_ignores_unnamed_bits() {
         let mask = (1u64 << 21) | (1u64 << 0) | (1u64 << 63);
         assert_eq!(names_from_mask(mask), vec!["CHOWN", "SYS_ADMIN"]);
     }
 
     #[test]
-    fn default_kept_mask_bate_com_kept_caps() {
+    fn default_kept_mask_matches_kept_caps() {
         let m = default_kept_mask();
         for &c in KEPT_CAPS {
             assert_eq!((m >> c) & 1, 1);
         }
-        assert_eq!((m >> 21) & 1, 0, "SYS_ADMIN nunca está no default");
+        assert_eq!((m >> 21) & 1, 0, "SYS_ADMIN is never in the default");
     }
 
     /// A mask rendered into names and fed back as `--cap-drop ALL --cap-add <…>`
     /// has to resolve to the SAME mask — this is the round-trip the CRI ceiling
     /// depends on to clamp without reimplementing the resolution.
     #[test]
-    fn mask_sobrevive_a_ida_e_volta_por_drop_all_mais_add() {
+    fn mask_survives_round_trip_through_drop_all_plus_add() {
         let want = default_kept_mask() | (1u64 << 12); // + NET_ADMIN
         let add: Vec<String> = names_from_mask(want)
             .into_iter()
@@ -225,15 +275,15 @@ mod tests {
     /// two sources of truth cannot drift. (Also pins that the crate still maps the
     /// 0..=40 range this engine relies on.)
     #[test]
-    fn cap_name_concorda_com_o_crate_caps() {
+    fn cap_name_agrees_with_the_caps_crate() {
         for n in 0u8..=40 {
-            let ours = format!("CAP_{}", cap_name(n).expect("nome na tabela"));
+            let ours = format!("CAP_{}", cap_name(n).expect("name in the table"));
             let theirs = caps::all()
                 .into_iter()
                 .find(|c| c.index() == n)
                 .map(|c| c.to_string())
-                .expect("o crate caps conhece esta capability");
-            assert_eq!(ours, theirs, "cap {n} diverge do crate caps");
+                .expect("the caps crate knows this capability");
+            assert_eq!(ours, theirs, "cap {n} diverges from the caps crate");
         }
     }
 }

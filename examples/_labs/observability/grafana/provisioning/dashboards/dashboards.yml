@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: delonix
+    orgId: 1
+    folder: Delonix
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

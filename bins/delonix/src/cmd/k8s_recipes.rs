@@ -108,7 +108,7 @@ pub(crate) fn k8s_host_recipes(k8s_version: &str, extra_packages: &[String]) -> 
 
     let mut all = vec![
         HostRecipe {
-            name: "repositório pkgs.k8s.io configurado",
+            name: "pkgs.k8s.io repository configured",
             check: "test -f /etc/apt/sources.list.d/kubernetes.list".to_string(),
             apply: format!(
                 "curl -fsSL https://pkgs.k8s.io/core:/{repo}/deb/Release.key | \
@@ -119,7 +119,7 @@ pub(crate) fn k8s_host_recipes(k8s_version: &str, extra_packages: &[String]) -> 
             offline: None,
         },
         HostRecipe {
-            name: "kubeadm/kubelet/kubectl instalados e retidos",
+            name: "kubeadm/kubelet/kubectl installed and held",
             check: "command -v kubeadm >/dev/null 2>&1".to_string(),
             apply: format!(
                 "apt-get update && apt-get install -y {packages_str} && apt-mark hold kubeadm kubelet kubectl"
@@ -141,13 +141,13 @@ pub(crate) fn k8s_host_recipes(k8s_version: &str, extra_packages: &[String]) -> 
 pub(crate) fn k8s_config_recipes() -> Vec<HostRecipe> {
     let mut all = vec![
         HostRecipe {
-            name: "swap desligado",
+            name: "swap disabled",
             check: "! swapon --show | grep -q .".to_string(),
             apply: "swapoff -a && sed -i '/[[:space:]]swap[[:space:]]/d' /etc/fstab".to_string(),
             offline: Some("sed -i '/[[:space:]]swap[[:space:]]/d' /etc/fstab".to_string()),
         },
         HostRecipe {
-            name: "módulos kernel overlay/br_netfilter carregados",
+            name: "overlay/br_netfilter kernel modules loaded",
             check: "lsmod | grep -q br_netfilter && lsmod | grep -q overlay".to_string(),
             apply: "printf 'overlay\\nbr_netfilter\\n' > /etc/modules-load.d/k8s.conf && \
                     modprobe overlay && modprobe br_netfilter"
@@ -157,7 +157,7 @@ pub(crate) fn k8s_config_recipes() -> Vec<HostRecipe> {
             ),
         },
         HostRecipe {
-            name: "sysctls de rede do kubelet/CNI aplicados",
+            name: "kubelet/CNI network sysctls applied",
             check: "[ \"$(sysctl -n net.ipv4.ip_forward)\" = \"1\" ]".to_string(),
             apply: "printf 'net.bridge.bridge-nf-call-iptables=1\\nnet.ipv4.ip_forward=1\\n\
                     net.bridge.bridge-nf-call-ip6tables=1\\n' > /etc/sysctl.d/k8s.conf && \
@@ -273,28 +273,28 @@ mod tests {
     const ANY: &str = "1.33";
 
     #[test]
-    fn extra_packages_entram_na_receita_de_instalacao() {
+    fn extra_packages_enter_the_install_recipe() {
         let recipes = k8s_host_recipes(ANY, &["ipvsadm".to_string()]);
         let install = recipes
             .iter()
-            .find(|r| r.name.contains("instalados"))
+            .find(|r| r.name.contains("installed"))
             .unwrap();
         assert!(install.apply.contains("ipvsadm"));
         assert!(install.apply.contains("kubeadm"));
     }
 
     #[test]
-    fn k8s_version_explicita_entra_no_repo() {
+    fn explicit_k8s_version_enters_the_repo() {
         let recipes = k8s_host_recipes("1.30", &[]);
         let repo_step = recipes
             .iter()
-            .find(|r| r.name.contains("repositório"))
+            .find(|r| r.name.contains("repository"))
             .unwrap();
         assert!(repo_step.apply.contains("stable:/v1.30"));
     }
 
     #[test]
-    fn k8s_version_patch_e_truncada_para_major_minor_no_repo() {
+    fn k8s_patch_version_is_truncated_to_major_minor_in_the_repo() {
         // BUG regression guard: `valid_version` (cluster.rs) explicitly
         // accepts a patch version like "1.31.2" (its own doc-comment says
         // so) but pkgs.k8s.io only ever publishes MINOR-level repo
@@ -304,7 +304,7 @@ mod tests {
         let recipes = k8s_host_recipes("1.31.2", &[]);
         let repo_step = recipes
             .iter()
-            .find(|r| r.name.contains("repositório"))
+            .find(|r| r.name.contains("repository"))
             .unwrap();
         assert!(
             repo_step.apply.contains("stable:/v1.31/"),
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn major_minor_trunca_so_quando_ha_terceira_componente() {
+    fn major_minor_truncates_only_when_there_is_a_third_component() {
         assert_eq!(super::major_minor("1.31.2"), "1.31");
         assert_eq!(super::major_minor("1.31"), "1.31");
         assert_eq!(super::major_minor("1"), "1");
@@ -332,7 +332,7 @@ mod tests {
         assert_eq!(repo, format!("stable:/v{DEFAULT_K8S_VERSION}"));
         assert!(
             !repo.contains("v1.31"),
-            "o default independente de 1.31 voltou: {repo}"
+            "the 1.31-independent default came back: {repo}"
         );
     }
 
@@ -359,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn config_recipes_sao_o_subconjunto_sem_rede() {
+    fn config_recipes_are_the_network_free_subset() {
         let config = k8s_config_recipes();
         assert_eq!(
             config.len(),
@@ -371,7 +371,7 @@ mod tests {
             let cmd = r.apply_offline();
             assert!(
                 !cmd.contains("curl") && !cmd.contains("apt-get") && !cmd.contains("https://"),
-                "receita '{}' precisa de rede: {cmd}",
+                "recipe '{}' needs the network: {cmd}",
                 r.name
             );
             // And none of them has a live effect in the virt-customize chroot,

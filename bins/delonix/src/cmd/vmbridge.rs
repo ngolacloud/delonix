@@ -556,28 +556,28 @@ mod tests {
             .unwrap()
             .unwrap();
         let again = nix::unistd::User::from_name(&me.name).unwrap().unwrap();
-        assert_eq!(again.dir, me.dir, "getpwnam deve devolver o mesmo home");
+        assert_eq!(again.dir, me.dir, "getpwnam must return the same home");
         assert!(!again.dir.as_os_str().is_empty());
     }
 
     #[test]
-    fn veth_names_estaveis_e_curtos() {
+    fn veth_names_stable_and_short() {
         let (vh, vs) = veth_names("delonix0");
         assert!(vh.len() <= 15 && vs.len() <= 15, "IFNAMSIZ");
         assert_ne!(vh, vs);
-        // Determinístico: mesma rede → mesmos nomes (o unbridge tem de os achar).
+        // Deterministic: same network → same names (unbridge has to find them).
         assert_eq!(veth_names("delonix0"), (vh, vs));
         assert_ne!(veth_names("dlxned04b6d4").0, veth_names("delonix0").0);
     }
 
     #[test]
-    fn host_sdn_ip_fica_alto_no_16() {
+    fn host_sdn_ip_stays_high_in_the_16() {
         assert_eq!(host_sdn_ip(&sdn_cidr("10.200").unwrap()), "10.200.255.254");
         assert_eq!(host_sdn_ip(&sdn_cidr("10.210").unwrap()), "10.210.255.254");
     }
 
     #[test]
-    fn cidr_network_normaliza_para_a_rede() {
+    fn cidr_network_normalizes_to_the_network() {
         assert_eq!(
             cidr_network("192.168.122.1/24").as_deref(),
             Some("192.168.122.0/24")
@@ -586,7 +586,7 @@ mod tests {
             cidr_network("10.10.100.1/24").as_deref(),
             Some("10.10.100.0/24")
         );
-        // /16 e outros passam intactos (nota a montante).
+        // /16 and others pass through intact (note upstream).
         assert_eq!(
             cidr_network("172.16.5.1/16").as_deref(),
             Some("172.16.5.1/16")
@@ -595,27 +595,27 @@ mod tests {
     }
 
     #[test]
-    fn bridge_plan_tem_a_ordem_e_os_passos_certos() {
+    fn bridge_plan_has_the_right_order_and_steps() {
         let sdn = sdn_cidr("10.200").unwrap();
         let plan = bridge_plan("4242", "delonix0", &sdn, &["192.168.122.0/24".into()]);
-        // veth criado ANTES de mover para a netns; enslave DENTRO do holder.
+        // veth created BEFORE being moved into the netns; enslave INSIDE the holder.
         assert_eq!(plan[0][..3], ["ip", "link", "add"]);
         assert!(plan[1].contains(&"netns".to_string()) && plan[1].contains(&"4242".to_string()));
         assert!(plan[2][0] == "nsenter" && plan[2].contains(&"master".to_string()));
-        // host end recebe o IP alto do /16.
+        // host end gets the high IP of the /16.
         assert!(plan
             .iter()
             .any(|c| c.contains(&"10.200.255.254/16".to_string())));
-        // ip_forward ligado.
+        // ip_forward on.
         assert!(plan
             .iter()
             .any(|c| c.contains(&"net.ipv4.ip_forward=1".to_string())));
-        // FORWARD ACCEPT nos dois sentidos, contra o REJECT default do libvirt.
+        // FORWARD ACCEPT both ways, against libvirt's default REJECT.
         assert!(plan.iter().any(|c| c[..2] == ["iptables", "-I"]
             && c.contains(&"192.168.122.0/24".to_string())
             && c.contains(&"10.200.0.0/16".to_string())));
-        // rota de retorno da subnet da VM, via o host end, DENTRO do holder — e
-        // fica em ÚLTIMO (depois do enslave e das regras FORWARD).
+        // VM subnet return route, via the host end, INSIDE the holder — and it
+        // comes LAST (after the enslave and the FORWARD rules).
         let ret = plan.last().unwrap();
         assert_eq!(ret[0], "nsenter");
         assert!(
@@ -625,22 +625,22 @@ mod tests {
     }
 
     #[test]
-    fn sdn_subnet_deriva_o_16() {
+    fn sdn_subnet_derives_the_16() {
         assert_eq!(sdn_subnet(&sdn_cidr("10.210").unwrap()), "10.210.0.0/16");
         assert_eq!(sdn_subnet(&sdn_cidr("10.200").unwrap()), "10.200.0.0/16");
     }
 
     #[test]
-    fn unbridge_plan_apaga_forward_rota_e_veth() {
+    fn unbridge_plan_removes_forward_route_and_veth() {
         let sdn = sdn_cidr("10.200").unwrap();
         let plan = unbridge_plan("4242", "delonix0", &sdn, &["192.168.122.0/24".into()]);
-        // Remove as regras FORWARD (espelho do bridge)…
+        // Removes the FORWARD rules (mirror of the bridge)…
         assert!(plan.iter().any(|c| c[..2] == ["iptables", "-D"]));
-        // …a rota de retorno…
+        // …the return route…
         assert!(plan
             .iter()
             .any(|c| c.contains(&"route".to_string()) && c.contains(&"del".to_string())));
-        // …e por fim o veth (que arrasta o par inteiro).
+        // …and finally the veth (which drags the whole pair with it).
         let last = plan.last().unwrap();
         assert_eq!(last[..3], ["ip", "link", "del"]);
         assert!(last[3].starts_with("vbh"));

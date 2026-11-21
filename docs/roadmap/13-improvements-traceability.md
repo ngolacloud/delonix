@@ -1,252 +1,263 @@
-# Programa das 13 melhorias — matriz de rastreabilidade
+# Programme of 13 improvements — traceability matrix
 
-> **O que este documento é.** O registo único do estado de M01–M13, com a
-> **baseline medida** de cada um. Uma célula que diz um número diz onde ele foi
-> obtido; uma célula sem medição diz `por medir` — nunca uma estimativa.
+> **What this document is.** The single record of the state of M01–M13, with
+> the **measured baseline** for each one. A cell that states a number says
+> where it was obtained; a cell with no measurement says `to be measured` —
+> never an estimate.
 >
-> **O que não é.** Um plano de intenções. Um `DONE` aqui exige as quatro coisas
-> ao mesmo tempo: código, testes, documentação e evidência reproduzível.
+> **What it is not.** A statement of intent. A `DONE` here requires all four
+> things at once: code, tests, documentation and reproducible evidence.
 >
-> **Porque é que ele existe.** O `docs/AUDITORIA-E2E.md` deste repo passou
-> semanas a dar 27 problemas resolvidos por dívida viva, por não ter sido
-> actualizado à medida que as correcções entravam. Uma tabela que não acompanha
-> o código mente nos dois sentidos. Esta tem de ser actualizada no MESMO commit
-> que muda o estado que descreve.
+> **Why it exists.** This repo's `docs/AUDITORIA-E2E.md` spent weeks claiming
+> 27 problems resolved as live debt, for not having been updated as fixes came
+> in. A table that does not track the code lies in both directions. This one
+> has to be updated in the SAME commit that changes the state it describes.
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Baseline medida em | **2026-08-25** |
-| Contra | `origin/main` `b4653002b`, versão `0.63.1` |
-| Onde | host de desenvolvimento, Linux 7.0, rootless, cgroup v2 |
-| Binário | `cargo build -p delonix-runtime-bin` do próprio commit |
+| Baseline measured on | **2026-08-25** |
+| Against | `origin/main` `b4653002b`, version `0.63.1` |
+| Where | development host, Linux 7.0, rootless, cgroup v2 |
+| Binary | `cargo build -p delonix-runtime-bin` from the commit itself |
 
-## Baseline factual do motor (medida hoje, não citada)
+## Factual baseline of the engine (measured today, not quoted)
 
-| Grandeza | Valor | Como foi obtida |
+| Measure | Value | How obtained |
 |---|---|---|
-| Crates no workspace | **13** | `ls crates/` + `Cargo.toml` por directório |
-| Comandos de topo | **28** | travessia de `--help` a partir do binário |
-| Folhas invocáveis da CLI | **229** | a mesma travessia, contando as que não têm subcomandos |
-| Testes no workspace | **1207** | `#[test]` + `#[tokio::test]` em `crates/` |
-| Checks da bateria E2E | **270** | `scripts/e2e.sh` |
-| Cenários de caos | **8** | `scripts/chaos.sh` |
-| Rotas na Docker Engine API | **15 servidas, 11 recusadas com razão** (actualizado 2026-09-22 — `POST /images/create` mudou de lista; o resto da baseline desta tabela continua de 2026-08-25) | `API_MATRIX` / `API_UNIMPLEMENTED` em `cmd/dockerapi.rs` |
-| Kinds no manifesto | **20** (actualizado 2026-09-22 — `kind: RuntimePolicy`, M04; o resto da baseline desta tabela continua de 2026-08-25) | tabela `cmd/kinds.rs` |
-| ADRs | **18** (13 Accepted, 2 Proposed, 1 Rejected, 2 sem estado parseável) | `docs/adr/` |
-| Jobs de CI | **7** (`fmt`, `lang`, `clippy`, `test`, `deny`, `docs` + caos à parte) | `.github/workflows/ci.yml` |
+| Crates in the workspace | **13** | `ls crates/` + `Cargo.toml` per directory |
+| Top-level commands | **28** | traversal of `--help` from the binary |
+| Invocable CLI leaves | **229** | same traversal, counting the ones with no subcommands |
+| Tests in the workspace | **1207** | `#[test]` + `#[tokio::test]` in `crates/` |
+| Checks in the E2E battery | **270** | `scripts/e2e.sh` |
+| Chaos scenarios | **8** | `scripts/chaos.sh` |
+| Routes in the Docker Engine API | **15 served, 11 refused with a reason** (updated 2026-09-22 — `POST /images/create` moved off the list; the rest of this table's baseline is still from 2026-08-25) | `API_MATRIX` / `API_UNIMPLEMENTED` in `cmd/dockerapi.rs` |
+| Kinds in the manifest | **20** (updated 2026-09-22 — `kind: RuntimePolicy`, M04; the rest of this table's baseline is still from 2026-08-25) | `cmd/kinds.rs` table |
+| ADRs | **18** (13 Accepted, 2 Proposed, 1 Rejected, 2 with no parseable status) | `docs/adr/` |
+| CI jobs | **7** (`fmt`, `lang`, `clippy`, `test`, `deny`, `docs` + chaos on the side) | `.github/workflows/ci.yml` |
 
-> **Correcção a esta baseline (2026-08-25).** A primeira versão desta linha dizia
-> «21 rotas servidas», contadas por literais de rota no ficheiro. Estava errada:
-> 21 é a soma das servidas com as **recusadas** — a `API_UNIMPLEMENTED` também
-> guarda literais de path. O número certo é 14 servidas. Fica registado em vez de
-> corrigido em silêncio, porque foi exactamente o erro que este programa existe
-> para apanhar, cometido pelo próprio documento que o mede.
+> **Correction to this baseline (2026-08-25).** The first version of this line
+> said «21 routes served», counted by route literals in the file. It was
+> wrong: 21 is the sum of served plus **refused** — `API_UNIMPLEMENTED` also
+> holds path literals. The correct number is 14 served. This is recorded
+> rather than quietly fixed, because it was exactly the error this programme
+> exists to catch, committed by the very document that measures it.
 
-> **A superfície não é a cobertura.** As 229 folhas têm o `--help` verificado; o
-> número das que a bateria **executa** não foi remedido nesta passagem e a
-> fracção citada no `AGENTS.md` é de outra data. Fica `por medir` em M02/M11 até
-> ser recontado com o `scripts/e2e.sh` do dia — citar um total que subiu faria a
-> cobertura parecer melhor sem uma única folha nova exercitada.
+> **The surface is not the coverage.** The 229 leaves have had their `--help`
+> verified; the number the battery actually **executes** was not re-measured
+> in this pass, and the fraction quoted in `AGENTS.md` is from another date.
+> It stays `to be measured` in M02/M11 until it is recounted with that day's
+> `scripts/e2e.sh` — quoting a total that went up would make coverage look
+> better without a single new leaf exercised.
 
-## Matriz
+## Matrix
 
-Estados: `NOT_STARTED`, `IN_PROGRESS`, `PARTIAL`, `BLOCKED`, `DONE`.
+States: `NOT_STARTED`, `IN_PROGRESS`, `PARTIAL`, `BLOCKED`, `DONE`.
 
-| ID | Melhoria | Estado | Baseline medida | Entregáveis em falta | Testes | Dep. | Risco | PR | DoD |
+| ID | Improvement | State | Measured baseline | Missing deliverables | Tests | Dep. | Risk | PR | DoD |
 |---|---|---|---|---|---|---|---|---|---|
-| **M01** | Posicionamento e arquitectura | `IN_PROGRESS` | `ARCHITECTURE.md` tem C4 1–3 e mini-ADRs. **Gate de dependência proibida (fronteira PaaS) FEITO (2026-09-16)**: `consumer_mentions()` em `scripts/arch_fitness.py` recusa qualquer menção a um consumidor (`delonix-paas`, `ngolacloud`, `delonixctl`, …) em `crates/`, `bins/`, `proto/`, `Cargo.toml`/`Makefile` — comentários incluídos — e já está integrado no `main()` do gate, não é opt-in. **Falta**: `capability discovery` (item de desenho do ADR-0040 D3 — **o ADR foi ACEITE a 2026-10-06**, por isso o que falta é o trabalho, não a decisão); política de estabilidade por API continua só parcial (`cli-stability.md` não cobre a API de gestão nem o `mcp` com contrato formal). | capability discovery (o ADR-0040 já está aceite — 2026-10-06); fechar a política de estabilidade por API | `tests/architecture.rs` — 3 gates, verdes; regressão verificada nos dois sentidos | — | baixo | — | 4 de 5 |
-| **M02** | Compatibilidade e migração | `IN_PROGRESS` | CRI **79/103** (`critest` v1.36.0, motor **v0.63.1**, remedido 2026-08-25). Docker API: **15 servidas, 11 recusadas com razão** (2026-09-22: `POST /images/create` deixou de estar em falta — ver abaixo). `compose` nativo. **Correcção de baseline (2026-09-23)**: `compatibility` EXISTIA desde antes desta linha ter sido escrita (`cmd/compatibility.rs`, braço `docker`) — a mesma deriva já corrigida em M01/M05/M12. **`compatibility compose` FEITO**: matriz de três estados contra a lista de chaves da especificação, MEDIDA uma a uma contra `docker compose config` (v29.8.1, 2026-09-23) — 28 servidas, 12 recusadas com razão, 49 em falta, de 89; topo 7/1 de 8. **`migrate assess` FEITO**: lê um ficheiro compose real e classifica cada USO de chave, com o comando equivalente do motor quando existe. `compatibility cri`/`oci` ficam de fora com razão escrita (o número do CRI é de um doc à mão; o OCI não tem conformidade nenhuma aqui). | `compatibility cri` (precisa do `critest` a produzir um artefacto que o binário leia, não um doc à mão); conformidade OCI (não há trabalho nenhum no repo) | `tests/compat/` + 3 gates da matriz Docker + 4 testes de `parse_registry_auth` + 4 gates da matriz Compose + 6 testes de `cmd::migrate` + 8 checks E2E (um a cruzar as 88 chaves com o `compose config` real) | M01 | médio | #123, #124, #460, #471 | 3 de 4 |
-| **M03** | Build de produção | `PARTIAL` | `build` tem `--secret`, `--platform`, `--no-cache`, `--build-arg`, cache por instrução (rootless), multi-stage. **SBOM automático por imagem construída FEITO (2026-09-22)**: todo `delonix build` que comita gera `<root>/images/<id>.sbom.spdx.json` (SPDX 2.3, best-effort — nunca falha o build), servido por `delonix image sbom <ref>` (cache hit instantâneo para o que este engine construiu; calcula e guarda na hora para uma imagem puxada/mais antiga). **`RUN --mount=type=cache` FEITO (2026-09-22)**: directório persistente e de leitura-escrita (`<root>/build-cache/mounts/<sha256(id)>`, `id` por omissão o `target`) que sobrevive entre builds — mesmo mecanismo do `type=secret` (`mount_live`, invisível à camada final), generalizado. Validado AO VIVO: dois builds separados escreveram no MESMO cache mount e o segundo viu o que o primeiro escreveu; o conteúdo nunca chegou à imagem final (confirmado por `container run`); `sharing=`/`ro` recusados em vez de engolidos em silêncio. De caminho corrigiu dívida LANG-01 pré-existente (as mensagens de erro deste parser de `--mount` estavam em português desde sempre — nunca tinham sido revistas). **Sem** `--ssh`, cache de `type=cache` partilhada em registry (só local a este nó), provenance assinada por imagem, comparação medida com BuildKit. | mounts `type=ssh`; cache de build partilhada entre nós (registry); provenance assinada por imagem construída (distinta do SLSA de M04, que cobre a RELEASE do próprio motor, não cada imagem que ele constrói); comparação medida com BuildKit | `crates/adapters/delonix-scanner` (4 testes `sbom_spdx_*`/`spdx_safe_*`) + `crates/adapters/delonix-oci::build` (7 testes `run_mount_*`) + `cmd::build::cache_mount_dir_*` + `crates/adapters/delonix-image/benches` existe | M04 | médio | #466, #468 | 3 de 4 |
-| **M04** | Segurança verificável | `IN_PROGRESS` | Releases assinadas (minisign) + proveniência SLSA + SBOM SPDX de 380 pacotes dentro da assinatura. `cargo-deny` no CI. `policy.json`: tecto do NÓ imposto no `cmd_run` — nega `--privileged`, `--net host`, `:latest` e registos fora da lista, fail-closed e com todas as razões de uma vez. **Job de fuzz no CI (2026-09-22)**: `fuzz/` (crate próprio, cargo-fuzz), dois alvos — `parse_dockerfile` e `parse_reference` —, 60s de smoke por PR; já encontrou um DoS real numa cadeia `ARG` que dobra (corrigido em #463). **`kind: RuntimePolicy` FEITO (2026-09-22)**: `stack apply` sobe/aperta o tecto declarativamente (converge a quente, `presence: Registry`), mas nunca o baixa — `teardown: false` na tabela, `stack destroy`/`--prune` nunca lhe tocam, e `delonix policy unset` é o único verbo que o remove, com confirmação interactiva ou `--force` e um resumo impresso do que foi removido. Dois documentos do Kind no mesmo manifesto são recusados antes de tocar em nada (é um singleton do nó — sempre o mesmo `policy.json`, qualquer que seja o `metadata.name`). Leitura por `get runtimepolicies`/`describe runtimepolicy`. **Correcção à baseline**: "processo de advisory" nunca esteve genuinamente em falta — `SECURITY.md` existe desde 2026-07-27, ANTES desta baseline de 2026-08-25; esta linha estava errada desde o dia em que foi escrita, não é regressão de código. O que falta é mais estreito: um processo escrito para o FEED de CVEs que `image scan --update` consome. | processo de manutenção do feed de CVEs (`image scan --update`) | 7 gates + 6 checks E2E + 2 alvos de fuzz + testes unitários do Kind (`cmd::policy::tests`) | — | médio | #125, #126, #461, #462 | 3 de 4 |
-| **M05** | Desired State e GitOps | `IN_PROGRESS` | `stack` serve **11** verbos: `init apply destroy prune plan ls describe wait validate history rollback`. `plan` não muda estado e tem `--detailed-exitcode`; diff de 3 vias sem ficheiro de estado; **revisões persistidas** (ADR-0019). **`diff <kind> <name>` FEITO (#200, 2026-08-31)** — as três faces (manifesto, last-applied, observado) lado a lado para UM recurso nomeado, verbo de topo próprio, não o `plan` com outro nome. **`drift` FEITO (2026-09-23)**: verbo de topo próprio, sem alvo nomeado e **com o manifesto OPCIONAL** — compara o carimbo `delonix.io/last-applied` de cada recurso com o observado, que é a pergunta que o `plan` não consegue responder depois de alguém editar o ficheiro. Kinds que só são enumeráveis a partir do documento são NOMEADOS na saída, nunca omitidos; um recurso sem carimbo é um terceiro estado contado à parte. **Falta `reconcile`** contínuo, que traz a pergunta do daemon. O `apply` continua fail-fast sem rollback, por desenho, e já não deixa órfãos invisíveis. | reconciler opcional com rate-limit (traz a pergunta do daemon: ADR próprio) | caos `stack_converge` + `stack_partial_apply`; **19 checks E2E** de `history`+`rollback`, um a apagar `stacks/` e outro a exigir o ciclo completo; 8 testes de `cmd::drift` (um deles a ler o wiring do `stack.rs`) + 4 checks E2E de `drift` | M01 | médio | #120, #121, #122, #200, #470 | 6 de 6 |
-| **M06** | Gestão de frota | `BLOCKED` | `node`/`cordon`/`drain` **não existem** (0 ocorrências). **O ADR-0010 RECUSOU a API de gestão remota** (2026-08-10) e o `AGENTS.md` diz que `delonix node add` está bloqueado. | **ADR sucessor** que nomeie o consumidor concreto — ver a nota abaixo | — | ADR | — | — | bloqueado |
-| **M07** | Observabilidade OTel | `PARTIAL` | OpenTelemetry **0.32** e `prometheus-client` na árvore (`delonix-runtime-core`); `/metrics` no `delonix-cri` e no `delonix-mgmt`; `system events`; `dash --json`. **Sem** `observe`/`trace`/`diagnose` como comandos; correlação e bundle sanitizado por fazer. | comandos `observe`/`diagnose`; schemas de evento versionados; overhead medido | — | M01 | médio | — | 2 de 4 |
-| **M08** | SLOs e health | `NOT_STARTED` | `slo` tem **0 ocorrências** em toda a CLI. Existem `--health-*` no `run` e probes de compose. Sem SLI/SLO, sem error budget, sem reason codes. | tudo | — | M07 | médio | — | 0 de 5 |
-| **M09** | MicroVMs e isolamento | `PARTIAL` | 3 backends (`cloud-hypervisor`, `libvirt`, `proxmox`) por trás de `VmBackend` **com registo**; ADR-0006 fixou `type: microvm`; snapshots nos dois backends locais. **Sem** `isolation: {container,microvm,vm,auto}` (0 ocorrências de `isolation` no `cmd/workload.rs`). | eixo `isolation` com `auto` explicável; Firecracker/Kata avaliados; capability model SEV-SNP/TDX | 28 folhas `vm`; secção CH no `e2e.sh` | M01 | médio | — | 2 de 5 |
-| **M10** | Plugin SDK e providers | `PARTIAL` | **Um** trait de provider em todo o workspace: `VmBackend` (`delonix-vm`), com registo e `BackendRegistration`. Providers reais: Proxmox (ADR-0008), TrueNAS (ADR-0009). **Sem** interfaces versionadas para network/storage/secrets/tunnel/registry, sem contract tests. | SDK versionado; contract tests comuns; isolamento e assinatura de plugin | `crates/providers/delonix-proxmox/tests/live.rs`, `delonix-truenas/tests/live.rs` | M01 | médio | — | 1 de 5 |
-| **M11** | Performance comprovada | `IN_PROGRESS` | **Recontagem FEITA a 2026-08-25** com o `scripts/bench.sh`: docker **299 ms**, podman **277 ms**, delonix **80 ms** no default (mediana de 10, dispersão publicada). O harness recusa-se a correr em bancada carregada — e recusou à primeira tentativa, com load 55-72. **Threshold de regressão FEITO (2026-09-23)**: `scripts/bench_gate.py` compara contra a baseline da MÁQUINA (`scripts/bench_baseline.json`, uma entrada por bancada) e tem TRÊS saídas — 0 dentro da tolerância, 1 regressão, **3 recusa-se a julgar** (corrida não publicável, sem baseline para a máquina, linha demasiado dispersa, ou âncoras degradadas tanto como o motor). É a lição de 2026-08-10 em código: docker e podman são âncoras, e uma degradação partilhada é da bancada, não do motor. `bench.sh --json` era aceite e ignorado e passou a valer; `time_n` passou a olhar para o exit status (uma ferramenta instalada mas inutilizável entrava na tabela como a mais rápida); e cada linha publica a DISPERSÃO (max/min), com tecto 3× para julgar e 1,5× para gravar — medido, uma corrida a load 6.44 deu ao docker 434→5407 ms. Baseline desta máquina: docker 224 ms, podman 279 ms, delonix 87 ms. No CI fica `skipped` num runner alojado (userns bloqueado, como o caos) e o job di-lo. | medir 4b/4c noutra bancada para atribuir a diferença (continua sem causa) | `bench.sh` + 2 checks E2E + 18 testes de `scripts/test_bench_gate.py`, agora corridos pelo job `script-tests` (que não existia: nenhum `scripts/test_*.py` corria em CI) | M01 | médio | #125, #126 | 3 de 4 |
-| **M12** | Developer Experience | `PARTIAL` | `completion`, `explain`, `man`, `syntax`, `init` com **11 templates**, `install.sh` com verificação de assinatura, exit codes com classe (v0.49.0). **`doctor` FEITO** (baseline estava errada — já existia): `system doctor [--strict]` verifica pré-requisitos reais do host (`br_netfilter`+`bridge-nf-call-iptables`, delegação de cgroup2, tabelas conntrack/ARP, intervalo de portas efémeras, `subuid`, porta mínima publicável, presença de `slirp4netns`/`nft`/`ip`), read-only, `--strict` para um gate de CI/provisionamento. **Error IDs estáveis FEITO** (baseline também estava errada): dicionário `DX-CDNN` (ADR-0043, *Accepted* 2026-09-17) com **198 códigos** registados em `delonix-model::codes`, `delonix explain DX-NNNN`/`explain codes --json`. **Sem** hot reload/file sync (um `docker compose watch`/skaffold-style para o loop local); golden paths local→CI→k8s continuam por medir de ponta a ponta. | hot reload/file sync para o loop de desenvolvimento local; golden paths local→CI→k8s medidos | 329 checks E2E (incl. `system doctor` e `explain`/`explain codes`) | M01 | baixo | — | 3 de 4 |
-| **M13** | Maturidade e certificação | `IN_PROGRESS` | **`system features`**: 13 capacidades com nível E a evidência que o sustenta, com gates a recusar uma linha sem evidência, a impedir `certified` (a matriz que o define não existe) e a exigir ordem por maturidade. `cli-stability.md` + releases assinadas com SBOM e proveniência. **`release verify` FEITO (2026-09-22)**: `scripts/release_verify.py` lê `system features -o json` (a MESMA tabela, nunca uma cópia) e, para toda a capacidade `stable`+, extrai as referências de ficheiro da sua evidência e confirma que ainda existem na árvore — falha antes de uma tag ser cortada, não depois de um leitor reparar. `--report` gera o `conformance report` em Markdown, timestamped ao commit, para viajar ao lado do SBOM/proveniência de uma release. Job novo no CI (`release-verify`). **Sem** gates de release POR NÍVEL (ex.: um nível `production-ready` exigir também que os cenários de caos tenham corrido) — só a rotting-evidence check está feita. | gates de release por nível (caos/e2e obrigatórios por nível) | 5 gates + 5 checks E2E + 10 testes unitários (`scripts/test_release_verify.py`) | todos | médio | #126 | 4 de 5 |
+| **M01** | Positioning and architecture | `IN_PROGRESS` | `ARCHITECTURE.md` has C4 1–3 and mini-ADRs. **Forbidden-dependency gate (PaaS boundary) DONE (2026-09-16)**: `consumer_mentions()` in `scripts/arch_fitness.py` refuses any mention of a consumer (`delonix-paas`, `ngolacloud`, `delonixctl`, …) in `crates/`, `bins/`, `proto/`, `Cargo.toml`/`Makefile` — comments included — and is already wired into the `main()` of the gate, not opt-in. **Missing**: `capability discovery` (an ADR-0040 D3 design item — **the ADR was ACCEPTED on 2026-10-06**, so what is missing is the work, not the decision); the per-API stability policy is still only partial (`cli-stability.md` does not cover the management API nor the `mcp` with a formal contract). | capability discovery (ADR-0040 is already accepted — 2026-10-06); close the per-API stability policy | `tests/architecture.rs` — 3 gates, green; regression verified in both directions | — | low | — | 4 of 5 |
+| **M02** | Compatibility and migration | `IN_PROGRESS` | CRI **79/103** (`critest` v1.36.0, engine **v0.63.1**, re-measured 2026-08-25). Docker API: **15 served, 11 refused with a reason** (2026-09-22: `POST /images/create` no longer missing — see below). Native `compose`. **Baseline correction (2026-09-23)**: `compatibility` EXISTED before this line was written (`cmd/compatibility.rs`, `docker` branch) — the same drift already fixed in M01/M05/M12. **`compatibility compose` DONE**: a three-state matrix against the specification's key list, MEASURED one by one against `docker compose config` (v29.8.1, 2026-09-23) — 28 served, 12 refused with a reason, 49 missing, out of 89; top-level 7/1 out of 8. **`migrate assess` DONE**: reads a real compose file and classifies every key USE, with the engine's equivalent command when one exists. `compatibility cri`/`oci` are left out with a written reason (the CRI number is from a hand-written doc; OCI has no conformance here at all). | `compatibility cri` (needs `critest` to produce an artefact the binary can read, not a hand-written doc); OCI conformance (no work on it in the repo at all) | `tests/compat/` + 3 Docker matrix gates + 4 `parse_registry_auth` tests + 4 Compose matrix gates + 6 `cmd::migrate` tests + 8 E2E checks (one cross-checking the 88 keys against the real `compose config`) | M01 | medium | #123, #124, #460, #471 | 3 of 4 |
+| **M03** | Production build | `PARTIAL` | `build` has `--secret`, `--platform`, `--no-cache`, `--build-arg`, per-instruction cache (rootless), multi-stage. **Automatic SBOM per built image DONE (2026-09-22)**: every `delonix build` that commits generates `<root>/images/<id>.sbom.spdx.json` (SPDX 2.3, best-effort — never fails the build), served by `delonix image sbom <ref>` (instant cache hit for whatever this engine built; computed and stored on the fly for a pulled/older image). **`RUN --mount=type=cache` DONE (2026-09-22)**: a persistent, read-write directory (`<root>/build-cache/mounts/<sha256(id)>`, `id` defaulting to `target`) that survives between builds — the same mechanism as `type=secret` (`mount_live`, invisible to the final layer), generalized. Validated LIVE: two separate builds wrote to the SAME cache mount and the second one saw what the first had written; the content never reached the final image (confirmed by `container run`); `sharing=`/`ro` refused instead of silently swallowed. Along the way it fixed a pre-existing LANG-01 debt (this `--mount` parser's error messages had been in Portuguese all along — never revisited). **Without** `--ssh`, registry-shared `type=cache` (local to this node only), per-image signed provenance, measured comparison with BuildKit. | `type=ssh` mounts; build cache shared across nodes (registry); signed provenance per built image (distinct from M04's SLSA, which covers the engine's own RELEASE, not every image it builds); measured comparison with BuildKit | `crates/adapters/delonix-scanner` (4 `sbom_spdx_*`/`spdx_safe_*` tests) + `crates/adapters/delonix-oci::build` (7 `run_mount_*` tests) + `cmd::build::cache_mount_dir_*` + `crates/adapters/delonix-image/benches` exists | M04 | medium | #466, #468 | 3 of 4 |
+| **M04** | Verifiable security | `IN_PROGRESS` | Signed releases (minisign) + SLSA provenance + SPDX SBOM of 380 packages inside the signature. `cargo-deny` in CI. `policy.json`: NODE ceiling enforced in `cmd_run` — denies `--privileged`, `--net host`, `:latest` and off-list registries, fail-closed with all reasons at once. **Fuzz job in CI (2026-09-22)**: `fuzz/` (its own crate, cargo-fuzz), two targets — `parse_dockerfile` and `parse_reference` —, 60s smoke per PR; already found a real DoS in a doubling `ARG` chain (fixed in #463). **`kind: RuntimePolicy` DONE (2026-09-22)**: `stack apply` raises/tightens the ceiling declaratively (converges hot, `presence: Registry`), but never lowers it — `teardown: false` in the table, `stack destroy`/`--prune` never touch it, and `delonix policy unset` is the only verb that removes it, with interactive confirmation or `--force` and a printed summary of what was removed. Two documents of the Kind in the same manifest are refused before touching anything (it is a node singleton — always the same `policy.json`, whatever the `metadata.name`). Read via `get runtimepolicies`/`describe runtimepolicy`. **Baseline correction**: the "advisory process" was never genuinely missing — `SECURITY.md` has existed since 2026-07-27, BEFORE this 2026-08-25 baseline; this line was wrong from the day it was written, not a code regression. What is missing is narrower: a written process for the CVE FEED that `image scan --update` consumes. | CVE feed maintenance process (`image scan --update`) | 7 gates + 6 E2E checks + 2 fuzz targets + Kind unit tests (`cmd::policy::tests`) | — | medium | #125, #126, #461, #462 | 3 of 4 |
+| **M05** | Desired State and GitOps | `IN_PROGRESS` | `stack` serves **11** verbs: `init apply destroy prune plan ls describe wait validate history rollback`. `plan` does not change state and has `--detailed-exitcode`; 3-way diff with no state file; **persisted revisions** (ADR-0019). **`diff <kind> <name>` DONE (#200, 2026-08-31)** — the three faces (manifest, last-applied, observed) side by side for ONE named resource, its own top-level verb, not `plan` under another name. **`drift` DONE (2026-09-23)**: its own top-level verb, with no named target and **with the manifest OPTIONAL** — compares each resource's `delonix.io/last-applied` stamp against what is observed, which is the question `plan` cannot answer once someone has edited the file. Kinds only enumerable from the document are NAMED in the output, never omitted; a resource with no stamp is a third state counted separately. **`reconcile` still missing**, continuous, which brings up the daemon question. `apply` remains fail-fast with no rollback, by design, and no longer leaves invisible orphans. | optional rate-limited reconciler (brings up the daemon question: its own ADR) | chaos `stack_converge` + `stack_partial_apply`; **19 E2E checks** for `history`+`rollback`, one of them deleting `stacks/` and another requiring the full cycle; 8 `cmd::drift` tests (one of them reading the `stack.rs` wiring) + 4 `drift` E2E checks | M01 | medium | #120, #121, #122, #200, #470 | 6 of 6 |
+| **M06** | Fleet management | `BLOCKED` | `node`/`cordon`/`drain` **do not exist** (0 occurrences). **ADR-0010 REJECTED the remote management API** (2026-08-10) and `AGENTS.md` states that `delonix node add` is blocked. | **successor ADR** naming the concrete consumer — see the note below | — | ADR | — | — | blocked |
+| **M07** | OTel observability | `PARTIAL` | OpenTelemetry **0.32** and `prometheus-client` in the tree (`delonix-runtime-core`); `/metrics` on `delonix-cri` and `delonix-mgmt`; `system events`; `dash --json`. **Without** `observe`/`trace`/`diagnose` as commands; correlation and a sanitized bundle still to do. | `observe`/`diagnose` commands; versioned event schemas; measured overhead | — | M01 | medium | — | 2 of 4 |
+| **M08** | SLOs and health | `NOT_STARTED` | `slo` has **0 occurrences** in the whole CLI. `--health-*` exists on `run` and compose probes. No SLI/SLO, no error budget, no reason codes. | everything | — | M07 | medium | — | 0 of 5 |
+| **M09** | MicroVMs and isolation | `PARTIAL` | 3 backends (`cloud-hypervisor`, `libvirt`, `proxmox`) behind `VmBackend` **with a registry**; ADR-0006 fixed `type: microvm`; snapshots on both local backends. **Without** `isolation: {container,microvm,vm,auto}` (0 occurrences of `isolation` in `cmd/workload.rs`). | an `isolation` axis with an explainable `auto`; Firecracker/Kata evaluated; SEV-SNP/TDX capability model | 28 `vm` leaves; CH section in `e2e.sh` | M01 | medium | — | 2 of 5 |
+| **M10** | Plugin SDK and providers | `PARTIAL` | **One** provider trait in the whole workspace: `VmBackend` (`delonix-vm`), with a registry and `BackendRegistration`. Real providers: Proxmox (ADR-0008), TrueNAS (ADR-0009). **Without** versioned interfaces for network/storage/secrets/tunnel/registry, no contract tests. | versioned SDK; shared contract tests; plugin isolation and signing | `crates/providers/delonix-proxmox/tests/live.rs`, `delonix-truenas/tests/live.rs` | M01 | medium | — | 1 of 5 |
+| **M11** | Proven performance | `IN_PROGRESS` | **Recount DONE on 2026-08-25** with `scripts/bench.sh`: docker **299 ms**, podman **277 ms**, delonix **80 ms** on default (median of 10, dispersion published). The harness refuses to run on a loaded bench — and refused on the first attempt, with load 55-72. **Regression threshold DONE (2026-09-23)**: `scripts/bench_gate.py` compares against the MACHINE's baseline (`scripts/bench_baseline.json`, one entry per bench) and has THREE outcomes — 0 within tolerance, 1 regression, **3 refuses to judge** (unpublishable run, no baseline for the machine, too scattered a line, or the anchors degraded as much as the engine). It is the 2026-08-10 lesson turned into code: docker and podman are anchors, and a shared degradation belongs to the bench, not the engine. `bench.sh --json` used to be accepted and ignored and now actually works; `time_n` now checks the exit status (a tool that was installed but unusable used to land in the table as the fastest); and every line publishes the DISPERSION (max/min), with a 3× ceiling to judge and 1.5× to record — measured once, a run at load 6.44 gave docker 434→5407 ms. This machine's baseline: docker 224 ms, podman 279 ms, delonix 87 ms. In CI it stays `skipped` on a hosted runner (userns blocked, like chaos), and the job says so. | measure 4b/4c on another bench to attribute the difference (still without a cause) | `bench.sh` + 2 E2E checks + 18 `scripts/test_bench_gate.py` tests, now run by the `script-tests` job (which did not exist: no `scripts/test_*.py` was running in CI) | M01 | medium | #125, #126 | 3 of 4 |
+| **M12** | Developer Experience | `PARTIAL` | `completion`, `explain`, `man`, `syntax`, `init` with **11 templates**, `install.sh` with signature verification, classed exit codes (v0.49.0). **`doctor` DONE** (baseline was wrong — it already existed): `system doctor [--strict]` checks real host prerequisites (`br_netfilter`+`bridge-nf-call-iptables`, cgroup2 delegation, conntrack/ARP tables, ephemeral port range, `subuid`, minimum publishable port, presence of `slirp4netns`/`nft`/`ip`), read-only, `--strict` for a CI/provisioning gate. **Stable error IDs DONE** (baseline also wrong): the `DX-CDNN` dictionary (ADR-0043, *Accepted* 2026-09-17) with **198 codes** registered in `delonix-model::codes`, `delonix explain DX-NNNN`/`explain codes --json`. **Without** hot reload/file sync (a `docker compose watch`/skaffold-style flow for the local loop); local→CI→k8s golden paths still unmeasured end to end. | hot reload/file sync for the local development loop; local→CI→k8s golden paths measured | 329 E2E checks (incl. `system doctor` and `explain`/`explain codes`) | M01 | low | — | 3 of 4 |
+| **M13** | Maturity and certification | `IN_PROGRESS` | **`system features`**: 13 capabilities with a level from E to the evidence supporting it, with gates refusing a line with no evidence, blocking `certified` (the matrix defining it does not exist) and requiring maturity ordering. `cli-stability.md` + signed releases with SBOM and provenance. **`release verify` DONE (2026-09-22)**: `scripts/release_verify.py` reads `system features -o json` (the SAME table, never a copy) and, for every `stable`+ capability, extracts the file references from its evidence and confirms they still exist in the tree — fails before a tag is cut, not after a reader finds out. `--report` generates the `conformance report` in Markdown, timestamped to the commit, to travel alongside a release's SBOM/provenance. New CI job (`release-verify`). **Without** per-level release gates (e.g. a `production-ready` level also requiring that chaos scenarios have run) — only the rotting-evidence check is done. | per-level release gates (chaos/e2e mandatory per level) | 5 gates + 5 E2E checks + 10 unit tests (`scripts/test_release_verify.py`) | all | medium | #126 | 4 of 5 |
 
-## M06 — porque está `BLOCKED` e não `NOT_STARTED`
+## M06 — why it is `BLOCKED` and not `NOT_STARTED`
 
-A diferença não é de grau. `NOT_STARTED` diz «ninguém chegou lá»; aqui alguém
-chegou, mediu e **decidiu que não**: o **ADR-0010 está `Rejected`** (2026-08-10),
-com a razão escrita — dos consumidores que enumerava, a evidência apontava para
-o control-plane de frota, e isso é o `delonix-paas`; *remoteness* sem identidade,
-autorização e auditoria não é *remoteness* que valha a pena. O `AGENTS.md`
-repete-o e acrescenta a condição de reabertura: **um ADR sucessor que nomeie o
-consumidor concreto**, nunca um comando.
+The difference is not one of degree. `NOT_STARTED` says «nobody got there
+yet»; here someone did, measured, and **decided against it**: **ADR-0010 is
+`Rejected`** (2026-08-10), with the reason written — of the consumers it
+listed, the evidence pointed to the fleet control-plane, and that is
+`delonix-paas`; *remoteness* with no identity, authorization and audit is not
+*remoteness* worth having. `AGENTS.md` repeats this and adds the reopening
+condition: **a successor ADR naming the concrete consumer**, never a command.
 
-Duas consequências, e nenhuma é negociável por este programa:
+Two consequences, and neither is negotiable within this programme:
 
-1. **Implementar `node add`/`cordon`/`drain` agora contrariaria uma decisão
-   aceite do repositório**, e a regra da casa é que um ADR se sucede com outro
-   ADR — não se revoga por uma linha noutro documento nem por um pedido de
-   funcionalidade. É também o que a regra 9 do próprio programa manda («preservar
-   contratos») e o que o guarda-rio da fronteira com o PaaS exige (o motor não
-   tem noção de inquilino).
-2. **O trabalho de M06 que NÃO depende da decisão pode avançar** e não está
-   bloqueado: identidade de nó, mTLS e o modelo de capacidades já têm o ADR-0003
-   em `Proposed`. O que fica travado é a superfície de comando e o controller.
+1. **Implementing `node add`/`cordon`/`drain` now would contradict an
+   accepted decision of the repository**, and the house rule is that an ADR
+   is superseded by another ADR — not revoked by a line in another document
+   nor by a feature request. It is also what the programme's own rule 9
+   mandates («preserve contracts») and what the guard at the PaaS boundary
+   requires (the engine has no notion of tenancy).
+2. **The M06 work that does NOT depend on the decision can proceed** and is
+   not blocked: node identity, mTLS and the capability model already have
+   ADR-0003 in `Proposed`. What is held back is the command surface and the
+   controller.
 
-O desbloqueio é uma peça de M01 (fronteiras), não de M06: escrever o ADR
-sucessor com o consumidor nomeado, ou registar formalmente que M06 sai do âmbito
-deste motor. Enquanto nenhuma das duas acontecer, M06 permanece `BLOCKED` — e
-**não** contará como `DONE` por omissão.
+The unblocking is a piece of M01 (boundaries), not of M06: write the
+successor ADR naming the consumer, or formally record that M06 is out of
+scope for this engine. Until either happens, M06 remains `BLOCKED` — and
+will **not** count as `DONE` by default.
 
-## M05 — o que a Fase B fechou, e o que fica
+## M05 — what Phase B closed, and what remains
 
-**Fechado:** um `apply` que morre a meio deixava, sem dono, tudo o que as
-camadas anteriores tinham criado — o carimbo só era escrito no fim. Medido
-contra `b465300`: o `stack plan` seguinte não mencionava o recurso de todo, e o
-`stack destroy` levava os irmãos carimbados e deixava-o para trás. Numa
-ferramenta cujo `destroy` promete «remove tudo o que esta stack possui», isso é
-uma fuga de recursos conduzida por manifesto. Gate: cenário de caos
-`stack_partial_apply`, que corre o **ciclo** — cada comando isolado devolve o
-mesmo com e sem o defeito; o que distingue é se o `destroy` alcança o órfão.
+**Closed:** an `apply` dying midway left, ownerless, everything earlier
+layers had created — the stamp was only written at the end. Measured against
+`b465300`: the following `stack plan` did not mention the resource at all,
+and `stack destroy` took the stamped siblings and left it behind. In a tool
+whose `destroy` promises «remove everything this stack owns», that is a
+manifest-driven resource leak. Gate: the `stack_partial_apply` chaos
+scenario, which runs the **full cycle** — each isolated command returns the
+same with and without the defect; what tells them apart is whether `destroy`
+reaches the orphan.
 
-**Não fechado, e é decisão de desenho e não dívida:** o `apply` continua
-fail-fast **sem rollback**. Desfazer a meio é pior do que parar, e o próprio
-código o diz em três sítios. O que falta para dar um caminho de volta a sério
-não é rollback transaccional — é `history` + `rollback`, ou seja **revisões
-persistidas**, que é o próximo slice de M05 e é superfície nova (onde vivem, o
-que uma revisão guarda, o que é reversível e o que não é).
+**Not closed, and this is a design decision, not debt:** `apply` remains
+fail-fast with **no rollback**. Undoing midway is worse than stopping, and the
+code itself says so in three places. What is missing for a real way back is
+not transactional rollback — it is `history` + `rollback`, i.e. **persisted
+revisions**, which is M05's next slice and is new surface (where they live,
+what a revision stores, what is reversible and what is not).
 
-**Correcção de raciocínio registada no código.** A primeira justificação escrita
-para excluir os `Update` do carimbo de salvamento estava errada — dizia que a
-mudança se leria como «já aplicada» e se perderia. Ler o `diff_fields` mostrou
-que não: para um campo que o manifesto ainda declara, o desejado é comparado com
-a máquina e o `last-applied` nunca é consultado. A razão verdadeira é outra e
-chega mais tarde — o `last-applied` é o que autoriza **reverter** um campo que
-saiu do manifesto, por isso carimbá-lo sem ter aplicado faz o motor reclamar
-autoria de um valor que não pôs.
+**A reasoning correction recorded in the code.** The first written
+justification for excluding `Update`s from the save stamp was wrong — it
+said the change would read as «already applied» and would be lost. Reading
+`diff_fields` showed otherwise: for a field the manifest still declares, the
+desired value is compared against the machine and `last-applied` is never
+consulted. The real reason is different and comes later — `last-applied` is
+what authorizes **reverting** a field that has been dropped from the
+manifest, so stamping it without having applied it makes the engine claim
+authorship of a value it did not set.
 
-## M05 — revisões (ADR-0019)
+## M05 — revisions (ADR-0019)
 
-Uma stack passa a gravar **uma revisão por apply**, em
-`<root>/stacks/<stack>/revisions/`: o manifesto renderizado mais um cabeçalho
-(número, instante, caminho, se correu bem, contagens do plano). Applies falhados
-são gravados **e marcados** — depois de um incidente a pergunta é o que a máquina
-foi MANDADA fazer, não o que conseguiu.
+A stack now records **one revision per apply**, in
+`<root>/stacks/<stack>/revisions/`: the rendered manifest plus a header
+(number, timestamp, path, whether it succeeded, plan counts). Failed applies
+are recorded **and marked** — after an incident the question is what the
+machine was TOLD to do, not what it managed to do.
 
-**A propriedade que separa isto de um `terraform.tfstate`, e é a única razão de
-o ADR ter sido aceite:** um `.tfstate` é a fonte de verdade sobre o que existe,
-por isso quando deriva a ferramenta age sobre uma mentira. Aqui nada é lido para
-decidir o que existe — a posse e o diff de 3 vias continuam a vir do carimbo no
-próprio recurso. **Apagar `<root>/stacks/` e o `plan`/`apply`/`prune`/`destroy`
-funcionam na mesma**, e isso não é uma afirmação: são três checks da bateria E2E
-que correm logo a seguir a um `rm -rf`.
+**The property that sets this apart from a `terraform.tfstate`, and is the
+sole reason the ADR was accepted:** a `.tfstate` is the source of truth about
+what exists, so when it drifts the tool acts on a lie. Here nothing is read
+to decide what exists — ownership and the 3-way diff still come from the
+stamp on the resource itself. **Deleting `<root>/stacks/` and `plan`/`apply`/
+`prune`/`destroy` still work**, and that is not a claim: it is three checks
+of the E2E battery that run right after an `rm -rf`.
 
-Retenção de 20, podada pelo escritor (não há daemon), e **best-effort**: uma
-revisão que não se consiga escrever nunca faz falhar um apply que funcionou.
+Retention of 20, pruned by the writer (there is no daemon), and
+**best-effort**: a revision that fails to write never fails an apply that
+otherwise succeeded.
 
-## M05 — `rollback` (o slice a seguir às revisões)
+## M05 — `rollback` (the slice after revisions)
 
-Um rollback **É um apply**: repete o manifesto da revisão pelo `apply_docs`, o
-mesmo caminho que um apply normal segue — e não um segundo que dele divergiria.
-Ganha revisão própria, marcada com a que replicou, senão o histórico mostraria
-duas entradas iguais sem dizer que a segunda foi um passo atrás deliberado.
+A rollback **IS an apply**: it replays the revision's manifest through
+`apply_docs`, the same path a normal apply follows — not a second path that
+would diverge from it. It gets its own revision, marked with which one it
+replicated, otherwise the history would show two identical entries without
+saying the second was a deliberate step back.
 
-**O que ele não consegue desfazer é impresso ANTES de correr**, e contado a
-partir do plano desta invocação em vez de ser um aviso genérico: recursos
-criados depois do alvo ficam (só saem com `--prune`), um recurso recriado vem
-**vazio** (o registo guarda o manifesto, nunca os bytes), e um campo frio
-continua a precisar de `--replace`. Uma revisão FALHADA é recusada como alvo.
+**What it cannot undo is printed BEFORE running**, and counted from this
+invocation's own plan rather than being a generic warning: resources created
+after the target stay (they only leave with `--prune`), a recreated resource
+comes back **empty** (the registry keeps the manifest, never the bytes), and
+a cold field still needs `--replace`. A FAILED revision is refused as a
+target.
 
-**A verificação do gate encontrou um defeito no próprio gate.** O check da
-recusa media o código de saída, e com a recusa desactivada continuava a passar —
-repetir um manifesto que não aplica também falha, por isso o `rc` não distingue
-«recusado à cabeça» de «tentou e rebentou a meio», que é a funcionalidade
-inteira. Passou a exigir a frase que só a recusa produz. Sem a passagem de
-reversão, ficava um gate verde a guardar nada.
+**The gate's own verification found a defect in the gate itself.** The
+refusal check measured the exit code, and with the refusal disabled it still
+passed — replaying a manifest that does not apply also fails, so `rc` does
+not distinguish «refused up front» from «tried and blew up midway», which is
+the whole feature. It now requires the phrase only the refusal produces.
+Without the reversal pass, there was a green gate guarding nothing.
 
-## M02 — o terceiro estado da matriz Docker
+## M02 — the Docker matrix's third state
 
-A matriz publicada tinha **dois** estados: servido, e recusado com razão. Faltava
-o que este repo escreve como regra e não estava a cumprir — o **em falta**. Um
-leitor das duas listas não distingue «não implementado» de «ninguém pensou
-nisto», e a diferença decide se ele espera ou vai a outro lado.
+The published matrix had **two** states: served, and refused with a reason.
+Missing was what this repo writes as a rule and was not following — the
+**missing** state. A reader of the two lists cannot tell «not implemented»
+from «nobody thought of this», and the difference decides whether they wait
+or go elsewhere.
 
-Medido: `POST /images/create` (o pull que quase toda a ferramenta faz PRIMEIRO)
-e `GET /containers/{id}/stats` não apareciam em lista nenhuma. Duas rotas de rede
-que o `kind` chama também não, porque o `/networks` genérico não casa com
-`/networks/create` nem com `/networks/{id}`.
+Measured: `POST /images/create` (the pull almost every tool does FIRST) and
+`GET /containers/{id}/stats` did not appear in any list. Two network routes
+that `kind` also calls were missing too, because the generic `/networks`
+does not match `/networks/create` or `/networks/{id}`.
 
-A `API_UPSTREAM_USED` fecha-o com uma fonte por linha — a captura das 52
-invocações do `docker` real durante um `kind create cluster`, transcrita no
-`AGENTS.md`, e a sequência do compose contra a qual esta camada foi construída.
-Uma linha sem captura própria (o `stats`) **diz que não a tem**. Um gate exige
-que cada rota dessa lista esteja classificada; falhou com 4 quando foi escrito.
+`API_UPSTREAM_USED` closes it with one source per line — the capture of the
+52 real-`docker` invocations during a `kind create cluster`, transcribed in
+`AGENTS.md`, and the compose sequence this layer was built against. A line
+with no capture of its own (`stats`) **says it has none**. A gate requires
+every route in that list to be classified; it failed with 4 when it was
+written.
 
-O que a tabela passou a mostrar, e antes não mostrava: das **21** rotas que
-ferramentas reais chamam, **8 estão recusadas** — incluindo o pull. Isso é o que
-separa «tem uma API Docker» de «o Testcontainers corre contra isto».
+What the table now shows, and did not before: of the **21** routes real
+tools call, **8 are refused** — including pull. That is what separates «has
+a Docker API» from «Testcontainers runs against this».
 
-## M02 — `POST /images/create` deixa de estar em falta (2026-09-22)
+## M02 — `POST /images/create` is no longer missing (2026-09-22)
 
-A porta, fechada: `pull_from_registry_with_creds_full` já existia (callback de
-progresso por-layer, usado pela CLI); faltava o `serve docker-api` traduzir
-esse callback para o formato chunked-JSON que um cliente Docker sabe ler
-(`{"status":...,"progressDetail":{...},"id":...}` por linha) e devolver a
-resposta em STREAM em vez de esperar o pull inteiro terminar antes de escrever
-um byte. `handle` (`cmd/dockerapi.rs`) ganhou um segundo tipo de corpo de
-resposta (`BoxBody<Bytes, Infallible>`, ao lado do `Full<Bytes>` de sempre) só
-para esta rota — as restantes continuam a devolver um único chunk, sem
-regressão de forma.
+The gap, closed: `pull_from_registry_with_creds_full` already existed
+(per-layer progress callback, used by the CLI); what was missing was for
+`serve docker-api` to translate that callback into the chunked-JSON format a
+Docker client knows how to read (`{"status":...,"progressDetail":{...},
+"id":...}` per line) and to return the response as a STREAM instead of
+waiting for the whole pull to finish before writing a byte. `handle`
+(`cmd/dockerapi.rs`) gained a second response body type
+(`BoxBody<Bytes, Infallible>`, alongside the usual `Full<Bytes>`) for this
+route only — the rest still return a single chunk, no shape regression.
 
-**Validado com o cliente REAL, não só com `curl` contra o stream cru**:
-`docker pull alpine:3.20` e `docker pull nginx:alpine` (8 layers, uma de
-26 MB) através de `DOCKER_HOST=unix://<socket>` apontado a este servidor,
-`docker version` 29.8.1 — os dois terminaram com sucesso e `docker images`
-mostrou as imagens a seguir. Um erro de referência inexistente é reportado
-DENTRO do stream com HTTP 200 (`{"error":...}`), o mesmo contrato do Docker
-real — o cliente decide falha pelo conteúdo da última linha, não pelo status
-code. `fromImage` em falta continua a devolver `400` antes de o stream
-começar (não há nada para streamar ainda).
+**Validated with a REAL client, not just `curl` against the raw stream**:
+`docker pull alpine:3.20` and `docker pull nginx:alpine` (8 layers, one
+26 MB) through `DOCKER_HOST=unix://<socket>` pointed at this server, `docker
+version` 29.8.1 — both finished successfully and `docker images` showed the
+images afterward. A nonexistent-reference error is reported INSIDE the
+stream with HTTP 200 (`{"error":...}`), the same contract as real Docker —
+the client decides failure from the content of the last line, not from the
+status code. A missing `fromImage` still returns `400` before the stream
+starts (there is nothing to stream yet).
 
-O `id` de cada linha de progresso é sintético (`layer-<posição>`, não o
-digest real da layer) — o callback do motor não carrega o digest, só a
-posição, e um cliente real (testado) só usa o campo para desenhar uma barra
-por linha, nunca para o comparar com nada. Credenciais de registo privado
-(`X-Registry-Auth`, JSON base64 `{username,password}`) são aceites; a forma
-`identitytoken`-only não tem para onde ir (o cofre deste motor só guarda
-pares utilizador/password) e cai para `None` (tenta anónimo/`delonix image login`).
+The `id` of each progress line is synthetic (`layer-<position>`, not the
+layer's real digest) — the engine's callback does not carry the digest, only
+the position, and a real client (tested) only uses the field to draw a
+progress bar per line, never to compare it against anything. Private
+registry credentials (`X-Registry-Auth`, base64 JSON
+`{username,password}`) are accepted; the `identitytoken`-only form has
+nowhere to go (this engine's vault only stores username/password pairs) and
+falls through to `None` (tries anonymous / `delonix image login`).
 
-## Ordem de execução
+## Execution order
 
-A do programa, com uma alteração justificada: M01 entrega primeiro os **gates**
-e só depois a prosa. Um documento de arquitectura sem gate foi exactamente o que
-deixou 3 crates fora do C4 sem ninguém dar por isso.
+The programme's own order, with one justified change: M01 delivers the
+**gates** first, and only then the prose. An architecture document with no
+gate was exactly what left 3 crates out of the C4 without anyone noticing.
 
-1. **Fase A** — M01 + esta matriz.
-2. **Fase B** — M04 e os P0 de reliability (o `apply` sem rollback é o maior).
-3. **Fase C** — M02, M03 e a fundação de M13.
-4. **Fase D** — M05, M07, M08.
-5. **Fase E** — M09, M10.
-6. **Fase F** — M06, **se e quando** o ADR sucessor existir.
-7. **Fase G** — M11, M12 e o fecho de M13.
+1. **Phase A** — M01 + this matrix.
+2. **Phase B** — M04 and the reliability P0s (the `apply` with no rollback
+   is the biggest).
+3. **Phase C** — M02, M03 and the M13 foundation.
+4. **Phase D** — M05, M07, M08.
+5. **Phase E** — M09, M10.
+6. **Phase F** — M06, **if and when** the successor ADR exists.
+7. **Phase G** — M11, M12 and closing M13.
 
-## Registo de alterações
+## Changelog
 
-| Data | Alteração |
+| Date | Change |
 |---|---|
-| 2026-08-25 | Baseline inicial medida contra `b4653002b`/v0.63.1. M01 passa a `IN_PROGRESS`: `tests/architecture.rs` instalado, 3 crates repostos no C4, contagem corrigida em dois documentos. |
-| 2026-08-25 | M13: `system features` — maturidade derivada de evidência. M04: `policy.json`, o tecto que o nó impõe no ponto de admissão. M11: recontagem FEITA (o host baixou a carga) — o rácio de 2026-08-13 sobreviveu, e dois erros de método do harness foram apanhados a fazê-la. |
-| 2026-08-25 | M04: SBOM SPDX 2.3 gerado do `Cargo.lock` e proveniência SLSA nas releases, ambos dentro da assinatura. Risco desce de alto para médio. |
-| 2026-08-25 | M11: `scripts/bench.sh` — a lição da bateria retirada passa a código, e o harness recusa-se a medir numa bancada contaminada. A recontagem ficou BLOQUEADA por falta de máquina ociosa, com a razão medida. |
-| 2026-08-25 | M02 passa a `IN_PROGRESS`: a matriz Docker ganha o terceiro estado (o «em falta») e um gate que o obriga. Baseline corrigida — eram 14 servidas e não 21. |
-| 2026-08-25 | `stack rollback`: as revisões passam a ter caminho de volta. M05 fica com 11 verbos e o `reconcile` contínuo como único item a sério em falta. |
-| 2026-08-25 | Fase D (adiantada). `stack history` + ADR-0019: revisões persistidas, com a propriedade «apagar `stacks/` não parte nada» fixada por gate. M05 sobe para 5 de 6. |
-| 2026-08-25 | Fase B. M05 passa a `IN_PROGRESS`: fechada a fuga de recursos de um `apply` parcial (`salvage_ownership`), com o cenário de caos `stack_partial_apply` a fixá-la. O risco de M05 baixa de **alto** para médio — o que resta (`history`/`rollback`) é superfície em falta, não perda de dados. |
-| 2026-09-22 | M02: `POST /images/create` implementado (streaming chunked-JSON, delega no pull existente) e movido de `API_UNIMPLEMENTED` para `API_MATRIX`. Validado com um `docker` CLI real (29.8.1) — `docker pull` de duas imagens através do socket, incluindo uma de 8 layers/26 MB. M02 sobe para 3 de 4. |
-| 2026-09-22 | M04, prova do valor do job de fuzz recém-fundido: na primeira corrida real em CI, `parse_dockerfile` encontrou um `out-of-memory` — uma cadeia de `ARG B=${A}${A}` dobra o valor guardado a cada linha (bomba de expansão exponencial), atingível por um `Dockerfile`/`Delonixfile` de um repositório clonado, antes de qualquer container existir para o isolar. Corrigido com um tecto de 1 MiB em `substitute_vars` (`delonix-oci::build`), partilhado pelos dois chamadores (`ARG` no parse, `ENV` no `delonix-runtime-bin::cmd::build`). Testes de regressão nos dois lados; confirmado ao vivo com o próprio fuzzer (2,8M execuções/45s sem crash, depois da correcção). |
-| 2026-09-22 | M03: SBOM SPDX 2.3 automático por imagem construída. `delonix_scanner::sbom_spdx` reutiliza o `extract_sbom` já existente (apk/dpkg, sem montar nem correr a imagem); `delonix build` escreve-o best-effort logo a seguir a um commit com sucesso, e `delonix image sbom <ref>` serve-o (cache hit instantâneo, ou calcula-e-guarda para uma imagem puxada). Validado AO VIVO contra o binário de release: `delonix build` de um `alpine:3.20` + `apk add curl` real produziu um SBOM com 25 pacotes (incluindo `curl`), e `image sbom` devolveu o ficheiro byte-a-byte idêntico ao já escrito pelo build (prova do cache hit, não recomputação). M03 sobe para 2 de 4. |
-| 2026-09-22 | M12: baseline corrigida — `doctor` (`system doctor [--strict]`, 8 pontos de verificação de pré-requisito do host, um deles a iterar sobre 3 ferramentas) e o dicionário de error IDs (`DX-CDNN`, ADR-0043 *Accepted* 2026-09-17, 198 códigos, `delonix explain`) já existiam, e a matriz continuava a dizer «0 ocorrências»/«sem error IDs» — a mesma classe de deriva já corrigida em M01/M02/M05. Confirmado por `grep`/leitura do código e pela cobertura E2E já existente (`scripts/e2e.sh`, secções `system doctor` e `explain`). O que falta em M12 é só `entregáveis` genuinamente por construir: hot reload/file sync do loop local, e golden paths local→CI→k8s medidos de ponta a ponta. DoD mantido em 3 de 4 — sem confiança suficiente na metodologia de contagem original para inventar um novo numerador. |
-| 2026-09-22 | M03: `RUN --mount=type=cache,target=<path>[,id=<name>]` — directório persistente e de leitura-escrita, sobrevivendo entre builds, generalizando o mecanismo já existente de `type=secret` (`mount_live`, invisível à imagem final). Directório em `<root>/build-cache/mounts/<sha256(id)>` — em hash, nunca a string crua (um `id` omitido é por omissão o `target`, um caminho arbitrário controlado pelo Dockerfile). `sharing=`/`ro` recusados em vez de aceites-e-ignorados em silêncio. Corrigiu de caminho uma dívida LANG-01 pré-existente: as mensagens de erro deste parser de `--mount` estavam em português desde sempre, nunca tinham sido revistas. Validado AO VIVO contra o binário de release: dois `delonix build` separados (tags diferentes) escreveram no MESMO cache mount e o segundo build viu o que o primeiro escreveu; o conteúdo do cache mount nunca apareceu na imagem final committed (confirmado por `container run` dentro da imagem resultante); `type=ssh`/`sharing=locked`/`ro` bare recusados com mensagens claras em inglês. M03 sobe para 3 de 4 — só ficam por fazer `type=ssh`, cache partilhada entre nós via registry, provenance assinada por imagem, e a comparação medida com BuildKit. |
-| 2026-09-22 | Duas correcções de baseline, achadas ao auditar o que mais a matriz podia estar a mentir: M04 "processo de advisory" nunca esteve genuinamente em falta — `SECURITY.md` existe desde 2026-07-27, ANTES da baseline de 2026-08-25 deste documento; a linha estava errada desde o dia em que foi escrita, não é regressão de código — o que falta é mais estreito, um processo escrito para o feed de CVEs que `image scan --update` consome. M05: `delonix diff <kind> <name>` (#200, 2026-08-31) já é verbo de topo próprio, com as três faces (manifesto/last-applied/observado) para um recurso nomeado — não é o `plan` com outro nome, como a matriz ainda dizia; só `drift` (sem alvo nomeado) continua por fazer. M05 sobe para 6 de 6. |
-| 2026-09-22 | M04: `kind: RuntimePolicy` — o tecto de admissão do nó (`policy.json`) ganha forma declarativa. `stack apply` sobe/aperta-o (converge a quente, todo o campo é hot); nunca o baixa (`teardown: false`, `stack destroy`/`--prune` recusam-no explicitamente). `delonix policy unset` é o único verbo que o remove — pede confirmação (ou `--force`) e imprime sempre o que estava lá antes de apagar. Kinds no manifesto: 19 → 20. Validado ao vivo (`DELONIX_ROOT` isolado): `container run --privileged` REALMENTE recusado por uma política aplicada por manifesto; reaplicar com um campo mudado converge in-place (`stack plan` mostra `~`, não `-/+`); `stack apply --prune` e `stack destroy` deixam o `policy.json` intacto; dois documentos do Kind no mesmo manifesto são recusados antes de qualquer escrita. |
-| 2026-09-23 | M11: portão de regressão de performance. A parte que não é óbvia é a terceira saída: o gate RECUSA-SE a julgar quando não pode atribuir a diferença — e docker/podman são âncoras exactamente para isso. Três defeitos do harness corrigidos de caminho: `--json` aceite-e-ignorado, `time_n` sem olhar para o exit status, e nenhuma medida de dispersão (uma corrida a load 6.44 deu 434→5407 ms no docker e a mediana absorveu-o). E um gate morto: nenhum `scripts/test_*.py` corria em CI — o `test_release_verify.py` nasceu no dia anterior com dez testes que nada executava. |
-| 2026-09-23 | M05: `delonix drift` — o verbo que faltava. Distinto do `plan` por CONSTRUÇÃO e não por grafia: tira o manifesto da comparação e fica com o carimbo do último apply contra o observado, que é a única forma de a pergunta continuar a valer depois de alguém editar o ficheiro. O manifesto é opcional (num nó sem o repositório responde na mesma) e os seis Kinds que só se enumeram a partir do documento são nomeados na saída. Um recurso sem carimbo é um terceiro estado, não deriva. O gate `doc_scoped_matches_the_stack_wiring` — que lê o `stack.rs` em vez de confiar num comentário — apanhou um erro meu na primeira corrida: o `network_access_rule` é passado `docs` e ignora-os, logo não pertencia à lista. Validado ao vivo com deriva provocada por `container update`. |
-| 2026-09-23 | M02: `compatibility compose` + `migrate assess`. O terceiro estado precisava de um denominador, e o denominador é a lista de chaves da especificação — medida uma a uma contra `docker compose config` (docker v29.8.1) em vez de escrita de memória. Um check da bateria cruza as 88 chaves classificadas com o que o `compose config` realmente faz com cada uma: concordam todas. Dois achados: a tabela `ENGINE_HAS_IT_SERVICE` que eu ia duplicar JÁ EXISTIA (a minha cópia classificava como `missing` o que o motor recusa com mensagem própria), e estava INCOMPLETA — `sysctls`/`ulimits`/`gpus`/`userns_mode` têm flag no `container run` e caíam no erro genérico; o teste que verificava duas linhas à mão passou a percorrer as doze. |
-| 2026-09-22 | M13: `scripts/release_verify.py` — a tabela de `system features` deixa de ser prosa não verificada. Valida os dois lados (aceita quando a evidência é real, recusa quando não é — sabotada de propósito com uma referência inexistente e revertida a seguir, contra o binário real). `--report` gera o conformance report. Job `release-verify` novo no CI. M13 sobe para 4 de 5. |
+| 2026-08-25 | Initial baseline measured against `b4653002b`/v0.63.1. M01 moves to `IN_PROGRESS`: `tests/architecture.rs` installed, 3 crates restored in the C4, count corrected in two documents. |
+| 2026-08-25 | M13: `system features` — maturity derived from evidence. M04: `policy.json`, the ceiling the node enforces at the admission point. M11: recount DONE (the host's load dropped) — the 2026-08-13 ratio survived, and two harness method errors were caught while doing it. |
+| 2026-08-25 | M04: SPDX 2.3 SBOM generated from `Cargo.lock` and SLSA provenance in releases, both inside the signature. Risk drops from high to medium. |
+| 2026-08-25 | M11: `scripts/bench.sh` — the lesson from the discarded battery becomes code, and the harness refuses to measure on a contaminated bench. The recount was BLOCKED for lack of an idle machine, with the reason measured. |
+| 2026-08-25 | M02 moves to `IN_PROGRESS`: the Docker matrix gains the third state (the «missing» one) and a gate enforcing it. Baseline corrected — it was 14 served, not 21. |
+| 2026-08-25 | `stack rollback`: revisions now have a way back. M05 ends up with 11 verbs and continuous `reconcile` as the only serious item still missing. |
+| 2026-08-25 | Phase D (brought forward). `stack history` + ADR-0019: persisted revisions, with the property «deleting `stacks/` breaks nothing» fixed by a gate. M05 rises to 5 of 6. |
+| 2026-08-25 | Phase B. M05 moves to `IN_PROGRESS`: closed the resource leak of a partial `apply` (`salvage_ownership`), with the `stack_partial_apply` chaos scenario fixing it. M05's risk drops from **high** to medium — what remains (`history`/`rollback`) is missing surface, not data loss. |
+| 2026-09-22 | M02: `POST /images/create` implemented (chunked-JSON streaming, delegating to the existing pull) and moved from `API_UNIMPLEMENTED` to `API_MATRIX`. Validated with a real `docker` CLI (29.8.1) — `docker pull` of two images through the socket, including one with 8 layers/26 MB. M02 rises to 3 of 4. |
+| 2026-09-22 | M04, proof of the value of the freshly merged fuzz job: on the first real CI run, `parse_dockerfile` found an `out-of-memory` — an `ARG B=${A}${A}` chain doubles the stored value on every line (exponential expansion bomb), reachable from a `Dockerfile`/`Delonixfile` in a cloned repository, before any container exists to contain it. Fixed with a 1 MiB ceiling in `substitute_vars` (`delonix-oci::build`), shared by both callers (`ARG` in parsing, `ENV` in `delonix-runtime-bin::cmd::build`). Regression tests on both sides; confirmed live with the fuzzer itself (2.8M executions/45s with no crash, after the fix). |
+| 2026-09-22 | M03: automatic SPDX 2.3 SBOM per built image. `delonix_scanner::sbom_spdx` reuses the already-existing `extract_sbom` (apk/dpkg, no mounting or running the image); `delonix build` writes it best-effort right after a successful commit, and `delonix image sbom <ref>` serves it (instant cache hit, or computes-and-stores for a pulled image). Validated LIVE against the release binary: `delonix build` of an `alpine:3.20` + a real `apk add curl` produced an SBOM with 25 packages (including `curl`), and `image sbom` returned the file byte-for-byte identical to what the build had already written (proof of the cache hit, not recomputation). M03 rises to 2 of 4. |
+| 2026-09-22 | M12: baseline corrected — `doctor` (`system doctor [--strict]`, 8 host prerequisite checkpoints, one of them iterating over 3 tools) and the error ID dictionary (`DX-CDNN`, ADR-0043 *Accepted* 2026-09-17, 198 codes, `delonix explain`) already existed, and the matrix still said «0 occurrences»/«no error IDs» — the same class of drift already fixed in M01/M02/M05. Confirmed by `grep`/code reading and by the already-existing E2E coverage (`scripts/e2e.sh`, `system doctor` and `explain`/`explain codes` sections). What remains missing in M12 is only genuinely-unbuilt `deliverables`: hot reload/file sync for the local loop, and local→CI→k8s golden paths measured end to end. DoD kept at 3 of 4 — not enough confidence in the original counting methodology to invent a new numerator. |
+| 2026-09-22 | M03: `RUN --mount=type=cache,target=<path>[,id=<name>]` — a persistent, read-write directory, surviving between builds, generalizing the already-existing `type=secret` mechanism (`mount_live`, invisible to the final image). Directory at `<root>/build-cache/mounts/<sha256(id)>` — hashed, never the raw string (an omitted `id` defaults to `target`, an arbitrary path controlled by the Dockerfile). `sharing=`/`ro` refused instead of silently accepted-and-ignored. Fixed, along the way, a pre-existing LANG-01 debt: this `--mount` parser's error messages had been in Portuguese all along, never revisited. Validated LIVE against the release binary: two separate `delonix build`s (different tags) wrote to the SAME cache mount and the second build saw what the first had written; the cache mount's content never appeared in the final committed image (confirmed by `container run` inside the resulting image); `type=ssh`/`sharing=locked`/bare `ro` refused with clear English messages. M03 rises to 3 of 4 — only `type=ssh`, cache shared across nodes via registry, per-image signed provenance, and the measured comparison with BuildKit remain. |
+| 2026-09-22 | Two baseline corrections, found while auditing where else the matrix might be lying: M04 "advisory process" was never genuinely missing — `SECURITY.md` has existed since 2026-07-27, BEFORE this document's 2026-08-25 baseline; the line was wrong from the day it was written, not a code regression — what is missing is narrower, a written process for the CVE feed that `image scan --update` consumes. M05: `delonix diff <kind> <name>` (#200, 2026-08-31) is already its own top-level verb, with the three faces (manifest/last-applied/observed) for a named resource — not `plan` under another name, as the matrix still said; only `drift` (with no named target) remains to be done. M05 rises to 6 of 6. |
+| 2026-09-22 | M04: `kind: RuntimePolicy` — the node's admission ceiling (`policy.json`) gains a declarative form. `stack apply` raises/tightens it (converges hot, every field is hot); never lowers it (`teardown: false`, `stack destroy`/`--prune` explicitly refuse to touch it). `delonix policy unset` is the only verb that removes it — asks for confirmation (or `--force`) and always prints what was there before deleting. Kinds in the manifest: 19 → 20. Validated live (`DELONIX_ROOT` isolated): `container run --privileged` ACTUALLY refused by a manifest-applied policy; reapplying with a changed field converges in place (`stack plan` shows `~`, not `-/+`); `stack apply --prune` and `stack destroy` leave `policy.json` untouched; two documents of the Kind in the same manifest are refused before any write. |
+| 2026-09-23 | M11: performance regression gate. The non-obvious part is the third outcome: the gate REFUSES to judge when it cannot attribute the difference — and docker/podman are anchors precisely for that. Three harness defects fixed along the way: `--json` accepted-and-ignored, `time_n` not checking the exit status, and no dispersion measure at all (a run at load 6.44 gave docker 434→5407 ms and the median absorbed it). And one dead gate: no `scripts/test_*.py` was running in CI — `test_release_verify.py` was born the day before with ten tests that executed nothing. |
+| 2026-09-23 | M05: `delonix drift` — the missing verb. Distinct from `plan` by CONSTRUCTION, not by spelling: it drops the manifest from the comparison and keeps only the last apply's stamp against what is observed, which is the only way the question keeps holding after someone edits the file. The manifest is optional (a node with no repository still answers) and the six Kinds only enumerable from the document are named in the output. A resource with no stamp is a third state, not drift. The `doc_scoped_matches_the_stack_wiring` gate — which reads `stack.rs` instead of trusting a comment — caught my own mistake on the first run: `network_access_rule` is passed `docs` and ignores them, so it did not belong on the list. Validated live with drift triggered by `container update`. |
+| 2026-09-23 | M02: `compatibility compose` + `migrate assess`. The third state needed a denominator, and the denominator is the specification's key list — measured one by one against `docker compose config` (docker v29.8.1) instead of written from memory. One battery check cross-checks the 88 classified keys against what `compose config` actually does with each: all agree. Two findings: the `ENGINE_HAS_IT_SERVICE` table I was about to duplicate ALREADY EXISTED (my copy classified as `missing` what the engine refuses with its own message), and it was INCOMPLETE — `sysctls`/`ulimits`/`gpus`/`userns_mode` have a flag on `container run` and fell into the generic error; the test that checked two lines by hand now walks all twelve. |
+| 2026-09-22 | M13: `scripts/release_verify.py` — the `system features` table stops being unverified prose. Validates both sides (accepts when the evidence is real, refuses when it is not — sabotaged on purpose with a nonexistent reference and reverted afterward, against the real binary). `--report` generates the conformance report. New `release-verify` CI job. M13 rises to 4 of 5. |

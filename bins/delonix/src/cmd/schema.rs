@@ -73,6 +73,7 @@ const TYPED_KINDS: &[&str] = &[
     k::SERVICE,
     k::IPPOOL,
     k::IP_ADDRESS,
+    k::NODE,
     k::SNAPSHOT,
     k::STORAGE_POOL,
     k::GITOPS_SOURCE,
@@ -138,7 +139,7 @@ fn no_typed_schema(kind: &str) -> Error {
 /// Why a Kind this engine KNOWS has no typed schema, or `""` for a name it does
 /// not know at all (a typo, where the list above is the whole answer).
 ///
-/// Split out so `todo_kind_conhecido_tem_schema_ou_dica` can require one: a Kind
+/// Split out so `every_known_kind_has_a_schema_or_a_hint` can require one: a Kind
 /// added to `cmd::kinds` and forgotten here would answer «no typed schema for
 /// X», which reads as a defect in the manifest when the truth is a property of
 /// the Kind. Same shape as `not_converged_reason` and `no_teardown_reason`.
@@ -301,6 +302,11 @@ fn typed_spec_parts(
             generator.subschema_for::<super::ipaddress::IpAddressSpec>(),
             "IpAddressSpec",
             super::ipaddress::IP_ADDRESS_SPEC_FIELDS,
+        ),
+        k::NODE => (
+            generator.subschema_for::<super::node::NodeSpec>(),
+            "NodeSpec",
+            super::node::NODE_SPEC_FIELDS,
         ),
         k::SNAPSHOT => (
             generator.subschema_for::<super::snapshot::SnapshotSpec>(),
@@ -972,7 +978,7 @@ mod tests {
     /// notices — the previous arrangement (a hand-written `kinds.html`) could
     /// not, and did not, three separate times.
     #[test]
-    fn o_schema_vem_dos_structs_e_nao_de_uma_lista_a_mao() {
+    fn the_schema_comes_from_the_structs_and_not_a_handmade_list() {
         let s = manifest_schema(None).unwrap();
         let defs = &s["$defs"];
         let c = &defs["ContainerSpec"]["properties"];
@@ -995,7 +1001,7 @@ mod tests {
     /// One `$schema` has to cover a multi-document manifest, so the spec is
     /// selected by the document's own `kind`.
     #[test]
-    fn cada_kind_selecciona_o_seu_spec_pelo_proprio_kind() {
+    fn each_kind_selects_its_spec_by_its_own_kind() {
         let s = manifest_schema(None).unwrap();
         let branches = s["allOf"].as_array().unwrap();
         assert_eq!(branches.len(), TYPED_KINDS.len());
@@ -1010,28 +1016,29 @@ mod tests {
     /// half the manifest would validate a typo into looking correct, which is
     /// worse than not validating.
     #[test]
-    fn um_kind_sem_schema_tipado_e_recusado_com_a_lista_dos_que_tem() {
-        // `Storage` é agora o único caso, e de propósito: não tem spec própria
-        // (é reescrito para `kind: Volume`), por isso a recusa tem de dizer o
-        // que escrever em vez dele — senão lê-se como «ninguém chegou lá».
+    fn a_kind_with_no_typed_schema_is_refused_with_the_list_of_those_that_have_one() {
+        // `Storage` is now the only case, and on purpose: it has no spec of its
+        // own (it is rewritten into `kind: Volume`), so the refusal has to say
+        // what to write instead — otherwise it reads as «nobody got there».
         let e = manifest_schema(Some("Storage")).unwrap_err().to_string();
         assert!(e.contains("Container"), "{e}");
         assert!(
             e.contains("kind: Volume"),
-            "sem a alternativa dirigida: {e}"
+            "without the directed alternative: {e}"
         );
         assert!(explain("Storage", false).is_err());
         assert!(explain("Container.naoexiste", false).is_err());
     }
 
-    /// O inverso do teste acima, e é o que faltava: aquele prova que o `Storage`
-    /// tem dica, e nada exigia o mesmo do PRÓXIMO Kind sem schema.
+    /// The inverse of the test above, and the one that was missing: that one
+    /// proves `Storage` has a hint, and nothing required the same of the NEXT Kind
+    /// with no schema.
     ///
-    /// Um Kind acrescentado ao `cmd::kinds` e esquecido aqui responde «no typed
-    /// schema for X» — que se lê como defeito do manifesto quando é uma
-    /// propriedade do Kind. Ou tem schema tipado, ou escreve-se o obstáculo:
-    /// a mesma exigência que o `not_converged_reason` e o `no_teardown_reason`
-    /// já fazem do lado do stack.
+    /// A Kind added to `cmd::kinds` and forgotten here answers «no typed schema
+    /// for X» — which reads as a defect in the manifest when it is a property of
+    /// the Kind. Either it has a typed schema, or the obstacle is written down:
+    /// the same requirement `not_converged_reason` and `no_teardown_reason`
+    /// already make on the stack side.
     /// The `allOf` is advisory unless `kind` is closed at the top: a document
     /// matching no branch satisfies every `then` vacuously. Measured before the
     /// enum existed — `Contaner`, `Banana` and `Egress` all validated clean.
@@ -1144,33 +1151,33 @@ mod tests {
     }
 
     #[test]
-    fn todo_kind_conhecido_tem_schema_ou_dica() {
+    fn every_known_kind_has_a_schema_or_a_hint() {
         for f in crate::cmd::kinds::all() {
             if TYPED_KINDS.contains(&f.kind) {
                 continue;
             }
             assert!(
                 !untyped_hint(f.kind).is_empty(),
-                "{} não tem schema tipado nem dica — a recusa lê-se como «ninguém \
-                 chegou lá». Ou entra no TYPED_KINDS, ou o `untyped_hint` diz o que \
-                 escrever em vez dele.",
+                "{} has neither a typed schema nor a hint — the refusal reads as \
+                 «nobody got there». Either it joins TYPED_KINDS, or `untyped_hint` \
+                 says what to write instead.",
                 f.kind
             );
         }
     }
 
-    /// A estritez tem de valer para TODOS os Kinds tipados, e a verificação é
-    /// derivada do `allOf` em vez de uma lista à mão — foi uma lista à mão
-    /// (`["ContainerSpec", "VolumeSpec", "NetworkSpec"]`) que deixou doze Kinds
-    /// entrarem no schema sem ninguém dar por isso.
+    /// The strictness has to hold for ALL typed Kinds, and the check is DERIVED
+    /// from the `allOf` rather than a hand-kept list — it was a hand-kept list
+    /// (`["ContainerSpec", "VolumeSpec", "NetworkSpec"]`) that let twelve Kinds
+    /// enter the schema with nobody noticing.
     ///
-    /// Antes disto o nome da definição era ADIVINHADO (`format!("{kind}Spec")`)
-    /// e um erro de palpite fazia `continue` em silêncio: o Kind ficava sem
-    /// `additionalProperties: false` e um typo num dos seus campos validava
-    /// limpo. `FirewallPolicy`/`FwDocSpec` e `HTTPRoute`/`HttpRouteSpec` são
-    /// exactamente os nomes em que o palpite deixa de bater.
+    /// Before this the definition name was GUESSED (`format!("{kind}Spec")`) and a
+    /// wrong guess did `continue` silently: the Kind entered without
+    /// `additionalProperties: false` and a typo in one of its fields validated
+    /// clean. `FirewallPolicy`/`FwDocSpec` and `HTTPRoute`/`HttpRouteSpec` are
+    /// exactly the names where the guess stops holding.
     #[test]
-    fn todo_o_kind_tipado_recusa_um_campo_desconhecido() {
+    fn every_typed_kind_refuses_an_unknown_field() {
         let s = manifest_schema(None).unwrap();
         let defs = &s["$defs"];
         let branches = s["allOf"].as_array().unwrap();
@@ -1181,7 +1188,7 @@ mod tests {
             assert_eq!(
                 spec["additionalProperties"],
                 serde_json::Value::Bool(false),
-                "{kind} aceita campos desconhecidos — um typo validaria limpo"
+                "{kind} accepts unknown fields — a typo would validate clean"
             );
         }
     }
@@ -1289,68 +1296,68 @@ mod tests {
         assert!(both.is_err(), "serde took both spellings: {both:?}");
     }
 
-    /// **schemars não vê `#[serde(alias = ...)]`**, só `rename`. No topo de um
-    /// Kind isso não custa nada (a lista de aceites já carrega as duas grafias),
-    /// mas um tipo ANINHADO não tem lista nenhuma — e o `HostSpec` tem o
-    /// agravante de o campo ser obrigatório.
+    /// **schemars does not see `#[serde(alias = ...)]`**, only `rename`. At the
+    /// top of a Kind that costs nothing (the accept list already carries both
+    /// spellings), but a NESTED type has no list at all — and `HostSpec` has the
+    /// aggravating factor that the field is required.
     ///
-    /// Encontrado a validar os `examples/` contra o schema gerado, que recusava
-    /// o `examples/cluster/kubernetescluster.yaml` — publicado e a funcionar — cinco vezes com
-    /// «'ip' is a required property». `address` é o nome CANÓNICO nos templates,
-    /// por isso o schema exigia justamente o que ninguém é mandado escrever.
+    /// Found by validating `examples/` against the generated schema, which
+    /// rejected `examples/cluster/kubernetescluster.yaml` — published and working — five times with
+    /// «'ip' is a required property». `address` is the CANONICAL name in the
+    /// templates, so the schema was demanding exactly what nobody is told to write.
     #[test]
-    fn um_alias_de_campo_aninhado_e_aceite_sem_deixar_de_exigir_um_dos_dois() {
+    fn a_nested_field_alias_is_accepted_without_dropping_the_either_or_requirement() {
         let s = manifest_schema(Some("KubernetesCluster")).unwrap();
         let host = &s["$defs"]["HostSpec"];
-        for grafia in ["ip", "address"] {
+        for spelling in ["ip", "address"] {
             assert!(
-                host["properties"].get(grafia).is_some(),
-                "`{grafia}` não está no schema do HostSpec"
+                host["properties"].get(spelling).is_some(),
+                "`{spelling}` is not in the HostSpec schema"
             );
         }
-        // Não basta tirar o `required`: um host sem NENHUMA das duas grafias
-        // validaria limpo e só falhava no apply.
+        // Dropping the `required` is not enough: a host with NEITHER spelling
+        // would validate clean and only fail at apply.
         assert!(
             !host["required"]
                 .as_array()
                 .is_some_and(|r| r.iter().any(|x| x == "ip")),
-            "`ip` continua obrigatório — o `address` do exemplo seria recusado"
+            "`ip` is still required — the example's `address` would be refused"
         );
         let alts = host["oneOf"]
             .as_array()
-            .expect("faltam as duas alternativas");
+            .expect("the two alternatives are missing");
         assert_eq!(alts.len(), 2, "{host:#?}");
     }
 
-    /// O `deref` seguia SEMPRE um `anyOf`. Com a correcção acima o `HostSpec`
-    /// passou a ter um `anyOf` ao lado das `properties` — que é uma restrição
-    /// sobre um objecto, não uma escolha entre duas formas — e segui-lo deitava
-    /// o objecto inteiro fora, respondendo a partir de um `{"required": [...]}`
-    /// nu: um tipo sem campos nenhuns.
+    /// `deref` ALWAYS followed an `anyOf`. With the fix above, `HostSpec` gained
+    /// an `anyOf` NEXT TO its `properties` — which is a constraint on an object,
+    /// not a choice between two shapes — and following it threw the whole object
+    /// away, answering from a bare `{"required": [...]}`: a type with no fields
+    /// at all.
     #[test]
-    fn um_anyof_ao_lado_de_properties_e_restricao_e_nao_uma_uniao() {
+    fn an_anyof_next_to_properties_is_a_constraint_not_a_union() {
         let s = manifest_schema(Some("KubernetesCluster")).unwrap();
         let defs = &s["$defs"];
         let host = deref(defs["HostSpec"].clone(), defs);
         assert!(
             host.get("properties").is_some(),
-            "o objecto foi deitado fora ao seguir o anyOf: {host:#?}"
+            "the object was thrown away following the anyOf: {host:#?}"
         );
-        // E a forma que o `anyOf` REALMENTE descreve — duas grafias do spec de
-        // um `kind: Container` — continua a ser atravessada.
+        // And the shape the `anyOf` REALLY describes — two spellings of a
+        // `kind: Container` spec — is still walked through.
         assert!(explain("Container.ports", false).is_ok());
     }
 
     /// Walking into a list steps THROUGH the item type: the user thinks
     /// `containers.image`, not `containers.items.image`.
     #[test]
-    fn explain_atravessa_uma_lista_sem_obrigar_a_escrever_items() {
+    fn explain_walks_a_list_without_requiring_items() {
         assert!(explain("Pod.containers", false).is_ok());
         assert!(explain("Pod.containers.image", false).is_ok());
     }
 
     #[test]
-    fn type_of_esconde_o_null_de_um_campo_opcional() {
+    fn type_of_hides_the_null_of_an_optional_field() {
         let opt = serde_json::json!({ "type": ["string", "null"] });
         assert_eq!(type_of(&opt).unwrap(), "string");
         let arr = serde_json::json!({ "type": "array", "items": { "type": "string" } });
@@ -1365,7 +1372,7 @@ mod tests {
     /// struct alone would flag correct manifests — which is why the accept list
     /// comes from the same `*_SPEC_FIELDS` the engine's own warning uses.
     #[test]
-    fn a_forma_agrupada_e_as_duas_formas_de_env_e_network_continuam_validas() {
+    fn the_grouped_form_and_the_two_shapes_of_env_and_network_stay_valid() {
         let s = manifest_schema(None).unwrap();
         let props = &s["$defs"]["ContainerSpec"]["properties"];
         for group in ["resources", "security", "storage", "limits"] {
@@ -1388,7 +1395,7 @@ mod tests {
     /// the presence of `spec.containers`, so describing only the flat one would
     /// reject `examples/compute/pod.yaml`, a documented working manifest.
     #[test]
-    fn kind_container_aceita_a_forma_plana_e_a_forma_pod() {
+    fn kind_container_accepts_the_flat_and_pod_shapes() {
         let s = manifest_schema(Some("Container")).unwrap();
         let spec = &s["allOf"][0]["then"]["properties"]["spec"];
         let alts = spec["anyOf"].as_array().expect("two shapes expected");
@@ -1471,7 +1478,7 @@ mod tests {
     /// delonix manifest schema > docs/schema/v1/delonix.json
     /// ```
     #[test]
-    fn o_schema_publicado_esta_em_dia_com_o_codigo() {
+    fn the_published_schema_is_up_to_date_with_the_code() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../docs/schema/v1/delonix.json"
@@ -1488,23 +1495,23 @@ mod tests {
         );
     }
 
-    /// Um Kind com duas grafias aceites é um `anyOf` no schema — um validador
-    /// lida com isso, um humano a ler o `explain` não: a união não tem
-    /// `properties` próprias, por isso a resposta vinha VAZIA e o
-    /// `explain Container.ports` falhava. Regressão introduzida por este
-    /// mesmo trabalho, quando o `kind: Container` ganhou a grafia-Pod.
+    /// A Kind with two accepted spellings is an `anyOf` in the schema — a
+    /// validator handles that, a human reading `explain` does not: the union has
+    /// no `properties` of its own, so the answer came back EMPTY and
+    /// `explain Container.ports` failed. A regression introduced by this very
+    /// work, when `kind: Container` gained the Pod spelling.
     #[test]
-    fn explain_atravessa_um_anyof_pela_forma_canonica() {
+    fn explain_walks_an_anyof_by_the_canonical_shape() {
         assert!(explain("Container", false).is_ok());
         assert!(explain("Container.ports", false).is_ok());
         assert!(explain("Container.image", false).is_ok());
     }
 
-    /// Atravessar uma lista só faz sentido quando há mais caminho a percorrer.
-    /// Fazê-lo no ÚLTIMO segmento reportava o tipo do ITEM como o tipo do
-    /// campo: `Container.ports` respondia `string` para um `array<string>`.
+    /// Walking into a list only makes sense when there is more path to walk.
+    /// Doing it on the LAST segment reported the ITEM type as the field's own
+    /// type: `Container.ports` answered `string` for an `array<string>`.
     #[test]
-    fn uma_lista_como_folha_reporta_o_tipo_da_lista() {
+    fn a_list_as_a_leaf_reports_the_list_type() {
         let s = manifest_schema(None).unwrap();
         let defs = &s["$defs"];
         let ports = deref(defs["ContainerSpec"]["properties"]["ports"].clone(), defs);

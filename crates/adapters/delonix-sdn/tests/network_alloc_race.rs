@@ -1,17 +1,17 @@
-//! Regressão: a alocação do `/16` em `infra::network_create` era um
-//! ler-depois-escrever **sem fechadura**.
+//! Regression: the `/16` allocation in `infra::network_create` was a
+//! read-then-write **with no lock**.
 //!
-//! Duas criações em paralelo liam o mesmo conjunto de prefixos já usados e
-//! escolhiam o MESMO. Medido antes da correção: 10 criações concorrentes davam
-//! 2 a 4 prefixos distintos; 20 davam 10. As bridges diferem (o nome deriva do
-//! da rede), por isso as redes PARECEM separadas — mas os workloads tiram
-//! endereços do mesmo `/16` e qualquer regra indexada num IP fica ambígua entre
-//! duas redes que o operador julga isoladas.
+//! Two parallel creations read the same set of already-used prefixes and chose
+//! the SAME one. Measured before the fix: 10 concurrent creations gave 2 to 4
+//! distinct prefixes; 20 gave 10. The bridges differ (the name derives from the
+//! network's), so the networks LOOK separate — but the workloads draw addresses
+//! from the same `/16`, and any rule indexed on an IP becomes ambiguous between
+//! two networks the operator believes are isolated.
 //!
-//! Só filesystem: `network_create` não toca em netlink nem em namespaces, o que
-//! torna a corrida testável sem privilégios. Threads (e não processos) chegam —
-//! o `flock` é por *open file description*, e cada `acquire()` faz o seu
-//! próprio `open`, logo threads do mesmo processo excluem-se de facto.
+//! Filesystem only: `network_create` touches neither netlink nor namespaces,
+//! which makes the race testable without privileges. Threads (not processes)
+//! are enough — `flock` is per *open file description*, and each `acquire()`
+//! does its own `open`, so threads in the same process do exclude each other.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -20,9 +20,9 @@ use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 /// makes parallel tests fight over the same variable, so there is one root per
 /// process and the variable is set once. This only names the path; the
 /// directory itself exists while a [`RootLease`] does.
-fn raiz() -> &'static std::path::PathBuf {
-    static RAIZ: OnceLock<std::path::PathBuf> = OnceLock::new();
-    RAIZ.get_or_init(|| {
+fn root() -> &'static std::path::PathBuf {
+    static ROOT: OnceLock<std::path::PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| {
         let tmp = std::env::temp_dir();
         sweep_dead_roots(&tmp);
         let d = tmp.join(format!("{ROOT_PREFIX}{}", std::process::id()));
@@ -46,7 +46,7 @@ static LEASES: Mutex<usize> = Mutex::new(0);
 struct RootLease(&'static std::path::Path);
 
 fn lease() -> RootLease {
-    let root = raiz();
+    let root = root();
     let mut n = LEASES.lock().unwrap_or_else(|e| e.into_inner());
     if *n == 0 {
         let _ = std::fs::remove_dir_all(root);
@@ -119,76 +119,76 @@ fn quiet() -> RwLockWriteGuard<'static, ()> {
     REGISTRY.write().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Cria `n` redes em paralelo e devolve os `NetDef` resultantes.
+/// Creates `n` networks in parallel and returns the resulting `NetDef`s.
 /// The caller holds a [`RootLease`] for as long as it reads the results.
-fn criar_em_paralelo(prefixo_do_nome: &str, n: usize) -> Vec<delonix_sdn::infra::NetDef> {
-    let barreira = std::sync::Arc::new(std::sync::Barrier::new(n));
+fn create_in_parallel(name_prefix: &str, n: usize) -> Vec<delonix_sdn::infra::NetDef> {
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(n));
     let mut hs = Vec::with_capacity(n);
     for i in 0..n {
-        let nome = format!("{prefixo_do_nome}-{i}");
-        let b = barreira.clone();
+        let name = format!("{name_prefix}-{i}");
+        let b = barrier.clone();
         hs.push(std::thread::spawn(move || {
-            // Todas as threads largam ao mesmo tempo — sem isto, arrancarem em
-            // fila esconde a corrida que o teste existe para apanhar.
+            // All threads release at the same time — without this, starting in
+            // single file hides the race the test exists to catch.
             b.wait();
-            delonix_sdn::infra::network_create(&nome)
+            delonix_sdn::infra::network_create(&name)
         }));
     }
     hs.into_iter()
         .map(|h| {
             h.join()
-                .expect("thread em pânico")
-                .expect("network_create falhou")
+                .expect("thread panicked")
+                .expect("network_create failed")
         })
         .collect()
 }
 
 #[test]
-fn criacoes_concorrentes_nao_partilham_o_mesmo_16() {
+fn concurrent_creations_do_not_share_the_same_16() {
     let _g = writing();
     let _root = lease();
-    let defs = criar_em_paralelo("corrida", 16);
+    let defs = create_in_parallel("corrida", 16);
 
-    let prefixos: HashSet<&str> = defs.iter().map(|d| d.prefix.as_str()).collect();
+    let prefixes: HashSet<&str> = defs.iter().map(|d| d.prefix.as_str()).collect();
     assert_eq!(
-        prefixos.len(),
+        prefixes.len(),
         defs.len(),
-        "duas redes distintas ficaram no mesmo /16 — prefixos: {:?}",
+        "two distinct networks ended up on the same /16 — prefixes: {:?}",
         defs.iter()
             .map(|d| (&d.name, &d.prefix))
             .collect::<Vec<_>>()
     );
 
-    // E o que ficou em disco tem de concordar com o que foi devolvido: uma
-    // escrita a pisar outra dá prefixos únicos na memória e duplicados no disco.
-    let em_disco: Vec<_> = delonix_sdn::infra::network_list()
+    // And what landed on disk must agree with what was returned: one write
+    // clobbering another gives unique prefixes in memory and duplicates on disk.
+    let on_disk: Vec<_> = delonix_sdn::infra::network_list()
         .into_iter()
         .filter(|d| d.name.starts_with("corrida-"))
         .collect();
-    assert_eq!(em_disco.len(), defs.len(), "redes perdidas no disco");
-    let no_disco: HashSet<String> = em_disco.iter().map(|d| d.prefix.clone()).collect();
+    assert_eq!(on_disk.len(), defs.len(), "networks lost on disk");
+    let disk_prefixes: HashSet<String> = on_disk.iter().map(|d| d.prefix.clone()).collect();
     assert_eq!(
-        no_disco.len(),
+        disk_prefixes.len(),
         defs.len(),
-        "prefixos duplicados no disco: {em_disco:?}"
+        "duplicate prefixes on disk: {on_disk:?}"
     );
 }
 
-/// NOTA de honestidade: este passa também no código ANTIGO (6/6 corridas). Com
-/// o registo vazio, todas as threads lêem o mesmo `used`, escolhem o mesmo
-/// prefixo e escrevem `NetDef`s IDÊNTICOS — a escrita a pisar a outra é
-/// invisível quando o conteúdo coincide. Fica como guarda do invariante (e da
-/// re-verificação dentro da fechadura), não como prova da correção: essa é o
-/// `criacoes_concorrentes_nao_partilham_o_mesmo_16`.
+/// Honesty NOTE: this passes on the OLD code too (6/6 runs). With the registry
+/// empty, all threads read the same `used`, pick the same prefix and write
+/// IDENTICAL `NetDef`s — one write clobbering another is invisible when the
+/// content matches. It stays as a guard of the invariant (and of the recheck
+/// inside the lock), not as proof of the fix: that is
+/// `concurrent_creations_do_not_share_the_same_16`.
 #[test]
-fn o_mesmo_nome_em_paralelo_converge_numa_so_rede() {
+fn the_same_name_in_parallel_converges_to_one_network() {
     let _g = writing();
     let _root = lease();
     const N: usize = 12;
-    let barreira = std::sync::Arc::new(std::sync::Barrier::new(N));
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(N));
     let hs: Vec<_> = (0..N)
         .map(|_| {
-            let b = barreira.clone();
+            let b = barrier.clone();
             std::thread::spawn(move || {
                 b.wait();
                 delonix_sdn::infra::network_create("mesmo-nome")
@@ -197,23 +197,23 @@ fn o_mesmo_nome_em_paralelo_converge_numa_so_rede() {
         .collect();
     let defs: Vec<_> = hs
         .into_iter()
-        .map(|h| h.join().unwrap().expect("network_create falhou"))
+        .map(|h| h.join().unwrap().expect("network_create failed"))
         .collect();
 
-    // A re-verificação DENTRO da fechadura é o que garante isto: sem ela, quem
-    // chegasse depois reescrevia o `NetDef` do vencedor com outro prefixo,
-    // mudando a bridge por baixo do que já lá estivesse ligado.
-    let prefixos: HashSet<&str> = defs.iter().map(|d| d.prefix.as_str()).collect();
+    // The recheck INSIDE the lock is what guarantees this: without it, whoever
+    // arrived later rewrote the winner's `NetDef` with a different prefix,
+    // changing the bridge under whatever was already attached to it.
+    let prefixes: HashSet<&str> = defs.iter().map(|d| d.prefix.as_str()).collect();
     assert_eq!(
-        prefixos.len(),
+        prefixes.len(),
         1,
-        "o mesmo nome deu redes diferentes: {prefixos:?}"
+        "the same name gave different networks: {prefixes:?}"
     );
     let bridges: HashSet<&str> = defs.iter().map(|d| d.bridge.as_str()).collect();
     assert_eq!(
         bridges.len(),
         1,
-        "o mesmo nome deu bridges diferentes: {bridges:?}"
+        "the same name gave different bridges: {bridges:?}"
     );
 
     assert_eq!(
@@ -226,9 +226,10 @@ fn o_mesmo_nome_em_paralelo_converge_numa_so_rede() {
 }
 
 #[test]
-fn a_fechadura_nao_entra_no_registo_de_redes() {
-    // A fechadura vive ao LADO do registo. Se caísse lá dentro, `network_list`
-    // teria de a saltar por acidente (por falhar o parse) em vez de por desenho.
+fn the_lock_does_not_land_in_the_networks_registry() {
+    // The lock lives ALONGSIDE the registry. If it fell inside it, `network_list`
+    // would have to skip it by accident (by failing to parse) rather than by
+    // design.
     //
     // The assertion stays STRICT — anything that is not `.json` fails, temps
     // included — and it is the quiet folder that makes it deterministic, not an
@@ -237,13 +238,13 @@ fn a_fechadura_nao_entra_no_registo_de_redes() {
     // break this test too.
     let _g = quiet();
     let root = lease();
-    let _ = criar_em_paralelo("vizinha", 2);
+    let _ = create_in_parallel("vizinha", 2);
     let dir = root.join("ingress").join("networks");
     for e in std::fs::read_dir(&dir).unwrap().flatten() {
         let n = e.file_name().to_string_lossy().into_owned();
         assert!(
             n.ends_with(".json"),
-            "ficheiro estranho no registo de redes: {n}"
+            "unexpected file in the networks registry: {n}"
         );
     }
     assert!(root.join("ingress").join("networks.lock").exists());

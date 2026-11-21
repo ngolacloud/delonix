@@ -1809,8 +1809,14 @@ mod tui {
             extra_env: &extra_env,
             workdir: None,
             user: None,
+            // No `-u` from the dashboard shell → no supplementary-group resolution.
+            supplementary_groups: &[],
             // Interactive shell from the dashboard — no deadline.
             timeout_secs: None,
+            // The dashboard shell is interactive (attached pty), never detached.
+            detach: false,
+            // The dashboard shell inherits the container's profile, never elevated.
+            privileged: false,
         };
         let _code = delonix_linux::exec_with(&c, &command, true, &overrides)?;
         Ok(())
@@ -2880,7 +2886,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_sem_cor_tem_titulo_tiles_e_problemas() {
+    fn snapshot_without_color_has_title_tiles_and_problems() {
         let s = render_snapshot(&sample(), false);
         assert!(s.contains("DELONIX — SUMMARY"));
         assert!(s.contains("CONTAINERS"));
@@ -2894,13 +2900,13 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_com_cor_tem_ansi() {
+    fn snapshot_with_color_has_ansi() {
         let s = render_snapshot(&sample(), true);
         assert!(s.contains("\x1b["));
     }
 
     #[test]
-    fn sem_problemas_mostra_ok() {
+    fn no_problems_shows_ok() {
         let mut d = sample();
         d.problems.clear();
         let s = render_snapshot(&d, false);
@@ -2909,7 +2915,7 @@ mod tests {
     }
 
     #[test]
-    fn dash_data_serializa_para_json() {
+    fn dash_data_serializes_to_json() {
         let s = sample();
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"scope\":\"global\""));
@@ -2919,7 +2925,7 @@ mod tests {
     }
 
     #[test]
-    fn derive_problems_apanha_crash_e_failed() {
+    fn derive_problems_catches_crash_and_failed() {
         let containers = vec![
             (
                 "web".to_string(),
@@ -2984,7 +2990,11 @@ mod tests {
         for _ in 0..6 {
             s = s.next();
         }
-        assert_eq!(s, DashScope::Global, "6 next() têm de dar a volta completa");
+        assert_eq!(
+            s,
+            DashScope::Global,
+            "6 next() must wrap all the way around"
+        );
         assert_eq!(DashScope::Global.prev(), DashScope::Images);
         assert_eq!(DashScope::Images.next(), DashScope::Global);
     }

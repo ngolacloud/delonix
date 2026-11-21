@@ -137,8 +137,26 @@ fn sockopt_int(fd: RawFd, opt: libc::c_int) -> Result<libc::c_int, std::io::Erro
     }
 }
 
-/// Refuses `fd` unless it is a listening `AF_UNIX` stream socket (DX-1903).
-pub fn check_listening_unix_stream(fd: RawFd) -> Result<(), Error> {
+/// The transport an inherited listening socket selects (ADR-0096): a local
+/// `AF_UNIX` socket (the `SO_PEERCRED` path, no TLS) or a `AF_INET`/`AF_INET6`
+/// TCP socket (the mutual-TLS path). The family of the descriptor the service
+/// manager passed decides which — a `ListenStream=<path>` vs a
+/// `ListenStream=<addr>:<port>` in the `.socket` unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivatedKind {
+    /// A local unix stream socket — `SO_PEERCRED`, cleartext, the default.
+    Unix,
+    /// A TCP stream socket — demands TLS material and serves mutual TLS.
+    Tcp,
+}
+
+/// Classifies `fd` as the transport it selects, or refuses it (DX-1903) when it
+/// is not a listening stream socket at all. A datagram socket, a connected
+/// (non-listening) socket, or a non-socket descriptor is refused the same way
+/// it was before TCP was accepted: the difference is only that an `AF_INET`/
+/// `AF_INET6` listening stream is now [`ActivatedKind::Tcp`] rather than an
+/// error, so socket activation can hand over the TLS listener.
+pub fn classify_listening_stream(fd: RawFd) -> Result<ActivatedKind, Error> {
     let what = |e: std::io::Error| {
         invalid_socket(format!(
             "descriptor {fd} from the service manager is not a usable socket: {e}"
@@ -147,12 +165,17 @@ pub fn check_listening_unix_stream(fd: RawFd) -> Result<(), Error> {
     let domain = sockopt_int(fd, libc::SO_DOMAIN).map_err(what)?;
     let kind = sockopt_int(fd, libc::SO_TYPE).map_err(what)?;
     let listening = sockopt_int(fd, libc::SO_ACCEPTCONN).map_err(what)?;
-    if domain != libc::AF_UNIX {
-        return Err(invalid_socket(format!(
-            "descriptor {fd} is not a unix socket (family {domain}): the node API serves on a \
-             local unix socket only — the .socket unit needs ListenStream=<absolute path>"
-        )));
-    }
+    let transport = match domain {
+        libc::AF_UNIX => ActivatedKind::Unix,
+        libc::AF_INET | libc::AF_INET6 => ActivatedKind::Tcp,
+        other => {
+            return Err(invalid_socket(format!(
+                "descriptor {other} is not a unix or TCP socket (family {domain}): the node API \
+                 serves a local unix socket (ListenStream=<absolute path>) or a TCP socket with \
+                 mutual TLS (ListenStream=<addr>:<port> + the TLS material)"
+            )))
+        }
+    };
     if kind != libc::SOCK_STREAM {
         return Err(invalid_socket(format!(
             "descriptor {fd} is not a stream socket (type {kind}): the .socket unit needs \
@@ -165,7 +188,19 @@ pub fn check_listening_unix_stream(fd: RawFd) -> Result<(), Error> {
              over the listening socket, not one accepted connection"
         )));
     }
-    Ok(())
+    Ok(transport)
+}
+
+/// Refuses `fd` unless it is a listening `AF_UNIX` stream socket (DX-1903) — the
+/// assertion the unix path makes once it has decided it expects a unix socket.
+pub fn check_listening_unix_stream(fd: RawFd) -> Result<(), Error> {
+    match classify_listening_stream(fd)? {
+        ActivatedKind::Unix => Ok(()),
+        ActivatedKind::Tcp => Err(invalid_socket(format!(
+            "descriptor {fd} is a TCP socket, not a unix socket: the node API serves a TCP \
+             listener only with mutual TLS — the unix path takes a local socket"
+        ))),
+    }
 }
 
 /// Marks `fd` close-on-exec, so no process the server runs inherits the
@@ -255,9 +290,39 @@ mod tests {
         let d = std::os::unix::net::UnixDatagram::unbound().unwrap();
         let e = check_listening_unix_stream(d.as_raw_fd()).unwrap_err();
         assert!(e.to_string().contains("not a stream socket"), "{e}");
-        // A TCP listener.
+        // A TCP listener is a valid socket, but not the unix path: refused by
+        // the unix assertion (DX-1903), now naming TCP rather than "not a
+        // socket".
         let t = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let e = check_listening_unix_stream(t.as_raw_fd()).unwrap_err();
-        assert!(e.to_string().contains("not a unix socket"), "{e}");
+        assert_eq!(e.number(), 1903, "{e}");
+        assert!(e.to_string().contains("is a TCP socket"), "{e}");
+    }
+
+    #[test]
+    fn a_tcp_listener_classifies_as_the_tls_transport()
+    /* ADR-0096: AF_INET selects TCP, no longer an error */
+    {
+        let t = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        assert_eq!(
+            classify_listening_stream(t.as_raw_fd()).unwrap(),
+            ActivatedKind::Tcp
+        );
+        let u = {
+            let dir = tempfile::tempdir().unwrap();
+            std::os::unix::net::UnixListener::bind(dir.path().join("s")).unwrap()
+        };
+        assert_eq!(
+            classify_listening_stream(u.as_raw_fd()).unwrap(),
+            ActivatedKind::Unix
+        );
+        // A datagram socket is still refused, whatever its family.
+        let d = std::os::unix::net::UnixDatagram::unbound().unwrap();
+        assert_eq!(
+            classify_listening_stream(d.as_raw_fd())
+                .unwrap_err()
+                .number(),
+            1903
+        );
     }
 }

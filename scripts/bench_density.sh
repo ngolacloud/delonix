@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bancada de DENSIDADE: como a latência de attach cresce com o número de
 # containers no nó. O ponto que a bateria de latência (`bench.sh`) NÃO mede e
-# diz em letra miúda que não mede (`docs/comparacao-medida.md`): "duas chamadas
+# diz em letra miúda que não mede (`docs/measured-comparison.md`): "duas chamadas
 # do caminho de attach (`nft list sets`, `nft -a list chain fwdeny`) são dumps
 # que crescem com o número de containers e namespaces, e a bateria correu num nó
 # VAZIO". Um número de attach de nó vazio é um número que NÃO se repete em

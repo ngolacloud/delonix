@@ -29,7 +29,7 @@ pub mod workload_view;
 
 pub use error::{Error, Result};
 
-use capabilities::{all_caps_mask, resolve_cap_keep};
+use capabilities::{all_caps_mask, mask_from_names, resolve_cap_keep, CapSets};
 use delonix_compute::{Container, KubeCgroupDriver, KubeCgroupParent, Mount};
 use delonix_model::ports::StateRepository;
 use delonix_model::records::Status;
@@ -83,6 +83,172 @@ fn syserr(context: &'static str) -> impl Fn(nix::Error) -> Error {
     move |e| Error::Syscall {
         context,
         message: e.to_string(),
+    }
+}
+
+/// Phase profiler for the cold container-start path (`spawn`).
+///
+/// **Pure measurement — it changes no behavior.** Every entry point is a no-op
+/// unless `DELONIX_PROFILE_SPAWN` is set in the environment, and the decision is
+/// cached once (an atomic) so a disabled build pays nothing but a relaxed load
+/// per `mark`. Nothing here touches the `clone`/`cg_sync` hot path: the marks
+/// are placed in the PARENT's sequential orchestration only, between the
+/// syscalls that already happen, and read only `Instant::now()`.
+///
+/// Why this exists: `docs/measured-comparison.md` measures ~91 ms of cold start
+/// (rootless, `--net host`) end-to-end but cannot say WHERE those ms go. ADR-0095
+/// says the warm/pooled plane must be designed on a measured profile, not a
+/// guess. This emits one line per start, broken into the phases a reader cares
+/// about: pre-clone setup (process/overlay prep in the parent), the `clone`
+/// itself (namespaces), cgroup placement, the network hook, and the wait for the
+/// child to finish shaping its mount namespace (overlay mount lives there).
+///
+/// `DELONIX_PROFILE_SPAWN=1` (or any value) prints the profile to stderr.
+/// `DELONIX_PROFILE_SPAWN=<path>` ALSO appends one JSONL record per start to that
+/// file (the path is detected by not being `1`/`true`/`yes`/`on`).
+mod spawn_profile {
+    use std::cell::RefCell;
+    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::time::Instant;
+
+    // 0 = not yet decided, 1 = disabled, 2 = enabled. Cached once from the env.
+    static STATE: AtomicU8 = AtomicU8::new(0);
+
+    thread_local! {
+        static MARKS: RefCell<Vec<(&'static str, Instant)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Whether profiling is on, deciding once from `DELONIX_PROFILE_SPAWN`.
+    pub fn enabled() -> bool {
+        match STATE.load(Ordering::Relaxed) {
+            1 => false,
+            2 => true,
+            _ => {
+                let on = std::env::var_os("DELONIX_PROFILE_SPAWN").is_some();
+                STATE.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+                on
+            }
+        }
+    }
+
+    /// Start a fresh profile for one `spawn` call.
+    pub fn begin() {
+        if !enabled() {
+            return;
+        }
+        MARKS.with(|m| {
+            let mut v = m.borrow_mut();
+            v.clear();
+            v.push(("enter", Instant::now()));
+        });
+    }
+
+    /// Stamp a phase boundary with a `'static` label.
+    pub fn mark(label: &'static str) {
+        if !enabled() {
+            return;
+        }
+        MARKS.with(|m| m.borrow_mut().push((label, Instant::now())));
+    }
+
+    /// Emit the profile (stderr, and JSONL if the env var names a path) and reset.
+    /// `container` names the run; `net_mode` records host vs isolated so the two
+    /// can be compared as `docs/measured-comparison.md` asks.
+    pub fn flush(container: &str, net_mode: &str) {
+        if !enabled() {
+            return;
+        }
+        MARKS.with(|m| {
+            let marks = m.borrow();
+            if marks.len() < 2 {
+                return;
+            }
+            let t0 = marks[0].1;
+            let total_us = marks[marks.len() - 1].1.duration_since(t0).as_micros();
+            // Per-phase deltas between consecutive marks.
+            let mut phases: Vec<(&'static str, u128)> = Vec::with_capacity(marks.len());
+            for w in marks.windows(2) {
+                phases.push((w[1].0, w[1].1.duration_since(w[0].1).as_micros()));
+            }
+            let human = phases
+                .iter()
+                .map(|(l, us)| format!("{l}={:.2}ms", *us as f64 / 1000.0))
+                .collect::<Vec<_>>()
+                .join(" ");
+            eprintln!(
+                "delonix spawn-profile [{container} net={net_mode}] total={:.2}ms | {human}",
+                total_us as f64 / 1000.0
+            );
+            append_jsonl(&format!(
+                "{{\"role\":\"parent\",\"container\":\"{container}\",\"net\":\"{net_mode}\",\"total_us\":{total_us},\"phases_us\":{{{}}}}}",
+                phases_json(&phases)
+            ));
+        });
+        MARKS.with(|m| m.borrow_mut().clear());
+    }
+
+    /// Emit the CHILD-side sub-profile of the `mounts` phase. Runs in the forked
+    /// container init (a separate process), so it cannot flush through the parent;
+    /// it prints to stderr and, when the env var names a path, appends its own
+    /// JSONL record. `cid` ties it back to the parent line. This is what lets the
+    /// ~87 ms `mounts` phase be split into `setup_rootfs` (overlay + pivot_root +
+    /// /proc,/sys,/dev) and the confinement tail.
+    pub fn child_flush(cid: &str) {
+        if !enabled() {
+            return;
+        }
+        MARKS.with(|m| {
+            let marks = m.borrow();
+            if marks.len() < 2 {
+                return;
+            }
+            let t0 = marks[0].1;
+            let total_us = marks[marks.len() - 1].1.duration_since(t0).as_micros();
+            let mut phases: Vec<(&'static str, u128)> = Vec::with_capacity(marks.len());
+            for w in marks.windows(2) {
+                phases.push((w[1].0, w[1].1.duration_since(w[0].1).as_micros()));
+            }
+            let human = phases
+                .iter()
+                .map(|(l, us)| format!("{l}={:.2}ms", *us as f64 / 1000.0))
+                .collect::<Vec<_>>()
+                .join(" ");
+            eprintln!(
+                "delonix spawn-profile [{cid} CHILD mounts] total={:.2}ms | {human}",
+                total_us as f64 / 1000.0
+            );
+            append_jsonl(&format!(
+                "{{\"role\":\"child\",\"cid\":\"{cid}\",\"total_us\":{total_us},\"phases_us\":{{{}}}}}",
+                phases_json(&phases)
+            ));
+        });
+        MARKS.with(|m| m.borrow_mut().clear());
+    }
+
+    fn phases_json(phases: &[(&'static str, u128)]) -> String {
+        phases
+            .iter()
+            .map(|(l, us)| format!("\"{l}\":{us}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    fn append_jsonl(record: &str) {
+        if let Some(val) = std::env::var_os("DELONIX_PROFILE_SPAWN") {
+            let s = val.to_string_lossy();
+            if matches!(s.as_ref(), "1" | "true" | "yes" | "on" | "") {
+                return; // a flag, not a path — stderr only
+            }
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(s.as_ref())
+            {
+                let _ = f.write_all(record.as_bytes());
+                let _ = f.write_all(b"\n");
+            }
+        }
     }
 }
 
@@ -977,20 +1143,34 @@ fn switch_user_keeping_caps(uid: u32, gid: u32, groups: &[u32]) -> std::result::
     Ok(())
 }
 
-/// Drops all capabilities except `keep` (mask). Without this, the container's
-/// root is the REAL host root (can load modules, reboot the machine,
-/// create device nodes for the host disk, etc.).
-fn drop_capabilities(keep: u64) {
-    // 1) bounding set: prevents reacquiring caps via setuid/exec.
+/// Installs the five OCI capability sets on the current thread. Without this,
+/// the container's root is the REAL host root (can load modules, reboot the
+/// machine, create device nodes for the host disk, etc.).
+///
+/// The order is dictated by the kernel's own rules:
+///  1. Drop the bounding set first (needs `CAP_SETPCAP` in the still-full
+///     effective set) so a cap outside it cannot be reacquired via setuid/exec.
+///  2. `capset` the effective/permitted/inheritable triple. Inheritable is no
+///     longer forced to zero: an ambient cap MUST be in both permitted and
+///     inheritable before it can be raised.
+///  3. Clear the ambient set and RAISE each requested ambient cap — the only
+///     mechanism that lets a capability survive an `execve` into a
+///     non-privileged program, which is exactly what the OCI ambient set means.
+///
+/// For the docker/CRI single-mask model (`CapSets::from_keep`) steps 2–3
+/// degenerate to the previous behaviour (inheritable 0, no ambient raised), so
+/// that path is byte-for-byte unchanged.
+fn drop_capabilities(caps: &CapSets) {
+    // 1) bounding set.
     for cap in 0..64i64 {
-        if (keep >> cap) & 1 == 0 {
+        if (caps.bounding >> cap) & 1 == 0 {
             // SAFETY: prctl is safe; nonexistent caps return EINVAL (ignored).
             unsafe {
                 libc::prctl(libc::PR_CAPBSET_DROP, cap as libc::c_ulong, 0, 0, 0);
             }
         }
     }
-    // 2) effective/permitted/inheritable: only the allowlist ones remain.
+    // 2) effective/permitted/inheritable via capset.
     #[repr(C)]
     struct CapHeader {
         version: u32,
@@ -1006,23 +1186,50 @@ fn drop_capabilities(keep: u64) {
         version: 0x2008_0522, // _LINUX_CAPABILITY_VERSION_3
         pid: 0,               // the thread itself
     };
-    let (lo, hi) = ((keep & 0xffff_ffff) as u32, (keep >> 32) as u32);
+    let split = |m: u64| ((m & 0xffff_ffff) as u32, (m >> 32) as u32);
+    let (eff_lo, eff_hi) = split(caps.effective);
+    let (prm_lo, prm_hi) = split(caps.permitted);
+    let (inh_lo, inh_hi) = split(caps.inheritable);
     let data = [
         CapData {
-            effective: lo,
-            permitted: lo,
-            inheritable: 0,
+            effective: eff_lo,
+            permitted: prm_lo,
+            inheritable: inh_lo,
         },
         CapData {
-            effective: hi,
-            permitted: hi,
-            inheritable: 0,
+            effective: eff_hi,
+            permitted: prm_hi,
+            inheritable: inh_hi,
         },
     ];
     // SAFETY: capset with a valid v3 header and 2 data structs; reducing one's
-    // own caps to a subset is always permitted.
+    // own caps to a subset of the current permitted set is always permitted,
+    // and at this point (before the execve) the thread still holds the full
+    // permitted set it was created with.
     unsafe {
         libc::syscall(libc::SYS_capset, &hdr as *const _, data.as_ptr());
+    }
+    // 3) ambient set: clear all, then raise each requested one. A raise needs
+    //    the cap present in BOTH permitted and inheritable (set in step 2);
+    //    `oci-runtime` refuses a bundle whose ambient is not a subset of their
+    //    intersection, so every raise here is expected to succeed. Best-effort
+    //    on an old kernel that lacks PR_CAP_AMBIENT (pre-4.3): the raises become
+    //    no-ops and `verify_confinement` still holds the bounding ceiling.
+    const PR_CAP_AMBIENT: libc::c_int = 47;
+    const PR_CAP_AMBIENT_RAISE: libc::c_ulong = 2;
+    const PR_CAP_AMBIENT_CLEAR_ALL: libc::c_ulong = 4;
+    // SAFETY: prctl with the ambient subfunctions; unknown values/caps return
+    // EINVAL, which is ignored (the set simply stays unraised).
+    unsafe {
+        libc::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
+    }
+    for cap in 0..64u64 {
+        if (caps.ambient >> cap) & 1 == 1 {
+            // SAFETY: as above; raising a cap already in permitted∩inheritable.
+            unsafe {
+                libc::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, cap as libc::c_ulong, 0, 0);
+            }
+        }
     }
 }
 
@@ -1030,13 +1237,22 @@ fn drop_capabilities(keep: u64) {
 /// `/proc/self/status`. Pure logic (testable): requires `NO_NEW_PRIVS` when it was
 /// requested, seccomp in
 /// filter mode (2) when expected, and NO capability outside `cap_keep` in the
-/// bounding set nor in the effective set. `CapBnd`/`CapEff` absent = unverifiable =
-/// error (fail-closed).
+/// bounding set nor in the effective set. The inheritable (`CapInh`) and ambient
+/// (`CapAmb`) sets must be EMPTY: the drop zeroes inheritable and never raises
+/// ambient, so a non-zero value there is a cap that would survive the `execve`
+/// into an unprivileged binary — exactly what the drop is meant to prevent.
+/// `CapBnd`/`CapEff`/`CapInh`/`CapAmb` absent = unverifiable = error (fail-closed).
+// The four capability sets plus the three policy flags are each a distinct
+// `/proc/self/status` field; bundling them into a struct would only move the
+// argument list to the call site without making the check clearer.
+#[allow(clippy::too_many_arguments)]
 fn confinement_ok(
     no_new_privs: Option<u32>,
     seccomp_mode: Option<u32>,
     cap_bnd: Option<u64>,
     cap_eff: Option<u64>,
+    cap_inh: Option<u64>,
+    cap_amb: Option<u64>,
     seccomp_expected: bool,
     cap_keep: u64,
     nnp_expected: bool,
@@ -1058,11 +1274,21 @@ fn confinement_ok(
     }
     let bnd = cap_bnd.ok_or_else(|| "CapBnd missing from /proc/self/status".to_string())?;
     let eff = cap_eff.ok_or_else(|| "CapEff missing from /proc/self/status".to_string())?;
+    let inh = cap_inh.ok_or_else(|| "CapInh missing from /proc/self/status".to_string())?;
+    let amb = cap_amb.ok_or_else(|| "CapAmb missing from /proc/self/status".to_string())?;
     let extra_bnd = bnd & !cap_keep;
     let extra_eff = eff & !cap_keep;
     if extra_bnd != 0 || extra_eff != 0 {
         return Err(format!(
             "capabilities outside the allowlist persist (bnd_extra={extra_bnd:#x} eff_extra={extra_eff:#x})"
+        ));
+    }
+    // Inheritable and ambient must be empty: unlike bounding/effective, there is
+    // no allowlist here — the drop zeroes inheritable and leaves ambient clear,
+    // so ANY bit set is a capability that would cross the `execve`.
+    if inh != 0 || amb != 0 {
+        return Err(format!(
+            "inheritable/ambient capabilities persist (inh={inh:#x} amb={amb:#x})"
         ));
     }
     Ok(())
@@ -1082,7 +1308,8 @@ fn verify_confinement(
 ) -> std::result::Result<(), String> {
     let status = std::fs::read_to_string("/proc/self/status")
         .map_err(|e| format!("/proc/self/status unreadable: {e}"))?;
-    let (mut nnp, mut sec, mut bnd, mut eff) = (None, None, None, None);
+    let (mut nnp, mut sec, mut bnd, mut eff, mut inh, mut amb) =
+        (None, None, None, None, None, None);
     for line in status.lines() {
         if let Some(v) = line.strip_prefix("NoNewPrivs:") {
             nnp = v.trim().parse::<u32>().ok();
@@ -1092,9 +1319,15 @@ fn verify_confinement(
             bnd = u64::from_str_radix(v.trim(), 16).ok();
         } else if let Some(v) = line.strip_prefix("CapEff:") {
             eff = u64::from_str_radix(v.trim(), 16).ok();
+        } else if let Some(v) = line.strip_prefix("CapInh:") {
+            inh = u64::from_str_radix(v.trim(), 16).ok();
+        } else if let Some(v) = line.strip_prefix("CapAmb:") {
+            amb = u64::from_str_radix(v.trim(), 16).ok();
         }
     }
-    confinement_ok(nnp, sec, bnd, eff, seccomp_expected, cap_keep, nnp_expected)
+    confinement_ok(
+        nnp, sec, bnd, eff, inh, amb, seccomp_expected, cap_keep, nnp_expected,
+    )
 }
 
 /// Did the operator turn off the fail-closed checks? (ENGINE variable, read before
@@ -1109,12 +1342,14 @@ fn insecure_besteffort() -> bool {
 ///
 /// Without this, whoever invoked `$(delonix run -d ...)` would block until the
 /// container closed its stdout — that is, until it terminated.
-fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
-    // SAFETY: direct FFI; duplicates the standard descriptors. Best-effort.
+fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) -> std::result::Result<(), String> {
+    // SAFETY: direct FFI; duplicates the standard descriptors. A failing `dup2`
+    // is fail-closed: a container whose stdout did NOT land on the log pipe would
+    // run detached with its output going nowhere (or to a stale fd) and no `logs`.
     unsafe {
         let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
-        if null >= 0 {
-            libc::dup2(null, 0);
+        if null >= 0 && libc::dup2(null, 0) < 0 {
+            return Err("dup2(/dev/null -> stdin) failed".into());
         }
         let out = out_fd.unwrap_or(null);
         // `err_fd` absent = the historical behaviour, both streams down the same
@@ -1122,11 +1357,11 @@ fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
         // pipes would just interleave worse). The CRI format DOES carry the tag,
         // and merging there made every line claim to be `stdout` — see `log_shim`.
         let err = err_fd.or(out_fd).unwrap_or(null);
-        if out >= 0 {
-            libc::dup2(out, 1);
+        if out >= 0 && libc::dup2(out, 1) < 0 {
+            return Err("dup2(log pipe -> stdout) failed".into());
         }
-        if err >= 0 {
-            libc::dup2(err, 2);
+        if err >= 0 && libc::dup2(err, 2) < 0 {
+            return Err("dup2(log pipe -> stderr) failed".into());
         }
         if null > 2 {
             libc::close(null);
@@ -1138,6 +1373,7 @@ fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
             }
         }
     }
+    Ok(())
 }
 
 /// The foreground sibling of [`detach_stdio`]: stdout/stderr go down the log
@@ -1147,20 +1383,27 @@ fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
 /// `container logs` history (Docker/Podman parity): before it, a foreground
 /// container wrote straight to the terminal and the log file simply never
 /// existed (seen live: `logs -f` on a foreground nginx → ENOENT).
-fn attach_log_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
-    let Some(out) = out_fd else { return };
-    // SAFETY: direct FFI; duplicates our own just-created pipe ends onto 1/2.
+fn attach_log_stdio(out_fd: Option<i32>, err_fd: Option<i32>) -> std::result::Result<(), String> {
+    let Some(out) = out_fd else { return Ok(()) };
+    // SAFETY: direct FFI; duplicates our own just-created pipe ends onto 1/2. A
+    // failing `dup2` is fail-closed: the foreground container's `logs` history
+    // depends on 1/2 pointing at the pipe, so a silent miss would lose it.
     unsafe {
-        libc::dup2(out, 1);
+        if libc::dup2(out, 1) < 0 {
+            return Err("dup2(log pipe -> stdout) failed".into());
+        }
         // Absent stderr pipe = both streams down the stdout pipe, the same
         // merge `detach_stdio` documents.
-        libc::dup2(err_fd.unwrap_or(out), 2);
+        if libc::dup2(err_fd.unwrap_or(out), 2) < 0 {
+            return Err("dup2(log pipe -> stderr) failed".into());
+        }
         for fd in [out_fd, err_fd].into_iter().flatten() {
             if fd > 2 {
                 libc::close(fd);
             }
         }
     }
+    Ok(())
 }
 
 /// Inode of a path, or `None` if it is not there.
@@ -3023,7 +3266,7 @@ fn detach_old_root(old: &str, rshared: bool) -> nix::Result<()> {
 /// writable, kernel RAM readable, or (worst, because the first bind succeeds and
 /// the remount is what fails) a `/proc/sys` that looks mounted and still writes
 /// the HOST's sysctls.
-fn mask_proc_paths(privileged: bool) -> std::result::Result<(), String> {
+fn mask_proc_paths(privileged: bool, host_pid: bool) -> std::result::Result<(), String> {
     // bind /dev/null over sysrq-trigger -> writes go to the void.
     if std::fs::metadata("/proc/sysrq-trigger").is_ok() {
         mount(
@@ -3053,22 +3296,45 @@ fn mask_proc_paths(privileged: bool) -> std::result::Result<(), String> {
     // SECOND is the one that must not be ignored: without it the bind above
     // leaves `/proc/sys` writable behind a mount that looks right.
     if std::fs::metadata("/proc/sys").is_ok() {
-        mount(
+        let masked = mount(
             Some("/proc/sys"),
             "/proc/sys",
             None::<&str>,
             MsFlags::MS_BIND,
             None::<&str>,
         )
-        .map_err(|e| format!("could not bind '/proc/sys' for read-only: {e}"))?;
-        mount(
-            None::<&str>,
-            "/proc/sys",
-            None::<&str>,
-            MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
-            None::<&str>,
-        )
-        .map_err(|e| format!("could not remount '/proc/sys' read-only: {e}"))?;
+        .and_then(|_| {
+            mount(
+                None::<&str>,
+                "/proc/sys",
+                None::<&str>,
+                MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
+                None::<&str>,
+            )
+        });
+        if let Err(e) = masked {
+            // `--host-pid` makes `/proc` a RECURSIVE BIND of the host's `/proc`
+            // (the kernel refuses a fresh procfs in the host's pidns, see
+            // `setup_rootfs`), so `/proc/sys` carries the host's submounts and
+            // this self-bind fails `EINVAL` in a rootless user namespace —
+            // aborting a container Docker/Podman would have started (`run --pid
+            // host` died, worked only with `--privileged`). It is NOT a hole to
+            // leave it writable here: as `proc_sys_read_only` documents, a user
+            // namespace already refuses writes to the init-ns sysctls, so the
+            // writable view changes nothing an unprivileged container could do.
+            // So: DEGRADE to a warning under `--host-pid`, but stay FAIL-CLOSED
+            // when `/proc` is our own fresh procfs (`!host_pid`), where the
+            // remount is expected to work and a failure is a real fault.
+            if ro_failure_is_tolerable(host_pid, "/proc/sys") {
+                eprintln!(
+                    "delonix: /proc/sys left writable under --host-pid — the shared host /proc \
+                     cannot be remounted read-only rootless ({e}); the user namespace still \
+                     refuses writes to the host's sysctls"
+                );
+            } else {
+                return Err(format!("could not make '/proc/sys' read-only: {e}"));
+            }
+        }
     }
     Ok(())
 }
@@ -3090,6 +3356,22 @@ fn mask_proc_paths(privileged: bool) -> std::result::Result<(), String> {
 /// kernel still refuses writes to sysctls owned by the initial namespace.
 fn proc_sys_read_only(privileged: bool) -> bool {
     !privileged
+}
+
+/// Whether a FAILED read-only remount of `path` is tolerable (warn and carry on)
+/// rather than fail-closed (abort the container).
+///
+/// Only under `--host-pid`, and only for a `/proc/*` subtree. That is the single
+/// case the kernel forces on us: with the host's pidns shared it refuses a fresh
+/// procfs ("fully visible" rule), so the engine binds the host's `/proc`
+/// recursively, and a rootless user namespace then cannot remount those
+/// host-owned, locked `/proc/*` submounts read-only (EINVAL/EPERM). Leaving them
+/// writable is not a hole here: the user namespace already refuses the
+/// host-level sysctl/PCI/IRQ writes the read-only guard existed to stop (see
+/// `proc_sys_read_only`). Every other path, and the whole non-`--host-pid` case
+/// (where `/proc` is our own fresh procfs), stays fail-closed. PURE.
+fn ro_failure_is_tolerable(host_pid: bool, path: &str) -> bool {
+    host_pid && path.starts_with("/proc/")
 }
 
 /// Base and size of the UID mapping for the user namespace: the container's
@@ -3385,8 +3667,15 @@ pub fn reexec_mapped(args: &[&str]) -> Option<bool> {
             let mut b = [0u8; 1];
             let _ = libc::read(r, b.as_mut_ptr() as *mut libc::c_void, 1);
             libc::close(r);
-            libc::setgid(0);
-            libc::setuid(0);
+            // A failed setgid/setuid must ABORT the child: continuing would
+            // `execv` the mapped helper with the WRONG credentials (not the
+            // userns root we just mapped), silently running it unprivileged.
+            if libc::setgid(0) != 0 {
+                libc::_exit(1);
+            }
+            if libc::setuid(0) != 0 {
+                libc::_exit(1);
+            }
             libc::execv(prog.as_ptr(), argv.as_ptr());
             libc::_exit(127);
         },
@@ -3499,8 +3788,15 @@ pub fn reexec_mapped_hold(args: &[&str]) -> Option<HeldChild> {
             let mut b = [0u8; 1];
             let _ = libc::read(sync[0], b.as_mut_ptr() as *mut libc::c_void, 1);
             libc::close(sync[0]);
-            libc::setgid(0);
-            libc::setuid(0);
+            // A failed setgid/setuid must ABORT the child: continuing would
+            // `execv` the mapped helper with the WRONG credentials (not the
+            // userns root we just mapped), silently running it unprivileged.
+            if libc::setgid(0) != 0 {
+                libc::_exit(1);
+            }
+            if libc::setuid(0) != 0 {
+                libc::_exit(1);
+            }
             libc::execv(prog.as_ptr(), argv.as_ptr());
             libc::_exit(127);
         },
@@ -3722,8 +4018,15 @@ pub fn remove_tree_mapped(path: &std::path::Path) {
             let mut b = [0u8; 1];
             let _ = libc::read(r, b.as_mut_ptr() as *mut libc::c_void, 1);
             libc::close(r);
-            libc::setgid(0);
-            libc::setuid(0);
+            // A failed setgid/setuid must ABORT the child: continuing would
+            // `execv` the mapped helper with the WRONG credentials (not the
+            // userns root we just mapped), silently running it unprivileged.
+            if libc::setgid(0) != 0 {
+                libc::_exit(1);
+            }
+            if libc::setuid(0) != 0 {
+                libc::_exit(1);
+            }
             libc::execv(prog.as_ptr(), argv.as_ptr());
             libc::_exit(127);
         },
@@ -3875,11 +4178,55 @@ fn apply_selinux(context: &str) -> std::result::Result<(), String> {
         .map_err(|e| format!("setexeccon({context}): {e}"))
 }
 
+/// The login `HOME` for `uid`, read from the container's `/etc/passwd`
+/// (post-`pivot_root`, so the path is the container's own). Returns the passwd
+/// `home` field (6th column) of the FIRST line whose uid matches, or `None` when
+/// the file is absent/unreadable or the uid has no entry — the caller then falls
+/// back to `/`, exactly as runc/OCI do.
+///
+/// Why this exists: the init used to hardcode `HOME=/root` for EVERY user. A
+/// non-root process (Kubernetes `runAsUser: 1000` against an image whose passwd
+/// only knows root) then got `HOME=/root` — a 0700 root-owned directory it cannot
+/// write to — and every client-go tool that resolves `~/.kube/config` died with
+/// EACCES there. The Sonobuoy aggregator failed on exactly that path. runc instead
+/// derives HOME from the user's passwd entry and defaults to `/`; this restores
+/// that behaviour. Malformed lines (fewer than 6 fields, non-numeric uid) are
+/// skipped, not fatal — a broken `/etc/passwd` just means the `/` fallback.
+fn passwd_home(uid: u32) -> Option<String> {
+    let text = std::fs::read_to_string("/etc/passwd").ok()?;
+    parse_passwd_home(&text, uid)
+}
+
+/// The pure half of [`passwd_home`]: scans `/etc/passwd` text for `uid`. Split
+/// out so it is testable without an `/etc/passwd` on disk.
+fn parse_passwd_home(text: &str, uid: u32) -> Option<String> {
+    for line in text.lines() {
+        // name:passwd:uid:gid:gecos:home:shell
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() < 6 {
+            continue;
+        }
+        if fields[2].trim().parse::<u32>().ok() != Some(uid) {
+            continue;
+        }
+        let home = fields[5].trim();
+        if !home.is_empty() {
+            return Some(home.to_string());
+        }
+    }
+    None
+}
+
 /// The body that runs inside the new namespaces (the container's PID 1).
 /// Replaces the inherited environment with a clean, predictable one (like Docker):
 /// default `PATH`/`HOME`/`HOSTNAME`/`TERM` + the `KEY=value` from the image/stack/CLI
 /// (these override). Runs in the single-threaded child, before the `execvp`.
-fn apply_env(hostname: &str, env: &[String]) {
+///
+/// `HOME` comes from the container-user's `/etc/passwd` entry (see
+/// [`passwd_home`]), falling back to `/` — never a hardcoded `/root` for a
+/// non-root uid with no passwd entry. An explicit `HOME` in `env` (image/stack/
+/// CLI) still overrides, because it is applied last.
+fn apply_env(hostname: &str, env: &[String], uid: u32) {
     let keys: Vec<String> = std::env::vars().map(|(k, _)| k).collect();
     for k in keys {
         std::env::remove_var(k);
@@ -3888,7 +4235,7 @@ fn apply_env(hostname: &str, env: &[String]) {
         "PATH",
         "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     );
-    std::env::set_var("HOME", "/root");
+    std::env::set_var("HOME", passwd_home(uid).unwrap_or_else(|| "/".to_string()));
     std::env::set_var("HOSTNAME", hostname);
     std::env::set_var("TERM", "xterm");
     for kv in env {
@@ -4516,8 +4863,11 @@ struct FilesystemSpec<'a> {
 /// or strengthen isolation, which is why they live together and are named.
 #[derive(Clone, Copy)]
 struct SecuritySpec<'a> {
-    /// Bitmask of capabilities kept in the child's bounding set.
-    cap_keep: u64,
+    /// The five OCI capability sets the child installs (bounding/effective/
+    /// permitted/inheritable/ambient). The docker/CRI path fills this with
+    /// [`CapSets::from_keep`] (a single kept mask, ambient empty); an OCI bundle
+    /// with explicit sets fills it verbatim so ambient caps are actually raised.
+    caps: CapSets,
     apparmor: Option<&'a str>,
     selinux: Option<&'a str>,
     /// Skips seccomp entirely. The container runs with the host's syscall surface.
@@ -4690,7 +5040,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             },
         security:
             SecuritySpec {
-                cap_keep,
+                caps,
                 apparmor,
                 selinux,
                 seccomp_unconfined,
@@ -4739,6 +5089,10 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             libc::close(r);
         }
     }
+    // Child-side sub-profile of the parent's `mounts` phase — a no-op unless
+    // DELONIX_PROFILE_SPAWN is set. `begin` clears the marks the clone copied from
+    // the parent and stamps the GO; this is pure measurement (see `spawn_profile`).
+    spawn_profile::begin();
     // Pod IPC/UTS sharing: join the infra container's IPC + UTS namespaces so the
     // pod's containers share System V/POSIX IPC and the UTS/hostname. The netns is
     // already joined (the `--pod` re-exec's `ip netns exec`). We run in the
@@ -4773,12 +5127,16 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         }
     }
     if detach {
-        detach_stdio(log_fd, log_err_fd);
+        if let Err(e) = detach_stdio(log_fd, log_err_fd) {
+            return setup_abort(&format!("failed to detach stdio: {e}"));
+        }
     } else {
         // Foreground WITH a log pipe: capture stdout/stderr for `container
         // logs` while the shim echoes them to the operator. No-op when the
         // parent opened no pipe (console/tty runs, or no log path).
-        attach_log_stdio(log_fd, log_err_fd);
+        if let Err(e) = attach_log_stdio(log_fd, log_err_fd) {
+            return setup_abort(&format!("failed to attach log stdio: {e}"));
+        }
     }
     // KIND node: BEFORE mounting the rootfs (which remounts `/sys`), gives the node a dedicated,
     // empty cgroup-ns root (uncovers the real cgroup2, moves us to a leaf,
@@ -4814,13 +5172,20 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         eprintln!("delonix: failed to prepare the rootfs: {e}");
         return 126;
     }
+    // The overlay mount, `pivot_root` and the /proc,/sys,/dev set are all inside
+    // `setup_rootfs`: this is the suspected dominant slice of the `mounts` phase.
+    spawn_profile::mark("setup_rootfs");
     if userns {
         // uid 0 INSIDE the user ns (= USERNS_UID_BASE on the host, mappable).
         // nonzero->0 copies permitted->effective (keeps caps).
         // SAFETY: we are the user ns creator -> we have CAP_SETUID/SETGID.
-        unsafe {
-            libc::setgid(0);
-            libc::setuid(0);
+        // Fail-closed: if the switch ever failed, the rest of init would run as
+        // the mapped base uid instead of 0 — every subsequent mount, chown and
+        // the cap drop would be against the wrong credentials. `setgid` first
+        // (after `setuid` the group can no longer change).
+        let cred_ok = unsafe { libc::setgid(0) == 0 && libc::setuid(0) == 0 };
+        if !cred_ok {
+            return setup_abort("failed to assume uid/gid 0 inside the user namespace");
         }
         // /dev: tmpfs (now owned by uid 0) + bind of the host's real nodes from the
         // old root preserved by pivot_root. Then unmount it (no longer needed) —
@@ -4901,13 +5266,13 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
 
     // The engine's own `/proc` defaults, moved here from `setup_rootfs` so the
     // refusal can name the path (see the note there).
-    if let Err(e) = mask_proc_paths(privileged) {
+    if let Err(e) = mask_proc_paths(privileged, host_pid) {
         return setup_abort(&e);
     }
     if let Err(e) = apply_masked_paths(masked_paths) {
         return setup_abort(&e);
     }
-    if let Err(e) = apply_readonly_paths(readonly_paths) {
+    if let Err(e) = apply_readonly_paths(readonly_paths, host_pid) {
         return setup_abort(&e);
     }
     // READY: the last mount is in. Everything that shapes this mount namespace —
@@ -4935,6 +5300,9 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
     // CLOEXEC (set by the `pipe2` in `spawn`): if this init dies before getting
     // here, or `execvp` runs without this write, the fd closes and the parent
     // reads EOF instead of blocking forever.
+    // The confinement tail (setuid, /dev, tmpfs, secret/config files, read-only
+    // remount, ulimits, masked/readonly paths) between `setup_rootfs` and here.
+    spawn_profile::mark("confine_tail");
     if let Some(w) = ready_w {
         // SAFETY: our end of the pipe created in `spawn`; write 1 byte and close.
         unsafe {
@@ -4943,6 +5311,9 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             libc::close(w);
         }
     }
+    // After the READY byte so the flush never sits in the parent's `mounts`
+    // window; `cid` ties this child line to its parent line in the JSONL.
+    spawn_profile::child_flush(cid);
     // The container gets what the IMAGE gives, and nothing else (ADR-0062).
     //
     // This used to be `chown -R uid:gid /`: measured, it made a non-root user
@@ -5019,7 +5390,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         if landlock {
             apply_landlock(mounts, tmpfs);
         }
-        drop_capabilities(cap_keep); // drop caps (after the mounts, before the exec)
+        drop_capabilities(&caps); // drop caps (after the mounts, before the exec)
         apply_seccomp(
             seccomp_unconfined,
             seccomp_detect,
@@ -5037,13 +5408,13 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             true,
             seccomp_profile_json,
         );
-        drop_capabilities(cap_keep);
+        drop_capabilities(&caps);
     }
     // FAIL-CLOSED: confirms the confinement REALLY took effect before the execve.
     // Runs BEFORE the USER's `setuid` (further below) and BEFORE `apply_env` (so it reads the
     // ENGINE's opt-out, not the container's). See `verify_confinement`.
     if !insecure_besteffort() {
-        if let Err(e) = verify_confinement(!seccomp_unconfined, cap_keep, no_new_privs) {
+        if let Err(e) = verify_confinement(!seccomp_unconfined, caps.bounding, no_new_privs) {
             eprintln!("delonix: confinement NOT verified ({e}); aborting the container");
             return 126;
         }
@@ -5082,7 +5453,10 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             eprintln!("delonix: warning — failed to enter WORKDIR {w}");
         }
     }
-    apply_env(hostname, env); // clean environment + image/stack/CLI ENV
+    // `HOME` resolves from the container-user's passwd entry (`/` when absent),
+    // so a non-root `USER`/`runAsUser` without an entry no longer inherits a
+    // hardcoded `/root`. The uid 0 default matches a root container.
+    apply_env(hostname, env, run_uid.unwrap_or(0)); // clean environment + image/stack/CLI ENV
                               // Supplementary groups with NO uid switch. The block above only runs for a
                               // non-root `USER`, and a container that stays root still needs its groups —
                               // that is exactly the `SupplementalGroups` case, and reading `id -G` was how
@@ -5269,7 +5643,7 @@ fn is_masked_with_dev_null(p: &str) -> bool {
 /// mount to modify, then a `MS_REMOUNT|MS_RDONLY|MS_BIND` on it. Passing
 /// `MS_RDONLY` on the first bind is silently ignored by the kernel — the classic
 /// mistake, and it produces a path that reports success and stays writable.
-fn apply_readonly_paths(paths: &[String]) -> std::result::Result<(), String> {
+fn apply_readonly_paths(paths: &[String], host_pid: bool) -> std::result::Result<(), String> {
     for p in paths {
         if std::fs::metadata(p).is_err() {
             continue;
@@ -5289,27 +5663,44 @@ fn apply_readonly_paths(paths: &[String]) -> std::result::Result<(), String> {
         // leaves the bind from the first step in place, so the path looks
         // mounted and stays WRITABLE — the caller asked for read-only by name
         // and would get the opposite, silently.
-        if let Err(e) = mount(
+        let ro = mount(
             Some(p.as_str()),
             p.as_str(),
             None::<&str>,
             MsFlags::MS_BIND | MsFlags::MS_REC,
             None::<&str>,
-        ) {
-            return Err(format!(
-                "could not bind '{p}' for read-only (requested explicitly): {e}"
-            ));
-        }
-        if let Err(e) = mount(
-            Some(p.as_str()),
-            p.as_str(),
-            None::<&str>,
-            MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY | MsFlags::MS_REC,
-            None::<&str>,
-        ) {
-            return Err(format!(
-                "could not remount '{p}' read-only (requested explicitly): {e}"
-            ));
+        )
+        .and_then(|_| {
+            mount(
+                Some(p.as_str()),
+                p.as_str(),
+                None::<&str>,
+                MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY | MsFlags::MS_REC,
+                None::<&str>,
+            )
+        });
+        if let Err(e) = ro {
+            // Under `--host-pid`, `/proc` is a recursive bind of the host's
+            // `/proc` (the kernel refuses a fresh procfs in the host's pidns),
+            // so these `/proc/*` subtrees carry the host's locked submounts and
+            // cannot be remounted read-only in a rootless user namespace
+            // (EINVAL/EPERM). Same reasoning as `mask_proc_paths`: the user
+            // namespace already refuses the host-level writes these guard, so
+            // DEGRADE to a warning rather than abort a container Docker/Podman
+            // would run. Any OTHER path (or without `--host-pid`) stays
+            // FAIL-CLOSED — a named path left writable is the silent opposite of
+            // what was asked.
+            if ro_failure_is_tolerable(host_pid, p) {
+                eprintln!(
+                    "delonix: '{p}' left writable under --host-pid — the shared host /proc \
+                     cannot be remounted read-only rootless ({e}); the user namespace still \
+                     refuses the host-level writes it guards"
+                );
+            } else {
+                return Err(format!(
+                    "could not make '{p}' read-only (requested explicitly): {e}"
+                ));
+            }
         }
     }
     Ok(())
@@ -7592,10 +7983,10 @@ fn setup_cgroup(c: &Container, pid: i32, io_dev: Option<&str>) -> Result<()> {
             // The warning is about the ENVIRONMENT (there is no cgroup delegation in this
             // session), not about this container — hence ONCE per process, and
             // silenceable via env when the caller already warned (see above).
-            let calado = std::env::var_os("DELONIX_NO_CGROUP_WARN").is_some();
-            if !calado {
-                static AVISO: std::sync::Once = std::sync::Once::new();
-                AVISO.call_once(|| {
+            let silenced = std::env::var_os("DELONIX_NO_CGROUP_WARN").is_some();
+            if !silenced {
+                static WARNED_ONCE: std::sync::Once = std::sync::Once::new();
+                WARNED_ONCE.call_once(|| {
                     eprintln!(
                         "delonix: warning — rootless WITHOUT cgroup delegation: memory/cpu/pids are\n\
                          \x20        NOT enforced (a fork-bomb or leak may affect the host). To get\n\
@@ -7805,6 +8196,15 @@ pub struct RunSpec<'a> {
     /// start is refused instead of recreating it — see `publish_incarnation`.
     /// `false` for a `run`, whose first publish creates the record.
     pub replaces_record: bool,
+    /// **OCI inherited-fd stdio** (`oci-runtime` start, runc model): absolute
+    /// host paths the container's stdout / stderr go STRAIGHT to — the files
+    /// `create` resolved behind its own fd 1 / fd 2 (`Container::oci_stdout`/
+    /// `oci_stderr`). When set, the init `dup2`s these onto 1/2 directly: no
+    /// log shim, no rotation, no CRI framing — `runtimetest`'s TAP reaches the
+    /// files verbatim, which is what the `runtime-tools` suite reads back.
+    /// `None` keeps the historical detached-to-/dev/null (or log-pipe) path.
+    pub oci_stdout: Option<String>,
+    pub oci_stderr: Option<String>,
 }
 
 /// Creates and starts a container (without its own network) — the Phase 1 signature.
@@ -8367,6 +8767,10 @@ fn spawn(
     spec: &RunSpec<'_>,
     replaces_record: bool,
 ) -> Result<Status> {
+    // Cold-start phase profiler — a no-op unless DELONIX_PROFILE_SPAWN is set
+    // (see `spawn_profile`). `begin` stamps the entry so every later `mark` is a
+    // delta from here; it is pure measurement and changes nothing.
+    spawn_profile::begin();
     // A cgroup group that `setup_cgroup` would refuse is refused HERE, before the
     // rootfs is written to or a process cloned: the refusal must not cost a child
     // that then has to be discarded. `setup_cgroup` keeps its own check — it is the
@@ -8457,6 +8861,13 @@ fn spawn(
         (detach || foreground_capture) && !console && spec.log_path.is_some(),
         spec.log_cri || foreground_capture,
     );
+    // OCI inherited-fd stdio (`oci-runtime` start): open the `stdout-<uuid>`/
+    // `stderr-<uuid>` files `create` resolved and hand their WRITE fds to the
+    // child, which `dup2`s them onto 1/2 in `detach_stdio` — bypassing the log
+    // shim entirely (they are plain files, not a pipe: nothing to read/rotate/
+    // frame). The parent's own copies are closed right after the clone below.
+    let oci_out_fd = spec.oci_stdout.as_deref().and_then(open_oci_stdio);
+    let oci_err_fd = spec.oci_stderr.as_deref().and_then(open_oci_stdio);
     let console_sock = if console { open_console_sock() } else { None };
 
     let (flags, userns) = clone_flags(spec);
@@ -8468,8 +8879,11 @@ fn spawn(
     inputs.config_files = config_file_pairs(store, container);
     let io = IoSpec {
         detach,
-        log_fd: log_pipe.map(|(_, w)| w), // the container writes to the write end
-        log_err_fd: log_err_pipe.map(|(_, w)| w),
+        // OCI inherited-fd stdio wins over the log pipe: the container writes
+        // STRAIGHT to the `create` files (runc model). Otherwise the write end
+        // of the logging-shim pipe, as before.
+        log_fd: oci_out_fd.or_else(|| log_pipe.map(|(_, w)| w)),
+        log_err_fd: oci_err_fd.or_else(|| log_err_pipe.map(|(_, w)| w)),
         sync: pipes.sync,
         console_sock,
         ready_w: Some(pipes.ready.1),
@@ -8482,10 +8896,17 @@ fn spawn(
     // guard restores our own PID namespace the instant the clone returns (success
     // or not), so the slirp hook, the log shim and the late-mount watcher we fork
     // afterwards stay in the host's PID namespace.
+    // End of the pre-clone phase: everything above (etc files, `InitInputs::gather`
+    // with its CStrings/mounts, pipes, console socket, secret/config resolution) is
+    // the per-process setup Docker/Podman pay once in a resident daemon and the
+    // daemonless delonix re-pays per `run`.
+    spawn_profile::mark("pre_clone");
     let pidns_guard = enter_pod_pidns(spec)?;
     let cloned = clone_init(inputs, io, flags, &pipes);
     drop(pidns_guard);
     let pid = cloned?;
+    // The `clone` returned: the child's namespaces (user/mount/pid/net/…) exist.
+    spawn_profile::mark("clone");
 
     // CRITICAL ORDER: the user namespace handshake (releasing the child with the byte
     // "GO") MUST come BEFORE the console recv. In console mode the init only allocates the
@@ -8546,6 +8967,16 @@ fn spawn(
         }
         None
     };
+    // OCI inherited-fd stdio: no shim consumes these (they are files, not a
+    // pipe), and the child already `dup2`'d them onto 1/2, so the parent closes
+    // its own inherited copies here to avoid leaking a write handle to the
+    // `stdout`/`stderr` files (which would also keep them from reaching EOF for
+    // any reader). Guarded to the OCI path so the log-pipe fds, closed by
+    // `start_log_shim`, are never double-closed.
+    for fd in [oci_out_fd, oci_err_fd].into_iter().flatten() {
+        // SAFETY: our own inherited copy of a file fd, unused in the parent.
+        unsafe { libc::close(fd) };
+    }
 
     mark_running(container, pid);
     // The cgroup stays HERE, ahead of the wait: it is what the container's
@@ -8573,6 +9004,11 @@ fn spawn(
     // hands it to the late-mount watcher instead.
     let ready_r = unsafe { OwnedFd::from_raw_fd(pipes.ready.0) };
     let mounted = wait_for_mounts(ready_r.as_raw_fd(), &container.name);
+    // The child has finished shaping its mount namespace — this window is where
+    // the OVERLAY mount lives (rootless mounts it inside the child's mount ns,
+    // `mount_overlay_if_marked`), plus `pivot_root` and the `/proc`,`/sys`,`/dev`
+    // bind/tmpfs set. It is the parent's only view of that child-side cost.
+    spawn_profile::mark("mounts");
     // Past the ceiling the process runs, but nobody has seen its root filesystem
     // in place: the record says so, and whatever enters it refuses until the
     // proof arrives (`require_mounted`). It used to be published as plain
@@ -8584,6 +9020,18 @@ fn spawn(
     refuse_failed_detached_start(container, pid, spec, pipes.exec, detach, &mounted)?;
 
     publish_or_discard(store, container, pid, replaces_record)?;
+    // Startup is done: the process runs, is in its cgroup, its network is up and
+    // its record is published. Emit the phase profile here — the `wait_foreground`
+    // below is the WORKLOAD, not the start. `net` tags host vs isolated so the two
+    // runs can be compared (the hook's presence is what drives the `net` phase).
+    spawn_profile::flush(
+        &container.name,
+        if spec.on_started.is_some() || spec.new_netns {
+            "isolated"
+        } else {
+            "host"
+        },
+    );
     if container.mount_pending {
         watch_late_mount(store, container, ready_r);
     } else {
@@ -8802,7 +9250,7 @@ struct InitInputs {
     /// Filled by [`config_file_pairs`] just before the clone — the cleartext
     /// sibling of `secret_files`, written into a tmpfs at `/run/config`.
     config_files: Vec<(String, String)>,
-    cap_keep: u64,
+    caps: CapSets,
     apparmor: Option<String>,
     selinux: Option<String>,
     seccomp_unconfined: bool,
@@ -8834,10 +9282,23 @@ impl InitInputs {
         // --privileged: keeps ALL caps + seccomp unconfined + cgroupns + /sys RW
         // (see setup_rootfs). Strictly gated — the non-privileged path is identical.
         let privileged = container.privileged;
-        let cap_keep = if privileged {
-            all_caps_mask()
+        // Capabilities: `--privileged` keeps ALL caps (single-mask). An OCI
+        // bundle that gave DISTINCT sets (`container.oci_caps`) installs them
+        // verbatim — the only path that raises a non-empty ambient set. Everyone
+        // else keeps the single-mask model derived from `cap_add`/`cap_drop`,
+        // byte-for-byte as before.
+        let caps = if privileged {
+            CapSets::from_keep(all_caps_mask())
+        } else if let Some(oc) = container.oci_caps.as_ref() {
+            CapSets {
+                bounding: mask_from_names(&oc.bounding),
+                effective: mask_from_names(&oc.effective),
+                permitted: mask_from_names(&oc.permitted),
+                inheritable: mask_from_names(&oc.inheritable),
+                ambient: mask_from_names(&oc.ambient),
+            }
         } else {
-            resolve_cap_keep(&container.cap_drop, &container.cap_add)
+            CapSets::from_keep(resolve_cap_keep(&container.cap_drop, &container.cap_add))
         };
         InitInputs {
             rootfs: rootfs.to_string(),
@@ -8863,7 +9324,7 @@ impl InitInputs {
             devices: container.devices.clone(),
             secret_files: Vec::new(),
             config_files: Vec::new(),
-            cap_keep,
+            caps,
             apparmor: spec.apparmor.clone(),
             selinux: spec.selinux.clone(),
             seccomp_unconfined: privileged || container.seccomp.as_deref() == Some("unconfined"),
@@ -8932,7 +9393,7 @@ impl InitInputs {
                 config_files: &self.config_files,
             },
             security: SecuritySpec {
-                cap_keep: self.cap_keep,
+                caps: self.caps,
                 apparmor: self.apparmor.as_deref(),
                 selinux: self.selinux.as_deref(),
                 seccomp_unconfined: self.seccomp_unconfined,
@@ -8987,6 +9448,29 @@ fn open_pipe() -> PipePair {
 
 /// A `(read, write)` pipe, or `None` when the kernel refused one or none was wanted.
 type PipePair = Option<(i32, i32)>;
+
+/// Opens an **OCI inherited-fd stdio** target for writing (append): the file
+/// `oci-runtime create` resolved behind its fd 1 / fd 2. Returned fd is handed
+/// to the child (via [`IoSpec`]), which `dup2`s it onto its own stdout/stderr.
+///
+/// `O_APPEND` so stdout and stderr both grow a file the suite created empty,
+/// without either truncating the other's tail on a shared target; `O_CLOEXEC`
+/// keeps the raw high fd out of the container's `execve` (it survives only as
+/// the `dup2`'d fd 1/2, which carry no close-on-exec). The file already exists
+/// (the suite opens it `O_CREAT|O_EXCL`, a shell `>` truncates it first), so no
+/// `O_CREAT`; a vanished file yields `None` → the caller falls back to the
+/// historical `/dev/null` detach.
+fn open_oci_stdio(path: &str) -> Option<i32> {
+    let cpath = std::ffi::CString::new(path).ok()?;
+    // SAFETY: opening a caller-resolved path with a fixed, benign flag set.
+    let fd = unsafe {
+        libc::open(
+            cpath.as_ptr(),
+            libc::O_WRONLY | libc::O_APPEND | libc::O_CLOEXEC,
+        )
+    };
+    (fd >= 0).then_some(fd)
+}
 
 /// The pipes the log shim reads: stdout always, stderr only in CRI mode.
 ///
@@ -9354,7 +9838,12 @@ fn userns_handshake(
         discard_child(container, pid);
         return Err(e);
     }
+    spawn_profile::mark("cgroup");
     let net_err = spec.on_started.and_then(|hook| hook(pid.as_raw()).err());
+    // Network hook (CNI/slirp). `None` for `--net host` — the phase is then ~0,
+    // which is exactly the host-vs-isolated split `docs/measured-comparison.md` asks
+    // to measure separately.
+    spawn_profile::mark("net");
     // SAFETY: writes 1 byte (the "you may proceed") and closes the write.
     unsafe {
         let go = [1u8; 1];
@@ -9578,6 +10067,7 @@ fn place_without_userns(
         abort(cg_sync);
         return Err(e);
     }
+    spawn_profile::mark("cgroup");
     // Configures the network (or other startup) BEFORE releasing the child — with
     // the barrier in place, the hook now runs with the entrypoint STILL stopped, so
     // the network is ready before it starts, the same guarantee the userns path had.
@@ -9588,6 +10078,7 @@ fn place_without_userns(
             return Err(e);
         }
     }
+    spawn_profile::mark("net");
     // In the leaf, network up: release the entrypoint to `execvp` inside the cgroup.
     release(cg_sync);
     Ok(())
@@ -10112,11 +10603,26 @@ fn recv_fd(sock: i32) -> Option<i32> {
         if libc::recvmsg(sock, &mut msg, 0) < 0 {
             return None;
         }
+        // MSG_CTRUNC = the kernel had to drop part of the control data (our buffer
+        // was too small, or the fd could not be installed in our table). What is
+        // left is NOT a trustworthy SCM_RIGHTS payload — reading it could hand us a
+        // garbage or stale descriptor. Reject.
+        if msg.msg_flags & libc::MSG_CTRUNC != 0 {
+            return None;
+        }
         let cmsg = libc::CMSG_FIRSTHDR(&msg);
         if cmsg.is_null()
             || (*cmsg).cmsg_level != libc::SOL_SOCKET
             || (*cmsg).cmsg_type != libc::SCM_RIGHTS
         {
+            return None;
+        }
+        // The header must actually carry at least one fd. A short `cmsg_len`
+        // (sender passed no fd, or a truncated message slipped past the flag
+        // check) would make the `copy_nonoverlapping` below read uninitialised
+        // bytes of `cmsgbuf` as a descriptor. `CMSG_LEN` is the length a header
+        // with exactly one fd must have; anything smaller is rejected.
+        if (*cmsg).cmsg_len < libc::CMSG_LEN(std::mem::size_of::<libc::c_int>() as u32) as _ {
             return None;
         }
         let mut fd: libc::c_int = -1;
@@ -10304,6 +10810,14 @@ pub struct ExecOverrides<'a> {
     /// Overrides the exec'd process's uid/gid for this call only — `exec -u`.
     /// `None` falls back to the container's own `run_uid`/`run_gid`.
     pub user: Option<(u32, Option<u32>)>,
+    /// Supplementary groups for the `-u` user — the image's `getgrouplist(3)`
+    /// for that user (every `/etc/group` line that names them), resolved by the
+    /// CLI against the rootfs. Empty unless `-u` was given. docker/podman apply
+    /// these on `exec -u` so group-gated access behaves the same inside; without
+    /// them `exec -u 0` showed an empty `groups=` where docker lists a dozen.
+    /// The grandchild filters them to the userns-mapped gid range (setgroups is
+    /// all-or-nothing) and applies them best-effort, never aborting the exec.
+    pub supplementary_groups: &'a [u32],
     /// Kills the exec'd process after this many seconds and reports it as 137
     /// (128+SIGKILL) — `None` waits forever (the `exec`/CRI default). Set by the
     /// health monitor so an EXEC-form probe needs no `/bin/sh` deadline script:
@@ -10313,10 +10827,67 @@ pub struct ExecOverrides<'a> {
     /// a single-process probe (a healthcheck binary) is clean this way; a probe
     /// that forks its own children is the shell path's territory, not this one.
     pub timeout_secs: Option<u64>,
+    /// `exec -d`: daemonize the exec'd process inside the container and let the
+    /// CALLER return as soon as it is launched, instead of waiting for it to
+    /// finish. The grandchild gets its own session (`setsid`, no controlling
+    /// terminal) and stdio redirected to `/dev/null`, so a backgrounded command
+    /// neither holds nor writes to the operator's terminal after the CLI exits
+    /// — the same shape `docker exec -d` has. Mutually exclusive with a pty
+    /// (`-t`): a detached exec never allocates one. Always `false` for the CRI
+    /// and the health monitor, which need the exit code.
+    pub detach: bool,
+    /// `exec --privileged`: run THIS command with the full capability set and
+    /// with seccomp/AppArmor unconfined, as an explicit opt-in for pointed
+    /// debugging of a NON-privileged container. It is OR-ed with the container's
+    /// own `privileged`, never subtracted: a `false` here keeps the reduced
+    /// default exactly as before (the CRI, the health monitor and the dashboard
+    /// all pass `false`), and it changes NOTHING about the container or any other
+    /// exec — only this one process is elevated. Docker `exec --privileged`.
+    pub privileged: bool,
 }
 
 pub fn exec(container: &Container, argv: &[String], tty: bool) -> Result<i32> {
     exec_with(container, argv, tty, &ExecOverrides::default())
+}
+
+/// Keep only the gids that `pid`'s userns actually maps on the CONTAINER side,
+/// read from `/proc/<pid>/gid_map` in the host context (before the fork, while
+/// the path still resolves there). `setgroups` is all-or-nothing: a single
+/// unmapped gid makes the kernel reject the whole call (EINVAL), dropping even
+/// the valid supplementary groups. A rootless container that could not map a
+/// subgid range maps only gid 0 (`0 <egid> 1`), so the image's `wheel`/`disk`/…
+/// simply do not exist for it — filter them out rather than lose everything.
+///
+/// An unreadable or empty map (we share the host userns — no `user` ns joined)
+/// means every gid is valid: return the list untouched.
+fn gids_mapped_in(pid: i32, groups: &[u32]) -> Vec<u32> {
+    let Ok(map) = std::fs::read_to_string(format!("/proc/{pid}/gid_map")) else {
+        return groups.to_vec();
+    };
+    // Each line: `<inside> <outside> <count>` — gid g is mapped iff some line has
+    // inside <= g < inside + count (the container-side `inside` is what matters).
+    let ranges: Vec<(u32, u32)> = map
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split_whitespace();
+            let inside: u32 = f.next()?.parse().ok()?;
+            let _outside = f.next()?;
+            let count: u32 = f.next()?.parse().ok()?;
+            Some((inside, count))
+        })
+        .collect();
+    if ranges.is_empty() {
+        return groups.to_vec();
+    }
+    groups
+        .iter()
+        .copied()
+        .filter(|g| {
+            ranges
+                .iter()
+                .any(|(start, count)| *g >= *start && *g < start.saturating_add(*count))
+        })
+        .collect()
 }
 
 pub fn exec_with(
@@ -10408,6 +10979,11 @@ pub fn exec_with(
     // The container's cgroup, resolved in the PARENT while `/proc/<pid>/cgroup`
     // is still readable in the host context.
     let exec_cgroup = live_cgroup(container);
+    // Supplementary groups for `exec -u` (the image's getgrouplist for that
+    // user), filtered NOW to the gids the container's userns maps — read in the
+    // host context, before the fork, while `/proc/<pid>/gid_map` resolves here.
+    // `setgroups` is all-or-nothing; an unmapped gid would drop the whole list.
+    let exec_supp_groups = gids_mapped_in(pid, overrides.supplementary_groups);
     // SAFETY: `fork` from a process that is NOT always single-threaded: besides the CLI, `exec`
     // is called from the health-monitor THREAD of a `run -d` supervisor (`cmd/container.rs`).
     // glibc's `fork` resets malloc's locks, but not the std locks (stderr, environment) another
@@ -10477,12 +11053,60 @@ pub fn exec_with(
             // SAFETY: the grandchild does `exec` or `_exit`.
             match unsafe { fork() } {
                 Ok(ForkResult::Child) => {
-                    let workdir = overrides
-                        .workdir
+                    // `exec -w <dir>`: an EXPLICIT override must EXIST. docker/podman
+                    // abort the exec (rc≠0) when the requested workdir is missing;
+                    // this used to swallow the error and land the process in `/` with
+                    // rc 0 — a silent lie about where the command ran. Only the
+                    // workdir INHERITED from the container keeps the best-effort
+                    // fallback: a container may legitimately have no WORKDIR and `/`
+                    // is the documented default there (see `ExecOverrides::workdir`).
+                    let explicit_workdir = overrides.workdir.filter(|w| !w.is_empty());
+                    let workdir = explicit_workdir
                         .or(container.workdir.as_deref())
                         .filter(|w| !w.is_empty())
                         .unwrap_or("/");
-                    let _ = chdir(workdir);
+                    if let Err(e) = chdir(workdir) {
+                        if explicit_workdir.is_some() {
+                            eprintln!(
+                                "delonix: exec: cannot change directory to {workdir}: {e}"
+                            );
+                            // SAFETY: `_exit` in the forked grandchild: it must not run
+                            // the parent's destructors or atexit handlers, and it never
+                            // returns. 126 = "command cannot execute", the same code the
+                            // confinement check below uses and what `docker exec` returns
+                            // for a bad `-w`.
+                            unsafe { libc::_exit(126) };
+                        }
+                    }
+                    // `exec -d`: daemonize so the backgrounded command outlives the
+                    // CLI cleanly — a new session detaches it from the operator's
+                    // controlling terminal (no SIGHUP when that terminal closes),
+                    // and stdio goes to the container's `/dev/null` so it neither
+                    // reads from nor writes to the terminal the CLI just returned.
+                    // `-d` is mutually exclusive with `-t`, so there is never a pty
+                    // here. Docker `exec -d` has the same shape.
+                    if overrides.detach {
+                        // SAFETY: `setsid` takes no arguments and only detaches this
+                        // forked grandchild into a new session; `dup2`/`close` act on
+                        // the `/dev/null` fd opened just below (if the open failed we
+                        // simply keep the inherited fds).
+                        unsafe { libc::setsid() };
+                        if let Ok(devnull) =
+                            open("/dev/null", OFlag::O_RDWR | OFlag::O_CLOEXEC, Mode::empty())
+                        {
+                            // SAFETY: `devnull` is the fd just opened; `dup2` onto
+                            // 0/1/2 is valid and `devnull` is closed once when it is
+                            // not itself one of the std fds.
+                            unsafe {
+                                libc::dup2(devnull, 0);
+                                libc::dup2(devnull, 1);
+                                libc::dup2(devnull, 2);
+                                if devnull > 2 {
+                                    libc::close(devnull);
+                                }
+                            }
+                        }
+                    }
                     // pty: allocates in the container's devpts, sends the master to the parent, and
                     // uses the slave as stdio (new session + controlling terminal).
                     if let Some((sp, sc)) = pty_sock {
@@ -10529,14 +11153,24 @@ pub fn exec_with(
                     // CAP_NET_ADMIN), and debugging a Kind node from inside (`nft`,
                     // `iptables`) gave "Operation not permitted" even though the init
                     // had the caps. Docker/podman: `exec` inherits the container's profile.
-                    let exec_keep = if container.privileged {
+                    // `exec --privileged` (`overrides.privileged`) elevates THIS
+                    // call to the full set on top of the container's own profile —
+                    // OR-ed, never subtracted, so a non-privileged container keeps
+                    // its reduced default for every exec that does NOT pass the
+                    // flag. Docker `exec --privileged`.
+                    let effective_privileged = container.privileged || overrides.privileged;
+                    let exec_keep = if effective_privileged {
                         all_caps_mask()
                     } else {
                         resolve_cap_keep(&container.cap_drop, &container.cap_add)
                     };
-                    drop_capabilities(exec_keep); // same confinement
+                    // `exec` mirrors the container's single-mask confinement
+                    // (an OCI bundle's distinct sets belong to its init, not to
+                    // a later `exec`), so the from_keep form keeps this path
+                    // byte-for-byte: inheritable 0, ambient unraised.
+                    drop_capabilities(&CapSets::from_keep(exec_keep)); // same confinement
                     let exec_unconf =
-                        container.privileged || container.seccomp.as_deref() == Some("unconfined");
+                        effective_privileged || container.seccomp.as_deref() == Some("unconfined");
                     // The `exec` mirrors the container's profile, like it
                     // mirrors its capabilities: a process that could run inside
                     // the container must not be more permitted just because it
@@ -10579,8 +11213,23 @@ pub fn exec_with(
                         v.extend(overrides.extra_env.iter().cloned());
                         v
                     };
-                    apply_env(&container.name, &exec_env);
-                    if let Some(p) = &container.apparmor {
+                    // The user this exec will become (`-u`, else the container's
+                    // own) — computed here so `apply_env` can derive `HOME` from
+                    // its passwd entry, matching the init. `-u 0`/no-user ⇒ uid 0.
+                    let exec_user = overrides
+                        .user
+                        .or_else(|| container.run_uid.map(|u| (u, container.run_gid)));
+                    apply_env(
+                        &container.name,
+                        &exec_env,
+                        exec_user.map(|(u, _)| u).unwrap_or(0),
+                    );
+                    // `exec --privileged` drops MAC confinement for this call too,
+                    // the same way it drops the seccomp filter and the cap limit —
+                    // otherwise an AppArmor profile would still gate the elevated
+                    // command. Skipped ONLY when the flag was passed; a normal exec
+                    // still inherits the container's profile, fail-closed.
+                    if let (false, Some(p)) = (effective_privileged, &container.apparmor) {
                         // Same MAC confinement as the init process, and equally
                         // fatal: an `exec` that silently escapes the container's
                         // profile is a hole in the confinement of a container
@@ -10595,10 +11244,9 @@ pub fn exec_with(
                     // checks (`execSync id -u` == RunAsUser). Without this, the `exec`
                     // always stayed uid 0 of the userns and `id -u` reported 0. setgid
                     // BEFORE setuid (after dropping the uid one can no longer change group).
-                    // `exec -u` overrides the container's own user for this call only.
-                    let exec_user = overrides
-                        .user
-                        .or_else(|| container.run_uid.map(|u| (u, container.run_gid)));
+                    // `exec -u` overrides the container's own user for this call only
+                    // (`exec_user` was bound above, before `apply_env`, so HOME could
+                    // be derived from this user's passwd entry).
                     // Supplementary groups, exactly as the init got them. An `exec`
                     // is supposed to look like the container from the inside, and
                     // the CRI checks precisely that — `execSync id -G` is how the
@@ -10614,12 +11262,28 @@ pub fn exec_with(
                     // branch below re-sets groups (with the primary gid), so this
                     // only has to cover the root / no-user-switch path.
                     if exec_user.filter(|(u, _)| *u != 0).is_none() {
+                        // Root / no uid switch: the container's own `--group-add`
+                        // plus, for an explicit `-u 0`, root's supplementary
+                        // groups from the image's `/etc/group` (docker lists them
+                        // for `exec -u 0`; an empty `exec_supp_groups` — a plain
+                        // exec with no `-u` — keeps the prior behavior exactly).
                         let mut groups = container.group_add.clone();
+                        groups.extend_from_slice(&exec_supp_groups);
+                        groups.sort_unstable();
                         groups.dedup();
                         // SAFETY: gids mapped in the container's userns; we are root there.
                         // A zero-length list with a dangling-but-valid ptr clears groups.
                         if unsafe { libc::setgroups(groups.len(), groups.as_ptr()) } != 0 {
-                            eprintln!("delonix: exec setgroups({groups:?}) failed");
+                            // EPERM here means the exec target dropped CAP_SETGID
+                            // (e.g. `drop ALL capabilities`): there are no host
+                            // groups left to clear and nothing we can do — and the
+                            // message must NOT leak onto the container's stderr,
+                            // which critest captures (CRI-F2, «dropping ALL
+                            // capabilities»). Only a genuinely unexpected error warns.
+                            let err = std::io::Error::last_os_error();
+                            if err.raw_os_error() != Some(libc::EPERM) {
+                                eprintln!("delonix: exec setgroups({groups:?}) failed: {err}");
+                            }
                         }
                     }
                     if let Some((uid, gid)) = exec_user.filter(|(u, _)| *u != 0) {
@@ -10628,8 +11292,13 @@ pub fn exec_with(
                         // mapped the range at startup); setgroups/setgid/setuid
                         // succeed while we are root in the userns.
                         unsafe {
+                            // Primary gid + `--group-add` + the `-u` user's
+                            // supplementary groups from the image's `/etc/group`
+                            // (getgrouplist parity with docker/podman `exec -u`).
                             let mut groups: Vec<u32> = vec![gid];
                             groups.extend_from_slice(&container.group_add);
+                            groups.extend_from_slice(&exec_supp_groups);
+                            groups.sort_unstable();
                             groups.dedup();
                             libc::setgroups(groups.len(), groups.as_ptr());
                             if libc::setgid(gid) != 0 {
@@ -10688,6 +11357,18 @@ pub fn exec_with(
                 // SAFETY: the parent's copies of the namespace fds opened above; the child
                 // closes its own through `OwnedFd`, the parent closes these exactly once.
                 unsafe { libc::close(*fd) };
+            }
+            // `exec -d`: the launch is done — the middle process is already in the
+            // container's namespaces and has forked the grandchild that execs the
+            // command. Return now instead of waiting for it. The caller (the CLI)
+            // exits right after, so the middle reparents to init, reaps the
+            // grandchild, and _exits; the grandchild itself runs on inside the
+            // container's PID namespace, reparented to its PID 1. `docker exec -d`
+            // likewise returns before the command finishes and prints nothing. A
+            // detached exec never allocates a pty (it conflicts with `-t`), so
+            // there is nothing to drain below.
+            if overrides.detach {
+                return Ok(0);
             }
             if let Some((sp, sc)) = pty_sock {
                 // SAFETY: `sc` is the child's end; the parent's copy is closed once.
@@ -12477,9 +13158,24 @@ fn remove_container_cgroup(container: &Container) {
     }
     remove_cgroup_tree(&container.cgroup());
     if let Some(cur) = current_cgroup_v2() {
-        remove_cgroup_tree(&format!("{cur}/dlx-{}", container.id));
-        if let Some(base) = user_service_base(&cur) {
-            remove_cgroup_tree(&format!("{base}/dlx-{}", container.id));
+        // A `--cgroup-parent` leaf lives at `<root>/<group>/dlx-<id>` (see
+        // `try_delegated_base`), so the plain `<root>/dlx-<id>` guess missed it
+        // and `rm` left the leaf — and its now-empty `<group>` dir — behind
+        // (#812). Rebuild the guess with the SAME safe segment and reap the
+        // group dir too (`remove_dir` is a no-op while a sibling still holds it).
+        let group = container
+            .cgroup_parent
+            .as_ref()
+            .and_then(|g| delonix_compute::safe_cgroup_segment(&g.name).map(|n| n.to_string()));
+        for root in [Some(cur.clone()), user_service_base(&cur)]
+            .into_iter()
+            .flatten()
+        {
+            remove_cgroup_tree(&format!("{root}/dlx-{}", container.id));
+            if let Some(g) = &group {
+                remove_cgroup_tree(&format!("{root}/{g}/dlx-{}", container.id));
+                let _ = std::fs::remove_dir(format!("{root}/{g}"));
+            }
         }
     }
     let marker = node_cgroup_leaf_marker(&container.id);
@@ -12738,10 +13434,10 @@ pub fn update_limits(
         // The question that separates the two cases is "is this container ALIVE?", and the
         // honest answer uses the same `safe_to_signal` as the rest of the engine (the
         // pid+starttime pair, so a recycled PID is not mistaken for alive).
-        let vivo = container
+        let alive = container
             .pid
             .is_some_and(|p| safe_to_signal(p, container.pid_starttime));
-        return Ok(if vivo {
+        return Ok(if alive {
             LimitUpdate::NotEnforced
         } else {
             LimitUpdate::Deferred
@@ -13444,11 +14140,11 @@ mod remove_tests {
 mod limit_update_tests {
     use super::*;
 
-    fn parado() -> Container {
+    fn stopped() -> Container {
         Container::new(
             "a".repeat(16),
             "lim".into(),
-            "/tmp/naoexiste".into(),
+            "/tmp/doesnotexist".into(),
             vec!["/bin/true".into()],
             "64M".into(),
         )
@@ -13462,13 +14158,13 @@ mod limit_update_tests {
     /// wrong was merging THIS with the opposite case (container ALIVE and with no cgroup, where
     /// the write did not happen and never will) and calling both "updated".
     #[test]
-    fn um_container_parado_adia_em_vez_de_mentir() {
-        let c = parado();
-        assert_eq!(c.pid, None, "o container de teste tem de estar parado");
+    fn a_stopped_container_defers_instead_of_lying() {
+        let c = stopped();
+        assert_eq!(c.pid, None, "the test container must be stopped");
         assert_eq!(
             update_limits(&c, Some("128M"), None).unwrap(),
             LimitUpdate::Deferred,
-            "sem processo, o limite aplica-se no próximo start — nunca «updated»"
+            "with no process, the limit applies on the next start — never \"updated\""
         );
     }
 
@@ -13481,9 +14177,9 @@ mod limit_update_tests {
     /// (pid+starttime pair) as the rest of the engine, so a PID RECYCLED by some other
     /// process is not mistaken for alive.
     #[test]
-    fn um_pid_obsoleto_nao_conta_como_vivo() {
-        let mut c = parado();
-        c.pid = Some(0x7FFF_FFFE); // fora do alcance de qualquer pid_max real
+    fn a_stale_pid_does_not_count_as_alive() {
+        let mut c = stopped();
+        c.pid = Some(0x7FFF_FFFE); // out of range of any real pid_max
         c.pid_starttime = Some(1);
         assert_eq!(
             update_limits(&c, Some("128M"), None).unwrap(),
@@ -13496,7 +14192,7 @@ mod limit_update_tests {
     /// not the liveness decision, which stays shared via `live_cgroup`.
     #[test]
     fn update_kube_resources_defers_on_a_stopped_container() {
-        let c = parado();
+        let c = stopped();
         let u = ResourceUpdate {
             memory: Some("128M"),
             ..Default::default()
@@ -13509,7 +14205,7 @@ mod limit_update_tests {
 
     #[test]
     fn update_kube_resources_does_not_mistake_a_stale_pid_for_alive() {
-        let mut c = parado();
+        let mut c = stopped();
         c.pid = Some(0x7FFF_FFFE);
         c.pid_starttime = Some(1);
         let u = ResourceUpdate {
@@ -13618,8 +14314,34 @@ mod tests {
 
         assert!(
             !root.exists(),
-            "a árvore inteira tem de desaparecer, não só o nível de topo"
+            "the whole tree must disappear, not just the top level"
         );
+    }
+
+    /// REGRESSION (H1 Sonobuoy, non-root client-go): `HOME` must come from the
+    /// container-user's `/etc/passwd` entry and default to `/` for a uid with no
+    /// entry — never the old hardcoded `/root`, a 0700 dir a non-root process
+    /// cannot write, which made `~/.kube/config` resolution die with EACCES.
+    #[test]
+    fn parse_passwd_home_honours_the_entry_and_defaults_to_root_dir() {
+        let passwd = "root:x:0:0:root:/root:/bin/sh\n\
+                      daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n\
+                      app:x:1000:1000:app user:/home/app:/bin/sh\n";
+        // A uid present in passwd → its home field.
+        assert_eq!(super::parse_passwd_home(passwd, 0).as_deref(), Some("/root"));
+        assert_eq!(
+            super::parse_passwd_home(passwd, 1000).as_deref(),
+            Some("/home/app")
+        );
+        // The bug's exact case: a non-root uid with NO passwd entry → None, so
+        // the caller falls back to "/", not "/root".
+        assert_eq!(super::parse_passwd_home(passwd, 65532), None);
+        // No /etc/passwd at all (empty) → None → "/".
+        assert_eq!(super::parse_passwd_home("", 1000), None);
+        // Malformed lines (too few fields, non-numeric uid, empty home) are
+        // skipped, not fatal, and do not match.
+        let broken = "garbage\nbad:x:notanum:0:::\nx:x:1000:0:::\n";
+        assert_eq!(super::parse_passwd_home(broken, 1000), None);
     }
 
     /// `write_secret_values` is the pure half of `write_secret_files` — no
@@ -13763,7 +14485,7 @@ mod tests {
     /// latter, four of them would be 100% of the machine and only the aggregate
     /// ceiling would catch it.
     #[test]
-    fn quatro_cargas_sem_limites_enchem_o_orcamento_e_nao_o_host() {
+    fn four_workloads_without_limits_fill_the_budget_and_not_the_host() {
         let host_mib = 32 * 1024u64;
         let reserve = 85u64; // host_reserve_pct default
         let pct = 25u64; // default_workload_pct default
@@ -13774,16 +14496,16 @@ mod tests {
         // 27795), so four shares land just under, never above.
         assert!(
             4 * share <= budget,
-            "4 x {share} = {} excede o orçamento de {budget}",
+            "4 x {share} = {} exceeds the budget of {budget}",
             4 * share
         );
         assert!(
             budget - 4 * share < budget / 100,
-            "perda de arredondamento acima de 1% do orçamento"
+            "rounding loss above 1% of the budget"
         );
         assert!(
             4 * share < host_mib,
-            "quatro cargas nunca podem somar o host inteiro"
+            "four workloads can never add up to the whole host"
         );
     }
 
@@ -13791,16 +14513,16 @@ mod tests {
     /// on a big host is 6.8 cores; if `default_cpus` ever returned that, this
     /// "safety feature" would have widened the default sevenfold.
     #[test]
-    fn default_de_cpu_nunca_afrouxa_o_historico() {
-        let cores: f64 = super::default_cpus().parse().expect("cpus parseável");
+    fn cpu_default_never_loosens_the_historical_value() {
+        let cores: f64 = super::default_cpus().parse().expect("parseable cpus");
         assert!(
             cores <= super::LEGACY_DEFAULT_CPUS,
-            "default_cpus() = {cores} — afrouxou acima do histórico de {}",
+            "default_cpus() = {cores} — loosened above the historical {}",
             super::LEGACY_DEFAULT_CPUS
         );
         assert!(
             cores >= super::MIN_DEFAULT_CPUS,
-            "default_cpus() = {cores} — abaixo do piso de {}",
+            "default_cpus() = {cores} — below the floor of {}",
             super::MIN_DEFAULT_CPUS
         );
     }
@@ -13809,28 +14531,28 @@ mod tests {
     /// `/proc/meminfo` is readable — every host that runs the tests — the derived
     /// value must be a real number, never cgroup-v2's word for "no ceiling".
     #[test]
-    fn default_de_memoria_nunca_e_max_num_host_legivel() {
+    fn memory_default_is_never_max_on_a_readable_host() {
         let v = super::default_memory_max();
-        assert_ne!(v, "max", "voltou ao default sem tecto");
-        assert!(v.ends_with('M'), "formato inesperado: {v}");
-        let mib: u64 = v.trim_end_matches('M').parse().expect("MiB parseável");
-        assert!(mib >= 64, "abaixo do piso de 64 MiB: {v}");
+        assert_ne!(v, "max", "fell back to the ceilingless default");
+        assert!(v.ends_with('M'), "unexpected format: {v}");
+        let mib: u64 = v.trim_end_matches('M').parse().expect("parseable MiB");
+        assert!(mib >= 64, "below the floor of 64 MiB: {v}");
         // And it must be a real fraction of the host, not the whole thing.
         assert!(
             super::parse_mem_bytes(&v) < super::host_mem_bytes(),
-            "o default ({v}) não pode ser o host inteiro"
+            "the default ({v}) cannot be the whole host"
         );
     }
 
     /// `DELONIX_DEFAULT_PCT` is clamped, so a typo cannot silently disable the
     /// ceiling — the exact failure mode the derived default exists to remove.
     #[test]
-    fn percentagem_invalida_cai_no_default_e_nao_desliga_o_tecto() {
-        for bad in ["0", "101", "-5", "vinte e cinco", ""] {
+    fn invalid_percentage_falls_back_to_default_and_does_not_disable_the_ceiling() {
+        for bad in ["0", "101", "-5", "twenty five", ""] {
             assert_eq!(
                 super::workload_pct_from(Some(bad)),
                 25,
-                "{bad:?} devia ter caído no default"
+                "{bad:?} should have fallen back to the default"
             );
         }
         assert_eq!(super::workload_pct_from(None), 25);
@@ -13843,7 +14565,7 @@ mod tests {
     /// Measured live before the fix: `/proc/interrupts` with 109 lines and
     /// `/sys/firmware` with 4 entries visible from inside the container.
     #[test]
-    fn os_defaults_de_masked_paths_cobrem_a_lista_do_runc() {
+    fn the_masked_paths_defaults_cover_runcs_list() {
         // The ones that leak kernel pointers (KASLR) and timing side-channels.
         for p in [
             "/proc/timer_list",
@@ -13855,14 +14577,14 @@ mod tests {
         ] {
             assert!(
                 super::DEFAULT_MASKED_PATHS.contains(&p),
-                "{p} tem de estar mascarado por omissão (o runc mascara-o)"
+                "{p} must be masked by default (runc masks it)"
             );
         }
         // Writing to these takes effect at the host level (IRQ affinity, PCI config).
         for p in ["/proc/irq", "/proc/bus", "/proc/sys"] {
             assert!(
                 super::DEFAULT_READONLY_PATHS.contains(&p),
-                "{p} tem de ser read-only por omissão"
+                "{p} must be read-only by default"
             );
         }
     }
@@ -13875,6 +14597,24 @@ mod tests {
         assert!(!super::proc_sys_read_only(true));
         assert!(super::proc_sys_read_only(false));
         assert!(super::DEFAULT_READONLY_PATHS.contains(&"/proc/sys"));
+    }
+
+    /// `--host-pid` makes `/proc` a recursive bind of the host's, so the engine's
+    /// read-only remounts of `/proc/*` cannot succeed in a rootless user ns and
+    /// must degrade to a warning (the userns already refuses the writes). Every
+    /// other path, and the whole non-`--host-pid` case, stays fail-closed —
+    /// otherwise a `--readonly-path /data` left writable would pass silently.
+    #[test]
+    fn host_pid_tolerates_only_proc_ro_failures() {
+        // --host-pid: /proc/* failures are tolerable (the shared host /proc).
+        assert!(super::ro_failure_is_tolerable(true, "/proc/sys"));
+        assert!(super::ro_failure_is_tolerable(true, "/proc/bus"));
+        // --host-pid but NOT a /proc path: still fail-closed.
+        assert!(!super::ro_failure_is_tolerable(true, "/data"));
+        assert!(!super::ro_failure_is_tolerable(true, "/proc")); // the mount itself, not a subtree
+        // No --host-pid: /proc is our own fresh procfs, so never tolerate.
+        assert!(!super::ro_failure_is_tolerable(false, "/proc/sys"));
+        assert!(!super::ro_failure_is_tolerable(false, "/data"));
     }
 
     #[test]
@@ -14145,7 +14885,7 @@ mod tests {
             "a socket needs a file-shaped mount point"
         );
         // A source that is not there at all keeps the historical behaviour.
-        assert!(mount_point_should_be_dir(&dir.join("nao-existe")));
+        assert!(mount_point_should_be_dir(&dir.join("does-not-exist")));
     }
 
     /// Audit finding (MEDIUM): `bind_devices` built the destination by
@@ -14155,31 +14895,31 @@ mod tests {
     /// the exploit: a "host" file with content, outside the rootfs, must
     /// stay INTACT. Without the fix, it would end up with 0 bytes.
     #[test]
-    fn bind_devices_recusa_destino_que_escapa_o_rootfs() {
+    fn bind_devices_rejects_destination_that_escapes_the_rootfs() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         let rootfs = dir.join("rootfs");
         std::fs::create_dir_all(&rootfs).unwrap();
         // The "host file" the attacker wants to destroy (outside the rootfs).
-        let victim = dir.join("etc_crontab_do_host");
-        std::fs::write(&victim, b"* * * * * root /usr/bin/legitimo\n").unwrap();
+        let victim = dir.join("host_etc_crontab");
+        std::fs::write(&victim, b"* * * * * root /usr/bin/legit\n").unwrap();
         let before = std::fs::read(&victim).unwrap();
 
-        // `/dev/null:/../etc_crontab_do_host` → leaves the rootfs for the file above.
+        // `/dev/null:/../host_etc_crontab` → leaves the rootfs for the file above.
         super::bind_devices(
             "",
             rootfs.to_str().unwrap(),
-            &["/dev/null:/../etc_crontab_do_host".to_string()],
+            &["/dev/null:/../host_etc_crontab".to_string()],
         );
 
         let after = std::fs::read(&victim).unwrap();
         assert_eq!(
             before, after,
-            "o ficheiro do host FORA do rootfs foi modificado/truncado — traversal via --device"
+            "the host file OUTSIDE the rootfs was modified/truncated — traversal via --device"
         );
         assert!(
             !after.is_empty(),
-            "o ficheiro do host foi truncado para 0 bytes"
+            "the host file was truncated to 0 bytes"
         );
     }
 
@@ -14187,11 +14927,11 @@ mod tests {
     /// They are CHAR devices, so they pass the block-device filter — in root mode
     /// (the CRI/kubelet path) any one of them is a total compromise of the host.
     #[test]
-    fn bind_devices_recusa_dev_mem_kmem_e_port() {
+    fn bind_devices_rejects_dev_mem_kmem_and_port() {
         for d in ["/dev/mem", "/dev/kmem", "/dev/port"] {
             assert!(
                 super::is_forbidden_device(d),
-                "{d} tinha de ser recusado explicitamente"
+                "{d} had to be rejected explicitly"
             );
         }
         // A legitimate char device stays allowed (this is not a blind denylist).
@@ -14205,7 +14945,7 @@ mod tests {
     /// malformed (an invalid `/etc/hosts` breaks resolution ENTIRELY inside the
     /// container — losing one entry is preferable to losing the file).
     #[test]
-    fn write_etc_files_escreve_as_entradas_de_add_host() {
+    fn write_etc_files_writes_the_add_host_entries() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         std::fs::create_dir_all(dir.join("etc")).unwrap();
@@ -14233,10 +14973,10 @@ mod tests {
         // that makes the override win — as in Docker and Podman. The previous
         // version had it the other way round and the entry had no effect at all.
         let pos_extra = hosts.find("meet.kaeso.local").unwrap();
-        let pos_canonica = hosts.find("10.0.0.5\tapp").unwrap();
+        let pos_canonical = hosts.find("10.0.0.5\tapp").unwrap();
         assert!(
-            pos_extra < pos_canonica,
-            "o override do utilizador tem de vir primeiro"
+            pos_extra < pos_canonical,
+            "the user's override must come first"
         );
     }
 
@@ -14250,7 +14990,7 @@ mod tests {
     /// symlink target changes, the function followed the link (bug); if only the ctime of the
     /// link ITSELF changes, `lchown` was used correctly.
     #[test]
-    fn lchown_tree_nao_segue_symlinks() {
+    fn lchown_tree_does_not_follow_symlinks() {
         use std::os::unix::fs::MetadataExt;
 
         let tmp = tempfile::tempdir().unwrap();
@@ -14261,9 +15001,9 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
 
         let victim = outside.join("victim.txt");
-        std::fs::write(&victim, b"nao mexer").unwrap();
+        std::fs::write(&victim, b"do not touch").unwrap();
         let real_file = tree.join("sub").join("file.txt");
-        std::fs::write(&real_file, b"parte da arvore").unwrap();
+        std::fs::write(&real_file, b"part of the tree").unwrap();
         let link = tree.join("link_to_victim");
         std::os::unix::fs::symlink(&victim, &link).unwrap();
 
@@ -14283,15 +15023,15 @@ mod tests {
 
         assert_eq!(
             victim_ctime_before, victim_ctime_after,
-            "lchown_tree TOCOU no alvo do symlink fora da árvore — seguiu o link (regressão do bug chown-vs-lchown)"
+            "lchown_tree TOUCHED the symlink target outside the tree — it followed the link (regression of the chown-vs-lchown bug)"
         );
         assert!(
             link_ctime_after >= link_ctime_before,
-            "o próprio link devia ter sido processado (lchown sobre o link em si)"
+            "the link itself should have been processed (lchown on the link itself)"
         );
         assert!(
             file_ctime_after >= file_ctime_before,
-            "um ficheiro real dentro da árvore devia continuar a ser chown'd normalmente"
+            "a real file inside the tree should still be chown'd normally"
         );
     }
 
@@ -14432,7 +15172,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             ["--memory", "--memory-reservation", "--memory-swap"]
         );
         for c in ["cpu", "memory", "cpuset", "io", "pids"] {
-            assert!(!flags_of_controller(c).is_empty(), "{c} sem flags");
+            assert!(!flags_of_controller(c).is_empty(), "{c} without flags");
         }
         assert!(flags_of_controller("hugetlb").is_empty());
     }
@@ -14497,7 +15237,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         assert_eq!(
             user_service_base("/sys/fs/cgroup/user.slice/user-1000.slice/session-40.scope"),
             None,
-            "uma sessão SSH não tem fronteira de delegação alcançável"
+            "an SSH session has no reachable delegation boundary"
         );
 
         // outside the session tree (system service) → no escape.
@@ -14526,12 +15266,12 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// in place, what remains is to make VISIBLE the configurations where
     /// there is still no protection at all, instead of pretending they are fine.
     #[test]
-    fn so_avisa_quando_nao_ha_tecto_a_nivel_nenhum() {
+    fn only_warns_when_there_is_no_ceiling_at_any_level() {
         // No own limit AND no aggregate ceiling → this is the dangerous case.
         assert!(unprotected_memory("max", Some("max")));
         assert!(
             unprotected_memory("max", None),
-            "pai ilegível não é protecção"
+            "an unreadable parent is not protection"
         );
         assert!(unprotected_memory("", Some("max")));
         assert!(unprotected_memory("MAX", Some("max")), "case-insensitive");
@@ -14565,7 +15305,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// a container started with `-m 256M`. Removing either of the two
     /// writes in `try_delegated_base` makes this test fail.
     #[test]
-    fn leaf_delegada_fecha_o_swap_e_mata_o_cgroup_inteiro_no_oom() {
+    fn delegated_leaf_closes_swap_and_kills_the_whole_cgroup_on_oom() {
         let tmp = fake_base();
         let base = tmp.path();
         let c = Container::new(
@@ -14586,12 +15326,12 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         assert_eq!(
             std::fs::read_to_string(leaf.join("memory.swap.max")).unwrap(),
             "0",
-            "sem isto o limite de memória é só sobre a residente"
+            "without this the memory limit covers only the resident memory"
         );
         assert_eq!(
             std::fs::read_to_string(leaf.join("memory.oom.group")).unwrap(),
             "1",
-            "o OOM tem de matar o container inteiro, não um processo dele"
+            "the OOM must kill the whole container, not one process of it"
         );
     }
 
@@ -14603,7 +15343,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// under a systemd scope where delegation had failed, one for each
     /// container ever attempted there.
     #[test]
-    fn base_nao_delegavel_nao_deixa_leaf_orfa() {
+    fn non_delegable_base_leaves_no_orphan_leaf() {
         // A base with NO truly writable `cgroup.subtree_control`: the
         // leaf's `create_dir_all` succeeds, but enabling controllers
         // fails — exactly the case of a populated scope (no-internal-processes).
@@ -14620,7 +15360,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         std::fs::set_permissions(base.join("cgroup.subtree_control"), perm).unwrap();
 
         let c = Container::new(
-            "orfa01".into(),
+            "orphan01".into(),
             "t".into(),
             "img".into(),
             vec!["sh".into()],
@@ -14640,13 +15380,13 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             assert!(
                 // SAFETY: `geteuid` takes no arguments and has no preconditions.
                 unsafe { libc::geteuid() } == 0,
-                "a delegação devia ter falhado numa base só-leitura"
+                "delegation should have failed on a read-only base"
             );
             eprintln!("warning: running as root — orphan-leaf assertion skipped");
         } else {
             assert!(
                 !leaf.exists(),
-                "a leaf ficou órfã depois de a delegação falhar — é este o bug"
+                "the leaf was orphaned after delegation failed — this is the bug"
             );
         }
     }
@@ -14660,7 +15400,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// rootless containers on this host, had `memory.max=max`, `pids.max=max`,
     /// `cpu.max=max`.
     #[test]
-    fn a_base_propria_leva_tecto_agregado_dimensionado_ao_host() {
+    fn the_own_base_carries_an_aggregate_ceiling_sized_to_the_host() {
         let tmp = fake_base();
         let base = tmp.path();
         let bs = base.to_str().unwrap();
@@ -14671,10 +15411,10 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             .trim()
             .parse()
             .expect("memory.max must be a number, not `max`");
-        assert!(mem > 0, "o tecto agregado não pode ser zero");
+        assert!(mem > 0, "the aggregate ceiling cannot be zero");
         assert!(
             mem < host_mem_bytes(),
-            "o tecto ({mem}) tem de reservar memória para o HOST (total {})",
+            "the ceiling ({mem}) must reserve memory for the HOST (total {})",
             host_mem_bytes()
         );
 
@@ -14688,7 +15428,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         let cpu = std::fs::read_to_string(base.join("cpu.max")).unwrap();
         assert!(
             !cpu.starts_with("max"),
-            "cpu.max continuou sem tecto: {cpu:?}"
+            "cpu.max stayed ceilingless: {cpu:?}"
         );
         assert_eq!(
             std::fs::read_to_string(base.join("memory.swap.max"))
@@ -14705,23 +15445,23 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         // overlay/tmpfs (`maj == 0`), and there not writing is the correct behavior —
         // so the assertion only tightens when there is a device.
         match aggregate_io_max_value() {
-            Some(esperado) => {
-                let escrito = std::fs::read_to_string(base.join("io.max"))
+            Some(expected) => {
+                let written = std::fs::read_to_string(base.join("io.max"))
                     .expect("io.max must be written when there is a device");
-                assert_eq!(escrito, esperado);
-                let campos: Vec<&str> = escrito.split_whitespace().collect();
-                assert_eq!(campos.len(), 3, "forma `MAJ:MIN rbps=N wbps=N`: {escrito}");
+                assert_eq!(written, expected);
+                let fields: Vec<&str> = written.split_whitespace().collect();
+                assert_eq!(fields.len(), 3, "shape `MAJ:MIN rbps=N wbps=N`: {written}");
                 assert!(
-                    campos[0].split(':').count() == 2
-                        && campos[0].split(':').all(|n| n.parse::<u32>().is_ok()),
-                    "o primeiro campo tem de ser MAJ:MIN, veio `{}`",
-                    campos[0]
+                    fields[0].split(':').count() == 2
+                        && fields[0].split(':').all(|n| n.parse::<u32>().is_ok()),
+                    "the first field must be MAJ:MIN, got `{}`",
+                    fields[0]
                 );
-                assert!(campos[1].starts_with("rbps=") && campos[2].starts_with("wbps="));
+                assert!(fields[1].starts_with("rbps=") && fields[2].starts_with("wbps="));
             }
             None => assert!(
                 !base.join("io.max").exists(),
-                "sem dispositivo utilizável não se escreve io.max nenhum"
+                "with no usable device no io.max is written at all"
             ),
         }
     }
@@ -14730,22 +15470,22 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// A malformed line is rejected by cgroupfs with `EINVAL` and the write's
     /// `let _ =` swallows it — it would give back a ceiling that does not exist.
     #[test]
-    fn o_valor_do_tecto_agregado_de_io_tem_a_forma_que_o_cgroupfs_aceita() {
+    fn the_aggregate_io_ceiling_value_has_the_shape_cgroupfs_accepts() {
         // `if let` and not `match`: on a machine with no usable device there is
         // nothing to check — and that is exactly why the function returns
         // `Option` instead of fabricating a value.
         if let Some(v) = aggregate_io_max_value() {
             {
-                let campos: Vec<&str> = v.split_whitespace().collect();
-                assert_eq!(campos.len(), 3, "`MAJ:MIN rbps=N wbps=N`, veio `{v}`");
-                let (maj, min) = campos[0].split_once(':').expect("MAJ:MIN");
+                let fields: Vec<&str> = v.split_whitespace().collect();
+                assert_eq!(fields.len(), 3, "`MAJ:MIN rbps=N wbps=N`, got `{v}`");
+                let (maj, min) = fields[0].split_once(':').expect("MAJ:MIN");
                 assert!(maj.parse::<u32>().is_ok() && min.parse::<u32>().is_ok());
-                assert_ne!(maj, "0", "maj 0 é dispositivo virtual e não serve de tecto");
-                for (campo, prefixo) in [(campos[1], "rbps="), (campos[2], "wbps=")] {
-                    let n = campo.strip_prefix(prefixo).expect(prefixo);
+                assert_ne!(maj, "0", "maj 0 is a virtual device and is no use as a ceiling");
+                for (field, prefix) in [(fields[1], "rbps="), (fields[2], "wbps=")] {
+                    let n = field.strip_prefix(prefix).expect(prefix);
                     assert!(
                         n.parse::<u64>().map(|v| v > 0).unwrap_or(false),
-                        "`{campo}` tem de trazer um número positivo"
+                        "`{field}` must carry a positive number"
                     );
                 }
             }
@@ -14757,7 +15497,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// whose files stay `root:root`. Creating a child is possible in both —
     /// only the write to `cgroup.subtree_control` tells them apart.
     #[test]
-    fn delegated_base_usable_exige_subtree_control_gravavel() {
+    fn delegated_base_usable_requires_writable_subtree_control() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -14777,7 +15517,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         tmp.close().unwrap();
         assert!(
             readonly_rejected,
-            "um subtree_control não gravável tem de ser recusado — é o caso do SSH"
+            "a non-writable subtree_control must be rejected — this is the SSH case"
         );
     }
 
@@ -15127,39 +15867,157 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     #[test]
     fn confinement_ok_is_fail_closed() {
         let keep = (1u64 << 1) | (1u64 << 3); // only caps 1 and 3 on the allowlist
-                                              // good state: no_new_privs, seccomp filter mode, caps ⊆ keep
-        assert!(confinement_ok(Some(1), Some(2), Some(keep), Some(keep), true, keep, true).is_ok());
+                                              // good state: no_new_privs, seccomp filter mode, caps ⊆ keep,
+                                              // inheritable and ambient both empty
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_ok());
         // NO_NEW_PRIVS inactive → aborts
-        assert!(
-            confinement_ok(Some(0), Some(2), Some(keep), Some(keep), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(0),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // seccomp expected but not in filter mode (failed to apply) → aborts
-        assert!(
-            confinement_ok(Some(1), Some(0), Some(keep), Some(keep), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(0),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // cap outside the allowlist persists in the bounding set (capset/capbset failed) → aborts
         let leaked = keep | (1u64 << 21); // + CAP_SYS_ADMIN
-        assert!(
-            confinement_ok(Some(1), Some(2), Some(leaked), Some(keep), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(leaked),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // …or in the effective
-        assert!(
-            confinement_ok(Some(1), Some(2), Some(keep), Some(leaked), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(leaked),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
+        // a cap surviving in the inheritable set (capset failed to zero it) → aborts,
+        // even one ON the bounding/effective allowlist: it must not cross the execve.
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
+        // …or raised in the ambient set
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(1u64 << 1),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // unconfined (--security-opt seccomp=unconfined): mode 0 is accepted
-        assert!(
-            confinement_ok(Some(1), Some(0), Some(keep), Some(keep), false, keep, true).is_ok()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(0),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            false,
+            keep,
+            true
+        )
+        .is_ok());
         // cap fields absent = unverifiable = aborts (fail-closed)
-        assert!(confinement_ok(Some(1), Some(2), None, Some(keep), true, keep, true).is_err());
-        assert!(confinement_ok(Some(1), Some(2), Some(keep), None, true, keep, true).is_err());
-        // privileged (keep = all caps): nothing ends up "outside" → ok
+        assert!(
+            confinement_ok(Some(1), Some(2), None, Some(keep), Some(0), Some(0), true, keep, true)
+                .is_err()
+        );
+        assert!(
+            confinement_ok(Some(1), Some(2), Some(keep), None, Some(0), Some(0), true, keep, true)
+                .is_err()
+        );
+        // CapInh / CapAmb absent are equally unverifiable → abort.
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            None,
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            None,
+            true,
+            keep,
+            true
+        )
+        .is_err());
+        // privileged (keep = all caps): nothing ends up "outside" → ok, BUT
+        // inheritable/ambient still have to be empty (they always are after the drop).
         let allcaps = u64::MAX;
         assert!(confinement_ok(
             Some(1),
             Some(2),
             Some(allcaps),
             Some(allcaps),
+            Some(0),
+            Some(0),
             true,
             allcaps,
             true
@@ -15175,21 +16033,48 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// container aborted with 126 — and the symptom was four unrelated seccomp
     /// specs failing, not anything naming NO_NEW_PRIVS.
     #[test]
-    fn confinement_ok_so_exige_no_new_privs_quando_foi_pedido() {
+    fn confinement_ok_only_requires_no_new_privs_when_requested() {
         let keep = (1u64 << 1) | (1u64 << 3);
         // Requested and absent → abort.
-        assert!(
-            confinement_ok(Some(0), Some(2), Some(keep), Some(keep), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(0),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // NOT requested and absent → this is the policy, not a failure.
-        assert!(
-            confinement_ok(Some(0), Some(2), Some(keep), Some(keep), true, keep, false).is_ok()
-        );
+        assert!(confinement_ok(
+            Some(0),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            false
+        )
+        .is_ok());
         // Not requested but active anyway → also not a problem (stricter
         // than requested is never a reason to refuse).
-        assert!(
-            confinement_ok(Some(1), Some(2), Some(keep), Some(keep), true, keep, false).is_ok()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            false
+        )
+        .is_ok());
         // And the rest of the fail-closed still holds with nnp off: a cap
         // outside the allowlist aborts all the same.
         let leaked = keep | (1u64 << 21);
@@ -15198,11 +16083,71 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             Some(2),
             Some(leaked),
             Some(keep),
+            Some(0),
+            Some(0),
             true,
             keep,
             false
         )
         .is_err());
+    }
+
+    /// `recv_fd` must reject a control message that carries no usable
+    /// SCM_RIGHTS payload rather than hand back a bogus descriptor. We drive it
+    /// over a real `socketpair`, sending (a) a plain message with no control
+    /// data and (b) an SCM_RIGHTS header with a short `cmsg_len` (zero fds).
+    /// Both must come back as `None`.
+    #[test]
+    fn recv_fd_rejects_missing_and_truncated_scm_rights() {
+        // SAFETY: a standard socketpair + sendmsg exercise. Every pointer handed
+        // to `sendmsg` points at a local that outlives the call; `cmsgbuf` is
+        // `cmsghdr`-aligned (DA-1) and larger than `CMSG_SPACE(0)`.
+        unsafe {
+            let mut sv = [0i32; 2];
+            assert_eq!(
+                libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sv.as_mut_ptr()),
+                0,
+                "socketpair"
+            );
+            let (tx, rx) = (sv[0], sv[1]);
+
+            // (a) A message with a payload byte but NO control data: `CMSG_FIRSTHDR`
+            // is null, so `recv_fd` must refuse.
+            let mut dummy: u8 = 7;
+            let mut iov = libc::iovec {
+                iov_base: (&mut dummy as *mut u8).cast::<libc::c_void>(),
+                iov_len: 1,
+            };
+            let mut msg: libc::msghdr = std::mem::zeroed();
+            msg.msg_iov = &mut iov;
+            msg.msg_iovlen = 1;
+            assert!(libc::sendmsg(tx, &msg, 0) >= 0, "sendmsg no-control");
+            assert_eq!(recv_fd(rx), None, "no control data must be rejected");
+
+            // (b) An SCM_RIGHTS header carrying zero fds (cmsg_len = CMSG_LEN(0)).
+            // The level/type are right, but the length is below one fd, so the
+            // new check must reject it instead of reading uninitialised bytes.
+            let mut dummy2: u8 = 9;
+            let mut iov2 = libc::iovec {
+                iov_base: (&mut dummy2 as *mut u8).cast::<libc::c_void>(),
+                iov_len: 1,
+            };
+            let mut cmsgbuf = CmsgBuf { bytes: [0u8; 64] };
+            let mut msg2: libc::msghdr = std::mem::zeroed();
+            msg2.msg_iov = &mut iov2;
+            msg2.msg_iovlen = 1;
+            msg2.msg_control = cmsgbuf.bytes.as_mut_ptr().cast::<libc::c_void>();
+            msg2.msg_controllen = libc::CMSG_SPACE(0) as _;
+            let cmsg = libc::CMSG_FIRSTHDR(&msg2);
+            (*cmsg).cmsg_level = libc::SOL_SOCKET;
+            (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+            (*cmsg).cmsg_len = libc::CMSG_LEN(0) as _;
+            assert!(libc::sendmsg(tx, &msg2, 0) >= 0, "sendmsg zero-fd");
+            assert_eq!(recv_fd(rx), None, "short cmsg_len must be rejected");
+
+            libc::close(tx);
+            libc::close(rx);
+        }
     }
 
     #[test]
@@ -15221,7 +16166,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         for dangerous in [21u8, 16, 22, 27, 17, 19, 39] {
             assert!(
                 !crate::capabilities::KEPT_CAPS.contains(&dangerous),
-                "cap {dangerous} não devia ser mantida"
+                "cap {dangerous} should not be kept"
             );
         }
     }
@@ -15263,7 +16208,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         ] {
             assert!(
                 !allowed.contains(&nr),
-                "syscall {nr} perigoso NÃO devia estar na allowlist"
+                "dangerous syscall {nr} should NOT be on the allowlist"
             );
         }
         // common/essential: INSIDE the allowlist.
@@ -15278,7 +16223,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         ] {
             assert!(
                 allowed.contains(&nr),
-                "syscall {nr} essencial DEVIA estar na allowlist"
+                "essential syscall {nr} SHOULD be on the allowlist"
             );
         }
     }
@@ -15296,12 +16241,12 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     /// install as a fatal bootstrap check and exits 78 — the container never
     /// started. The same image reached `Process[es] is up` with the filter off.
     #[test]
-    fn seccomp_allowlist_permite_o_proprio_seccomp() {
+    fn seccomp_allowlist_permits_seccomp_itself() {
         let allowed = allowed_syscalls();
         assert!(
             allowed.contains(&libc::SYS_seccomp),
-            "sem `seccomp` na allowlist, nenhum payload se pode auto-sandboxar \
-             (Elasticsearch, Chrome, systemd-nspawn) — e falha de forma fatal"
+            "without `seccomp` on the allowlist, no payload can self-sandbox \
+             (Elasticsearch, Chrome, systemd-nspawn) — and it fails fatally"
         );
         // `prctl` goes with it: it is through `prctl` that the payload sets `no_new_privs`, which is
         // the condition for `seccomp` without CAP_SYS_ADMIN.
@@ -15386,7 +16331,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     }
 
     #[test]
-    fn sysctl_allowlist_so_aceita_namespaced() {
+    fn sysctl_allowlist_only_accepts_namespaced() {
         // namespaced (safe) → permitted, WITH an own netns and IPC ns.
         for k in [
             "net.ipv4.ip_forward",
@@ -15394,7 +16339,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             "kernel.sem",
             "fs.mqueue.msg_max",
         ] {
-            assert!(sysctl_namespaced(k, true, true), "{k} devia ser permitido");
+            assert!(sysctl_namespaced(k, true, true), "{k} should be permitted");
         }
         // global to the host / traversal → refused, regardless of namespaces.
         for k in [
@@ -15405,13 +16350,13 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         ] {
             assert!(
                 !sysctl_namespaced(k, true, true),
-                "{k} NÃO devia ser permitido"
+                "{k} should NOT be permitted"
             );
         }
     }
 
     #[test]
-    fn sysctl_net_star_recusado_sem_netns_propria() {
+    fn sysctl_net_star_refused_without_own_netns() {
         // BUG regression guard: `--net host` (or rootless custom-network,
         // which shares the ingress holder's netns) used to let `net.*`
         // sysctls through unconditionally — writing a GLOBAL knob of
@@ -15427,7 +16372,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     }
 
     #[test]
-    fn sysctl_ipc_recusado_sem_ipcns_propria() {
+    fn sysctl_ipc_refused_without_own_ipcns() {
         // BUG regression guard (ALTO #1), sibling of the `net.*` case:
         // `--host-ipc` (CRI `ipc: NODE`), or a pod member joining the infra's
         // IPC ns, shares the host's IPC namespace — so the IPC sysctls
@@ -15443,11 +16388,11 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         ] {
             assert!(
                 !sysctl_namespaced(k, true, false),
-                "{k} NÃO devia ser permitido sem IPC ns própria"
+                "{k} should NOT be permitted without an own IPC ns"
             );
             assert!(
                 sysctl_namespaced(k, true, true),
-                "{k} devia ser permitido com IPC ns própria"
+                "{k} should be permitted with an own IPC ns"
             );
         }
         // The net gate and the IPC gate are independent: an own netns does not
@@ -15458,7 +16403,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
 
     /// `euid 0` is not proof of real root, and this is the parse that decides.
     #[test]
-    fn initial_uid_map_reconhece_so_a_namespace_inicial() {
+    fn initial_uid_map_recognizes_only_the_initial_namespace() {
         use delonix_node as super_;
         // The initial namespace: identity map over the whole range.
         assert!(super_::initial_uid_map(
@@ -15482,25 +16427,25 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     }
 
     #[test]
-    fn uma_origem_de_bind_que_desapareceu_e_nomeada() {
+    fn a_bind_source_that_disappeared_is_named() {
         // Reproduces the case that showed up on a real host: a container with several
         // bind mounts stopped starting and the engine said only
         // `failed to prepare the rootfs: ENOENT` — for a condition it
         // knows. The logic is the same as the `setup_rootfs` preflight.
-        let existe = std::env::temp_dir();
-        let ausente = existe.join(format!("dlx-does-not-exist-{}", std::process::id()));
-        assert!(!ausente.exists(), "a premissa do teste");
+        let present = std::env::temp_dir();
+        let absent = present.join(format!("dlx-does-not-exist-{}", std::process::id()));
+        assert!(!absent.exists(), "the test's premise");
 
         let mounts = [
             Mount {
-                source: existe.to_string_lossy().into_owned(),
+                source: present.to_string_lossy().into_owned(),
                 target: "/a".into(),
                 readonly: false,
                 propagation: None,
                 optional: false,
             },
             Mount {
-                source: ausente.to_string_lossy().into_owned(),
+                source: absent.to_string_lossy().into_owned(),
                 target: "/b".into(),
                 readonly: true,
                 propagation: None,
@@ -15510,7 +16455,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             // container: a CDI spec names host paths (the persistenced socket,
             // firmware blobs) that come and go with a daemon.
             Mount {
-                source: ausente.to_string_lossy().into_owned(),
+                source: absent.to_string_lossy().into_owned(),
                 target: "/d".into(),
                 readonly: true,
                 propagation: None,
@@ -15524,19 +16469,19 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             })
             .map(|m| m.source.as_str())
             .collect();
-        assert_eq!(missing.len(), 1, "so o ausente NAO opcional conta");
+        assert_eq!(missing.len(), 1, "only the NON-optional absent one counts");
         assert!(missing[0].contains("dlx-does-not-exist"));
 
         // An EMPTY source is not a missing path — there are synthesized mounts
         // with no source, and treating them as absent would refuse valid containers.
-        let vazio = [Mount {
+        let empty = [Mount {
             source: String::new(),
             target: "/c".into(),
             readonly: false,
             propagation: None,
             optional: false,
         }];
-        assert!(vazio
+        assert!(empty
             .iter()
             .find(|m| !m.source.is_empty() && !std::path::Path::new(&m.source).exists())
             .is_none());
@@ -15609,7 +16554,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         );
         assert!(
             t.elapsed().as_millis() < 1_000,
-            "com o byte escrito devia devolver de imediato, demorou {:?}",
+            "with the byte written it should return immediately, took {:?}",
             t.elapsed()
         );
 
@@ -15631,7 +16576,7 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         );
         assert!(
             t.elapsed().as_millis() < 1_000,
-            "com EOF devia devolver de imediato, demorou {:?}",
+            "with EOF it should return immediately, took {:?}",
             t.elapsed()
         );
 
@@ -15645,13 +16590,13 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
         let t = Instant::now();
         // The ceiling is never read as a failure: the container may still be mounting.
         assert_eq!(
-            wait_for_mounts_with(fds[0], "tecto", 120),
+            wait_for_mounts_with(fds[0], "ceiling", 120),
             MountWait::Unknown
         );
         let waited = t.elapsed();
         assert!(
             waited.as_millis() >= 100 && waited.as_millis() < 5_000,
-            "devia ter esperado ~120ms e desistido, esperou {waited:?}"
+            "should have waited ~120ms and given up, waited {waited:?}"
         );
         // SAFETY: `fds[1]` is the write end just created, closed once.
         unsafe { libc::close(fds[1]) };
@@ -16398,7 +17343,9 @@ mod spawn_step_tests {
         c.cap_drop = vec!["ALL".into()];
         c.cap_add = vec!["CHOWN".into()];
         let i = InitInputs::gather(&c, "/r", &spec, "h".into(), vec![], vec![]);
-        assert_eq!(i.cap_keep, resolve_cap_keep(&c.cap_drop, &c.cap_add));
+        // Single-mask model (no explicit OCI sets): bounding = kept mask, and
+        // effective/permitted mirror it with inheritable/ambient empty.
+        assert_eq!(i.caps, CapSets::from_keep(resolve_cap_keep(&c.cap_drop, &c.cap_add)));
         assert!(!i.seccomp_unconfined && !i.seccomp_detect && !i.privileged);
         // `no_new_privs` is ON unless the record says otherwise.
         assert!(i.no_new_privs);
@@ -16412,7 +17359,7 @@ mod spawn_step_tests {
         // `--privileged` keeps every capability and runs unconfined.
         c.privileged = true;
         let i = InitInputs::gather(&c, "/r", &spec, "h".into(), vec![], vec![]);
-        assert_eq!(i.cap_keep, all_caps_mask());
+        assert_eq!(i.caps, CapSets::from_keep(all_caps_mask()));
         assert!(i.seccomp_unconfined && i.privileged && !i.node_cgroup);
 
         // Only a privileged KIND node gets the dedicated cgroup namespace.
@@ -16637,8 +17584,8 @@ mod spawn_step_tests {
             libc::close(err.0);
             libc::close(echo_out.1);
             libc::close(echo_err.1);
-            let o = b"ola stdout\n";
-            let e = b"ai stderr\n";
+            let o = b"hello stdout\n";
+            let e = b"oops stderr\n";
             assert_eq!(
                 libc::write(out.1, o.as_ptr().cast(), o.len()),
                 o.len() as isize
@@ -16662,12 +17609,12 @@ mod spawn_step_tests {
             (s_out, s_err)
         };
         waitpid(pid, None).unwrap();
-        assert_eq!(echoed_out, "ola stdout\n", "echo do stdout no fd 1, cru");
-        assert_eq!(echoed_err, "ai stderr\n", "echo do stderr no fd 2, cru");
+        assert_eq!(echoed_out, "hello stdout\n", "echo of stdout on fd 1, raw");
+        assert_eq!(echoed_err, "oops stderr\n", "echo of stderr on fd 2, raw");
         let file = std::fs::read_to_string(&log).unwrap();
         assert!(
-            file.contains("ola stdout\n") && file.contains("ai stderr\n"),
-            "o ficheiro leva os dois streams (não-CRI: merge sem tag): {file:?}"
+            file.contains("hello stdout\n") && file.contains("oops stderr\n"),
+            "the file carries both streams (non-CRI: merge without tag): {file:?}"
         );
     }
 

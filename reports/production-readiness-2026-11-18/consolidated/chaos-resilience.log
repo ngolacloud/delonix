@@ -1,0 +1,85 @@
+[1mDelonix chaos harness[0m — sandbox /tmp/dlx-chaos · binário target/release/delonix
+bancada: load(1m) 3.43 · 20 threads · limiar 10.00
+
+[1m▸ holder-kill — o pin morre e volta, sem custar a rede a ninguém[0m
+  pin 2852254 → 2852791 · control 2852257 → 2852257 · slirp 2852277 → 2852277 · ck1 2852332 → 2852332 · netns up rc=0
+  [32m✓ PASS[0m holder-kill (pin 2852254→2852791; control, slirp e container intocados; aceita trabalho novo)
+
+[1m▸ full-holder-death — sem ninguém a segurar as namespaces, reconstrói e diz que reiniciou[0m
+  pin 2853867 → 2855591 · control 2853893 → 2855597 · fh1 2853999 → 2855707 · netns up rc=0
+  [32m✓ PASS[0m full-holder-death (reconstruído: pin 2853867→2855591, fh1 2853999→2855707, e reportado)
+
+[1m▸ control-restart — matar o plano de controlo não pode mexer em nada[0m
+  pin 2856192→2856192 · control 2856195→2856722 · workload 2856275→2856275
+  [32m✓ PASS[0m control-restart (pin e workload intocados, controlo reposto)
+
+[1m▸ holder-wedge — um par que liga e não escreve não pode prender o holder[0m
+  [32m✓ PASS[0m holder-wedge (attach serviu em 5s, com um par silencioso agarrado)
+
+[1m▸ slirp-kill — matar o slirp não pode deixar o motor num estado que mente[0m
+  status após a morte do slirp: ingress DOWN — pin 2858105 · control 2858108 · slirp — · bridge delonix0 (10.200.0.1) · refcount 1
+  [32m✓ PASS[0m slirp-kill (o estado reporta a ausência, não finge saúde)
+
+[1m▸ idempotent-up — 'netns up' num sistema saudável não pode reiniciar nada[0m
+  [32m✓ PASS[0m idempotent-up (pid 2859053 intocado)
+
+[1m▸ oom — um container que estoura o limite tem de morrer, não fazer swap[0m
+  [32m✓ PASS[0m oom (morreu por OOM no limite: Dead; crash_reason=oom_killed, distinto de um término não-OOM)
+
+[1m▸ concurrent-attach — N attaches em paralelo não podem repetir IPs[0m
+  [32m✓ PASS[0m concurrent-attach (8 containers, 8 IPs distintos)
+
+[1m▸ pod-holder-respawn — um pod tem de recuperar a rede como um container[0m
+  holder 2861382 → 2862081 · control 2861393 → 2861393 · slirp 2861412 → 2861412 · rp-c0=up · rp-c1=up · netns up rc=0
+  [32m✓ PASS[0m pod-holder-respawn (os dois membros recuperaram, e o nó volta inteiro: pin 2862081)
+  [32m✓ PASS[0m pod-holder-respawn-cleanup (`delete pod --force` removeu rp-c0 e rp-c1, e nenhum processo deles ficou)
+
+[1m▸ scale — 30 containers: IPs únicos, tecto agregado de pé, limpeza completa[0m
+  containers com IP: 30/30 · IPs distintos: 30
+  [32m✓ PASS[0m scale (30 containers, 30 IPs distintos)
+  disco não devolvido após a limpeza: 0 MiB
+  [32m✓ PASS[0m scale-cleanup (0 MiB retidos)
+
+[1m▸ abrupt-kill — matar o init à bruta tem de reconciliar o estado[0m
+  [32m✓ PASS[0m abrupt-kill (estado reconciliado: 0 ck4)
+
+[1m▸ rm-during-start — um rm -f a meio de um start não deixa processo, registo nem directório[0m
+  rm -f 0–40 ms depois do start: 8/10 iteração(ões) apanharam o start a meio
+  [32m✓ PASS[0m rm-during-start (8/10 iterações apanharam o start a meio; nenhuma deixou processo, registo ou directório)
+
+[1m▸ aggregate-ceiling — a base do motor tem de ter tecto dimensionado ao host[0m
+  leaf   memory.max = 134217728
+  parent memory.max = 56979808256   (/user.slice/user-1000.slice/user@1000.service/dlx-containers)
+  [32m✓ PASS[0m aggregate-ceiling (pai limitado a 56979808256 bytes)
+
+[1m▸ disk-full — sem espaço, falhar limpo; nunca publicar estado truncado[0m
+SKIP: demasiado espaço livre para esgotar em segurança (39.1 GiB)
+TMP-ORFAOS: nenhum
+  [32m✓ PASS[0m disk-full (padrão tmp→fsync→rename não deixa órfãos)
+
+[1m▸ write-failure — escrita impossível tem de falhar alto e não deixar lixo[0m
+  [32m✓ PASS[0m write-failure (falhou alto, rc=1, zero temporários órfãos)
+  [32m✓ PASS[0m sandbox-teardown (nenhum processo com DELONIX_ROOT em /tmp/dlx-chaos ficou no host)
+
+[1m── resumo ──[0m
+  PASS  holder-kill (pin 2852254→2852791; control, slirp e container intocados; aceita trabalho novo)
+  PASS  full-holder-death (reconstruído: pin 2853867→2855591, fh1 2853999→2855707, e reportado)
+  PASS  control-restart (pin e workload intocados, controlo reposto)
+  PASS  holder-wedge (attach serviu em 5s, com um par silencioso agarrado)
+  PASS  slirp-kill (o estado reporta a ausência, não finge saúde)
+  PASS  idempotent-up (pid 2859053 intocado)
+  PASS  oom (morreu por OOM no limite: Dead; crash_reason=oom_killed, distinto de um término não-OOM)
+  PASS  concurrent-attach (8 containers, 8 IPs distintos)
+  PASS  pod-holder-respawn (os dois membros recuperaram, e o nó volta inteiro: pin 2862081)
+  PASS  pod-holder-respawn-cleanup (`delete pod --force` removeu rp-c0 e rp-c1, e nenhum processo deles ficou)
+  PASS  scale (30 containers, 30 IPs distintos)
+  PASS  scale-cleanup (0 MiB retidos)
+  PASS  abrupt-kill (estado reconciliado: 0 ck4)
+  PASS  rm-during-start (8/10 iterações apanharam o start a meio; nenhuma deixou processo, registo ou directório)
+  PASS  aggregate-ceiling (pai limitado a 56979808256 bytes)
+  PASS  disk-full (padrão tmp→fsync→rename não deixa órfãos)
+  PASS  write-failure (falhou alto, rc=1, zero temporários órfãos)
+  PASS  sandbox-teardown (nenhum processo com DELONIX_ROOT em /tmp/dlx-chaos ficou no host)
+
+  18 PASS · 0 FAIL · 0 SKIP
+

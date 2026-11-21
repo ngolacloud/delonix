@@ -387,106 +387,106 @@ mod tests {
     use super::*;
     use crate::cmd::reconcile::{plan, Action, Actual};
 
-    fn doc(nome: &str, from: &str, to: &str) -> ManifestDoc {
+    fn doc(name: &str, from: &str, to: &str) -> ManifestDoc {
         serde_yaml::from_str(&format!(
-            "apiVersion: delonix.io/v1\nkind: NetworkRoute\nmetadata:\n  name: {nome}\n\
+            "apiVersion: delonix.io/v1\nkind: NetworkRoute\nmetadata:\n  name: {name}\n\
              spec:\n  from: {from}\n  to: {to}\n"
         ))
         .unwrap()
     }
 
-    fn actual_de(from: &str, to: &str, dono: Option<&str>) -> Actual {
+    fn actual_with(from: &str, to: &str, owner: Option<&str>) -> Actual {
         Actual {
             kind: "NetworkRoute".into(),
             name: route_name(from, to),
             fields: route_fields(from, to),
-            owner: dono.map(String::from),
+            owner: owner.map(String::from),
             last_applied: None,
             protect: false,
         }
     }
 
-    /// **O defeito que esta série fecha, como dados.**
+    /// **The defect this series closes, as data.**
     ///
-    /// Uma rota é a EXCEPÇÃO ao isolamento entre redes. Tirá-la do manifesto tem
-    /// de a propor para remoção — antes, `apply --prune` e `stack destroy`
-    /// deixavam o caminho aberto e o plano dizia «sem alterações».
+    /// A route is the EXCEPTION to the isolation between networks. Removing it from
+    /// the manifest must propose it for removal — before, `apply --prune` and
+    /// `stack destroy` left the path open and the plan said "no changes".
     ///
-    /// **Alcance deste teste, para não valer mais do que vale**: prova a decisão
-    /// do reconciliador dado um `Actual` com dono. O que o torna alcançável na
-    /// vida real são três ligações que um teste puro não vê — o `actual()` a
-    /// enumerar o registo, o `stamp` a escrever o dono, e o braço do
-    /// `destroy_one`. Essas provam-se no cenário de caos, com o ciclo completo.
+    /// **The reach of this test, so it does not claim more than it proves**: it
+    /// proves the reconciler's decision given an `Actual` with an owner. What makes
+    /// it reachable in real life are three links a pure test does not see — the
+    /// `actual()` enumerating the registry, the `stamp` writing the owner, and the
+    /// `destroy_one` arm. Those are proven in the chaos scenario, with the full cycle.
     #[test]
-    fn uma_rota_tirada_do_manifesto_e_candidata_a_remocao() {
-        let p = plan(&[], &[actual_de("web", "db", Some("s"))], "s");
+    fn a_route_removed_from_the_manifest_is_a_removal_candidate() {
+        let p = plan(&[], &[actual_with("web", "db", Some("s"))], "s");
         assert_eq!(p.len(), 1, "{p:?}");
         assert_eq!(p[0].action, Action::Delete);
         assert_eq!(p[0].name, "web->db");
     }
 
-    /// **É este que é sensível ao `ownable`**, e a distinção custou-me uma
-    /// reversão a passar: o `Delete` decide-se pelo `owner` do lado ACTUAL, por
-    /// isso o teste acima passa mesmo com `ownable: false`. Quem depende do
-    /// `ownable` é a ADOPÇÃO — uma rota que já existe e não pertence a stack
-    /// nenhuma tem de ser tomada por esta, senão nunca ganha carimbo, e sem
-    /// carimbo nunca é podada.
+    /// **This is the one sensitive to `ownable`**, and the distinction cost me a
+    /// revert that passed: the `Delete` is decided by the `owner` on the ACTUAL
+    /// side, so the test above passes even with `ownable: false`. What depends on
+    /// `ownable` is ADOPTION — a route that already exists and belongs to no stack
+    /// has to be taken over by this one, otherwise it never gets a stamp, and
+    /// without a stamp it is never pruned.
     ///
-    /// Com `ownable: false` isto dá `NoOp` e o defeito volta inteiro, em
-    /// silêncio.
+    /// With `ownable: false` this gives `NoOp` and the defect returns whole, in
+    /// silence.
     #[test]
-    fn uma_rota_ja_existente_e_adoptada_pela_stack_que_a_declara() {
+    fn an_existing_route_is_adopted_by_the_stack_that_declares_it() {
         let p = plan(
             &[desired(&doc("r", "web", "db")).unwrap()],
-            &[actual_de("web", "db", None)],
+            &[actual_with("web", "db", None)],
             "s",
         );
         assert_eq!(p.len(), 1, "{p:?}");
         assert_eq!(
             p[0].action,
             Action::Adopt,
-            "uma rota sem dono declarada por esta stack tem de ser adoptada, \
-             senão nunca é carimbada e nunca pode ser podada: {p:?}"
+            "an unowned route declared by this stack must be adopted, \
+             otherwise it is never stamped and can never be pruned: {p:?}"
         );
     }
 
-    /// E o CONTROLO que impede a correcção de ir longe demais: uma rota criada à
-    /// mão (`delonix network route`, sem carimbo) não pertence a stack nenhuma e
-    /// **não** pode ser apagada por um `--prune`. Um apply que remove o que não
-    /// criou é a falha que destrói a confiança na ferramenta.
+    /// And the CONTROL that keeps the fix from going too far: a route created by
+    /// hand (`delonix network route`, with no stamp) belongs to no stack and
+    /// **cannot** be deleted by a `--prune`. An apply that removes what it did not
+    /// create is the failure that destroys trust in the tool.
     #[test]
-    fn uma_rota_sem_dono_nao_e_apagada_por_um_prune() {
-        let p = plan(&[], &[actual_de("web", "db", None)], "s");
+    fn an_unowned_route_is_not_deleted_by_a_prune() {
+        let p = plan(&[], &[actual_with("web", "db", None)], "s");
         assert!(
             p.is_empty(),
-            "uma rota imperativa foi proposta para remoção: {p:?}"
+            "an imperative route was proposed for removal: {p:?}"
         );
     }
 
-    /// **A identidade é o PAR, não o nome do documento.**
+    /// **The identity is the PAIR, not the document's name.**
     ///
-    /// Com `metadata.name` como identidade, renomear o documento dava
-    /// `Create(novo)` + `Delete(antigo)` para o MESMO elemento nft — e como o
-    /// `--prune` corre em último lugar, fecharia o caminho que o próprio apply
-    /// acabara de abrir.
+    /// With `metadata.name` as identity, renaming the document gave
+    /// `Create(new)` + `Delete(old)` for the SAME nft element — and since
+    /// `--prune` runs last, it would close the very path the same apply had just
+    /// opened.
     #[test]
-    fn renomear_o_documento_de_uma_rota_nao_muda_nada() {
-        let antes = desired(&doc("rota-antiga", "web", "db")).unwrap();
-        let depois = desired(&doc("rota-nova", "web", "db")).unwrap();
-        assert_eq!(antes.name, depois.name);
-        let p = plan(&[depois], &[actual_de("web", "db", Some("s"))], "s");
+    fn renaming_a_routes_document_changes_nothing() {
+        let before = desired(&doc("old-route", "web", "db")).unwrap();
+        let after = desired(&doc("new-route", "web", "db")).unwrap();
+        assert_eq!(before.name, after.name);
+        let p = plan(&[after], &[actual_with("web", "db", Some("s"))], "s");
         assert_eq!(p.len(), 1, "{p:?}");
         assert_eq!(p[0].action, Action::NoOp, "{p:?}");
     }
 
-    /// Trocar as pontas é outra rota, não uma alteração desta — a assimetria é o
-    /// que o Kind existe para exprimir.
+    /// Swapping the ends is another route, not a change to this one — the asymmetry
+    /// is what the Kind exists to express.
     #[test]
-    fn inverter_o_sentido_e_outra_rota() {
-        let ida = desired(&doc("r", "web", "db")).unwrap();
-        assert_ne!(ida.name, route_name("db", "web"));
-        let p = plan(&[ida], &[actual_de("db", "web", Some("s"))], "s");
-        // Uma a criar, a outra a remover — nunca um update silencioso do sentido.
+    fn reversing_the_direction_is_another_route() {
+        let forward = desired(&doc("r", "web", "db")).unwrap();
+        assert_ne!(forward.name, route_name("db", "web"));
+        let p = plan(&[forward], &[actual_with("db", "web", Some("s"))], "s");
+        // One to create, the other to remove — never a silent update of the direction.
         assert_eq!(p.len(), 2, "{p:?}");
         assert!(p
             .iter()
@@ -496,10 +496,11 @@ mod tests {
             .any(|c| c.action == Action::Delete && c.name == "db->web"));
     }
 
-    /// O `stamp` tem de saber voltar do nome ao par, senão a posse nunca é
-    /// escrita e a rota deixa de ser podável — o defeito de novo, por outra via.
+    /// `stamp` must know how to go back from the name to the pair, otherwise
+    /// ownership is never written and the route stops being prunable — the defect
+    /// again, by another route.
     #[test]
-    fn o_nome_do_plano_volta_ao_par() {
+    fn the_plan_name_goes_back_to_the_pair() {
         assert_eq!(split_route_name("web->db").unwrap(), ("web", "db"));
         assert!(split_route_name("web").is_err());
     }

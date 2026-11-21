@@ -1,0 +1,7 @@
+         PLUGIN     STATUS   RESULT   COUNT                                PROGRESS
+            e2e   complete   passed       1   Passed:  0, Failed:  0, Remaining:  1
+   systemd-logs   complete   passed       1
+
+Sonobuoy has completed.
+
+(sonobuoy v0.57.5, --mode quick; aggregator+e2e HOME=/tmp workaround — see finding-home-nonroot.md)

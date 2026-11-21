@@ -143,8 +143,8 @@ which). The write side mirrors `cpuset.cpus` across all three write paths (deleg
 leaf, non-delegated root slice, the kubelet-parent leaf/scope), with `AllowedMemoryNodes` added
 as a systemd unit property for `cpuset_mems` and raw writes for `hugepage_limits`/`unified`
 (neither has a systemd property). `oom_score_adj` needed no change: it never touches a
-controller. See AGENTS.md, "`cpuset_mems`/`unified`/`hugepage_limits`: honour-or-refuse no
-caminho CRI (ADR 0038 item 3)" for the full account. Not validated against a live kubelet (the
+controller. See AGENTS.md, "`cpuset_mems`/`unified`/`hugepage_limits`: honour-or-refuse
+on the CRI path (ADR 0038 item 3)" for the full account. Not validated against a live kubelet (the
 crash-loop above); unit/pure tests only. The sibling gap `cpuset_cpus` had — wired into
 `apply_resources` since before this item existed, with no preflight of its own — was closed in
 the same preflight (`wanted_resource_controllers`).
@@ -159,8 +159,8 @@ opposite of `CreateContainer`'s own reading of the same wire value), merging fie
 placement-aware: `SetUnitProperties` (only the properties given) under a kubelet systemd scope,
 a direct cgroup write otherwise — `hugepage_limits`/`unified` always write straight to the
 scope/leaf's own cgroup (no systemd property for either), and `oom_score_adj` writes
-`/proc/<pid>/oom_score_adj` from outside. See AGENTS.md, "`UpdateContainerResources`: a
-actualização ao vivo, placement-aware (ADR 0038 item 4)" for the full account, including the
+`/proc/<pid>/oom_score_adj` from outside. See AGENTS.md, "`UpdateContainerResources`: the
+live update, placement-aware (ADR 0038 item 4)" for the full account, including the
 live validation (non-systemd path, real `crictl update`, same pid, partial update confirmed to
 leave the untouched field alone) and what is still only unit-tested (the systemd
 `SetUnitProperties` branch, which needs a stable kubelet to measure for real).

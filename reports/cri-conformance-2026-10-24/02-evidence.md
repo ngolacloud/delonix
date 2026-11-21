@@ -1,9 +1,9 @@
-# Evidência reproduzível — #18 / #19
+# Reproducible evidence — #18 / #19
 
-Reprodução ao vivo com `crictl` v1.36.0 contra um `delonix-cri` isolado
-(`DELONIX_ROOT` temporário, socket próprio, `CAP_CEILING=all`), rootless.
+Live reproduction with `crictl` v1.36.0 against an isolated `delonix-cri`
+(temporary `DELONIX_ROOT`, own socket, `CAP_CEILING=all`), rootless.
 
-## Comando
+## Command
 
 ```bash
 ROOT=$(mktemp -d); SOCK=/tmp/s.sock; export DELONIX_ROOT=$ROOT
@@ -13,10 +13,10 @@ C="crictl --runtime-endpoint unix://$SOCK --image-endpoint unix://$SOCK"
 $C pull gcr.io/k8s-staging-cri-tools/test-image-digest@sha256:9700f9a2f5bf2c45f2f605a0bd3bce7cf37420ec9d3ed50ac2758413308766bf
 $C pull gcr.io/k8s-staging-cri-tools/test-image-user-username-group:latest
 $C pull gcr.io/k8s-staging-cri-tools/test-image-user-uid:latest
-$C images -o json   # inspeccionar repoTags/repoDigests/uid/username
+$C images -o json   # inspect repoTags/repoDigests/uid/username
 ```
 
-## ANTES (baseline, main @ ab4751ac)
+## BEFORE (baseline, main @ ab4751ac)
 
 ```
 test-image-digest@sha256:9700…
@@ -28,11 +28,11 @@ test-image-user-uid:latest
   uid = {value:'1002'}   username = ''                                             ← já correcto
 ```
 
-→ `critest`: `public image with digest …` FALHA em `image.go:76`
-(`[...digest ref...] to be empty`); `image status … Uid|Username` FALHA em
+→ `critest`: `public image with digest …` FAILS at `image.go:76`
+(`[...digest ref...] to be empty`); `image status … Uid|Username` FAILS at
 `image.go:144` (username `www-data:1004` ≠ `www-data`).
 
-## DEPOIS (fix/cri-image-repodigests-and-user)
+## AFTER (fix/cri-image-repodigests-and-user)
 
 ```
 test-image-digest@sha256:9700…
@@ -46,7 +46,7 @@ test-image-user-uid:latest
 
 → `critest -focus "Image Manager"`: **10 Passed | 0 Failed | 112 Skipped**.
 
-## Testes de regressão (unitários)
+## Regression tests (unit)
 
 `cargo test -p delonix-cri --lib` → **93 passed**, incl.:
 - `tests::image_user_maps_user_to_uid_or_username`

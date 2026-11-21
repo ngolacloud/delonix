@@ -1,36 +1,36 @@
-# 05 — Rede, scopes/cgroups e isolamento
+# 05 — Network, scopes/cgroups and isolation
 
-SUT: `delonix 5.1.1` @ `bca34f6c3`, **rootless**. Rede de teste: `relc-net` (`dlxn93807333`, 10.206.0.0/16).
+SUT: `delonix 5.1.1` @ `bca34f6c3`, **rootless**. Test network: `relc-net` (`dlxn93807333`, 10.206.0.0/16).
 
-| # | Caso | Verificação independente | Observado | Estado |
+| # | Case | Independent verification | Observed | State |
 |---|---|---|---|---|
-| NETWORK-1 | topologia | `ip`, `network ls` | rede criada, bridge `dlxn93807333`, subnet /16; bridge vive **dentro do netns rootless** (slirp4netns), invisível no root netns do host — esperado em rootless | **PASSOU** |
-| NETWORK-2 | porta publicada + HTTP externo | `curl` + log nginx | `HTTP 200`; pedido visto no log vindo de `10.0.2.2` (slirp gw) | **PASSOU** (ver 03) |
-| NETWORK-3 | **republicação de porta em execução** | `describe` PID + `curl` | PID `1098119` **estável** em `--publish-add 18082` (novo→200, velho→200) e `--publish-rm 18081` (velho→000, novo→200). **Processo nunca reiniciado.** | **PASSOU** |
-| NETWORK-4a | DNS por nome | `getent`, wget | `relc-a` resolve `relc-b`→10.206.61.43; alpine wget obtém página do nginx por nome | **PASSOU** |
-| NETWORK-4b | isolamento entre namespaces | wget por nome **e por IP** | teamA↔teamA reachable (controlo); teamB→teamA **bloqueado por nome E por IP directo** (nft drop, não só DNS) | **PASSOU** |
-| SCOPE-1 | cgroups v2 delegate efectivos | `/sys/fs/cgroup` + `system resources` | `memory.max`/`cpu.max` efectivos (ver 03); `--cpuset` aceite-e-ignorado (DLX-RES-001), io recusado exit 69 (DLX-RES-002) — motor declara o que não aplica | **PASSOU** |
-| SCOPE-2 | mesmo NOME em namespaces diferentes | `ps`, `system namespace ls` | `relc-dup` coexiste em teamA e teamB; `namespace ls` conta 1+1; resolução correcta | **PASSOU** |
+| NETWORK-1 | topology | `ip`, `network ls` | network created, bridge `dlxn93807333`, subnet /16; bridge lives **inside the rootless netns** (slirp4netns), invisible in the host root netns — expected under rootless | **PASSED** |
+| NETWORK-2 | published port + external HTTP | `curl` + nginx log | `HTTP 200`; request seen in the log coming from `10.0.2.2` (slirp gw) | **PASSED** (see 03) |
+| NETWORK-3 | **re-publishing a port while running** | `describe` PID + `curl` | PID `1098119` **stable** across `--publish-add 18082` (new→200, old→200) and `--publish-rm 18081` (old→000, new→200). **Process never restarted.** | **PASSED** |
+| NETWORK-4a | DNS by name | `getent`, wget | `relc-a` resolves `relc-b`→10.206.61.43; alpine wget fetches the nginx page by name | **PASSED** |
+| NETWORK-4b | isolation between namespaces | wget by name **and by IP** | teamA↔teamA reachable (control); teamB→teamA **blocked by name AND by direct IP** (nft drop, not just DNS) | **PASSED** |
+| SCOPE-1 | cgroups v2 delegate effective | `/sys/fs/cgroup` + `system resources` | `memory.max`/`cpu.max` effective (see 03); `--cpuset` accepted-and-ignored (DLX-RES-001), io refused exit 69 (DLX-RES-002) — the engine declares what it does not apply | **PASSED** |
+| SCOPE-2 | same NAME in different namespaces | `ps`, `system namespace ls` | `relc-dup` coexists in teamA and teamB; `namespace ls` counts 1+1; correct resolution | **PASSED** |
 
-## Notas de design confirmadas no código
+## Design notes confirmed in the code
 
-- **`default` é o namespace partilhado por desenho** (`firewall.rs:780-789,3172-3199`): a
-  isolação só é imposta **entre namespaces não-`default`**. Um primeiro teste (teamB→`default`)
-  deu "reached"; depois de ler o código, re-testei o par correcto (teamA↔teamB) — bloqueado.
-  *Registado para evitar que seja lido como defeito: não é.*
-- **Isolamento robusto:** o bloqueio teamB→teamA aguenta mesmo **por IP directo**, logo não
-  depende de DNS scoping — é `nft` a largar a ligação nova (coerente com `network.rs:81`
+- **`default` is the shared namespace by design** (`firewall.rs:780-789,3172-3199`): isolation
+  is enforced only **between non-`default` namespaces**. A first test (teamB→`default`)
+  gave "reached"; after reading the code, I re-tested the correct pair (teamA↔teamB) — blocked.
+  *Recorded to avoid it being read as a defect: it is not.*
+- **Robust isolation:** the teamB→teamA block holds even **by direct IP**, so it does not
+  depend on DNS scoping — it is `nft` dropping the new connection (consistent with `network.rs:81`
   "same-namespace accept, cross-namespace new connections dropped").
-- **Conflito correcto:** `network rm` de uma rede em uso → `error[DX-5307] conflict ... in use by container` (exit 5).
+- **Correct conflict:** `network rm` of a network in use → `error[DX-5307] conflict ... in use by container` (exit 5).
 
-## Modelo daemonless e "restart do engine"
+## Daemonless model and "engine restart"
 
-O requisito §8 "repete após restart do engine para verificar persistência" é **N/A no sentido
-Docker**: Delonix é **daemonless** — não há engine a reiniciar. O dataplane (nft DNAT + hostfwd
-sobre o slirp) persiste independentemente do processo que o criou; a persistência relevante
-(sobreviver à saída do processo de controlo) foi provada em 03 (stop/start, republish).
+The §8 requirement "repeat after engine restart to verify persistence" is **N/A in the
+Docker sense**: Delonix is **daemonless** — there is no engine to restart. The dataplane (nft DNAT + hostfwd
+over slirp) persists independently of the process that created it; the relevant persistence
+(surviving the exit of the control process) was proven in 03 (stop/start, republish).
 
-## Limpeza
+## Cleanup
 
-Todos os containers `relc-*` e `relc-net` removidos; namespaces teamA/teamB desapareceram ao
-ficarem vazios (comportamento documentado). `kaeso-*` preservados.
+All `relc-*` containers and `relc-net` removed; teamA/teamB namespaces disappeared once
+empty (documented behaviour). `kaeso-*` preserved.

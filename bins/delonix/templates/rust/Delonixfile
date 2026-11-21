@@ -1,11 +1,20 @@
 # Delonixfile — same grammar as a Dockerfile. Build with:
 #   delonix build -t __NAME__:dev .
 #
-# Two stages: the toolchain compiles a release binary, and only the binary, the
-# CA roots and a tiny entrypoint reach the runtime image (tens of MB instead of
-# the ~1.5 GB toolchain). Cargo.toml is copied first so the dependency build is
-# cached until it changes. The build context is filtered by .dockerignore.
-FROM rust:__TEMPLATE_VERSION__-slim AS build
+# Two stages: the toolchain compiles a release binary, and only the binary
+# reaches the runtime image (tens of MB instead of the ~1.5 GB toolchain).
+# Cargo.toml is copied first so the dependency build is cached until it changes.
+# The build context is filtered by .dockerignore.
+#
+# The runtime is distroless/cc: a minimal image with no shell, no package
+# manager and no extra userland — just glibc, libgcc and libstdc++ (so the
+# dynamically linked, glibc-based binary runs), the CA roots for outbound HTTPS,
+# and a pre-created `nonroot` user (uid 65532). No apt, no entrypoint script,
+# no curl: the healthcheck is an exec-form subcommand of the app itself.
+# Build on bookworm so the glibc the binary links against matches the runtime
+# image (distroless/cc is debian12/bookworm, glibc 2.36). A plain `rust:*-slim`
+# now tracks trixie, whose newer glibc symbols would fail to resolve at runtime.
+FROM rust:__TEMPLATE_VERSION__-slim-bookworm AS build
 WORKDIR /src
 # No `|| true`: a real dependency error must fail here, not hide until the next
 # stage. `--locked` needs a committed Cargo.lock (see the Dockerfile sibling);
@@ -17,17 +26,18 @@ COPY . /src
 RUN cargo build --release --locked --quiet || cargo build --release --quiet
 RUN cp "target/release/__NAME__" /usr/local/bin/__NAME__
 
-FROM debian:trixie-slim
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system --gid 10001 app \
-    && useradd --system --uid 10001 --gid app --no-create-home --home-dir /nonexistent app
+# distroless/cc already ships glibc + libgcc + libstdc++, the CA roots and the
+# `nonroot` user (uid 65532) — no apt, no shell, nothing to install.
+FROM __DISTROLESS_REGISTRY__/cc-debian12:nonroot
 COPY --from=build /usr/local/bin/__NAME__ /usr/local/bin/__NAME__
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 ENV APP_ENV=production LOG_LEVEL=info
 EXPOSE __PORT__
-HEALTHCHECK CMD curl -fsS http://127.0.0.1:__PORT__/api/v1/health/live || exit 1
+# No shell and no curl in distroless: the app answers its own liveness probe via
+# the `healthcheck` subcommand (exec-form), which GETs /api/v1/health/live.
+HEALTHCHECK CMD ["/usr/local/bin/__NAME__", "healthcheck"]
 STOPSIGNAL SIGTERM
-USER app
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Numeric uid:gid — valid in distroless and in a conventional base alike.
+USER 65532:65532
+# No entrypoint script (distroless runs no shell): exec the binary directly, so
+# it is PID 1 and SIGTERM reaches it for the ordered shutdown in main.rs.
+ENTRYPOINT ["/usr/local/bin/__NAME__"]

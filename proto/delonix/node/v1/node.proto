@@ -28,6 +28,30 @@ service NodeService {
   rpc GetCapacity(GetCapacityRequest) returns (Capacity) {
     option (google.api.http) = {get: "/v1/node/capacity"};
   }
+  // The node's scheduling write surface (ADR-0101, A6). Each replaces ONE dimension
+  // of the node record and returns the resulting NodeInfo. No FieldMask (A4 proved it
+  // does not transcode over REST): the body carries the whole dimension. Mutating, so
+  // A3 (ADR-0098) authorizes by cert identity and audits every call.
+  rpc SetNodeLabels(SetNodeLabelsRequest) returns (NodeInfo) {
+    option (google.api.http) = {
+      post: "/v1/node:setLabels"
+      body: "*"
+    };
+  }
+  rpc SetNodeTaints(SetNodeTaintsRequest) returns (NodeInfo) {
+    option (google.api.http) = {
+      post: "/v1/node:setTaints"
+      body: "*"
+    };
+  }
+  // Cordon (unschedulable=true) or uncordon (false). A cordoned node REFUSES a new
+  // workload create with DX-5003 (ADR-0101 §3) — enforced at the node, not advisory.
+  rpc SetSchedulability(SetSchedulabilityRequest) returns (NodeInfo) {
+    option (google.api.http) = {
+      post: "/v1/node:setSchedulability"
+      body: "*"
+    };
+  }
   rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse) {
     option (google.api.http) = {get: "/v1/providers"};
   }
@@ -37,6 +61,13 @@ service NodeService {
   // message states.
   rpc WatchEvents(WatchEventsRequest) returns (stream Event) {
     option (google.api.http) = {get: "/v1/events:watch"};
+  }
+  // Workload attestation (ADR-0102): given a host PID, the workload that owns it,
+  // the image digest it runs and its labels — the facts a node-local SPIFFE
+  // attestor needs, exposed as a plain read-only operation. An unmatched PID is a
+  // normal answer (`found: false`), never an error.
+  rpc AttestWorkload(AttestWorkloadRequest) returns (WorkloadAttestation) {
+    option (google.api.http) = {get: "/v1/node/workloads/{pid}:attest"};
   }
 }
 
@@ -63,6 +94,41 @@ message NodeInfo {
   bool cgroup_delegated = 9;
   repeated string supported_workload_types = 10; // "container", "pod", "vm", "microvm"
   repeated Link links = 11;
+  // The scheduling surface (ADR-0101, A6). Operator-declared placement labels, taints
+  // a control-plane scheduler honours, and the cordon flag the node ENFORCES.
+  map<string, string> labels = 12;
+  repeated Taint taints = 13;
+  // true = cordoned: the node refuses a new workload create (DX-5003). Default false.
+  bool unschedulable = 14;
+  string unschedulable_reason = 15;
+  // ADR-0090/0099 version of the node record. Node metadata is single-phase (the write
+  // both sets and realizes the desired spec), so observed_generation == generation.
+  // 0 means the record has never been written — a defined state, not an error.
+  int64 generation = 16;
+  int64 observed_generation = 17;
+}
+
+// A taint repels workloads that do not tolerate it. Advertised by the node and honoured
+// by the control-plane scheduler (the node does not enforce tolerations — ADR-0101 §3).
+message Taint {
+  string key = 1;
+  string value = 2;
+  string effect = 3; // "NoSchedule" | "PreferNoSchedule" | "NoExecute"
+}
+
+message SetNodeLabelsRequest {
+  // The complete desired label set — a full replace, not a merge.
+  map<string, string> labels = 1;
+}
+
+message SetNodeTaintsRequest {
+  // The complete desired taint set — a full replace, not a merge.
+  repeated Taint taints = 1;
+}
+
+message SetSchedulabilityRequest {
+  bool unschedulable = 1;
+  string reason = 2; // recorded as unschedulable_reason; free text
 }
 
 message GetHealthRequest {}
@@ -90,6 +156,35 @@ message Capacity {
   // A zero that comes from a failed measurement is not a zero.
   repeated string unmeasured = 9;
   repeated Link links = 10;
+  // Extended resources (ADR-0101, A6). Each follows the same doctrine: measured when it
+  // can be, named in `unmeasured` when it cannot (never a misleading zero).
+  // Discrete devices, e.g. "nvidia.com/gpu". Empty with "devices.gpu" in `unmeasured`
+  // means the node did not establish GPU presence (no NVIDIA driver, or none probed).
+  repeated DeviceCapacity devices = 11;
+  // The node's declarative IP inventory, one entry per `kind: IPPool`. Absent when no
+  // pool is declared (absent, not unmeasured — the same rule filesystems use).
+  repeated IpPoolCapacity ip_pools = 12;
+  // Operator-declared CPU/memory overcommit ratios (set via `kind: Node`). Unset leaves
+  // "overcommit.cpu"/"overcommit.memory" in `unmeasured`: the engine has no node-level
+  // overcommit ratio of its own, so an un-declared one is unmeasured, not 1.0.
+  OvercommitRatios overcommit = 13;
+}
+
+message DeviceCapacity {
+  string kind = 1; // "nvidia.com/gpu"
+  int64 total = 2;
+  int64 allocatable = 3;
+}
+
+message IpPoolCapacity {
+  string name = 1;
+  int64 addresses_total = 2;
+  int64 addresses_allocated = 3;
+}
+
+message OvercommitRatios {
+  double cpu = 1;
+  double memory = 2;
 }
 
 message FilesystemCapacity {
@@ -119,9 +214,42 @@ message WatchEventsRequest {
 message Event {
   google.protobuf.Timestamp time = 1;
   string kind = 2;
-  string action = 3; // "start", "die", "oom", "create", "delete", …
+  string action = 3; // "start", "die", "oom", "create", "delete", "applied", "converged", …
   string target = 4; // "Container/web"
   string namespace = 5;
   map<string, string> attributes = 6;
   string trace_id = 7;
+  // ADR-0099/0100 record metadata, read off the referenced resource when this event
+  // is streamed, so a control plane tells a desired change from a state change on the
+  // stream. Absent (0) means "unversioned" — a defined state, not an error.
+  // generation > observed_generation ⇒ a desired change not yet realized; equal and
+  // non-zero ⇒ converged; both 0 ⇒ a resource with no version (or a kind this watch
+  // does not resolve). The "applied"/"converged" actions mark where a transition
+  // happened (ADR-0100).
+  int64 generation = 8;
+  int64 observed_generation = 9;
+}
+
+message AttestWorkloadRequest {
+  int64 pid = 1; // host PID — the container's / pod sandbox's init (pid 1) process
+}
+
+// The identity of the workload a host PID belongs to, plus the image and the
+// labels an attestor selects on. Only what the node already records: the image
+// digest is resolved best-effort from the image store (empty if the reference is
+// not a stored tag), and the labels are the container's (OCI image-level labels
+// are not persisted — ADR-0102). A PID that owns no live workload comes back with
+// `found: false` and the pid echoed, the rest empty.
+message WorkloadAttestation {
+  int64 pid = 1;
+  bool found = 2;
+  string container_id = 3;
+  string name = 4;
+  string namespace = 5;
+  string pod = 6; // the owning pod/sandbox; empty for a lone container
+  string image = 7; // the image REFERENCE the workload was created with
+  string image_digest = 8; // resolved "sha256:…", empty when unknown
+  map<string, string> labels = 9;
+  map<string, string> annotations = 10;
+  repeated Link links = 11;
 }

@@ -42,7 +42,7 @@ fn target() -> Option<(Target, String)> {
 
 #[ignore = "needs DELONIX_TRUENAS_TEST_URL, DELONIX_TRUENAS_TEST_KEY (or _USER + _PASS) and a reachable TrueNAS: cargo test -p delonix-provider-truenas --test live -- --ignored"]
 #[test]
-fn provisiona_partilha_e_destroi_contra_uma_appliance_real() {
+fn provisions_a_share_and_destroys_it_against_a_real_appliance() {
     let (t, pool) = target()
         .expect("DELONIX_TRUENAS_TEST_URL and DELONIX_TRUENAS_TEST_KEY (or DELONIX_TRUENAS_TEST_USER + _PASS) must be set to run this --ignored test against a real TrueNAS appliance");
     let c = Client::connect(&t).expect("connect");
@@ -123,7 +123,7 @@ fn provisiona_partilha_e_destroi_contra_uma_appliance_real() {
 }
 
 #[test]
-fn um_dataset_invalido_e_recusado_antes_de_qualquer_pedido() {
+fn an_invalid_dataset_is_refused_before_any_request() {
     // No target needed: the validation is what runs first, at every call site.
     for bad in ["tank/../etc", "tank", "/tank/x", "tank/x?a=b"] {
         assert!(

@@ -20,9 +20,10 @@ use crate::proto::v1::virtual_machine_service_server::{
 };
 use crate::proto::v1::volume_service_server::{VolumeService, VolumeServiceServer};
 use crate::proto::v1::{
-    ApiRoot, Capacity, Event, GetApiRootRequest, GetCapacityRequest, GetHealthRequest,
-    GetNodeInfoRequest, Health, ListProvidersRequest, ListProvidersResponse, NodeInfo,
-    WatchEventsRequest,
+    ApiRoot, AttestWorkloadRequest, Capacity, Event, GetApiRootRequest, GetCapacityRequest,
+    GetHealthRequest, GetNodeInfoRequest, Health, ListProvidersRequest, ListProvidersResponse,
+    NodeInfo, SetNodeLabelsRequest, SetNodeTaintsRequest, SetSchedulabilityRequest,
+    WatchEventsRequest, WorkloadAttestation,
 };
 use crate::proto::v1::{ApplyStackRequest, DestroyStackRequest, PlanStackRequest, StackPlan};
 use crate::proto::v1::{
@@ -104,13 +105,15 @@ pub async fn node_info(
     providers: Arc<dyn crate::provider_reports::ProviderReports>,
     linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
 ) -> Result<NodeInfo, Status> {
-    blocking("node info", move || {
-        node::node_info(
+    blocking("node info", move || -> Result<NodeInfo, Status> {
+        let record = crate::node_meta::current().map_err(|e| Status::internal(e.to_string()))?;
+        Ok(node::node_info(
             &crate::providers::measured_reports(&*vms, &*net, &*providers),
             &*linux,
-        )
+            &record,
+        ))
     })
-    .await
+    .await?
 }
 
 /// `GetHealth`, the one function both encodings call.
@@ -135,7 +138,187 @@ pub async fn capacity(
     store: Arc<dyn crate::store::StorePort>,
     linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
 ) -> Result<Capacity, Status> {
-    blocking("capacity", move || node::capacity(&*vms, &*store, &*linux)).await
+    blocking("capacity", move || -> Result<Capacity, Status> {
+        let record = crate::node_meta::current().map_err(|e| Status::internal(e.to_string()))?;
+        Ok(node::capacity(&*vms, &*store, &*linux, &record))
+    })
+    .await?
+}
+
+/// The node scheduling-write path (ADR-0101, A6): load the shared record, apply ONE
+/// dimension, stamp the version single-phase (`NodeRecord::stamp` keeps the generation on
+/// an idempotent write), store atomically, and return the resulting `NodeInfo`. The
+/// `kind: Node` apply writes the same record the same way from the CLI.
+async fn write_node_record(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    mutate: impl FnOnce(&mut delonix_model::node_meta::NodeRecord) + Send + 'static,
+) -> Result<NodeInfo, Status> {
+    blocking("node record write", move || -> Result<NodeInfo, Status> {
+        let root = node::state_root();
+        let mut record =
+            crate::node_meta::load(&root).map_err(|e| Status::internal(e.to_string()))?;
+        mutate(&mut record);
+        record.stamp();
+        crate::node_meta::store(&root, &record).map_err(|e| Status::internal(e.to_string()))?;
+        Ok(node::node_info(
+            &crate::providers::measured_reports(&*vms, &*net, &*providers),
+            &*linux,
+            &record,
+        ))
+    })
+    .await?
+}
+
+/// `SetNodeLabels` — a full replace of the node's placement labels.
+pub async fn set_node_labels(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    req: SetNodeLabelsRequest,
+) -> Result<NodeInfo, Status> {
+    write_node_record(vms, net, providers, linux, move |r| {
+        r.metadata.labels = req.labels.into_iter().collect();
+    })
+    .await
+}
+
+/// `SetNodeTaints` — a full replace of the node's taints. Each effect must be one of the
+/// closed set, and a key is required; an invalid taint is refused BEFORE any write.
+pub async fn set_node_taints(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    req: SetNodeTaintsRequest,
+) -> Result<NodeInfo, Status> {
+    for t in &req.taints {
+        if t.key.trim().is_empty() {
+            return Err(Status::invalid_argument("taint: `key` is required"));
+        }
+        if !delonix_model::node_meta::TAINT_EFFECTS.contains(&t.effect.as_str()) {
+            return Err(Status::invalid_argument(format!(
+                "taint '{}': effect '{}' is not one of NoSchedule, PreferNoSchedule, NoExecute",
+                t.key, t.effect
+            )));
+        }
+    }
+    write_node_record(vms, net, providers, linux, move |r| {
+        r.spec.taints = req
+            .taints
+            .iter()
+            .map(crate::node_meta::taint_from_proto)
+            .collect();
+    })
+    .await
+}
+
+/// `SetSchedulability` — cordon (`unschedulable=true`) or uncordon. A cordon records the
+/// reason; an uncordon clears it.
+pub async fn set_schedulability(
+    vms: Arc<dyn crate::vms::VmPort>,
+    net: Arc<dyn crate::net_ops::NetworkOps>,
+    providers: Arc<dyn crate::provider_reports::ProviderReports>,
+    linux: Arc<dyn crate::linux_lifecycle::LinuxLifecycle>,
+    req: SetSchedulabilityRequest,
+) -> Result<NodeInfo, Status> {
+    write_node_record(vms, net, providers, linux, move |r| {
+        r.spec.schedulable = !req.unschedulable;
+        r.spec.unschedulable_reason = if req.unschedulable {
+            req.reason
+        } else {
+            String::new()
+        };
+    })
+    .await
+}
+
+/// `AttestWorkload`, the one function both encodings call (ADR-0102). Matches a
+/// host PID to the LIVE container that owns it — `Container::is_live` reads
+/// `/proc` with the record's `pid_starttime`, so a PID recycled onto another
+/// process does not masquerade as the workload it replaced — resolves the image
+/// digest best-effort from the image store, and reports the container's labels
+/// and annotations. A PID that owns no live workload is a normal answer
+/// (`found: false`), never an error: an attestor asks about PIDs that may have
+/// already exited.
+pub async fn attest_workload(
+    store: Arc<dyn crate::store::StorePort>,
+    images: Arc<dyn crate::image_repo::ImageRepo>,
+    req: AttestWorkloadRequest,
+) -> Result<WorkloadAttestation, Status> {
+    let attestation = blocking("attest workload", move || -> Result<_, Status> {
+        let pid = req.pid;
+        let links = vec![
+            node::link("self", &format!("/v1/node/workloads/{pid}:attest")),
+            node::link("root", "/v1"),
+        ];
+        let not_found = || WorkloadAttestation {
+            pid,
+            found: false,
+            links: links.clone(),
+            ..Default::default()
+        };
+        // Container PIDs are i32; a value outside that range owns no container.
+        let Ok(target) = i32::try_from(pid) else {
+            return Ok(not_found());
+        };
+        let containers = store
+            .container_list()
+            .map_err(|e| crate::network_ops::status_of(&e))?;
+        let Some(c) = containers
+            .into_iter()
+            .find(|c| c.pid == Some(target) && c.is_live())
+        else {
+            return Ok(not_found());
+        };
+        let image_digest = resolve_image_digest(images.as_ref(), &node::state_root(), &c.image);
+        Ok(WorkloadAttestation {
+            pid,
+            found: true,
+            container_id: c.id,
+            name: c.name,
+            namespace: c.namespace,
+            pod: c.pod.unwrap_or_default(),
+            image: c.image,
+            image_digest,
+            labels: c.labels.into_iter().collect(),
+            annotations: c.annotations.into_iter().collect(),
+            links,
+        })
+    })
+    .await??;
+    Ok(attestation)
+}
+
+/// The `sha256:…` config digest the image store holds for `reference`, or `""`
+/// when the reference is not a stored tag/id. Best-effort and read-only: the
+/// node records the image REFERENCE on a container, not its resolved digest
+/// (ADR-0102), so attestation resolves it here rather than fabricate one.
+fn resolve_image_digest(
+    images: &dyn crate::image_repo::ImageRepo,
+    root: &std::path::Path,
+    reference: &str,
+) -> String {
+    if reference.is_empty() {
+        return String::new();
+    }
+    let Ok(stored) = images.list(root) else {
+        return String::new();
+    };
+    // A tag the container was created with…
+    if let Some(img) = stored.iter().find(|i| i.repo_tags.iter().any(|t| t == reference)) {
+        return img.id.clone();
+    }
+    // …or the reference was itself a digest (with or without the `sha256:`).
+    let wanted = images.strip_digest(reference);
+    stored
+        .iter()
+        .find(|i| images.strip_digest(&i.id) == wanted)
+        .map(|i| i.id.clone())
+        .unwrap_or_default()
 }
 
 /// `ListProviders`, the one function both encodings call (ADR-0050 D5).
@@ -230,6 +413,20 @@ impl NodeService for NodeApi {
         ))
     }
 
+    async fn attest_workload(
+        &self,
+        req: Request<AttestWorkloadRequest>,
+    ) -> Result<Response<WorkloadAttestation>, Status> {
+        Ok(Response::new(
+            attest_workload(
+                Arc::clone(&self.store),
+                Arc::clone(&self.images),
+                req.into_inner(),
+            )
+            .await?,
+        ))
+    }
+
     async fn list_providers(
         &self,
         req: Request<ListProvidersRequest>,
@@ -245,6 +442,54 @@ impl NodeService for NodeApi {
         ))
     }
 
+    async fn set_node_labels(
+        &self,
+        req: Request<SetNodeLabelsRequest>,
+    ) -> Result<Response<NodeInfo>, Status> {
+        Ok(Response::new(
+            set_node_labels(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.net),
+                Arc::clone(&self.providers),
+                Arc::clone(&self.linux),
+                req.into_inner(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn set_node_taints(
+        &self,
+        req: Request<SetNodeTaintsRequest>,
+    ) -> Result<Response<NodeInfo>, Status> {
+        Ok(Response::new(
+            set_node_taints(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.net),
+                Arc::clone(&self.providers),
+                Arc::clone(&self.linux),
+                req.into_inner(),
+            )
+            .await?,
+        ))
+    }
+
+    async fn set_schedulability(
+        &self,
+        req: Request<SetSchedulabilityRequest>,
+    ) -> Result<Response<NodeInfo>, Status> {
+        Ok(Response::new(
+            set_schedulability(
+                Arc::clone(&self.vms),
+                Arc::clone(&self.net),
+                Arc::clone(&self.providers),
+                Arc::clone(&self.linux),
+                req.into_inner(),
+            )
+            .await?,
+        ))
+    }
+
     type WatchEventsStream =
         Pin<Box<dyn tokio_stream::Stream<Item = Result<Event, Status>> + Send + 'static>>;
 
@@ -253,10 +498,12 @@ impl NodeService for NodeApi {
         req: Request<WatchEventsRequest>,
     ) -> Result<Response<Self::WatchEventsStream>, Status> {
         let req = req.into_inner();
+        // ADR-0100: the watch resolves each event's version off the record store.
+        let store = Arc::clone(&self.store);
         // The replay reads files: off the workers, and the polling task it
         // spawns lands on the runtime (a blocking-pool thread is inside it).
         let stream = blocking("events watch", move || {
-            crate::events::watch(node::state_root(), req, crate::events::POLL)
+            crate::events::watch(node::state_root(), req, crate::events::POLL, store)
         })
         .await??;
         Ok(Response::new(Box::pin(stream)))
@@ -1697,6 +1944,29 @@ pub fn engine_error(status: &Status) -> (delonix_model::Error, hyper::StatusCode
     }
 }
 
+/// A denied call's answer (ADR-0098 A3): `PermissionDenied` as the same RFC 9457
+/// problem document every other node error uses — HTTP 403 for a REST caller,
+/// gRPC `PERMISSION_DENIED` carried in `grpc_status` for a gRPC one (the mapping
+/// `engine_error` already has). The handler never runs; the authorization layer
+/// returns this before dispatch.
+pub fn permission_denied(
+    operation: &str,
+    namespace: &str,
+    instance: &str,
+) -> axum::response::Response {
+    let where_ = if namespace == "-" {
+        String::new()
+    } else {
+        format!(" in namespace '{namespace}'")
+    };
+    problem(
+        Status::permission_denied(format!(
+            "the client certificate is not authorized for {operation}{where_}"
+        )),
+        instance,
+    )
+}
+
 /// A failure as the RFC 9457 problem document the OpenAPI declares for every
 /// error (ADR-0042 D2): the engine's own `codes::problem` — the same document
 /// the CLI's errors map to — with `instance` the request path and
@@ -1723,4 +1993,74 @@ fn problem_as(
         hyper::header::HeaderValue::from_static("application/problem+json"),
     );
     res
+}
+
+#[cfg(test)]
+mod attest_tests {
+    use super::*;
+    use crate::image_repo::{ImageRepo, StoredImage};
+    use crate::store::NoStore;
+    use delonix_model::Error;
+    use std::path::Path;
+
+    /// An [`ImageRepo`] over one fixed image, to exercise the best-effort digest
+    /// resolution without naming an OCI adapter.
+    struct OneImage(StoredImage);
+    impl ImageRepo for OneImage {
+        fn list(&self, _root: &Path) -> Result<Vec<StoredImage>, Error> {
+            Ok(vec![self.0.clone()])
+        }
+        fn remove(&self, _root: &Path, _reference: &str) -> Result<(), Error> {
+            Ok(())
+        }
+        fn strip_digest<'a>(&self, digest: &'a str) -> &'a str {
+            digest.strip_prefix("sha256:").unwrap_or(digest)
+        }
+    }
+
+    #[test]
+    fn resolve_digest_matches_a_tag_or_a_digest_else_empty() {
+        let repo = OneImage(StoredImage {
+            id: "sha256:abcd".into(),
+            repo_tags: vec!["nginx:latest".into()],
+            created_unix: 0,
+            size_bytes: 0,
+        });
+        let root = Path::new("/does-not-matter");
+        // by the tag the container was created with
+        assert_eq!(resolve_image_digest(&repo, root, "nginx:latest"), "sha256:abcd");
+        // by a digest reference, with or without the algorithm prefix
+        assert_eq!(resolve_image_digest(&repo, root, "sha256:abcd"), "sha256:abcd");
+        assert_eq!(resolve_image_digest(&repo, root, "abcd"), "sha256:abcd");
+        // a reference the store does not hold, and the empty reference
+        assert_eq!(resolve_image_digest(&repo, root, "absent:tag"), "");
+        assert_eq!(resolve_image_digest(&repo, root, ""), "");
+    }
+
+    #[tokio::test]
+    async fn attest_unknown_pid_is_a_found_false_answer_not_an_error() {
+        let store: Arc<dyn crate::store::StorePort> = Arc::new(NoStore);
+        let images: Arc<dyn crate::image_repo::ImageRepo> =
+            Arc::new(crate::image_repo::NoImages);
+
+        // An in-range PID that owns no live container in an empty store.
+        let wa = attest_workload(
+            Arc::clone(&store),
+            Arc::clone(&images),
+            AttestWorkloadRequest { pid: 4242 },
+        )
+        .await
+        .unwrap();
+        assert!(!wa.found);
+        assert_eq!(wa.pid, 4242);
+        assert!(wa.container_id.is_empty());
+        assert!(wa.links.iter().any(|l| l.rel == "self"));
+
+        // A PID outside i32 owns no container — the range guard, also found:false.
+        let wa = attest_workload(store, images, AttestWorkloadRequest { pid: i64::MAX })
+            .await
+            .unwrap();
+        assert!(!wa.found);
+        assert_eq!(wa.pid, i64::MAX);
+    }
 }

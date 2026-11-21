@@ -198,8 +198,9 @@ delonix stack destroy                 # removes what the manifest created
 
 The manifest publishes `__PORT__`, sets `APP_ENV=production`, 512M/1 CPU,
 read-only root filesystem with a `/tmp` tmpfs, and `restart: always`.
-The image runs as the unprivileged user `node` (uid 1000), which owns nothing
-in the image. The manifest names it (`user:`) because the engine applies an
+The runtime image is distroless/nodejs22 (no shell, no package manager) and
+runs as the pre-created nonroot user (uid 65532), which owns nothing in the
+image. The manifest names it (`user:`) because the engine applies an
 image's USER only when asked — see
 [docs/adr/0003](docs/adr/0003-container-image.md). Other
 engines can build the `Delonixfile` as a Dockerfile, but only Delonix is
@@ -347,8 +348,9 @@ See also the local `ARCHITECTURE.md` for this project's current rules.
 
 More: [AGENTS.md](AGENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md),
 [docs/adr](docs/adr), [docs/runbooks](docs/runbooks),
-[CONTRIBUTING.md](CONTRIBUTING.md). Node 24 was chosen from the release schedule
-(Node 20 reached end of life on 2026-04-30; endoflife.date, read 2026-09-30).
+[CONTRIBUTING.md](CONTRIBUTING.md). Node 22 was chosen to match the distroless
+runtime image (`nodejs22-debian12`): Node 22 is Active LTS, whereas Node 20
+reached end of life on 2026-04-30 (endoflife.date, read 2026-09-30).
 Official docs: Fastify
 <https://fastify.dev/docs/latest/>, Node.js releases
 <https://nodejs.org/en/about/previous-releases>, OpenTelemetry JS

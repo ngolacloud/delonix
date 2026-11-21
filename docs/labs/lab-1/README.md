@@ -1,93 +1,93 @@
-# Lab 1 — Primeiro serviço, em 60 segundos
+# Lab 1 — First service, in 60 seconds
 
-> **Identificador:** `lab-1` · **Nível:** iniciante · **Jornada:** primeiro contacto
+> **Identifier:** `lab-1` · **Level:** beginner · **Journey:** first contact
 
-## Objectivo concreto
+## Concrete objective
 
-Executar um serviço web real com o Delonix e observar, com rigor, o ciclo
-`run → ps → observar → logs → exec → rm` — e o que «daemonless» significa neste
-motor (não há daemon central; há holders leves por recurso).
+Run a real web service with Delonix and rigorously observe the
+`run → ps → observe → logs → exec → rm` cycle — and what "daemonless" means in this
+engine (there is no central daemon; there are lightweight per-resource holders).
 
-## Conhecimentos prévios
+## Prerequisite knowledge
 
-Terminal Linux e noção de porta TCP. Nada de containers é pressuposto.
+Linux terminal and a notion of TCP ports. No prior container knowledge is assumed.
 
-## Versão e ambiente testados
+## Tested version and environment
 
-> **Baseline histórica (linha 5.1.x):** os valores abaixo foram medidos na linha antiga e **ainda não foram re-medidos na linha 0.1.0 actual**.
+> **Historical baseline (5.1.x line):** the values below were measured on the old line and **have not yet been re-measured on the current 0.1.0 line**.
 
-`delonix 5.1.1`, Linux com cgroup v2 e user namespaces sem privilégio, execução
-rootless. Validado a 2026-10-24.
+`delonix 5.1.1`, Linux with cgroup v2 and unprivileged user namespaces, rootless
+execution. Validated on 2026-10-24.
 
-## Recursos mínimos
+## Minimum resources
 
-~150 MiB de disco para a imagem `nginx:alpine`; rede para o primeiro `pull`.
+~150 MiB of disk for the `nginx:alpine` image; network for the first `pull`.
 
-## Privilégios e acessos necessários
+## Required privileges and access
 
-Nenhum `sudo`. Corre como o teu utilizador (rootless). Precisa de uma porta TCP
-local livre (o arnês escolhe a primeira a partir de 18080).
+No `sudo`. Runs as your user (rootless). Needs a free
+local TCP port (the harness picks the first one starting from 18080).
 
-## Duração estimada
+## Estimated duration
 
-~2 minutos (dominado pelo primeiro `pull` da imagem).
+~2 minutes (dominated by the image's first `pull`).
 
-## Ficheiros de preparação
+## Preparation files
 
-Nenhum ficheiro externo. O arnês está nesta pasta:
+No external files. The harness lives in this folder:
 
-| Ficheiro | Fase |
+| File | Phase |
 |---|---|
-| `prepare.sh` | garante pré-requisitos e a imagem local |
-| `run.sh`     | executa a jornada |
-| `verify.sh`  | asserções de resultado funcional |
-| `cleanup.sh` | remove só o que o lab criou |
-| `lab.sh`     | orquestrador `prepare → run → verify → cleanup` |
+| `prepare.sh` | ensures prerequisites and the local image |
+| `run.sh`     | runs the journey |
+| `verify.sh`  | functional-outcome assertions |
+| `cleanup.sh` | removes only what the lab created |
+| `lab.sh`     | orchestrator `prepare → run → verify → cleanup` |
 
-## Como correr
+## How to run
 
 ```bash
-# com o delonix no PATH (instalação normal):
+# with delonix on the PATH (normal install):
 bash docs/labs/lab-1/lab.sh
 
-# apontando a um binário específico (ex.: build local):
-DELONIX=/caminho/para/delonix bash docs/labs/lab-1/lab.sh
+# pointing at a specific binary (e.g. a local build):
+DELONIX=/path/to/delonix bash docs/labs/lab-1/lab.sh
 
-# deixar o serviço de pé para explorar (sem limpar):
+# leave the service up to explore (no cleanup):
 bash docs/labs/lab-1/lab.sh --no-clean
 ```
 
-## Passos (o que `run.sh` faz) e porquê
+## Steps (what `run.sh` does) and why
 
-1. `container run -d --name web -p <porta>:80 nginx:alpine` — serviço em segundo
-   plano, porta publicada no host.
-2. `container ps` — o `STATUS` confirma que está `Up`.
-3. `ps -o pid,ppid,comm,args -C delonix` — mostra os **holders** do recurso
-   (`netns pin`, `netns control`, holder de `run`); a coluna PPID prova que são
-   filhos do teu `systemd --user`, não de um daemon do sistema.
-4. `curl localhost:<porta>` — fala com o serviço.
-5. `container exec web …` — entra no container.
-6. `container logs web` — lê o que o nginx escreveu.
+1. `container run -d --name web -p <port>:80 nginx:alpine` — background
+   service, port published on the host.
+2. `container ps` — `STATUS` confirms it is `Up`.
+3. `ps -o pid,ppid,comm,args -C delonix` — shows the resource **holders**
+   (`netns pin`, `netns control`, the `run` holder); the PPID column proves they are
+   children of your `systemd --user`, not of a system daemon.
+4. `curl localhost:<port>` — talks to the service.
+5. `container exec web …` — goes inside the container.
+6. `container logs web` — reads what nginx wrote.
 
-## Checkpoints / asserções de sucesso (o que `verify.sh` exige)
+## Checkpoints / success assertions (what `verify.sh` requires)
 
-- **A** — o container está `Up` (lido de `container ps -o json`).
-- **B** — `GET localhost:<porta>` devolve **HTTP 200** (resultado funcional, com
-  retry até 20 s; não um exit-code isolado).
-- **C** — os logs do nginx não estão vazios.
-- **D** — existem holders `delonix` residentes, filhos do init do utilizador —
-  e **não** um daemon central.
+- **A** — the container is `Up` (read from `container ps -o json`).
+- **B** — `GET localhost:<port>` returns **HTTP 200** (functional outcome, with
+  retry up to 20 s; not an isolated exit code).
+- **C** — the nginx logs are not empty.
+- **D** — there are resident `delonix` holders, children of the user's init —
+  and **not** a central daemon.
 
-## Limpeza
+## Cleanup
 
-`cleanup.sh` remove o container `lab1-web` e o estado do lab. **Não** remove a
-imagem `nginx:alpine` (outros labs reutilizam-na).
+`cleanup.sh` removes the `lab1-web` container and the lab's state. It does **not** remove the
+`nginx:alpine` image (other labs reuse it).
 
-## Resultado aprendido
+## Lesson learned
 
-Um serviço corre e responde sem qualquer daemon central; o motor mantém-no vivo
-por um holder mínimo por recurso, que desaparece com o `rm`.
+A service runs and responds with no central daemon at all; the engine keeps it alive
+through a minimal per-resource holder, which disappears with `rm`.
 
-## Próximo lab
+## Next lab
 
-**Lab 2 — Limites de recursos que pegam mesmo** (cgroups rootless).
+**Lab 2 — Resource limits that actually stick** (rootless cgroups).

@@ -500,21 +500,22 @@ mod tests {
     use super::is_reattach_candidate;
     use delonix_model::records::Status;
 
-    /// Um MEMBRO DE POD também fica sem rede num respawn — a netns partilhada
-    /// morre com o holder antigo tal como qualquer veth. Sem isto, a
-    /// reconciliação anunciava «recovered 1 container(s)» com um pod ao lado
-    /// `Up 32 seconds` e `Network unreachable`, para sempre e em silêncio.
+    /// A POD MEMBER also loses its network on a respawn — the shared netns dies
+    /// with the old holder just like any veth. Without this, the reconciliation
+    /// announced "recovered 1 container(s)" with a pod sitting next to it
+    /// `Up 32 seconds` and `Network unreachable`, forever and in silence.
     #[test]
-    fn membro_de_pod_tambem_e_candidato_a_recuperacao() {
-        // Um membro de pod NÃO tem rede custom no registo (é `--net host` para si
-        // próprio) — é o campo `pod` que prova que tem um fio dentro do holder.
+    fn a_pod_member_is_also_a_recovery_candidate() {
+        // A pod member does NOT have a custom network in the record (it is `--net
+        // host` to itself) — it is the `pod` field that proves it has a wire inside
+        // the holder.
         assert!(is_reattach_candidate(
             &Status::Running,
             None,
             Some(42),
             Some("pod-pa")
         ));
-        // …e as outras condições continuam a valer para ele.
+        // …and the other conditions still hold for it.
         assert!(!is_reattach_candidate(
             &Status::Stopped,
             None,
@@ -527,7 +528,7 @@ mod tests {
             None,
             Some("pod-pa")
         ));
-        // Um `pod` vazio não é membro de pod nenhum.
+        // An empty `pod` is not a member of any pod.
         assert!(!is_reattach_candidate(
             &Status::Running,
             None,
@@ -536,12 +537,13 @@ mod tests {
         ));
     }
 
-    /// Só é candidato a recuperação quem PODE ter ficado sem rede num respawn do
-    /// holder: a correr, numa rede custom (só essas têm veth no holder — o
-    /// `--net host/none` traz slirp próprio e é indiferente ao respawn), e com
-    /// um pid vivo. Alargar isto reiniciaria containers saudáveis.
+    /// Only those that COULD have lost their network to a holder respawn are
+    /// recovery candidates: running, on a custom network (only those have a veth in
+    /// the holder — `--net host/none` carries its own slirp and is indifferent to
+    /// the respawn), and with a live pid. Widening this would restart healthy
+    /// containers.
     #[test]
-    fn so_recupera_containers_a_correr_em_rede_custom() {
+    fn only_recovers_running_containers_on_a_custom_network() {
         assert!(is_reattach_candidate(
             &Status::Running,
             Some("dev"),
@@ -549,11 +551,11 @@ mod tests {
             None
         ));
 
-        // parado / criado / morto → não se toca
+        // stopped / created / dead → left alone
         for st in [Status::Created, Status::Stopped, Status::Paused] {
             assert!(!is_reattach_candidate(&st, Some("dev"), Some(42), None));
         }
-        // sem rede custom (host/none) → o respawn não lhe mexeu
+        // no custom network (host/none) → the respawn did not touch it
         assert!(!is_reattach_candidate(
             &Status::Running,
             None,
@@ -566,7 +568,7 @@ mod tests {
             Some(42),
             None
         ));
-        // sem pid utilizável → não há nada para recuperar
+        // no usable pid → nothing to recover
         assert!(!is_reattach_candidate(
             &Status::Running,
             Some("dev"),

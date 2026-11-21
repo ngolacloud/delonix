@@ -1,0 +1,38 @@
+### Arranque puro do processo (exec+linker+parse): mediana 7.90 ms
+    (parte do pre_spawn; o resto do pre_spawn é resolução de imagem + preparação do rootfs no CLI)
+
+### HOST (--net host) — linha 4a do doc (~91 ms)
+  [1ª CORRIDA — FRIA] wall=76.26 ms (spawn=18.77, pre_spawn=57.49)
+  [WALL-CLOCK por fase — excluindo a 1ª corrida]
+    total: min 52.11 / MEDIANA 85.15 / max 513.98 ms  (n=24)
+    fase                                                  min   mediana      max    %med
+    ------------------------------------------------ -------- --------- -------- -------
+    pre_spawn (arranque proc. + imagem/rootfs no CLI)   35.38    57.93  218.98   68.0%
+    clone (namespaces)                                  0.25     0.42    0.53    0.5%
+    cgroup (setup_cgroup, pai)                          2.59    19.03  453.40   22.3%
+    rede (hook on_started: CNI/slirp)                   0.00     0.00    0.00    0.0%
+    mounts (filho: overlay+pivot+/proc,/sys,/dev)       1.45     2.00  238.08    2.4%
+    pre_clone                                           0.06     0.14    0.20    0.2%
+    => MAIOR CONSUMIDOR: pre_spawn (arranque proc. + imagem/rootfs no CLI) (57.93 ms, 68.0% do total)
+  [FILHO, sub-fases DENTRO de `mounts`] setup_rootfs≈1.49 ms, confine_tail≈0.41 ms
+
+### ISOLADO (--net rede, plano de pé) — linha 4b do doc (~216 ms)
+  [1ª CORRIDA — FRIA] wall=378.04 ms (spawn=17.38, pre_spawn=360.66)
+  [WALL-CLOCK por fase — excluindo a 1ª corrida]
+    total: min 291.92 / MEDIANA 407.35 / max 2676.11 ms  (n=24)
+    fase                                                  min   mediana      max    %med
+    ------------------------------------------------ -------- --------- -------- -------
+    pre_spawn (arranque proc. + imagem/rootfs no CLI)  282.14   391.70 2673.46   96.2%
+    clone (namespaces)                                  0.20     0.24    0.33    0.1%
+    cgroup (setup_cgroup, pai)                          0.72    15.63  183.05    3.8%
+    rede (hook on_started: CNI/slirp)                   0.00     0.00    0.00    0.0%
+    mounts (filho: overlay+pivot+/proc,/sys,/dev)       0.01     0.01    1.46    0.0%
+    pre_clone                                           0.09     0.14    0.18    0.0%
+    => MAIOR CONSUMIDOR: pre_spawn (arranque proc. + imagem/rootfs no CLI) (391.70 ms, 96.2% do total)
+
+### DELTA host -> isolado (wall-clock, quente)
+  host    ~ 85.15 ms
+  isolado ~ 407.35 ms   (delta +322.20 ms)
+  O custo da rede isolada é o veth/IPAM/nft/nsenter montado em torno do
+  spawn (orquestração do CLI), NÃO a fase `net` do on_started — por isso
+  mede-se por parede, como o doc faz nas linhas 4b/4c.

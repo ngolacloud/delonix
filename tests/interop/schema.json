@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ngolacloud/delonix/tests/interop/schema.json",
+  "title": "Delonix interop evidence record",
+  "description": "One measured interoperability claim between the Delonix engine and a CNCF-ecosystem tool. Matches the shape of the suite evidence.jsonl records (reports/**/evidence.jsonl) and adds the compatibility dimensions the campaign requires: tool version, mode, host capabilities, result, proof. The generator scripts/gen_compatibility.py reads every tests/interop/results/*.jsonl line through this schema and renders docs/compatibility.md. Doctrine (AGENTS.md, 'Engine identity and boundary'; mission H): a 'compatible' claim (state PASS) exists only WITH a tool version and an artifact_ref that proves it; without a proof the state is NOT_TESTED, never 'compatible'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "mode", "phase", "state"],
+  "properties": {
+    "tool": {
+      "type": "string",
+      "description": "Ecosystem tool or standard the record is about (lower-kebab). E.g. 'kubernetes-cri', 'cilium', 'helm', 'harbor', 'spiffe-spire', 'oci-runtime'.",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "tool_version": {
+      "type": "string",
+      "description": "The exact version of the tool that was exercised (e.g. 'v1.36.0', '1.16.5'). REQUIRED when state is PASS: a 'compatible' claim without the version it was proven against is not allowed."
+    },
+    "delonix_version": {
+      "type": "string",
+      "description": "The Delonix engine version used (root Cargo.toml version, e.g. '0.1.2'). REQUIRED when state is PASS."
+    },
+    "mode": {
+      "type": "integer",
+      "enum": [1, 2],
+      "description": "1 = Delonix under a real Kubernetes (via the CRI). 2 = Delonix without Kubernetes (open interfaces only)."
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["H0", "H1", "H2", "H3", "H4", "H5", "H6", "H7"],
+      "description": "The campaign phase that owns this claim."
+    },
+    "state": {
+      "type": "string",
+      "enum": ["PASS", "PARTIAL", "FAIL", "NOT_TESTED"],
+      "description": "PASS = works, proven (needs tool_version + artifact_ref). PARTIAL = partially works, measured (needs artifact_ref). FAIL = measured not to work (needs artifact_ref). NOT_TESTED = no proof yet (no artifact_ref)."
+    },
+    "privilege": {
+      "type": "string",
+      "enum": ["rootless", "root"],
+      "description": "The privilege tier the claim was measured under. Many CNCF DaemonSets (eBPF, hostNetwork, privileged) run root-only; the limits section records that rootless refuses them."
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["privileged", "hostNetwork", "hostPID", "hostPath", "mountPropagation", "eBPF", "capabilities", "deviceAccess"]
+      },
+      "uniqueItems": true,
+      "description": "Host capabilities the tool requires to run (H2). Drives both the matrix column and the rootless-refusal limits."
+    },
+    "environment": {
+      "type": "string",
+      "description": "Where it ran (host/VM, kubeadm/kind, CNI, uid). Same role as evidence.jsonl 'environment'."
+    },
+    "command": {
+      "type": "string",
+      "description": "The command(s) that produced the evidence."
+    },
+    "artifact_ref": {
+      "type": "string",
+      "description": "Repo-relative path to the proof (a report, a console capture, an evidence.jsonl). REQUIRED unless state is NOT_TESTED. This is the 'prova' column."
+    },
+    "sha": {
+      "type": "string",
+      "description": "The commit the measurement was taken at (short or full)."
+    },
+    "notes": {
+      "type": "string",
+      "description": "One line of honest caveat: what was and was not exercised."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "PASS" } } },
+      "then": { "required": ["tool_version", "delonix_version", "artifact_ref"] }
+    },
+    {
+      "if": { "properties": { "state": { "const": "PARTIAL" } } },
+      "then": { "required": ["artifact_ref"] }
+    },
+    {
+      "if": { "properties": { "state": { "const": "FAIL" } } },
+      "then": { "required": ["artifact_ref"] }
+    }
+  ]
+}

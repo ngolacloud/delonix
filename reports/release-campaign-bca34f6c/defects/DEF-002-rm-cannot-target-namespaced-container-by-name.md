@@ -1,44 +1,44 @@
-# DEF-002 — `rm` não aceita `--namespace`: container fora de `default` só removível por ID
+# DEF-002 — `rm` does not accept `--namespace`: a container outside `default` is only removable by ID
 
-- **Requisito / teste:** SCOPE-2 / §8 (isolamento por namespace), §5 (limpeza).
-- **Severidade:** **P3 (baixa)** — usabilidade/assimetria de superfície; não há perda de dados nem órfãos (a remoção por ID funciona e limpa tudo).
-- **Tipo:** defeito do produto (lacuna de superfície CLI).
-- **Ambiente:** `delonix 5.1.1` @ `bca34f6c3`, rootless.
+- **Requirement / test:** SCOPE-2 / §8 (namespace isolation), §5 (cleanup).
+- **Severity:** **P3 (low)** — usability/surface asymmetry; no data loss and no orphans (removal by ID works and cleans everything up).
+- **Type:** product defect (CLI surface gap).
+- **Environment:** `delonix 5.1.1` @ `bca34f6c3`, rootless.
 
-## Passos mínimos
+## Minimal steps
 
 ```
 delonix run -d --name dup --namespace teamA --net n nginx…
 delonix run -d --name dup --namespace teamB --net n nginx…
-delonix rm -f dup --namespace teamA     # error: usage (flag não existe)
+delonix rm -f dup --namespace teamA     # error: usage (flag does not exist)
 delonix rm -f dup -n teamA              # error: usage
 ```
 
-## Esperado vs observado
+## Expected vs observed
 
-- **Esperado:** simetria com `ls`/`vm ls`, que aceitam `--namespace` (`delonix vm ls --namespace teamA` é exemplo documentado em `manual_entries.rs:2891`). Poder endereçar `rm <name> --namespace <ns>`.
-- **Observado:** `rm`/`container rm` **não têm** `--namespace`. Com o mesmo nome em dois namespaces, o nome é ambíguo e só o **ID global** remove o recurso (`rm -f <id>` funciona e limpa).
+- **Expected:** symmetry with `ls`/`vm ls`, which accept `--namespace` (`delonix vm ls --namespace teamA` is a documented example in `manual_entries.rs:2891`). To be able to address `rm <name> --namespace <ns>`.
+- **Observed:** `rm`/`container rm` **do not have** `--namespace`. With the same name in two namespaces, the name is ambiguous and only the **global ID** removes the resource (`rm -f <id>` works and cleans up).
 
-## Impacto
+## Impact
 
-Operador que siga o modelo mental de namespaces (criar por `--namespace`, listar por `--namespace`) não consegue remover por nome+namespace; tem de descobrir o ID. Fricção, não falha de dados.
+An operator following the namespace mental model (create with `--namespace`, list with `--namespace`) cannot remove by name+namespace; they have to discover the ID. Friction, not a data failure.
 
-## Critério de encerramento
+## Closure criterion
 
-Adicionar `--namespace` a `container rm` (e espelhar em `stop`/`restart` se aplicável), ou documentar explicitamente que a remoção fora de `default` é por ID. Reexecutar os passos mínimos.
+Add `--namespace` to `container rm` (and mirror it in `stop`/`restart` if applicable), or explicitly document that removal outside `default` is by ID. Re-run the minimal steps.
 
-## Estado
+## Status
 
-CORRIGIDO (local, working tree, verificado ao vivo em 2026-10-23). Ver bloco «Correcção» abaixo.
+FIXED (local, working tree, verified live on 2026-10-23). See the «Fix» block below.
 
-## Correcção
+## Fix
 
-- `bins/delonix-runtime-bin/src/cmd/container.rs`: `RmArgs` ganha `-n/--namespace` (simétrico a `ps`);
-  novo helper puro `resolve_rm_query(store, token, ns)` qualifica um nome simples como `<ns>/<name>`
-  (a forma que `find` já entende), com fallback para o token cru (ids/prefixos continuam a funcionar).
-- Testes: `rm_namespace_tests::namespace_disambiguates_a_shared_name` e
-  `namespace_leaves_ids_and_qualified_forms_alone`. **PASSAM.**
-- Live: `rm --namespace teamA relcfix-dup` e `rm -n teamB relcfix-dup` removem por nome o container
-  certo em cada namespace (2→1→0), sem precisar do ID.
+- `bins/delonix-runtime-bin/src/cmd/container.rs`: `RmArgs` gains `-n/--namespace` (symmetric with `ps`);
+  a new pure helper `resolve_rm_query(store, token, ns)` qualifies a plain name as `<ns>/<name>`
+  (the form `find` already understands), with fallback to the raw token (ids/prefixes keep working).
+- Tests: `rm_namespace_tests::namespace_disambiguates_a_shared_name` and
+  `namespace_leaves_ids_and_qualified_forms_alone`. **PASS.**
+- Live: `rm --namespace teamA relcfix-dup` and `rm -n teamB relcfix-dup` remove by name the right
+  container in each namespace (2→1→0), without needing the ID.
 
-**Commit:** `5ce63079` (branch `fix/campaign-defects-doctor-rm-compose`, não empurrado).
+**Commit:** `5ce63079` (branch `fix/campaign-defects-doctor-rm-compose`, not pushed).

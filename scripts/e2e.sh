@@ -338,9 +338,22 @@ libvirt_system_usable() {
 # to guard on the binary alone and SKIP «o vm create CH falhou neste host (infra
 # de rede?)» on anything else, a guess written into the report as a host
 # property. Only when this is false may a CH section SKIP.
+# H-1 (ronda 0.1.2): o api-socket do VMM é `<DELONIX_ROOT>/vms/[<ns>/]<nome>.sock`
+# e o kernel recusa-o acima de 107 bytes (SUN_PATH). Um `DELONIX_ROOT` fundo — um
+# scratch de agente, p. ex. — estoura-o, e as 11 secções CH falhariam TODAS com
+# `DX-1506`, que se lê como regressão do motor em vez da armadilha de medição que
+# é (o binário diagnostica-o certo: `delonix-provider-cloud-hypervisor` recusa à
+# cabeça, `SUN_PATH_MAX=107`). Orçamento: root + `/vms/` (5) + `<ns>/` (≤16) +
+# nome de VM de teste (≤24) + `.sock` (5) = root+50; não cabendo, a secção não é
+# mensurável com este root e vira SKIP, não FAIL.
+ch_sockfits() {
+  local root="${DELONIX_ROOT:-$HOME/.local/share/delonix}"
+  (( ${#root} + 50 <= 107 ))
+}
 ch_usable() {
   command -v cloud-hypervisor >/dev/null && command -v qemu-img >/dev/null \
     && [[ -r /dev/kvm && -w /dev/kvm ]] || return 1
+  ch_sockfits || return 1
   [[ -n "${DELONIX_HYPERVISOR_FW:-}" && -e "$DELONIX_HYPERVISOR_FW" ]] && return 0
   local f
   for f in /usr/local/share/delonix/CLOUDHV.fd /usr/share/delonix/CLOUDHV.fd \
@@ -354,6 +367,7 @@ ch_missing() {  # the SKIP reason when `ch_usable` is false: the absent piece
   command -v cloud-hypervisor >/dev/null || m+=("cloud-hypervisor")
   command -v qemu-img >/dev/null || m+=("qemu-img")
   [[ -r /dev/kvm && -w /dev/kvm ]] || m+=("/dev/kvm legível e gravável")
+  ch_sockfits || m+=("um DELONIX_ROOT curto p/ o socket do VMM caber em 107B (actual: ${#DELONIX_ROOT} bytes + 50 do sufixo — usa um OUT curto)")
   (( ${#m[@]} )) || m+=("um firmware de DEFAULT_CH_FIRMWARES")
   local out="${m[0]}" i
   for i in "${m[@]:1}"; do out+=", $i"; done
@@ -5076,7 +5090,7 @@ assert "tokenSecretFile" in auth and "tokenSecret" not in auth and "password" no
 ' "$ADR54_SCHEMA"
 
 ########################################
-section "vm: o snapshot sobrevive a um stop/start (precisa de hipervisor)"
+section "vm: the snapshot survives a stop/start (needs a hypervisor)"
 ########################################
 # BUG REAL, medido 2026-08-12: `vm stop` desfaz o domínio com `virsh undefine
 # --snapshots-metadata` (é o que evita domínios órfãos), e isso apagava os
@@ -5140,7 +5154,7 @@ if libvirt_system_usable; then
     check "vm pause" ok "$BIN" vm pause "$SVM"
     check "o libvirt confirma paused" ok bash -c \
       "[ \"\$(virsh -c qemu:///system domstate '$SVM')\" = paused ]"
-    check "o vm ls diz Paused (não Stopped)" ok vm_status_is "$SVM" Paused
+    check "vm ls shows Paused (not Stopped)" ok vm_status_is "$SVM" Paused
     check "e continua Paused num segundo ls" ok vm_status_is "$SVM" Paused
     # Sem -A o `vm ls` mostra o que está de pé, e uma VM pausada está de pé.
     check "o vm ls sem -A mostra a VM pausada" ok bash -c \
@@ -5153,7 +5167,7 @@ if libvirt_system_usable; then
     check "o domínio pausado foi desfeito" ok bash -c \
       "! virsh -c qemu:///system domstate '$SVM' >/dev/null 2>&1"
     check "e o vm ls diz Stopped" ok vm_status_is "$SVM" Stopped
-    check "vm start depois do stop de uma VM pausada" ok "$BIN" vm start "$SVM"
+    check "vm start after the stop of a paused VM" ok "$BIN" vm start "$SVM"
 
     # Com a VM PARADA os três verbos continuam a funcionar — o domínio libvirt
     # não existe nesse estado, e é definido só o tempo do comando.
@@ -5192,7 +5206,7 @@ if libvirt_system_usable; then
     check "o registo diz 2 vCPU e 384M" ok bash -c \
       "'$BIN' vm ls -A -o json | python3 -c \"import json,sys; sys.exit(0 if any(v['name']=='$SVM' and v['vcpus']==2 and v['memory']=='384M' for v in json.load(sys.stdin)) else 1)\""
     check "vm start depois do resize" ok "$BIN" vm start "$SVM"
-    check "o domínio arranca com 2 vCPU" ok bash -c \
+    check "the domain boots with 2 vCPU" ok bash -c \
       "virsh -c qemu:///system dumpxml '$SVM' | grep -Eq '<vcpu[^>]*>2</vcpu>'"
     check "o domínio arranca com 384 MiB" ok bash -c \
       "virsh -c qemu:///system dumpxml '$SVM' | grep -q \"<memory unit='KiB'>393216</memory>\""
@@ -5247,7 +5261,7 @@ GF
     DQCOW="$SROOT/vms/$DVM.qcow2"
     check "vm stop (data-recovery)" ok "$BIN" vm stop "$DVM"
     # vm.snapshot-disk: o snapshot offline CAPTURA o dado para recuperação.
-    check "o snapshot de disco captura o dado para recuperacao" ok \
+    check "the disk snapshot captures the data for recovery" ok \
       "$BIN" vm snapshot create "$DVM" sdata
     check "o disco tem o dado ORIGINAL antes de mexer" ok bash -c \
       "guestfish --ro -a '$DQCOW' -m /dev/sda1 cat /payload.txt | grep -qx DADO-ORIGINAL-v1"
@@ -5259,7 +5273,7 @@ GF
     # vm.snapshot-restore: reverter o snapshot.
     check "vm snapshot restore (data-recovery)" ok "$BIN" vm snapshot restore "$DVM" sdata
     # A PROVA: o dado ORIGINAL voltou — recuperabilidade, não só um ficheiro criado.
-    check "o restore RECUPERA o dado de disco (nao so um codigo de saida)" ok bash -c \
+    check "restore RECOVERS the disk data (not just an exit code)" ok bash -c \
       "guestfish --ro -a '$DQCOW' -m /dev/sda1 cat /payload.txt | grep -qx DADO-ORIGINAL-v1"
     "$BIN" delete vm "$DVM" -f >/dev/null 2>&1
   else
@@ -5351,7 +5365,7 @@ else
 fi
 
 ########################################
-section "vm: um disco a QUENTE e detectado e fica R/W DENTRO do guest (libvirt, cloud-init, guestfish)"
+section "vm: a HOT disk is detected and goes R/W INSIDE the guest (libvirt, cloud-init, guestfish)"
 ########################################
 # §7 do mandato: `vm.hotplug.disk.add` do provider libvirt estava `partial`
 # («attaches the same <disk>… never run against a guest»). Anexar um `<disk>` ao
@@ -5466,7 +5480,7 @@ else
 fi
 
 ########################################
-section "vm: uma NIC a QUENTE e detectada e passa TRAFEGO REAL DENTRO do guest (libvirt, cloud-init, guestfish)"
+section "vm: a HOT NIC is detected and passes REAL TRAFFIC INSIDE the guest (libvirt, cloud-init, guestfish)"
 ########################################
 # §7 do mandato: `vm.hotplug.nic.add` do provider libvirt estava `partial`
 # («attaches the same <interface>… never run against a guest»). Anexar uma
@@ -5694,7 +5708,7 @@ else
 fi
 
 ########################################
-section "vm: um disco a QUENTE REMOVIDO com seguranca DENTRO do guest (libvirt, cloud-init, guestfish)"
+section "vm: a HOT disk is safely REMOVED INSIDE the guest (libvirt, cloud-init, guestfish)"
 ########################################
 # §7 do mandato: `vm.hotplug.disk.remove` do provider libvirt estava
 # `not-implemented` (D10 — hot-remove não se assume do hot-add). A remoção tem
@@ -5828,7 +5842,7 @@ else
 fi
 
 ########################################
-section "vm: uma NIC a QUENTE REMOVIDA DENTRO do guest sem derrubar a primaria (libvirt, cloud-init, guestfish)"
+section "vm: a HOT NIC is REMOVED INSIDE the guest without taking down the primary (libvirt, cloud-init, guestfish)"
 ########################################
 # §7 do mandato: `vm.hotplug.nic.remove` do provider libvirt estava
 # `not-implemented` (D10). O `detach-device --live` matcha a interface pelo seu
@@ -5938,7 +5952,7 @@ else
 fi
 
 ########################################
-section "vm: um vCPU a QUENTE e ONLINE DENTRO do guest (libvirt, cloud-init, guestfish)"
+section "vm: a HOT vCPU is ONLINE INSIDE the guest (libvirt, cloud-init, guestfish)"
 ########################################
 # §7 do mandato: `vm.hotplug.cpu.add` do provider libvirt estava `partial`
 # («`virsh setvcpus --live`… unit-tested, never run against a guest»). Mandar
@@ -6057,7 +6071,7 @@ else
 fi
 
 ########################################
-section "vm: memoria a QUENTE e ONLINE DENTRO do guest (libvirt, cloud-init, guestfish)"
+section "vm: HOT memory is ONLINE INSIDE the guest (libvirt, cloud-init, guestfish)"
 ########################################
 # §7 do mandato: `vm.hotplug.memory.add` do provider libvirt estava `partial`
 # («plugs a DIMM (`attach-device --live`)… unit-tested, never run against a
@@ -7021,7 +7035,7 @@ else
 fi
 
 ########################################
-section "vm: os mesmos snapshots no backend cloud-hypervisor"
+section "vm: the same snapshots on the cloud-hypervisor backend"
 ########################################
 # Aqui os snapshots são do disco (`qemu-img snapshot`) e SÓ com a VM parada: o
 # vmm a correr segura o qcow2 em exclusivo e o CH não tem API de snapshot de
@@ -7112,8 +7126,8 @@ elif ch_usable; then
     ch_live "CH: e a recusa diz o que fazer" ok bash -c \
       "'$BIN' vm snapshot create '$CVM' s1 2>&1 | grep -q 'vm stop'"
     check "CH: vm stop" ok "$BIN" vm stop "$CVM"
-    check "CH: create com a VM parada" ok "$BIN" vm snapshot create "$CVM" s1
-    check "CH: ls nomeia-o" ok bash -c "'$BIN' vm snapshot ls '$CVM' | grep -qx s1"
+    check "CH: create with the VM stopped" ok "$BIN" vm snapshot create "$CVM" s1
+    check "CH: ls names it" ok bash -c "'$BIN' vm snapshot ls '$CVM' | grep -qx s1"
     check "CH: restore" ok "$BIN" vm snapshot restore "$CVM" s1
     check "CH: create repetido diz 5" 5 "$BIN" vm snapshot create "$CVM" s1
     check "CH: restore de inexistente diz 4" 4 "$BIN" vm snapshot restore "$CVM" naoexiste
@@ -7150,7 +7164,7 @@ elif ch_usable; then
       qemu-img snapshot -l "$SROOT/vms/$CVM.qcow2" >/dev/null 2>&1 && break
       sleep 0.2
     done
-    check "CH: rm com a VM parada" ok "$BIN" vm snapshot rm "$CVM" s1
+    check "CH: rm with the VM stopped" ok "$BIN" vm snapshot rm "$CVM" s1
     check "CH: e saiu do disco" ok bash -c \
       "! qemu-img snapshot -l '$SROOT/vms/$CVM.qcow2' 2>/dev/null | grep -qw s1"
     "$BIN" delete vm "$CVM" -f >/dev/null 2>&1
@@ -7208,7 +7222,7 @@ elif ch_usable; then
     # reconstrói a linha de comando do VMM a partir dele — a testemunha
     # independente é o argv do processo CH (boot=2)
     check "CH: vm stop (resize.cold)" ok "$BIN" vm stop "$LVM"
-    check "CH: vm resize --vcpus 2 com a VM parada" ok "$BIN" vm resize "$LVM" --vcpus 2
+    check "CH: vm resize --vcpus 2 with the VM stopped" ok "$BIN" vm resize "$LVM" --vcpus 2
     check "CH: vm start depois do resize" ok "$BIN" vm start "$LVM"
     check "CH: o VMM arranca com boot=2 vCPUs" ok bash -c \
       "pgrep -af -- '--api-socket $LSOCK' | grep -q -- '--cpus boot=2'"
@@ -7249,7 +7263,7 @@ if libvirt_system_usable; then
     check "vm resize --disk-size 0 recusa (1)" 1 "$BIN" vm resize "$RVM" --disk-size 0
     # O disco vazio tem 64 MiB — bem abaixo de 1 GiB, por isso é sempre um grow.
     check "vm resize --disk-size de uma VM parada" ok "$BIN" vm resize "$RVM" --disk-size 1
-    check "o overlay cresceu para exactamente 1 GiB" ok bash -c \
+    check "the overlay grew to exactly 1 GiB" ok bash -c \
       "qemu-img info --output=json '$SROOT/vms/$RVM.qcow2' | python3 -c \"import json,sys; sys.exit(0 if json.load(sys.stdin)['virtual-size']==1073741824 else 1)\""
     check "um --disk-size que não cresce recusa (1)" 1 "$BIN" vm resize "$RVM" --disk-size 1
     check "vm start depois do resize do disco" ok "$BIN" vm start "$RVM"
@@ -7363,7 +7377,7 @@ elif ch_usable; then
     check "CH: vm stop (disk resize)" ok "$BIN" vm stop "$RCVM"
     check "CH: --disk-size 0 recusa (1)" 1 "$BIN" vm resize "$RCVM" --disk-size 0
     check "CH: --disk-size de uma VM parada" ok "$BIN" vm resize "$RCVM" --disk-size 1
-    check "CH: o overlay cresceu para exactamente 1 GiB" ok bash -c \
+    check "CH: the overlay grew to exactly 1 GiB" ok bash -c \
       "qemu-img info -U --output=json '$SROOT/vms/$RCVM.qcow2' | python3 -c \"import json,sys; sys.exit(0 if json.load(sys.stdin)['virtual-size']==1073741824 else 1)\""
     check "CH: um --disk-size que não cresce recusa (1)" 1 "$BIN" vm resize "$RCVM" --disk-size 1
     "$BIN" delete vm "$RCVM" -f >/dev/null 2>&1
@@ -7515,20 +7529,23 @@ else
 fi
 
 ########################################
-section "vm: o mesmo nome noutra namespace é um conflito, não «ensured»"
+section "vm: o mesmo nome noutra namespace coexiste (VMs são namespaced)"
 ########################################
-# ADR-0069 item 2, medido a 2026-10-06: o registo de uma VM é `vms/<nome>.json`,
-# qualquer que seja a namespace que declare, por isso o nome é ÚNICO no nó — e
-# um manifesto que peça o mesmo nome noutra namespace estava a receber
-# `stack plan` = «1 unchanged» e `stack apply` = «vm/<nome>: ensured» com rc=0,
-# com a VM a ficar na PRIMEIRA namespace. Numa VM a namespace É a fronteira de
-# isolamento (`@dlxns_<ns>`), logo o inquilino que pediu a segunda ficava com uma
-# VM que a primeira alcança e a dele não. É a mesma regra que um Pod já diz, e
-# aqui a consequência é de isolamento, não cosmética.
+# ATUALIZADO 2026-11-18 (ronda 0.1.2, GAP-0028): o registo de uma VM passou a ser
+# `vms/<namespace>/<nome>.json` (`delonix_compute::vm::vms_root` indexa por
+# namespace desde o port do catálogo, ADR-0086) e existe o verbo `vm
+# move-namespace` (#982/#999) — ou seja, a VM é um objecto NAMESPACED por desenho
+# actual. Dois inquilinos podem ter cada um a sua `nsvm`: o `stack apply` em
+# `teamA` E em `teamB` ambos dão `ensured`, cada VM visível só na sua namespace.
+#
+# Isto SUPERSEDE a cláusula de VM do ADR-0069 item 2 (que dizia nome node-único e
+# `Conflict` exit 5, da era em que o registo era `vms/<nome>.json` sem namespace);
+# essa decisão e o teste unitário que a selava (`the_same_vm_name_in_another_
+# namespace_is_a_conflict`, já removido) pertencem ao desenho antigo. Deixado
+# como drift de doc para o dono reconciliar no ADR — ver reports/e2e/0.1.2/.
 #
 # Precisa do Cloud Hypervisor: o libvirt RECUSA uma VM com namespace (DX-1508,
-# as VMs dele vivem fora da SDN), por isso a pré-condição — um registo em
-# `teamA` — só se consegue aqui.
+# as VMs dele vivem fora da SDN), por isso a pré-condição só se consegue aqui.
 if [[ -n "${DELONIX_ROOT:-}" && -z "${DELONIX_NET_RUNTIME_DIR:-}" ]]; then
   skip "vm: nome repetido noutra namespace" \
     "DELONIX_ROOT isolado sem DELONIX_NET_RUNTIME_DIR — isola os DOIS ou nenhum"
@@ -7553,14 +7570,15 @@ spec:
 YAML
   done
   if check_then "vm namespace: stack apply da VM CH em teamA" ok "$BIN" stack apply -f "$NSW/teamA.yaml"; then
-    check "o mesmo nome noutra namespace é um conflito (5)" 5 \
+    check "o mesmo nome noutra namespace coexiste (ensured, não conflito)" ok \
       "$BIN" stack apply -f "$NSW/teamB.yaml"
-    check "... e a recusa nomeia as duas namespaces" ok bash -c "
-      '$BIN' stack apply -f '$NSW/teamB.yaml' 2>&1 | grep -q \"already exists in namespace 'teamA'\""
-    check "... e a VM continua na namespace da primeira" ok bash -c "
+    check "... e a VM está na namespace de teamA" ok bash -c "
       '$BIN' vm ls --namespace teamA | grep -q '$NSVM'"
+    check "... e também na de teamB (objecto distinto, namespaced)" ok bash -c "
+      '$BIN' vm ls --namespace teamB | grep -q '$NSVM'"
   fi
-  "$BIN" delete vm "$NSVM" -f >/dev/null 2>&1
+  "$BIN" delete vm "teamB/$NSVM" -f >/dev/null 2>&1
+  "$BIN" delete vm "teamA/$NSVM" -f >/dev/null 2>&1
   e2e_net_rm "$NSNET"
   rm -rf "$NSW"
 else
@@ -10592,7 +10610,7 @@ for line in sys.stdin:
         "$BIN" container exec "vx-$PFX" wget -qO- -T 2 "http://$VIP:8080/"
       # Anti-spoof: forging a same-namespace member must not even reach the DNAT.
       CIP=$("$BIN" container inspect "vc-$PFX" | python3 -c 'import json,sys;d=json.load(sys.stdin);d=d[0] if isinstance(d,list) else d;print(d["ip"])')
-      vdnat() { vnft list chain ip dlxing svcpre | awk -v v="$VIP" '$0~v{for(i=1;i<=NF;i++) if($i=="packets") print $(i+1)}'; }
+      vdnat() { vnft list chain inet dlxing svcpre | awk -v v="$VIP" '$0~v{for(i=1;i<=NF;i++) if($i=="packets") print $(i+1)}'; }
       d0=$(vdnat)
       "$BIN" container exec "vs-$PFX" ip addr add "$CIP/16" dev eth0 >/dev/null 2>&1
       "$BIN" container exec "vs-$PFX" nc -w 2 -s "$CIP" "$VIP" 8080 </dev/null >/dev/null 2>&1

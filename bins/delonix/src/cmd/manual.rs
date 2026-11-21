@@ -27,7 +27,7 @@
 //! carrying both languages: the material is UNIFORM (every command wants a map,
 //! examples, cross-references), and 234 hand-written `after_long_help`
 //! attributes are 234 places for the format to drift. One table is auditable in
-//! one read, and it is what lets `todo_o_comando_tem_exemplo` be a real test —
+//! one read, and it is what lets `every_command_has_a_manual_entry` be a real test —
 //! a coverage test cannot walk attributes that were never written.
 //!
 //! The map and the breadcrumb are DERIVED from the `Command` itself, never
@@ -113,13 +113,17 @@ pub fn entry(path: &str) -> Option<&'static Entry> {
     ENTRIES.iter().find(|e| e.path == path)
 }
 
-/// Category of a command, for its parent's map.
-fn group_of(path: &str) -> &'static str {
+/// Category of a command, for its parent's map. `path` is the FULL path of the
+/// child (e.g. `"container run"`), as the `Entry.group` lives per command.
+/// `pub` so `cmd::help` can reuse the exact same taxonomy for the grouped
+/// subcommand listing instead of inventing a second one.
+pub fn group_of(path: &str) -> &'static str {
     entry(path).map(|e| e.group).unwrap_or("")
 }
 
-/// Sort key for a category, in the order that level uses.
-fn group_rank(g: &str, root: bool) -> usize {
+/// Sort key for a category, in the order that level uses. `pub` for the same
+/// reason as [`group_of`].
+pub fn group_rank(g: &str, root: bool) -> usize {
     let order = if root { ROOT_GROUP_ORDER } else { GROUP_ORDER };
     order.iter().position(|x| *x == g).unwrap_or(order.len())
 }
@@ -239,7 +243,13 @@ fn tail(cmd: &clap::Command, path: &str) -> Option<String> {
         });
     };
     let mut out = String::new();
-    if let Some(map) = map {
+    // The COMMAND MAP is now ONLY the root's. Every non-root group's `--help`
+    // carries the same categories as section headings on the subcommand listing
+    // itself (see `cmd::help::render_group`), so a second copy in the tail would
+    // be pure duplication. The root keeps it: its listing groups by a different
+    // lens (Common/Management/Orchestration), and `docs/gen.py` parses the root
+    // COMMAND MAP as a contract.
+    if let Some(map) = map.filter(|_| path.is_empty()) {
         out.push_str(po::t("COMMAND MAP"));
         out.push_str(":\n");
         out.push_str(&map);
@@ -338,7 +348,7 @@ mod tests {
             .unwrap_or_default();
         assert!(
             tail.contains("COMMAND MAP"),
-            "a raiz devia ter COMMAND MAP; tail = {tail:?}"
+            "the root should have a COMMAND MAP; tail = {tail:?}"
         );
         let missing: Vec<String> = cmd
             .get_subcommands()
@@ -348,13 +358,13 @@ mod tests {
             .collect();
         assert!(
             missing.is_empty(),
-            "grupo(s) de topo fora do COMMAND MAP da raiz: {missing:?}"
+            "top-level group(s) outside the root's COMMAND MAP: {missing:?}"
         );
         // And no group may be dumped under the uncategorised heading: `Other` at
         // the ROOT means somebody added a group and never said what it is.
         assert!(
             !tail.contains("\n  Other "),
-            "há grupo(s) de topo sem categoria — dá-lhes uma em `manual_entries.rs`:\n{tail}"
+            "top-level group(s) without a category — give them one in `manual_entries.rs`:\n{tail}"
         );
     }
 
@@ -425,35 +435,35 @@ mod tests {
     }
 
     #[test]
-    fn quebra_o_texto_sem_cortar_palavras() {
-        let w = wrap("um dois tres quatro cinco", 12, "  ");
+    fn wraps_text_without_cutting_words() {
+        let w = wrap("one two three four five", 12, "  ");
         for line in w.lines() {
-            assert!(line.chars().count() <= 14, "linha larga demais: {line:?}");
+            assert!(line.chars().count() <= 14, "line too wide: {line:?}");
         }
-        // Nenhuma palavra pode ter sido partida a meio.
-        let junto: String = w.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert_eq!(junto, "um dois tres quatro cinco");
+        // No word may have been split in the middle.
+        let joined: String = w.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert_eq!(joined, "one two three four five");
     }
 
     #[test]
-    fn uma_palavra_maior_que_a_largura_nao_entra_em_ciclo() {
-        // A guarda que falta aqui é a que transforma um wrap em loop infinito:
-        // uma palavra sozinha maior que a largura tem de sair NUMA linha, não
-        // ser partida nem repetida.
-        let w = wrap("aaaaaaaaaaaaaaaaaaaaaaaa fim", 5, "");
+    fn a_word_longer_than_the_width_does_not_loop() {
+        // The guard that is missing here is the one that turns a wrap into an
+        // infinite loop: a lone word longer than the width has to come out ON A
+        // SINGLE line, neither split nor repeated.
+        let w = wrap("aaaaaaaaaaaaaaaaaaaaaaaa end", 5, "");
         assert_eq!(w.lines().count(), 2);
         assert_eq!(w.lines().next().unwrap(), "aaaaaaaaaaaaaaaaaaaaaaaa");
     }
 
-    /// Um caminho na tabela que não existe na CLI é uma entrada que NUNCA será
-    /// mostrada — e não há sintoma: o `--help` desse comando fica sem exemplos
-    /// e a tabela continua a parecer completa. Só um teste que confronta as
-    /// duas árvores o apanha.
+    /// A path in the table that does not exist in the CLI is an entry that will
+    /// NEVER be shown — and there is no symptom: that command's `--help` ends up
+    /// without examples and the table still looks complete. Only a test that
+    /// confronts the two trees catches it.
     #[test]
-    fn nenhuma_entrada_aponta_para_um_comando_inexistente() {
+    fn no_entry_points_to_a_nonexistent_command() {
         use clap::CommandFactory;
         let root = crate::Cli::command();
-        let mut faltam = Vec::new();
+        let mut missing = Vec::new();
         for e in ENTRIES {
             if e.path.is_empty() {
                 continue;
@@ -470,20 +480,20 @@ mod tests {
                 }
             }
             if !ok {
-                faltam.push(e.path);
+                missing.push(e.path);
             }
         }
         assert!(
-            faltam.is_empty(),
-            "entradas do manual para comandos que não existem: {faltam:?}"
+            missing.is_empty(),
+            "manual entries for commands that do not exist: {missing:?}"
         );
     }
 
-    /// O inverso: um comando sem entrada é um `--help` sem exemplo. ESTRITO —
-    /// um `<=` deixaria a dívida instalada a ler-se como verde, que é
-    /// exactamente o defeito que o ratchet do i18n existe para não repetir.
+    /// The inverse: a command without an entry is a `--help` without an example.
+    /// STRICT — a `<=` would leave the installed debt reading as green, which is
+    /// exactly the defect the i18n ratchet exists to not repeat.
     #[test]
-    fn todo_o_comando_tem_entrada_no_manual() {
+    fn every_command_has_a_manual_entry() {
         use clap::CommandFactory;
         fn walk(cmd: &clap::Command, path: String, out: &mut Vec<String>) {
             // Present-but-empty is the failure this test exists to catch: the
@@ -505,39 +515,39 @@ mod tests {
                 walk(s, child, out);
             }
         }
-        let mut sem = Vec::new();
-        walk(&crate::Cli::command(), String::new(), &mut sem);
+        let mut without_entry = Vec::new();
+        walk(&crate::Cli::command(), String::new(), &mut without_entry);
         assert!(
-            sem.is_empty(),
-            "{} comando(s) sem entrada em manual_entries.rs:\n  {}",
-            sem.len(),
-            sem.join("\n  ")
+            without_entry.is_empty(),
+            "{} command(s) without an entry in manual_entries.rs:\n  {}",
+            without_entry.len(),
+            without_entry.join("\n  ")
         );
     }
 
-    /// O `about` é o que aparece ao LADO do nome na lista do comando pai; um
-    /// parágrafo inteiro ali empurra tudo o resto para fora do ecrã e a lista
-    /// deixa de se poder percorrer com os olhos.
+    /// `about` is what appears NEXT TO the name in the parent command's list; a
+    /// whole paragraph there pushes everything else off the screen and the list
+    /// can no longer be scanned by eye.
     ///
-    /// RATCHET e não tolerância: medido em 74 de 236 comandos antes desta
-    /// sessão (o pior com 447 caracteres). O teste falha se o número SUBIR (um
-    /// comando novo com doc-comment sem quebra) e também se DESCER — encurta-se
-    /// e baixa-se a constante no mesmo commit. Um `<=` deixava a dívida a
-    /// ler-se como verde, que é o defeito que o ratchet do i18n já existe para
-    /// não repetir.
+    /// RATCHET, not tolerance: measured at 74 of 236 commands before this
+    /// session (the worst at 447 characters). The test fails if the number goes
+    /// UP (a new command with a doc-comment that does not break) and also if it
+    /// goes DOWN — you shorten one and lower the constant in the same commit. A
+    /// `<=` left the debt reading as green, which is the defect the i18n ratchet
+    /// already exists to not repeat.
     ///
-    /// A correcção é sempre a mesma e não apaga nada: uma linha `///` vazia
-    /// depois da primeira frase manda o resto para o `long_about`, que é o que
-    /// o `--help` mostra.
+    /// The fix is always the same and deletes nothing: an empty `///` line after
+    /// the first sentence sends the rest to `long_about`, which is what `--help`
+    /// shows.
     #[test]
-    fn a_descricao_curta_cabe_numa_linha() {
+    fn the_short_description_fits_on_one_line() {
         use clap::CommandFactory;
-        const LIMITE: usize = 110;
-        const LONGOS_PENDENTES: usize = 0;
+        const LIMIT: usize = 110;
+        const PENDING_LONG: usize = 0;
         fn walk(cmd: &clap::Command, path: String, out: &mut Vec<(usize, String)>) {
             if let Some(a) = cmd.get_about() {
                 let n = a.to_string().chars().count();
-                if !path.is_empty() && n > LIMITE {
+                if !path.is_empty() && n > LIMIT {
                     out.push((n, path.clone()));
                 }
             }
@@ -553,22 +563,22 @@ mod tests {
                 walk(s, child, out);
             }
         }
-        let mut longos = Vec::new();
-        walk(&crate::Cli::command(), String::new(), &mut longos);
-        longos.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
-        let lista: Vec<String> = longos
+        let mut long_ones = Vec::new();
+        walk(&crate::Cli::command(), String::new(), &mut long_ones);
+        long_ones.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
+        let list: Vec<String> = long_ones
             .iter()
-            .map(|(n, p)| format!("{p} ({n} caracteres)"))
+            .map(|(n, p)| format!("{p} ({n} characters)"))
             .collect();
         assert_eq!(
-            longos.len(),
-            LONGOS_PENDENTES,
-            "descrições curtas acima de {LIMITE} caracteres: {} (esperado \
-             {LONGOS_PENDENTES}). Parte o doc-comment com uma linha `///` \
-             vazia depois da primeira frase — nada se apaga, o resto passa a \
+            long_ones.len(),
+            PENDING_LONG,
+            "short descriptions over {LIMIT} characters: {} (expected \
+             {PENDING_LONG}). Break the doc-comment with an empty `///` line \
+             after the first sentence — nothing is deleted, the rest moves to \
              long_about.\n  {}",
-            longos.len(),
-            lista.join("\n  ")
+            long_ones.len(),
+            list.join("\n  ")
         );
     }
 
@@ -678,29 +688,29 @@ mod tests {
         );
     }
 
-    /// Um exemplo tem de começar pelo comando que documenta — senão documenta
-    /// outro. Apanha o erro de copiar-colar entre entradas vizinhas, que é
-    /// invisível a olho numa tabela de 234 linhas.
+    /// An example has to start with the command it documents — otherwise it
+    /// documents another. Catches the copy-paste mistake between neighbouring
+    /// entries, which is invisible to the eye in a table of 234 lines.
     #[test]
-    fn os_exemplos_invocam_o_comando_que_documentam() {
-        let mut mal = Vec::new();
+    fn examples_invoke_the_command_they_document() {
+        let mut bad = Vec::new();
         for e in ENTRIES {
             if e.path.is_empty() {
                 continue;
             }
             for (_, line) in e.examples {
-                // Um exemplo pode legitimamente ser um pipeline ou trazer um
-                // prefixo de ambiente (`DELONIX_ROOT=… delonix …`); o que se
-                // exige é que o caminho do comando APAREÇA nele.
+                // An example can legitimately be a pipeline or carry an
+                // environment prefix (`DELONIX_ROOT=… delonix …`); what is
+                // required is that the command path APPEARS in it.
                 if !line.contains(e.path) {
-                    mal.push(format!("{}: {line}", e.path));
+                    bad.push(format!("{}: {line}", e.path));
                 }
             }
         }
         assert!(
-            mal.is_empty(),
-            "exemplo(s) que não invocam o próprio comando:\n  {}",
-            mal.join("\n  ")
+            bad.is_empty(),
+            "example(s) that do not invoke their own command:\n  {}",
+            bad.join("\n  ")
         );
     }
 }

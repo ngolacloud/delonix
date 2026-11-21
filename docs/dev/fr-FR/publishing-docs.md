@@ -27,7 +27,7 @@ Les liens entre les pages du manuel sont relatifs, ils fonctionnent donc aux deu
 | Surface | Ce que c'est | Comment elle reste exacte |
 |---|---|---|
 | `README.rst` | la page d'accueil du projet | écrite à la main, vérifiée par `docs_cli_gate.py` |
-| `docs/*.html`, `docs/comandos/*.html` | le site utilisateur | **générées** par `docs/gen.py` à partir du `--help` du binaire et du texte éditorial présent dans le générateur ; vérifiées par le job CI `docs` et au moment de la release |
+| `docs/*.html`, `docs/commands/*.html` | le site utilisateur | **générées** par `docs/gen.py` à partir du `--help` du binaire et du texte éditorial présent dans le générateur ; vérifiées par le job CI `docs` et au moment de la release |
 | `docs/releases/v<version>.md` | les notes de release, une par tag | écrites à la main dans le commit de release ; publiées comme corps de la GitHub Release |
 | `docs/RELEASES.md` | l'annexe des fonctionnalités par release | **générée** par `scripts/gen-releases.sh` à partir de `docs/releases/` ; ne jamais l'éditer à la main |
 | `ARCHITECTURE.md` | les diagrammes d'architecture C4 | écrit à la main, tenu au pas du code ; rendu dans le site par `docs/gen.py` |

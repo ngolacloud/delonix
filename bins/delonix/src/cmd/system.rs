@@ -170,6 +170,16 @@ pub enum SystemCmd {
         /// Also remove unused images that DO have a tag (not just the dangling ones).
         #[arg(short, long)]
         all: bool,
+        /// Also reclaim the ENTIRE build cache now, ignoring the 7-day
+        /// last-use TTL that `prune` otherwise honours. Implied by `--all`.
+        ///
+        /// The build cache is rebuildable content and is often the single
+        /// biggest reclaimable block, yet the TTL can hold a day-old 6 GiB out
+        /// of reach: this is the on-demand counterpart of deleting the
+        /// `build-cache/` directory by hand, which `system df` used to be the
+        /// only way to suggest. The next build simply repopulates what it needs.
+        #[arg(long = "build-cache")]
+        build_cache: bool,
         /// SCHEDULED mode: reclaim only when the disk is at or above
         /// `--threshold`, and do nothing at all below it.
         ///
@@ -358,11 +368,12 @@ pub fn run(action: SystemCmd) -> Result<()> {
         },
         SystemCmd::Prune {
             all,
+            build_cache,
             force,
             auto,
             threshold,
             dry_run,
-        } => cmd_prune(all, force, auto, threshold, dry_run),
+        } => cmd_prune(all, build_cache, force, auto, threshold, dry_run),
         SystemCmd::Monitor {
             interval,
             no_stream,
@@ -412,7 +423,10 @@ fn cmd_monitor(interval: u64, no_stream: bool) -> Result<()> {
             .filter(|c| c.is_live())
             .filter_map(|c| c.ip.clone().map(|ip| (ip, c.name.clone())))
             .collect();
+        // `None` = unmeasured (conntrack absent, or EPERM in rootless): never
+        // folded into a real `0` — the module's "unreadable is not zero" rule.
         let conns = delonix_sdn::list_connections(&ip2name);
+        let conns_slice: &[delonix_sdn::Connection] = conns.as_deref().unwrap_or(&[]);
         if !no_stream {
             print!("\x1b[2J\x1b[H"); // clear the screen
         }
@@ -420,7 +434,10 @@ fn cmd_monitor(interval: u64, no_stream: bool) -> Result<()> {
             "delonix monitor — {} {}, {} {}\n",
             ip2name.len(),
             super::po::t("containers"),
-            conns.len(),
+            match &conns {
+                Some(c) => c.len().to_string(),
+                None => "—".to_string(),
+            },
             super::po::t("active connections (conntrack)"),
         );
         if ip2name.is_empty() {
@@ -429,12 +446,16 @@ fn cmd_monitor(interval: u64, no_stream: bool) -> Result<()> {
                 super::output::dim(super::po::t("(no running containers with a network)"))
             );
         }
-        let mut ext_in: Vec<&delonix_sdn::Connection> =
-            conns.iter().filter(|c| c.kind == "external_in").collect();
+        let mut ext_in: Vec<&delonix_sdn::Connection> = conns_slice
+            .iter()
+            .filter(|c| c.kind == "external_in")
+            .collect();
         let mut egress: Vec<&delonix_sdn::Connection> =
-            conns.iter().filter(|c| c.kind == "egress").collect();
-        let internal: Vec<&delonix_sdn::Connection> =
-            conns.iter().filter(|c| c.kind == "internal").collect();
+            conns_slice.iter().filter(|c| c.kind == "egress").collect();
+        let internal: Vec<&delonix_sdn::Connection> = conns_slice
+            .iter()
+            .filter(|c| c.kind == "internal")
+            .collect();
         ext_in.sort_by(|a, b| a.container.cmp(&b.container));
         egress.sort_by(|a, b| a.container.cmp(&b.container));
         if !ext_in.is_empty() {
@@ -466,11 +487,20 @@ fn cmd_monitor(interval: u64, no_stream: bool) -> Result<()> {
                 println!("    {} ↔ {}", c.container, c.peer);
             }
         }
-        if conns.is_empty() && !ip2name.is_empty() {
-            println!(
+        match &conns {
+            // Unmeasured is not "zero connections": say so instead of a silent
+            // empty list (rootless cannot read the host conntrack) — #809.
+            None => println!(
+                "  {}",
+                super::output::dim(super::po::t(
+                    "(connection count unmeasured — conntrack needs the host netns, which rootless cannot read)"
+                ))
+            ),
+            Some(c) if c.is_empty() && !ip2name.is_empty() => println!(
                 "  {}",
                 super::output::dim(super::po::t("(no active connections right now)"))
-            );
+            ),
+            _ => {}
         }
         if no_stream {
             return Ok(());
@@ -617,7 +647,18 @@ fn print_plan(p: &super::prune::PrunePlan, auto: bool, would_run: bool) {
     super::prune::note_partial(total);
 }
 
-fn cmd_prune(all: bool, force: bool, auto: bool, threshold: u8, dry_run: bool) -> Result<()> {
+fn cmd_prune(
+    all: bool,
+    build_cache: bool,
+    force: bool,
+    auto: bool,
+    threshold: u8,
+    dry_run: bool,
+) -> Result<()> {
+    // `--all` is the aggressive cut, so it pulls the build cache in with it — the
+    // one reclaimable block the default sweep leaves behind. `--build-cache`
+    // asks for exactly that and nothing else.
+    let build_cache = build_cache || all;
     // THE GATE COMES FIRST — before opening a store, before listing anything.
     // A scheduled sweep that is not going to act should cost nothing and, above
     // all, should not have started deciding what to delete.
@@ -632,7 +673,7 @@ fn cmd_prune(all: bool, force: bool, auto: bool, threshold: u8, dry_run: bool) -
     let (images, store) = open_stores()?;
 
     if dry_run {
-        let p = super::prune::plan(&images, &store, all)?;
+        let p = super::prune::plan(&images, &store, all, build_cache)?;
         print_plan(&p, auto, would_run);
         return Ok(());
     }
@@ -730,7 +771,7 @@ fn cmd_prune(all: bool, force: bool, auto: bool, threshold: u8, dry_run: bool) -
     // Build-cache entries nothing has asked for in a week. Debris in the same
     // sense as an orphan blob: rebuildable content that no longer earns the
     // space. See `prune::BUILD_CACHE_TTL_DAYS` for why it is last-USE and not age.
-    let (bc, bc_bytes) = super::prune::sweep_build_cache(images.root());
+    let (bc, bc_bytes) = super::prune::sweep_build_cache(images.root(), build_cache);
 
     let mut total = c.freed;
     total.add(i.freed);
@@ -754,6 +795,21 @@ fn cmd_prune(all: bool, force: bool, auto: bool, threshold: u8, dry_run: bool) -
         )
     );
     super::prune::note_partial(total);
+    // The `ORPHAN=yes` rows of `image ls` are tagged, so a default prune leaves
+    // them — pointing that out here is what stops "prune did nothing" when the
+    // disk is still full of images no container uses.
+    if !all {
+        let n = super::prune::unused_tagged_image_count(&images, &store)?;
+        if n > 0 {
+            println!(
+                "{}",
+                super::po::tf(
+                    "hint: {n} tagged image(s) are unused — `delonix system prune --all` would also remove them (see `--all --dry-run`).",
+                    &[("n", &n.to_string())]
+                )
+            );
+        }
+    }
     Ok(())
 }
 
@@ -2135,27 +2191,27 @@ mod doctor_resource_checks_tests {
     use super::*;
 
     #[test]
-    fn conntrack_zero_ou_ausente_nunca_conta_como_zero_por_cento() {
+    fn conntrack_zero_or_absent_never_counts_as_zero_percent() {
         assert_eq!(conntrack_usage_pct(Some("0"), Some("0")), None);
         assert_eq!(conntrack_usage_pct(None, Some("5")), None);
         assert_eq!(conntrack_usage_pct(Some("100"), None), None);
     }
 
     #[test]
-    fn conntrack_percentagem_real() {
+    fn conntrack_real_percentage() {
         assert_eq!(conntrack_usage_pct(Some("262144"), Some("785")), Some(0));
         assert_eq!(conntrack_usage_pct(Some("1000"), Some("850")), Some(85));
     }
 
     #[test]
-    fn neigh_percentagem_real() {
+    fn neigh_real_percentage() {
         assert_eq!(neigh_usage_pct(Some("1024"), Some(3)), Some(0));
         assert_eq!(neigh_usage_pct(Some("100"), Some(90)), Some(90));
         assert_eq!(neigh_usage_pct(None, Some(1)), None);
     }
 
     #[test]
-    fn largura_da_gama_de_portas_efemeras() {
+    fn width_of_the_ephemeral_port_range() {
         // This kernel's real default, measured: "32768\t60999".
         assert_eq!(
             ephemeral_port_range_width(Some("32768\t60999")),
@@ -3026,13 +3082,13 @@ mod setup_tests {
     use super::is_login_session_scope;
 
     #[test]
-    fn scope_de_login_e_o_unico_que_o_dropin_nao_alcanca() {
-        // O caso que dói: irmão do user@.service, subtree_control root:root.
+    fn login_scope_is_the_only_one_the_dropin_does_not_reach() {
+        // The painful case: sibling of user@.service, subtree_control root:root.
         assert!(is_login_session_scope(
             "/sys/fs/cgroup/user.slice/user-1000.slice/session-223.scope"
         ));
-        // Um scope POR BAIXO do user@.service herda a delegação — avisar aqui
-        // mandaria a pessoa resolver um problema que não tem.
+        // A scope BELOW user@.service inherits the delegation — warning here
+        // would send the person to fix a problem they don't have.
         assert!(!is_login_session_scope(
             "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/run-r0.scope"
         ));
@@ -3044,37 +3100,38 @@ mod setup_tests {
     }
 
     #[test]
-    fn so_a_folha_e_que_decide() {
-        // Um caminho que CONTÉM "session-N.scope" a meio, mas cuja folha é
-        // outra coisa, não é uma sessão de login — a primeira versão desta
-        // função usava `contains` e teria dito que sim.
+    fn only_the_leaf_decides() {
+        // A path that CONTAINS "session-N.scope" in the middle, but whose leaf
+        // is something else, is not a login session — the first version of this
+        // function used `contains` and would have said yes.
         assert!(!is_login_session_scope(
             "/sys/fs/cgroup/user.slice/session-9.scope/delonix/dlx-abc"
         ));
     }
 
-    /// `cpu` em falta e `cpuset`/`io` em falta são factos DIFERENTES, e a
-    /// primeira versão disto devolvia uma lista só.
+    /// A missing `cpu` and a missing `cpuset`/`io` are DIFFERENT facts, and the
+    /// first version of this returned a single list.
     ///
-    /// A consequência foi medida, não imaginada: num Ubuntu 24.04 de fábrica o
-    /// `user.slice` não passa `cpuset`/`io` para baixo — é o estado NORMAL — e
-    /// o comando dizia que o `cluster create` ia falhar, citando o erro de um
-    /// controlador que a máquina tinha. Mandava editar o `/etc` para uma
-    /// delegação que aquele `subtree_control` (da root) nunca ia passar.
+    /// The consequence was measured, not imagined: on a stock Ubuntu 24.04 the
+    /// `user.slice` does not pass `cpuset`/`io` downward — that is the NORMAL
+    /// state — and the command said `cluster create` would fail, citing the
+    /// error of a controller the machine actually had. It told you to edit
+    /// `/etc` for a delegation that `subtree_control` (root's) was never going
+    /// to pass.
     #[test]
-    fn so_o_cpu_e_fatal_para_um_no_kubernetes() {
+    fn only_cpu_is_fatal_for_a_kubernetes_node() {
         let have = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
 
-        // O caso deste host dentro de um scope delegado: o nó arranca.
+        // This host's case inside a delegated scope: the node starts up.
         let (fatal, nice) = super::missing_controllers(&have(&["cpu", "memory", "pids"]));
-        assert!(fatal.is_empty(), "cpu presente ⇒ nada de fatal");
+        assert!(fatal.is_empty(), "cpu present ⇒ nothing fatal");
         assert_eq!(nice, vec!["cpuset", "io"]);
 
-        // O caso que realmente parte um nó.
+        // The case that really breaks a node.
         let (fatal, _) = super::missing_controllers(&have(&["memory", "pids"]));
         assert_eq!(fatal, vec!["cpu"]);
 
-        // Tudo delegado: nada a dizer.
+        // All delegated: nothing to say.
         let (fatal, nice) =
             super::missing_controllers(&have(&["cpu", "cpuset", "io", "memory", "pids"]));
         assert!(fatal.is_empty() && nice.is_empty());

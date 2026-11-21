@@ -459,7 +459,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_etcd_unit_inclui_os_campos_essenciais() {
+    fn build_etcd_unit_includes_the_essential_fields() {
         let unit = build_etcd_unit(
             "etcd-1",
             "10.0.1.1",
@@ -481,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    fn etcd_release_asset_url_aponta_para_o_release_real() {
+    fn etcd_release_asset_url_points_to_the_real_release() {
         let (tarball, sums) = etcd_release_asset_url("3.5.17");
         assert_eq!(
             tarball,
@@ -494,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn etcd_asset_name_bate_com_o_nome_no_url() {
+    fn etcd_asset_name_matches_the_name_in_the_url() {
         assert_eq!(etcd_asset_name("3.5.17"), "etcd-v3.5.17-linux-amd64.tar.gz");
     }
 }

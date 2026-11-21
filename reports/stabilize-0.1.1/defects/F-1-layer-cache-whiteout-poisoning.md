@@ -1,27 +1,27 @@
-# F-1 — Envenenamento de cache de camadas no upgrade (whiteouts OCI)
+# F-1 — Layer cache poisoning on upgrade (OCI whiteouts)
 
-- **Severidade:** P1 (integridade de imagem / caminho de upgrade). Bounded: só
-  camadas desempacotadas por um binário *pré-correcção*; pulls novos já estão
-  correctos; workaround = podar a cache de camadas.
-- **Domínio:** §6 (integridade de dados), §7 (imagens, extracção segura),
-  §12 (rollback de binário ≠ rollback de estado).
-- **Tipo:** defeito do produto (reuso de cache sem validação de formato).
-- **Candidato:** `v0.1.1`. Ambiente: `delonix 0.1.0` @ `8ab783dd`, rootless.
-- **Estado:** CORRIGIDO + teste unitário + **re-prova end-to-end ao vivo (fechada)**.
+- **Severity:** P1 (image integrity / upgrade path). Bounded: only
+  layers unpacked by a *pre-fix* binary; new pulls are already
+  correct; workaround = prune the layer cache.
+- **Domain:** §6 (data integrity), §7 (images, safe extraction),
+  §12 (binary rollback ≠ state rollback).
+- **Type:** product defect (cache reuse without format validation).
+- **Candidate:** `v0.1.1`. Environment: `delonix 0.1.0` @ `8ab783dd`, rootless.
+- **Status:** FIXED + unit test + **live end-to-end re-proof (closed)**.
 
-## O que se observou (forense, no host de teste)
+## What was observed (forensics, on the test host)
 
-O bug histórico de whiteouts OCI (`.wh.<name>` desempacotado como ficheiro
-regular em vez de char device de overlay — a remoção nunca chega à camada
-inferior) **já está corrigido em código**: o armazém de camadas tem o caso
-exacto Apache MPM como char device `0:0`:
+The historical OCI whiteout bug (`.wh.<name>` unpacked as a regular
+file instead of an overlay char device — the removal never reaches the lower
+layer) **is already fixed in code**: the layer store has the exact
+Apache MPM case as char device `0:0`:
 
 ```
 layers/c4d2115b…/etc/apache2/mods-enabled/mpm_event.conf   # char dev 0:0  (OK)
 layers/c4d2115b…/etc/apache2/mods-enabled/mpm_event.load   # char dev 0:0  (OK)
 ```
 
-**Mas** persistem camadas com `.wh.*` vazados como ficheiros regulares:
+**But** layers with `.wh.*` leaked as regular files persist:
 
 ```
 layers/ba1ebfcb…/etc/rabbitmq/conf.d/.wh.20-management_agent.disable_metrics_collector.conf
@@ -30,74 +30,74 @@ layers/42109c5c…/var/lib/apt/lists/.wh.auxfiles
 layers/fa0f0019…/home/.wh.ubuntu
 ```
 
-Cronologia das mtimes das camadas confirma a causa: as vazadas foram extraídas
-em **2026-10-21 19:52** e **2026-10-22 17:44**; as corrigidas (char device) em
-**2026-10-22 18:04**. A correcção de whiteouts aterrou entre as 17:44 e as
-18:04 de 2026-10-22.
+The chronology of the layer mtimes confirms the cause: the leaked ones were extracted
+on **2026-10-21 19:52** and **2026-10-22 17:44**; the fixed ones (char device) on
+**2026-10-22 18:04**. The whiteout fix landed between 17:44 and
+18:04 on 2026-10-22.
 
-## Causa-raiz
+## Root cause
 
 `ImageStore::ensure_layers` / `extract_one` (`crates/adapters/delonix-oci/src/
-overlay.rs`) reutilizam uma camada em cache **apenas pela presença do marcador
-`.extracted`** (conteúdo `b"ok"`), sem validar o formato de disco. Como as
-camadas são endereçadas por digest e o blob/digest nunca mudam, uma extracção
-feita por um binário buggy **sobrevive para sempre** — o upgrade do binário
-corrige o *código* mas não a *cache*. Qualquer imagem cujas camadas foram
-puxadas antes da correcção continua com o whiteout partido em runtime
-(ex.: `rabbitmq` com o plugin de métricas que devia estar desactivado a voltar,
-`wordpress`/Apache com dois MPM).
+overlay.rs`) reuse a cached layer **solely by the presence of the
+`.extracted` marker** (contents `b"ok"`), without validating the on-disk format. Since
+layers are addressed by digest and the blob/digest never change, an extraction
+done by a buggy binary **survives forever** — upgrading the binary
+fixes the *code* but not the *cache*. Any image whose layers were
+pulled before the fix still has the broken whiteout at runtime
+(e.g.: `rabbitmq` with the metrics plugin that should be disabled coming back,
+`wordpress`/Apache with two MPMs).
 
-## Correcção
+## Fix
 
-Introduzida uma **época de formato** no marcador `.extracted` (`LAYER_EPOCH`,
-hoje `b"2"`). Uma camada só é reutilizada se o marcador registar a época
-corrente; marcador ausente (nunca terminou) ou token antigo (`ok`, pré-correcção
-de whiteouts) → **não é confiável** → a camada é re-extraída do blob imutável no
-próximo uso. O upgrade do binário passa a **curar** a cache de forma lazy e
-per-layer (custo único de I/O na primeira utilização de cada imagem; documentar
-em notas de migração).
+A **format epoch** was introduced into the `.extracted` marker (`LAYER_EPOCH`,
+currently `b"2"`). A layer is only reused if the marker records the
+current epoch; a missing marker (never finished) or an old token (`ok`, pre-whiteout-fix)
+→ **not trustworthy** → the layer is re-extracted from the immutable blob on the
+next use. Upgrading the binary now **heals** the cache lazily and
+per-layer (one-off I/O cost on the first use of each image; to be documented
+in migration notes).
 
-- `overlay.rs`: `const LAYER_EPOCH` + `fn layer_is_current(dir)`; ligado nos três
-  pontos de reuso (`ensure_layers`, guarda de entrada e verificação de corrida de
-  `extract_one`). `publish_layer_dir` já substitui um `dir` não-vazio, por isso a
-  re-extracção sobre uma camada envenenada funciona sem alteração adicional.
+- `overlay.rs`: `const LAYER_EPOCH` + `fn layer_is_current(dir)`; wired into the three
+  reuse points (`ensure_layers`, entry guard and the race check in
+  `extract_one`). `publish_layer_dir` already replaces a non-empty `dir`, so
+  re-extraction over a poisoned layer works without any further change.
 
-## Teste
+## Test
 
 - `overlay::tests::a_layer_from_an_older_epoch_is_reextracted_not_reused` —
-  uma camada com marcador `b"ok"` + um `.wh.poison` vazado + conteúdo stale é
-  re-extraída: o ficheiro do blob aparece, o lixo plantado desaparece, o marcador
-  passa a `LAYER_EPOCH`. Verde.
-- Suite completa `delonix-oci --lib`: **192/192** verdes (nenhuma regressão nos
-  testes existentes que afirmam o marcador).
+  a layer with a `b"ok"` marker + a leaked `.wh.poison` + stale content is
+  re-extracted: the blob file appears, the planted junk disappears, the marker
+  becomes `LAYER_EPOCH`. Green.
+- Full `delonix-oci --lib` suite: **192/192** green (no regression in the
+  existing tests that assert the marker).
 
-## Re-prova end-to-end ao vivo (2026-10-29) — FECHADA
+## Live end-to-end re-proof (2026-10-29) — CLOSED
 
-Binário corrigido construído de `stabilize/0.1.1` (`target/debug/delonix`, 0.1.0).
-A/B rootless num `DELONIX_ROOT` isolado, usando a **camada envenenada autêntica
-do host** (`ba1ebfcb…` de `rabbitmq:4.0-management-alpine`: marcador `ok`, o
-whiteout `.wh.20-management_agent.disable_metrics_collector.conf` como ficheiro
-regular 000, zero char-devs) copiada por cima de uma extracção saudável.
+Fixed binary built from `stabilize/0.1.1` (`target/debug/delonix`, 0.1.0).
+Rootless A/B in an isolated `DELONIX_ROOT`, using the **authentic poisoned layer
+from the host** (`ba1ebfcb…` from `rabbitmq:4.0-management-alpine`: marker `ok`, the
+whiteout `.wh.20-management_agent.disable_metrics_collector.conf` as a regular
+file 000, zero char-devs) copied over a healthy extraction.
 
-**A) Binário ANTIGO (sem o fix F-1)** — `run … -- ls -la /etc/rabbitmq/conf.d/`:
+**A) OLD binary (without the F-1 fix)** — `run … -- ls -la /etc/rabbitmq/conf.d/`:
 
 ```
 ----------  1 root     root       0  .wh.20-management_agent.disable_metrics_collector.conf
 -rw-r--r--  1 rabbitmq rabbitmq 491  10-defaults.conf
--rw-r--r--  1 rabbitmq rabbitmq 151  20-management_agent.disable_metrics_collector.conf   <-- NÃO apagado
+-rw-r--r--  1 rabbitmq rabbitmq 151  20-management_agent.disable_metrics_collector.conf   <-- NOT deleted
 ```
 
-Reutiliza a camada (marcador fica `ok`, 0 char-devs). O whiteout NÃO é honrado:
-o `.conf` da camada inferior aparece + o marcador `.wh.` literal 000 (que o
-parser de `*.conf` do rabbitmq não consegue ler). Bug reproduzido exactamente.
+Reuses the layer (marker stays `ok`, 0 char-devs). The whiteout is NOT honoured:
+the `.conf` from the lower layer appears + the literal `.wh.` marker 000 (which
+rabbitmq's `*.conf` parser cannot read). Bug reproduced exactly.
 
-**B) Binário CORRIGIDO (F-1), MESMA store** — `run … -- ls -la /etc/rabbitmq/conf.d/`:
+**B) FIXED binary (F-1), SAME store** — `run … -- ls -la /etc/rabbitmq/conf.d/`:
 
 ```
- ✓ unpacking the image 1.6s        <-- re-extraiu (época antiga != corrente)
+ ✓ unpacking the image 1.6s        <-- re-extracted (old epoch != current)
 -rw-r--r--  1 rabbitmq rabbitmq 491  10-defaults.conf
 ```
 
-`conf.d` limpo (só `10-defaults.conf`); a camada passa a marcador `2`, 1 char-dev
-(whiteout correcto), 0 ficheiros `.wh.` vazados. **Curado automaticamente no
-primeiro uso após o upgrade**, sem acção do operador. P1 fechada.
+`conf.d` clean (only `10-defaults.conf`); the layer moves to marker `2`, 1 char-dev
+(correct whiteout), 0 leaked `.wh.` files. **Healed automatically on the
+first use after the upgrade**, with no operator action. P1 closed.

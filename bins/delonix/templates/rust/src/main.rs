@@ -20,8 +20,57 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
 async fn main() {
+    // `__NAME__ healthcheck`: the container HEALTHCHECK. distroless has no shell
+    // and no curl, so the binary probes its own liveness and exits before the
+    // async server does any work. It is synchronous and returns here.
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        std::process::exit(healthcheck());
+    }
     if let Err(code) = run().await {
         std::process::exit(code);
+    }
+}
+
+/// Probes `GET /api/v1/health/live` on the local listener and returns a process
+/// exit code: 0 for a 2xx status, 1 otherwise. A hand-written HTTP/1.0 request
+/// over `std::net::TcpStream` keeps this dependency-free (no shell, no curl) so
+/// it works in the distroless/cc runtime. The port mirrors `config::load`:
+/// `PORT` if a valid port, else the scaffold default.
+fn healthcheck() -> i32 {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|v| v.trim().parse::<u16>().ok())
+        .filter(|p| *p >= 1)
+        .unwrap_or(__PORT__);
+
+    let probe = || -> std::io::Result<bool> {
+        let mut stream = TcpStream::connect(("127.0.0.1", port))?;
+        stream.set_read_timeout(Some(Duration::from_secs(3)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(3)))?;
+        stream.write_all(
+            b"GET /api/v1/health/live HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+        )?;
+        let mut buf = [0u8; 256];
+        let n = stream.read(&mut buf)?;
+        // Status line, e.g. "HTTP/1.1 200 OK": take the numeric code (2nd field).
+        let head = String::from_utf8_lossy(&buf[..n]);
+        let ok = head
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|code| code.parse::<u16>().ok())
+            .map(|code| (200..300).contains(&code))
+            .unwrap_or(false);
+        Ok(ok)
+    };
+
+    match probe() {
+        Ok(true) => 0,
+        _ => 1,
     }
 }
 

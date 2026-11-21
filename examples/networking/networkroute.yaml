@@ -1,35 +1,22 @@
 # ============================================================================
-# kind: NetworkRoute — caminho DIRIGIDO entre duas REDES (ADR-0013 tier B)
 # kind: NetworkRoute — a DIRECTED path between two NETWORKS (ADR-0013 tier B)
 #
-# PT: As redes são isoladas por omissão. Isto declara que uma PODE alcançar a
-#     outra — dirigido, como `kind: Dependency` entre containers: `from` inicia e
-#     o retorno flui (established); `to` NÃO inicia de volta. O spec tem EXACTAMENTE
-#     dois campos, `from` e `to` — não há `via`. A identidade é o PAR (from->to),
-#     não o metadata.name; dois documentos para o mesmo par são recusados.
-# EN: Networks are isolated by default. This declares that one MAY reach the other
-#     — directed, like `kind: Dependency` between containers: `from` initiates and
-#     the return flows (established); `to` does NOT initiate back. The spec has
-#     EXACTLY two fields, `from` and `to` — there is no `via`. Identity is the PAIR
-#     (from->to), not metadata.name; two documents for the same pair are refused.
+# Networks are isolated by default. This declares that one MAY reach the other
+# — directed, like `kind: Dependency` between containers: `from` initiates and
+# the return flows (established); `to` does NOT initiate back. The spec has
+# EXACTLY two fields, `from` and `to` — there is no `via`. Identity is the PAIR
+# (from->to), not metadata.name; two documents for the same pair are refused.
 #
-# PT: Uma rota diz que o pacote PODE atravessar; nunca que é PERMITIDO. A política
-#     por-workload (NetworkPolicy/Dependency) continua a decidir. São duas perguntas
-#     em série — por isso dois Kinds: NetworkRoute (há caminho?) e depois a política
-#     (é aceite?). `stack apply --prune` fecha rotas tiradas do manifesto.
-# EN: A route says the packet MAY cross; never that it is ALLOWED. Per-workload
-#     policy (NetworkPolicy/Dependency) still decides. Two questions in series — hence
-#     two Kinds: NetworkRoute (is there a path?) then the policy (is it accepted?).
-#     `stack apply --prune` closes routes removed from the manifest.
+# A route says the packet MAY cross; never that it is ALLOWED. Per-workload
+# policy (NetworkPolicy/Dependency) still decides. Two questions in series — hence
+# two Kinds: NetworkRoute (is there a path?) then the policy (is it accepted?).
+# `stack apply --prune` closes routes removed from the manifest.
 #
-# PT: Aplicar:  delonix stack apply -f examples/networking/networkroute.yaml
-#     Imperativo equivalente:  delonix network route <from> <to>   (e `--rm` para fechar)
-# EN: Apply:    delonix stack apply -f examples/networking/networkroute.yaml
-#     Equivalent imperative:   delonix network route <from> <to>   (and `--rm` to close)
+# Apply:    delonix stack apply -f examples/networking/networkroute.yaml
+# Equivalent imperative:   delonix network route <from> <to>   (and `--rm` to close)
 # ============================================================================
 
-# ── 0. Recursos de apoio INLINE — as redes que as rotas ligam ────────────────
-#      Supporting resources INLINE — the networks the routes connect
+# ── 0. Supporting resources INLINE — the networks the routes connect ─────────
 ---
 apiVersion: networking.delonix.io/v1beta1
 kind: Network
@@ -46,24 +33,21 @@ kind: Network
 metadata: { name: mgmt }
 spec: { driver: bridge }
 
-# ── 1. caminho de um sentido — frontend pode iniciar para backend ───────────
-#      one-way path — frontend may initiate towards backend
+# ── 1. one-way path — frontend may initiate towards backend ──────────────────
 #
-# PT: O retorno dessas conversas flui; backend NÃO inicia de volta.
-# EN: Return traffic of those conversations flows; backend cannot initiate back.
+# Return traffic of those conversations flows; backend cannot initiate back.
 ---
 apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
 metadata:
   name: frontend-to-backend
   labels:
-    purpose: app-traffic       # PT: metadata é livre; só spec.from/spec.to contam | EN: metadata is free-form; only spec.from/spec.to matter
+    purpose: app-traffic       # metadata is free-form; only spec.from/spec.to matter
 spec:
-  from: frontend               # PT: rede que PODE iniciar | EN: network that may INITIATE
-  to: backend                  # PT: rede alcançada | EN: network reached
+  from: frontend               # network that may INITIATE
+  to: backend                  # network reached
 
-# ── 2. um segundo par independente — mgmt alcança as outras duas ────────────
-#      a second independent pair — mgmt reaches both others
+# ── 2. a second independent pair — mgmt reaches both others ──────────────────
 ---
 apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
@@ -79,8 +63,7 @@ spec:
   from: mgmt
   to: frontend
 
-# ── 3. um caminho bidireccional são duas rotas (o par inverso, explícito) ────
-#      a bidirectional path is two explicit routes (the reverse pair)
+# ── 3. a bidirectional path is two explicit routes (the reverse pair) ────────
 ---
 apiVersion: networking.delonix.io/v1beta1
 kind: NetworkRoute
@@ -89,13 +72,10 @@ spec:
   from: backend
   to: mgmt
 
-# ── 4. a 2ª pergunta — o `api` ACEITA a travessia? (política por-workload) ───
-#      the 2nd question — does `api` ACCEPT the crossing? (per-workload policy)
+# ── 4. the 2nd question — does `api` ACCEPT the crossing? (per-workload policy)
 #
-# PT: Os workloads existem para a pergunta "é permitido?" ter algo a proteger.
-#     Sem esta Dependency o caminho existe mas o `api` continua a decidir quem aceita.
-# EN: The workloads exist so the "is it allowed?" question has something to protect.
-#     Without this Dependency the path exists but `api` still decides who it accepts.
+# The workloads exist so the "is it allowed?" question has something to protect.
+# Without this Dependency the path exists but `api` still decides who it accepts.
 ---
 apiVersion: compute.delonix.io/v1beta1
 kind: Pod

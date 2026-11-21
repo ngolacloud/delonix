@@ -1,23 +1,23 @@
-# QA re-verificação v0.1.1 — DEF-003 / OOM / CRI
+# QA re-verification v0.1.1 — DEF-003 / OOM / CRI
 
-- Data: 2026-10-31
-- Binário sob teste: `/home/walter/dlx-wt/stabilize-0.1.1/target/debug/delonix` → `delonix 0.1.0`, commit `b9925e06e (+52 commits since v0.1.0)`, built 2026-10-31. (NÃO foi construído nada.)
-- Root isolado: `DELONIX_ROOT=/home/walter/dlx-wt/qa-def` (criado para o teste; containers do dono no root por omissão intocados).
-- Host: Linux 7.0, cgroup2 com memory/cpu/pids delegados (io/cpuset não). alpine:3.20 puxado para o root isolado (pull ~1s, 3.5 MiB).
+- Date: 2026-10-31
+- Binary under test: `/home/walter/dlx-wt/stabilize-0.1.1/target/debug/delonix` → `delonix 0.1.0`, commit `b9925e06e (+52 commits since v0.1.0)`, built 2026-10-31. (NOTHING was built.)
+- Isolated root: `DELONIX_ROOT=/home/walter/dlx-wt/qa-def` (created for the test; the owner's containers in the default root untouched).
+- Host: Linux 7.0, cgroup2 with memory/cpu/pids delegated (io/cpuset not). alpine:3.20 pulled into the isolated root (pull ~1s, 3.5 MiB).
 
-## Veredicto resumido
+## Verdict summary
 
-| Defeito | Repro (comando exacto) | Observado | Veredicto |
+| Defect | Repro (exact command) | Observed | Verdict |
 |---|---|---|---|
-| **DEF-003** `compose up` não reconcilia serviço parado | `delonix compose up -d` (2 serviços alpine, rede bridge do projeto) | `compose up -d` **pendura** após "network ... already exists" e **nunca cria os containers** (timeout 120s, exit 124). Mesma falha com `container run --net <bridge>` (exit 124). `--net host` funciona. O passo "stop + re-up" nunca é alcançável. | **BLOQUEADO-POR-AMBIENTE** (networking bridge/ingress rootless congestionado no host) |
-| **OOM** limite de memória efectivo + kill | `delonix container run -d --memory 32M alpine sh -c 'tail /dev/zero'` | Container `Dead (OOMKilled)`, `Crash reason: oom_killed`, `Memory: 32M`. Prova do VALOR do limite: 50M→tmpfs sob 32M → **morto (exit 137)**; mesmo workload sob 128M → **sucesso (RC=0)**. | **NÃO REPRODUZ / FUNCIONA** (limite realmente imposto pelo cgroup v2) |
-| **CRI** sanidade básica | `delonix serve cri --addr unix://.../cri.sock` | Recusa com `DX-6000`: `delonix-cri` não está ao lado do `delonix` na árvore v0.1.1; a cópia no PATH (`~/.local/bin/delonix-cri`) é **5.1.1** e, forçada com `DELONIX_SERVER_FROM_PATH=1`, aborta por mismatch de versão (`delonix-cri 5.1.1 vs delonix 0.1.0`). | **BLOQUEADO-POR-AMBIENTE** (binário `delonix-cri` da linha v0.1.1 não construído; proibido construir) |
+| **DEF-003** `compose up` does not reconcile a stopped service | `delonix compose up -d` (2 alpine services, project bridge network) | `compose up -d` **hangs** after "network ... already exists" and **never creates the containers** (120s timeout, exit 124). Same failure with `container run --net <bridge>` (exit 124). `--net host` works. The "stop + re-up" step is never reachable. | **BLOCKED-BY-ENVIRONMENT** (rootless bridge/ingress networking congested on the host) |
+| **OOM** effective memory limit + kill | `delonix container run -d --memory 32M alpine sh -c 'tail /dev/zero'` | Container `Dead (OOMKilled)`, `Crash reason: oom_killed`, `Memory: 32M`. Proof of the limit's VALUE: 50M→tmpfs under 32M → **killed (exit 137)**; same workload under 128M → **success (RC=0)**. | **DOES NOT REPRODUCE / WORKS** (limit truly enforced by cgroup v2) |
+| **CRI** basic sanity | `delonix serve cri --addr unix://.../cri.sock` | Refuses with `DX-6000`: `delonix-cri` is not next to `delonix` in the v0.1.1 tree; the copy on the PATH (`~/.local/bin/delonix-cri`) is **5.1.1** and, forced with `DELONIX_SERVER_FROM_PATH=1`, aborts on version mismatch (`delonix-cri 5.1.1 vs delonix 0.1.0`). | **BLOCKED-BY-ENVIRONMENT** (`delonix-cri` binary of the v0.1.1 line not built; building forbidden) |
 
 ---
 
-## 1. DEF-003 — `compose up` não reconcilia serviço parado
+## 1. DEF-003 — `compose up` does not reconcile a stopped service
 
-### compose.yaml usado
+### compose.yaml used
 ```yaml
 name: qa-def003
 services:
@@ -25,27 +25,27 @@ services:
   qa-cache: { image: alpine:3.20, command: ["sleep","100000"] }
 ```
 
-### Comandos e saída
+### Commands and output
 ```
 $ DELONIX_ROOT=/home/walter/dlx-wt/qa-def delonix compose up -d
 network/qa-def003_default: already exists, nothing to do
-<pendura>                       # timeout 120s -> UPEXIT=124
+<hangs>                       # timeout 120s -> UPEXIT=124
 $ delonix compose ps
-SERVICE   NAME   IMAGE   STATUS   # vazio, nenhum container criado
+SERVICE   NAME   IMAGE   STATUS   # empty, no container created
 ```
 
-`compose up --dry-run` resolve correctamente o projeto (Network bridge `qa-def003_default` 10.209.0.0/16 + 2 serviços). O dry-run é instantâneo; o `up` real pendura.
+`compose up --dry-run` resolves the project correctly (Network bridge `qa-def003_default` 10.209.0.0/16 + 2 services). The dry-run is instant; the real `up` hangs.
 
-### Isolamento da causa
-- `delonix container run -d --net qa-def003_default alpine sleep ...` → **pendura, exit 124** (nem chega a lançar o `slirp4netns` próprio). Portanto o hang é no attach à rede bridge/ingress, não no compose em si.
-- `delonix container run -d --net host alpine sleep ...` (qa-smoke) → **arranca, `Up` 5+ min**. Containers host-net funcionam.
-- `network_mode: host` no compose é **recusado** (`DX-1000`), por isso o compose usa sempre a rede bridge do projeto → caminho sempre bloqueado neste host.
-- Durante o hang, os **próprios comandos do dono** estão presos no host: `delonix container start travel-pg` (pids 205966/205990) e `delonix container restart stage-demo-ui` (pids 2723932/2723937) persistem em todas as amostras; host também corre kind+ceph+kubelet. → o layer de networking rootless está congestionado a nível de host.
+### Isolating the cause
+- `delonix container run -d --net qa-def003_default alpine sleep ...` → **hangs, exit 124** (it never even launches its own `slirp4netns`). So the hang is in the attach to the bridge/ingress network, not in compose itself.
+- `delonix container run -d --net host alpine sleep ...` (qa-smoke) → **starts, `Up` 5+ min**. Host-net containers work.
+- `network_mode: host` in compose is **refused** (`DX-1000`), so compose always uses the project bridge network → path always blocked on this host.
+- During the hang, the **owner's own commands** are stuck on the host: `delonix container start travel-pg` (pids 205966/205990) and `delonix container restart stage-demo-ui` (pids 2723932/2723937) persist across all samples; the host also runs kind+ceph+kubelet. → the rootless networking layer is congested at the host level.
 
-### Conclusão
-O passo central do DEF-003 (parar um serviço e verificar se o `up` o reconcilia) **não é exercitável** porque o `compose up` nunca consegue levantar os serviços neste host (rede bridge/ingress rootless congestionada; `slirp4netns` existe em `/usr/bin`). **BLOQUEADO-POR-AMBIENTE.** Precisa de um host rootless com o layer de ingress livre (ou um teste host-net) para re-verificar o DEF-003 no HEAD.
+### Conclusion
+The central step of DEF-003 (stopping a service and checking whether `up` reconciles it) is **not exercisable** because `compose up` can never bring the services up on this host (rootless bridge/ingress network congested; `slirp4netns` exists in `/usr/bin`). **BLOCKED-BY-ENVIRONMENT.** It needs a rootless host with a free ingress layer (or a host-net test) to re-verify DEF-003 at HEAD.
 
-## 2. OOM — limite de memória efectivo + kill
+## 2. OOM — effective memory limit + kill
 
 ```
 $ delonix container run -d --name qa-oom --memory 32M alpine:3.20 sh -c 'tail /dev/zero'
@@ -55,17 +55,17 @@ Status:         Dead (OOMKilled)
 Crash reason:   oom_killed
   Memory:       32M
 
-# Prova de que o VALOR do limite é imposto (não só registado):
+# Proof that the limit's VALUE is enforced (not just recorded):
 $ delonix container run --rm --memory 32M  alpine sh -c 'dd if=/dev/zero of=/dev/shm/x bs=1M count=50' -> exit 137 (SIGKILL/OOM)
-$ delonix container run --rm --memory 128M alpine sh -c 'dd if=/dev/zero of=/dev/shm/x bs=1M count=50' -> RC=0 (sucesso)
+$ delonix container run --rm --memory 128M alpine sh -c 'dd if=/dev/zero of=/dev/shm/x bs=1M count=50' -> RC=0 (success)
 ```
 
-- Alocação retida (`tail /dev/zero`) sob 32M → OOMKilled, estado `Dead (OOMKilled)`, `oom_killed`.
-- 50 MiB para tmpfs (contabilizado no cgroup v2) **morre a 32M** e **sobrevive a 128M** → o limite é realmente aplicado pelo kernel, com o valor configurado.
+- Retained allocation (`tail /dev/zero`) under 32M → OOMKilled, state `Dead (OOMKilled)`, `oom_killed`.
+- 50 MiB to tmpfs (accounted in cgroup v2) **dies at 32M** and **survives at 128M** → the limit is truly applied by the kernel, with the configured value.
 
-**Veredicto: NÃO REPRODUZ / FUNCIONA.** memory delegado neste host; o limite é imposto e o OOM-kill ocorre.
+**Verdict: DOES NOT REPRODUCE / WORKS.** memory delegated on this host; the limit is enforced and the OOM-kill occurs.
 
-## 3. CRI — sanidade básica
+## 3. CRI — basic sanity
 
 ```
 $ delonix serve cri --addr unix:///home/walter/dlx-wt/qa-def/cri.sock
@@ -77,16 +77,16 @@ $ DELONIX_SERVER_FROM_PATH=1 delonix serve cri --addr unix://.../cri2.sock
 warning: serving with '/home/walter/.local/bin/delonix-cri' (DELONIX_SERVER_FROM_PATH=1)
 ERROR delonix_cri: this delonix-cri is version 5.1.1 but delonix is 0.1.0 — install the delonix-cri
 of the same release next to delonix   (exit 2)
-$ crictl --runtime-endpoint unix://.../cri2.sock version  -> fatal: no such file or directory (socket nunca criado)
+$ crictl --runtime-endpoint unix://.../cri2.sock version  -> fatal: no such file or directory (socket never created)
 ```
 
-- Infra do host presente: `crictl`, `critest`, `containerd`, `slirp4netns`.
-- Falta: o binário **`delonix-cri` da linha v0.1.1** ao lado do `delonix` em `target/debug` (não existe; proibido construir). A única cópia no PATH é **5.1.1** e o guardrail de versão recusa-a mesmo com `DELONIX_SERVER_FROM_PATH=1`.
+- Host infra present: `crictl`, `critest`, `containerd`, `slirp4netns`.
+- Missing: the **`delonix-cri` binary of the v0.1.1 line** next to `delonix` in `target/debug` (does not exist; building forbidden). The only copy on the PATH is **5.1.1** and the version guardrail refuses it even with `DELONIX_SERVER_FROM_PATH=1`.
 
-**Veredicto: BLOQUEADO-POR-AMBIENTE.** O que falta exactamente: construir/instalar `delonix-cri` da mesma release (v0.1.1) ao lado do `delonix` (`install.sh --with-cri`). Só então faria sentido `crictl version/info` e um subconjunto do `critest`.
+**Verdict: BLOCKED-BY-ENVIRONMENT.** What is missing exactly: build/install `delonix-cri` of the same release (v0.1.1) next to `delonix` (`install.sh --with-cri`). Only then would `crictl version/info` and a subset of `critest` make sense.
 
 ---
 
-### Notas de ambiente
-- Nenhum recurso do dono foi tocado; todo o trabalho em `DELONIX_ROOT=/home/walter/dlx-wt/qa-def` com recursos prefixados `qa-`.
-- Recursos qa-* e o root isolado limpos no fim da sessão.
+### Environment notes
+- No owner resource was touched; all work in `DELONIX_ROOT=/home/walter/dlx-wt/qa-def` with `qa-`-prefixed resources.
+- qa-* resources and the isolated root cleaned up at the end of the session.

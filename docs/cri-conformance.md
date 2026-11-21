@@ -1,285 +1,286 @@
-# Conformidade CRI — resultado medido
+# CRI conformance — measured result
 
-> Suite: **cri-tools `critest` v1.36.0** (a de upstream, não uma nossa).
-> **Medição corrente — 2026-10-24.** Motor `delonix-cri` da linha **v5.1.1**
-> (`main @ ab4751ac`), **rootless**, host Linux 7.0, cgroup v2. Esta é a linha de
-> código que hoje embarca como **delonix 0.1.0** — o 0.1.0 é o rebrand de versão
-> da 5.1.1, sem mudança de motor; o número **não** foi re-corrido contra a tag
-> 0.1.0, mas é o mesmo binário em comportamento. Reproduzir: `scripts/critest.sh`
-> (ou `tests/compat/cri-conformance.sh`, a mesma suite).
+> Suite: **cri-tools `critest` v1.36.0** (the upstream one, not ours).
+> **Current measurement — 2026-10-24.** `delonix-cri` engine on the **v5.1.1**
+> line (`main @ ab4751ac`), **rootless**, Linux 7.0 host, cgroup v2. This is the line of
+> code that ships today as **delonix 0.1.0** — 0.1.0 is a version rebrand of
+> 5.1.1, with no engine change; the number was **not** re-run against tag
+> 0.1.0, but it's the same binary in behaviour. To reproduce: `scripts/critest.sh`
+> (or `tests/compat/cri-conformance.sh`, the same suite).
 
-## Resultado (2026-10-24)
+## Result (2026-10-24)
 
 ```
 Ran 104 of 122 Specs in 511.184 seconds
 84 Passed | 20 Failed | 0 Pending | 18 Skipped
 ```
 
-> Progressão medida na suite v1.36.0: **79 (2026-08-25) → 84 (2026-10-24)**, com
-> as correcções que entraram depois de Agosto (eviction/`writable_layer`,
-> `ReopenContainerLog` a seguir o inode, e os fixes #18/#19 do `ImageService`).
-> O detalhe das 20 falhas de 2026-10-24, classificadas por área (10 ambiente, 2
-> arquitectura rootless, 1 divergência deliberada, 1 decisão, 1 a investigar, 5
-> gaps reais dos quais 2 já corrigidos), está em
+> Progression measured on suite v1.36.0: **79 (2026-08-25) → 84 (2026-10-24)**, with
+> the fixes that landed after August (eviction/`writable_layer`,
+> `ReopenContainerLog` following the inode, and the `ImageService` fixes #18/#19).
+> The breakdown of the 20 failures as of 2026-10-24, classified by area (10 environment, 2
+> rootless architecture, 1 deliberate divergence, 1 decision, 1 to investigate, 5
+> real gaps of which 2 already fixed), is in
 > `reports/cri-conformance-2026-10-24/00-audit-report.md`.
 
-### Baseline histórica — 2026-08-25 (motor v0.63.1), superada
+### Historical baseline — 2026-08-25 (engine v0.63.1), superseded
 
-> O resultado abaixo (**79/103**) é de **2026-08-25**, motor `delonix-cri`
-> **v0.63.1** — vinte versões atrás. Fica como registo da progressão e do
-> detalhe por área; o número corrente é o de cima.
+> The result below (**79/103**) is from **2026-08-25**, engine `delonix-cri`
+> **v0.63.1** — twenty versions ago. It stays as a record of the progression and
+> the per-area breakdown; the current number is the one above.
 
 ```
 Ran 103 of 122 Specs in 777.277 seconds
 79 Passed | 24 Failed | 19 Skipped
 ```
 
-> Progressão medida: **65 → 69 → 71 → 72 → 77 → 79**.
+> Measured progression: **65 → 69 → 71 → 72 → 77 → 79**.
 
-### A recontagem de 2026-08-25
+### The 2026-08-25 recount
 
-Este documento dizia **77/103** e era do motor **v0.42.2** — vinte e uma versões
-atrás. Um número de conformidade é a afirmação de compatibilidade mais visível
-deste projecto, e um que ninguém revalida deixa de ser uma medição para passar a
-ser uma citação.
+This document used to say **77/103** and was from engine **v0.42.2** — twenty-one
+versions ago. A conformance number is this project's most visible compatibility
+claim, and one no one revalidates stops being a measurement and becomes a
+citation.
 
-Remedido contra a MESMA suite e o MESMO total: **79 passados, 24 falhados**. Não
-regrediu — melhorou dois.
+Re-measured against the SAME suite and the SAME total: **79 passed, 24 failed**. It did not
+regress — it improved by two.
 
-**E a recontagem foi, sem o saber, uma verificação independente.** O `README.rst`
-e o gerador do site já publicavam `79 Passed | 24 Failed` há algum tempo; era só
-este documento — o que tem o detalhe — que ficara para trás. Uma corrida cega ao
-que estava escrito aqui chegou exactamente aos mesmos números que a página
-pública. Vale mais do que a actualização em si: o valor publicado ao cliente
-estava certo, e agora o detalhe volta a suportá-lo.
+**And the recount was, without meaning to, an independent verification.** The `README.rst`
+and the site generator had already been publishing `79 Passed | 24 Failed` for a while; it was only
+this document — the one with the detail — that had fallen behind. A blind run against
+what was written here landed on exactly the same numbers as the public
+page. That's worth more than the update itself: the number published to customers
+was correct, and now the detail backs it up again.
 
-**Nota de método que quase estragou a comparação.** A primeira recontagem usou o
-`critest` **v1.34.0**, e deu `70 Passed | 26 Failed` de 96 specs. Comparar esse
-70 com o 77 publicado e concluir «regrediu sete» teria sido falso: são suites
-diferentes, com totais diferentes (113 specs contra 122). O número só compara
-com o mesmo `critest`, e é por isso que a versão da suite está no cabeçalho.
+**A methodological note that nearly ruined the comparison.** The first recount used
+`critest` **v1.34.0**, and gave `70 Passed | 26 Failed` out of 96 specs. Comparing that
+70 to the published 77 and concluding "regressed by seven" would have been false: they're
+different suites, with different totals (113 specs vs. 122). The number only compares
+against the same `critest`, which is why the suite version is in the header.
 
-### As 24 que falham hoje, por área
+### The 24 that fail today, by area
 
-| área | quantas | nota |
+| area | how many | note |
 |---|---|---|
-| AppArmor | 9 | o perfil por-container não é traduzido do CRI; o motor tem o seu (`install.sh` escreve `unconfined+userns`) |
-| Container Mount Propagation | 3 | `rshared`/`rslave` não são propagados |
-| Security Context | 4 | `PodPID`, `RunAsUserName`, `SeccompProfilePath` nil, `NoNewPrivs=false` |
-| Image Manager | 2 | pull por digest, e `Uid`/`Username` no `image status` |
-| Streaming | 2 | `portforward` e um segundo caso de streaming |
+| AppArmor | 9 | the per-container profile is not translated from CRI; the engine has its own (`install.sh` writes `unconfined+userns`) |
+| Container Mount Propagation | 3 | `rshared`/`rslave` are not propagated |
+| Security Context | 4 | `PodPID`, `RunAsUserName`, nil `SeccompProfilePath`, `NoNewPrivs=false` |
+| Image Manager | 2 | pull by digest, and `Uid`/`Username` in `image status` |
+| Streaming | 2 | `portforward` and a second streaming case |
 | Multiple Containers | 1 | |
-| Networking | 1 | port mapping só com porta de container |
-| Container Mount Readonly | 1 | mounts read-only não-recursivos |
-| Container OOM | 1 | `OOMKilled`/137 — ver a nota do `AGENTS.md`: o cgroup do container desaparece com ele, logo não há detecção post-mortem possível |
+| Networking | 1 | port mapping only with the container port |
+| Container Mount Readonly | 1 | non-recursive read-only mounts |
+| Container OOM | 1 | `OOMKilled`/137 — see the `AGENTS.md` note: the container's cgroup disappears with it, so post-mortem detection is impossible |
 
-> **Correr sempre num root LIMPO**: com estado acumulado de várias execuções,
-> três specs de «preserving attributes»/«Image Identifier Consistency» falham por
-> poluição e não por conformidade — confirmado a passar num root virgem. O
-> `scripts/critest.sh` já cria um `DELONIX_ROOT` novo por execução.
-> **Correr sempre num root LIMPO**: com estado acumulado de várias execuções,
-> três specs de «preserving attributes»/«Image Identifier Consistency» falham por
-> poluição e não por conformidade — confirmado a passar num root virgem.
+> **Always run on a CLEAN root**: with state accumulated across several runs,
+> three "preserving attributes"/"Image Identifier Consistency" specs fail due to
+> pollution, not conformance — confirmed to pass on a fresh root. The
+> `scripts/critest.sh` already creates a new `DELONIX_ROOT` per run.
+> **Always run on a CLEAN root**: with state accumulated across several runs,
+> three "preserving attributes"/"Image Identifier Consistency" specs fail due to
+> pollution, not conformance — confirmed to pass on a fresh root.
 
-**Não é conformidade completa, e não vale a pena escrevê-lo de outra maneira.**
-O número publicado é o que dá valor à afirmação: «serve um kubelet» é uma
-alegação, «77 de 103 specs nomeados» é um facto que outra pessoa verifica.
+**This is not full conformance, and it is not worth writing it any other way.**
+The published number is what gives the claim value: "serves a kubelet" is a
+claim, "77 of 103 named specs" is a fact someone else can verify.
 
-## O bug que a primeira corrida encontrou
+## The bug the first run found
 
-A primeira execução deu **0 de 122**. Não por conformidade: o servidor arrancou
-com o `root` por omissão (`/var/lib/delonix`), que um utilizador normal não
-escreve, e cada pull de imagem morria com `Permission denied (os error 13)`.
-Uma causa, 103 sintomas.
+The first run gave **0 of 122**. Not due to conformance: the server started up
+with the default `root` (`/var/lib/delonix`), which a regular user cannot write to,
+and every image pull died with `Permission denied (os error 13)`.
+One cause, 103 symptoms.
 
-Corrigido o caminho, a corrida seguinte deu **19 de 109** — e a causa dominante
-era um bug a sério:
+Once the path was fixed, the next run gave **19 of 109** — and the dominant cause
+was a real bug:
 
 ```
 failed to create the ingress sandbox cri-cef8d63cf86e9f4d
 ```
 
-O `delonix-cri` invocava **`delonix netns attach`**. A reorganização da CLI da
-v0.30.0 moveu esse comando para **`delonix net netns attach`**, com corte limpo
-e sem aliases — decisão deliberada e registada — e este chamador nunca foi
-actualizado. Ou seja: **a criação de pod em rootless estava partida desde a
-v0.30.0**, e o CRI é a aposta cloud-native mais forte deste motor.
+`delonix-cri` was invoking **`delonix netns attach`**. The v0.30.0 CLI
+reorganization moved that command to **`delonix net netns attach`**, with a clean
+break and no aliases — a deliberate, documented decision — and this caller was never
+updated. In other words: **rootless pod creation had been broken since
+v0.30.0**, and CRI is this engine's strongest cloud-native bet.
 
-Duas coisas o esconderam durante meses, e a segunda é a mais grave:
+Two things hid this for months, and the second is the worse one:
 
-* `delonix_detached` mandava o **stderr para `/dev/null`** e devolvia um `bool`.
-  A mensagem que chegava ao kubelet nomeava a vítima e escondia o assassino.
-  O erro verdadeiro — `unrecognized subcommand 'netns'` — teria dito tudo no
-  primeiro pod.
-* Não havia nenhuma corrida de conformidade. Um teste unitário não apanha isto:
-  o comando é um `Command::new` para um binário externo, e compila na mesma.
+* `delonix_detached` sent **stderr to `/dev/null`** and returned a `bool`.
+  The message that reached the kubelet named the victim and hid the killer.
+  The real error — `unrecognized subcommand 'netns'` — would have said everything in
+  the very first pod.
+* There was no conformance run at all. A unit test doesn't catch this:
+  the command is a `Command::new` for an external binary, and it still compiles fine.
 
-Corrigido nos dois eixos: o argv certo, e `delonix_detached_why` a propagar a
-primeira linha do stderr para dentro do `Status::internal`. **19 → 65 passes com
-uma linha de correcção.**
+Fixed on both axes: the correct argv, and `delonix_detached_why` propagating the
+first stderr line into `Status::internal`. **19 → 65 passes with
+one line fixed.**
 
-## Segunda ronda — o que fechou, e o bug do log que estava por baixo
+## Second round — what closed, and the log bug underneath
 
-Cinco specs fechados: `ReadOnlyRootfs`, `MaskedPaths`, `ReadonlyPaths`,
-`SupplementalGroups` e `HostPID`.
+Five specs closed: `ReadOnlyRootfs`, `MaskedPaths`, `ReadonlyPaths`,
+`SupplementalGroups`, and `HostPID`.
 
-**O achado de fundo foi um bug do log, não de segurança.** `ReadOnlyRootfs` e
-`NoNewPrivs` falhavam ambos em «verify log contents»: o ficheiro existia,
-parseava, e a linha esperada não estava lá. A causa é que o `log_shim`
-escrevia `format!("{ts} stdout {stream} …")` — com **`stdout` literal**. Os dois
-fluxos do contentor iam por UM pipe e saíam todos etiquetados `stdout`, e a
-variável chamada `stream` era afinal a etiqueta F/P (linha completa/parcial),
-confusão que ajudou o bug a sobreviver. Uma mensagem como
-`touch: /tmp/test: Read-only file system` é stderr por definição, e a suite
-compara a stream.
+**The underlying finding was a log bug, not a security one.** `ReadOnlyRootfs` and
+`NoNewPrivs` both failed on "verify log contents": the file existed,
+parsed, and the expected line wasn't there. The cause is that `log_shim`
+was writing `format!("{ts} stdout {stream} …")` — with a **literal `stdout`**. The container's
+two streams went through ONE pipe and all came out tagged `stdout`, and the
+variable called `stream` was actually the F/P tag (full line/partial), a
+confusion that helped the bug survive. A message like
+`touch: /tmp/test: Read-only file system` is stderr by definition, and the suite
+compares the stream.
 
-Corrigido com um **segundo pipe, só em modo CRI** (o formato não-CRI não tem
-etiqueta e separar lá só interlaçaria pior) e um `poll()` sobre os dois no shim.
-O caminho antigo fica byte-a-byte igual.
+Fixed with a **second pipe, CRI mode only** (the non-CRI format has no tag
+and splitting there would just interleave things worse) and a `poll()` over both in the shim.
+The old path stays byte-for-byte identical.
 
-**Funcionalidades novas no motor**: `--group-add` (grupos suplementares,
-aplicados mesmo com o contentor a correr como root), `--masked-path` (ficheiro
-tapado com `/dev/null`, directório com um tmpfs vazio read-only — a técnica do
-runc), `--readonly-path` (bind sobre si próprio + remount RDONLY; passar
-`MS_RDONLY` no primeiro bind é ignorado em silêncio pelo kernel, a armadilha
-clássica) e `--security-opt no-new-privileges=false`.
+**New engine features**: `--group-add` (supplementary groups, applied even
+with the container running as root), `--masked-path` (file covered with
+`/dev/null`, directory with an empty read-only tmpfs — the runc
+technique), `--readonly-path` (bind onto itself + remount RDONLY; passing
+`MS_RDONLY` in the first bind is silently ignored by the kernel, the
+classic trap), and `--security-opt no-new-privileges=false`.
 
-**Três regressões que eu próprio abri e fechei, todas por medição:**
+**Three regressions I both opened and closed myself, all through measurement:**
 
-1. **O verificador fail-closed exigia `NO_NEW_PRIVS` incondicionalmente.** Estava
-   certo enquanto o motor o punha sempre; no momento em que um chamador o pôde
-   desligar, todos esses contentores abortavam com 126 — e o sintoma eram quatro
-   specs de *seccomp* a falhar, nada com o nome NNP. Uma verificação fail-closed
-   tem de verificar a política PEDIDA, ou passa a ser uma segunda política que
-   ninguém declarou.
-2. **O `seccompiler` liga o NNP incondicionalmente** (`lib.rs:347`), porque o
-   kernel só deixa um processo SEM privilégio instalar um filtro com NNP posto.
-   Instalar o mesmo programa pela via crua com CAP_SYS_ADMIN resolve — é o que o
-   `SCMP_FLTATR_CTL_NNP=0` do libseccomp faz — mas há **dois** filtros
-   (o pré-filtro do `clone3` e o principal), e encaminhar só um não muda nada.
-3. **Um aviso meu foi parar ao stderr do `exec`.** O recuo «não consegui manter o
-   NNP desligado» era informação correcta escrita no sítio errado: o `ExecSync`
-   do CRI devolve o stderr tal e qual e a suite compara-o com uma string exacta.
-   Uma linha de diagnóstico bem-intencionada chumbou uma dúzia de specs sem
-   relação nenhuma.
+1. **The fail-closed checker unconditionally required `NO_NEW_PRIVS`.** It was
+   correct as long as the engine always set it; the moment a caller could turn it
+   off, every such container aborted with 126 — and the symptom was four
+   *seccomp* specs failing, nothing named NNP. A fail-closed check has to
+   check the REQUESTED policy, or it becomes a second, undeclared policy.
+2. **`seccompiler` turns on NNP unconditionally** (`lib.rs:347`), because the
+   kernel only lets an UNPRIVILEGED process install a filter with NNP set.
+   Installing the same program the raw way with CAP_SYS_ADMIN solves it — that's what
+   libseccomp's `SCMP_FLTATR_CTL_NNP=0` does — but there are **two**
+   filters (the `clone3` pre-filter and the main one), and routing only one changes nothing.
+3. **A warning of mine ended up on `exec`'s stderr.** The fallback message "could not
+   keep NNP off" was correct information written in the wrong place: the
+   CRI `ExecSync` returns stderr verbatim and the suite compares it against an
+   exact string. A well-intentioned diagnostic line failed a dozen unrelated
+   specs.
 
-**O que ficou por fechar de propósito**: `no_new_privs: false` é honrado (medido:
-`NoNewPrivs: 0` com `Seccomp: 2`), mas o spec continua a falhar por outra razão —
-corre como uid 1000 e espera que um binário setuid escale para 0, e o
-`chown_tree_once` do motor passa o rootfs inteiro para o uid pedido, o dono do
-binário setuid incluído. É um compromisso de desenho antigo (imagens como o
-Elasticsearch precisam da árvore escrevível), não um esquecimento, e mudá-lo
-merece decisão própria.
+**What was left open on purpose**: `no_new_privs: false` is honoured (measured:
+`NoNewPrivs: 0` with `Seccomp: 2`), but the spec still fails for another reason —
+it runs as uid 1000 and expects a setuid binary to escalate to 0, and the
+engine's `chown_tree_once` hands the whole rootfs to the requested uid, including the
+owner of the setuid binary. It's an old design trade-off (images like
+Elasticsearch need a writable tree), not an oversight, and changing it
+deserves its own decision.
 
-## Terceira ronda — os mounts do CRI não existiam
+## Third round — the CRI mounts did not exist
 
-**`ContainerConfig.mounts` era lido por ninguém.** Nem uma linha. Um kubelet a
-montar configMaps, secrets, emptyDirs ou hostPaths não punha nada dentro do
-contentor — em silêncio, porque nada dava erro. Cinco specs falhavam por isto e
-lêem-se como cinco lacunas separadas em vez de uma funcionalidade em falta.
+**`ContainerConfig.mounts` was read by no one.** Not a single line. A kubelet
+mounting configMaps, secrets, emptyDirs, or hostPaths put nothing inside the
+container — silently, because nothing errored. Five specs failed because of this and
+read as five separate gaps instead of one missing feature.
 
-O mesmo padrão apareceu logo a seguir em **`dns_config`** e **`port_mappings`**
-do sandbox: aceites pela API, deitados fora. É a assinatura desta camada — vale
-grepar por cada campo do `ContainerConfig`/`PodSandboxConfig` antes de assumir
-que está ligado.
+The same pattern showed up right after in the sandbox's **`dns_config`** and
+**`port_mappings`**: accepted by the API, thrown away. It's this layer's
+signature — worth grepping for every `ContainerConfig`/`PodSandboxConfig` field
+before assuming it's wired up.
 
-Fechado com: `Mount.propagation` no motor (`:rprivate`/`:rslave`/`:rshared` no
-`-v`, com a raiz do namespace a passar a `MS_SLAVE` **só** quando alguma
-montagem o pede — um `MS_PRIVATE` corta toda a propagação e tornaria a flag um
-no-op), `--dns`/`--dns-search`/`--dns-option`, e a tradução dos três no
+Closed with: `Mount.propagation` in the engine (`:rprivate`/`:rslave`/`:rshared` in
+`-v`, with the namespace root switched to `MS_SLAVE` **only** when some
+mount requests it — an `MS_PRIVATE` cuts all propagation and would turn the flag into a
+no-op), `--dns`/`--dns-search`/`--dns-option`, and translating all three in
 `delonix-cri`.
 
-**Armadilha do kernel, a mesma família do `MS_RDONLY`**: a flag de propagação não
-pode ser combinada com `MS_BIND` na mesma chamada — passada junto é ignorada em
-silêncio. Tem de ser um `mount()` à parte, depois do bind.
+**A kernel trap, the same family as `MS_RDONLY`**: the propagation flag cannot
+be combined with `MS_BIND` in the same call — passed together it is silently ignored.
+It has to be a separate `mount()` call, after the bind.
 
-**Descoberta que muda a leitura da tabela**: os 3 specs de propagação e o de
-readonly não-recursivo falham **no próprio harness**, a montar no host com
-`operation not permitted`. Precisam de root para o `critest`, não do motor.
-Somados aos 9 do AppArmor, são **13 das 31 falhas que não são lacunas nossas**.
+**A discovery that changes how to read the table**: the 3 propagation specs and the
+non-recursive readonly one fail **in the harness itself**, mounting on the host with
+`operation not permitted`. They need root for `critest`, not for the engine.
+Added to the 9 from AppArmor, that's **13 of the 31 failures that aren't our
+gaps**.
 
-## Quarta ronda — três bugs que se escondiam uns atrás dos outros
+## Fourth round — three bugs hiding behind each other
 
-**`exec` não entrava no IPC namespace do contentor.** A lista era
-`["user","uts","net","pid","mnt"]`. Um `exec` deve parecer o contentor visto de
-dentro, e sem o IPC vê os objectos System V do HOST e os `kernel.shm*`/
-`fs.mqueue.*` do host — precisamente os knobs que o `--sysctl` mexe. Medido: um
-contentor criado com `kernel.shm_rmid_forced=1` reportava `0` através do `exec`,
-porque o valor é resolvido na ipc-ns de QUEM LÊ. Lia-se como «o sysctl não foi
-aplicado» e mandou-me investigar o caminho dos sysctls, que estava correcto desde
-o início. **Quatro specs de uma linha** (2 sysctls + 2 HostIpc).
+**`exec` was not entering the container's IPC namespace.** The list was
+`["user","uts","net","pid","mnt"]`. An `exec` should look like the container seen from
+inside, and without IPC it sees the HOST's System V objects and the host's
+`kernel.shm*`/`fs.mqueue.*` — precisely the knobs `--sysctl` touches. Measured: a
+container created with `kernel.shm_rmid_forced=1` reported `0` through `exec`,
+because the value is resolved in the ipc-ns of WHOEVER READS. It read as "the sysctl was not
+applied" and sent me off to investigate the sysctl path, which had been correct from
+the start. **Four one-line specs** (2 sysctls + 2 HostIpc).
 
-**`apply_sysctls` deitava fora o erro da escrita** (`let _ = fs::write`). Um
-sysctl pedido e silenciosamente não aplicado é a pior falha que este repo nomeia:
-o contentor corre, o registo diz que o knob está posto, e o valor lá dentro é o
-que era. Agora reporta.
+**`apply_sysctls` was throwing away the write error** (`let _ = fs::write`). A
+sysctl requested and silently not applied is the worst kind of failure this repo names:
+the container runs, the record says the knob is set, and the value inside is
+what it was before. Now it reports.
 
-**Um membro de pod levava DOIS caminhos de publicação.** A netns é do pod, não
-dele — mas o código só excluía o caso `--net <custom>`, por isso um membro
-ganhava um slirp por-contentor a reclamar a mesma porta que o ingress já tinha
-publicado. Medido antes de corrigir: o DNAT `10.0.2.100:12345 → 10.200.0.2:80`
-estava certo, o nginx respondia 200 de dentro do holder, e `curl 127.0.0.1:12345`
-do host ficava pendurado. Pelo caminho apareceu a **quinta** ocorrência da mesma
-armadilha antiga: `c.ip` nunca era atribuído a um membro de pod, por isso o
-registo descrevia um contentor sem endereço.
+**A pod member carried TWO publication paths.** The netns is the pod's, not
+its own — but the code only excluded the `--net <custom>` case, so a
+member got a per-container slirp claiming the same port the ingress had already
+published. Measured before fixing: the DNAT `10.0.2.100:12345 → 10.200.0.2:80`
+was correct, nginx responded 200 from inside the holder, and `curl 127.0.0.1:12345`
+from the host hung. Along the way the **fifth** occurrence of the same old
+trap showed up: `c.ip` was never assigned to a pod member, so the
+record described a container with no address.
 
-**`NetworkReady` era um impasse.** A condição era `infra.up`, e este motor é
-daemonless: a netns de infra arranca A PEDIDO. Num nó acabado de arrancar isso
-dava `NetworkReady: false` → o kubelet marcava-o NotReady → não agendava pod
-nenhum → nada trazia a infra acima → NotReady para sempre. A verificação existia
-para apanhar uma falha real de SDN e descrevia o estado normal de repouso do
-motor. Passou a distinguir pelo ref-count: infra em baixo COM workloads é falha,
-em baixo sem nenhum é ócio.
+**`NetworkReady` was a deadlock.** The condition was `infra.up`, and this engine is
+daemonless: the infra netns comes up ON DEMAND. On a freshly booted node this
+gave `NetworkReady: false` → the kubelet marked it NotReady → scheduled no pod
+at all → nothing ever brought the infra up → permanently NotReady. The check existed
+to catch a real SDN failure and instead described the engine's normal resting state.
+It now distinguishes by ref-count: infra down WITH workloads is a failure,
+down with none is idle.
 
-## As 26 falhas restantes, por área
+## The 26 remaining failures, by area
 
-| Área | # | Natureza |
+| Area | # | Nature |
 |---|---|---|
-| AppArmor | 9 | **Ambiente** — carregar perfis exige privilégio que rootless não tem |
-| Mount propagation | 3 | **Ambiente** — o `critest` não consegue montar no host sem root |
-| Mount readonly não-recursivo | 1 | **Ambiente** — mesma razão |
-| Streaming (portforward ×2) | 2 | **Lacuna real** |
-| Seccomp profile path | 2 | Um é perfil custom (recusa fail-closed); o outro é **divergência deliberada** — ver abaixo |
-| Image Manager | 2 | Um é `DeadlineExceeded` num pull de rede — potencialmente ambiente |
-| `PodPID` | 1 | `shareProcessNamespace` — toca o `spawn()`, decisão própria |
-| Port mapping só com container port | 1 | **Arquitectura**: o IP do pod é inalcançável do host em rootless |
-| NoNewPrivs | 1 | Honrado, mas o `chown_tree_once` tira o dono ao binário setuid |
-| Restantes (log reopen, stats por label, OOM, multi-container) | 4 | **Lacuna real** |
+| AppArmor | 9 | **Environment** — loading profiles needs privilege rootless doesn't have |
+| Mount propagation | 3 | **Environment** — `critest` cannot mount on the host without root |
+| Non-recursive readonly mount | 1 | **Environment** — same reason |
+| Streaming (portforward ×2) | 2 | **Real gap** |
+| Seccomp profile path | 2 | One is a custom profile (fail-closed refusal); the other is a **deliberate divergence** — see below |
+| Image Manager | 2 | One is `DeadlineExceeded` on a network pull — potentially environment |
+| `PodPID` | 1 | `shareProcessNamespace` — touches `spawn()`, its own decision |
+| Port mapping with container port only | 1 | **Architecture**: the pod's IP is unreachable from the host under rootless |
+| NoNewPrivs | 1 | Honoured, but `chown_tree_once` takes ownership away from the setuid binary |
+| Remaining (log reopen, per-label stats, OOM, multi-container) | 4 | **Real gap** |
 
-**13 das 26 são de ambiente** (AppArmor + os 4 de mount). Das 13 restantes, duas
-são decisões de desenho por tomar e uma é um limite arquitectural do rootless.
+**13 of the 26 are environment-related** (AppArmor + the 4 mount ones). Of the remaining 13,
+two are design decisions still to be made and one is an architectural limit of rootless.
 
-### Divergência deliberada: sem perfil ≠ sem confinamento
+### Deliberate divergence: no profile ≠ no confinement
 
-O spec «nil profile, which is unconfined» exige que um contentor SEM perfil
-declarado corra com `Seccomp: 0`. É o que o containerd faz. **Aqui não**: sem
-perfil aplica-se o allowlist embutido do motor, e o valor é `Seccomp: 2`.
+The "nil profile, which is unconfined" spec requires that a container with NO
+declared profile runs with `Seccomp: 0`. That's what containerd does. **Not here**: with no
+profile, the engine's built-in allowlist applies, and the value is `Seccomp: 2`.
 
-Somos mais restritos do que a especificação pede, e isso não se vai mudar para
-ganhar um spec. Fica registado como divergência conhecida, não como lacuna.
+We're stricter than the spec requires, and that is not going to change just to
+win a spec. It's recorded as a known divergence, not a gap.
 
-Nenhuma destas é surpresa de arquitectura; são superfície por escrever. Tirando
-o AppArmor, que é ambiente, os maiores blocos restantes são **propagação de
-mounts** (3) e **rede** (3), e o próximo com valor real para um kubelet é
-`shareProcessNamespace`, que já estava identificado como Fase 3 do trabalho de
-pods e toca o `spawn()` de ~405 linhas que este repo assinala como função de
-risco.
+None of these is an architectural surprise; they're surface not yet written. Setting
+aside AppArmor, which is environmental, the biggest remaining blocks are **mount
+propagation** (3) and **networking** (3), and the next one with real value for a kubelet is
+`shareProcessNamespace`, which was already identified as Phase 3 of the pod
+work and touches the ~405-line `spawn()` this repo flags as a high-risk
+function.
 
-## O que este número NÃO diz
+## What this number does NOT say
 
-* Não foi corrido como **root**. Várias falhas (AppArmor, HostPID) podem mudar
-  de sinal aí; não foi medido, portanto não se afirma.
-* `critest` não exercita um kubelet real. Um cluster kubeadm a arrancar sobre
-  este motor está provado à parte (ver o `AGENTS.md`, secção «CLUSTER KUBERNETES
-  REAL A CORRER»), e é uma prova diferente — mais estreita e mais funda.
-* 19 specs foram **skipped** pela própria suite (features que ela deteta como
-  não anunciadas). Não contam como passe nem como falha.
-* `ListPodSandboxMetrics`/`ListMetricDescriptors` (a API genérica de métricas,
-  distinta da API de Stats acima) passaram de stub-vazio a implementação real
-  DEPOIS desta medição — reaproveitam a mesma leitura de cgroup v2 que
-  `ContainerStats`/`PodSandboxStats` já usavam, com o par nome-de-métrica ↔
-  descritor verificado por teste (o spec define que um nome sem descritor
-  correspondente é ignorado pelo chamador). **`critest` v1.36.0 não exercita
-  nenhuma das duas** (confirmado por grep neste documento) — a validação que
-  existe é um round-trip gRPC real (`grpc_status.rs`), não uma re-corrida da
-  suite. O número acima (79/103) **não muda** por causa disto.
+* It was not run as **root**. Several failures (AppArmor, HostPID) could flip
+  sign there; it was not measured, so no claim is made.
+* `critest` does not exercise a real kubelet. A kubeadm cluster booting on
+  this engine is proven separately (see `AGENTS.md`, the "REAL KUBERNETES
+  CLUSTER RUNNING" section), and it's a different kind of proof — narrower and
+  deeper.
+* 19 specs were **skipped** by the suite itself (features it detects as
+  not advertised). They count neither as a pass nor as a fail.
+* `ListPodSandboxMetrics`/`ListMetricDescriptors` (the generic metrics API,
+  distinct from the Stats API above) went from empty stub to a real implementation
+  AFTER this measurement — they reuse the same cgroup v2 reads
+  `ContainerStats`/`PodSandboxStats` already used, with the metric-name ↔
+  descriptor pairing verified by a test (the spec defines that a name with no
+  matching descriptor is ignored by the caller). **`critest` v1.36.0 does not exercise
+  either one** (confirmed by grep in this document) — the validation that
+  exists is a real gRPC round-trip (`grpc_status.rs`), not a suite re-run.
+  The number above (79/103) **does not change** because of this.

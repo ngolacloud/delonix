@@ -208,7 +208,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn um_share_e_possuivel_por_uma_stack() {
+    fn a_share_can_be_owned_by_a_stack() {
         let root = tempfile::tempdir().unwrap();
         let tmp = root.path();
         let vstore = VolumeStore::open(tmp).unwrap();
@@ -241,11 +241,11 @@ mod tests {
     }
 
     #[test]
-    fn apply_recusa_storage_ref_inexistente() {
+    fn apply_refuses_nonexistent_storage_ref() {
         let root = tempfile::tempdir().unwrap();
         let tmp = root.path();
         let spec = ShareVolumeSpec {
-            storage_ref: "nao-existe".to_string(),
+            storage_ref: "does-not-exist".to_string(),
             quota: None,
             alert_pct: None,
         };
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_e_idempotente_e_isola_por_subdirectorio() {
+    fn apply_is_idempotent_and_isolates_by_subdirectory() {
         let root = tempfile::tempdir().unwrap();
         let tmp = root.path();
         let vstore = VolumeStore::open(tmp).unwrap();
@@ -274,7 +274,7 @@ mod tests {
         let b = scoped.inspect("tenant-b").unwrap();
         assert_ne!(
             a.mountpoint, b.mountpoint,
-            "cada tenant tem o SEU subdirectório"
+            "each tenant has ITS OWN subdirectory"
         );
         assert!(a.mountpoint.contains("nas-shared"));
         assert!(a.mountpoint.ends_with("tenant-a"));
@@ -287,7 +287,7 @@ mod tests {
         assert_eq!(a.created_unix, a2.created_unix);
         assert_eq!(
             a.mountpoint, a2.mountpoint,
-            "um re-apply não pode mudar o directório debaixo dos dados"
+            "a re-apply must not change the directory out from under the data"
         );
     }
 
@@ -340,14 +340,14 @@ mod tests {
         );
     }
 
-    /// O invariante do B2: dois inquilinos, o MESMO nome, e caminhos distintos.
+    /// The B2 invariant: two tenants, the SAME name, and distinct paths.
     ///
-    /// Antes do escopo, o caminho dos dados era `<storage>/shares/<nome>` — sem namespace —
-    /// por isso dois `db` partilhavam o directório. O teste afirma as duas coisas que têm de
-    /// valer ao mesmo tempo: caminhos distintos, e `-v db` a resolver para o `db` da SUA
+    /// Before scoping, the data path was `<storage>/shares/<name>` — no namespace —
+    /// so two `db`s shared the directory. The test asserts the two things that have to
+    /// hold at the same time: distinct paths, and `-v db` resolving to the `db` of ITS OWN
     /// namespace.
     #[test]
-    fn dois_namespaces_com_o_mesmo_share_nao_se_tocam() {
+    fn two_namespaces_with_the_same_share_do_not_touch() {
         let root = tempfile::tempdir().unwrap();
         let tmp = root.path();
         let vstore = VolumeStore::open(tmp).unwrap();
@@ -370,13 +370,13 @@ mod tests {
             .unwrap();
         assert_ne!(
             a.mountpoint, b.mountpoint,
-            "cada namespace tem o SEU caminho"
+            "each namespace has ITS OWN path"
         );
         assert!(a.mountpoint.contains("teamA"), "{}", a.mountpoint);
         assert!(b.mountpoint.contains("teamB"), "{}", b.mountpoint);
 
-        // `-v db:/data` resolve para o db da namespace de quem monta, nao para o outro.
+        // `-v db:/data` resolves to the db of the mounting namespace, not the other one.
         let m = vstore.resolve_spec_in("db:/data", "teamB").unwrap();
-        assert_eq!(m.source, b.mountpoint, "teamB tem de receber o SEU db");
+        assert_eq!(m.source, b.mountpoint, "teamB must get ITS OWN db");
     }
 }

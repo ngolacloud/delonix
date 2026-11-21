@@ -1,17 +1,17 @@
-// Uma entrada por comando da CLI. GERADA a partir da árvore viva do binário
-// (`scratchpad/build_entries.py`) e do conteúdo editorial, mas é o ficheiro
-// COMMITADO que conta — a partir daqui edita-se à mão.
+// One entry per CLI command. GENERATED from the binary's live tree
+// (`scratchpad/build_entries.py`) and the editorial content, but it is the
+// COMMITTED file that counts — from here on it is edited by hand.
 //
-// `include!`d por `manual.rs` — à parte só por tamanho: aqui está o CONTEÚDO (o
-// que cada comando faz e como se usa), lá está o mecanismo que o aplica.
-// Misturá-los faria a revisão de uma frase de exemplo abrir 400 linhas de
-// renderização de texto.
+// `include!`d by `manual.rs` — split out only for size: here is the CONTENT
+// (what each command does and how it is used), there is the mechanism that
+// applies it. Mixing them would make reviewing one example sentence open 400
+// lines of text rendering.
 //
-// Regras, todas com teste em `manual::tests`:
-//   * um `path` tem de existir na CLI, e todo o comando da CLI tem de estar aqui
-//     COM pelo menos um exemplo (presente-mas-vazio é a falha que o teste caça);
-//   * cada exemplo TEM de invocar o comando que documenta;
-//   * o comentário é traduzido (`pt.po`), a linha de comando nunca.
+// Rules, all with a test in `manual::tests`:
+//   * a `path` has to exist in the CLI, and every CLI command has to be here
+//     WITH at least one example (present-but-empty is the failure the test hunts);
+//   * each example MUST invoke the command it documents;
+//   * the comment is translated (`pt.po`), the command line never.
 
 pub static ENTRIES: &[Entry] = &[
     Entry {
@@ -2650,6 +2650,49 @@ pub static ENTRIES: &[Entry] = &[
         see_also: &["serve api", "provider ls", "system info"],
     },
     Entry {
+        path: "serve node-enroll",
+        group: "Advanced",
+        examples: &[
+            ("run the enrollment authority: trade a one-time token for a short client cert, auto-issuing its own server cert from the CA", "delonix serve node-enroll --addr tcp://0.0.0.0:7443 --ca-key node-ca.key --token s3cret --san 10.0.0.1"),
+            ("issue minute-lived certificates so expiry is observable, loading tokens from a file", "delonix serve node-enroll --addr tcp://0.0.0.0:7443 --token-file tokens.txt --cert-ttl 60s"),
+        ],
+        see_also: &["node-ca init", "node-enroll", "serve node-api"],
+    },
+    Entry {
+        path: "node-ca",
+        group: "Advanced",
+        examples: &[
+            ("create the node CA whose cert is every node's `--tls-client-ca` and whose key feeds the enrollment authority", "delonix node-ca init"),
+            ("take a member's certificate away by revoking its serial into a CRL", "delonix node-ca revoke --serial 9f3a…"),
+        ],
+        see_also: &["node-ca init", "node-ca revoke", "serve node-enroll"],
+    },
+    Entry {
+        path: "node-ca init",
+        group: "Advanced",
+        examples: &[
+            ("create the CA: `node-ca.crt` (the trust anchor) and `node-ca.key` (kept with the authority)", "delonix node-ca init"),
+            ("pick the subject name and output paths", "delonix node-ca init --cn fleet-ca --out-cert ca.crt --out-key ca.key"),
+        ],
+        see_also: &["serve node-enroll", "node-ca revoke", "serve node-api"],
+    },
+    Entry {
+        path: "node-ca revoke",
+        group: "Advanced",
+        examples: &[
+            ("revoke a certificate by its serial into the CRL a node loads with `--tls-client-crl`", "delonix node-ca revoke --ca-key node-ca.key --serial 9f3a7c…"),
+        ],
+        see_also: &["node-ca init", "serve node-api"],
+    },
+    Entry {
+        path: "node-enroll",
+        group: "Advanced",
+        examples: &[
+            ("enroll this host: generate a key and CSR, spend a one-time token, write `client.key`/`client.crt`", "delonix node-enroll --server tcp://10.0.0.1:7443 --ca node-ca.crt --token s3cret --cn worker-7"),
+        ],
+        see_also: &["serve node-enroll", "node-ca init"],
+    },
+    Entry {
         path: "serve cri",
         group: "Advanced",
         examples: &[
@@ -3398,6 +3441,15 @@ pub static ENTRIES: &[Entry] = &[
             ("watch the boot and log in before there is any IP or SSH — Ctrl-D brings you back to the host", "delonix vm console dev"),
         ],
         see_also: &["vm vnc", "get", "vm create", "vm restart"],
+    },
+    Entry {
+        path: "vm logs",
+        group: "Interact",
+        examples: &[
+            ("read the captured serial console of a VM created with --capture-serial (a log shipper tails the same file)", "delonix vm logs dev"),
+            ("follow the serial console live", "delonix vm logs dev -f"),
+        ],
+        see_also: &["vm console", "vm create", "logs"],
     },
     Entry {
         path: "vm ssh",

@@ -43,7 +43,7 @@ A LOOSEN/OPAQUE change carries, in the commit body (or a linked
 `reports/harness-control-changes/` note), four fields:
 
 1. **Diff** — the exact control and the before→after value.
-2. **Motivo / reason** — why the floor must move.
+2. **Reason** — why the floor must move.
 3. **Impacto / impact** — the measurable effect (what is now permitted that was
    not; how many sites; which suite's denominator changed and by how much).
 4. **Revisão / review** — evidence of review by someone **other than the

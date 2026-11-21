@@ -158,6 +158,16 @@ async fn update_container_lowers_the_live_memory_max() {
         "the created limit did not reach the live cgroup"
     );
 
+    // ADR-0099: the create stamped generation 1 and, once the launch succeeded,
+    // advanced observedGeneration to it — the control plane reads this as realized.
+    let meta = got.meta.clone().unwrap();
+    assert_eq!(meta.generation, 1, "first apply must be generation 1");
+    assert_eq!(
+        meta.observed_generation, 1,
+        "a successful create must converge observedGeneration to generation"
+    );
+    assert_eq!(meta.stored_version, "compute.delonix.io/v1beta1");
+
     // ---- Lower memory_limit to 64 MiB, masked to just that field.
     let updated = c
         .update_container(UpdateContainerRequest {
@@ -195,6 +205,51 @@ async fn update_container_lowers_the_live_memory_max() {
         updated.status.as_ref().unwrap().pid,
         pid,
         "the pid changed: this was a restart, not a live resize"
+    );
+
+    // ADR-0099: the resize changed the desired spec, so generation bumped to 2;
+    // the write reconciled synchronously, so observedGeneration converged in the
+    // same save. A control plane reads generation==observedGeneration: realized.
+    let um = updated.meta.as_ref().unwrap();
+    assert_eq!(um.generation, 2, "a changed spec must bump generation to 2");
+    assert_eq!(
+        um.observed_generation, 2,
+        "a synchronous resize must converge observedGeneration"
+    );
+
+    // ADR-0099: re-applying the SAME lowered limit keeps generation at 2 (the
+    // applied-spec fingerprint is unchanged) — an idempotent apply is not a new
+    // generation.
+    let again = c
+        .update_container(UpdateContainerRequest {
+            namespace: "default".into(),
+            name: name.into(),
+            container: Some(Container {
+                meta: Some(ResourceMeta {
+                    name: name.into(),
+                    namespace: "default".into(),
+                    ..Default::default()
+                }),
+                spec: Some(ContainerSpec {
+                    resources: Some(Resources {
+                        memory_limit_bytes: LOWERED,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            update_mask: Some(pbjson_types::FieldMask {
+                paths: vec!["spec.resources.memory_limit_bytes".into()],
+            }),
+        })
+        .await
+        .expect("UpdateContainer (idempotent) over gRPC")
+        .into_inner();
+    let am = again.meta.as_ref().unwrap();
+    assert_eq!(
+        am.generation, 2,
+        "an unchanged spec must keep the generation"
     );
 
     // ---- The kernel now enforces the lowered limit, same live cgroup.

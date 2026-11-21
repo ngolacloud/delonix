@@ -226,17 +226,18 @@ pub(crate) fn converge(name: &str, diffs: &[super::reconcile::FieldDiff]) -> Res
                 for p in &removed {
                     remove_peer_everywhere(&store, name, p)?;
                 }
-                // **O lado ADD nunca tocou no dataplane**, e só se viu ao ligar o
-                // lado remove: `add_overlay_peer` escreve o registo e mais nada —
-                // quem semeia o FDB é o `realize_overlay`, que corre no `create`.
-                // Medido: acrescentar peers por manifesto deixava-os no registo e
-                // FORA do FDB, ou seja o overlay não os alcançava enquanto o
-                // `network inspect` jurava que sim.
+                // **The ADD side never touched the dataplane**, and it only
+                // showed up once the remove side was wired: `add_overlay_peer`
+                // writes the record and nothing else — the FDB is seeded by
+                // `realize_overlay`, which runs in `create`. Measured: adding
+                // peers via manifest left them in the record and OUT of the FDB,
+                // so the overlay could not reach them while `network inspect`
+                // swore it could.
                 //
-                // Re-semeia com a lista FINAL em vez de só com os `added`: o
-                // `do_vxlan` acrescenta apenas o que falta (comparação por token
-                // exacto), logo é idempotente, e uma lista completa também repõe
-                // o que um respawn do holder tenha levado.
+                // Re-seed with the FINAL list rather than only the `added`: `do_vxlan`
+                // adds only what is missing (exact-token comparison), so it is
+                // idempotent, and a complete list also restores whatever a holder
+                // respawn carried off.
                 if !added.is_empty() {
                     reseed_overlay_fdb(&store, name)?;
                 }
@@ -1127,9 +1128,9 @@ fn cmd_ls(store: &NetworkStore, format: output::OutputFormat) -> Result<()> {
 /// network address, the broadcast, and the one that reads as declared but is not
 /// (`--gateway` repeating the derived value, which asks for nothing).
 fn declared_gateway(gateway: &str, subnet: &str) -> Result<Option<String>> {
-    // A MESMA regra que o plano usa para decidir se há declaração — uma segunda
-    // cópia dela é como o `create` e o `plan` passariam a discordar sobre o que
-    // conta como gateway declarado.
+    // The SAME rule the plan uses to decide whether a gateway was declared — a
+    // second copy of it is how `create` and `plan` would start disagreeing about
+    // what counts as a declared gateway.
     let Some(g) = normalized_gateway(gateway, Some(subnet)) else {
         return Ok(None);
     };
@@ -2048,10 +2049,10 @@ mod tests {
     use super::NetworkSpec;
 
     #[test]
-    fn networkspec_aceita_wg_ip_legado_e_wgip_canonico() {
-        let legado: NetworkSpec =
+    fn networkspec_accepts_legacy_wg_ip_and_canonical_wgip() {
+        let legacy: NetworkSpec =
             serde_yaml::from_str("driver: overlay\nwg_ip: 10.9.0.1\n").unwrap();
-        assert_eq!(legado.wg_ip.as_deref(), Some("10.9.0.1"));
+        assert_eq!(legacy.wg_ip.as_deref(), Some("10.9.0.1"));
         let canon: NetworkSpec = serde_yaml::from_str("driver: overlay\nwgIp: 10.9.0.1\n").unwrap();
         assert_eq!(canon.wg_ip.as_deref(), Some("10.9.0.1"));
     }
@@ -2059,7 +2060,7 @@ mod tests {
     /// Same guard as the sibling Kinds: the documented list is the constant's
     /// real consumer, so a field cannot start being compared in silence.
     #[test]
-    fn os_campos_comparados_sao_os_documentados() {
+    fn the_compared_fields_are_the_documented_ones() {
         let spec: super::NetworkSpec = serde_yaml::from_str(
             "driver: overlay\nsubnet: 10.42.0.0/16\nvni: 42\npeers: [10.0.0.7]\n",
         )
@@ -2071,21 +2072,21 @@ mod tests {
                 "{k} is compared but undocumented"
             );
         }
-        // Um manifesto que não declara gateway não põe o campo em lado nenhum —
-        // e é isso, e não a ausência da comparação, que mantém uma rede normal a
-        // zero diferenças. A versão anterior desta asserção dizia que o campo
-        // NUNCA é comparado, o que passou a fixar em teste o bug de o
-        // `spec.gateway` ser aceite e invisível ao plano.
+        // A manifest that declares no gateway never puts the field anywhere —
+        // and that, not the absence of a comparison, is what keeps a normal
+        // network at zero differences. The previous version of this assertion
+        // claimed the field is NEVER compared, which pinned into a test the very
+        // bug of `spec.gateway` being accepted and invisible to the plan.
         assert!(!f.contains_key("gateway"));
     }
 
-    /// **Um gateway igual ao derivado não declara nada** — nos dois lados.
+    /// **A gateway equal to the derived one declares nothing** — on both sides.
     ///
-    /// Se só um dos lados normalizasse, escrever o endereço derivado à mão no
-    /// manifesto punha um valor no desejado e nada no observado: deriva proposta
-    /// para sempre sobre uma rede que ninguém mexeu.
+    /// If only one side normalized, writing the derived address by hand in the
+    /// manifest put a value on the desired side and nothing on the actual one:
+    /// drift proposed forever over a network nobody had touched.
     #[test]
-    fn o_gateway_igual_ao_derivado_nao_e_declaracao() {
+    fn a_gateway_equal_to_the_derived_one_is_not_a_declaration() {
         let sub = Some("10.42.0.0/16");
         assert_eq!(super::normalized_gateway("", sub), None);
         assert_eq!(super::normalized_gateway("10.42.0.1", sub), None);
@@ -2093,46 +2094,46 @@ mod tests {
             super::normalized_gateway("10.42.0.254", sub).as_deref(),
             Some("10.42.0.254")
         );
-        // `/22` — o derivado deixa de ser `.0.1`, e é aqui que uma fórmula fixa
-        // de dois octetos daria a resposta errada.
+        // `/22` — the derived address is no longer `.0.1`, and this is where a
+        // fixed two-octet formula would give the wrong answer.
         assert_eq!(
             super::normalized_gateway("172.20.4.1", Some("172.20.4.0/22")),
             None
         );
     }
 
-    /// **O `--gateway` é validado com e SEM `--subnet`.**
+    /// **`--gateway` is validated WITH and WITHOUT `--subnet`.**
     ///
-    /// A validação vivia dentro do braço `Some(subnet)` do `match` enquanto o
-    /// valor era consumido fora dele: `network create x --gateway 8.8.8.8` (sem
-    /// `--subnet`) escrevia-o no registo sem uma única verificação, o `create`
-    /// dizia sucesso, e o primeiro `attach` morria num `ip route add default via`
-    /// para um endereço que não está na rede.
+    /// The validation lived inside the `Some(subnet)` arm of the `match` while the
+    /// value was consumed outside it: `network create x --gateway 8.8.8.8` (with no
+    /// `--subnet`) wrote it to the record without a single check, `create` reported
+    /// success, and the first `attach` died on an `ip route add default via` to an
+    /// address that is not on the network.
     #[test]
-    fn o_gateway_declarado_e_sempre_validado_contra_o_prefixo() {
+    fn the_declared_gateway_is_always_validated_against_the_prefix() {
         let sub = "10.42.0.0/16";
-        // Fora do prefixo — o caso que escapava sem `--subnet`.
+        // Outside the prefix — the case that slipped through without `--subnet`.
         assert!(super::declared_gateway("8.8.8.8", sub).is_err());
-        // Endereço de rede e broadcast: existem, e nenhum responde.
+        // Network and broadcast addresses: they exist, and neither answers.
         assert!(super::declared_gateway("10.42.0.0", sub).is_err());
         assert!(super::declared_gateway("10.42.255.255", sub).is_err());
-        assert!(super::declared_gateway("nao-e-um-ip", sub).is_err());
-        // Dentro do prefixo, e diferente do derivado: é uma declaração.
+        assert!(super::declared_gateway("not-an-ip", sub).is_err());
+        // Inside the prefix, and different from the derived one: a declaration.
         assert_eq!(
             super::declared_gateway("10.42.0.254", sub)
                 .unwrap()
                 .as_deref(),
             Some("10.42.0.254")
         );
-        // Igual ao derivado, ou ausente: não declara nada, e não é erro.
+        // Equal to the derived one, or absent: declares nothing, and is no error.
         assert_eq!(super::declared_gateway("10.42.0.1", sub).unwrap(), None);
         assert_eq!(super::declared_gateway("", sub).unwrap(), None);
     }
 
-    /// O ROUND-TRIP que todo o Kind convergente tem de cumprir: um manifesto
-    /// inalterado dá ZERO diferenças, com e sem gateway declarado.
+    /// The ROUND-TRIP every convergent Kind must satisfy: an unchanged manifest
+    /// yields ZERO differences, with and without a declared gateway.
     #[test]
-    fn um_manifesto_inalterado_nao_tem_deriva_de_gateway() {
+    fn an_unchanged_manifest_has_no_gateway_drift() {
         for (yaml, effective) in [
             ("driver: bridge\nsubnet: 10.42.0.0/16\n", "10.42.0.1"),
             (
@@ -2143,43 +2144,43 @@ mod tests {
             let spec: super::NetworkSpec = serde_yaml::from_str(yaml).unwrap();
             let want = super::normalized_gateway(&spec.gateway, spec.subnet.as_deref());
             let have = super::normalized_gateway(effective, Some("10.42.0.0/16"));
-            assert_eq!(want, have, "manifesto inalterado propôs deriva: {yaml}");
+            assert_eq!(want, have, "unchanged manifest proposed drift: {yaml}");
         }
     }
 
-    /// **O destino do FDB tem de ser o MESMO no realize e na remoção.**
+    /// **The FDB destination must be the SAME in realize and in removal.**
     ///
-    /// A regra («`wg_ip` se o overlay é cifrado, senão o `node_ip`») vivia só
-    /// dentro do `realize_overlay`. Duplicá-la no caminho de remoção é como as
-    /// duas passam a discordar — e o sintoma seria o pior possível: apaga-se a
-    /// entrada ERRADA, o peer removido continua a receber tráfego e um que devia
-    /// ficar deixa de o receber. Por isso é uma função, e este teste exerce-a com
-    /// as duas formas que um peer pode ter.
+    /// The rule ("`wg_ip` if the overlay is encrypted, otherwise the `node_ip`")
+    /// used to live only inside `realize_overlay`. Duplicating it on the removal
+    /// path is how the two come to disagree — and the symptom would be the worst
+    /// possible: the WRONG entry gets deleted, the removed peer keeps receiving
+    /// traffic and one that should stay stops receiving it. Hence it is a function,
+    /// and this test exercises it with both forms a peer can take.
     #[test]
-    fn o_dst_do_fdb_e_o_mesmo_para_as_duas_formas_de_peer() {
-        // Cifrado: manda o `wg_ip`, que é o endereço DENTRO do túnel.
-        let cifrado = (
+    fn the_fdb_dst_is_the_same_for_both_peer_forms() {
+        // Encrypted: sends the `wg_ip`, which is the address INSIDE the tunnel.
+        let encrypted = (
             "10.0.0.7".to_string(),
-            Some(("chave".to_string(), "10.9.0.7".to_string())),
+            Some(("key".to_string(), "10.9.0.7".to_string())),
         );
-        assert_eq!(super::peer_fdb_dst(&cifrado), "10.9.0.7");
-        // Em claro: manda o `node_ip`, o endereço real do nó.
-        let claro = ("10.0.0.8".to_string(), None);
-        assert_eq!(super::peer_fdb_dst(&claro), "10.0.0.8");
-        // E o que a função devolve é o que o `parse_overlay_peer` produz a partir
-        // da string do registo — o elo que fecha o ciclo add→remove.
-        let do_registo = delonix_sdn::parse_overlay_peer("10.0.0.7=chave=10.9.0.7");
-        assert_eq!(super::peer_fdb_dst(&do_registo), "10.9.0.7");
+        assert_eq!(super::peer_fdb_dst(&encrypted), "10.9.0.7");
+        // Plain: sends the `node_ip`, the node's real address.
+        let plain = ("10.0.0.8".to_string(), None);
+        assert_eq!(super::peer_fdb_dst(&plain), "10.0.0.8");
+        // And what the function returns is what `parse_overlay_peer` produces from
+        // the registry string — the link that closes the add→remove cycle.
+        let from_registry = delonix_sdn::parse_overlay_peer("10.0.0.7=key=10.9.0.7");
+        assert_eq!(super::peer_fdb_dst(&from_registry), "10.9.0.7");
     }
 
-    /// O nome do device VXLAN tem UMA fórmula, e é hex.
+    /// The VXLAN device name has ONE formula, and it is hex.
     ///
-    /// Escrevi `format!("dlxvx{vni}")` (decimal) na primeira versão da remoção, e
-    /// o `Network::vxlan_dev()` produz `dlxvx002a` para o VNI 42. A deleção teria
-    /// ido para um device inexistente e reportado sucesso — o peer a receber
-    /// tráfego com o registo a dizer que saiu.
+    /// I wrote `format!("dlxvx{vni}")` (decimal) in the first version of the
+    /// removal, and `Network::vxlan_dev()` produces `dlxvx002a` for VNI 42. The
+    /// deletion would have gone to a nonexistent device and reported success — the
+    /// peer still receiving traffic with the registry saying it had left.
     #[test]
-    fn o_nome_do_device_vxlan_e_o_do_motor() {
+    fn the_vxlan_device_name_is_the_engines() {
         let tmp = tempfile::tempdir().unwrap();
         let store = delonix_sdn::NetworkStore::open(tmp.path()).unwrap();
         let net = store.create_overlay("m", 42, &[], None, None).unwrap();

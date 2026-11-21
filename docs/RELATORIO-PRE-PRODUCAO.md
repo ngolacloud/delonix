@@ -1,147 +1,148 @@
-# Relatório pré-produção — CLI `delonix`
+# Pre-production report — `delonix` CLI
 
-> **Recorrido a 2026-08-10, na v0.47.0: 198 PASS · 0 FAIL · 0 SKIP.** A bateria não
-> corria desde a v0.3.0 e tinha nove falhas — **oito delas porque o teste codificava
-> um bug que entretanto foi corrigido**: usava `--subnet …/24`, que o motor ACEITAVA
-> e deitava fora com o driver bridge até a v0.48.0 lhe dar significado. É a mesma
-> armadilha que o `default_project_name` do compose já tinha dado, e a lição é a
-> mesma: quando uma correcção faz um teste antigo falhar, a primeira hipótese a
-> testar é que o teste estava a fixar o comportamento errado. A nona era uma guarda
-> a comparar o REPOSITÓRIO quando o comando a seguir usava a TAG (`alpine:latest`
-> no store, `alpine:3.19` ausente → o `grep alpine` passava e o `describe` falhava).
-> Corrido numa sandbox isolada (`DELONIX_ROOT`/`DELONIX_NET_RUNTIME_DIR` próprios),
-> sem tocar nos containers de produção deste host. O resto deste documento é o
-> relatório ORIGINAL, de 2026-07-17, e fica como está: é um registo datado.
+> **Re-run on 2026-08-10, on v0.47.0: 198 PASS · 0 FAIL · 0 SKIP.** The battery had not
+> run since v0.3.0 and had nine failures — **eight of them because the test encoded
+> a bug that had since been fixed**: it used `--subnet …/24`, which the engine ACCEPTED
+> and silently discarded with the bridge driver until v0.48.0 gave it meaning. It's the same
+> trap the compose `default_project_name` had already sprung, and the lesson is the
+> same: when a fix makes an old test fail, the first hypothesis to test is that the test was
+> pinning the wrong behavior. The ninth was a guard comparing the REPOSITORY when the
+> next command used the TAG (`alpine:latest` in the store, `alpine:3.19` absent → the
+> `grep alpine` passed and `describe` failed).
+> Run in an isolated sandbox (its own `DELONIX_ROOT`/`DELONIX_NET_RUNTIME_DIR`),
+> without touching this host's production containers. The rest of this document is the
+> ORIGINAL report, from 2026-07-17, and stands as-is: it is a dated record.
 
-**Data**: 2026-07-17 · **Binário**: `delonix 0.3.0` (build local, `target/debug`)
-**Bateria**: [`scripts/e2e.sh`](../scripts/e2e.sh) — 140 verificações sobre a CLI real, com
-containers/redes/volumes a sério. **Resultado: 139 PASS · 1 FAIL · 0 SKIP.**
+**Date**: 2026-07-17 · **Binary**: `delonix 0.3.0` (local build, `target/debug`)
+**Battery**: [`scripts/e2e.sh`](../scripts/e2e.sh) — 140 checks against the real CLI, with
+real containers/networks/volumes. **Result: 139 PASS · 1 FAIL · 0 SKIP.**
 
-O `e2e.sh` cobre: `--help` de todos os grupos **e de cada subcomando** (descoberto por parsing do
-próprio help, portanto não fica desactualizado sozinho), todos os comandos de leitura, um bloco de
-**erros esperados** (a CLI tem de RECUSAR, não aceitar em silêncio), ciclo de vida de
-volume/network/container, hot reconfig nos dois caminhos de rede, e `stack apply`/`describe`.
+`e2e.sh` covers: `--help` for every group **and every subcommand** (discovered by parsing
+the help itself, so it cannot go stale on its own), every read command, a block of
+**expected errors** (the CLI must REFUSE, not silently accept), volume/network/container
+lifecycle, hot reconfig on both network paths, and `stack apply`/`describe`.
 
-> **Regra que custou horas noutras sessões e continua válida**: nunca testar com o `delonix` do
-> `PATH`. Processos de longa duração correm o binário de quando NASCERAM, e um binário velho em
-> `~/.local/bin` sabota testes de código novo. O `e2e.sh` usa o build local por omissão.
+> **A rule that cost hours in other sessions and remains valid**: never test with the `delonix`
+> on the `PATH`. Long-running processes run the binary they were BORN with, and an old binary in
+> `~/.local/bin` sabotages tests of new code. `e2e.sh` uses the local build by default.
 
 ---
 
-## 1. Bugs encontrados e CORRIGIDOS nesta sessão
+## 1. Bugs found and FIXED in this session
 
-| # | Severidade | Bug | Estado |
+| # | Severity | Bug | Status |
 |---|---|---|---|
-| 1 | **CRÍTICA** | **Toda a montagem a quente falhava.** `mount_live`/`unmount_live` gatavam o `setns(user)` em `container.userns`, mas esse campo diz se o container **criou** o seu userns — os do ingress rootless **herdam** o do holder e ficam com `userns=false` apesar de estarem num userns diferente. Sem o setns, o `unshare(NEWNS)` seguinte dava EPERM (código 124). Nunca tinha aparecido porque estas funções **não tinham um único chamador**. | Corrigido + validado com container real |
-| 2 | **ALTA** | **`stop && start` falhava sempre.** O `unpublish_ports` fazia `return` no caminho slirp-por-container, afirmando que "o slirp morre com o netns do container". É falso: o slirp só sai quando NOTA que o netns desapareceu, e até lá segura a porta. Medido: **0/3 arranques** antes, **5/5** depois. | Corrigido (`reap_slirp_for`, cirúrgico e síncrono) |
-| 3 | **ALTA** | **Os testes de regressão dos 4 CRÍTICOS de segurança estavam MORTOS.** `cargo test -p delonix-runtime-bin` não compilava há vários commits (26 erros em `cmd/cluster.rs`: as specs ganharam campos e os testes não acompanharam). O AGENTS.md afirmava que esses testes existiam e corriam. | Corrigido — 61→72 testes a correr |
-| 4 | **MÉDIA** | **`ssh @host` em vez de `ssh delonix@host`.** `SshSpec` derivava `Default`, logo um `cloud.yaml` **sem bloco `ssh:`** dava `user: ""` (o `#[serde(default = "…")]` só actua quando o bloco existe). | Corrigido + 2 testes de regressão |
-| 5 | BAIXA | `image ls` mostrava **"1 weeks ago"** para 7–13 dias (código novo desta sessão). | Corrigido — porta o `HumanDuration` do docker à letra |
+| 1 | **CRITICAL** | **Every hot mount was failing.** `mount_live`/`unmount_live` gated the `setns(user)` on `container.userns`, but that field says whether the container **created** its own userns — rootless ingress containers **inherit** the holder's and end up with `userns=false` even though they are in a different userns. Without the setns, the following `unshare(NEWNS)` returned EPERM (code 124). This had never surfaced because these functions **had no caller at all**. | Fixed + validated with a real container |
+| 2 | **HIGH** | **`stop && start` always failed.** `unpublish_ports` did a `return` on the slirp-per-container path, asserting that "slirp dies with the container's netns". That is false: slirp only exits once it NOTICES the netns has disappeared, and until then it holds the port. Measured: **0/3 startups** before, **5/5** after. | Fixed (`reap_slirp_for`, surgical and synchronous) |
+| 3 | **HIGH** | **The regression tests for the 4 CRITICAL security findings were DEAD.** `cargo test -p delonix-runtime-bin` had not compiled for several commits (26 errors in `cmd/cluster.rs`: the specs gained fields and the tests did not keep up). AGENTS.md claimed these tests existed and ran. | Fixed — 61→72 tests running |
+| 4 | **MEDIUM** | **`ssh @host` instead of `ssh delonix@host`.** `SshSpec` derived `Default`, so a `cloud.yaml` **with no `ssh:` block** produced `user: ""` (the `#[serde(default = "…")]` only kicks in when the block exists). | Fixed + 2 regression tests |
+| 5 | LOW | `image ls` showed **"1 weeks ago"** for 7–13 days (new code from this session). | Fixed — ports docker's `HumanDuration` verbatim |
 
 ---
 
-## 2. ⚠️ ACHADO PRINCIPAL — as portas publicadas morrem sozinhas (**e a culpa não é do runtime**)
+## 2. ⚠️ MAIN FINDING — published ports die on their own (**and it's not the runtime's fault**)
 
-**Este é o bloqueio nº1 para produção, e estava mal diagnosticado há várias sessões.**
+**This is blocker #1 for production, and it had been misdiagnosed for several sessions.**
 
-### Sintoma
-Uma porta publicada funciona (HTTP 200) e **~10–16s depois deixa de servir**, com o container ainda
-`Running` e sem ninguém ter feito `stop`/`rm`.
+### Symptom
+A published port works (HTTP 200) and **~10–16s later stops serving**, with the container
+still `Running` and no one having done `stop`/`rm`.
 
-### O que estava documentado (e está ERRADO)
-O `AGENTS.md` dizia *"as duas metades do `publish_port` (slirp_add_hostfwd + control_send) falham em
-SILÊNCIO"* e mandava procurar quem chamava `unpublish_port`. **Ambas as premissas são falsas** — foi
-por isso que a investigação nunca fechou.
+### What was documented (and is WRONG)
+`AGENTS.md` said *"the two halves of `publish_port` (slirp_add_hostfwd + control_send) fail
+SILENTLY"* and directed the search toward whoever called `unpublish_port`. **Both premises are
+false** — that's why the investigation never closed.
 
-### O que ficou PROVADO, por medição
-1. **A metade do DNAT está sempre intacta** — `nft list table ip dlxing` mostra a regra na chain
-   `pre` muito depois de o `curl` já dar `000`. Só o `hostfwd` do slirp desaparece.
-2. **O `publish` FUNCIONA** — `list_hostfwd` mostra a entrada e o `curl` dá 200. Não falha em silêncio.
-3. **Nenhum código do `delonix-runtime` o remove.** Instrumentei `unpublish_port`,
-   `slirp_remove_hostfwd`, **todos** os comandos não-`list` do `slirp_api` (o que apanha o
-   `remove_hostfwd` que o `reap_orphan_hostfwds` envia directamente, sem passar pelas funções
-   nomeadas) e o `control_send`. **Zero ocorrências**, em todas as reproduções.
-4. **O slirp não reinicia** e o **holder não reinicia** (mesmo pid). O `control_loop` do holder é
-   puramente reactivo — não tem nada periódico.
-5. **Um hostfwd adicionado À MÃO pelo api-socket, sem delonix nenhum envolvido, também desaparece**
-   (16,51s). Logo não é o nosso caminho de publicação.
-6. **Não é bug do slirp4netns** — um `slirp4netns` de sala limpa, com **exactamente as mesmas flags**,
-   contra um alvo `unshare -r -n`, manteve o hostfwd os 33s todos.
+### What was PROVEN, by measurement
+1. **The DNAT half is always intact** — `nft list table ip dlxing` shows the rule on the
+   `pre` chain long after `curl` already returns `000`. Only slirp's `hostfwd` disappears.
+2. **`publish` WORKS** — `list_hostfwd` shows the entry and `curl` returns 200. It does not fail silently.
+3. **No code in `delonix-runtime` removes it.** I instrumented `unpublish_port`,
+   `slirp_remove_hostfwd`, **every** non-`list` command of `slirp_api` (which catches the
+   `remove_hostfwd` that `reap_orphan_hostfwds` sends directly, bypassing the named functions)
+   and `control_send`. **Zero occurrences**, across every reproduction.
+4. **slirp does not restart** and the **holder does not restart** (same pid). The holder's
+   `control_loop` is purely reactive — it has nothing periodic.
+5. **A hostfwd added BY HAND through the api-socket, with no delonix involved at all, also
+   disappears** (16.51s). So it is not our publish path.
+6. **It is not a slirp4netns bug** — a clean-room `slirp4netns`, with **exactly the same flags**,
+   against an `unshare -r -n` target, kept the hostfwd for the full 33s.
 
-### Causa-raiz (provada com SIGSTOP)
+### Root cause (proven with SIGSTOP)
 
-**É o `delonix-engine` — o PaaS privado — a reapar as portas do runtime.**
+**It's `delonix-engine` — the private PaaS — reaping the runtime's ports.**
 
 ```
-engines A CORRER   →  hostfwd criado a t=0,00s  ·  DESAPARECE a t=12,01s
-engines CONGELADOS →  hostfwd criado a t=0,00s  ·  PERSISTE os 30s todos
-(SIGSTOP/SIGCONT, sem matar nada; engines retomaram normalmente)
+engines RUNNING   →  hostfwd created at t=0.00s  ·  DISAPPEARS at t=12.01s
+engines FROZEN    →  hostfwd created at t=0.00s  ·  PERSISTS for all 30s
+(SIGSTOP/SIGCONT, nothing killed; engines resumed normally)
 ```
 
-Dois factores que se somam, ambos em `delonix-paas`:
+Two factors adding up, both in `delonix-paas`:
 
-1. **`crates/delonix-api/src/ui.rs:12937`** — `delonix_net::infra::reap_orphan_hostfwds(&live)`. O
-   `live` só contém os containers **do próprio PaaS**. Toda a porta publicada pela CLI do runtime é,
-   para o engine, um "órfão" a limpar. Ele está a reapar estado que não é dele.
+1. **`crates/delonix-api/src/ui.rs:12937`** — `delonix_net::infra::reap_orphan_hostfwds(&live)`.
+   `live` only contains the **PaaS's own** containers. Every port published by the runtime's CLI
+   is, to the engine, an "orphan" to clean up. It is reaping state that is not its own.
 2. **`crates/delonix-api/Cargo.toml:15`** — `delonix-net = { git = "…delonix-runtime", tag = "v0.1.0" }`.
-   O PaaS está preso à **tag v0.1.0**, ou seja à versão ANTIGA do reaper (a do bug fail-open:
-   lista vazia ⇒ conclui que nada está em uso ⇒ apaga tudo). É por isso que remover o chamador no
-   `delonix-runtime` (commit `9bbbd11`) não resolveu nada — a cópia que corre é outra.
+   The PaaS is pinned to **tag v0.1.0**, i.e. the OLD version of the reaper (the fail-open bug:
+   empty list ⇒ concludes nothing is in use ⇒ deletes everything). That's why removing the caller
+   in `delonix-runtime` (commit `9bbbd11`) fixed nothing — the copy that runs is a different one.
 
-Isto explica tudo o que não fazia sentido: porque é que o DNAT sobrevive (o reaper só toca em
-hostfwds), porque é que o trace nunca disparou (o removedor é outro processo, de outro produto), e
-porque é que a "tábua rasa" de uma sessão anterior não ajudou (o engine nunca entrou na limpeza).
+This explains everything that didn't add up: why the DNAT survives (the reaper only touches
+hostfwds), why the trace never fired (the remover is a different process, from a different
+product), and why a previous session's "clean slate" didn't help (the engine never entered the
+cleanup path).
 
-### Recomendação
-**Não é trabalho do `delonix-runtime`** — a correcção vive no `delonix-paas` e **não a fiz**
-(regra de isolamento: um worktree, um produto). Sugestões, por ordem:
+### Recommendation
+**This is not `delonix-runtime` work** — the fix lives in `delonix-paas` and **I did not make
+it** (isolation rule: one worktree, one product). Suggestions, in order:
 
-1. **`delonix-paas`**: o engine não pode reapar hostfwds que não criou. Ou o `live` passa a incluir
-   tudo o que está publicado no ingress partilhado, ou o reaper deixa de correr de todo (foi essa a
-   decisão tomada no runtime, em `9bbbd11`: reap **reactivo e cirúrgico**, só a porta que falha, só
-   quando falha).
-2. **`delonix-paas`**: subir o pin de `delonix-net` de `v0.1.0` para a versão actual.
-3. **`delonix-runtime`** (defesa em profundidade): `reap_orphan_hostfwds` é hoje **código morto** —
-   zero chamadores. Uma função pública que apaga estado partilhado e falha ABERTO com uma lista
-   vazia é uma armadilha para qualquer consumidor. **Apagá-la**, ou dá-la a fail-closed.
+1. **`delonix-paas`**: the engine must not reap hostfwds it did not create. Either `live` starts
+   including everything published on the shared ingress, or the reaper stops running at all (that
+   was the decision taken in the runtime, in `9bbbd11`: reap **reactively and surgically**, only
+   the port that fails, only when it fails).
+2. **`delonix-paas`**: bump the `delonix-net` pin from `v0.1.0` to the current version.
+3. **`delonix-runtime`** (defense in depth): `reap_orphan_hostfwds` is now **dead code** —
+   zero callers. A public function that deletes shared state and fails OPEN on an empty list is a
+   trap for any consumer. **Delete it**, or make it fail closed.
 
 ---
 
-## 3. Gaps e divergências em aberto (não corrigidos)
+## 3. Open gaps and divergences (not fixed)
 
-| # | Sev. | Achado | Nota |
+| # | Sev. | Finding | Note |
 |---|---|---|---|
-| 1 | MÉDIA | **`ssh: { port: 2222 }` é aceite e ignorado** — o `SshSpec.port` é parseado e nunca lido (`SshTarget` nem tem o campo). O SSH vai sempre à 22. | Decidir: ligar ao `conn_args()` ou tirar do schema. É o **único FAIL** que deixei vermelho no e2e, de propósito. |
-| 2 | MÉDIA | **`vm rm <inexistente>` devolve 0** e imprime o nome, como se tivesse removido. O `container rm` erra; o docker erra. | `delonix_vm::remove` é idempotente de propósito (limpa restos sem registo, serve o `cluster delete`). Mudar a CLI sem `--force` partiria esse caminho. **Decisão sua.** |
-| 3 | MÉDIA | **Não há forma de recarregar o binário dos supervisores.** Um processo de longa duração corre o código de quando nasceu — em produção não há como aplicar um fix sem recriar containers. | Problema real de operação, não de teste. |
-| 4 | BAIXA | `Container` não guarda `finished_at` nem exit code. O STATUS não pode dizer `Exited (0) 2 minutes ago` como o docker — só `Exited (0)`. | Preferi mostrar menos a fabricar um tempo do `created_unix`. |
-| 5 | BAIXA | `vm describe <inexistente>` erra com **"no such container"** — substantivo errado, vem do store da VM. | |
-| 6 | BAIXA | `image ls` SIZE = soma dos blobs no CAS = tamanho **comprimido em disco**. Não bate com o `docker images` (que mostra o rootfs descomprimido). | Documentado no código; os números são reais. |
-| 7 | BAIXA | `ImageConfig` não faz parse do `ExposedPorts` do OCI → o `image describe` não os mostra. | Precisa de mudança no `delonix-image`. |
-| 8 | BAIXA | `image --vm pull` perde os metadados (`Ubuntu`/`K8s` vêm `<unknown>`). | Já conhecido. |
-| 9 | BAIXA | Rede órfã chamada **`dlx-`** (sufixo vazio) no store. | Parece nome truncado de um bug antigo. |
-| 10 | BAIXA | `cmd_rm` duplica a lógica do `remove_container`. | Divergem no dia em que um mudar. |
-| 11 | INFO | **`--net-connect`/`--net-rate` exigem `--net <rede>`** — o veth e o shaping vivem no netns do holder, que o caminho `--net host/none` não tem. | Por desenho. Erro explícito. |
-| 12 | INFO | **`--publish-add` num container criado sem `-p` E sem `--net <rede>`** é impossível: o api-socket do slirp só é aberto quando o `run` leva portas. | Por desenho. Erro que ensina. |
+| 1 | MEDIUM | **`ssh: { port: 2222 }` is accepted and ignored** — `SshSpec.port` is parsed and never read (`SshTarget` doesn't even have the field). SSH always goes to 22. | Decide: wire it into `conn_args()` or drop it from the schema. It's the **only FAIL** I deliberately left red in e2e. |
+| 2 | MEDIUM | **`vm rm <nonexistent>` returns 0** and prints the name, as if it had removed something. `container rm` errors; docker errors. | `delonix_vm::remove` is idempotent on purpose (cleans up remnants with no record, serves `cluster delete`). Changing the CLI without `--force` would break that path. **Your call.** |
+| 3 | MEDIUM | **There is no way to reload the supervisors' binary.** A long-running process runs the code it was born with — in production there is no way to apply a fix without recreating containers. | A real operational problem, not a test one. |
+| 4 | LOW | `Container` stores neither `finished_at` nor exit code. STATUS cannot say `Exited (0) 2 minutes ago` like docker — only `Exited (0)`. | I preferred showing less over fabricating a time from `created_unix`. |
+| 5 | LOW | `vm describe <nonexistent>` errors with **"no such container"** — wrong noun, comes from the VM store. | |
+| 6 | LOW | `image ls` SIZE = sum of the blobs in the CAS = **compressed size on disk**. Doesn't match `docker images` (which shows the decompressed rootfs). | Documented in the code; the numbers are real. |
+| 7 | LOW | `ImageConfig` doesn't parse OCI's `ExposedPorts` → `image describe` doesn't show them. | Needs a change in `delonix-image`. |
+| 8 | LOW | `image --vm pull` loses metadata (`Ubuntu`/`K8s` come back `<unknown>`). | Already known. |
+| 9 | LOW | Orphan network named **`dlx-`** (empty suffix) in the store. | Looks like a truncated name from an old bug. |
+| 10 | LOW | `cmd_rm` duplicates `remove_container`'s logic. | They will diverge the day one of them changes. |
+| 11 | INFO | **`--net-connect`/`--net-rate` require `--net <network>`** — the veth and the shaping live in the holder's netns, which the `--net host/none` path doesn't have. | By design. Explicit error. |
+| 12 | INFO | **`--publish-add` on a container created without `-p` AND without `--net <network>`** is impossible: slirp's api-socket is only opened when `run` carries ports. | By design. An error that teaches. |
 
-Continuam válidos os gaps já registados no `AGENTS.md` e não re-testados aqui: leak do refcount do
-ingress, rootfs órfãos a encher o disco, `image --vm pull` sem metadados.
+The gaps already recorded in `AGENTS.md` and not re-tested here remain valid: ingress refcount
+leak, orphan rootfs filling up disk, `image --vm pull` with no metadata.
 
 ---
 
-## 4. O que ficou validado a sério
+## 4. What was properly validated
 
-**Hot reconfig — com container real, sem restart, PID idêntico do princípio ao fim:**
+**Hot reconfig — with a real container, no restart, same PID start to finish:**
 
-- `--publish-add` → HTTP **200** na porta nova, a quente.
-- `--publish-rm` → porta fecha; as outras do mesmo container ficam intactas.
-- `--volume-add` → montado a quente; ficheiro escrito **dentro** do container aparece no volume do
-  host; `--volume-add …:ro` **recusa** escrita e permite leitura.
-- `--volume-rm` → deixa de ser mountpoint dentro do container.
-- `--net-connect`/`--net-disconnect`/`--net-rate`/`--net-rate-clear` → todos PASS pelo ingress.
-- Todos os erros esperados **recusam** (porta duplicada, destino duplicado, rede já ligada, taxa
-  inválida, container parado).
+- `--publish-add` → HTTP **200** on the new port, live.
+- `--publish-rm` → the port closes; the container's other ports stay intact.
+- `--volume-add` → mounted live; a file written **inside** the container shows up in the
+  host volume; `--volume-add …:ro` **refuses** writes and allows reads.
+- `--volume-rm` → stops being a mountpoint inside the container.
+- `--net-connect`/`--net-disconnect`/`--net-rate`/`--net-rate-clear` → all PASS through ingress.
+- Every expected error **is refused** (duplicate port, duplicate target, network already
+  connected, invalid rate, stopped container).
 
-**Veredicto**: as funcionalidades desta sessão estão prontas. O que **bloqueia produção não está
-neste repo** — está no reaper do `delonix-paas` (secção 2), e é uma correcção de uma linha de
-política num produto que não é este.
+**Verdict**: this session's features are production-ready. What **blocks production is not in
+this repo** — it's in `delonix-paas`'s reaper (section 2), and it's a one-line policy fix in a
+product that is not this one.

@@ -1,91 +1,93 @@
-# ADR-0083 — Rootful é suportado; SELinux-enforcing (com relabel) fica fora de âmbito na linha 0.x
+# ADR-0083 — Rootful is supported; SELinux-enforcing (with relabel) is out of scope for the 0.x line
 
-**Estado:** Proposto (2026-11-01) — avaliação do item (f) do portão G1 do plano
-NO-GO→GO (`reports/go-nogo-alta-criticidade-20261101/`). Rootful **medido** neste
-host; SELinux-enforcing **avaliado pelo código** e declarado fora de âmbito, com
-o caminho de suporte descrito. Aguarda GO do dono.
-**Relaciona:** `reports/go-nogo-alta-criticidade-20261101/g1f-rootful-selinux.md`
-(a bateria), ADR-0079 (grupo honrado em modo root), ADR-0077 (sensor rootless).
+**Status:** Proposed (2026-11-01) — evaluation of item (f) of gate G1 of the
+NO-GO→GO plan (`reports/go-nogo-alta-criticidade-20261101/`). Rootful **measured**
+on this host; SELinux-enforcing **evaluated by code reading** and declared out of
+scope, with the support path described. Awaiting the owner's GO.
+**Relates to:** `reports/go-nogo-alta-criticidade-20261101/g1f-rootful-selinux.md`
+(the battery), ADR-0079 (group honoured in root mode), ADR-0077 (rootless sensor).
 
-## Contexto
+## Context
 
-O relatório GO/NO-GO (2026-11-01) marcou «rootful/SELinux nunca avaliados» como
-um dos pontos que mantêm o veredicto NO-GO para alta criticidade. O portão G1
-exige ambos **avaliados**, ou **declarados fora de âmbito por escrito**. Este ADR
-é a decisão escrita, fundamentada na bateria do relatório acima.
+The GO/NO-GO report (2026-11-01) flagged «rootful/SELinux never evaluated» as one
+of the points keeping the verdict at NO-GO for high-criticality. Gate G1 requires
+both to be **evaluated**, or **declared out of scope in writing**. This ADR is
+that written decision, grounded in the battery from the report above.
 
-A linha de produto é **rootless-first** por desenho (daemonless, userns, sem
-privilégio de arranque). Rootful existe e tem caminhos próprios (ADR-0079: grupo
-em modo root, leaf de cgroup para o VMM). SELinux nunca foi exercido porque
-nenhum host de desenvolvimento o tem (todos AppArmor/Ubuntu).
+The product line is **rootless-first** by design (daemonless, userns, no startup
+privilege). Rootful exists and has its own paths (ADR-0079: group in root mode, a
+cgroup leaf for the VMM). SELinux was never exercised because no development host
+has it (all are AppArmor/Ubuntu).
 
-## Decisão
+## Decision
 
-### 1. Rootful — SUPORTADO (medido)
+### 1. Rootful — SUPPORTED (measured)
 
-O núcleo rootful é suportado e foi medido neste host (uid 0 real, `/dev` por
-`mknod` com nós reais, rede bridge, `run -d`/`exec`/`rm`, store próprio). Fica
-documentado como um modo suportado a par do rootless.
+The rootful core is supported and was measured on this host (real uid 0, `/dev` via
+`mknod` with real nodes, bridge network, `run -d`/`exec`/`rm`, its own store). It is
+documented as a supported mode alongside rootless.
 
-Duas arestas foram **registadas como dívida conhecida**, nenhuma bloqueadora do
-uso normal rootful — a primeira já **resolvida** (ver abaixo):
+Two edges were **recorded as known debt**, neither blocking normal rootful use —
+the first already **resolved** (see below):
 
-- ~~**`build FROM scratch` rootful falha no packaging** (`DX-1410 image has no
-  layers`).~~ **RESOLVIDO.** A causa real era anterior ao packaging: `FROM
-  scratch` em rootful caía no `mount_rootfs`, que recusa uma imagem de zero
-  camadas (overlay precisa de ≥1 lower), por isso o build abortava antes do
-  primeiro `COPY`. Passa a montar uma base vazia (`mount_scratch_rootfs`: um
-  lower vazio efémero + upper gravável); o `COPY`/`RUN` enchem o upper, que o
-  `commit_upper` empacota como a única camada da imagem (`build_image` sobre a
-  base scratch de zero camadas → 1 camada). `image save`/`push` deixam de
-  recusar. Guardado no e2e (`build FROM scratch … e empacota`). É distinto dos
-  três bugs de `FROM scratch` corrigidos nesta linha (esses eram de
-  arranque/rootless — resolução de `scratch`, `/dev` do userns, scaffold no
-  COPY); este era do commit rootful.
-- **Limite de memória rootful** não foi confirmado de forma conclusiva
-  (`memory.max` não visível de dentro do container na bateria) — carece de um
-  teste dedicado host-side.
+- ~~**`build FROM scratch` fails rootful packaging** (`DX-1410 image has no
+  layers`).~~ **RESOLVED.** The real cause predated packaging: `FROM
+  scratch` in rootful hit `mount_rootfs`, which refuses a zero-layer image
+  (overlay needs ≥1 lower), so the build aborted before the first `COPY`. It now
+  mounts an empty base (`mount_scratch_rootfs`: an ephemeral empty lower +
+  writable upper); `COPY`/`RUN` fill the upper, which `commit_upper` packages as
+  the image's only layer (`build_image` over the zero-layer scratch base → 1
+  layer). `image save`/`push` no longer refuse. Covered in e2e (`build FROM
+  scratch … and packages`). It is distinct from the three `FROM scratch` bugs
+  fixed earlier in this line (those were startup/rootless — `scratch`
+  resolution, userns `/dev`, scaffolding on `COPY`); this one was in the rootful
+  commit.
+- **Rootful memory limit** was not conclusively confirmed (`memory.max` not
+  visible from inside the container in the battery) — needs a dedicated
+  host-side test.
 
-### 2. SELinux-enforcing (com relabel de volumes) — FORA DE ÂMBITO na linha 0.x
+### 2. SELinux-enforcing (with volume relabel) — OUT OF SCOPE for the 0.x line
 
-O que **já existe**: o label de **processo** do container é aplicado
-(`apply_selinux` escreve o contexto em `/proc/thread-self/attr/exec` quando
-`/sys/fs/selinux/enforce` existe).
+What **already exists**: the container's **process** label is applied
+(`apply_selinux` writes the context to `/proc/thread-self/attr/exec` when
+`/sys/fs/selinux/enforce` exists).
 
-O que **falta**, e é a razão da exclusão: o **relabel de volumes** (`:z`/`:Z`)
-está deliberadamente não implementado e recusado fail-closed
-(`delonix-volume`), e não há labeling de mount (`context=`/`fscontext=`) nem de
-ficheiro. Num host enforcing, um bind mount fica com o label do host e o domínio
-do container é **negado** — o modo de falha típico em RHEL/Fedora. Sem isto, um
-workload com volumes não corre em enforcing, por muito que o label de processo
-esteja certo.
+What is **missing**, and is the reason for the exclusion: **volume relabel**
+(`:z`/`:Z`) is deliberately not implemented and refused fail-closed
+(`delonix-volume`), and there is no mount labelling (`context=`/`fscontext=`) nor
+file labelling. On an enforcing host, a bind mount keeps the host's label and the
+container's domain is **denied** — the typical failure mode on RHEL/Fedora.
+Without this, a workload with volumes does not run under enforcing, however
+correct the process label is.
 
-Essa peça — relabel recursivo da árvore do volume para o domínio do container
-(via `libselinux`/`setfilecon`), `context=` por mount, e a semântica partilhado
-(`z`) vs privado (`Z`) — é **trabalho próprio**, não um ajuste, e precisa de um
-host enforcing real para ser validada honestamente. Declará-la fora de âmbito
-para a linha 0.x é a escolha honesta: o contrário seria fingir suporte que a
-primeira bind mount em enforcing desmente.
+That piece — recursive relabel of the volume tree to the container's domain (via
+`libselinux`/`setfilecon`), per-mount `context=`, and the shared (`z`) vs private
+(`Z`) semantics — is **its own work**, not a tweak, and needs a real enforcing
+host to be honestly validated. Declaring it out of scope for the 0.x line is the
+honest choice: the alternative would be pretending support that the first bind
+mount under enforcing would disprove.
 
-## Consequências
+## Consequences
 
-- O portão G1(f) fica fechado: ambos **avaliados por escrito**, rootful medido,
-  SELinux-enforcing fora de âmbito com justificação e caminho.
-- `delonix` anuncia suporte **rootful** e **rootless**; **não** anuncia suporte
-  SELinux-enforcing para workloads com volumes. A recusa fail-closed de `:z`/`:Z`
-  mantém-se — é preferível a um relabel silenciosamente ausente.
-- O caminho para levantar a exclusão (quando o dono o decidir): implementar o
-  relabel de volumes + `context=` por mount, e validar numa VM Fedora/RHEL
-  enforcing (a bateria rootful deste relatório, repetida em enforcing, mais um
-  caso com volume `:Z`). Entra como um ADR sucessor.
-- Dívida conhecida rootful: `build FROM scratch` **resolvido** (ver §1); o
-  limite de memória fica rastreado aqui e no relatório. Não altera o veredicto
-  de «rootful suportado» para o uso normal.
+- Gate G1(f) closes: both **evaluated in writing**, rootful measured,
+  SELinux-enforcing out of scope with justification and a path.
+- `delonix` announces **rootful** and **rootless** support; it does **not**
+  announce SELinux-enforcing support for workloads with volumes. The fail-closed
+  refusal of `:z`/`:Z` stands — preferable to a silently absent relabel.
+- The path to lifting the exclusion (when the owner decides): implement volume
+  relabel + per-mount `context=`, and validate on a Fedora/RHEL enforcing VM (the
+  rootful battery from this report, repeated under enforcing, plus a `:Z` volume
+  case). Enters as a successor ADR.
+- Known rootful debt: `build FROM scratch` **resolved** (see §1); the memory
+  limit stays tracked here and in the report. Does not change the verdict of
+  «rootful supported» for normal use.
 
-## Alternativas consideradas
+## Alternatives considered
 
-- **Implementar o relabel de volumes agora.** Rejeitado para a linha 0.x: sem um
-  host enforcing para validar, seria código não exercido na exacta condição que
-  existe para servir — a mesma armadilha «PASS por desenho» que o G1(e) fechou.
-- **Afirmar SELinux suportado porque o label de processo é aplicado.** Rejeitado:
-  é meia-verdade; falha na primeira bind mount em enforcing.
+- **Implement volume relabel now.** Rejected for the 0.x line: without an
+  enforcing host to validate against, it would be code exercised outside the
+  exact condition it exists to serve — the same «PASS by design» trap that G1(e)
+  closed.
+- **Claim SELinux is supported because the process label is applied.**
+  Rejected: it is a half-truth; it fails on the first bind mount under
+  enforcing.

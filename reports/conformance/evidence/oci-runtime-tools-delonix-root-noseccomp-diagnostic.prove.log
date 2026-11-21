@@ -1,0 +1,615 @@
+exit status 1
+<WORK>/runtime-tools/validation/config_updates_without_affect/config_updates_without_affect.t .... 
+TAP version 13
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+<WORK>/runtime-tools/validation/create/create.t .................................................. 
+TAP version 13
+ok 1 - create MUST generate an error if the ID is not provided
+All 1 subtests passed 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/default/default.t ................................................ 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+<WORK>/runtime-tools/validation/delete/delete.t .................................................. 
+TAP version 13
+ok 1 - `delete` operation MUST generate an error if it is not provided the container ID
+All 1 subtests passed 
+exit status 1
+<WORK>/runtime-tools/validation/delete_only_create_resources/delete_only_create_resources.t ...... 
+TAP version 13
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+exit status 1
+<WORK>/runtime-tools/validation/delete_resources/delete_resources.t .............................. 
+TAP version 13
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: bundle '<BUNDLE>' declares OCI hooks — not implemented (this engine has no OCI-hook stdin-state protocol); remove `hooks` or run it under runc
+<WORK>/runtime-tools/validation/hooks/hooks.t .................................................... 
+TAP version 13
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: bundle '<BUNDLE>' declares OCI hooks — not implemented (this engine has no OCI-hook stdin-state protocol); remove `hooks` or run it under runc
+<WORK>/runtime-tools/validation/hooks_stdin/hooks_stdin.t ........................................ 
+TAP version 13
+not ok 1 - exit status 1
+not ok 2 - the state of the container MUST be passed to "prestart" hook over stdin
+Failed 2/2 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/hostname/hostname.t .............................................. 
+TAP version 13
+not ok 1 - hostname is set correctly
+# expect: err == nil, actual: err != nil
+not ok 2 - hostname is set correctly
+# expect: err == nil, actual: err != nil
+1..2
+Failed 2/2 subtests 
+<WORK>/runtime-tools/validation/kill/kill.t ...................................................... 
+TAP version 13
+ok 1 - `kill` operation MUST generate an error if it is not provided the container ID
+All 1 subtests passed 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+<WORK>/runtime-tools/validation/kill_no_effect/kill_no_effect.t .................................. 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+<WORK>/runtime-tools/validation/killsig/killsig.t ................................................ 
+TAP version 13
+not ok 1 - `kill` operation MUST send the specified signal to the container process
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_cgroups_blkio/linux_cgroups_blkio.t ........................ skipped: (no reason given)
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `linux.resources.cpu.cpus`/`mems` (cpuset) — the cpuset controller is not delegated rootless; remove it or run it under runc
+Clean: Delete:  exit status 4
+cannot validate CPU cgroups: exit status 1
+<WORK>/runtime-tools/validation/linux_cgroups_cpus/linux_cgroups_cpus.t .......................... skipped: (no reason given)
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_devices/linux_cgroups_devices.t .................... 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_cgroups_hugetlb/linux_cgroups_hugetlb.t .................... skipped: (no reason given)
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_memory/linux_cgroups_memory.t ...................... 
+TAP version 13
+not ok 1 - exit status 1
+not ok 2 - exit status 1
+not ok 3 - exit status 1
+not ok 4 - exit status 1
+not ok 5 - exit status 1
+not ok 6 - exit status 1
+1..6
+Failed 6/6 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_cgroups_network/linux_cgroups_network.t .................... skipped: (no reason given)
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `linux.resources.pids` — a per-container pids limit is not honoured here (the engine writes a fixed leaf pids.max); remove it or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_pids/linux_cgroups_pids.t .......................... 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_relative_blkio/linux_cgroups_relative_blkio.t ...... 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `linux.resources.cpu.cpus`/`mems` (cpuset) — the cpuset controller is not delegated rootless; remove it or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_relative_cpus/linux_cgroups_relative_cpus.t ........ 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_relative_devices/linux_cgroups_relative_devices.t .. 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_relative_hugetlb/linux_cgroups_relative_hugetlb.t .. 
+TAP version 13
+not ok 1 - exit status 1
+not ok 2 - exit status 1
+1..2
+Failed 2/2 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_relative_memory/linux_cgroups_relative_memory.t .... 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_relative_network/linux_cgroups_relative_network.t .. 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `linux.resources.pids` — a per-container pids limit is not honoured here (the engine writes a fixed leaf pids.max); remove it or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_cgroups_relative_pids/linux_cgroups_relative_pids.t ........ 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `linux.devices` has a B device /dev/test2 — only character devices (bound from the host by path) are supported; remove it or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_devices/linux_devices.t .................................... 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_masked_paths/linux_masked_paths.t .......................... 
+TAP version 13
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_mount_label/linux_mount_label.t ............................ 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_ns_itype/linux_ns_itype.t .................................. 
+TAP version 13
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_ns_nopath/linux_ns_nopath.t ................................ 
+TAP version 13
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_ns_path/linux_ns_path.t .................................... 
+TAP version 13
+not ok 1 - set ipc namespace by path
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json declares a network namespace with a `path` (join an existing netns) — not implemented; remove the path (for an isolated netns) or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_ns_path_type/linux_ns_path_type.t .......................... 
+TAP version 13
+ok 1 - got error when setting a wrong namespace path "/proc/self/ns/ipc" with type cgroup
+ok 2 - namespace path matches with type cgroup
+ok 3 - got error when setting a wrong namespace path "/proc/self/ns/mnt" with type ipc
+ok 4 - namespace path matches with type ipc
+ok 5 - got error when setting a wrong namespace path "/proc/self/ns/net" with type mount
+ok 6 - namespace path matches with type mnt
+ok 7 - got error when setting a wrong namespace path "/proc/self/ns/pid" with type network
+ok 8 - namespace path matches with type net
+ok 9 - got error when setting a wrong namespace path "/proc/self/ns/user" with type pid
+ok 10 - namespace path matches with type pid
+ok 11 - got error when setting a wrong namespace path "/proc/self/ns/uts" with type user
+ok 12 - namespace path matches with type user
+ok 13 - got error when setting a wrong namespace path "/proc/self/ns/cgroup" with type uts
+ok 14 - namespace path matches with type uts
+1..14
+ok
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_process_apparmor_profile/linux_process_apparmor_profile.t .. 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_readonly_paths/linux_readonly_paths.t ...................... 
+TAP version 13
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_rootfs_propagation/linux_rootfs_propagation.t .............. 
+TAP version 13
+not ok 1 - exit status 1
+not ok 2 - exit status 1
+not ok 3 - exit status 1
+not ok 4 - exit status 1
+1..4
+Failed 4/4 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/linux_seccomp/linux_seccomp.t .................................... 
+TAP version 13
+not ok 1 - seccomp action is added correctly
+not ok 2 - exit status 1
+1..2
+Failed 2/2 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_sysctl/linux_sysctl.t ...................................... 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/linux_uid_mappings/linux_uid_mappings.t .......................... 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+<WORK>/runtime-tools/validation/misc_props/misc_props.t .......................................... 
+TAP version 13
+not ok 1 - implementations that are reading/processing this configuration file MUST NOT generate an error if they encounter an unknown annotation key
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/mounts/mounts.t .................................................. 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+<WORK>/runtime-tools/validation/pidfile/pidfile.t ................................................ 
+TAP version 13
+not ok 1 - create with '--pid-file' option works
+Failed 1/1 subtests 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: bundle '<BUNDLE>' declares OCI hooks — not implemented (this engine has no OCI-hook stdin-state protocol); remove `hooks` or run it under runc
+<WORK>/runtime-tools/validation/poststart/poststart.t ............................................ 
+TAP version 13
+No subtests run 
+<WORK>/runtime-tools/validation/poststart_fail/poststart_fail.t .................................. 
+TAP version 13
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: bundle '<BUNDLE>' declares OCI hooks — not implemented (this engine has no OCI-hook stdin-state protocol); remove `hooks` or run it under runc
+<WORK>/runtime-tools/validation/poststop/poststop.t .............................................. 
+TAP version 13
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: bundle '<BUNDLE>' declares OCI hooks — not implemented (this engine has no OCI-hook stdin-state protocol); remove `hooks` or run it under runc
+<WORK>/runtime-tools/validation/poststop_fail/poststop_fail.t .................................... 
+TAP version 13
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: bundle '<BUNDLE>' declares OCI hooks — not implemented (this engine has no OCI-hook stdin-state protocol); remove `hooks` or run it under runc
+<WORK>/runtime-tools/validation/prestart/prestart.t .............................................. 
+TAP version 13
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: bundle '<BUNDLE>' declares OCI hooks — not implemented (this engine has no OCI-hook stdin-state protocol); remove `hooks` or run it under runc
+<WORK>/runtime-tools/validation/prestart_fail/prestart_fail.t .................................... skipped: (no reason given)
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/process/process.t ................................................ 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/process_capabilities/process_capabilities.t ...................... 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json: serde failed
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/process_capabilities_fail/process_capabilities_fail.t ............ 
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/process_oom_score_adj/process_oom_score_adj.t .................... 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.rlimits` has RlimitData, which this engine does not setrlimit; remove it or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/process_rlimits/process_rlimits.t ................................ 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json: serde failed
+Clean: Delete:  exit status 4
+<WORK>/runtime-tools/validation/process_rlimits_fail/process_rlimits_fail.t ...................... 
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/process_user/process_user.t ...................................... 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+error[DX-1000] invalid argument: oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are not raised by this engine; remove them or run it under runc
+Clean: Delete:  exit status 4
+exit status 1
+<WORK>/runtime-tools/validation/root_readonly_true/root_readonly_true.t .......................... 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+<WORK>/runtime-tools/validation/start/start.t .................................................... 
+TAP version 13
+ok 1 - start` operation MUST generate an error if it is not provided the container ID
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/state/state.t .................................................... 
+TAP version 13
+ok 1 - state MUST generate an error if it is not provided the ID of a container
+Refer to: https://github.com/opencontainers/runtime-spec/blob/v1.3.0/runtime.md#query-state
+All 1 subtests passed 
+
+Test Summary Report
+-------------------
+<WORK>/runtime-tools/validation/config_updates_without_affect/config_updates_without_affect.t  (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/create/create.t                                                (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/default/default.t                                              (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/delete/delete.t                                                (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/delete_only_create_resources/delete_only_create_resources.t    (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/delete_resources/delete_resources.t                            (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/hooks/hooks.t                                                  (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/hooks_stdin/hooks_stdin.t                                      (Wstat: (none) Tests: 2 Failed: 2)
+  Failed tests:  1-2
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/hostname/hostname.t                                            (Wstat: 0 Tests: 2 Failed: 2)
+  Failed tests:  1-2
+<WORK>/runtime-tools/validation/kill/kill.t                                                    (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/kill_no_effect/kill_no_effect.t                                (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/killsig/killsig.t                                              (Wstat: (none) Tests: 1 Failed: 1)
+  Failed test:  1
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_cgroups_blkio/linux_cgroups_blkio.t                      (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+<WORK>/runtime-tools/validation/linux_cgroups_cpus/linux_cgroups_cpus.t                        (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+<WORK>/runtime-tools/validation/linux_cgroups_devices/linux_cgroups_devices.t                  (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_hugetlb/linux_cgroups_hugetlb.t                  (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+<WORK>/runtime-tools/validation/linux_cgroups_memory/linux_cgroups_memory.t                    (Wstat: 0 Tests: 6 Failed: 6)
+  Failed tests:  1-6
+<WORK>/runtime-tools/validation/linux_cgroups_network/linux_cgroups_network.t                  (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+<WORK>/runtime-tools/validation/linux_cgroups_pids/linux_cgroups_pids.t                        (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_blkio/linux_cgroups_relative_blkio.t    (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_cpus/linux_cgroups_relative_cpus.t      (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_devices/linux_cgroups_relative_devices.t (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_hugetlb/linux_cgroups_relative_hugetlb.t (Wstat: 0 Tests: 2 Failed: 2)
+  Failed tests:  1-2
+<WORK>/runtime-tools/validation/linux_cgroups_relative_memory/linux_cgroups_relative_memory.t  (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_network/linux_cgroups_relative_network.t (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_pids/linux_cgroups_relative_pids.t      (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_devices/linux_devices.t                                  (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_masked_paths/linux_masked_paths.t                        (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_mount_label/linux_mount_label.t                          (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_ns_itype/linux_ns_itype.t                                (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_ns_nopath/linux_ns_nopath.t                              (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_ns_path/linux_ns_path.t                                  (Wstat: (none) Tests: 1 Failed: 1)
+  Failed test:  1
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_process_apparmor_profile/linux_process_apparmor_profile.t (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_readonly_paths/linux_readonly_paths.t                    (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_rootfs_propagation/linux_rootfs_propagation.t            (Wstat: 0 Tests: 4 Failed: 4)
+  Failed tests:  1-4
+<WORK>/runtime-tools/validation/linux_seccomp/linux_seccomp.t                                  (Wstat: 0 Tests: 2 Failed: 2)
+  Failed tests:  1-2
+<WORK>/runtime-tools/validation/linux_sysctl/linux_sysctl.t                                    (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_uid_mappings/linux_uid_mappings.t                        (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/misc_props/misc_props.t                                        (Wstat: (none) Tests: 1 Failed: 1)
+  Failed test:  1
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/mounts/mounts.t                                                (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/pidfile/pidfile.t                                              (Wstat: (none) Tests: 1 Failed: 1)
+  Failed test:  1
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/poststart/poststart.t                                          (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/poststart_fail/poststart_fail.t                                (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/poststop/poststop.t                                            (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/poststop_fail/poststop_fail.t                                  (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/prestart/prestart.t                                            (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/process/process.t                                              (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/process_capabilities/process_capabilities.t                    (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/process_capabilities_fail/process_capabilities_fail.t          (Wstat: 0 Tests: 0 Failed: 0)
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/process_oom_score_adj/process_oom_score_adj.t                  (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/process_rlimits/process_rlimits.t                              (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/process_rlimits_fail/process_rlimits_fail.t                    (Wstat: 0 Tests: 0 Failed: 0)
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/process_user/process_user.t                                    (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/root_readonly_true/root_readonly_true.t                        (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/start/start.t                                                  (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/state/state.t                                                  (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+Files=58, Tests=50,  8 wallclock secs ( 0.08 usr  0.06 sys +  4.56 cusr  2.21 csys =  6.91 CPU)
+Result: FAIL

@@ -181,7 +181,38 @@ pub fn serve_blocking_with(
             base.clone(),
             Arc::clone(&engine),
         ));
-        serve_over_uds(uds, router(AppState { base, bin, engine })).await
+
+        let state = AppState { base, bin, engine };
+
+        // Prometheus `/metrics` over TCP (OPTIONAL): a dedicated HTTP listener
+        // enabled by `DELONIX_MGMT_METRICS_ADDR` (e.g. `0.0.0.0:9100`). The rich
+        // `/metrics` of this crate — the one that recomputes the resource gauges
+        // (containers/vms/memory/network/storage) and the per-workload series on
+        // every scrape — otherwise lives ONLY on the management unix socket, which
+        // Prometheus cannot scrape without a proxy; and the TCP `/metrics` of
+        // `delonix-cri` carries only the CRI event counters (its resource gauges
+        // read zero, nothing recomputes them in that process). This listener
+        // closes that gap: a single TCP endpoint with the WHOLE registry, gauges
+        // and all. It serves EXCLUSIVELY the `/metrics` route — never the
+        // management routes (exec/run/rm are arbitrary code execution and stay on
+        // the euid-checked unix socket). Off by default → no cost, no exposure.
+        if let Some(maddr) = std::env::var_os("DELONIX_MGMT_METRICS_ADDR") {
+            let maddr = maddr.to_string_lossy().into_owned();
+            let metrics_state = state.clone();
+            tokio::spawn(async move {
+                match tokio::net::TcpListener::bind(&maddr).await {
+                    Ok(l) => {
+                        eprintln!("delonix-mgmt: /metrics (Prometheus, full registry) at http://{maddr}/metrics");
+                        let _ = axum::serve(l, metrics_only_router(metrics_state)).await;
+                    }
+                    Err(e) => {
+                        eprintln!("delonix-mgmt: /metrics (TCP) bind failed on {maddr}: {e}");
+                    }
+                }
+            });
+        }
+
+        serve_over_uds(uds, router(state)).await
     })
 }
 
@@ -295,6 +326,18 @@ async fn serve_over_uds(uds: tokio::net::UnixListener, app: Router) -> Result<()
     }
 }
 
+/// A router that serves ONLY `GET /metrics`, for the optional TCP listener
+/// gated by `DELONIX_MGMT_METRICS_ADDR`. Deliberately NOT [`router`]: the TCP
+/// surface must carry the Prometheus endpoint and nothing else — the management
+/// routes (exec/run/rm are arbitrary code execution) stay on the euid-checked
+/// unix socket. Same handler as the socket's `/metrics`, so the registry and the
+/// per-scrape recompute are identical on both surfaces.
+fn metrics_only_router(state: AppState) -> Router {
+    Router::new()
+        .route("/metrics", get(metrics))
+        .with_state(state)
+}
+
 /// The API routes. Exposed for tests (no socket, via `oneshot`).
 fn router(state: AppState) -> Router {
     Router::new()
@@ -343,19 +386,19 @@ fn router(state: AppState) -> Router {
             get(get_network).delete(delete_network),
         )
         .route("/v1/net/status", get(net_status))
-        // Publicação de portos (DNAT + hostfwd do slirp). Ao contrário do
-        // create/rm de redes, NÃO passa pelo binário: o `publish_port` recebe o
-        // IP do container, e a CLI recebe o NOME — quem chama esta API tem o IP
-        // e não tem forma de resolver o nome do lado de cá sem uma segunda
-        // volta. Chamar a biblioteca é o caminho curto e o honesto.
+        // Port publication (DNAT + the slirp's hostfwd). Unlike network
+        // create/rm, this does NOT go through the binary: `publish_port` takes
+        // the container's IP, while the CLI takes the NAME — a caller of this
+        // API has the IP and no way to resolve the name on this side without a
+        // second round-trip. Calling the library is the short path and the honest one.
         .route("/v1/net/publish", post(publish_port))
         .route(
             "/v1/net/publish/:host_port",
             axum::routing::delete(unpublish_port),
         )
-        // Firewall por workload, política de saída e ligação a redes: RECUSADAS
-        // (`net_route_withdrawn`) — escreviam o dataplane sem o registo do
-        // container. Ficam registadas para responderem 501 com o código, e não 404.
+        // Per-workload firewall, egress policy and network attach: REFUSED
+        // (`net_route_withdrawn`) — they wrote the dataplane without the
+        // container's record. Kept registered so they answer 501 with the code, not 404.
         .route(
             "/v1/net/firewall/:ip",
             put(net_route_withdrawn).delete(net_route_withdrawn),
@@ -363,8 +406,8 @@ fn router(state: AppState) -> Router {
         .route("/v1/net/egress", put(net_route_withdrawn))
         .route("/v1/net/egress/:bridge", put(net_route_withdrawn))
         .route("/v1/containers/:id/rate", put(set_net_rate))
-        // Endereços e ligação a redes: as perguntas que um cliente faz antes de
-        // publicar um porto ou escrever uma regra.
+        // Addresses and network attach: the questions a client asks before
+        // publishing a port or writing a rule.
         .route("/v1/net/dhcp/:net/:mac", get(dhcp_ip))
         .route("/v1/net/dhcp6/:net/:mac", get(dhcp_ip6))
         .route("/v1/net/container-ip/:id", get(container_ip))
@@ -1036,16 +1079,16 @@ struct NetworkBody {
     name: String,
 }
 
-/// `GET /v1/net/dhcp/:net/:mac` — o IP que o DHCP dá a um MAC nesta rede.
+/// `GET /v1/net/dhcp/:net/:mac` — the IP DHCP gives a MAC on this network.
 ///
-/// Determinístico a partir do MAC (`<prefix>.254.<10 + fnv32(mac)%240>`), e não
-/// lido da tabela ARP: o `ip neigh` só mostra o endereço depois de tráfego
-/// recente, e devolvia «nenhum» para uma VM viva mas calada — caso reportado a
-/// sério. Aqui o IP existe assim que a rede existe, que é o que serve para
-/// abrir um SSH.
+/// Deterministic from the MAC (`<prefix>.254.<10 + fnv32(mac)%240>`), not read
+/// from the ARP table: `ip neigh` only shows the address after recent traffic,
+/// and returned "none" for a live but quiet VM — a seriously reported case.
+/// Here the IP exists as soon as the network exists, which is what you need to
+/// open an SSH session.
 ///
-/// `None` → 404: a rede não existe. Não é o mesmo que «a VM ainda não arrancou»,
-/// e por isso não se responde 200 com corpo vazio.
+/// `None` → 404: the network does not exist. That is not the same as "the VM
+/// has not booted yet", so we do not answer 200 with an empty body.
 async fn dhcp_ip(State(s): State<AppState>, Path((net, mac)): Path<(String, String)>) -> Response {
     if !valid_arg(&net) || !valid_mac(&mac) {
         return err_response(Error::Invalid("invalid network or MAC".to_string()));
@@ -1061,11 +1104,11 @@ async fn dhcp_ip(State(s): State<AppState>, Path((net, mac)): Path<(String, Stri
     }
 }
 
-/// `GET /v1/net/dhcp6/:net/:mac` — o equivalente IPv6.
+/// `GET /v1/net/dhcp6/:net/:mac` — the IPv6 equivalent.
 ///
-/// Rota própria e não um campo na de cima: o v6 está DESLIGADO por decisão de
-/// segurança neste motor, e quem o pede tem de o pedir. Um campo opcional numa
-/// resposta partilhada faria parecer que vem de graça.
+/// Its own route rather than a field on the one above: v6 is OFF by a security
+/// decision in this engine, and whoever wants it has to ask for it. An optional
+/// field on a shared response would make it look like it comes for free.
 async fn dhcp_ip6(State(s): State<AppState>, Path((net, mac)): Path<(String, String)>) -> Response {
     if !valid_arg(&net) || !valid_mac(&mac) {
         return err_response(Error::Invalid("invalid network or MAC".to_string()));
@@ -1081,12 +1124,12 @@ async fn dhcp_ip6(State(s): State<AppState>, Path((net, mac)): Path<(String, Str
     }
 }
 
-/// `GET /v1/net/container-ip/:id` — o IP que um container tem na rede por omissão.
+/// `GET /v1/net/container-ip/:id` — the IP a container has on the default network.
 ///
-/// Derivado do id, sem tocar em estado: é a pergunta que um cliente faz antes de
-/// publicar um porto ou de escrever uma regra, e fazê-la por HTTP evita que ele
-/// reimplemente a fórmula — que teria de dar exactamente o mesmo resultado que
-/// esta, sempre.
+/// Derived from the id, touching no state: it is the question a client asks
+/// before publishing a port or writing a rule, and asking it over HTTP saves it
+/// from reimplementing the formula — which would have to yield exactly the same
+/// result as this one, always.
 async fn container_ip(State(s): State<AppState>, Path(id): Path<String>) -> Response {
     if !valid_arg(&id) {
         return err_response(Error::Invalid("invalid container id".to_string()));
@@ -1135,11 +1178,11 @@ async fn net_route_withdrawn() -> Response {
     (StatusCode::NOT_IMPLEMENTED, Json(body)).into_response()
 }
 
-/// Um MAC é `aa:bb:cc:dd:ee:ff` — hexadecimal e dois-pontos, e mais nada.
+/// A MAC is `aa:bb:cc:dd:ee:ff` — hexadecimal and colons, nothing else.
 ///
-/// Validado à parte do `valid_arg` porque este ACEITA os dois-pontos e aquele
-/// não; sem isto, um MAC legítimo era recusado e a alternativa (afrouxar o
-/// `valid_arg`) alargaria o crivo de todos os outros argumentos.
+/// Validated separately from `valid_arg` because the former ACCEPTS colons and
+/// the latter does not; without this, a legitimate MAC would be refused and the
+/// alternative (loosening `valid_arg`) would widen the filter on every other argument.
 fn valid_mac(mac: &str) -> bool {
     !mac.is_empty()
         && mac.len() <= 17
@@ -1148,20 +1191,20 @@ fn valid_mac(mac: &str) -> bool {
             .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '-')
 }
 
-/// Corpo de `PUT /v1/containers/:id/rate`.
+/// Body of `PUT /v1/containers/:id/rate`.
 #[derive(serde::Deserialize)]
 struct RateBody {
-    /// Débito em bits/segundo.
+    /// Rate in bits/second.
     rate_bit: u64,
-    /// Balde do TBF, em bytes.
+    /// TBF bucket, in bytes.
     burst_bytes: u64,
 }
 
-/// `PUT /v1/containers/:id/rate` — limita a largura de banda de um container a correr.
+/// `PUT /v1/containers/:id/rate` — rate-limits a running container's bandwidth.
 ///
-/// Sob `/v1/containers` e não sob `/v1/net`: quem o lê está a mudar uma
-/// propriedade DAQUELE workload, e é lá que a vai procurar. O mecanismo é de
-/// rede; o recurso não é.
+/// Under `/v1/containers` and not under `/v1/net`: whoever reads it is changing a
+/// property OF THAT workload, and that is where they look for it. The mechanism
+/// is a network one; the resource is not.
 async fn set_net_rate(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -1177,22 +1220,22 @@ async fn set_net_rate(
     }
 }
 
-/// Corpo de `POST /v1/net/publish`.
+/// Body of `POST /v1/net/publish`.
 #[derive(serde::Deserialize)]
 struct PublishBody {
-    /// IP do container que recebe o tráfego.
+    /// IP of the container that receives the traffic.
     container_ip: String,
-    /// `hostPort:contPort[/tcp|udp]` — a mesma forma que o `-p` da CLI.
+    /// `hostPort:contPort[/tcp|udp]` — the same form as the CLI's `-p`.
     spec: String,
 }
 
-/// `POST /v1/net/publish` — publica um porto através do ingress.
+/// `POST /v1/net/publish` — publishes a port through the ingress.
 ///
-/// Existe para que um cliente local publique um porto sem ligar os crates do
-/// motor: é a mesma operação do `delonix-sdn`, atrás de HTTP.
+/// Exists so a local client can publish a port without linking the engine's
+/// crates: it is the same `delonix-sdn` operation, behind HTTP.
 ///
-/// O `container_ip` é validado antes de chegar ao mecanismo: é o que acaba numa
-/// regra de DNAT, e uma string arbitrária ali é uma regra arbitrária.
+/// `container_ip` is validated before it reaches the mechanism: it is what ends
+/// up in a DNAT rule, and an arbitrary string there is an arbitrary rule.
 async fn publish_port(State(s): State<AppState>, Json(b): Json<PublishBody>) -> Response {
     if !s.engine.valid_container_ip(&b.container_ip) {
         return err_response(Error::Invalid(format!(
@@ -1272,13 +1315,13 @@ async fn forget_published_port(
     blocking(move || engine.forget_published_port(ip.as_deref(), &spec_or_port)).await
 }
 
-/// `DELETE /v1/net/publish/:host_port` — retira a publicação de um porto.
+/// `DELETE /v1/net/publish/:host_port` — withdraws a port publication.
 ///
-/// **Best-effort, e a API não finge o contrário**: o `unpublish_port` não
-/// devolve resultado — tira a regra se lá estiver e cala-se se não estiver. Um
-/// 200 aqui significa «a operação correu», não «havia o que remover». Inventar
-/// um 404 exigiria uma leitura que o mecanismo não oferece, e um 404 adivinhado
-/// é pior do que a verdade.
+/// **Best-effort, and the API does not pretend otherwise**: `unpublish_port`
+/// returns no result — it removes the rule if it is there and stays quiet if it
+/// is not. A 200 here means "the operation ran", not "there was something to
+/// remove". Inventing a 404 would require a read the mechanism does not offer,
+/// and a guessed 404 is worse than the truth.
 async fn unpublish_port(State(s): State<AppState>, Path(host_port): Path<String>) -> Response {
     if host_port.is_empty() || !host_port.chars().all(|c| c.is_ascii_digit()) {
         return err_response(Error::Invalid(format!("invalid host port: '{host_port}'")));
@@ -1297,15 +1340,15 @@ async fn unpublish_port(State(s): State<AppState>, Path(host_port): Path<String>
     }
 }
 
-/// `GET /v1/networks` — as redes DECLARADAS neste nó.
+/// `GET /v1/networks` — the networks DECLARED on this node.
 ///
-/// Leitura pela biblioteca, como o resto dos `GET` deste módulo: passar pelo
-/// binário só para ler seria pagar um `fork`+`exec` por uma leitura de ficheiros.
+/// Read through the library, like the rest of this module's `GET`s: going
+/// through the binary just to read would pay a `fork`+`exec` for a file read.
 ///
-/// **Declaradas, não realizadas.** Uma rede aparece aqui a partir do
-/// `network create`, mas a bridge só nasce no netns do holder ao primeiro
-/// attach — ver `/v1/net/status` para saber o que está de pé. A distinção é do
-/// modelo, não desta rota, e esconde-la aqui seria fazer a API mentir sobre ela.
+/// **Declared, not realized.** A network shows up here from `network create`,
+/// but the bridge is only born in the holder's netns on the first attach — see
+/// `/v1/net/status` to learn what is actually up. The distinction belongs to the
+/// model, not to this route, and hiding it here would make the API lie about it.
 async fn list_networks(State(s): State<AppState>) -> Response {
     let engine = s.engine.clone();
     match tokio::task::spawn_blocking(move || engine.network_list()).await {
@@ -1317,18 +1360,18 @@ async fn list_networks(State(s): State<AppState>) -> Response {
     }
 }
 
-/// `GET /v1/networks/:name` — uma rede pelo nome, ou 404.
+/// `GET /v1/networks/:name` — a network by name, or 404.
 ///
-/// O 404 é a resposta certa e não um detalhe: quem chama isto está a decidir se
-/// cria a rede ou se a reutiliza, e um corpo vazio com 200 fá-lo-ia criar por
-/// cima de uma rede que existe.
+/// The 404 is the right answer and not a detail: whoever calls this is deciding
+/// whether to create the network or reuse it, and an empty body with a 200 would
+/// make them create over a network that already exists.
 async fn get_network(State(s): State<AppState>, Path(name): Path<String>) -> Response {
     if !valid_arg(&name) {
         return err_response(Error::Invalid("invalid network name".to_string()));
     }
     let engine = s.engine.clone();
-    let achada = tokio::task::spawn_blocking(move || engine.network_get(&name)).await;
-    match achada {
+    let found = tokio::task::spawn_blocking(move || engine.network_get(&name)).await;
+    match found {
         Ok(Some(def)) => Json(def).into_response(),
         Ok(None) => err_response(Error::NotFound("network".to_string())),
         Err(e) => err_response(Error::Runtime {
@@ -1338,11 +1381,11 @@ async fn get_network(State(s): State<AppState>, Path(name): Path<String>) -> Res
     }
 }
 
-/// `GET /v1/net/status` — o estado da infra de rede REALIZADA neste nó.
+/// `GET /v1/net/status` — the state of the REALIZED network infra on this node.
 ///
-/// A contraparte do `list_networks`: aquele diz o que está declarado, este diz
-/// o que está de pé (holder, slirp, bridge, ref-count). Um cliente que só leia o
-/// primeiro conclui que a rede existe quando ainda não existe.
+/// The counterpart to `list_networks`: that one says what is declared, this one
+/// says what is up (holder, slirp, bridge, ref-count). A client that reads only
+/// the first concludes the network exists when it does not yet.
 async fn net_status(State(s): State<AppState>) -> Response {
     let engine = s.engine.clone();
     match tokio::task::spawn_blocking(move || engine.network_status()).await {
@@ -1654,7 +1697,7 @@ mod tests {
     }
 
     /// Builds a saved container record with an IP, for the publish-persistence tests.
-    fn ctr_com_ip(base: &std::path::Path, id: &str, ip: &str) -> Store {
+    fn ctr_with_ip(base: &std::path::Path, id: &str, ip: &str) -> Store {
         let store = Store::open(base.join("containers")).unwrap();
         let mut c = delonix_compute::Container::new(
             id.to_string(),
@@ -1664,7 +1707,7 @@ mod tests {
             "256m".to_string(),
         );
         c.ip = Some(ip.to_string());
-        c.network = Some("rede".to_string());
+        c.network = Some("net".to_string());
         store.save(&c).unwrap();
         store
     }
@@ -1674,9 +1717,9 @@ mod tests {
     /// replay the publication after an ingress restart. Measured on a live host:
     /// 18 records with `ports: []` while two of those ports were serving HTTP.
     #[tokio::test]
-    async fn publicar_pela_api_fica_no_registo() {
+    async fn publish_through_api_lands_in_record() {
         let (st, _d) = test_state();
-        let store = ctr_com_ip(&st.base, "aaaa1111bbbb2222", "10.210.0.5");
+        let store = ctr_with_ip(&st.base, "aaaa1111bbbb2222", "10.210.0.5");
 
         record_published_port(
             st.engine.clone(),
@@ -1690,7 +1733,7 @@ mod tests {
         assert_eq!(
             c.ports,
             vec!["18099:80".to_string()],
-            "a publicação não chegou ao registo — nada a poderia repor num reinício"
+            "the publication never reached the record — nothing could replay it on a restart"
         );
     }
 
@@ -1698,9 +1741,9 @@ mod tests {
     /// start walks `ports` and would try to publish the same host port twice,
     /// the second failing as already in use.
     #[tokio::test]
-    async fn publicar_duas_vezes_nao_duplica() {
+    async fn publishing_twice_does_not_duplicate() {
         let (st, _d) = test_state();
-        let store = ctr_com_ip(&st.base, "cccc3333dddd4444", "10.210.0.6");
+        let store = ctr_with_ip(&st.base, "cccc3333dddd4444", "10.210.0.6");
         for _ in 0..3 {
             record_published_port(
                 st.engine.clone(),
@@ -1717,25 +1760,25 @@ mod tests {
     /// be an error: the ingress addresses workloads by IP and this function
     /// records what it can — it is not a second admission gate.
     #[tokio::test]
-    async fn ip_desconhecido_nao_falha_nem_toca_em_ninguem() {
+    async fn unknown_ip_does_not_fail_nor_touch_anyone() {
         let (st, _d) = test_state();
-        let store = ctr_com_ip(&st.base, "eeee5555ffff6666", "10.210.0.7");
+        let store = ctr_with_ip(&st.base, "eeee5555ffff6666", "10.210.0.7");
         record_published_port(
             st.engine.clone(),
             "10.210.99.99".to_string(),
             "18101:80".to_string(),
         )
         .await
-        .expect("um IP alheio não é erro");
+        .expect("a foreign IP is not an error");
         assert!(store.list().unwrap().pop().unwrap().ports.is_empty());
     }
 
     /// Un-publishing must drop the DESIRED state too, or the next start would
     /// faithfully republish a port the operator just removed.
     #[tokio::test]
-    async fn despublicar_tira_do_registo() {
+    async fn unpublish_removes_from_record() {
         let (st, _d) = test_state();
-        let store = ctr_com_ip(&st.base, "7777aaaa8888bbbb", "10.210.0.8");
+        let store = ctr_with_ip(&st.base, "7777aaaa8888bbbb", "10.210.0.8");
         record_published_port(
             st.engine.clone(),
             "10.210.0.8".to_string(),
@@ -1757,12 +1800,12 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(
             store.list().unwrap().pop().unwrap().ports.is_empty(),
-            "o registo continuou a pedir um porto que já foi retirado"
+            "the record kept asking for a port that was already withdrawn"
         );
     }
 
     #[tokio::test]
-    async fn ping_responde() {
+    async fn ping_responds() {
         let (st, _d) = test_state();
         let resp = router(st)
             .oneshot(
@@ -1777,7 +1820,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn metrics_expoe_o_registo_partilhado() {
+    async fn metrics_exposes_the_shared_registry() {
         let (st, _d) = test_state();
         let resp = router(st)
             .oneshot(
@@ -1798,11 +1841,46 @@ mod tests {
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         let body = String::from_utf8_lossy(&bytes);
         // The shared registry's `delonix_build_info` must always be present.
-        assert!(body.contains("delonix_build_info"), "corpo: {body}");
+        assert!(body.contains("delonix_build_info"), "body: {body}");
+    }
+
+    /// The TCP `/metrics` listener (`DELONIX_MGMT_METRICS_ADDR`) must carry the
+    /// Prometheus endpoint and NOTHING else — the management routes
+    /// (exec/run/rm) stay on the euid-checked unix socket. Exercises the exact
+    /// router the production listener builds via `metrics_only_router`.
+    #[tokio::test]
+    async fn metrics_only_router_serves_metrics_but_not_management_routes() {
+        let (st, _d) = test_state();
+        let app = metrics_only_router(st);
+
+        // `/metrics` is served, with the full registry.
+        let resp = app
+            .clone()
+            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&bytes).contains("delonix_build_info"));
+
+        // Management routes are ABSENT: the arbitrary-code-execution surface
+        // must never ride on the TCP metrics port.
+        for uri in ["/v1/containers", "/v1/volumes", "/v1/dash"] {
+            let resp = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "{uri} must not be reachable on the metrics-only router"
+            );
+        }
     }
 
     #[tokio::test]
-    async fn ciclo_de_vida_de_um_volume() {
+    async fn volume_lifecycle() {
         let (st, _d) = test_state();
         let app = router(st);
 
@@ -1825,12 +1903,12 @@ mod tests {
             .method("POST")
             .uri("/v1/volumes")
             .header("content-type", "application/json")
-            .body(Body::from(r#"{"name":"dados"}"#))
+            .body(Body::from(r#"{"name":"data"}"#))
             .unwrap();
         let resp = app.clone().oneshot(create).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
         let v = body_json(resp).await;
-        assert_eq!(v["name"], "dados");
+        assert_eq!(v["name"], "data");
         assert_eq!(v["driver"], "local");
 
         // Shows up in the listing and in the individual GET.
@@ -1838,19 +1916,19 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/volumes/dados")
+                    .uri("/v1/volumes/data")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(body_json(resp).await["name"], "dados");
+        assert_eq!(body_json(resp).await["name"], "data");
 
         // Delete.
         let del = Request::builder()
             .method("DELETE")
-            .uri("/v1/volumes/dados")
+            .uri("/v1/volumes/data")
             .body(Body::empty())
             .unwrap();
         let resp = app.clone().oneshot(del).await.unwrap();
@@ -1860,7 +1938,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
-                    .uri("/v1/volumes/nada")
+                    .uri("/v1/volumes/none")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1870,17 +1948,17 @@ mod tests {
     }
 
     #[test]
-    fn valid_name_rejeita_traversal() {
+    fn valid_name_rejects_traversal() {
         assert!(valid_name("dados"));
         assert!(valid_name("bd-1.snap_2"));
         // Traversal / separators / dot-segments → rejected.
         for bad in ["", ".", "..", "../x", "a/b", "a..b", "..\u{0000}", "/etc"] {
-            assert!(!valid_name(bad), "devia rejeitar {bad:?}");
+            assert!(!valid_name(bad), "should reject {bad:?}");
         }
     }
 
     #[tokio::test]
-    async fn delete_com_dot_dot_da_400_e_nao_apaga_nada() {
+    async fn delete_with_dot_dot_gives_400_and_deletes_nothing() {
         let (st, _d) = test_state();
         // A DELETE with `..` in the path must be refused at the boundary (it doesn't
         // reach the store's remove_dir_all — otherwise it would delete the parent dir).
@@ -1894,7 +1972,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn containers_lista_vazia_e_get_inexistente_da_404() {
+    async fn containers_empty_list_and_get_nonexistent_gives_404() {
         let (st, _d) = test_state();
         let app = router(st);
 
@@ -1916,7 +1994,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
-                    .uri("/v1/containers/nada")
+                    .uri("/v1/containers/none")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1926,7 +2004,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn containers_devolve_container_populado() {
+    async fn containers_returns_populated_container() {
         use delonix_compute::Container;
         let (st, dir) = test_state();
         // Persist a real container in the store (`<base>/containers`), as the CLI does.
@@ -1981,7 +2059,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn imagens_list_e_rmi() {
+    async fn images_list_and_rmi() {
         use delonix_oci::{Image, ImageConfig, ImageStore};
         let (st, dir) = test_state();
         let store = ImageStore::open(dir.path()).unwrap();
@@ -2045,7 +2123,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mutacao_de_container_valida_o_id_antes_do_exec() {
+    async fn container_mutation_validates_id_before_exec() {
         let (st, _d) = test_state();
         let app = router(st);
         // `..` and a leading `-` (which the CLI would read as a flag) → 400, no exec. (An
@@ -2065,7 +2143,7 @@ mod tests {
             assert_eq!(
                 resp.status(),
                 StatusCode::BAD_REQUEST,
-                "delete devia recusar {bad:?}"
+                "delete should reject {bad:?}"
             );
         }
         // Unknown action → 400 (allowlist).
@@ -2076,7 +2154,7 @@ mod tests {
                     .method("POST")
                     .uri("/v1/containers/web/action")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"action":"detonar"}"#))
+                    .body(Body::from(r#"{"action":"detonate"}"#))
                     .unwrap(),
             )
             .await
@@ -2104,7 +2182,7 @@ mod tests {
             assert_eq!(
                 resp.status(),
                 StatusCode::BAD_REQUEST,
-                "run devia recusar {bad}"
+                "run should reject {bad}"
             );
         }
         // pull: empty ref or one starting with `-` → 400 (before any exec).
@@ -2124,7 +2202,7 @@ mod tests {
             assert_eq!(
                 resp.status(),
                 StatusCode::BAD_REQUEST,
-                "pull devia recusar {bad}"
+                "pull should reject {bad}"
             );
         }
         // build: invalid tag or empty Delonixfile → 400 (before writing/exec).
@@ -2148,7 +2226,7 @@ mod tests {
             assert_eq!(
                 resp.status(),
                 StatusCode::BAD_REQUEST,
-                "build devia recusar {bad}"
+                "build should reject {bad}"
             );
         }
         // network create: invalid name (`-`/empty) → 400.
@@ -2168,50 +2246,50 @@ mod tests {
             assert_eq!(
                 resp.status(),
                 StatusCode::BAD_REQUEST,
-                "network create devia recusar {bad}"
+                "network create should reject {bad}"
             );
         }
     }
 
     #[test]
-    fn build_run_args_usa_net_nao_network_e_respeita_filtros() {
+    fn build_run_args_uses_net_not_network_and_respects_filters() {
         let spec = RunSpecBody {
             image: "nginx:latest".into(),
             name: "web".into(),
-            ports: vec!["8080:80".into(), "mau;porta".into()], // 2nd is filtered out
+            ports: vec!["8080:80".into(), "bad;port".into()], // 2nd is filtered out
             env: vec!["K=v".into()],
-            network: "minha-rede".into(),
+            network: "my-net".into(),
             memory: "256m".into(),
             restart: "always".into(),
             command: vec!["nginx".into(), "-g".into(), "daemon off;".into()],
-            volumes: vec!["dados:/var".into(), "mau/../x:/y".into()], // 2nd filtered out
+            volumes: vec!["data:/var".into(), "bad/../x:/y".into()], // 2nd filtered out
             knows: vec!["db".into()],
             knows_none: false,
         };
         let args = build_run_args(spec);
         // Network flag is `--net=…` (the runtime's), NEVER `--network`.
         assert!(
-            args.contains(&"--net=minha-rede".to_string()),
+            args.contains(&"--net=my-net".to_string()),
             "args: {args:?}"
         );
         assert!(
             !args.iter().any(|a| a.starts_with("--network")),
-            "não pode usar --network"
+            "must not use --network"
         );
         // Filters preserved: invalid port and volume with `..` fall out.
         assert!(args.contains(&"8080:80".to_string()));
-        assert!(!args.iter().any(|a| a.contains("mau;porta")));
-        assert!(args.contains(&"dados:/var".to_string()));
+        assert!(!args.iter().any(|a| a.contains("bad;port")));
+        assert!(args.contains(&"data:/var".to_string()));
         assert!(!args.iter().any(|a| a.contains("..")));
         // The image comes before the command (final positional), and the command after.
         let img = args.iter().position(|a| a == "nginx:latest").unwrap();
         let cmd = args.iter().position(|a| a == "daemon off;").unwrap();
-        assert!(img < cmd, "imagem antes do command");
+        assert!(img < cmd, "image before the command");
         assert!(args.contains(&"--knows".to_string()) && args.contains(&"db".to_string()));
     }
 
     #[test]
-    fn build_run_args_knows_none_tem_precedencia() {
+    fn build_run_args_knows_none_takes_precedence() {
         let spec = RunSpecBody {
             image: "x".into(),
             name: String::new(),
@@ -2229,12 +2307,12 @@ mod tests {
         assert!(args.contains(&"--knows-none".to_string()));
         assert!(
             !args.contains(&"--knows".to_string()),
-            "knows-none exclui knows"
+            "knows-none excludes knows"
         );
     }
 
     #[tokio::test]
-    async fn container_get_com_dot_dot_da_400() {
+    async fn container_get_with_dot_dot_gives_400() {
         let (st, _d) = test_state();
         // `..` in the id path must be refused at the boundary (`Store::load` does
         // `root.join(id)` before the scan — a `..` would escape the root).
@@ -2251,30 +2329,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn nome_invalido_da_400() {
+    async fn invalid_name_gives_400() {
         let (st, _d) = test_state();
         let create = Request::builder()
             .method("POST")
             .uri("/v1/volumes")
             .header("content-type", "application/json")
-            .body(Body::from(r#"{"name":"nome invalido!!"}"#))
+            .body(Body::from(r#"{"name":"invalid name!!"}"#))
             .unwrap();
         let resp = router(st).oneshot(create).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
-    /// As rotas de rede novas: listar, obter, e o estado da infra realizada.
+    /// The new network routes: list, get, and the realized-infra status.
     ///
-    /// `DELONIX_ROOT` é do PROCESSO, e o `test_state` já dá uma raiz temporária
-    /// por teste — mas estas rotas leem pelo `infra`, que resolve a raiz do
-    /// ambiente e não do `AppState`. Por isso a raiz é apontada aqui, uma vez.
+    /// `DELONIX_ROOT` is PROCESS-wide, and `test_state` already gives a temp root
+    /// per test — but these routes read through `infra`, which resolves the root
+    /// from the environment and not from `AppState`. So the root is pointed here, once.
     #[tokio::test]
-    async fn redes_lista_get_e_estado() {
+    async fn networks_list_get_and_status() {
         let (st, d) = test_state();
         let _root = ROOT_ENV.lock().await;
         std::env::set_var("DELONIX_ROOT", d.path());
         let app = router(st);
 
-        // Sem redes declaradas → lista vazia (e não um 500).
+        // No declared networks → empty list (and not a 500).
         let resp = app
             .clone()
             .oneshot(
@@ -2288,13 +2366,13 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(body_json(resp).await.as_array().unwrap().len(), 0);
 
-        // Uma rede que não existe → 404, e não 200 com corpo vazio: quem chama
-        // isto está a decidir entre criar e reutilizar.
+        // A network that does not exist → 404, not 200 with an empty body:
+        // whoever calls this is deciding between creating and reusing.
         let resp = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/networks/nao-existe")
+                    .uri("/v1/networks/does-not-exist")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -2302,7 +2380,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
-        // Nome inválido é recusado ANTES de tocar no disco.
+        // An invalid name is refused BEFORE touching the disk.
         let resp = app
             .clone()
             .oneshot(
@@ -2315,8 +2393,8 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-        // Declara uma rede pela biblioteca e confirma que as duas rotas a veem.
-        let def = delonix_sdn::infra::network_create("api-teste").expect("criar rede");
+        // Declare a network through the library and confirm both routes see it.
+        let def = delonix_sdn::infra::network_create("api-test").expect("create network");
         let resp = app
             .clone()
             .oneshot(
@@ -2327,14 +2405,14 @@ mod tests {
             )
             .await
             .unwrap();
-        let lista = body_json(resp).await;
-        assert_eq!(lista.as_array().unwrap().len(), 1);
+        let list = body_json(resp).await;
+        assert_eq!(list.as_array().unwrap().len(), 1);
 
         let resp = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/networks/api-teste")
+                    .uri("/v1/networks/api-test")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -2342,13 +2420,13 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let j = body_json(resp).await;
-        assert_eq!(j["name"], "api-teste");
+        assert_eq!(j["name"], "api-test");
         assert_eq!(j["bridge"], def.bridge);
         assert_eq!(j["prefix"], def.prefix);
 
-        // O estado da infra responde mesmo com o holder em baixo — é a pergunta
-        // «está de pé?», e uma resposta de erro aí não se distingue de um nó
-        // inacessível.
+        // The infra status responds even with the holder down — it is the "is it
+        // up?" question, and an error response there is indistinguishable from an
+        // unreachable node.
         let resp = app
             .oneshot(
                 Request::builder()
@@ -2360,18 +2438,18 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
     }
-    /// A publicação de portos: o que é recusado ANTES de chegar ao mecanismo.
+    /// Port publication: what is refused BEFORE reaching the mechanism.
     ///
-    /// O caminho feliz não se testa aqui de propósito — publicar exige o holder
-    /// de pé, slirp e nft, e um teste que precise disso deixa de correr no CI e
-    /// passa a decoração. O que se testa é a fronteira: o que a API deixa passar
-    /// para uma regra de DNAT.
+    /// The happy path is deliberately not tested here — publishing requires the
+    /// holder up, slirp and nft, and a test needing that stops running in CI and
+    /// becomes decoration. What is tested is the boundary: what the API lets
+    /// through into a DNAT rule.
     #[tokio::test]
-    async fn publish_recusa_ip_e_spec_invalidos() {
+    async fn publish_rejects_invalid_ip_and_spec() {
         let (st, _d) = test_state();
         let app = router(st);
 
-        // Um IP que não é um IP acabaria numa regra de DNAT arbitrária.
+        // An IP that is not an IP would end up in an arbitrary DNAT rule.
         let resp = app
             .clone()
             .oneshot(
@@ -2380,7 +2458,7 @@ mod tests {
                     .uri("/v1/net/publish")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        r#"{"container_ip":"nao-e-um-ip","spec":"8080:80"}"#,
+                        r#"{"container_ip":"not-an-ip","spec":"8080:80"}"#,
                     ))
                     .unwrap(),
             )
@@ -2388,7 +2466,7 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-        // E a spec passa pelo mesmo crivo dos outros argumentos.
+        // And the spec passes through the same filter as the other arguments.
         let resp = app
             .clone()
             .oneshot(
@@ -2405,41 +2483,41 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-        // O porto do unpublish é um número, e nada mais — é o que identifica a
-        // regra a remover.
-        for mau in ["abc", "80a", ".."] {
+        // The unpublish port is a number and nothing else — it is what identifies
+        // the rule to remove.
+        for bad in ["abc", "80a", ".."] {
             let resp = app
                 .clone()
                 .oneshot(
                     Request::builder()
                         .method("DELETE")
-                        .uri(format!("/v1/net/publish/{mau}"))
+                        .uri(format!("/v1/net/publish/{bad}"))
                         .body(Body::empty())
                         .unwrap(),
                 )
                 .await
                 .unwrap();
-            assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "aceitou {mau:?}");
+            assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "accepted {bad:?}");
         }
     }
-    /// As mutações de rede que escreviam o dataplane sem o registo do container
-    /// (P0-6) respondem 501 com `DX-6302` — TODAS, com um corpo válido ou não.
-    /// Um corpo válido é o caso que importa: era esse que passava e escrevia uma
-    /// regra que o próximo reapply desfazia.
+    /// The network mutations that wrote the dataplane without the container's
+    /// record (P0-6) answer 501 with `DX-6302` — ALL of them, with a valid body
+    /// or not. A valid body is the case that matters: it was the one that got
+    /// through and wrote a rule the next reapply undid.
     #[tokio::test]
-    async fn as_mutacoes_de_rede_sem_registo_sao_recusadas() {
+    async fn network_mutations_without_record_are_refused() {
         let (st, _d) = test_state();
         let app = router(st);
 
-        let req = |method: &str, uri: &str, corpo: &'static str| {
+        let req = |method: &str, uri: &str, body: &'static str| {
             Request::builder()
                 .method(method)
                 .uri(uri.to_string())
                 .header("content-type", "application/json")
-                .body(Body::from(corpo))
+                .body(Body::from(body))
                 .unwrap()
         };
-        let casos = [
+        let cases = [
             (
                 "PUT",
                 "/v1/net/firewall/10.200.0.5",
@@ -2447,7 +2525,7 @@ mod tests {
             ),
             (
                 "PUT",
-                "/v1/net/firewall/nao-e-ip",
+                "/v1/net/firewall/not-an-ip",
                 r#"{"id":"abc","fw":{"enabled":true}}"#,
             ),
             ("DELETE", "/v1/net/firewall/10.200.0.5", ""),
@@ -2461,16 +2539,16 @@ mod tests {
             ("DELETE", "/v1/net/attach-extra/abc/1/10.201.0.9", ""),
             ("DELETE", "/v1/net/attach/abc/10.200.0.5", ""),
         ];
-        for (method, uri, corpo) in casos {
-            let resp = app.clone().oneshot(req(method, uri, corpo)).await.unwrap();
+        for (method, uri, body) in cases {
+            let resp = app.clone().oneshot(req(method, uri, body)).await.unwrap();
             assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED, "{method} {uri}");
             let b = body_json(resp).await;
             assert_eq!(b["number"], "DX-6302", "{method} {uri}: {b}");
             assert_eq!(b["code"], "DX_UNAVAILABLE", "{method} {uri}: {b}");
         }
 
-        let put = |uri: &str, corpo: &'static str| req("PUT", uri, corpo);
-        // O limite de banda valida o id.
+        let put = |uri: &str, body: &'static str| req("PUT", uri, body);
+        // The bandwidth limit validates the id.
         let resp = app
             .oneshot(put(
                 "/v1/containers/../rate",
@@ -2480,11 +2558,11 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
-    /// Endereços: o crivo, e o `valid_mac` que existe por causa dos dois-pontos.
-    /// (A ligação a redes deixou de ser servida — ver
-    /// `as_mutacoes_de_rede_sem_registo_sao_recusadas`.)
+    /// Addresses: the filter, and the `valid_mac` that exists because of the colons.
+    /// (Network attach is no longer served — see
+    /// `network_mutations_without_record_are_refused`.)
     #[tokio::test]
-    async fn dhcp_e_attach_validam_o_que_recebem() {
+    async fn dhcp_and_attach_validate_their_input() {
         let (st, d) = test_state();
         let _root = ROOT_ENV.lock().await;
         std::env::set_var("DELONIX_ROOT", d.path());
@@ -2495,26 +2573,26 @@ mod tests {
                 .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
         };
 
-        // MAC com caracteres que não são hex nem `:`.
+        // MAC with characters that are neither hex nor `:`.
         let resp = g("/v1/net/dhcp/app/zz:zz:zz:zz:zz:zz".into())
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-        // Um MAC legítimo NÃO pode ser recusado — é o que o `valid_mac` existe
-        // para garantir, porque o `valid_arg` do módulo rejeita os dois-pontos.
-        // A rede não existe, portanto 404 (e não 400): a distinção é o ponto.
-        let resp = g("/v1/net/dhcp/rede-que-nao-existe/aa:bb:cc:dd:ee:ff".into())
+        // A legitimate MAC must NOT be refused — that is what `valid_mac` exists
+        // to guarantee, because the module's `valid_arg` rejects the colons.
+        // The network does not exist, so 404 (not 400): the distinction is the point.
+        let resp = g("/v1/net/dhcp/net-that-does-not-exist/aa:bb:cc:dd:ee:ff".into())
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
-        // O IP derivado de um id responde sem tocar em estado.
+        // The IP derived from an id responds without touching state.
         let resp = g("/v1/net/container-ip/abc123".into()).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(body_json(resp).await["ip"].is_string());
 
-        // Id inválido é recusado.
+        // An invalid id is refused.
         let resp = g("/v1/net/container-ip/..".into()).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
