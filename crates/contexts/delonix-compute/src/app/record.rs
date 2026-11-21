@@ -362,6 +362,27 @@ mod cgroup_parent_tests {
 // Manual Deserialize: accepts the new format AND the legacy `{"Exited": code}` from
 // old records (maps to Stopped/Failed), so as not to lose containers/VMs.
 
+/// The five OCI capability sets (runtime-spec `process.capabilities`), each a
+/// list of `CAP_<NAME>` strings. Present only when a container was created from
+/// an OCI bundle that gave DISTINCT sets the single `cap_add`/`cap_drop` model
+/// cannot express — above all a non-empty `ambient` set, which the engine
+/// raises with `PR_CAP_AMBIENT_RAISE`. Everything else (docker `run`, the CRI)
+/// leaves this `None` and keeps the single-mask model derived from
+/// `cap_add`/`cap_drop`, so its confinement is byte-for-byte unchanged.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct OciCapSets {
+    #[serde(default)]
+    pub bounding: Vec<String>,
+    #[serde(default)]
+    pub effective: Vec<String>,
+    #[serde(default)]
+    pub permitted: Vec<String>,
+    #[serde(default)]
+    pub inheritable: Vec<String>,
+    #[serde(default)]
+    pub ambient: Vec<String>,
+}
+
 /// An ADDITIONAL network connection of a container (multi-homing, `network
 /// connect`): the network, the assigned IP and the interface index (`eth<idx>`, >=1).
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -543,6 +564,34 @@ pub struct Container {
     /// Capabilities to restore (`--cap-add`), over the base or over `cap_drop ALL`.
     #[serde(default)]
     pub cap_add: Vec<String>,
+    /// Explicit OCI capability sets (`process.capabilities`) when a bundle asked
+    /// for distinct bounding/effective/permitted/inheritable/ambient sets. See
+    /// [`OciCapSets`]. `None` = the single-mask model off `cap_add`/`cap_drop`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oci_caps: Option<OciCapSets>,
+    /// `oci-runtime` inherited-fd stdio (runc model): the absolute host paths of
+    /// the files behind the `create` process's fd 1 / fd 2 (the suite's
+    /// `stdout-<uuid>`/`stderr-<uuid>` in the bundle, or a shell `>` redirect).
+    /// `create` resolves them via `/proc/self/fd/{1,2}` and persists them so
+    /// `start` — which has no access to those fds anymore — reopens them and the
+    /// container's init `dup2`s them onto its stdout/stderr DIRECTLY (no log
+    /// shim, no rotation, no CRI framing: `runtimetest`'s TAP lands verbatim,
+    /// which is what `runtime-tools` reads back). `None` = not a redirected
+    /// stdio (tty/pipe/`/dev/null`): the historical detached-to-/dev/null path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oci_stdout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oci_stderr: Option<String>,
+    /// `oci-runtime` rootfs resolved at `create` (absolute). The OCI model
+    /// captures the container's configuration at `create`; `start` MUST NOT
+    /// re-read `config.json`, which the caller may have replaced or minimised in
+    /// between (runtime-spec `config_updates_without_affect`). So `create`
+    /// resolves `root.path` against the bundle and persists it here, and `start`
+    /// launches from this path plus the already-translated `Container` fields —
+    /// never re-parsing the bundle's `config.json`. `None` = not a bundle
+    /// container (image-backed, which derives its rootfs elsewhere).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oci_rootfs: Option<String>,
     /// seccomp profile: `None` = allowlist (default); `Some("unconfined")` = no filter.
     #[serde(default)]
     pub seccomp: Option<String>,
@@ -981,6 +1030,10 @@ impl Container {
             annotations: std::collections::BTreeMap::new(),
             cap_drop: Vec::new(),
             cap_add: Vec::new(),
+            oci_caps: None,
+            oci_stdout: None,
+            oci_stderr: None,
+            oci_rootfs: None,
             seccomp: None,
             apparmor: None,
             selinux: None,

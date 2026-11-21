@@ -160,6 +160,56 @@ pub fn default_kept_mask() -> u64 {
     KEPT_CAPS.iter().fold(0u64, |m, &c| m | (1u64 << c))
 }
 
+/// Bitmask of the named capabilities (`CAP_NET_RAW` or `NET_RAW`). Names are
+/// expected to have been validated upstream (an unknown name is a `create`-time
+/// refusal in `oci-runtime`); any that still fail to resolve here are skipped
+/// rather than panicking, exactly as [`resolve_cap_keep`] skips unknown deltas.
+pub fn mask_from_names(names: &[String]) -> u64 {
+    names
+        .iter()
+        .filter_map(|n| cap_num(n))
+        .fold(0u64, |m, n| m | (1u64 << n))
+}
+
+/// The five OCI capability sets as kernel bitmasks. The OCI/runtime-spec model
+/// keeps these DISTINCT — bounding, effective, permitted, inheritable and
+/// ambient — and a conformant runtime must install each one exactly (the
+/// `runtime-tools` suite reads all five back from `/proc/self/status`). The
+/// engine's older model carried a SINGLE kept mask; [`CapSets::from_keep`] is
+/// that model expressed in these terms, so the docker/CRI path keeps
+/// byte-for-byte the confinement it always had.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CapSets {
+    /// Ceiling: a cap outside this set cannot be reacquired via setuid/exec.
+    pub bounding: u64,
+    /// The caps active for permission checks right now.
+    pub effective: u64,
+    /// The caps the thread may make effective.
+    pub permitted: u64,
+    /// The caps a child may inherit across an `execve`.
+    pub inheritable: u64,
+    /// The caps that SURVIVE an `execve` into a non-privileged program — raised
+    /// with `PR_CAP_AMBIENT_RAISE`, which requires each one to be in both
+    /// `permitted` and `inheritable` first.
+    pub ambient: u64,
+}
+
+impl CapSets {
+    /// The single-mask model: `bounding = effective = permitted = keep`, with
+    /// inheritable and ambient empty. This is EXACTLY what the engine applied
+    /// before it learned the five-set model, so every caller that has no
+    /// distinct sets (docker `run`, the CRI, `exec`) keeps the same confinement.
+    pub fn from_keep(keep: u64) -> Self {
+        Self {
+            bounding: keep,
+            effective: keep,
+            permitted: keep,
+            inheritable: 0,
+            ambient: 0,
+        }
+    }
+}
+
 /// The names of every capability set in `mask`, in ascending capability number
 /// (stable order, so the argv this feeds is reproducible). Bits without a known
 /// name are skipped — see [`cap_name`].
