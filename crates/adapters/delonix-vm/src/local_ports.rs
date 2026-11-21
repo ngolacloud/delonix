@@ -351,7 +351,12 @@ fn parse_qemu_virtual_size_bytes(info: &str) -> Option<u64> {
 
 /// Virtual size of a disk, in bytes, via `qemu-img info`.
 fn disk_virtual_size_bytes(disk: &Path) -> Option<u64> {
-    let out = stable_cmd("qemu-img").arg("info").arg(disk).output().ok()?;
+    let out = stable_cmd("qemu-img")
+        .arg("info")
+        .arg("-U")
+        .arg(disk)
+        .output()
+        .ok()?;
     parse_qemu_virtual_size_bytes(&String::from_utf8_lossy(&out.stdout))
 }
 
@@ -363,7 +368,12 @@ fn disk_virtual_size_bytes(disk: &Path) -> Option<u64> {
 pub fn disk_backing_format(disk: &Path) -> String {
     // `qemu-img info` is PARSED (`parse_qemu_format`) — same locale exposure
     // as the `virsh` state strings; see `stable_cmd`.
-    if let Ok(out) = stable_cmd("qemu-img").arg("info").arg(disk).output() {
+    if let Ok(out) = stable_cmd("qemu-img")
+        .arg("info")
+        .arg("-U")
+        .arg(disk)
+        .output()
+    {
         if out.status.success() {
             if let Some(fmt) = std::str::from_utf8(&out.stdout)
                 .ok()
