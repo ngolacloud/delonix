@@ -1578,13 +1578,80 @@ impl RunArgs {
 
     /// Splits `image_command` into owned `(image, command)`. Same invariant as
     /// [`RunArgs::image`]: the first element is always present post-parse.
-    fn split_image_command(image_command: Vec<String>) -> (String, Vec<String>) {
+    ///
+    /// Refuses an image that begins with `-` — see
+    /// [`refuse_leading_dash_operand`] for why that check belongs here and not
+    /// in the parser.
+    fn split_image_command(image_command: Vec<String>) -> Result<(String, Vec<String>)> {
         let mut it = image_command.into_iter();
         let image = it
             .next()
             .expect("RunArgs.image_command is `required = true`; clap guarantees >= 1 element");
-        (image, strip_leading_separator(it.collect()))
+        refuse_leading_dash_operand(Operand::Image, &image)?;
+        Ok((image, strip_leading_separator(it.collect())))
     }
+}
+
+/// Refuses a first trailing operand that begins with `-`.
+///
+/// `image_command` and `id_command` carry `allow_hyphen_values` so that every
+/// token AFTER the operand reaches the container even when it looks like a flag
+/// (`run <img> echo --config`) — the Docker/Podman grammar, and the whole reason
+/// the attribute is there. The side effect was that it also made the FIRST token
+/// eligible as the operand, so a mistyped flag became the image or the container
+/// name. Measured on 0.1.2, before this guard:
+///
+/// ```text
+/// $ delonix run --no-such-flag
+/// pulling --no-such-flag…
+/// INFO delonix_oci::registry: pulling library/--no-such-flag:latest
+///      from registry-1.docker.io
+/// error[DX-4401] no such image library/--no-such-flag:latest
+/// ```
+///
+/// That is: a typo left the machine for a public registry, cost a network round
+/// trip, and the diagnosis named an IMAGE when what was misspelled was a flag.
+/// `exec` had the same shape with `no such container: --flag-…`. Docker 29.9.3
+/// and Podman 4.9.3 both answer `unknown flag` with rc=125 and touch no network.
+///
+/// Neither an OCI reference nor a container name may begin with `-`, so the
+/// refusal costs no legitimate input.
+///
+/// **Why the message names two readings.** By this point clap has already
+/// consumed any `--` separator, so this code cannot tell `run --x` from
+/// `run -- --x`. Docker can, and answers differently for each (`unknown flag`
+/// vs `invalid reference format`, both measured). Rather than guess, the message
+/// states the likely reading first and the other second.
+/// **Why there are TWO messages and not one with a `{what}` placeholder.** The
+/// shared form was written first and is wrong for the catalogue: the two
+/// operand nouns have different grammatical genders in the target language, so
+/// a single `msgstr` cannot agree with both — the article and the adjective
+/// would be wrong for one of them. It is the trap AGENTS.md records under the
+/// language section: never share a `msgid` whose translation depends on the
+/// subject's gender.
+fn refuse_leading_dash_operand(what: Operand, token: &str) -> Result<()> {
+    if !token.starts_with('-') {
+        return Ok(());
+    }
+    let template = match what {
+        Operand::Image => {
+            "'{token}' begins with `-`, so it is not a valid image reference. If you meant a \
+             flag, it is not one this command has — and flags go BEFORE the image. If you \
+             meant a literal image, a reference cannot begin with `-`."
+        }
+        Operand::Container => {
+            "'{token}' begins with `-`, so it is not a valid container name. If you meant a \
+             flag, it is not one this command has — and flags go BEFORE the container. If \
+             you meant a literal container, a name cannot begin with `-`."
+        }
+    };
+    Err(Error::Invalid(super::po::tf(template, &[("token", token)])))
+}
+
+/// Which trailing operand [`refuse_leading_dash_operand`] is guarding.
+enum Operand {
+    Image,
+    Container,
 }
 
 /// Drops a single leading `--` from a captured command. With `trailing_var_arg`
@@ -1724,12 +1791,15 @@ pub struct ExecArgs {
 impl ExecArgs {
     /// Splits `id_command` into owned `(container, command)`. `required = true`
     /// on the field guarantees the container is present post-parse.
-    pub(crate) fn split_id_command(id_command: Vec<String>) -> (String, Vec<String>) {
+    /// Refuses a container that begins with `-` — same reasoning as
+    /// [`RunArgs::split_image_command`], see [`refuse_leading_dash_operand`].
+    pub(crate) fn split_id_command(id_command: Vec<String>) -> Result<(String, Vec<String>)> {
         let mut it = id_command.into_iter();
         let id = it
             .next()
             .expect("ExecArgs.id_command is `required = true`; clap guarantees >= 1 element");
-        (id, strip_leading_separator(it.collect()))
+        refuse_leading_dash_operand(Operand::Container, &id)?;
+        Ok((id, strip_leading_separator(it.collect())))
     }
 }
 
@@ -2317,7 +2387,7 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
     // First element is the image, the rest is the container command — the Docker
     // split that lets a container flag (`--config`, ...) ride after the image
     // without `run` stealing it. See the `image_command` field doc.
-    let (image, command) = RunArgs::split_image_command(image_command);
+    let (image, command) = RunArgs::split_image_command(image_command)?;
     // `--pod <name>` (imperative join, Podman parity). The flag carries the POD
     // NAME, but every downstream user — `cmd_run`'s netns re-exec, the persisted
     // record, `start` — treats the `pod` field as the pod's NETNS name, which is
@@ -2655,7 +2725,7 @@ pub fn run(action: ContainerCmd) -> Result<()> {
             privileged,
             id_command,
         }) => {
-            let (id, command) = ExecArgs::split_id_command(id_command);
+            let (id, command) = ExecArgs::split_id_command(id_command)?;
             cmd_exec(
                 &images,
                 &store,
@@ -11342,12 +11412,62 @@ mod run_arg_parity_tests {
     use clap::Parser;
 
     fn run_image_command(argv: &[&str]) -> (String, Vec<String>) {
+        split_run_image_command(argv).expect("the split accepts this image")
+    }
+
+    /// The fallible form, for the cases that assert the REFUSAL of an image that
+    /// begins with `-`.
+    fn split_run_image_command(argv: &[&str]) -> super::Result<(String, Vec<String>)> {
         let cli = Cli::try_parse_from(argv).expect("parses");
         match cli.cmd {
             Cmd::Container {
                 action: ContainerCmd::Run(args) | ContainerCmd::Create(args),
             } => RunArgs::split_image_command(args.image_command),
             _ => panic!("not container run/create"),
+        }
+    }
+
+    /// THE OTHER REGRESSION GUARD, and the one that cost a network round trip.
+    /// A mistyped flag used to be taken as the IMAGE: `run --no-such-flag`
+    /// went to `registry-1.docker.io` asking for
+    /// `library/--no-such-flag:latest` and failed naming an image, when
+    /// what was misspelled was a flag. Docker and Podman both answer `unknown
+    /// flag` without touching the network. Measured on 0.1.2; see
+    /// `refuse_leading_dash_operand`.
+    #[test]
+    fn a_mistyped_flag_is_not_taken_as_the_image() {
+        for argv in [
+            ["delonix", "container", "run", "--no-such-flag"],
+            ["delonix", "container", "create", "--no-such-flag"],
+        ] {
+            let err = split_run_image_command(&argv)
+                .expect_err("an image beginning with `-` has to be refused");
+            let msg = err.to_string();
+            assert!(
+                msg.contains("--no-such-flag"),
+                "the refusal has to NAME the token: {msg}"
+            );
+            assert!(
+                msg.contains("image"),
+                "the refusal has to say which operand it is about: {msg}"
+            );
+        }
+    }
+
+    /// The guard is on the leading character, not on a `--` prefix: an unknown
+    /// SHORT flag and a bare `-` reach the positional too, and are refused.
+    ///
+    /// `-p` does NOT work as a probe here, and the first version of this test
+    /// used it: `-p` is one of `run`'s own flags, so clap refuses it for a
+    /// missing value BEFORE the positional exists and `try_parse_from` never
+    /// returns a value. The probe has to be a token clap does not recognise.
+    #[test]
+    fn an_unknown_short_flag_is_not_taken_as_the_image_either() {
+        for token in ["-Z", "-"] {
+            assert!(
+                split_run_image_command(&["delonix", "container", "run", token]).is_err(),
+                "'{token}' reaches the positional and has to be refused"
+            );
         }
     }
 
