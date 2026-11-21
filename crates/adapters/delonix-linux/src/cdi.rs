@@ -21,6 +21,7 @@
 //! that DOES declare hooks gets a clear (non-fatal) warning that they were
 //! skipped, so the gap is visible rather than silently assumed harmless.
 
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 
 use crate::{Error, Result};
@@ -295,27 +296,58 @@ fn apply_edits(edits: &ContainerEdits, out: &mut CdiEdits) {
     }
 }
 
+/// The character device nodes directly inside `dir` whose name starts with
+/// `prefix` (an empty prefix takes every entry), as host paths.
+///
+/// **Character devices only, and that is the whole point of this helper.**
+/// Neither `/dev` nor `/dev/dri` is a flat list of device nodes:
+/// `/dev/dri/by-path` is a DIRECTORY of symlinks, and `/dev/nvidia-caps` is a
+/// directory too. Handing either to `--device` made the container's init create
+/// an empty regular FILE at that path — measured inside a container on
+/// 2026-11-21 with `--gpus dri`: `-rw-rw-r-- 1 root root 0 by-path`, where the
+/// host has a directory. Nothing read it, so nothing broke, but `by-path` is
+/// exactly the path a CDI spec's `create-symlinks` hook populates
+/// (`../card0::/dev/dri/by-path/pci-0000:01:00.0-card`), so the placeholder can
+/// shadow what an application that resolves a device by path expects to find.
+///
+/// `metadata` follows symlinks on purpose: a link to a real node is a node, and
+/// `/dev` does name nodes through links.
+fn device_nodes_in(dir: &Path, prefix: &str) -> Vec<String> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if !prefix.is_empty() && !name.starts_with(prefix) {
+            continue;
+        }
+        let path = dir.join(&name);
+        let is_node = std::fs::metadata(&path)
+            .map(|m| m.file_type().is_char_device())
+            .unwrap_or(false);
+        if is_node {
+            out.push(path.to_string_lossy().into_owned());
+        }
+    }
+    out
+}
+
 /// The raw device nodes a `--gpus` value names, globbed from the host:
 /// `/dev/nvidia*` for `nvidia`, `/dev/dri/*` for `dri`, both for `all`.
 pub fn expand_gpu_devices(spec: &str) -> Vec<String> {
     let want_nvidia = spec == "all" || spec.contains("nvidia");
     let want_dri = spec == "all" || spec.contains("dri");
     let mut out = Vec::new();
-    let mut add_glob = |dir: &str, prefix: &str| {
-        if let Ok(rd) = std::fs::read_dir(dir) {
-            for e in rd.flatten() {
-                let name = e.file_name().to_string_lossy().into_owned();
-                if prefix.is_empty() || name.starts_with(prefix) {
-                    out.push(format!("{dir}/{name}"));
-                }
-            }
-        }
-    };
     if want_nvidia {
-        add_glob("/dev", "nvidia"); // /dev/nvidia0, /dev/nvidiactl, /dev/nvidia-uvm, …
+        // /dev/nvidia0, /dev/nvidiactl, /dev/nvidia-uvm, … and never
+        // /dev/nvidia-caps, which is a directory.
+        out.extend(device_nodes_in(Path::new("/dev"), "nvidia"));
     }
     if want_dri {
-        add_glob("/dev/dri", ""); // /dev/dri/card0, /dev/dri/renderD128, …
+        // /dev/dri/card0, /dev/dri/renderD128, … and never /dev/dri/by-path,
+        // which is a directory.
+        out.extend(device_nodes_in(Path::new("/dev/dri"), ""));
     }
     out
 }
@@ -574,5 +606,100 @@ mod tests {
         let err = resolve_cdi_device_in(&[dir.join("nvidia.json")], "nvidia.com/gpu=7", &mut out)
             .unwrap_err();
         assert!(format!("{err}").contains("not found"), "{err}");
+    }
+
+    #[test]
+    fn the_glob_takes_device_nodes_and_never_a_directory_or_a_regular_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        // A link to a real character device counts as a node (`metadata`
+        // follows it) — /dev does name nodes through links.
+        std::os::unix::fs::symlink("/dev/null", dir.join("card9")).unwrap();
+        // The measured defect: a directory reached `--device` and the init left
+        // an empty regular file at that path inside the container.
+        std::fs::create_dir(dir.join("by-path")).unwrap();
+        std::fs::write(dir.join("README"), b"not a device").unwrap();
+
+        let out = device_nodes_in(dir, "");
+        assert_eq!(
+            out,
+            vec![dir.join("card9").to_string_lossy().into_owned()],
+            "only the character device may come out: {out:?}"
+        );
+    }
+
+    #[test]
+    fn the_glob_still_filters_by_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        std::os::unix::fs::symlink("/dev/null", dir.join("nvidia0")).unwrap();
+        std::os::unix::fs::symlink("/dev/null", dir.join("kvm")).unwrap();
+        let out = device_nodes_in(dir, "nvidia");
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(out[0].ends_with("/nvidia0"), "{out:?}");
+    }
+
+    /// Both spec directories are scanned (`/etc/cdi`, then `/var/run/cdi`) and
+    /// both contribute: `dedupe` only collapses IDENTICAL entries, so two specs
+    /// declaring the SAME device name with DIFFERENT values both survive, and
+    /// the one applied LAST is the one that takes effect — the bind that lands
+    /// on top, and the `set_var` the init runs per entry (`apply_env`). That is
+    /// what makes `/var/run/cdi` win, which is the precedence the CDI
+    /// specification documents and `cdi_spec_dirs` promises.
+    ///
+    /// Measured end to end on a real GPU host on 2026-11-21 (RTX 4060, driver
+    /// 580.178.04, nvidia-ctk 1.20.1): one spec per directory, same kind and
+    /// same device name, and the container saw the `/var/run/cdi` marker in
+    /// BOTH the mounted file and the environment variable.
+    ///
+    /// This test exists because that precedence is **emergent, not a rule**:
+    /// keying `dedupe` on the mount target alone — a plausible "never mount
+    /// twice on the same path" change — silently inverts it to `/etc/cdi`, with
+    /// every other test in this module still green.
+    #[test]
+    fn the_spec_directory_read_last_wins_a_conflicting_device() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let spec = |src: &str| {
+            serde_json::json!({
+                "cdiVersion": "0.6.0",
+                "kind": "vendor.test/dev",
+                "devices": [{
+                    "name": "d0",
+                    "containerEdits": {
+                        "env": [format!("MARKER={src}")],
+                        "mounts": [{
+                            "hostPath": format!("/host/{src}.txt"),
+                            "containerPath": "/marker.txt",
+                        }],
+                    },
+                }],
+            })
+            .to_string()
+        };
+        // `etc` first, `var-run` second — the order `cdi_spec_dirs` scans in.
+        std::fs::write(dir.join("etc.json"), spec("etc")).unwrap();
+        std::fs::write(dir.join("var-run.json"), spec("var-run")).unwrap();
+
+        let mut out = CdiEdits::default();
+        resolve_cdi_device_in(
+            &[dir.join("etc.json"), dir.join("var-run.json")],
+            "vendor.test/dev=d0",
+            &mut out,
+        )
+        .unwrap();
+
+        // Both survive — they are not identical, so there is nothing to collapse.
+        assert_eq!(out.mounts.len(), 2, "{:?}", out.mounts);
+        assert_eq!(out.env.len(), 2, "{:?}", out.env);
+        // And what decides is being LAST: the final bind onto the shared target,
+        // and the last `MARKER=` the init sets.
+        assert_eq!(
+            out.mounts.last().unwrap().source,
+            "/host/var-run.txt",
+            "the directory read last must land on top: {:?}",
+            out.mounts
+        );
+        assert_eq!(out.env.last().unwrap(), "MARKER=var-run", "{:?}", out.env);
     }
 }
