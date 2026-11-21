@@ -9,12 +9,12 @@
 | --- | ---: | ---: | ---: |
 | foundation | 3 | 7,991 | 2.0% |
 | context | 6 | 29,786 | 7.6% |
-| adapter | 11 | 90,917 | 23.1% |
+| adapter | 11 | 91,053 | 23.2% |
 | provider | 10 | 55,077 | 14.0% |
 | interface | 4 | 40,467 | 10.3% |
 | assembly | 1 | 1,132 | 0.3% |
 | bin | 6 | 167,418 | 42.6% |
-| **total** | **41** | **392,788** | 100% |
+| **total** | **41** | **392,924** | 100% |
 
 ## Lines per crate
 
@@ -41,8 +41,8 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-sdn ⚠️ >20k | 30,638 |
-| delonix-linux ⚠️ >20k | 25,773 |
+| delonix-sdn ⚠️ >20k | 30,647 |
+| delonix-linux ⚠️ >20k | 25,900 |
 | delonix-oci | 15,503 |
 | delonix-vm | 5,427 |
 | delonix-volume | 3,579 |
