@@ -1237,13 +1237,22 @@ fn drop_capabilities(caps: &CapSets) {
 /// `/proc/self/status`. Pure logic (testable): requires `NO_NEW_PRIVS` when it was
 /// requested, seccomp in
 /// filter mode (2) when expected, and NO capability outside `cap_keep` in the
-/// bounding set nor in the effective set. `CapBnd`/`CapEff` absent = unverifiable =
-/// error (fail-closed).
+/// bounding set nor in the effective set. The inheritable (`CapInh`) and ambient
+/// (`CapAmb`) sets must be EMPTY: the drop zeroes inheritable and never raises
+/// ambient, so a non-zero value there is a cap that would survive the `execve`
+/// into an unprivileged binary — exactly what the drop is meant to prevent.
+/// `CapBnd`/`CapEff`/`CapInh`/`CapAmb` absent = unverifiable = error (fail-closed).
+// The four capability sets plus the three policy flags are each a distinct
+// `/proc/self/status` field; bundling them into a struct would only move the
+// argument list to the call site without making the check clearer.
+#[allow(clippy::too_many_arguments)]
 fn confinement_ok(
     no_new_privs: Option<u32>,
     seccomp_mode: Option<u32>,
     cap_bnd: Option<u64>,
     cap_eff: Option<u64>,
+    cap_inh: Option<u64>,
+    cap_amb: Option<u64>,
     seccomp_expected: bool,
     cap_keep: u64,
     nnp_expected: bool,
@@ -1265,11 +1274,21 @@ fn confinement_ok(
     }
     let bnd = cap_bnd.ok_or_else(|| "CapBnd missing from /proc/self/status".to_string())?;
     let eff = cap_eff.ok_or_else(|| "CapEff missing from /proc/self/status".to_string())?;
+    let inh = cap_inh.ok_or_else(|| "CapInh missing from /proc/self/status".to_string())?;
+    let amb = cap_amb.ok_or_else(|| "CapAmb missing from /proc/self/status".to_string())?;
     let extra_bnd = bnd & !cap_keep;
     let extra_eff = eff & !cap_keep;
     if extra_bnd != 0 || extra_eff != 0 {
         return Err(format!(
             "capabilities outside the allowlist persist (bnd_extra={extra_bnd:#x} eff_extra={extra_eff:#x})"
+        ));
+    }
+    // Inheritable and ambient must be empty: unlike bounding/effective, there is
+    // no allowlist here — the drop zeroes inheritable and leaves ambient clear,
+    // so ANY bit set is a capability that would cross the `execve`.
+    if inh != 0 || amb != 0 {
+        return Err(format!(
+            "inheritable/ambient capabilities persist (inh={inh:#x} amb={amb:#x})"
         ));
     }
     Ok(())
@@ -1289,7 +1308,8 @@ fn verify_confinement(
 ) -> std::result::Result<(), String> {
     let status = std::fs::read_to_string("/proc/self/status")
         .map_err(|e| format!("/proc/self/status unreadable: {e}"))?;
-    let (mut nnp, mut sec, mut bnd, mut eff) = (None, None, None, None);
+    let (mut nnp, mut sec, mut bnd, mut eff, mut inh, mut amb) =
+        (None, None, None, None, None, None);
     for line in status.lines() {
         if let Some(v) = line.strip_prefix("NoNewPrivs:") {
             nnp = v.trim().parse::<u32>().ok();
@@ -1299,9 +1319,15 @@ fn verify_confinement(
             bnd = u64::from_str_radix(v.trim(), 16).ok();
         } else if let Some(v) = line.strip_prefix("CapEff:") {
             eff = u64::from_str_radix(v.trim(), 16).ok();
+        } else if let Some(v) = line.strip_prefix("CapInh:") {
+            inh = u64::from_str_radix(v.trim(), 16).ok();
+        } else if let Some(v) = line.strip_prefix("CapAmb:") {
+            amb = u64::from_str_radix(v.trim(), 16).ok();
         }
     }
-    confinement_ok(nnp, sec, bnd, eff, seccomp_expected, cap_keep, nnp_expected)
+    confinement_ok(
+        nnp, sec, bnd, eff, inh, amb, seccomp_expected, cap_keep, nnp_expected,
+    )
 }
 
 /// Did the operator turn off the fail-closed checks? (ENGINE variable, read before
@@ -1316,12 +1342,14 @@ fn insecure_besteffort() -> bool {
 ///
 /// Without this, whoever invoked `$(delonix run -d ...)` would block until the
 /// container closed its stdout — that is, until it terminated.
-fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
-    // SAFETY: direct FFI; duplicates the standard descriptors. Best-effort.
+fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) -> std::result::Result<(), String> {
+    // SAFETY: direct FFI; duplicates the standard descriptors. A failing `dup2`
+    // is fail-closed: a container whose stdout did NOT land on the log pipe would
+    // run detached with its output going nowhere (or to a stale fd) and no `logs`.
     unsafe {
         let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
-        if null >= 0 {
-            libc::dup2(null, 0);
+        if null >= 0 && libc::dup2(null, 0) < 0 {
+            return Err("dup2(/dev/null -> stdin) failed".into());
         }
         let out = out_fd.unwrap_or(null);
         // `err_fd` absent = the historical behaviour, both streams down the same
@@ -1329,11 +1357,11 @@ fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
         // pipes would just interleave worse). The CRI format DOES carry the tag,
         // and merging there made every line claim to be `stdout` — see `log_shim`.
         let err = err_fd.or(out_fd).unwrap_or(null);
-        if out >= 0 {
-            libc::dup2(out, 1);
+        if out >= 0 && libc::dup2(out, 1) < 0 {
+            return Err("dup2(log pipe -> stdout) failed".into());
         }
-        if err >= 0 {
-            libc::dup2(err, 2);
+        if err >= 0 && libc::dup2(err, 2) < 0 {
+            return Err("dup2(log pipe -> stderr) failed".into());
         }
         if null > 2 {
             libc::close(null);
@@ -1345,6 +1373,7 @@ fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
             }
         }
     }
+    Ok(())
 }
 
 /// The foreground sibling of [`detach_stdio`]: stdout/stderr go down the log
@@ -1354,20 +1383,27 @@ fn detach_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
 /// `container logs` history (Docker/Podman parity): before it, a foreground
 /// container wrote straight to the terminal and the log file simply never
 /// existed (seen live: `logs -f` on a foreground nginx → ENOENT).
-fn attach_log_stdio(out_fd: Option<i32>, err_fd: Option<i32>) {
-    let Some(out) = out_fd else { return };
-    // SAFETY: direct FFI; duplicates our own just-created pipe ends onto 1/2.
+fn attach_log_stdio(out_fd: Option<i32>, err_fd: Option<i32>) -> std::result::Result<(), String> {
+    let Some(out) = out_fd else { return Ok(()) };
+    // SAFETY: direct FFI; duplicates our own just-created pipe ends onto 1/2. A
+    // failing `dup2` is fail-closed: the foreground container's `logs` history
+    // depends on 1/2 pointing at the pipe, so a silent miss would lose it.
     unsafe {
-        libc::dup2(out, 1);
+        if libc::dup2(out, 1) < 0 {
+            return Err("dup2(log pipe -> stdout) failed".into());
+        }
         // Absent stderr pipe = both streams down the stdout pipe, the same
         // merge `detach_stdio` documents.
-        libc::dup2(err_fd.unwrap_or(out), 2);
+        if libc::dup2(err_fd.unwrap_or(out), 2) < 0 {
+            return Err("dup2(log pipe -> stderr) failed".into());
+        }
         for fd in [out_fd, err_fd].into_iter().flatten() {
             if fd > 2 {
                 libc::close(fd);
             }
         }
     }
+    Ok(())
 }
 
 /// Inode of a path, or `None` if it is not there.
@@ -3631,8 +3667,15 @@ pub fn reexec_mapped(args: &[&str]) -> Option<bool> {
             let mut b = [0u8; 1];
             let _ = libc::read(r, b.as_mut_ptr() as *mut libc::c_void, 1);
             libc::close(r);
-            libc::setgid(0);
-            libc::setuid(0);
+            // A failed setgid/setuid must ABORT the child: continuing would
+            // `execv` the mapped helper with the WRONG credentials (not the
+            // userns root we just mapped), silently running it unprivileged.
+            if libc::setgid(0) != 0 {
+                libc::_exit(1);
+            }
+            if libc::setuid(0) != 0 {
+                libc::_exit(1);
+            }
             libc::execv(prog.as_ptr(), argv.as_ptr());
             libc::_exit(127);
         },
@@ -3745,8 +3788,15 @@ pub fn reexec_mapped_hold(args: &[&str]) -> Option<HeldChild> {
             let mut b = [0u8; 1];
             let _ = libc::read(sync[0], b.as_mut_ptr() as *mut libc::c_void, 1);
             libc::close(sync[0]);
-            libc::setgid(0);
-            libc::setuid(0);
+            // A failed setgid/setuid must ABORT the child: continuing would
+            // `execv` the mapped helper with the WRONG credentials (not the
+            // userns root we just mapped), silently running it unprivileged.
+            if libc::setgid(0) != 0 {
+                libc::_exit(1);
+            }
+            if libc::setuid(0) != 0 {
+                libc::_exit(1);
+            }
             libc::execv(prog.as_ptr(), argv.as_ptr());
             libc::_exit(127);
         },
@@ -3968,8 +4018,15 @@ pub fn remove_tree_mapped(path: &std::path::Path) {
             let mut b = [0u8; 1];
             let _ = libc::read(r, b.as_mut_ptr() as *mut libc::c_void, 1);
             libc::close(r);
-            libc::setgid(0);
-            libc::setuid(0);
+            // A failed setgid/setuid must ABORT the child: continuing would
+            // `execv` the mapped helper with the WRONG credentials (not the
+            // userns root we just mapped), silently running it unprivileged.
+            if libc::setgid(0) != 0 {
+                libc::_exit(1);
+            }
+            if libc::setuid(0) != 0 {
+                libc::_exit(1);
+            }
             libc::execv(prog.as_ptr(), argv.as_ptr());
             libc::_exit(127);
         },
@@ -5070,12 +5127,16 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         }
     }
     if detach {
-        detach_stdio(log_fd, log_err_fd);
+        if let Err(e) = detach_stdio(log_fd, log_err_fd) {
+            return setup_abort(&format!("failed to detach stdio: {e}"));
+        }
     } else {
         // Foreground WITH a log pipe: capture stdout/stderr for `container
         // logs` while the shim echoes them to the operator. No-op when the
         // parent opened no pipe (console/tty runs, or no log path).
-        attach_log_stdio(log_fd, log_err_fd);
+        if let Err(e) = attach_log_stdio(log_fd, log_err_fd) {
+            return setup_abort(&format!("failed to attach log stdio: {e}"));
+        }
     }
     // KIND node: BEFORE mounting the rootfs (which remounts `/sys`), gives the node a dedicated,
     // empty cgroup-ns root (uncovers the real cgroup2, moves us to a leaf,
@@ -5118,9 +5179,13 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         // uid 0 INSIDE the user ns (= USERNS_UID_BASE on the host, mappable).
         // nonzero->0 copies permitted->effective (keeps caps).
         // SAFETY: we are the user ns creator -> we have CAP_SETUID/SETGID.
-        unsafe {
-            libc::setgid(0);
-            libc::setuid(0);
+        // Fail-closed: if the switch ever failed, the rest of init would run as
+        // the mapped base uid instead of 0 — every subsequent mount, chown and
+        // the cap drop would be against the wrong credentials. `setgid` first
+        // (after `setuid` the group can no longer change).
+        let cred_ok = unsafe { libc::setgid(0) == 0 && libc::setuid(0) == 0 };
+        if !cred_ok {
+            return setup_abort("failed to assume uid/gid 0 inside the user namespace");
         }
         // /dev: tmpfs (now owned by uid 0) + bind of the host's real nodes from the
         // old root preserved by pivot_root. Then unmount it (no longer needed) —
@@ -10538,11 +10603,26 @@ fn recv_fd(sock: i32) -> Option<i32> {
         if libc::recvmsg(sock, &mut msg, 0) < 0 {
             return None;
         }
+        // MSG_CTRUNC = the kernel had to drop part of the control data (our buffer
+        // was too small, or the fd could not be installed in our table). What is
+        // left is NOT a trustworthy SCM_RIGHTS payload — reading it could hand us a
+        // garbage or stale descriptor. Reject.
+        if msg.msg_flags & libc::MSG_CTRUNC != 0 {
+            return None;
+        }
         let cmsg = libc::CMSG_FIRSTHDR(&msg);
         if cmsg.is_null()
             || (*cmsg).cmsg_level != libc::SOL_SOCKET
             || (*cmsg).cmsg_type != libc::SCM_RIGHTS
         {
+            return None;
+        }
+        // The header must actually carry at least one fd. A short `cmsg_len`
+        // (sender passed no fd, or a truncated message slipped past the flag
+        // check) would make the `copy_nonoverlapping` below read uninitialised
+        // bytes of `cmsgbuf` as a descriptor. `CMSG_LEN` is the length a header
+        // with exactly one fd must have; anything smaller is rejected.
+        if (*cmsg).cmsg_len < libc::CMSG_LEN(std::mem::size_of::<libc::c_int>() as u32) as _ {
             return None;
         }
         let mut fd: libc::c_int = -1;
@@ -15787,39 +15867,157 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     #[test]
     fn confinement_ok_is_fail_closed() {
         let keep = (1u64 << 1) | (1u64 << 3); // only caps 1 and 3 on the allowlist
-                                              // good state: no_new_privs, seccomp filter mode, caps ⊆ keep
-        assert!(confinement_ok(Some(1), Some(2), Some(keep), Some(keep), true, keep, true).is_ok());
+                                              // good state: no_new_privs, seccomp filter mode, caps ⊆ keep,
+                                              // inheritable and ambient both empty
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_ok());
         // NO_NEW_PRIVS inactive → aborts
-        assert!(
-            confinement_ok(Some(0), Some(2), Some(keep), Some(keep), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(0),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // seccomp expected but not in filter mode (failed to apply) → aborts
-        assert!(
-            confinement_ok(Some(1), Some(0), Some(keep), Some(keep), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(0),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // cap outside the allowlist persists in the bounding set (capset/capbset failed) → aborts
         let leaked = keep | (1u64 << 21); // + CAP_SYS_ADMIN
-        assert!(
-            confinement_ok(Some(1), Some(2), Some(leaked), Some(keep), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(leaked),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // …or in the effective
-        assert!(
-            confinement_ok(Some(1), Some(2), Some(keep), Some(leaked), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(leaked),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
+        // a cap surviving in the inheritable set (capset failed to zero it) → aborts,
+        // even one ON the bounding/effective allowlist: it must not cross the execve.
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
+        // …or raised in the ambient set
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(1u64 << 1),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // unconfined (--security-opt seccomp=unconfined): mode 0 is accepted
-        assert!(
-            confinement_ok(Some(1), Some(0), Some(keep), Some(keep), false, keep, true).is_ok()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(0),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            false,
+            keep,
+            true
+        )
+        .is_ok());
         // cap fields absent = unverifiable = aborts (fail-closed)
-        assert!(confinement_ok(Some(1), Some(2), None, Some(keep), true, keep, true).is_err());
-        assert!(confinement_ok(Some(1), Some(2), Some(keep), None, true, keep, true).is_err());
-        // privileged (keep = all caps): nothing ends up "outside" → ok
+        assert!(
+            confinement_ok(Some(1), Some(2), None, Some(keep), Some(0), Some(0), true, keep, true)
+                .is_err()
+        );
+        assert!(
+            confinement_ok(Some(1), Some(2), Some(keep), None, Some(0), Some(0), true, keep, true)
+                .is_err()
+        );
+        // CapInh / CapAmb absent are equally unverifiable → abort.
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            None,
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            None,
+            true,
+            keep,
+            true
+        )
+        .is_err());
+        // privileged (keep = all caps): nothing ends up "outside" → ok, BUT
+        // inheritable/ambient still have to be empty (they always are after the drop).
         let allcaps = u64::MAX;
         assert!(confinement_ok(
             Some(1),
             Some(2),
             Some(allcaps),
             Some(allcaps),
+            Some(0),
+            Some(0),
             true,
             allcaps,
             true
@@ -15838,18 +16036,45 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
     fn confinement_ok_only_requires_no_new_privs_when_requested() {
         let keep = (1u64 << 1) | (1u64 << 3);
         // Requested and absent → abort.
-        assert!(
-            confinement_ok(Some(0), Some(2), Some(keep), Some(keep), true, keep, true).is_err()
-        );
+        assert!(confinement_ok(
+            Some(0),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            true
+        )
+        .is_err());
         // NOT requested and absent → this is the policy, not a failure.
-        assert!(
-            confinement_ok(Some(0), Some(2), Some(keep), Some(keep), true, keep, false).is_ok()
-        );
+        assert!(confinement_ok(
+            Some(0),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            false
+        )
+        .is_ok());
         // Not requested but active anyway → also not a problem (stricter
         // than requested is never a reason to refuse).
-        assert!(
-            confinement_ok(Some(1), Some(2), Some(keep), Some(keep), true, keep, false).is_ok()
-        );
+        assert!(confinement_ok(
+            Some(1),
+            Some(2),
+            Some(keep),
+            Some(keep),
+            Some(0),
+            Some(0),
+            true,
+            keep,
+            false
+        )
+        .is_ok());
         // And the rest of the fail-closed still holds with nnp off: a cap
         // outside the allowlist aborts all the same.
         let leaked = keep | (1u64 << 21);
@@ -15858,11 +16083,71 @@ full avg10=8.00 avg60=9.10 avg300=6.20 total=1000
             Some(2),
             Some(leaked),
             Some(keep),
+            Some(0),
+            Some(0),
             true,
             keep,
             false
         )
         .is_err());
+    }
+
+    /// `recv_fd` must reject a control message that carries no usable
+    /// SCM_RIGHTS payload rather than hand back a bogus descriptor. We drive it
+    /// over a real `socketpair`, sending (a) a plain message with no control
+    /// data and (b) an SCM_RIGHTS header with a short `cmsg_len` (zero fds).
+    /// Both must come back as `None`.
+    #[test]
+    fn recv_fd_rejects_missing_and_truncated_scm_rights() {
+        // SAFETY: a standard socketpair + sendmsg exercise. Every pointer handed
+        // to `sendmsg` points at a local that outlives the call; `cmsgbuf` is
+        // `cmsghdr`-aligned (DA-1) and larger than `CMSG_SPACE(0)`.
+        unsafe {
+            let mut sv = [0i32; 2];
+            assert_eq!(
+                libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, sv.as_mut_ptr()),
+                0,
+                "socketpair"
+            );
+            let (tx, rx) = (sv[0], sv[1]);
+
+            // (a) A message with a payload byte but NO control data: `CMSG_FIRSTHDR`
+            // is null, so `recv_fd` must refuse.
+            let mut dummy: u8 = 7;
+            let mut iov = libc::iovec {
+                iov_base: (&mut dummy as *mut u8).cast::<libc::c_void>(),
+                iov_len: 1,
+            };
+            let mut msg: libc::msghdr = std::mem::zeroed();
+            msg.msg_iov = &mut iov;
+            msg.msg_iovlen = 1;
+            assert!(libc::sendmsg(tx, &msg, 0) >= 0, "sendmsg no-control");
+            assert_eq!(recv_fd(rx), None, "no control data must be rejected");
+
+            // (b) An SCM_RIGHTS header carrying zero fds (cmsg_len = CMSG_LEN(0)).
+            // The level/type are right, but the length is below one fd, so the
+            // new check must reject it instead of reading uninitialised bytes.
+            let mut dummy2: u8 = 9;
+            let mut iov2 = libc::iovec {
+                iov_base: (&mut dummy2 as *mut u8).cast::<libc::c_void>(),
+                iov_len: 1,
+            };
+            let mut cmsgbuf = CmsgBuf { bytes: [0u8; 64] };
+            let mut msg2: libc::msghdr = std::mem::zeroed();
+            msg2.msg_iov = &mut iov2;
+            msg2.msg_iovlen = 1;
+            msg2.msg_control = cmsgbuf.bytes.as_mut_ptr().cast::<libc::c_void>();
+            msg2.msg_controllen = libc::CMSG_SPACE(0) as _;
+            let cmsg = libc::CMSG_FIRSTHDR(&msg2);
+            (*cmsg).cmsg_level = libc::SOL_SOCKET;
+            (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+            (*cmsg).cmsg_len = libc::CMSG_LEN(0) as _;
+            assert!(libc::sendmsg(tx, &msg2, 0) >= 0, "sendmsg zero-fd");
+            assert_eq!(recv_fd(rx), None, "short cmsg_len must be rejected");
+
+            libc::close(tx);
+            libc::close(rx);
+        }
     }
 
     #[test]

@@ -4695,30 +4695,64 @@ fn spoof_elements_of(json: &str, port: &str) -> Vec<String> {
     out
 }
 
+/// Every anti-spoofing set, in the order [`spoof_forget`] sweeps them. A table
+/// built before the v6 upgrade (ADR-0082 phase 4) has no `src6`/`srcpfx6`/
+/// `srcll6`; listing a set that is not there yields nothing, so no delete line
+/// ever references a missing set and the transaction stays valid.
+const SPOOF_SETS: &[&str] = &[
+    "ports", "macports", "macs", "src", "srcpfx", "src6", "srcpfx6", "srcll6",
+];
+
+/// The `delete element` lines that remove every element naming `port` from
+/// `sets`, as one nft script fragment (empty when the port is pinned nowhere).
+/// Split out of [`spoof_forget`] so a (re)bind can run the deletes and the
+/// matching adds in a SINGLE transaction — see [`spoof_bind`]. Each line targets
+/// only an element that was just LISTED, so applying the fragment never fails on
+/// a missing element.
+fn spoof_forget_script(port: &str, sets: &[&str]) -> String {
+    let mut script = String::new();
+    for set in sets {
+        let listed = crate::capture("nft", &["-j", "list", "set", "bridge", SPOOF_TABLE, set])
+            .unwrap_or_default();
+        for el in spoof_elements_of(&listed, port) {
+            script.push_str(&format!(
+                "delete element bridge {SPOOF_TABLE} {set} {{ {el} }}\n"
+            ));
+        }
+    }
+    script
+}
+
 /// Every element of the anti-spoofing sets that names `port` is removed. Used
 /// before a (re)bind and on detach: port names are reused (a VM's tap across
 /// restarts, a netns hash), and an element left behind would pin the NEXT
 /// workload on that name to the previous one's address.
 fn spoof_forget(port: &str) {
-    for set in [
-        "ports", "macports", "macs", "src", "srcpfx", "src6", "srcpfx6", "srcll6",
-    ] {
-        let listed = crate::capture("nft", &["-j", "list", "set", "bridge", SPOOF_TABLE, set])
-            .unwrap_or_default();
-        for el in spoof_elements_of(&listed, port) {
-            run_ok(
-                "nft",
-                &[
-                    "delete",
-                    "element",
-                    "bridge",
-                    SPOOF_TABLE,
-                    set,
-                    &format!("{{ {el} }}"),
-                ],
-            );
-        }
+    let script = spoof_forget_script(port, SPOOF_SETS);
+    if !script.is_empty() {
+        // One transaction; the deletes only reference just-listed elements.
+        let _ = apply_nft_stdin(&script);
     }
+}
+
+/// Assembles the single-transaction (re)bind script: the `forget` deletes first,
+/// then the v4 and MAC adds. Pure (no nft), so the fail-open fix — deletes and
+/// adds fused into ONE script — is covered by a unit test. The order matters: a
+/// `delete element` of the port's old pin followed by the `add` of the new one,
+/// applied atomically, keeps the port continuously present in `@ports`.
+fn spoof_rebind_script(port: &str, ip: &str, mac: Option<&str>, forget: &str) -> String {
+    let mut script = String::from(forget);
+    script.push_str(&format!(
+        "add element bridge {SPOOF_TABLE} src {{ \"{port}\" . {ip} }}\n\
+         add element bridge {SPOOF_TABLE} ports {{ \"{port}\" }}\n"
+    ));
+    if let Some(mac) = mac {
+        script.push_str(&format!(
+            "add element bridge {SPOOF_TABLE} macs {{ \"{port}\" . {mac} }}\n\
+             add element bridge {SPOOF_TABLE} macports {{ \"{port}\" }}\n"
+        ));
+    }
+    script
 }
 
 /// Pins `port` to `ip` (and to `mac`, when known): from now on a frame
@@ -4727,19 +4761,19 @@ fn spoof_forget(port: &str) {
 /// separately and survive only through their own call.
 fn spoof_bind(port: &str, ip: &str, mac: Option<&str>) -> Result<()> {
     ensure_spoof_table()?;
-    spoof_forget(port);
-    let mut script = format!(
-        "add element bridge {SPOOF_TABLE} src {{ \"{port}\" . {ip} }}\n\
-         add element bridge {SPOOF_TABLE} ports {{ \"{port}\" }}\n"
-    );
-    if let Some(mac) = mac {
-        script.push_str(&format!(
-            "add element bridge {SPOOF_TABLE} macs {{ \"{port}\" . {mac} }}\n\
-             add element bridge {SPOOF_TABLE} macports {{ \"{port}\" }}\n"
-        ));
-    }
-    // One transaction: a port must never be in `ports` without its address,
-    // which would drop all of its traffic.
+    // Forget + v4/MAC rebind fused into a SINGLE nft transaction. `spoof_bind`
+    // used to call `spoof_forget` (its own deletes) and THEN apply the adds in a
+    // separate transaction; between the two, a reused port left `@ports` while
+    // the bridge policy is `accept`, so a frame with a forged source passed in
+    // that window (fail-open). Building one script with the deletes before the
+    // adds closes it: the port is never absent from `@ports`. The deletes also
+    // clear any stale v6 pins (`src6`/`srcll6`); their re-add below is best-effort
+    // and `drop`-policy, so that gap is fail-CLOSED.
+    let forget = spoof_forget_script(port, SPOOF_SETS);
+    let script = spoof_rebind_script(port, ip, mac, &forget);
+    // One transaction: a port must never be in `ports` without its address
+    // (would drop all of its traffic), nor out of `ports` under policy accept
+    // (would pass a forged one).
     apply_nft_stdin(&script)?;
     // The container's ULA is pinned to the same port, so the v6 anti-spoof `drop`
     // lets its own v6 source through and nothing else (ADR-0082 phase 4). A SEPARATE,
@@ -13568,6 +13602,37 @@ Inter-|   Receive                                                |  Transmit
         );
         assert!(super::spoof_elements_of(SPOOF_MACS_JSON, "vh2").is_empty());
         assert!(super::spoof_elements_of("not json", "vh1").is_empty());
+    }
+
+    /// A reused port must be re-pinned WITHOUT ever leaving `@ports` while the
+    /// bridge policy is `accept`. The fix fuses the `forget` deletes and the
+    /// rebind adds into one script applied in a single nft transaction; this
+    /// asserts the assembly keeps the deletes before the `@ports` add (so nft
+    /// never has the port absent mid-transaction) and that the MAC pins are
+    /// present only when a MAC is known.
+    #[test]
+    fn spoof_rebind_fuses_forget_and_add_in_one_script() {
+        // `forget` as it would come back for a port that WAS pinned before.
+        let forget = "delete element bridge dlxspoof src { \"vh1\" . 10.0.0.9 }\n\
+                      delete element bridge dlxspoof ports { \"vh1\" }\n";
+        let s = super::spoof_rebind_script("vh1", "10.0.0.5", Some("02:00:00:00:00:01"), forget);
+        let first_delete = s.find("delete element").expect("a forget delete");
+        let ports_add = s
+            .find("add element bridge dlxspoof ports { \"vh1\" }")
+            .expect("the @ports add");
+        // Single script => single transaction; the delete precedes the add, so
+        // the port is never missing from @ports under policy accept.
+        assert!(
+            first_delete < ports_add,
+            "forget deletes must precede the @ports add in the fused script"
+        );
+        assert!(s.contains("add element bridge dlxspoof src { \"vh1\" . 10.0.0.5 }"));
+        assert!(s.contains("add element bridge dlxspoof macs { \"vh1\" . 02:00:00:00:00:01 }"));
+        assert!(s.contains("add element bridge dlxspoof macports { \"vh1\" }"));
+        // No MAC known => no mac lines, but still a complete v4 rebind.
+        let s2 = super::spoof_rebind_script("vh1", "10.0.0.5", None, "");
+        assert!(!s2.contains("macports"));
+        assert!(s2.contains("add element bridge dlxspoof ports { \"vh1\" }"));
     }
 
     /// The order IS the policy. The MAC checks come before the DHCP/ARP-probe
