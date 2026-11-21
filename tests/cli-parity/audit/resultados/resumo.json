@@ -9,8 +9,7 @@
  "casos_na_matriz": 1753,
  "casos_com_resultado": 1753,
  "estados": {
-  "PASS": 1720,
-  "FAIL": 6,
+  "PASS": 1726,
   "NAO_EXECUTADO": 27
  },
  "caminhos_sem_destino_na_matriz": 0,
