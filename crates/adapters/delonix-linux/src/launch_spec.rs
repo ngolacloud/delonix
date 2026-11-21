@@ -56,6 +56,11 @@ pub fn run_spec<'h>(
         run_uid: c.run_uid,
         run_gid: c.run_gid,
         replaces_record: l.replaces_record,
+        // The docker-style `run`/`start` path has no inherited OCI stdio: its
+        // stdout/stderr go to the log driver (shim), never straight to a file.
+        // Only `oci-runtime start` (runc model) sets these — see oci_runtime.rs.
+        oci_stdout: None,
+        oci_stderr: None,
     }
 }
 

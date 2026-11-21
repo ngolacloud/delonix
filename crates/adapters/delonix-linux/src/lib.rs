@@ -29,7 +29,7 @@ pub mod workload_view;
 
 pub use error::{Error, Result};
 
-use capabilities::{all_caps_mask, resolve_cap_keep};
+use capabilities::{all_caps_mask, mask_from_names, resolve_cap_keep, CapSets};
 use delonix_compute::{Container, KubeCgroupDriver, KubeCgroupParent, Mount};
 use delonix_model::ports::StateRepository;
 use delonix_model::records::Status;
@@ -1143,20 +1143,34 @@ fn switch_user_keeping_caps(uid: u32, gid: u32, groups: &[u32]) -> std::result::
     Ok(())
 }
 
-/// Drops all capabilities except `keep` (mask). Without this, the container's
-/// root is the REAL host root (can load modules, reboot the machine,
-/// create device nodes for the host disk, etc.).
-fn drop_capabilities(keep: u64) {
-    // 1) bounding set: prevents reacquiring caps via setuid/exec.
+/// Installs the five OCI capability sets on the current thread. Without this,
+/// the container's root is the REAL host root (can load modules, reboot the
+/// machine, create device nodes for the host disk, etc.).
+///
+/// The order is dictated by the kernel's own rules:
+///  1. Drop the bounding set first (needs `CAP_SETPCAP` in the still-full
+///     effective set) so a cap outside it cannot be reacquired via setuid/exec.
+///  2. `capset` the effective/permitted/inheritable triple. Inheritable is no
+///     longer forced to zero: an ambient cap MUST be in both permitted and
+///     inheritable before it can be raised.
+///  3. Clear the ambient set and RAISE each requested ambient cap — the only
+///     mechanism that lets a capability survive an `execve` into a
+///     non-privileged program, which is exactly what the OCI ambient set means.
+///
+/// For the docker/CRI single-mask model (`CapSets::from_keep`) steps 2–3
+/// degenerate to the previous behaviour (inheritable 0, no ambient raised), so
+/// that path is byte-for-byte unchanged.
+fn drop_capabilities(caps: &CapSets) {
+    // 1) bounding set.
     for cap in 0..64i64 {
-        if (keep >> cap) & 1 == 0 {
+        if (caps.bounding >> cap) & 1 == 0 {
             // SAFETY: prctl is safe; nonexistent caps return EINVAL (ignored).
             unsafe {
                 libc::prctl(libc::PR_CAPBSET_DROP, cap as libc::c_ulong, 0, 0, 0);
             }
         }
     }
-    // 2) effective/permitted/inheritable: only the allowlist ones remain.
+    // 2) effective/permitted/inheritable via capset.
     #[repr(C)]
     struct CapHeader {
         version: u32,
@@ -1172,23 +1186,50 @@ fn drop_capabilities(keep: u64) {
         version: 0x2008_0522, // _LINUX_CAPABILITY_VERSION_3
         pid: 0,               // the thread itself
     };
-    let (lo, hi) = ((keep & 0xffff_ffff) as u32, (keep >> 32) as u32);
+    let split = |m: u64| ((m & 0xffff_ffff) as u32, (m >> 32) as u32);
+    let (eff_lo, eff_hi) = split(caps.effective);
+    let (prm_lo, prm_hi) = split(caps.permitted);
+    let (inh_lo, inh_hi) = split(caps.inheritable);
     let data = [
         CapData {
-            effective: lo,
-            permitted: lo,
-            inheritable: 0,
+            effective: eff_lo,
+            permitted: prm_lo,
+            inheritable: inh_lo,
         },
         CapData {
-            effective: hi,
-            permitted: hi,
-            inheritable: 0,
+            effective: eff_hi,
+            permitted: prm_hi,
+            inheritable: inh_hi,
         },
     ];
     // SAFETY: capset with a valid v3 header and 2 data structs; reducing one's
-    // own caps to a subset is always permitted.
+    // own caps to a subset of the current permitted set is always permitted,
+    // and at this point (before the execve) the thread still holds the full
+    // permitted set it was created with.
     unsafe {
         libc::syscall(libc::SYS_capset, &hdr as *const _, data.as_ptr());
+    }
+    // 3) ambient set: clear all, then raise each requested one. A raise needs
+    //    the cap present in BOTH permitted and inheritable (set in step 2);
+    //    `oci-runtime` refuses a bundle whose ambient is not a subset of their
+    //    intersection, so every raise here is expected to succeed. Best-effort
+    //    on an old kernel that lacks PR_CAP_AMBIENT (pre-4.3): the raises become
+    //    no-ops and `verify_confinement` still holds the bounding ceiling.
+    const PR_CAP_AMBIENT: libc::c_int = 47;
+    const PR_CAP_AMBIENT_RAISE: libc::c_ulong = 2;
+    const PR_CAP_AMBIENT_CLEAR_ALL: libc::c_ulong = 4;
+    // SAFETY: prctl with the ambient subfunctions; unknown values/caps return
+    // EINVAL, which is ignored (the set simply stays unraised).
+    unsafe {
+        libc::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
+    }
+    for cap in 0..64u64 {
+        if (caps.ambient >> cap) & 1 == 1 {
+            // SAFETY: as above; raising a cap already in permitted∩inheritable.
+            unsafe {
+                libc::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, cap as libc::c_ulong, 0, 0);
+            }
+        }
     }
 }
 
@@ -4080,11 +4121,55 @@ fn apply_selinux(context: &str) -> std::result::Result<(), String> {
         .map_err(|e| format!("setexeccon({context}): {e}"))
 }
 
+/// The login `HOME` for `uid`, read from the container's `/etc/passwd`
+/// (post-`pivot_root`, so the path is the container's own). Returns the passwd
+/// `home` field (6th column) of the FIRST line whose uid matches, or `None` when
+/// the file is absent/unreadable or the uid has no entry — the caller then falls
+/// back to `/`, exactly as runc/OCI do.
+///
+/// Why this exists: the init used to hardcode `HOME=/root` for EVERY user. A
+/// non-root process (Kubernetes `runAsUser: 1000` against an image whose passwd
+/// only knows root) then got `HOME=/root` — a 0700 root-owned directory it cannot
+/// write to — and every client-go tool that resolves `~/.kube/config` died with
+/// EACCES there. The Sonobuoy aggregator failed on exactly that path. runc instead
+/// derives HOME from the user's passwd entry and defaults to `/`; this restores
+/// that behaviour. Malformed lines (fewer than 6 fields, non-numeric uid) are
+/// skipped, not fatal — a broken `/etc/passwd` just means the `/` fallback.
+fn passwd_home(uid: u32) -> Option<String> {
+    let text = std::fs::read_to_string("/etc/passwd").ok()?;
+    parse_passwd_home(&text, uid)
+}
+
+/// The pure half of [`passwd_home`]: scans `/etc/passwd` text for `uid`. Split
+/// out so it is testable without an `/etc/passwd` on disk.
+fn parse_passwd_home(text: &str, uid: u32) -> Option<String> {
+    for line in text.lines() {
+        // name:passwd:uid:gid:gecos:home:shell
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() < 6 {
+            continue;
+        }
+        if fields[2].trim().parse::<u32>().ok() != Some(uid) {
+            continue;
+        }
+        let home = fields[5].trim();
+        if !home.is_empty() {
+            return Some(home.to_string());
+        }
+    }
+    None
+}
+
 /// The body that runs inside the new namespaces (the container's PID 1).
 /// Replaces the inherited environment with a clean, predictable one (like Docker):
 /// default `PATH`/`HOME`/`HOSTNAME`/`TERM` + the `KEY=value` from the image/stack/CLI
 /// (these override). Runs in the single-threaded child, before the `execvp`.
-fn apply_env(hostname: &str, env: &[String]) {
+///
+/// `HOME` comes from the container-user's `/etc/passwd` entry (see
+/// [`passwd_home`]), falling back to `/` — never a hardcoded `/root` for a
+/// non-root uid with no passwd entry. An explicit `HOME` in `env` (image/stack/
+/// CLI) still overrides, because it is applied last.
+fn apply_env(hostname: &str, env: &[String], uid: u32) {
     let keys: Vec<String> = std::env::vars().map(|(k, _)| k).collect();
     for k in keys {
         std::env::remove_var(k);
@@ -4093,7 +4178,7 @@ fn apply_env(hostname: &str, env: &[String]) {
         "PATH",
         "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     );
-    std::env::set_var("HOME", "/root");
+    std::env::set_var("HOME", passwd_home(uid).unwrap_or_else(|| "/".to_string()));
     std::env::set_var("HOSTNAME", hostname);
     std::env::set_var("TERM", "xterm");
     for kv in env {
@@ -4721,8 +4806,11 @@ struct FilesystemSpec<'a> {
 /// or strengthen isolation, which is why they live together and are named.
 #[derive(Clone, Copy)]
 struct SecuritySpec<'a> {
-    /// Bitmask of capabilities kept in the child's bounding set.
-    cap_keep: u64,
+    /// The five OCI capability sets the child installs (bounding/effective/
+    /// permitted/inheritable/ambient). The docker/CRI path fills this with
+    /// [`CapSets::from_keep`] (a single kept mask, ambient empty); an OCI bundle
+    /// with explicit sets fills it verbatim so ambient caps are actually raised.
+    caps: CapSets,
     apparmor: Option<&'a str>,
     selinux: Option<&'a str>,
     /// Skips seccomp entirely. The container runs with the host's syscall surface.
@@ -4895,7 +4983,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             },
         security:
             SecuritySpec {
-                cap_keep,
+                caps,
                 apparmor,
                 selinux,
                 seccomp_unconfined,
@@ -5237,7 +5325,7 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
         if landlock {
             apply_landlock(mounts, tmpfs);
         }
-        drop_capabilities(cap_keep); // drop caps (after the mounts, before the exec)
+        drop_capabilities(&caps); // drop caps (after the mounts, before the exec)
         apply_seccomp(
             seccomp_unconfined,
             seccomp_detect,
@@ -5255,13 +5343,13 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             true,
             seccomp_profile_json,
         );
-        drop_capabilities(cap_keep);
+        drop_capabilities(&caps);
     }
     // FAIL-CLOSED: confirms the confinement REALLY took effect before the execve.
     // Runs BEFORE the USER's `setuid` (further below) and BEFORE `apply_env` (so it reads the
     // ENGINE's opt-out, not the container's). See `verify_confinement`.
     if !insecure_besteffort() {
-        if let Err(e) = verify_confinement(!seccomp_unconfined, cap_keep, no_new_privs) {
+        if let Err(e) = verify_confinement(!seccomp_unconfined, caps.bounding, no_new_privs) {
             eprintln!("delonix: confinement NOT verified ({e}); aborting the container");
             return 126;
         }
@@ -5300,7 +5388,10 @@ fn container_init(spec: ContainerInitSpec<'_>) -> isize {
             eprintln!("delonix: warning — failed to enter WORKDIR {w}");
         }
     }
-    apply_env(hostname, env); // clean environment + image/stack/CLI ENV
+    // `HOME` resolves from the container-user's passwd entry (`/` when absent),
+    // so a non-root `USER`/`runAsUser` without an entry no longer inherits a
+    // hardcoded `/root`. The uid 0 default matches a root container.
+    apply_env(hostname, env, run_uid.unwrap_or(0)); // clean environment + image/stack/CLI ENV
                               // Supplementary groups with NO uid switch. The block above only runs for a
                               // non-root `USER`, and a container that stays root still needs its groups —
                               // that is exactly the `SupplementalGroups` case, and reading `id -G` was how
@@ -8040,6 +8131,15 @@ pub struct RunSpec<'a> {
     /// start is refused instead of recreating it — see `publish_incarnation`.
     /// `false` for a `run`, whose first publish creates the record.
     pub replaces_record: bool,
+    /// **OCI inherited-fd stdio** (`oci-runtime` start, runc model): absolute
+    /// host paths the container's stdout / stderr go STRAIGHT to — the files
+    /// `create` resolved behind its own fd 1 / fd 2 (`Container::oci_stdout`/
+    /// `oci_stderr`). When set, the init `dup2`s these onto 1/2 directly: no
+    /// log shim, no rotation, no CRI framing — `runtimetest`'s TAP reaches the
+    /// files verbatim, which is what the `runtime-tools` suite reads back.
+    /// `None` keeps the historical detached-to-/dev/null (or log-pipe) path.
+    pub oci_stdout: Option<String>,
+    pub oci_stderr: Option<String>,
 }
 
 /// Creates and starts a container (without its own network) — the Phase 1 signature.
@@ -8696,6 +8796,13 @@ fn spawn(
         (detach || foreground_capture) && !console && spec.log_path.is_some(),
         spec.log_cri || foreground_capture,
     );
+    // OCI inherited-fd stdio (`oci-runtime` start): open the `stdout-<uuid>`/
+    // `stderr-<uuid>` files `create` resolved and hand their WRITE fds to the
+    // child, which `dup2`s them onto 1/2 in `detach_stdio` — bypassing the log
+    // shim entirely (they are plain files, not a pipe: nothing to read/rotate/
+    // frame). The parent's own copies are closed right after the clone below.
+    let oci_out_fd = spec.oci_stdout.as_deref().and_then(open_oci_stdio);
+    let oci_err_fd = spec.oci_stderr.as_deref().and_then(open_oci_stdio);
     let console_sock = if console { open_console_sock() } else { None };
 
     let (flags, userns) = clone_flags(spec);
@@ -8707,8 +8814,11 @@ fn spawn(
     inputs.config_files = config_file_pairs(store, container);
     let io = IoSpec {
         detach,
-        log_fd: log_pipe.map(|(_, w)| w), // the container writes to the write end
-        log_err_fd: log_err_pipe.map(|(_, w)| w),
+        // OCI inherited-fd stdio wins over the log pipe: the container writes
+        // STRAIGHT to the `create` files (runc model). Otherwise the write end
+        // of the logging-shim pipe, as before.
+        log_fd: oci_out_fd.or_else(|| log_pipe.map(|(_, w)| w)),
+        log_err_fd: oci_err_fd.or_else(|| log_err_pipe.map(|(_, w)| w)),
         sync: pipes.sync,
         console_sock,
         ready_w: Some(pipes.ready.1),
@@ -8792,6 +8902,16 @@ fn spawn(
         }
         None
     };
+    // OCI inherited-fd stdio: no shim consumes these (they are files, not a
+    // pipe), and the child already `dup2`'d them onto 1/2, so the parent closes
+    // its own inherited copies here to avoid leaking a write handle to the
+    // `stdout`/`stderr` files (which would also keep them from reaching EOF for
+    // any reader). Guarded to the OCI path so the log-pipe fds, closed by
+    // `start_log_shim`, are never double-closed.
+    for fd in [oci_out_fd, oci_err_fd].into_iter().flatten() {
+        // SAFETY: our own inherited copy of a file fd, unused in the parent.
+        unsafe { libc::close(fd) };
+    }
 
     mark_running(container, pid);
     // The cgroup stays HERE, ahead of the wait: it is what the container's
@@ -9065,7 +9185,7 @@ struct InitInputs {
     /// Filled by [`config_file_pairs`] just before the clone — the cleartext
     /// sibling of `secret_files`, written into a tmpfs at `/run/config`.
     config_files: Vec<(String, String)>,
-    cap_keep: u64,
+    caps: CapSets,
     apparmor: Option<String>,
     selinux: Option<String>,
     seccomp_unconfined: bool,
@@ -9097,10 +9217,23 @@ impl InitInputs {
         // --privileged: keeps ALL caps + seccomp unconfined + cgroupns + /sys RW
         // (see setup_rootfs). Strictly gated — the non-privileged path is identical.
         let privileged = container.privileged;
-        let cap_keep = if privileged {
-            all_caps_mask()
+        // Capabilities: `--privileged` keeps ALL caps (single-mask). An OCI
+        // bundle that gave DISTINCT sets (`container.oci_caps`) installs them
+        // verbatim — the only path that raises a non-empty ambient set. Everyone
+        // else keeps the single-mask model derived from `cap_add`/`cap_drop`,
+        // byte-for-byte as before.
+        let caps = if privileged {
+            CapSets::from_keep(all_caps_mask())
+        } else if let Some(oc) = container.oci_caps.as_ref() {
+            CapSets {
+                bounding: mask_from_names(&oc.bounding),
+                effective: mask_from_names(&oc.effective),
+                permitted: mask_from_names(&oc.permitted),
+                inheritable: mask_from_names(&oc.inheritable),
+                ambient: mask_from_names(&oc.ambient),
+            }
         } else {
-            resolve_cap_keep(&container.cap_drop, &container.cap_add)
+            CapSets::from_keep(resolve_cap_keep(&container.cap_drop, &container.cap_add))
         };
         InitInputs {
             rootfs: rootfs.to_string(),
@@ -9126,7 +9259,7 @@ impl InitInputs {
             devices: container.devices.clone(),
             secret_files: Vec::new(),
             config_files: Vec::new(),
-            cap_keep,
+            caps,
             apparmor: spec.apparmor.clone(),
             selinux: spec.selinux.clone(),
             seccomp_unconfined: privileged || container.seccomp.as_deref() == Some("unconfined"),
@@ -9195,7 +9328,7 @@ impl InitInputs {
                 config_files: &self.config_files,
             },
             security: SecuritySpec {
-                cap_keep: self.cap_keep,
+                caps: self.caps,
                 apparmor: self.apparmor.as_deref(),
                 selinux: self.selinux.as_deref(),
                 seccomp_unconfined: self.seccomp_unconfined,
@@ -9250,6 +9383,29 @@ fn open_pipe() -> PipePair {
 
 /// A `(read, write)` pipe, or `None` when the kernel refused one or none was wanted.
 type PipePair = Option<(i32, i32)>;
+
+/// Opens an **OCI inherited-fd stdio** target for writing (append): the file
+/// `oci-runtime create` resolved behind its fd 1 / fd 2. Returned fd is handed
+/// to the child (via [`IoSpec`]), which `dup2`s it onto its own stdout/stderr.
+///
+/// `O_APPEND` so stdout and stderr both grow a file the suite created empty,
+/// without either truncating the other's tail on a shared target; `O_CLOEXEC`
+/// keeps the raw high fd out of the container's `execve` (it survives only as
+/// the `dup2`'d fd 1/2, which carry no close-on-exec). The file already exists
+/// (the suite opens it `O_CREAT|O_EXCL`, a shell `>` truncates it first), so no
+/// `O_CREAT`; a vanished file yields `None` → the caller falls back to the
+/// historical `/dev/null` detach.
+fn open_oci_stdio(path: &str) -> Option<i32> {
+    let cpath = std::ffi::CString::new(path).ok()?;
+    // SAFETY: opening a caller-resolved path with a fixed, benign flag set.
+    let fd = unsafe {
+        libc::open(
+            cpath.as_ptr(),
+            libc::O_WRONLY | libc::O_APPEND | libc::O_CLOEXEC,
+        )
+    };
+    (fd >= 0).then_some(fd)
+}
 
 /// The pipes the log shim reads: stdout always, stderr only in CRI mode.
 ///
@@ -10928,7 +11084,11 @@ pub fn exec_with(
                     } else {
                         resolve_cap_keep(&container.cap_drop, &container.cap_add)
                     };
-                    drop_capabilities(exec_keep); // same confinement
+                    // `exec` mirrors the container's single-mask confinement
+                    // (an OCI bundle's distinct sets belong to its init, not to
+                    // a later `exec`), so the from_keep form keeps this path
+                    // byte-for-byte: inheritable 0, ambient unraised.
+                    drop_capabilities(&CapSets::from_keep(exec_keep)); // same confinement
                     let exec_unconf =
                         effective_privileged || container.seccomp.as_deref() == Some("unconfined");
                     // The `exec` mirrors the container's profile, like it
@@ -10973,7 +11133,17 @@ pub fn exec_with(
                         v.extend(overrides.extra_env.iter().cloned());
                         v
                     };
-                    apply_env(&container.name, &exec_env);
+                    // The user this exec will become (`-u`, else the container's
+                    // own) — computed here so `apply_env` can derive `HOME` from
+                    // its passwd entry, matching the init. `-u 0`/no-user ⇒ uid 0.
+                    let exec_user = overrides
+                        .user
+                        .or_else(|| container.run_uid.map(|u| (u, container.run_gid)));
+                    apply_env(
+                        &container.name,
+                        &exec_env,
+                        exec_user.map(|(u, _)| u).unwrap_or(0),
+                    );
                     // `exec --privileged` drops MAC confinement for this call too,
                     // the same way it drops the seccomp filter and the cap limit —
                     // otherwise an AppArmor profile would still gate the elevated
@@ -10994,10 +11164,9 @@ pub fn exec_with(
                     // checks (`execSync id -u` == RunAsUser). Without this, the `exec`
                     // always stayed uid 0 of the userns and `id -u` reported 0. setgid
                     // BEFORE setuid (after dropping the uid one can no longer change group).
-                    // `exec -u` overrides the container's own user for this call only.
-                    let exec_user = overrides
-                        .user
-                        .or_else(|| container.run_uid.map(|u| (u, container.run_gid)));
+                    // `exec -u` overrides the container's own user for this call only
+                    // (`exec_user` was bound above, before `apply_env`, so HOME could
+                    // be derived from this user's passwd entry).
                     // Supplementary groups, exactly as the init got them. An `exec`
                     // is supposed to look like the container from the inside, and
                     // the CRI checks precisely that — `execSync id -G` is how the
@@ -14069,6 +14238,32 @@ mod tests {
         );
     }
 
+    /// REGRESSION (H1 Sonobuoy, non-root client-go): `HOME` must come from the
+    /// container-user's `/etc/passwd` entry and default to `/` for a uid with no
+    /// entry — never the old hardcoded `/root`, a 0700 dir a non-root process
+    /// cannot write, which made `~/.kube/config` resolution die with EACCES.
+    #[test]
+    fn parse_passwd_home_honours_the_entry_and_defaults_to_root_dir() {
+        let passwd = "root:x:0:0:root:/root:/bin/sh\n\
+                      daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n\
+                      app:x:1000:1000:app user:/home/app:/bin/sh\n";
+        // A uid present in passwd → its home field.
+        assert_eq!(super::parse_passwd_home(passwd, 0).as_deref(), Some("/root"));
+        assert_eq!(
+            super::parse_passwd_home(passwd, 1000).as_deref(),
+            Some("/home/app")
+        );
+        // The bug's exact case: a non-root uid with NO passwd entry → None, so
+        // the caller falls back to "/", not "/root".
+        assert_eq!(super::parse_passwd_home(passwd, 65532), None);
+        // No /etc/passwd at all (empty) → None → "/".
+        assert_eq!(super::parse_passwd_home("", 1000), None);
+        // Malformed lines (too few fields, non-numeric uid, empty home) are
+        // skipped, not fatal, and do not match.
+        let broken = "garbage\nbad:x:notanum:0:::\nx:x:1000:0:::\n";
+        assert_eq!(super::parse_passwd_home(broken, 1000), None);
+    }
+
     /// `write_secret_values` is the pure half of `write_secret_files` — no
     /// `mount(2)`, so it is directly testable on a plain temp directory
     /// (the tmpfs half needs `CAP_SYS_ADMIN` and mounts the real
@@ -16863,7 +17058,9 @@ mod spawn_step_tests {
         c.cap_drop = vec!["ALL".into()];
         c.cap_add = vec!["CHOWN".into()];
         let i = InitInputs::gather(&c, "/r", &spec, "h".into(), vec![], vec![]);
-        assert_eq!(i.cap_keep, resolve_cap_keep(&c.cap_drop, &c.cap_add));
+        // Single-mask model (no explicit OCI sets): bounding = kept mask, and
+        // effective/permitted mirror it with inheritable/ambient empty.
+        assert_eq!(i.caps, CapSets::from_keep(resolve_cap_keep(&c.cap_drop, &c.cap_add)));
         assert!(!i.seccomp_unconfined && !i.seccomp_detect && !i.privileged);
         // `no_new_privs` is ON unless the record says otherwise.
         assert!(i.no_new_privs);
@@ -16877,7 +17074,7 @@ mod spawn_step_tests {
         // `--privileged` keeps every capability and runs unconfined.
         c.privileged = true;
         let i = InitInputs::gather(&c, "/r", &spec, "h".into(), vec![], vec![]);
-        assert_eq!(i.cap_keep, all_caps_mask());
+        assert_eq!(i.caps, CapSets::from_keep(all_caps_mask()));
         assert!(i.seccomp_unconfined && i.privileged && !i.node_cgroup);
 
         // Only a privileged KIND node gets the dedicated cgroup namespace.

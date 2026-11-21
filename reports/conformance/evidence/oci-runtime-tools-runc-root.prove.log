@@ -1,0 +1,564 @@
+<WORK>/runtime-tools/validation/config_updates_without_affect/config_updates_without_affect.t .... 
+TAP version 13
+ok 1 - Any updates to config.json after this step MUST NOT affect the container
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/create/create.t .................................................. 
+TAP version 13
+ok 1 - create MUST generate an error if the ID is not provided
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/default/default.t ................................................ 
+TAP version 13
+ok 1 - has expected hostname
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/delete/delete.t .................................................. 
+TAP version 13
+ok 1 - `delete` operation MUST generate an error if it is not provided the container ID
+All 1 subtests passed 
+open /sys/fs/cgroup/pids/cgrouptest/tasks: no such file or directory
+<WORK>/runtime-tools/validation/delete_only_create_resources/delete_only_create_resources.t ...... 
+TAP version 13
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+<WORK>/runtime-tools/validation/delete_resources/delete_resources.t .............................. 
+TAP version 13
+not ok 1 - find pids cgroup
+# cgroupv2 is not supported yet
+ok 2 - Deleting a container MUST delete the resources that were created during the `create` step
+Failed 1/2 subtests 
+<WORK>/runtime-tools/validation/hooks/hooks.t .................................................... 
+TAP version 13
+No subtests run 
+<WORK>/runtime-tools/validation/hooks_stdin/hooks_stdin.t ........................................ 
+TAP version 13
+not ok 1 - the state of the container MUST be passed to "prestart" hook over stdin
+Failed 1/1 subtests 
+<WORK>/runtime-tools/validation/hostname/hostname.t .............................................. 
+TAP version 13
+No subtests run 
+<WORK>/runtime-tools/validation/kill/kill.t ...................................................... 
+TAP version 13
+ok 1 - `kill` operation MUST generate an error if it is not provided the container ID
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/kill_no_effect/kill_no_effect.t .................................. 
+TAP version 13
+ok 1 - attempting to send a signal to a container that is neither `created` nor `running` MUST have no effect on the container
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/killsig/killsig.t ................................................ 
+TAP version 13
+ok 1 - `kill` operation MUST send the specified signal to the container process
+All 1 subtests passed 
+failed to create the container
+time="2026-11-20T22:31:42Z" level=error msg="runc create failed: unable to start container process: error during container init: error setting cgroup config for procHooks process: failed to write \"8:0 rbps=102400\": write /sys/fs/cgroup/cgrouptest/io.max: no such device"
+exit status 1
+<WORK>/runtime-tools/validation/linux_cgroups_blkio/linux_cgroups_blkio.t ........................ skipped: (no reason given)
+<WORK>/runtime-tools/validation/linux_cgroups_cpus/linux_cgroups_cpus.t .......................... skipped: (no reason given)
+<WORK>/runtime-tools/validation/linux_cgroups_devices/linux_cgroups_devices.t .................... 
+TAP version 13
+not ok 1 - find devices
+# cgroupv2 is not supported yet
+1..1
+Failed 1/1 subtests 
+cgroupv2 is not supported yet
+<WORK>/runtime-tools/validation/linux_cgroups_hugetlb/linux_cgroups_hugetlb.t .................... skipped: (no reason given)
+<WORK>/runtime-tools/validation/linux_cgroups_memory/linux_cgroups_memory.t ...................... 
+TAP version 13
+not ok 1 - find memory cgroup
+# cgroupv2 is not supported yet
+not ok 2 - find memory cgroup
+# cgroupv2 is not supported yet
+not ok 3 - find memory cgroup
+# cgroupv2 is not supported yet
+not ok 4 - find memory cgroup
+# cgroupv2 is not supported yet
+not ok 5 - find memory cgroup
+# cgroupv2 is not supported yet
+not ok 6 - find memory cgroup
+# cgroupv2 is not supported yet
+1..6
+Failed 6/6 subtests 
+<WORK>/runtime-tools/validation/linux_cgroups_network/linux_cgroups_network.t .................... 
+TAP version 13
+not ok 1 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 2 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 3 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 4 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 5 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 6 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 7 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 8 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 9 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 10 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 11 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 12 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 13 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 14 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 15 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 16 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 17 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 18 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 19 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 20 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 21 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 22 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 23 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 24 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 25 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 26 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 27 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 28 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 29 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 30 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 31 - find network cgroup
+# cgroupv2 is not supported yet
+not ok 32 - find network cgroup
+# cgroupv2 is not supported yet
+1..32
+Failed 32/32 subtests 
+<WORK>/runtime-tools/validation/linux_cgroups_pids/linux_cgroups_pids.t .......................... 
+TAP version 13
+not ok 1 - find pids cgroup
+# cgroupv2 is not supported yet
+1..1
+Failed 1/1 subtests 
+failed to create the container
+time="2026-11-20T22:31:52Z" level=error msg="runc create failed: unable to start container process: error during container init: error setting cgroup config for procHooks process: failed to write \"8:0 rbps=102400\": write /sys/fs/cgroup/user.slice/user-0.slice/testdir/cgrouptest/container/io.max: no such device"
+<WORK>/runtime-tools/validation/linux_cgroups_relative_blkio/linux_cgroups_relative_blkio.t ...... 
+TAP version 13
+not ok 1 - exit status 1
+1..1
+Failed 1/1 subtests 
+<WORK>/runtime-tools/validation/linux_cgroups_relative_cpus/linux_cgroups_relative_cpus.t ........ 
+TAP version 13
+not ok 1 - find cpus cgroup
+# cgroupv2 is not supported yet
+1..1
+Failed 1/1 subtests 
+<WORK>/runtime-tools/validation/linux_cgroups_relative_devices/linux_cgroups_relative_devices.t .. 
+TAP version 13
+not ok 1 - find devices
+# cgroupv2 is not supported yet
+1..1
+Failed 1/1 subtests 
+<WORK>/runtime-tools/validation/linux_cgroups_relative_hugetlb/linux_cgroups_relative_hugetlb.t .. 
+TAP version 13
+not ok 1 - find hugetlb cgroup
+# cgroupv2 is not supported yet
+not ok 2 - find hugetlb cgroup
+# cgroupv2 is not supported yet
+1..2
+Failed 2/2 subtests 
+<WORK>/runtime-tools/validation/linux_cgroups_relative_memory/linux_cgroups_relative_memory.t .... 
+TAP version 13
+not ok 1 - find memory cgroup
+# cgroupv2 is not supported yet
+1..1
+Failed 1/1 subtests 
+<WORK>/runtime-tools/validation/linux_cgroups_relative_network/linux_cgroups_relative_network.t .. 
+TAP version 13
+not ok 1 - find network cgroup
+# cgroupv2 is not supported yet
+1..1
+Failed 1/1 subtests 
+<WORK>/runtime-tools/validation/linux_cgroups_relative_pids/linux_cgroups_relative_pids.t ........ 
+TAP version 13
+not ok 1 - find pids cgroup
+# cgroupv2 is not supported yet
+1..1
+Failed 1/1 subtests 
+failed to create the container
+time="2026-11-20T22:31:54Z" level=error msg="runc create failed: unable to start container process: error during container init: configuring container /dev: error creating device nodes: new p device inode /dev/test3 has incorrect major:minor: 0:0 doesn't match expected 8:666"
+exit status 1
+<WORK>/runtime-tools/validation/linux_devices/linux_devices.t .................................... 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+<WORK>/runtime-tools/validation/linux_masked_paths/linux_masked_paths.t .......................... 
+TAP version 13
+No subtests run 
+failed to create the container
+time="2026-11-20T22:31:54Z" level=error msg="runc create failed: unable to start container process: error during container init: error mounting \"tmpfs\" to rootfs at \"/dev\": mount src=tmpfs, dst=/dev, dstFd=/proc/thread-self/fd/15, flags=MS_NOSUID|MS_STRICTATIME, data=mode=0755,mode=755,size=65536k,context=\"system_u:object_r:svirt_sandbox_file_t:s0:c715,c811\": invalid argument"
+exit status 1
+<WORK>/runtime-tools/validation/linux_mount_label/linux_mount_label.t ............................ 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+Clean:  unlinkat <BUNDLE>/sys/kernel: read-only file system
+<WORK>/runtime-tools/validation/linux_ns_itype/linux_ns_itype.t .................................. 
+TAP version 13
+ok 1 - inherit namespace cgroup without type
+ok 2 - inherit namespace ipc without type
+ok 3 - inherit namespace mnt without type
+ok 4 - inherit namespace net without type
+ok 5 - inherit namespace pid without type
+ok 6 - inherit namespace user without type
+ok 7 - inherit namespace uts without type
+1..7
+ok
+<WORK>/runtime-tools/validation/linux_ns_nopath/linux_ns_nopath.t ................................ 
+TAP version 13
+ok 1 - create namespace cgroup without path
+ok 2 - create namespace ipc without path
+ok 3 - create namespace mnt without path
+ok 4 - create namespace net without path
+ok 5 - create namespace pid without path
+ok 6 - create namespace user without path
+ok 7 - create namespace uts without path
+1..7
+ok
+<WORK>/runtime-tools/validation/linux_ns_path/linux_ns_path.t .................................... 
+TAP version 13
+ok 1 - set ipc namespace by path
+ok 2 - set mnt namespace by path
+ok 3 - set net namespace by path
+ok 4 - set pid namespace by path
+ok 5 - set uts namespace by path
+1..5
+ok
+failed to create the container
+time="2026-11-20T22:31:57Z" level=error msg="runc create failed: unable to start container process: can't get final child's PID from pipe: EOF; runc init error(s): nsexec-1[19343]: failed to setns into cgroup namespace: Invalid argument; nsexec-0[19341]: failed to sync with stage-1: next state (got 0 of 4 bytes)"
+failed to create the container
+time="2026-11-20T22:31:57Z" level=error msg="runc create failed: unable to start container process: can't get final child's PID from pipe: EOF; runc init error(s): nsexec-1[19366]: failed to setns into ipc namespace: Invalid argument; nsexec-0[19364]: failed to sync with stage-1: next state (got 0 of 4 bytes)"
+failed to create the container
+time="2026-11-20T22:31:57Z" level=error msg="runc create failed: unable to start container process: can't get final child's PID from pipe: EOF; runc init error(s): nsexec-1[19388]: failed to setns into mnt namespace: Invalid argument; nsexec-0[19386]: failed to sync with stage-1: next state (got 0 of 4 bytes)"
+failed to create the container
+time="2026-11-20T22:31:57Z" level=error msg="runc create failed: unable to start container process: can't get final child's PID from pipe: EOF; runc init error(s): nsexec-1[19410]: failed to setns into net namespace: Invalid argument; nsexec-0[19408]: failed to sync with stage-1: next state (got 0 of 4 bytes)"
+failed to create the container
+time="2026-11-20T22:31:57Z" level=error msg="runc create failed: unable to start container process: can't get final child's PID from pipe: EOF; runc init error(s): nsexec-1[19432]: failed to setns into pid namespace: Invalid argument; nsexec-0[19430]: failed to sync with stage-1: next state (got 0 of 4 bytes)"
+failed to create the container
+time="2026-11-20T22:31:57Z" level=error msg="runc create failed: failed to cache mappings for userns: userns spawn: setns /proc/self/ns/uts failed: Invalid argument"
+failed to create the container
+time="2026-11-20T22:31:57Z" level=error msg="runc create failed: unable to start container process: can't get final child's PID from pipe: EOF; runc init error(s): nsexec-1[19474]: failed to setns into uts namespace: Invalid argument; nsexec-0[19469]: failed to sync with stage-1: next state (got 0 of 4 bytes)"
+<WORK>/runtime-tools/validation/linux_ns_path_type/linux_ns_path_type.t .......................... 
+TAP version 13
+ok 1 - got error when setting a wrong namespace path "/proc/self/ns/ipc" with type cgroup
+ok 2 - namespace path matches with type cgroup
+ok 3 - got error when setting a wrong namespace path "/proc/self/ns/mnt" with type ipc
+ok 4 - namespace path matches with type ipc
+ok 5 - got error when setting a wrong namespace path "/proc/self/ns/net" with type mount
+ok 6 - namespace path matches with type mnt
+ok 7 - got error when setting a wrong namespace path "/proc/self/ns/pid" with type network
+ok 8 - namespace path matches with type net
+ok 9 - got error when setting a wrong namespace path "/proc/self/ns/user" with type pid
+ok 10 - namespace path matches with type pid
+ok 11 - got error when setting a wrong namespace path "/proc/self/ns/uts" with type user
+ok 12 - namespace path matches with type user
+ok 13 - got error when setting a wrong namespace path "/proc/self/ns/cgroup" with type uts
+ok 14 - namespace path matches with type uts
+1..14
+ok
+failed to create the container
+time="2026-11-20T22:31:57Z" level=error msg="runc create failed: unable to start container process: error during container init: unable to apply apparmor profile: apparmor failed to apply profile: write fsmount:fscontext:proc/thread-self/attr/apparmor/exec: no such file or directory"
+exit status 1
+<WORK>/runtime-tools/validation/linux_process_apparmor_profile/linux_process_apparmor_profile.t .. 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+<WORK>/runtime-tools/validation/linux_readonly_paths/linux_readonly_paths.t ...................... 
+TAP version 13
+No subtests run 
+<WORK>/runtime-tools/validation/linux_rootfs_propagation/linux_rootfs_propagation.t .............. 
+TAP version 13
+No subtests run 
+failed to create the container
+time="2026-11-20T22:31:58Z" level=error msg="runc create failed: unable to start container process: error during container init: failed to verify if current working directory is safe: getwd: operation not permitted"
+<WORK>/runtime-tools/validation/linux_seccomp/linux_seccomp.t .................................... 
+TAP version 13
+not ok 1 - seccomp action is added correctly
+not ok 2 - exit status 1
+1..2
+Failed 2/2 subtests 
+<WORK>/runtime-tools/validation/linux_sysctl/linux_sysctl.t ...................................... 
+TAP version 13
+ok 1 - has expected hostname
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/linux_uid_mappings/linux_uid_mappings.t .......................... 
+TAP version 13
+ok 1 # SKIP root.readonly is false but the root filesystem is still not writable
+ok 2 - has expected hostname
+All 2 subtests passed 
+	(less 1 skipped subtest: 1 okay)
+<WORK>/runtime-tools/validation/misc_props/misc_props.t .......................................... 
+TAP version 13
+ok 1 - implementations that are reading/processing this configuration file MUST NOT generate an error if they encounter an unknown annotation key
+All 1 subtests passed 
+failed to create the container
+time="2026-11-20T22:32:00Z" level=error msg="runc create failed: invalid mount &{Source:/etc Destination:/mnt/etc-shared Device:bind Flags:16781314 ClearedFlags:0 PropagationFlags:[1048576] Data:mode=755,size=1k Relabel: RecAttr:<nil> Extensions:0 IDMapping:<nil>}: bind mounts cannot have any filesystem-specific options applied"
+exit status 1
+<WORK>/runtime-tools/validation/mounts/mounts.t .................................................. 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+<WORK>/runtime-tools/validation/pidfile/pidfile.t ................................................ 
+TAP version 13
+not ok 1 - create with '--pid-file' option works
+Failed 1/1 subtests 
+<WORK>/runtime-tools/validation/poststart/poststart.t ............................................ 
+TAP version 13
+No subtests run 
+failed to create the container
+time="2026-11-20T22:32:10Z" level=error msg="runc create failed: error running poststart hook #0: exit status 1, stdout: , stderr: "
+<WORK>/runtime-tools/validation/poststart_fail/poststart_fail.t .................................. 
+TAP version 13
+No subtests run 
+<WORK>/runtime-tools/validation/poststop/poststop.t .............................................. skipped: (no reason given)
+failed to delete the container
+time="2026-11-20T22:32:10Z" level=error msg="unable to destroy container: error running poststop hook #0: exit status 1, stdout: , stderr: "
+<WORK>/runtime-tools/validation/poststop_fail/poststop_fail.t .................................... 
+TAP version 13
+No subtests run 
+<WORK>/runtime-tools/validation/prestart/prestart.t .............................................. 
+TAP version 13
+No subtests run 
+failed to create the container
+time="2026-11-20T22:32:10Z" level=error msg="runc create failed: unable to start container process: error during container init: error running prestart hook #0: exit status 1, stdout: , stderr: "
+<WORK>/runtime-tools/validation/prestart_fail/prestart_fail.t .................................... skipped: (no reason given)
+<WORK>/runtime-tools/validation/process/process.t ................................................ 
+TAP version 13
+ok 1 - has expected hostname
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/process_capabilities/process_capabilities.t ...................... 
+TAP version 13
+ok 1 - has expected hostname
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/process_capabilities_fail/process_capabilities_fail.t ............ 
+TAP version 13
+ok 1 - has expected hostname
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/process_oom_score_adj/process_oom_score_adj.t .................... 
+TAP version 13
+ok 1 - has expected hostname
+All 1 subtests passed 
+failed to create the container
+time="2026-11-20T22:32:14Z" level=error msg="runc create failed: unable to start container process: error during container init: error adding seccomp filter rule for syscall geteuid: cannot allocate memory"
+exit status 1
+<WORK>/runtime-tools/validation/process_rlimits/process_rlimits.t ................................ 
+Dubious, test returned 1 (wstat 256, 0x100)
+No subtests run 
+failed to create the container
+time="2026-11-20T22:32:14Z" level=error msg="runc create failed: wrong rlimit value: RLIMIT_TEST"
+<WORK>/runtime-tools/validation/process_rlimits_fail/process_rlimits_fail.t ...................... 
+No subtests run 
+<WORK>/runtime-tools/validation/process_user/process_user.t ...................................... 
+TAP version 13
+ok 1 - has expected hostname
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/root_readonly_true/root_readonly_true.t .......................... 
+TAP version 13
+ok 1 - root filesystem is readonly
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/start/start.t .................................................... 
+TAP version 13
+ok 1 - start` operation MUST generate an error if it is not provided the container ID
+All 1 subtests passed 
+<WORK>/runtime-tools/validation/state/state.t .................................................... 
+TAP version 13
+ok 1 - state MUST generate an error if it is not provided the ID of a container
+Refer to: https://github.com/opencontainers/runtime-spec/blob/v1.3.0/runtime.md#query-state
+All 1 subtests passed 
+
+Test Summary Report
+-------------------
+<WORK>/runtime-tools/validation/config_updates_without_affect/config_updates_without_affect.t  (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/create/create.t                                                (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/default/default.t                                              (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/delete/delete.t                                                (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/delete_only_create_resources/delete_only_create_resources.t    (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/delete_resources/delete_resources.t                            (Wstat: (none) Tests: 2 Failed: 1)
+  Failed test:  1
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/hooks/hooks.t                                                  (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/hooks_stdin/hooks_stdin.t                                      (Wstat: (none) Tests: 1 Failed: 1)
+  Failed test:  1
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/hostname/hostname.t                                            (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/kill/kill.t                                                    (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/kill_no_effect/kill_no_effect.t                                (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/killsig/killsig.t                                              (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_cgroups_blkio/linux_cgroups_blkio.t                      (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+<WORK>/runtime-tools/validation/linux_cgroups_cpus/linux_cgroups_cpus.t                        (Wstat: 0 Tests: 16 Failed: 16)
+  Failed tests:  1-16
+  Parse errors: If TAP version is present it must be the first line of output
+                More than one plan found in TAP output
+                Bad plan.  You planned 0 tests but ran 16.
+<WORK>/runtime-tools/validation/linux_cgroups_devices/linux_cgroups_devices.t                  (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_hugetlb/linux_cgroups_hugetlb.t                  (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+<WORK>/runtime-tools/validation/linux_cgroups_memory/linux_cgroups_memory.t                    (Wstat: 0 Tests: 6 Failed: 6)
+  Failed tests:  1-6
+<WORK>/runtime-tools/validation/linux_cgroups_network/linux_cgroups_network.t                  (Wstat: 0 Tests: 32 Failed: 32)
+  Failed tests:  1-32
+<WORK>/runtime-tools/validation/linux_cgroups_pids/linux_cgroups_pids.t                        (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_blkio/linux_cgroups_relative_blkio.t    (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_cpus/linux_cgroups_relative_cpus.t      (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_devices/linux_cgroups_relative_devices.t (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_hugetlb/linux_cgroups_relative_hugetlb.t (Wstat: 0 Tests: 2 Failed: 2)
+  Failed tests:  1-2
+<WORK>/runtime-tools/validation/linux_cgroups_relative_memory/linux_cgroups_relative_memory.t  (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_network/linux_cgroups_relative_network.t (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_cgroups_relative_pids/linux_cgroups_relative_pids.t      (Wstat: 0 Tests: 1 Failed: 1)
+  Failed test:  1
+<WORK>/runtime-tools/validation/linux_devices/linux_devices.t                                  (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_masked_paths/linux_masked_paths.t                        (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_mount_label/linux_mount_label.t                          (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_process_apparmor_profile/linux_process_apparmor_profile.t (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_readonly_paths/linux_readonly_paths.t                    (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_rootfs_propagation/linux_rootfs_propagation.t            (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_seccomp/linux_seccomp.t                                  (Wstat: 0 Tests: 2 Failed: 2)
+  Failed tests:  1-2
+<WORK>/runtime-tools/validation/linux_sysctl/linux_sysctl.t                                    (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/linux_uid_mappings/linux_uid_mappings.t                        (Wstat: (none) Tests: 2 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/misc_props/misc_props.t                                        (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/mounts/mounts.t                                                (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/pidfile/pidfile.t                                              (Wstat: (none) Tests: 1 Failed: 1)
+  Failed test:  1
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/poststart/poststart.t                                          (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/poststart_fail/poststart_fail.t                                (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/poststop_fail/poststop_fail.t                                  (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/prestart/prestart.t                                            (Wstat: (none) Tests: 0 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/process/process.t                                              (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/process_capabilities/process_capabilities.t                    (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/process_capabilities_fail/process_capabilities_fail.t          (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/process_oom_score_adj/process_oom_score_adj.t                  (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/process_rlimits/process_rlimits.t                              (Wstat: 256 (exited 1) Tests: 0 Failed: 0)
+  Non-zero exit status: 1
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/process_rlimits_fail/process_rlimits_fail.t                    (Wstat: 0 Tests: 0 Failed: 0)
+  Parse errors: No plan found in TAP output
+<WORK>/runtime-tools/validation/process_user/process_user.t                                    (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/root_readonly_true/root_readonly_true.t                        (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/start/start.t                                                  (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+<WORK>/runtime-tools/validation/state/state.t                                                  (Wstat: (none) Tests: 1 Failed: 0)
+  Parse errors: Unsupported YAMLish syntax: '{' at /usr/share/perl/5.40/TAP/Parser/YAMLish/Reader.pm line 107.
+
+                No plan found in TAP output
+Files=58, Tests=122, 36 wallclock secs ( 0.10 usr  0.06 sys +  3.93 cusr  2.66 csys =  6.75 CPU)
+Result: FAIL

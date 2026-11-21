@@ -341,7 +341,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 detail: "`available()` checks the two binaries; `provider ls` additionally probes qemu:///system",
             }),
             C::ResourceReadback => bin(S::Supported {
-                evidence: "check: vm ls shows Paused (not Stopped)",
+                evidence: "check:vm ls shows Paused (not Stopped)",
             }),
             C::Events => S::NotImplemented,
             C::AsyncOperations => S::NotImplemented,
@@ -367,7 +367,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 evidence: "check:vm unpause",
             }),
             C::VmResumeSameIdentity => bin(S::Supported {
-                evidence: "check: vm start after the stop of a paused VM",
+                evidence: "check:vm start after the stop of a paused VM",
             }),
             C::VmClone => bin(S::Supported {
                 evidence: "test:crates/providers/delonix-provider-libvirt/tests/live.rs::vm_clone_boots_an_independent_domain_from_a_copied_disk",
@@ -376,7 +376,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 evidence: "test:crates/contexts/delonix-compute/src/app/vm.rs::mark_template_freezes_the_vm_and_start_refuses_it",
             }),
             C::VmResizeCold => bin(S::Supported {
-                evidence: "check: the domain boots with 2 vCPU",
+                evidence: "check:the domain boots with 2 vCPU",
             }),
             C::VmHotplugCpuAdd => sys(S::Supported {
                 evidence: "e2e:vm: a HOT vCPU is ONLINE INSIDE the guest (libvirt, cloud-init, guestfish)",
@@ -405,7 +405,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 evidence: "e2e:vm: an extra NIC declared at create is seen and passes real traffic inside the guest (libvirt, cloud-init, guestfish)",
             }),
             C::VmDiskResize => bin(S::Supported {
-                evidence: "check: the overlay grew to exactly 1 GiB",
+                evidence: "check:the overlay grew to exactly 1 GiB",
             }),
             C::VmPciPassthrough => bin(S::Partial {
                 detail: "`<hostdev>` per validated PCI address; proving the EFFECT live needs a non-critical PCI device in an isolated IOMMU group bound to `vfio-pci`, and that bind needs root the battery does not run as — the host's own GPU/NIC/storage must never be detached to prove it",
@@ -493,7 +493,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 // #16: the offline disk snapshot is proved by DATA RECOVERY — a
                 // datum is written to the disk, the snapshot is taken, the datum is
                 // corrupted, and the restore reads the ORIGINAL back (guestfish).
-                evidence: "check: the disk snapshot captures the data for recovery",
+                evidence: "check:the disk snapshot captures the data for recovery",
             }),
             C::VmSnapshotMemory => bin(S::Partial {
                 // `snapshot-create-as` on a running VM captures RAM + disk and a
@@ -508,7 +508,7 @@ pub fn libvirt_report(host: &LibvirtHost) -> ProviderReport {
                 // #16: the restore is proved by DATA recoverability, not by an
                 // exit code nor by creating a file. See the cycle
                 // ORIGINAL->snapshot->CORRUPTED->restore->ORIGINAL in e2e.sh.
-                evidence: "check: restore RECOVERS the disk data (not just an exit code)",
+                evidence: "check:restore RECOVERS the disk data (not just an exit code)",
             }),
             C::VmSnapshotDelete => bin(S::Supported {
                 evidence: "check:vm snapshot rm",

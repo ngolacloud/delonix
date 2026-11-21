@@ -14261,8 +14261,14 @@ msgstr "Versão major do Rocky Linux (`8`, `9`, `10`) — só usada com `--distr
 msgid "Fedora release AND build, as shown on Fedora's download page (e.g. `42-1.1`) — only used with `--distro fedora`. The build number is not derivable from the release, and Fedora's redirector offers no listing to look it up, so it is asked for rather than guessed"
 msgstr "Release E build do Fedora, como aparece na página de downloads do Fedora (ex.: `42-1.1`) — só usado com `--distro fedora`. O número de build não se deduz da release e o redirector do Fedora não dá listagem para o consultar, por isso pede-se em vez de se adivinhar"
 
-msgid "Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION` (1.37, o estável mais recente do pkgs.k8s.io). 1.34/1.35/1.36 continuam disponíveis passando-as aqui"
-msgstr "Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION` (1.37, o estável mais recente do pkgs.k8s.io). 1.34/1.35/1.36 continuam disponíveis passando-as aqui"
+msgid "Kubernetes version (e.g. `1.31`) — omit for `DEFAULT_K8S_VERSION` (1.37, the latest stable on pkgs.k8s.io). 1.34/1.35/1.36 remain available by passing them here"
+msgstr "Versão do Kubernetes (ex.: `1.31`) — omita para usar `DEFAULT_K8S_VERSION` (1.37, o estável mais recente do pkgs.k8s.io). 1.34/1.35/1.36 continuam disponíveis passando-as aqui"
+
+msgid "Join an existing pod's shared netns (Podman `run --pod`): the container gets the pod's IP and ports and reaches its peers on `127.0.0.1`. The pod (declared with `kind: Pod`) defines the network, so do NOT combine with `--net <network>`"
+msgstr "Junta-se ao netns partilhado de um pod existente (`run --pod` do Podman): o container recebe o IP e as portas do pod e alcança os seus pares em `127.0.0.1`. O pod (declarado com `kind: Pod`) define a rede, por isso NÃO combinar com `--net <network>`"
+
+msgid "How to render: `markdown` (the canonical, published form) or `pretty` (a compact terminal grid with glyphs)"
+msgstr "Como apresentar: `markdown` (a forma canónica, publicada) ou `pretty` (uma grelha compacta de terminal com glifos)"
 
 msgid "Build a golden image with NO Kubernetes at all — just the `delonix` engine binary, ready for rootless containers (mutually exclusive with `--k8s-version`/`--offline`, which don't apply)"
 msgstr "Constrói uma golden SEM Kubernetes — só o binário do motor `delonix`, pronta para containers rootless (mutuamente exclusiva com `--k8s-version`/`--offline`, que não se aplicam)"

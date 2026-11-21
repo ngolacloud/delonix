@@ -61,7 +61,11 @@ pub enum ProviderCmd {
     /// What `docs/providers/capability-matrix.md` is generated from. Nothing
     /// is probed: every host is assumed complete, so the states are the
     /// providers' own claims — and each `supported` names its evidence.
-    Matrix,
+    Matrix {
+        /// How to render: `markdown` (the canonical, published form) or `pretty` (a compact terminal grid with glyphs).
+        #[arg(long, value_enum, default_value_t)]
+        format: MatrixFormat,
+    },
     /// The node's providers file (ADR-0054): what it says, and whether it is valid.
     #[command(subcommand)]
     Config(ConfigCmd),
@@ -95,6 +99,18 @@ pub enum ConfigCmd {
     /// from the types the engine reads — an editor that loads it underlines a
     /// misspelt key before `provider config validate` is ever run.
     Schema,
+}
+
+/// How `provider matrix` renders. The default is the canonical form a test
+/// keeps `docs/providers/capability-matrix.md` equal to; `pretty` is a
+/// read-in-the-terminal view and is never published.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum MatrixFormat {
+    /// The published Markdown, byte-for-byte what the docs file carries.
+    #[default]
+    Markdown,
+    /// A compact aligned grid: one glyph per cell, a legend, no per-cell prose.
+    Pretty,
 }
 
 fn parse_kind(s: &str) -> std::result::Result<ProviderKind, String> {
@@ -257,8 +273,11 @@ pub fn run(cmd: ProviderCmd) -> Result<()> {
                 }
             }
         }
-        ProviderCmd::Matrix => {
-            print!("{}", matrix_markdown(&declared_reports()));
+        ProviderCmd::Matrix { format } => {
+            match format {
+                MatrixFormat::Markdown => print!("{}", matrix_markdown(&declared_reports())),
+                MatrixFormat::Pretty => print!("{}", matrix_pretty(&declared_reports())),
+            }
             Ok(())
         }
     }
@@ -662,6 +681,118 @@ pub fn matrix_markdown(reports: &[ProviderReport]) -> String {
         }
         out.push('\n');
     }
+    out
+}
+
+/// The glyph a cell gets in the `pretty` view. A distinct mark for each state
+/// so the grid reads at a glance: a proved cell, a partial one, a gap, and the
+/// two "not this provider's job" cases are each their own symbol.
+fn state_glyph(s: &CapabilityState) -> &'static str {
+    match s {
+        CapabilityState::Supported { .. } => "✓",
+        CapabilityState::Partial { .. } => "~",
+        CapabilityState::NotImplemented => "✗",
+        CapabilityState::UnsupportedByProvider { .. } => "·",
+        CapabilityState::RequiresExternalComponent { .. } => "◇",
+        CapabilityState::UnavailableOnHost { .. } => "!",
+    }
+}
+
+/// `provider matrix --format pretty`: the SAME declared data as the Markdown,
+/// rendered as an aligned grid for a terminal — one glyph per cell, a legend,
+/// per-provider totals. Never published: the reasons and evidence live in the
+/// Markdown form and in `provider describe <id>`. Opt-in on purpose, so the
+/// canonical `matrix_markdown` (pinned by a test) stays the default.
+pub fn matrix_pretty(reports: &[ProviderReport]) -> String {
+    use std::fmt::Write as _;
+    let width = |s: &str| s.chars().count();
+    let total = cell_metric(reports);
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "Provider capability matrix — declared view (engine {}, catalog {})",
+        env!("CARGO_PKG_VERSION"),
+        CATALOG_VERSION
+    );
+    let _ = writeln!(
+        out,
+        "{} of {} applicable cells proved (N2) — {} %",
+        total.proved,
+        total.applicable,
+        total.percent()
+    );
+    let _ = writeln!(
+        out,
+        "Legend:  ✓ proved   ~ partial   ✗ not implemented   · n/a for this provider   ◇ needs external   ! unavailable on host\n"
+    );
+    for kind in [
+        ProviderKind::Compute,
+        ProviderKind::Network,
+        ProviderKind::Storage,
+    ] {
+        let cols: Vec<&ProviderReport> = reports
+            .iter()
+            .filter(|r| r.kind.catalog_kind() == kind)
+            .collect();
+        if cols.is_empty() {
+            continue;
+        }
+        let _ = writeln!(out, "── {} ──", kind.as_str());
+        for r in &cols {
+            let m = r.cell_metric();
+            let _ = writeln!(
+                out,
+                "   {:<18}  {} of {} ({} %)",
+                column(r),
+                m.proved,
+                m.applicable,
+                m.percent()
+            );
+        }
+        let _ = writeln!(out);
+        let rows: Vec<Capability> = Capability::ALL
+            .iter()
+            .copied()
+            .filter(|c| c.kind() == kind)
+            .collect();
+        let name_w = rows
+            .iter()
+            .map(|c| width(c.name()))
+            .max()
+            .unwrap_or(10)
+            .max(width("capability"));
+        let headers: Vec<String> = cols.iter().map(|r| column(r)).collect();
+        let col_w: Vec<usize> = headers.iter().map(|h| width(h).max(3)).collect();
+        // Header: blank over the capability column, each provider centred.
+        let _ = write!(out, "  {:<name_w$}", "");
+        for (h, &w) in headers.iter().zip(&col_w) {
+            let _ = write!(out, "  {:^w$}", h);
+        }
+        let _ = writeln!(out);
+        let mut last: Option<Domain> = None;
+        for c in rows {
+            if last != Some(c.domain()) {
+                let _ = writeln!(out, "  {}:", c.domain().as_str());
+                last = Some(c.domain());
+            }
+            let _ = write!(out, "  {:<name_w$}", c.name());
+            for (r, &w) in cols.iter().zip(&col_w) {
+                let g = r
+                    .capabilities
+                    .iter()
+                    .find(|x| x.capability == c)
+                    .map(|x: &CapabilityReport| state_glyph(&x.state))
+                    .unwrap_or("?");
+                let _ = write!(out, "  {:^w$}", g);
+            }
+            let _ = writeln!(out);
+        }
+        let _ = writeln!(out);
+    }
+    let _ = writeln!(
+        out,
+        "Reasons & evidence:  delonix provider matrix  (markdown)  ·  delonix provider describe <id>"
+    );
     out
 }
 
