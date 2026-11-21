@@ -296,6 +296,13 @@ CLI_DESTINATION = {
     # delonix-artifact (created in R4; vmimage's guestfs half goes to delonix-guestfs)
     "image": "delonix-artifact", "build": "delonix-artifact", "scan": "delonix-artifact",
     "app": "delonix-artifact", "vmfile": "delonix-artifact", "vmimage": "delonix-artifact",
+    # `distroless` straddles two consumers — `scaffold` (delonix-cli) reads the
+    # registry and the token it substitutes, `util` (delonix-engine) reads the
+    # fallback on the pull path — and the substance decides: the module IS a table
+    # of base images and the conventional base that carries the same runtime when
+    # the distroless one cannot be pulled. That is knowledge about images, so it
+    # extracts with `image`/`build`, not with the scaffold that happens to read it.
+    "distroless": "delonix-artifact",
     # delonix-cluster (created in R4)
     "cluster": "delonix-cluster", "kindmode": "delonix-cluster", "kindconfig": "delonix-cluster",
     "kubeadm_config": "delonix-cluster", "k8s_recipes": "delonix-cluster", "etcd": "delonix-cluster",
@@ -316,6 +323,9 @@ CLI_DESTINATION = {
     # delonix-cli (presentation; `serve` becomes the mode dispatcher, R5)
     "output": "delonix-cli", "po": "delonix-cli", "man": "delonix-cli", "manual": "delonix-cli",
     "manual_entries": "delonix-cli", "complete": "delonix-cli", "dash": "delonix-cli",
+    # `help` renders clap's own help and only regroups the flat command block into
+    # semantic sections — presentation, like `output` and `man`.
+    "help": "delonix-cli",
     "codes": "delonix-cli", "init": "delonix-cli", "scaffold": "delonix-cli",
     "compatibility": "delonix-cli", "features": "delonix-cli", "config": "delonix-cli",
     "net": "delonix-cli", "manifestcmd": "delonix-cli", "mod": "delonix-cli", "serve": "delonix-cli",

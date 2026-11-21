@@ -262,11 +262,17 @@ async fn watch_over_tcp_mtls_tells_a_desired_change_from_a_state_event() {
     use rustls::pki_types::pem::PemObject;
     use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 
-    // Unset ⇒ the TCP+mTLS leg is not wired this run; return cleanly (the
-    // in-process proof above still ran). No print: it would enter the prints gate.
-    let Ok(addr) = std::env::var("A5_ADDR") else {
-        return;
-    };
+    // This test only runs when it is ASKED for (`--ignored`), so an unset
+    // address is not "not wired this run" — it is the caller asking for the
+    // cross-process leg without giving it a target. Returning here would pass
+    // without proving anything; it fails naming what is missing instead.
+    let addr = std::env::var("A5_ADDR").unwrap_or_else(|_| {
+        panic!(
+            "A5_ADDR is not set — this is the cross-process mTLS leg and it has \
+             nothing to connect to. Give it A5_ADDR/A5_CA/A5_CERT/A5_KEY against a \
+             running `delonix serve node-api --addr tcp://<addr>` (see the doc comment)."
+        )
+    });
     let read = |var: &str| std::fs::read(std::env::var(var).expect(var)).expect(var);
     let (ca, cert, key) = (read("A5_CA"), read("A5_CERT"), read("A5_KEY"));
 

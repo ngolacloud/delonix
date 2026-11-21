@@ -638,6 +638,10 @@ node-api	ListCephfsSubvolumes	B	ADR-0081; provada ao vivo (reports/ceph-live), t
 node-api	ListObjectStoreBuckets	B	ADR-0081; provada ao vivo (reports/ceph-live RGW), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
 node-api	GetObjectStoreBucket	B	ADR-0081; provada ao vivo (reports/ceph-live RGW), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
 node-api	CreateObjectStoreUser	B	ADR-0081; provada ao vivo (user S3 criado no MicroCeph), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
+node-api	SetNodeLabels	A	ADR-0101 (A6); run and asserted live over mTLS — reports/node-api-node-scheduling-surface-live-acceptance-20261120.md
+node-api	SetNodeTaints	A	ADR-0101 (A6); run and asserted live over mTLS — reports/node-api-node-scheduling-surface-live-acceptance-20261120.md
+node-api	SetSchedulability	A	ADR-0101 (A6); run live over mTLS, with the cordon ENFORCED on create (409, DX-5003) — reports/node-api-node-scheduling-surface-live-acceptance-20261120.md
+node-api	AttestWorkload	B	ADR-0102 (H0); implemented, and the h0-spiffe run proves the SVID and the mTLS handshake, NOT this RPC — tests/interop/results/h0-spiffe.jsonl says it «lands in the same phase»
 cli	commit	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
 cli	container checkpoint	B	stub accionavel na campanha de paridade: CRIU ainda nao integrado; devolve erro DX-6000, provado ao vivo
 cli	container clone	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e
