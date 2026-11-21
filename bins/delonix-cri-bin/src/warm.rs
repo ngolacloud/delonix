@@ -18,9 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use delonix_cri::WarmOps;
-use delonix_warm::{
-    root_env, spawn_from_recipe, ContainerPlane, StartRequest, WarmPlane,
-};
+use delonix_warm::{root_env, spawn_from_recipe, ContainerPlane, StartRequest, WarmPlane};
 
 /// The plane the hot path and the background refiller share. The heavy work
 /// (spawn/warm, serve) runs with this lock RELEASED; the lock is taken only for

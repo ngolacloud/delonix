@@ -1622,6 +1622,33 @@ diz <code>NotProbed</code>, nunca adivinha. O JSON de <code>ls</code> tem a form
 catálogo.""",
         "subs": {},
     },
+    "node-ca": {
+        "title": "delonix node-ca",
+        "tagline": "A CA do nó que assina os certificados dos membros da frota (ADR-0097).",
+        "intro": """<code>node-ca init</code> cria o par que separa duas responsabilidades que não
+devem viver na mesma máquina: o <strong>certificado</strong> é a âncora de confiança que cada
+servidor recebe em <code>serve node-api --tls-client-ca</code>, e a <strong>chave</strong> fica com
+a autoridade de inscrição (<code>serve node-enroll</code>) — nenhum servidor do node-API chega a
+tê-la. <code>node-ca revoke</code> lista o <em>serial</em> de um certificado numa CRL assinada pela
+mesma CA, que o <code>serve node-api --tls-client-crl</code> passa a consultar; os serials acumulam
+num ficheiro ao lado (<code>&lt;out&gt;.serials</code>), por isso cada execução emite a CRL com tudo
+o que já foi revogado e não só com o último. O <code>--cn</code> é o mesmo valor nos três sítios
+(<code>init</code>, <code>revoke</code> e a autoridade), porque é dele que o emissor é reconstruído.
+<strong>Não estável</strong> — ver <code>docs/cli-stability.md</code>.""",
+        "subs": {},
+    },
+    "node-enroll": {
+        "title": "delonix node-enroll",
+        "tagline": "Inscreve este host como membro da frota: token de uso único → CSR → certificado curto.",
+        "intro": """Gera o par de chaves <strong>neste host</strong> — a chave privada nunca sai
+daqui —, manda um CSR à autoridade de inscrição e troca um token de uso único pelo certificado de
+cliente curto que o node-API (ADR-0096) passa a aceitar. O <code>--ca</code> não é decoração: é o
+certificado da CA do nó usado para <em>pinar</em> a identidade do servidor da autoridade, e é o que
+impede um intermediário de colher o token. O <code>--cn</code> é a identidade deste membro dentro do
+certificado; os <code>--san</code> raramente fazem falta numa identidade de cliente.
+<strong>Não estável</strong> — ver <code>docs/cli-stability.md</code>.""",
+        "subs": {},
+    },
     "migrate": {
         "title": "delonix migrate",
         "tagline": "Pontua o que já tens contra o que este motor serve.",
@@ -2247,6 +2274,33 @@ the two equal. A remote provider (Proxmox, OPNsense) declares and does not conne
 <code>NotProbed</code>, never a guess. The JSON of <code>ls</code> has the shape of the node
 contract's <code>ProviderInfo</code>. <strong>Not stable</strong> — see
 <code>docs/cli-stability.md</code>; capability names and states follow the catalog version.""",
+        "subs": {},
+    },
+    "node-ca": {
+        "title": "delonix node-ca",
+        "tagline": "The node CA that signs the fleet members' certificates (ADR-0097).",
+        "intro": """<code>node-ca init</code> creates the pair that keeps two responsibilities off
+the same machine: the <strong>certificate</strong> is the trust anchor every server is given as
+<code>serve node-api --tls-client-ca</code>, and the <strong>key</strong> stays with the enrollment
+authority (<code>serve node-enroll</code>) — no node-API server ever holds it.
+<code>node-ca revoke</code> lists a certificate's <em>serial</em> in a CRL signed by the same CA,
+which <code>serve node-api --tls-client-crl</code> then consults; serials accumulate in a sidecar
+(<code>&lt;out&gt;.serials</code>), so each run emits the CRL with everything revoked so far and not
+just the last one. <code>--cn</code> is the same value in all three places (<code>init</code>,
+<code>revoke</code> and the authority), because the issuer is reconstructed from it.
+<strong>Not stable</strong> — see <code>docs/cli-stability.md</code>.""",
+        "subs": {},
+    },
+    "node-enroll": {
+        "title": "delonix node-enroll",
+        "tagline": "Enroll this host as a fleet member: one-time token → CSR → short client cert.",
+        "intro": """It generates the key pair <strong>on this host</strong> — the private key never
+leaves it — sends a CSR to the enrollment authority and spends a one-time token for the short-lived
+client certificate the node API (ADR-0096) then accepts. <code>--ca</code> is not decoration: it is
+the node CA certificate used to <em>pin</em> the authority's server identity, and it is what stops a
+man-in-the-middle from harvesting the token. <code>--cn</code> is this member's identity inside the
+certificate; <code>--san</code> is rarely needed for a client identity.
+<strong>Not stable</strong> — see <code>docs/cli-stability.md</code>.""",
         "subs": {},
     },
     "migrate": {
@@ -4540,16 +4594,67 @@ binário — sem daemon residente e sem root. Não é um <em>runtime</em> OCI de
 <code>runc</code>/<code>crun</code>): é o engine COMPLETO, a camada aberta (Apache-2.0) sobre a
 qual assenta a plataforma <strong>Delonix</strong>.</p>
 
-<p class="intro"><strong>O que resolve:</strong> correr a unidade cloud-native inteira
-— container, pod, microVM, nó Kubernetes — sem colar meia dúzia de ferramentas. O
-Podman tirou o daemon e o root aos containers; o Delonix leva essa postura até ao
-<strong>nó</strong>: o mesmo binário rootless e sem daemon que corre um container
-<strong>é</strong> um nó Kubernetes (CRI próprio, <strong>79/103</strong> specs do
-<code>critest</code> v1.36.0, reproduzível) e corre <strong>microVMs</strong>. É
-arquitectura, não um recorde de velocidade: o arranque default é 91 ms (Docker 208,
-Podman 268), mas sobe a ~216 ms com rede isolada — e é linha 0.1.x, sem o ecossistema
-do Docker/Podman. O compromisso certo para quem quer o caminho integrado, sem daemon
-e sem root, do container ao nó de produção com isolamento de VM.</p>
+<h2>O que o Delonix realmente faz</h2>
+<p class="intro">Não é um <em>runtime</em> OCI de baixo nível (isso é o <code>runc</code>/<code>crun</code>)
+nem uma plataforma: é a camada que cria, corre, liga em rede, protege e armazena containers e
+microVMs num nó — e que <strong>é</strong> um nó Kubernetes enquanto o faz. O que normalmente exige
+juntar Docker, containerd, um CNI, um hipervisor e o Terraform, feito a partir de um binário, sem
+daemon e sem root.</p>
+
+<ul class="intro">
+<li><strong>Corre containers a falar directamente com o kernel</strong> — <code>clone()</code>,
+namespaces, cgroups v2, <code>pivot_root</code>, seccomp, capabilities. Nenhum processo residente:
+cada comando é um processo efémero que fala com o kernel e sai, o estado é JSON em
+<code>$DELONIX_ROOT</code>, e um container em background ganha um supervisor curto (o modelo do
+<code>conmon</code>) — é isso que torna o <em>exit code</em> conhecível e corre o health check sem
+systemd.</li>
+<li><strong>Traz rede definida por software própria, em rootless</strong> — um netns holder, a bridge
+<code>delonix0</code>, um <code>slirp4netns</code> partilhado e nftables: publicação de portas por
+DNAT, firewall L4 por container, isolamento por namespace, overlay VXLAN/WireGuard entre nós, DNS
+interno (<code>&lt;nome&gt;.&lt;namespace&gt;.delonix.internal</code>), reverse-proxy L7 e VIP L4 com
+readiness. Como o plano de dados não pertence ao ciclo de vida do processo, portas, volumes e redes
+trocam-se <strong>a quente, sem mudar o PID</strong> — a diferença estrutural face ao Docker.</li>
+<li><strong>Corre microVMs declarativas</strong> — <code>kind: VirtualMachine</code> sobre um
+<code>VmBackend</code> plugável: Cloud Hypervisor, libvirt/KVM ou um nó Proxmox VE remoto. Com
+cloud-init por instância, snapshots de sistema, pause/resume e imagens golden próprias
+(<code>delonix vm image build</code>).</li>
+<li><strong>É um nó Kubernetes</strong> — serve o seu próprio CRI ao <code>kubelet</code>, sem
+containerd pelo meio, e o <code>delonix cluster kubeadm</code> provisiona as VMs, prepara os hosts
+por SSH, faz o <code>init</code>/<code>join</code>, põe HAProxy à frente para HA e instala um perfil
+de rede de pods (Cilium, Calico ou Flannel).</li>
+<li><strong>Converge infraestrutura declarativa sem ficheiro de estado</strong> — 34 Kinds em sete
+grupos de API, <code>delonix stack plan</code>/<code>apply</code>/<code>destroy</code> com diff a
+três vias contra o selo <code>delonix.io/last-applied</code> gravado no próprio recurso, propriedade
+por label, convergência a quente, <code>delonix drift</code> e uma passagem GitOps por timer do
+systemd.</li>
+<li><strong>Chega a infraestrutura de terceiros por portas tipadas</strong> — Proxmox VE (VMs, SDN,
+system containers, firewall per-VM), TrueNAS (datasets, quotas, exports), OPNsense (perímetro),
+PowerDNS; e pools de armazenamento em btrfs, ZFS, LVM-thin e Ceph.</li>
+<li><strong>Fala os protocolos do ecossistema</strong> — <code>docker-compose.yml</code> nativamente
+(<code>delonix compose up</code>), um subconjunto publicado da Docker Engine API
+(<code>delonix serve docker-api</code>) e um servidor Model Context Protocol
+(<code>delonix mcp serve</code>) para agentes de IA.</li>
+</ul>
+
+<h2>A escala do que está lá</h2>
+<table>
+<tr><th>Dimensão</th><th>Medido nesta árvore</th></tr>
+<tr><td>Rust</td><td><b>392 788</b> linhas em 41 membros de workspace (35 crates de biblioteca + 6 binários), por camada em <code>reports/architecture.md</code></td></tr>
+<tr><td>Testes</td><td><b>4 360</b> <code>#[test]</code> / <code>#[tokio::test]</code></td></tr>
+<tr><td>Superfície de CLI</td><td><b>272 de 280</b> folhas executadas <em>e asseridas</em> pela bateria E2E (2026-10-22)</td></tr>
+<tr><td>Decisões</td><td><b>107</b> ADRs, <b>313</b> páginas de documentação</td></tr>
+<tr><td>CI</td><td><b>21</b> jobs, a correr <b>23</b> scripts de gate do repositório</td></tr>
+<tr><td>Kubernetes</td><td><b>79 de 103</b> specs do <code>critest</code> upstream (v1.36.0), reproduzível</td></tr>
+</table>
+
+<p class="intro"><strong>Medido, não afirmado.</strong> A doutrina deste repositório é que só conta o
+<em>efeito verificado</em> — <code>exit 0</code> não basta. Os benchmarks medem a bancada antes de
+medir o motor e recusam publicar quando a contenção da máquina contaminaria o número; cada
+«supported» no catálogo de capacidades tem de citar a prova que existe, senão fica <code>partial</code>
+(<code>delonix provider ls</code>); os gates são <em>ratchets</em> que falham quando a dívida sobe
+<strong>e</strong> quando desce sem a linha de base descer no mesmo commit. E é linha
+<code>0.1.x</code>, com um mantenedor: onde encaixa hoje e onde ainda não encaixa está escrito por
+extenso em <a href="#prontidao-producao">Prontidão para produção</a>, mais abaixo.</p>
 
 <div class="hero-cta">
 <a class="btn primary" href="#instalar">Instalar o Delonix →</a>
@@ -4653,7 +4758,7 @@ container.</p>
 mesma máquina (incluindo onde o Delonix é <em>pior</em>), está em
 <a href="comparacao.html">Delonix vs Docker vs Podman</a>.</p>
 
-<h2>Prontidão para produção — onde serve, e onde ainda não</h2>
+<h2 id="prontidao-producao">Prontidão para produção — onde serve, e onde ainda não</h2>
 <p>Veredicto honesto de uma revisão GO/NO-GO medida: <strong>GO single-node, sem failover</strong>
 (dev, CI, edge, nó Kubernetes sem Docker — onde o modelo daemonless/rootless e o CRI integrado
 já são vantagem hoje); <strong>NO-GO como substituto directo do Docker/Podman em produção de
@@ -4687,17 +4792,69 @@ single binary — no resident daemon, no root. Not a low-level OCI <em>runtime</
 <code>runc</code>/<code>crun</code>): it's the COMPLETE engine, the open layer (Apache-2.0) the
 <strong>Delonix</strong> platform is built on.</p>
 
-<p class="intro"><strong>What it solves:</strong> running the whole cloud-native unit
-— container, pod, microVM, Kubernetes node — without stitching half a dozen tools
-together. Podman took the daemon and root out of containers; Delonix takes that
-stance up to the <strong>node</strong>: the same rootless, daemonless binary that runs
-a container <strong>is</strong> a Kubernetes node (its own CRI, <strong>79/103</strong>
-upstream <code>critest</code> v1.36.0 specs, reproducible) and <strong>runs
-microVMs</strong>. It's architecture, not a speed record: default start is 91 ms
-(Docker 208, Podman 268), rising to ~216 ms with isolated networking — and it's a
-0.1.x line, without Docker's or Podman's ecosystem. The right trade for anyone who
-wants the integrated, daemonless, rootless path from a container to a production node
-with VM-grade isolation.</p>
+<h2>What Delonix actually does</h2>
+<p class="intro">Not a low-level OCI <em>runtime</em> (that's <code>runc</code>/<code>crun</code>)
+and not a platform: it is the layer that creates, runs, networks, protects and stores containers and
+microVMs on one node — and that <strong>is</strong> a Kubernetes node while doing it. What normally
+means assembling Docker, containerd, a CNI, a hypervisor and Terraform, done from one binary, with
+no daemon and no root.</p>
+
+<ul class="intro">
+<li><strong>Runs containers by talking straight to the kernel</strong> — <code>clone()</code>,
+namespaces, cgroups v2, <code>pivot_root</code>, seccomp, capabilities. No residing process: every
+command is an ephemeral process that speaks to the kernel and exits, state is JSON under
+<code>$DELONIX_ROOT</code>, and a detached container gets a short-lived supervisor (the same model as
+<code>conmon</code>) — which is what makes its exit code knowable and runs its health probe without
+systemd.</li>
+<li><strong>Brings a rootless SDN of its own</strong> — a holder network namespace, the
+<code>delonix0</code> bridge, one shared <code>slirp4netns</code> and nftables: port publishing by
+DNAT, a per-container L4 firewall, namespace isolation, a VXLAN/WireGuard overlay between nodes,
+internal DNS (<code>&lt;name&gt;.&lt;namespace&gt;.delonix.internal</code>), an L7 reverse proxy and
+an L4 service VIP with readiness. Because the dataplane does not belong to the process lifecycle,
+ports, volumes and networks swap <strong>hot, with the PID unchanged</strong> — the structural
+difference from Docker.</li>
+<li><strong>Runs declarative microVMs</strong> — <code>kind: VirtualMachine</code> over a pluggable
+<code>VmBackend</code>: Cloud Hypervisor, libvirt/KVM, or a remote Proxmox VE node. With per-instance
+cloud-init, system checkpoints, pause/resume and its own golden images
+(<code>delonix vm image build</code>).</li>
+<li><strong>Is a Kubernetes node</strong> — it serves its own CRI to a <code>kubelet</code>, with no
+containerd in between, and <code>delonix cluster kubeadm</code> provisions the VMs, prepares the
+hosts over SSH, runs <code>init</code>/<code>join</code>, puts HAProxy in front for HA and installs a
+pod-network profile (Cilium, Calico or Flannel).</li>
+<li><strong>Converges declarative infrastructure without a state file</strong> — 34 Kinds across
+seven API groups, <code>delonix stack plan</code>/<code>apply</code>/<code>destroy</code> with a
+three-way diff against the <code>delonix.io/last-applied</code> stamp on the resource itself,
+ownership by label, hot convergence, <code>delonix drift</code>, and a GitOps pull pass on a systemd
+timer.</li>
+<li><strong>Reaches third-party infrastructure through typed ports</strong> — Proxmox VE (VMs, SDN,
+system containers, per-VM firewall), TrueNAS (datasets, quotas, exports), OPNsense (perimeter
+firewall), PowerDNS; and storage pools on btrfs, ZFS, LVM-thin and Ceph.</li>
+<li><strong>Speaks the ecosystem's protocols</strong> — <code>docker-compose.yml</code> natively
+(<code>delonix compose up</code>), a published subset of the Docker Engine API
+(<code>delonix serve docker-api</code>), and a Model Context Protocol server
+(<code>delonix mcp serve</code>) for AI agents.</li>
+</ul>
+
+<h2>The size of it</h2>
+<table>
+<tr><th>Dimension</th><th>Measured in this tree</th></tr>
+<tr><td>Rust</td><td><b>392 788</b> lines across 41 workspace members (35 library crates + 6 binaries), per layer in <code>reports/architecture.md</code></td></tr>
+<tr><td>Tests</td><td><b>4 360</b> <code>#[test]</code> / <code>#[tokio::test]</code></td></tr>
+<tr><td>CLI surface</td><td><b>272 of 280</b> leaves executed <em>and asserted</em> by the E2E battery (2026-10-22)</td></tr>
+<tr><td>Decisions</td><td><b>107</b> ADRs, <b>313</b> documentation pages</td></tr>
+<tr><td>CI</td><td><b>21</b> jobs, running <b>23</b> of the repository's gate scripts</td></tr>
+<tr><td>Kubernetes</td><td><b>79 of 103</b> upstream <code>critest</code> specs (v1.36.0), reproducible</td></tr>
+</table>
+
+<p class="intro"><strong>Measured, not asserted.</strong> The doctrine this repository runs on is
+that only the <em>verified effect</em> counts — <code>exit 0</code> is not enough. The benchmarks
+measure the bench before they measure the engine and refuse to publish when the machine's contention
+would contaminate the number; every «supported» in the capability catalogue has to cite the evidence
+that exists, or it stays <code>partial</code> (<code>delonix provider ls</code>); the gates are
+ratchets that fail when the debt rises <strong>and</strong> when it falls without the baseline falling
+in the same commit. And it is a <code>0.1.x</code> line, with one maintainer: where it fits today and
+where it does not yet is written out in full in
+<a href="#production-readiness">Production readiness</a>, further down.</p>
 
 <div class="hero-cta">
 <a class="btn primary" href="#instalar">Install Delonix →</a>
@@ -4798,7 +4955,7 @@ lets you <em>swap ports and volumes on the fly</em>, with no container restart.<
 same machine (including where Delonix is <em>worse</em>), is in
 <a href="comparacao.html">Delonix vs Docker vs Podman</a>.</p>
 
-<h2>Production readiness — where it fits, and where it does not yet</h2>
+<h2 id="production-readiness">Production readiness — where it fits, and where it does not yet</h2>
 <p>The honest verdict from a measured GO/NO-GO review: <strong>GO single-node, without
 failover</strong> (development, CI, edge, a Kubernetes node without Docker — where the
 daemonless/rootless model and the integrated CRI are a real advantage today);

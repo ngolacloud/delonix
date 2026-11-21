@@ -7745,7 +7745,8 @@ pub fn network_list_in(root: &std::path::Path) -> Vec<NetDef> {
                 // A network with both a legacy AND a new record (mid-migration) is ONE
                 // network. Without this, it would appear twice in `network ls` and — worse
                 // — twice in the set of used prefixes that the allocator reads.
-                let is_new = e.file_name() == netdef_path(&def.name).file_name().unwrap_or_default();
+                let is_new =
+                    e.file_name() == netdef_path(&def.name).file_name().unwrap_or_default();
                 match v.iter_mut().find(|d| d.name == def.name) {
                     Some(existing) if is_new => *existing = def,
                     Some(_) => {}
@@ -10774,7 +10775,12 @@ fn dns_resolve_multi_for(name: &str, client: Option<[u8; 4]>) -> Option<Vec<[u8;
     // carries a self-match, so `--knows-none` resolves no Service and `--knows`
     // resolves only a named one.
     let client_ip = client.unwrap_or([0, 0, 0, 0]);
-    if !dns_knows_allows(idx.knows_of_ip.get(&client_ip), &cname, [0, 0, 0, 0], client_ip) {
+    if !dns_knows_allows(
+        idx.knows_of_ip.get(&client_ip),
+        &cname,
+        [0, 0, 0, 0],
+        client_ip,
+    ) {
         return None;
     }
     if entry.ips.is_empty() {
@@ -11130,7 +11136,10 @@ mod tests {
         let drop = rs
             .find("iifname @dlxbr oifname @dlxbr counter drop")
             .expect("missing the drop with counter");
-        assert!(exemption < drop, "the exemption has to come before the drop");
+        assert!(
+            exemption < drop,
+            "the exemption has to come before the drop"
+        );
         // And the set/map pair has to be DECLARED, otherwise the chain does not load.
         assert!(rs.contains("set dlxbr"), "{rs}");
         assert!(rs.contains("map netpair"), "{rs}");
@@ -11422,7 +11431,11 @@ Inter-|   Receive                                                |  Transmit
         //    misalign the counter nor tear down the infra too early.
         ref_add_in(&dir, "x");
         ref_add_in(&dir, "x");
-        assert_eq!(refs_in(&dir).len(), 1, "attaching the same id 2x counts as 1");
+        assert_eq!(
+            refs_in(&dir).len(),
+            1,
+            "attaching the same id 2x counts as 1"
+        );
         ref_remove_in(&dir, "x");
         ref_remove_in(&dir, "x"); // 2nd detach is a no-op
         assert_eq!(refs_in(&dir).len(), 0, "idempotent detach");

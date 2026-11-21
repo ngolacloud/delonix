@@ -140,10 +140,7 @@ fn group_memberships(rootfs: &Path, user: &str) -> Vec<u32> {
             let _passwd = f.next()?;
             let gid: u32 = f.next()?.parse().ok()?;
             let members = f.next().unwrap_or("");
-            members
-                .split(',')
-                .any(|m| m == user)
-                .then_some(gid)
+            members.split(',').any(|m| m == user).then_some(gid)
         })
         .collect();
     gids.sort_unstable();

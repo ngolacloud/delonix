@@ -3376,7 +3376,10 @@ mod exec_separator_tests {
         let (user, _, id, command) =
             exec_of(&["delonix", "container", "exec", "cri-a", "-u", "0", "sh"]);
         assert_eq!(id, "cri-a");
-        assert_eq!(user, None, "`-u` after the container must NOT be exec's --user");
+        assert_eq!(
+            user, None,
+            "`-u` after the container must NOT be exec's --user"
+        );
         assert_eq!(command, ["-u", "0", "sh"]);
     }
 

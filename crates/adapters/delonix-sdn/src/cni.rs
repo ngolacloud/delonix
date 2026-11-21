@@ -1024,8 +1024,7 @@ mod tests {
 
     #[test]
     fn parse_error_reads_the_structured_error() {
-        let e =
-            parse_error(r#"{ "cniVersion":"1.0.0", "code": 7, "msg": "no free IP" }"#).unwrap();
+        let e = parse_error(r#"{ "cniVersion":"1.0.0", "code": 7, "msg": "no free IP" }"#).unwrap();
         assert_eq!(e.code, 7);
         assert_eq!(e.msg, "no free IP");
     }

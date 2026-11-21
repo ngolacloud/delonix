@@ -309,7 +309,10 @@ fn resolve_image_digest(
         return String::new();
     };
     // A tag the container was created with…
-    if let Some(img) = stored.iter().find(|i| i.repo_tags.iter().any(|t| t == reference)) {
+    if let Some(img) = stored
+        .iter()
+        .find(|i| i.repo_tags.iter().any(|t| t == reference))
+    {
         return img.id.clone();
     }
     // …or the reference was itself a digest (with or without the `sha256:`).
@@ -2028,9 +2031,15 @@ mod attest_tests {
         });
         let root = Path::new("/does-not-matter");
         // by the tag the container was created with
-        assert_eq!(resolve_image_digest(&repo, root, "nginx:latest"), "sha256:abcd");
+        assert_eq!(
+            resolve_image_digest(&repo, root, "nginx:latest"),
+            "sha256:abcd"
+        );
         // by a digest reference, with or without the algorithm prefix
-        assert_eq!(resolve_image_digest(&repo, root, "sha256:abcd"), "sha256:abcd");
+        assert_eq!(
+            resolve_image_digest(&repo, root, "sha256:abcd"),
+            "sha256:abcd"
+        );
         assert_eq!(resolve_image_digest(&repo, root, "abcd"), "sha256:abcd");
         // a reference the store does not hold, and the empty reference
         assert_eq!(resolve_image_digest(&repo, root, "absent:tag"), "");
@@ -2040,8 +2049,7 @@ mod attest_tests {
     #[tokio::test]
     async fn attest_unknown_pid_is_a_found_false_answer_not_an_error() {
         let store: Arc<dyn crate::store::StorePort> = Arc::new(NoStore);
-        let images: Arc<dyn crate::image_repo::ImageRepo> =
-            Arc::new(crate::image_repo::NoImages);
+        let images: Arc<dyn crate::image_repo::ImageRepo> = Arc::new(crate::image_repo::NoImages);
 
         // An in-range PID that owns no live container in an empty store.
         let wa = attest_workload(

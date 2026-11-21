@@ -1761,8 +1761,7 @@ mod tests {
     /// cross-tenant leak `write_meta`'s own doc-comment warns about.
     #[test]
     fn meta_json_without_labels_still_deserializes() {
-        let legacy =
-            r#"{"name":"data","mountpoint":"/x/_data","created_unix":1,"driver":"local"}"#;
+        let legacy = r#"{"name":"data","mountpoint":"/x/_data","created_unix":1,"driver":"local"}"#;
         let v: Volume = serde_json::from_str(legacy).unwrap();
         assert_eq!(v.name, "data");
         assert!(v.labels.is_empty() && v.annotations.is_empty());
@@ -1985,10 +1984,7 @@ mod tests {
 
         fs::write(data.join("original"), vec![7u8; 64 * 1024]).unwrap();
         let one_copy = store.usage("hl");
-        assert!(
-            one_copy >= 64 * 1024,
-            "expected >=64 KiB, got {one_copy}"
-        );
+        assert!(one_copy >= 64 * 1024, "expected >=64 KiB, got {one_copy}");
 
         // Nine extra NAMES for the same inode — zero extra blocks on disk.
         for i in 0..9 {

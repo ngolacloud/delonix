@@ -92,7 +92,9 @@ impl SpiffeId {
         debug_assert_eq!(first, Some("")); // the leading '/'
         for seg in segs {
             if seg.is_empty() {
-                return Err(Error::Spiffe("SPIFFE ID path has an empty segment (`//`)".into()));
+                return Err(Error::Spiffe(
+                    "SPIFFE ID path has an empty segment (`//`)".into(),
+                ));
             }
             if seg == "." || seg == ".." {
                 return Err(Error::Spiffe(format!(

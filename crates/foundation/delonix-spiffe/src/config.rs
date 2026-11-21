@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use rcgen::{
-    BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, Ia5String, IsCa,
-    KeyPair, SanType,
+    BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, Ia5String, IsCa, KeyPair,
+    SanType,
 };
 use rustls::{ClientConfig, ServerConfig};
 
@@ -68,16 +68,20 @@ pub fn client_config(
 /// self-issued one; only the issuer differs. The leaf carries both server and
 /// client EKU, as a SPIFFE SVID does, so it works on either end of an mTLS pair.
 pub fn self_signed(id: &SpiffeId) -> Result<(SvidMaterial, TrustBundle)> {
-    let rcgen_err = |ctx: &'static str| move |e: rcgen::Error| Error::Material(format!("{ctx}: {e}"));
+    let rcgen_err =
+        |ctx: &'static str| move |e: rcgen::Error| Error::Material(format!("{ctx}: {e}"));
 
     // The own CA.
     let ca_key = KeyPair::generate().map_err(rcgen_err("own CA key"))?;
-    let mut ca_params = CertificateParams::new(Vec::<String>::new()).map_err(rcgen_err("own CA"))?;
+    let mut ca_params =
+        CertificateParams::new(Vec::<String>::new()).map_err(rcgen_err("own CA"))?;
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     ca_params
         .distinguished_name
         .push(DnType::CommonName, "delonix-spiffe local trust domain");
-    let ca = ca_params.self_signed(&ca_key).map_err(rcgen_err("own CA"))?;
+    let ca = ca_params
+        .self_signed(&ca_key)
+        .map_err(rcgen_err("own CA"))?;
 
     // The leaf SVID: its only identity is the spiffe:// URI SAN.
     let uri = Ia5String::try_from(id.uri())

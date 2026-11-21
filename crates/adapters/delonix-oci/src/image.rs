@@ -509,7 +509,8 @@ mod tests {
             let s = ImageStore::open(dir.path()).unwrap();
             s.save(&image("sha256:dup", &["dup:latest"], 1)).unwrap();
             let p = dir.path().to_path_buf();
-            let other = std::thread::spawn(move || ImageStore::open(&p).unwrap().remove("dup:latest"));
+            let other =
+                std::thread::spawn(move || ImageStore::open(&p).unwrap().remove("dup:latest"));
             let a = s.remove("dup:latest");
             let b = other.join().unwrap();
             for r in [a, b] {
@@ -521,7 +522,10 @@ mod tests {
                     );
                 }
             }
-            assert!(s.resolve("dup:latest").is_err(), "the image is gone after the race");
+            assert!(
+                s.resolve("dup:latest").is_err(),
+                "the image is gone after the race"
+            );
         }
     }
 
