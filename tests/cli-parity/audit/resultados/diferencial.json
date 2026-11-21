@@ -1,0 +1,554 @@
+[
+ {
+  "id": "DIF-01",
+  "intencao": "O utilizador escreve uma flag que nao existe em `run`",
+  "leitura": "a flag tem de ser recusada COMO FLAG; nenhum motor deve tratar-la como operando",
+  "nota": "",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix run --flag-que-nao-existe",
+   "rc": 4,
+   "primeira_linha": [
+    "pulling --flag-que-nao-existe…"
+   ],
+   "stdout": "",
+   "stderr": "pulling --flag-que-nao-existe…\n2026-11-21T11:08:27.887447Z  INFO delonix_oci::registry: pulling library/--flag-que-nao-existe:latest from registry-1.docker.io repo=library/--flag-que-nao-existe reference=latest host=registry-1.docker.io\nerror[DX-4401] no such image library/--flag-que-nao-existe:latest\n",
+   "dur": 0.919
+  },
+  "docker": {
+   "argv": "docker run --flag-que-nao-existe",
+   "rc": 125,
+   "primeira_linha": [
+    "unknown flag: --flag-que-nao-existe"
+   ],
+   "stdout": "",
+   "stderr": "unknown flag: --flag-que-nao-existe\n\nUsage:  docker run [OPTIONS] IMAGE [COMMAND] [ARG...]\n\nRun 'docker run --help' for more information\n",
+   "dur": 0.017
+  },
+  "podman": {
+   "argv": "podman run --flag-que-nao-existe",
+   "rc": 125,
+   "primeira_linha": [
+    "Error: unknown flag: --flag-que-nao-existe"
+   ],
+   "stdout": "",
+   "stderr": "Error: unknown flag: --flag-que-nao-existe\nSee 'podman run --help'\n",
+   "dur": 0.015
+  }
+ },
+ {
+  "id": "DIF-02",
+  "intencao": "O utilizador escreve uma flag que nao existe em `exec`",
+  "leitura": "idem: recusada como flag, nunca como nome de container",
+  "nota": "",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix exec --flag-que-nao-existe",
+   "rc": 4,
+   "primeira_linha": [
+    "error[DX-4101] no such container: --flag-que-nao-existe"
+   ],
+   "stdout": "",
+   "stderr": "error[DX-4101] no such container: --flag-que-nao-existe\n",
+   "dur": 0.012
+  },
+  "docker": {
+   "argv": "docker exec --flag-que-nao-existe",
+   "rc": 125,
+   "primeira_linha": [
+    "unknown flag: --flag-que-nao-existe"
+   ],
+   "stdout": "",
+   "stderr": "unknown flag: --flag-que-nao-existe\n\nUsage:  docker exec [OPTIONS] CONTAINER COMMAND [ARG...]\n\nRun 'docker exec --help' for more information\n",
+   "dur": 0.017
+  },
+  "podman": {
+   "argv": "podman exec --flag-que-nao-existe",
+   "rc": 125,
+   "primeira_linha": [
+    "Error: unknown flag: --flag-que-nao-existe"
+   ],
+   "stdout": "",
+   "stderr": "Error: unknown flag: --flag-que-nao-existe\nSee 'podman exec --help'\n",
+   "dur": 0.014
+  }
+ },
+ {
+  "id": "DIF-03",
+  "intencao": "Passar ao processo um argumento que colide com uma flag do motor",
+  "leitura": "os quatro tokens tem de chegar intactos ao processo",
+  "nota": "`--net none` no delonix evita o holder de rede; nao altera o argv",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix run --rm --net none busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e echo --config --rm -p 1:1",
+   "rc": 0,
+   "primeira_linha": [
+    "--config --rm -p 1:1"
+   ],
+   "stdout": "--config --rm -p 1:1\n",
+   "stderr": "",
+   "dur": 0.093
+  },
+  "docker": {
+   "argv": "docker run --rm busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e echo --config --rm -p 1:1",
+   "rc": 0,
+   "primeira_linha": [
+    "--config --rm -p 1:1"
+   ],
+   "stdout": "--config --rm -p 1:1\n",
+   "stderr": "",
+   "dur": 0.232
+  },
+  "podman": {
+   "argv": "podman run --rm busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e echo --config --rm -p 1:1",
+   "rc": 0,
+   "primeira_linha": [
+    "--config --rm -p 1:1"
+   ],
+   "stdout": "--config --rm -p 1:1\n",
+   "stderr": "",
+   "dur": 0.251
+  }
+ },
+ {
+  "id": "DIF-04",
+  "intencao": "O codigo de saida do processo atravessa o motor",
+  "leitura": "rc=37 nos tres",
+  "nota": "",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix run --rm --net none busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e sh -c 'exit 37'",
+   "rc": 37,
+   "primeira_linha": [],
+   "stdout": "",
+   "stderr": "",
+   "dur": 0.065
+  },
+  "docker": {
+   "argv": "docker run --rm busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e sh -c 'exit 37'",
+   "rc": 37,
+   "primeira_linha": [],
+   "stdout": "",
+   "stderr": "",
+   "dur": 0.221
+  },
+  "podman": {
+   "argv": "podman run --rm busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e sh -c 'exit 37'",
+   "rc": 37,
+   "primeira_linha": [],
+   "stdout": "",
+   "stderr": "",
+   "dur": 0.251
+  }
+ },
+ {
+  "id": "DIF-05",
+  "intencao": "Parar/remover um container que nao existe",
+  "leitura": "classe do erro: delonix promete 4; docker/podman usam 1/125",
+  "nota": "divergencia de CODIGO documentada em docs/cli-stability.md",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix stop dif-f120825-nao-existe",
+   "rc": 4,
+   "primeira_linha": [
+    "dif-f120825-nao-existe: [DX-4101] no such container: dif-f120825-nao-existe"
+   ],
+   "stdout": "",
+   "stderr": "dif-f120825-nao-existe: [DX-4101] no such container: dif-f120825-nao-existe\n",
+   "dur": 0.007
+  },
+  "docker": {
+   "argv": "docker stop dif-f120825-nao-existe",
+   "rc": 1,
+   "primeira_linha": [
+    "Error response from daemon: No such container: dif-f120825-nao-existe"
+   ],
+   "stdout": "",
+   "stderr": "Error response from daemon: No such container: dif-f120825-nao-existe\n",
+   "dur": 0.015
+  },
+  "podman": {
+   "argv": "podman stop dif-f120825-nao-existe",
+   "rc": 125,
+   "primeira_linha": [
+    "Error: no container with name or ID \"dif-f120825-nao-existe\" found: no such container"
+   ],
+   "stdout": "",
+   "stderr": "Error: no container with name or ID \"dif-f120825-nao-existe\" found: no such container\n",
+   "dur": 0.019
+  }
+ },
+ {
+  "id": "DIF-06",
+  "intencao": "Criar um volume com um nome ja tomado",
+  "leitura": "delonix promete 5 (conflito); docker e idempotente (rc=0)",
+  "nota": "o caso corre DUAS vezes: a segunda e a que conta",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix volume create dif-f120825-v",
+   "rc": 0,
+   "primeira_linha": [
+    "dif-f120825-v"
+   ],
+   "stdout": "dif-f120825-v\n",
+   "stderr": "",
+   "dur": 0.008
+  },
+  "docker": {
+   "argv": "docker volume create dif-f120825-v",
+   "rc": 0,
+   "primeira_linha": [
+    "dif-f120825-v"
+   ],
+   "stdout": "dif-f120825-v\n",
+   "stderr": "",
+   "dur": 0.014
+  },
+  "podman": {
+   "argv": "podman volume create dif-f120825-v",
+   "rc": 125,
+   "primeira_linha": [
+    "Error: volume with name dif-f120825-v already exists: volume already exists"
+   ],
+   "stdout": "",
+   "stderr": "Error: volume with name dif-f120825-v already exists: volume already exists\n",
+   "dur": 0.017
+  }
+ },
+ {
+  "id": "DIF-07",
+  "intencao": "Listar containers quando nao ha nenhum",
+  "leitura": "cabecalho presente, sem linhas; rc=0",
+  "nota": "",
+  "assimetria_de_modo": true,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix container ps",
+   "rc": 0,
+   "primeira_linha": [
+    "CONTAINER ID   IMAGE   COMMAND   CREATED   STATUS   PORTS   RESTARTS   NAMES   SVC   NAMESPACE"
+   ],
+   "stdout": "CONTAINER ID   IMAGE   COMMAND   CREATED   STATUS   PORTS   RESTARTS   NAMES   SVC   NAMESPACE\n",
+   "stderr": "",
+   "dur": 0.007
+  },
+  "docker": {
+   "argv": "docker ps",
+   "rc": 0,
+   "primeira_linha": [
+    "CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES"
+   ],
+   "stdout": "CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES\n",
+   "stderr": "",
+   "dur": 0.019
+  },
+  "podman": {
+   "argv": "podman ps",
+   "rc": 0,
+   "primeira_linha": [
+    "CONTAINER ID  IMAGE       COMMAND     CREATED     STATUS      PORTS       NAMES"
+   ],
+   "stdout": "CONTAINER ID  IMAGE       COMMAND     CREATED     STATUS      PORTS       NAMES\n",
+   "stderr": "",
+   "dur": 0.02
+  }
+ },
+ {
+  "id": "DIF-08",
+  "intencao": "`run -dit` (detached + interactivo + tty), a primeira linha de muitos scripts",
+  "leitura": "os tres aceitam: paridade. A declaracao de conflito esta na ExecArgs, nao na RunArgs",
+  "nota": "MEDIDO: delonix rc=0, docker rc=0, podman rc=0. A primeira leitura atribuiu o conflito ao `run` e estava errada",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix run -dit --net none --name dif-f120825-dit busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e sh",
+   "rc": 0,
+   "primeira_linha": [
+    "e63d47406468c14f"
+   ],
+   "stdout": "e63d47406468c14f\n",
+   "stderr": "",
+   "dur": 0.044
+  },
+  "docker": {
+   "argv": "docker run -dit --name dif-f120825-dit busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e sh",
+   "rc": 0,
+   "primeira_linha": [
+    "2d5a0ccc231defc1ab1ccb0968cb41459af8d2a05130877f478a4fc4fc2604db"
+   ],
+   "stdout": "2d5a0ccc231defc1ab1ccb0968cb41459af8d2a05130877f478a4fc4fc2604db\n",
+   "stderr": "",
+   "dur": 0.118
+  },
+  "podman": {
+   "argv": "podman run -dit --name dif-f120825-dit busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e sh",
+   "rc": 0,
+   "primeira_linha": [
+    "739a4ba52eac57b4b225e3a929777a9db0f9a155643902e4828b5b73f0356e37"
+   ],
+   "stdout": "739a4ba52eac57b4b225e3a929777a9db0f9a155643902e4828b5b73f0356e37\n",
+   "stderr": "time=\"2026-11-21T12:08:30+01:00\" level=warning msg=\"The input device is not a TTY. The --tty and --interactive flags might not work properly\"\n",
+   "dur": 0.122
+  }
+ },
+ {
+  "id": "DIF-09",
+  "intencao": "Publicar uma porta e ler qual ficou publicada",
+  "leitura": "a porta publicada e legivel pelo mesmo verbo nos tres",
+  "nota": "",
+  "assimetria_de_modo": true,
+  "setup": {
+   "delonix": {
+    "rc": 0,
+    "erro": ""
+   },
+   "docker": {
+    "rc": 0,
+    "erro": ""
+   },
+   "podman": {
+    "rc": 0,
+    "erro": ""
+   }
+  },
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix container port dif-f120825-p",
+   "rc": 0,
+   "primeira_linha": [
+    "80/tcp -> 127.0.0.1:18190"
+   ],
+   "stdout": "80/tcp -> 127.0.0.1:18190\n",
+   "stderr": "",
+   "dur": 0.008
+  },
+  "docker": {
+   "argv": "docker port dif-f120825-p",
+   "rc": 0,
+   "primeira_linha": [
+    "80/tcp -> 0.0.0.0:18191"
+   ],
+   "stdout": "80/tcp -> 0.0.0.0:18191\n80/tcp -> [::]:18191\n",
+   "stderr": "",
+   "dur": 0.02
+  },
+  "podman": {
+   "argv": "podman port dif-f120825-p",
+   "rc": 0,
+   "primeira_linha": [
+    "80/tcp -> 0.0.0.0:18192"
+   ],
+   "stdout": "80/tcp -> 0.0.0.0:18192\n",
+   "stderr": "",
+   "dur": 0.021
+  }
+ },
+ {
+  "id": "DIF-13",
+  "intencao": "`exec -dit`: destacado + interactivo + tty no mesmo comando",
+  "leitura": "docker e podman aceitam; o delonix declara detach conflicts_with_all [interactive, tty] na ExecArgs e RECUSA",
+  "nota": "docs/cli-stability.md lista -i/-t como estaveis no `exec` e nao documenta o conflito com -d",
+  "assimetria_de_modo": false,
+  "setup": {
+   "delonix": {
+    "rc": 0,
+    "erro": ""
+   },
+   "docker": {
+    "rc": 0,
+    "erro": ""
+   },
+   "podman": {
+    "rc": 0,
+    "erro": ""
+   }
+  },
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix exec -dit dif-f120825-x sh -c true",
+   "rc": 2,
+   "primeira_linha": [
+    "error: the argument '--detach' cannot be used with:"
+   ],
+   "stdout": "",
+   "stderr": "error: the argument '--detach' cannot be used with:\n  --interactive\n  --tty\n\nUsage: delonix exec --detach <CONTAINER>...\n\nFor more information, try '--help'.\n",
+   "dur": 0.006
+  },
+  "docker": {
+   "argv": "docker exec -dit dif-f120825-x sh -c true",
+   "rc": 0,
+   "primeira_linha": [],
+   "stdout": "",
+   "stderr": "",
+   "dur": 0.052
+  },
+  "podman": {
+   "argv": "podman exec -dit dif-f120825-x sh -c true",
+   "rc": 0,
+   "primeira_linha": [
+    "d644d8778425665e8c3fab6e34dffd9ec4dd93138e5ca9ec75debe0a9bf5cf32"
+   ],
+   "stdout": "d644d8778425665e8c3fab6e34dffd9ec4dd93138e5ca9ec75debe0a9bf5cf32\n",
+   "stderr": "",
+   "dur": 0.082
+  }
+ },
+ {
+  "id": "DIF-10",
+  "intencao": "Inspeccionar uma imagem por digest e obter JSON",
+  "leitura": "os tres emitem JSON valido com uma entrada: paridade",
+  "nota": "MEDIDO: `image inspect` existe no delonix e da JSON. A primeira leitura usou `image describe` (a forma HUMANA) e concluiu divergencia onde nao ha",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix image inspect busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+   "rc": 0,
+   "primeira_linha": [
+    "["
+   ],
+   "stdout": "[\n  {\n    \"id\": \"sha256:30ecbe1509090b38ef3260f3609d64d8261230464eaa4d235901db496e9647fb\",\n    \"repo_tags\": [\n      \"busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e\"\n    ],\n    \"layers\": [\n      \"sha256:68fe9bff2ad4ad46da3e58db03faa64eb73c0ff16d546b0c42539eaa9854cb7f\"\n    ],\n    \"config\": {\n      \"cmd\": [\n        \"sh\"\n      ],\n      \"entrypoint\": [],\n      \"env\": [\n        \"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"\n      ],\n      \"cpus\": null,\n      \"memory\": null,\n      \"security\": [],\n      \"healthcheck\": null,\n      \"exposed_ports\": [],\n      \"user\": \"\",\n      \"working_dir\": \"\",\n      \"architecture\": \"amd64\"\n    },\n    \"created_unix\": 1795259307\n  }\n]\n",
+   "stderr": "",
+   "dur": 0.007
+  },
+  "docker": {
+   "argv": "docker image inspect busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+   "rc": 0,
+   "primeira_linha": [
+    "["
+   ],
+   "stdout": "[\n    {\n        \"Id\": \"sha256:30ecbe1509090b38ef3260f3609d64d8261230464eaa4d235901db496e9647fb\",\n        \"RepoTags\": [],\n        \"RepoDigests\": [\n            \"busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e\"\n        ],\n        \"Created\": \"2024-09-26T21:31:42Z\",\n        \"Config\": {\n            \"Env\": [\n                \"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"\n            ],\n            \"Cmd\": [\n                \"sh\"\n            ]\n        },\n        \"Architecture\": \"amd64\",\n        \"Os\": \"linux\",\n        \"Size\": 4421262,\n        \"GraphDriver\": {\n            \"Data\": {\n                \"MergedDir\": \"/var/lib/docker/overlay2/bf0ef4f13b4777bd9f3fa94241054af264f2c77b007c0c54e3493b109f351fcb/merged\",\n                \"UpperDir\": \"/var/lib/docker/overlay2/bf0ef4f13b4777bd9f3fa94241054af264f2c77b007c0c54e3493b109f351fcb/diff\",\n                \"WorkDir\": \"/var/lib/docker/overlay2/bf0ef4f13b4777bd9f3fa94241054af264f2c77b007c0c54e3493b109f351fcb/work\"\n            },\n            \"Name\": \"overlay2\"\n        },\n        \"RootFS\": {\n            \"Type\": \"layers\",\n            \"Layers\": [\n                \"sha256:5a9bfd996c6d49c6c3cb4ddfb76e8d09cf16b6b7cf6601d1f2dffbdbc3edb5d4\"\n            ]\n        },\n        \"Metadata\": {\n            \"LastTagTime\": \"0001-01-01T00:00:00Z\"\n        }\n    }\n]\n",
+   "stderr": "",
+   "dur": 0.013
+  },
+  "podman": {
+   "argv": "podman image inspect busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+   "rc": 0,
+   "primeira_linha": [
+    "["
+   ],
+   "stdout": "[\n     {\n          \"Id\": \"30ecbe1509090b38ef3260f3609d64d8261230464eaa4d235901db496e9647fb\",\n          \"Digest\": \"sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e\",\n          \"RepoTags\": [],\n          \"RepoDigests\": [\n               \"docker.io/library/busybox@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4\",\n               \"docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e\"\n          ],\n          \"Parent\": \"\",\n          \"Comment\": \"\",\n          \"Created\": \"2024-09-26T21:31:42Z\",\n          \"Config\": {\n               \"Env\": [\n                    \"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"\n               ],\n               \"Cmd\": [\n                    \"sh\"\n               ]\n          },\n          \"Version\": \"\",\n          \"Author\": \"\",\n          \"Architecture\": \"amd64\",\n          \"Os\": \"linux\",\n          \"Size\": 4670414,\n          \"VirtualSize\": 4670414,\n          \"GraphDriver\": {\n               \"Name\": \"overlay\",\n               \"Data\": {\n                    \"UpperDir\": \"/home/walter/.local/share/containers/storage/overlay/5a9bfd996c6d49c6c3cb4ddfb76e8d09cf16b6b7cf6601d1f2dffbdbc3edb5d4/diff\",\n                    \"WorkDir\": \"/home/walter/.local/share/containers/storage/overlay/5a9bfd996c6d49c6c3cb4ddfb76e8d09cf16b6b7cf6601d1f2dffbdbc3edb5d4/work\"\n               }\n          },\n          \"RootFS\": {\n               \"Type\": \"layers\",\n               \"Layers\": [\n        ",
+   "stderr": "",
+   "dur": 0.018
+  }
+ },
+ {
+  "id": "DIF-14",
+  "intencao": "`image describe`: a forma humana que o docker nao tem",
+  "leitura": "sem equivalente: docker/podman nao tem um `describe` de imagem",
+  "nota": "docs/cli-stability.md: «inspect e diff sao TYPE-SCOPED»",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix image describe busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+   "rc": 0,
+   "primeira_linha": [
+    "ID:             sha256:30ecbe1509090b38ef3260f3609d64d8261230464eaa4d235901db496e9647fb"
+   ],
+   "stdout": "ID:             sha256:30ecbe1509090b38ef3260f3609d64d8261230464eaa4d235901db496e9647fb\nShort ID:       30ecbe150909\nTags:\n  busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e\nCreated:        2026-11-21 12:08\nAge:            35 seconds ago\nSize:           2.1 MiB\nLayers:\n  sha256:68fe9bff2ad4ad46da3e58db03faa64eb73c0ff16d546b0c42539eaa9854cb7f  2.1 MiB\nConfig:\n  Entrypoint:   <none>\n  Cmd:          sh\n  Workdir:      /\n  User:         root\nEnv:\n  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n",
+   "stderr": "",
+   "dur": 0.008
+  },
+  "docker": {
+   "argv": "docker image describe busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+   "rc": 1,
+   "primeira_linha": [
+    "docker: unknown command: docker image describe"
+   ],
+   "stdout": "",
+   "stderr": "docker: unknown command: docker image describe\n\nUsage:  docker image\n\nRun 'docker image --help' for more information\n",
+   "dur": 0.013
+  },
+  "podman": {
+   "argv": "podman image describe busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+   "rc": 125,
+   "primeira_linha": [
+    "Error: unrecognized command `podman image describe`"
+   ],
+   "stdout": "",
+   "stderr": "Error: unrecognized command `podman image describe`\nTry 'podman image --help' for more information\n",
+   "dur": 0.012
+  }
+ },
+ {
+  "id": "DIF-11",
+  "intencao": "`--rm` remove mesmo o container depois de sair",
+  "leitura": "nenhum dos tres deve listar o container do DIF-04 (corrido com --rm)",
+  "nota": "",
+  "assimetria_de_modo": false,
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix container ps -a",
+   "rc": 0,
+   "primeira_linha": [
+    "CONTAINER ID   IMAGE   COMMAND   CREATED   STATUS   PORTS   RESTARTS   NAMES   SVC   NAMESPACE"
+   ],
+   "stdout": "CONTAINER ID   IMAGE   COMMAND   CREATED   STATUS   PORTS   RESTARTS   NAMES   SVC   NAMESPACE\n",
+   "stderr": "",
+   "dur": 0.01
+  },
+  "docker": {
+   "argv": "docker ps -a",
+   "rc": 0,
+   "primeira_linha": [
+    "CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES"
+   ],
+   "stdout": "CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES\n",
+   "stderr": "",
+   "dur": 0.015
+  },
+  "podman": {
+   "argv": "podman ps -a",
+   "rc": 0,
+   "primeira_linha": [
+    "CONTAINER ID  IMAGE       COMMAND     CREATED     STATUS      PORTS       NAMES"
+   ],
+   "stdout": "CONTAINER ID  IMAGE       COMMAND     CREATED     STATUS      PORTS       NAMES\n",
+   "stderr": "",
+   "dur": 0.02
+  }
+ },
+ {
+  "id": "DIF-12",
+  "intencao": "`logs` de um container detached",
+  "leitura": "a linha escrita pelo processo aparece nos tres",
+  "nota": "",
+  "assimetria_de_modo": false,
+  "setup": {
+   "delonix": {
+    "rc": 0,
+    "erro": ""
+   },
+   "docker": {
+    "rc": 0,
+    "erro": ""
+   },
+   "podman": {
+    "rc": 0,
+    "erro": ""
+   }
+  },
+  "delonix": {
+   "argv": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix container logs dif-f120825-l",
+   "rc": 0,
+   "primeira_linha": [
+    "marca-f120825"
+   ],
+   "stdout": "marca-f120825\n",
+   "stderr": "",
+   "dur": 0.01
+  },
+  "docker": {
+   "argv": "docker logs dif-f120825-l",
+   "rc": 0,
+   "primeira_linha": [
+    "marca-f120825"
+   ],
+   "stdout": "marca-f120825\n",
+   "stderr": "",
+   "dur": 0.015
+  },
+  "podman": {
+   "argv": "podman logs dif-f120825-l",
+   "rc": 0,
+   "primeira_linha": [
+    "marca-f120825"
+   ],
+   "stdout": "marca-f120825\n",
+   "stderr": "",
+   "dur": 0.101
+  }
+ }
+]

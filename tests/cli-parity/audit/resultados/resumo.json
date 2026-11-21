@@ -1,0 +1,22 @@
+{
+ "inventario": {
+  "paths": 420,
+  "leaves": 371,
+  "groups": 49,
+  "options": 1099,
+  "positionals": 302
+ },
+ "casos_na_matriz": 1753,
+ "casos_com_resultado": 1753,
+ "estados": {
+  "PASS": 1720,
+  "FAIL": 6,
+  "NAO_EXECUTADO": 27
+ },
+ "caminhos_sem_destino_na_matriz": 0,
+ "caminhos_sem_destino": [],
+ "reconciliacao": {
+  "soma_dos_estados": 1753,
+  "igual_a_casos_na_matriz": true
+ }
+}
