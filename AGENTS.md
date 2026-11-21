@@ -177,7 +177,16 @@ goes down.
   (`cargo build --release -p delonix-runtime-bin`) or do not believe the result.
 - Integration does **squash-merge**: the commits of a branch disappear from its
   history but the content stays. Use `git cherry develop <branch>` (the integration
-  target), not `git log`, to know whether something is already there.
+  target), not `git log`, to know whether something is already there — **and only for a
+  branch of ONE commit.** `git cherry` compares patch-ids, and a squash of N commits
+  carries the UNION of the N patches, which matches none of them individually: it then
+  prints `+` (missing) for work that is already in. Measured twice independently on
+  2026-11-21 — on a 5-commit branch whose PR was merged (the squash commit was an ancestor
+  of `develop` and the five commits were not), and on a 10-commit one. For a multi-commit
+  branch the proof is the **content** (a `git diff` of the files, or a `grep` for the
+  symbol the change introduces) or GitHub's own merge record (`gh pr view <n> --json
+  mergeCommit`, then `git merge-base --is-ancestor <squash> origin/develop`). A `+` from
+  `git cherry` is not evidence of absence.
 - A pushed branch runs CI: `ci.yml` triggers on push to `main`/`develop`
   and on PR to either of the two. "Green CI" always requires a PR.
 
@@ -624,7 +633,8 @@ closed. Therefore:
    protects against the reboot, a pushed branch protects against everything else.
 2. **At the end**: commit in the worktree → PR to `develop` with **squash + green CI**
    (`python3 scripts/gitflow.py integrate --execute`) → confirm inclusion by
-   `git cherry develop <branch>` before cleaning up. A clean cherry-pick/rebase does **not** prove
+   `git cherry develop <branch>` before cleaning up (only for a branch of ONE commit —
+   see the trap above; for several, prove it by content). A clean cherry-pick/rebase does **not** prove
    it compiles: the base changed since the worktree branched, so the gates run AGAIN
    after the rebase onto `origin/develop`.
 3. **Remove BOTH things**: `git worktree remove <path>` **and** `git branch -d <branch>` —
@@ -7326,6 +7336,23 @@ checklist for whoever touches here than as a list of fixes:
   which is the argument a window would open. Gate: `scripts/test_install_editor.py`, which extracts the
   `editor_cli` from `install.sh` itself and requires that no editor invocation bypass it — 7/7
   red against the previous script, 7/7 green after (verified);
+- **a filtered output is not the output**, and this is the one that cost the most on
+  2026-11-21: six times in a day, across two parallel sessions. **The filter that makes the
+  output readable is the same one that hides the line that decides.** The six, each with
+  what it cost: a `tail -3` over `cargo test | grep '^test result:'` cut off the FAILED
+  line, which came BEFORE six `ok` lines, and produced a confident «nine of these failures
+  are my own noise» that was false; a `head -5` over `arch_fitness.py` cut the FAIL list at
+  two of four, and the two were what a peer was told; a `grep -c` returning **1** where the
+  count was **0** read as a passing check; a second `grep -c` over a multi-line block
+  answered for the first line only; a `grep -oE '[0-9]+' | head -1` over
+  `char sun_path[108]` returned **86**, which is the `x86_64` of the header's own path; and
+  a `grep -A3` over a function whose new comment is seven lines long reported an insertion
+  LOST in a merge when it sat intact three lines below the window. The rule this file
+  already had — «when a measurement looks too good, turn off the filter and count again» —
+  is not enough, because all six were written by sessions that had just cited it. The
+  narrower one that holds: **a filter never decides a verdict.** Filter to read if you
+  must, but look at the raw output before writing a number down, and when the number is
+  going into a message to someone else, print the thing it came from beside it;
 
 **Live finding from the sweep (v0.42.2)**: `delonix system info` reported `cgroup2 delegated: yes`
 unconditionally, by reading the host's root cgroup files — the command you run to
