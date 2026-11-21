@@ -1,0 +1,1040 @@
+[
+ {
+  "argv": [
+   "--help"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 7550,
+   "stderr_len": 0
+  },
+  "notes": [
+   "42 linha(s) acima de 80 colunas no PTY (maior: 211)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/help.80.en.txt"
+ },
+ {
+  "argv": [
+   "--help"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 7912,
+   "stderr_len": 0
+  },
+  "notes": [
+   "46 linha(s) acima de 80 colunas no PTY (maior: 213)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/help.80.pt.txt"
+ },
+ {
+  "argv": [
+   "--help"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 7550,
+   "stderr_len": 0
+  },
+  "notes": [
+   "5 linha(s) acima de 120 colunas no PTY (maior: 211)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/help.120.en.txt"
+ },
+ {
+  "argv": [
+   "--help"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 7912,
+   "stderr_len": 0
+  },
+  "notes": [
+   "7 linha(s) acima de 120 colunas no PTY (maior: 213)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/help.120.pt.txt"
+ },
+ {
+  "argv": [
+   "-h"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 7550,
+   "stderr_len": 0
+  },
+  "notes": [
+   "42 linha(s) acima de 80 colunas no PTY (maior: 211)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/h.80.en.txt"
+ },
+ {
+  "argv": [
+   "-h"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 7912,
+   "stderr_len": 0
+  },
+  "notes": [
+   "46 linha(s) acima de 80 colunas no PTY (maior: 213)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/h.80.pt.txt"
+ },
+ {
+  "argv": [
+   "-h"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 7550,
+   "stderr_len": 0
+  },
+  "notes": [
+   "5 linha(s) acima de 120 colunas no PTY (maior: 211)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/h.120.en.txt"
+ },
+ {
+  "argv": [
+   "-h"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 7912,
+   "stderr_len": 0
+  },
+  "notes": [
+   "7 linha(s) acima de 120 colunas no PTY (maior: 213)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/h.120.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "--help"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 3487,
+   "stderr_len": 0
+  },
+  "notes": [
+   "17 linha(s) acima de 80 colunas no PTY (maior: 120)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_help.80.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "--help"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 3679,
+   "stderr_len": 0
+  },
+  "notes": [
+   "19 linha(s) acima de 80 colunas no PTY (maior: 132)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_help.80.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "--help"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 3487,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_help.120.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "--help"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 3679,
+   "stderr_len": 0
+  },
+  "notes": [
+   "2 linha(s) acima de 120 colunas no PTY (maior: 132)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_help.120.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "run",
+   "--help"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 17050,
+   "stderr_len": 0
+  },
+  "notes": [
+   "65 linha(s) acima de 80 colunas no PTY (maior: 619)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_run_help.80.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "run",
+   "--help"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 17743,
+   "stderr_len": 0
+  },
+  "notes": [
+   "71 linha(s) acima de 80 colunas no PTY (maior: 634)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_run_help.80.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "run",
+   "--help"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 17050,
+   "stderr_len": 0
+  },
+  "notes": [
+   "49 linha(s) acima de 120 colunas no PTY (maior: 619)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_run_help.120.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "run",
+   "--help"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 17743,
+   "stderr_len": 0
+  },
+  "notes": [
+   "53 linha(s) acima de 120 colunas no PTY (maior: 634)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_run_help.120.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "ps"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 95,
+   "stderr_len": 0
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 94)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_ps.80.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "ps"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 95,
+   "stderr_len": 0
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 94)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_ps.80.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "ps"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 95,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_ps.120.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "ps"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 95,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_ps.120.pt.txt"
+ },
+ {
+  "argv": [
+   "image",
+   "ls"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 52,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/image_ls.80.en.txt"
+ },
+ {
+  "argv": [
+   "image",
+   "ls"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 52,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/image_ls.80.pt.txt"
+ },
+ {
+  "argv": [
+   "image",
+   "ls"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 52,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/image_ls.120.en.txt"
+ },
+ {
+  "argv": [
+   "image",
+   "ls"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 52,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/image_ls.120.pt.txt"
+ },
+ {
+  "argv": [
+   "volume",
+   "ls"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 81,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/volume_ls.80.en.txt"
+ },
+ {
+  "argv": [
+   "volume",
+   "ls"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 81,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/volume_ls.80.pt.txt"
+ },
+ {
+  "argv": [
+   "volume",
+   "ls"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 81,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/volume_ls.120.en.txt"
+ },
+ {
+  "argv": [
+   "volume",
+   "ls"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 81,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/volume_ls.120.pt.txt"
+ },
+ {
+  "argv": [
+   "network",
+   "ls"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 42,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/network_ls.80.en.txt"
+ },
+ {
+  "argv": [
+   "network",
+   "ls"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 42,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/network_ls.80.pt.txt"
+ },
+ {
+  "argv": [
+   "network",
+   "ls"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 42,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/network_ls.120.en.txt"
+ },
+ {
+  "argv": [
+   "network",
+   "ls"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 42,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/network_ls.120.pt.txt"
+ },
+ {
+  "argv": [
+   "api-resources"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 4265,
+   "stderr_len": 0
+  },
+  "notes": [
+   "34 linha(s) acima de 80 colunas no PTY (maior: 151)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/apiresources.80.en.txt"
+ },
+ {
+  "argv": [
+   "api-resources"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 4265,
+   "stderr_len": 0
+  },
+  "notes": [
+   "34 linha(s) acima de 80 colunas no PTY (maior: 151)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/apiresources.80.pt.txt"
+ },
+ {
+  "argv": [
+   "api-resources"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 4265,
+   "stderr_len": 0
+  },
+  "notes": [
+   "33 linha(s) acima de 120 colunas no PTY (maior: 151)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/apiresources.120.en.txt"
+ },
+ {
+  "argv": [
+   "api-resources"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 4265,
+   "stderr_len": 0
+  },
+  "notes": [
+   "33 linha(s) acima de 120 colunas no PTY (maior: 151)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/apiresources.120.pt.txt"
+ },
+ {
+  "argv": [
+   "version"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 630,
+   "stderr_len": 0
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 87)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/version.80.en.txt"
+ },
+ {
+  "argv": [
+   "version"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 646,
+   "stderr_len": 0
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 88)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/version.80.pt.txt"
+ },
+ {
+  "argv": [
+   "version"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 630,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/version.120.en.txt"
+ },
+ {
+  "argv": [
+   "version"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 646,
+   "stderr_len": 0
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/version.120.pt.txt"
+ },
+ {
+  "argv": [
+   "system",
+   "info"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 335,
+   "stderr_len": 0
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 135)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/system_info.80.en.txt"
+ },
+ {
+  "argv": [
+   "system",
+   "info"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 350,
+   "stderr_len": 0
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 135)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/system_info.80.pt.txt"
+ },
+ {
+  "argv": [
+   "system",
+   "info"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 335,
+   "stderr_len": 0
+  },
+  "notes": [
+   "1 linha(s) acima de 120 colunas no PTY (maior: 135)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/system_info.120.en.txt"
+ },
+ {
+  "argv": [
+   "system",
+   "info"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 350,
+   "stderr_len": 0
+  },
+  "notes": [
+   "1 linha(s) acima de 120 colunas no PTY (maior: 135)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/system_info.120.pt.txt"
+ },
+ {
+  "argv": [
+   "stack",
+   "plan",
+   "--fields"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 8287,
+   "stderr_len": 0
+  },
+  "notes": [
+   "54 linha(s) acima de 80 colunas no PTY (maior: 391)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/stack_plan_fields.80.en.txt"
+ },
+ {
+  "argv": [
+   "stack",
+   "plan",
+   "--fields"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 8414,
+   "stderr_len": 0
+  },
+  "notes": [
+   "54 linha(s) acima de 80 colunas no PTY (maior: 407)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/stack_plan_fields.80.pt.txt"
+ },
+ {
+  "argv": [
+   "stack",
+   "plan",
+   "--fields"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 8287,
+   "stderr_len": 0
+  },
+  "notes": [
+   "20 linha(s) acima de 120 colunas no PTY (maior: 391)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/stack_plan_fields.120.en.txt"
+ },
+ {
+  "argv": [
+   "stack",
+   "plan",
+   "--fields"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 0,
+   "stdout_len": 8414,
+   "stderr_len": 0
+  },
+  "notes": [
+   "20 linha(s) acima de 120 colunas no PTY (maior: 407)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/stack_plan_fields.120.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "stop",
+   "nao-existe-aud"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 60
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_stop_naoexisteaud.80.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "stop",
+   "nao-existe-aud"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 61
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_stop_naoexisteaud.80.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "stop",
+   "nao-existe-aud"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 60
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_stop_naoexisteaud.120.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "stop",
+   "nao-existe-aud"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 61
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_stop_naoexisteaud.120.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "run",
+   "--flag-que-nao-existe"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 384
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 205)",
+   "emite ANSI com stdout redireccionado (sem NO_COLOR)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_run_flagquenaoexiste.80.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "run",
+   "--flag-que-nao-existe"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 383
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 205)",
+   "emite ANSI com stdout redireccionado (sem NO_COLOR)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_run_flagquenaoexiste.80.pt.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "run",
+   "--flag-que-nao-existe"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 384
+  },
+  "notes": [
+   "1 linha(s) acima de 120 colunas no PTY (maior: 205)",
+   "emite ANSI com stdout redireccionado (sem NO_COLOR)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_run_flagquenaoexiste.120.en.txt"
+ },
+ {
+  "argv": [
+   "container",
+   "run",
+   "--flag-que-nao-existe"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 383
+  },
+  "notes": [
+   "1 linha(s) acima de 120 colunas no PTY (maior: 205)",
+   "emite ANSI com stdout redireccionado (sem NO_COLOR)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/container_run_flagquenaoexiste.120.pt.txt"
+ },
+ {
+  "argv": [
+   "volume",
+   "create"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 2,
+   "stdout_len": 0,
+   "stderr_len": 142
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/volume_create.80.en.txt"
+ },
+ {
+  "argv": [
+   "volume",
+   "create"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 2,
+   "stdout_len": 0,
+   "stderr_len": 142
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/volume_create.80.pt.txt"
+ },
+ {
+  "argv": [
+   "volume",
+   "create"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 2,
+   "stdout_len": 0,
+   "stderr_len": 142
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/volume_create.120.en.txt"
+ },
+ {
+  "argv": [
+   "volume",
+   "create"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 2,
+   "stdout_len": 0,
+   "stderr_len": 142
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/volume_create.120.pt.txt"
+ },
+ {
+  "argv": [
+   "get",
+   "cascalhos"
+  ],
+  "cols": 80,
+  "lang": "en",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 103
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 102)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/get_cascalhos.80.en.txt"
+ },
+ {
+  "argv": [
+   "get",
+   "cascalhos"
+  ],
+  "cols": 80,
+  "lang": "pt",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 102
+  },
+  "notes": [
+   "1 linha(s) acima de 80 colunas no PTY (maior: 101)"
+  ],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/get_cascalhos.80.pt.txt"
+ },
+ {
+  "argv": [
+   "get",
+   "cascalhos"
+  ],
+  "cols": 120,
+  "lang": "en",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 103
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/get_cascalhos.120.en.txt"
+ },
+ {
+  "argv": [
+   "get",
+   "cascalhos"
+  ],
+  "cols": 120,
+  "lang": "pt",
+  "pipe": {
+   "rc": 4,
+   "stdout_len": 0,
+   "stderr_len": 102
+  },
+  "notes": [],
+  "sample_file": "/tmp/claude-1000/-home-walter--claude-spares-spare-oHKuyv/57de90b0-cee4-43d5-9c5c-e447541b8753/scratchpad/out-ux/samples/get_cascalhos.120.pt.txt"
+ }
+]

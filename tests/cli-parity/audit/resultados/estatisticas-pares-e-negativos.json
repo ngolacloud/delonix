@@ -1,0 +1,14 @@
+{
+ "neg_casos": 90,
+ "neg_ignorados_sem_contexto": 27,
+ "neg_regras_declaradas": 22,
+ "neg_regras_nao_resolvidas": 0,
+ "pares": {
+  "folhas_elegiveis": 227,
+  "folhas_excluidas_sem_positional": 142,
+  "pares_possiveis": 1114,
+  "pares_gerados": 239,
+  "folhas_excluidas_por_executarem": 2
+ },
+ "cap_por_folha": 8
+}
