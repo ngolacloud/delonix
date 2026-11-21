@@ -12392,6 +12392,15 @@ Inter-|   Receive                                                |  Transmit
     /// that fails if someone edits one copy and not the other.
     #[test]
     fn the_built_table_and_the_reconciler_agree_on_every_rule() {
+        // The three reads below (`ingress_table_ruleset`, `unconditional_guards_script`
+        // and `fwguard_rules`) are the IMPURE wrappers: each one reads
+        // `DELONIX_DISABLE_IPV6` from the process environment, which the battery shares.
+        // Three siblings in this very module SET that variable, so without the lock a
+        // read of ours can land between a writer's `set` and its restore — one side then
+        // renders the two v4 rules and another the four. Same guard, same reason, as
+        // `the_firewall_script_governs_both_families` and its two neighbours.
+        let mut env = crate::testenv::lock();
+        env.unset("DELONIX_DISABLE_IPV6"); // v6 on — the shipped default
         let rs = ingress_table_ruleset();
         let script = unconditional_guards_script();
         for (chain, rules) in [
