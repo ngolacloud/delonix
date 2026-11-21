@@ -240,3 +240,12 @@ split-debuginfo = "unpacked"
 [profile.release-ci]
 inherits = "release"
 codegen-units = 16
+
+# Dependências sem informação de depuração; os crates deste workspace mantêm
+# as line tables acima. Medido a 2026-11-21 no device-sentinel (514 crates no
+# lockfile, 9 membros, `cargo test --workspace --no-run` a frio):
+#   base 2840 MB → line-tables-only 1984 MB → +deps debug=0 1513 MB (−47%).
+# O custo: um pânico dentro de uma dependência deixa de dar ficheiro:linha
+# nos frames dessa crate; os frames deste workspace continuam completos.
+[profile.dev.package."*"]
+debug = 0
