@@ -1,69 +1,29 @@
 {
  "objecto_do_ensaio": {
-  "repo": "/home/walter/workspaces/ngolacloud/delonix",
+  "repo": "/home/walter/workspaces/NgolaCloud/projects/delonix-runtime",
   "branch": "develop",
-  "commit": "78c4488bf88d7ca89396d3cb46c944c59a9f5cbb",
-  "commit_subject": "merge(audit): integra fix/rust-audit-tail-security (P3-1/P3-2/P3-3/P2-4) em develop",
+  "commit": "b4c06e081d6daa84f9f49f05e2387a4587d885a3",
+  "commit_subject": "test(cli): suite de auditoria da CLI — inventário, matriz de parâmetros e diferencial",
   "ultimo_tag_contido": "v0.1.2",
-  "alteracoes_locais_total": 224,
-  "alteracoes_locais_fora_de_docs": [
-   "M README.rst",
-   " M bins/delonix-cri-bin/src/warm.rs",
-   " M bins/delonix-node-api-bin/src/main.rs",
-   " M bins/delonix/src/cmd/container.rs",
-   " M bins/delonix/src/cmd/oci_runtime.rs",
-   " M bins/delonix/src/main.rs",
-   " M crates/adapters/delonix-linux/src/cdi.rs",
-   " M crates/adapters/delonix-linux/src/lib.rs",
-   " M crates/adapters/delonix-linux/src/seccomp_profile.rs",
-   " M crates/adapters/delonix-oci/src/image.rs",
-   " M crates/adapters/delonix-oci/src/registry.rs",
-   " M crates/adapters/delonix-oci/src/rootfs_user.rs",
-   " M crates/adapters/delonix-sdn/src/cni.rs",
-   " M crates/adapters/delonix-sdn/src/infra.rs",
-   " M crates/adapters/delonix-sdn/src/lib.rs",
-   " M crates/adapters/delonix-sdn/tests/netdef_naming.rs",
-   " M crates/adapters/delonix-state/src/store.rs",
-   " M crates/adapters/delonix-vm/src/cloudinit.rs",
-   " M crates/adapters/delonix-vm/src/lib.rs",
-   " M crates/adapters/delonix-volume/src/lib.rs",
-   " M crates/adapters/delonix-warm/src/lib.rs",
-   " M crates/adapters/delonix-warm/src/tests.rs",
-   " M crates/foundation/delonix-spiffe/src/config.rs",
-   " M crates/foundation/delonix-spiffe/src/id.rs",
-   " M crates/foundation/delonix-spiffe/tests/handshake.rs",
-   " M crates/interfaces/delonix-cri/src/cap_ceiling.rs",
-   " M crates/interfaces/delonix-cri/tests/grpc_status.rs",
-   " M crates/interfaces/delonix-mgmt/src/lib.rs",
-   " M crates/interfaces/delonix-node-api/src/service.rs",
-   " M crates/interfaces/delonix-node-api/tests/live_watch_generation.rs",
-   " M crates/providers/delonix-provider-proxmox/src/lib.rs",
-   " M crates/providers/delonix-provider-proxmox/tests/live.rs",
-   " M reports/architecture.md",
-   " M scripts/arch_fitness.py",
-   " M scripts/docs_cli_allow.tsv",
-   " M scripts/folhas_baseline.json",
-   "?? docs/commands/node-ca.html",
-   "?? docs/commands/node-enroll.html"
-  ],
-  "nota": "189 ficheiros modificados; 184 sao docs/*.html regenerados. Nenhuma alteracao em crates/ ou bins/."
+  "describe": "consolidacao-pre-20261120-2217-18-gb4c06e081",
+  "alteracoes_locais_total": 0,
+  "nota": "Árvore de trabalho LIMPA (git status --porcelain vazio). Esta corrida mede o binário pós-correcção 3148f8d7 (a flag mal escrita deixa de ser consumida como imagem/container), imediatamente anterior a este HEAD. A linha de base de 0.1.2 em 78c4488b (1720 PASS / 6 FAIL) fica preservada no histórico git e no RELATORIO-AUDITORIA-CLI.pt-AO.md."
  },
  "binario_sob_ensaio": {
-  "caminho": "/home/walter/workspaces/ngolacloud/delonix/target/release/delonix",
-  "porque_este": "regra do repo: medir SEMPRE o binario da arvore, com os cinco irmaos no mesmo directorio (exec_server prefere o irmao ao lado do executavel)",
-  "version_text": "delonix 0.1.2\ndaemonless, rootless-first container & microVM engine (kernel-native, Rust)\ncommit: 78c4488bf (+87 commits since v0.1.2) · built: 2026-11-21 · Apache-2.0\n\nget started:\n  delonix container run -d -p 8080:80 nginx   # a web service in seconds\n  delonix vm create dev                       # declarative microVMs\n  delonix cluster create                      # local Kubernetes (kind mode, no Docker)\n  delonix stack init && delonix stack apply   # a complete declarative project\n  delonix dashboard                           # htop-style dashboard\n\ndocs: https://ngolacloud.github.io/delonix/ · delonix <group> --help",
+  "caminho": "/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix",
+  "porque_este": "regra do repo: medir SEMPRE o binario da arvore, com os cinco irmaos no mesmo directorio (exec_server prefere o irmao ao lado do executavel antes do PATH)",
+  "version_text": "delonix 0.1.2\ndaemonless, rootless-first container & microVM engine (kernel-native, Rust)\ncommit: b4c06e081 (+95 commits since v0.1.2) · built: 2026-11-21 · Apache-2.0",
   "digests_sha256": {
-   "delonix": "81c768a843f63a0e949b628b7a0ffa03b1a6c372814279f7ebf5984f044ed70e",
-   "delonix-cri": "7b4d7dc07b5767759de5b420fd6e0b754ad27b98a7cddf3b021d5974450311a1",
-   "delonix-mgmt": "22a14bb353daa0024444928a645c9f1f681707a18b0c3a68c07aca33120feb9e",
-   "delonix-mcp": "85fc58e760d62e24759e67943cbdb5ceb1e05484414fa0b4892c7344ffc6aaf7",
-   "delonix-node-api": "bb33d2e80a8abec1f6e2b087c883b56675032ba61d79f9d7a47ad7b6dbfc9e59"
+   "delonix": "efa0bcbc92a587d67089aef1fe53ced9000ec58f5b2266aba603bcdf113b5d39",
+   "delonix-cri": "fe4b6b866ccc649bfeb70bae6ec2e912ef54c8979f0f1b8a2b788280874b7e92",
+   "delonix-mgmt": "da48a363bfb3fef37611b6dc080937aabc54247faa8c5ab421e15ca5e9d7185b",
+   "delonix-mcp": "9f3179e6f1ae3184c0623345e34b8cab5dc4479d9d12c939da4207c03c8ea0c0",
+   "delonix-node-api": "c88d96b50d0841d4c82fa3f34a70a5fd9684b503f7e0afb6144894af9d862d20"
   },
-  "instalado_em": "/usr/local/bin (make install-system, 2026-11-21)",
-  "instalado_identico_a_arvore": true,
+  "cinco_irmaos_co_localizados": true,
+  "construidos_juntos": "cargo build --release -p delonix-bin -p delonix-cri-bin -p delonix-mgmt-bin -p delonix-mcp-bin -p delonix-node-api-bin (2026-11-22)",
   "perfil": "release (opt-level=3, lto=thin, codegen-units=1, strip=debuginfo)",
   "toolchain": "rustc 1.96.0 (ac68faa20 2026-05-25)",
-  "glibc_floor": "GLIBC_2.39",
   "features": "default (nenhuma feature explicita no make build)"
  },
  "host": {
@@ -72,32 +32,33 @@
   "arch": "x86_64",
   "modo": "rootless (uid 1000, walter)",
   "cgroup": "cgroup2fs",
-  "cgroup_proprio": "/user.slice/user-1000.slice/user@1000.service/app.slice/app-com.anthropic.Claude-6740.scope",
-  "controladores_delegados": "memory pids",
-  "consequencia_delegacao": "sem `cpu` delegado: -m/--cpus/--cpu-weight sao RECUSADOS (exit 69) fora de um `systemd-run --user --scope -p Delegate=yes`",
+  "cgroup_proprio": "/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.chromium.Chromium-17368.scope",
+  "controladores_delegados_scope_sessao": "memory pids",
+  "controladores_delegados_base_motor": "cpuset cpu io memory pids (user@1000.service)",
+  "consequencia_delegacao": "o scope da sessão delega só `memory pids`; a base que o motor usa (user@1000.service/dlx-containers) delega `cpuset cpu io memory pids`. --memory/--cpus aplicam-se na base; --cpuset/--io-weight/--device-* foram medidos como RECUSA (exit 69) com mensagem que nomeia a causa.",
   "subuid": "walter:100000:65536",
   "subgid": "walter:100000:65536",
   "userns_nao_privilegiado": "1",
   "apparmor_restrict_userns": "0",
-  "ip_unprivileged_port_start": "80",
-  "br_netfilter": "2",
+  "ip_unprivileged_port_start": "1024 (REPOSTO; na corrida de base deste host estava em 80)",
+  "br_netfilter": "carregado",
   "bridge_nf_call_iptables": "1",
-  "kvm": "presente e legivel/escrevivel por walter (ACL)",
-  "estado_do_motor_no_host": "nenhum pin/control/slirp4netns vivo no inicio da auditoria; roots reais /home/walter/.local/share/delonix e /var/lib/delonix NAO tocados"
+  "kvm": "crw-rw----+ root kvm; legivel/escrevivel por walter (ACL)",
+  "estado_do_motor_no_host": "DELONIX_ROOT e DELONIX_NET_RUNTIME_DIR isolados sob /tmp; roots reais do host NAO tocados"
  },
  "armadilhas_de_ambiente_registadas": [
-  "~/.local/bin/delonix-cri de 2026-09-07 esta ANTES de /usr/local/bin no PATH. Nao ha ~/.local/bin/delonix, por isso o exec_server pega o irmao ao lado do executavel; mas qualquer resolucao de `delonix-cri` por PATH serve o de Setembro.",
-  "sem delegacao de cgroup `cpu` nesta sessao: os casos de limites medem a RECUSA documentada, nao o limite",
-  "DELONIX_ROOT e DELONIX_NET_RUNTIME_DIR isolados nos dois: isolar so o root poe dois roots a disputar /tmp/delonix-net-1000/*.sock (incidente ja medido neste repo)"
+  "~/.local/bin/delonix-cri de 2026-11-13 esta ANTES de /usr/local/bin no PATH. A suite mede sempre pelo caminho do target, onde os cinco irmaos foram construidos juntos a 2026-11-22, para o exec_server pegar o irmao ao lado do executavel e nao o do PATH.",
+  "DELONIX_ROOT e DELONIX_NET_RUNTIME_DIR isolados nos dois: isolar so o root poe dois roots a disputar /tmp/delonix-net-1000/*.sock (incidente ja medido neste repo). O runtime dir vive num caminho curto porque o sun_path de um socket unix tem 108 bytes.",
+  "ip_unprivileged_port_start=1024 nesta corrida: o diferencial usa portas altas (18xxx), nao afectado; mas um `-p 80:` passaria a exigir privilegio."
  ],
  "comparadores": {
   "docker": {
-   "client": "29.9.3",
-   "server": "29.9.3",
+   "client": "29.10.0",
+   "server": "29.10.0",
    "endpoint": "unix:///var/run/docker.sock",
    "modo": "ROOTFUL (dockerd corre como root)",
    "driver": "overlay2",
-   "compose_plugin": "5.7.0",
+   "compose_plugin": "5.7.1",
    "assimetria": "Docker e rootful e o Delonix e medido rootless: uma diferenca de resultado pode vir do MODO, nao do motor. Registada em cada caso afectado."
   },
   "podman": {
@@ -105,9 +66,12 @@
    "modo": "rootless",
    "driver": "overlay",
    "rede": "netavark",
-   "runtime": "runc runc version 1.5.2\ncommit: v1.5.2-0-g29dd3dc2\nspec: 1.3.0\ngo: go1.27.3\nlibseccomp: 2.5.5",
-   "socket": "/run/user/1000/podman/podman.sock (inexistente; CLI directa)",
-   "podman_compose": "podman version 4.9.3"
+   "runtime": "runc version 1.5.3 (commit v1.5.3-0-g46365c62, spec 1.3.0, libseccomp 2.5.5)",
+   "socket": "/run/user/1000/podman/podman.sock (inexistente; CLI directa)"
+  },
+  "delonix": {
+   "version": "0.1.2 (commit b4c06e081)",
+   "modo": "rootless, daemonless"
   }
  },
  "fixture_partilhada": {

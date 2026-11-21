@@ -1,6 +1,6 @@
 {
- "binary": "/home/walter/workspaces/ngolacloud/.worktrees/ngolacloud/delonix/cli-audit-matrix/target-audit/release/delonix",
- "version_text": "delonix 0.1.2\ndaemonless, rootless-first container & microVM engine (kernel-native, Rust)\ncommit: 78c4488bf (+87 commits since v0.1.2) \u00b7 built: 2026-11-21 \u00b7 Apache-2.0\n\nget started:\n  delonix container run -d -p 8080:80 nginx   # a web service in seconds\n  delonix vm create dev                       # declarative microVMs\n  delonix cluster create                      # local Kubernetes (kind mode, no Docker)\n  delonix stack init && delonix stack apply   # a complete declarative project\n  delonix dashboard                           # htop-style dashboard\n\ndocs: https://ngolacloud.github.io/delonix/ \u00b7 delonix <group> --help",
+ "binary": "/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix",
+ "version_text": "delonix 0.1.2\ndaemonless, rootless-first container & microVM engine (kernel-native, Rust)\ncommit: b4c06e081 (+95 commits since v0.1.2) \u00b7 built: 2026-11-21 \u00b7 Apache-2.0\n\nget started:\n  delonix container run -d -p 8080:80 nginx   # a web service in seconds\n  delonix vm create dev                       # declarative microVMs\n  delonix cluster create                      # local Kubernetes (kind mode, no Docker)\n  delonix stack init && delonix stack apply   # a complete declarative project\n  delonix dashboard                           # htop-style dashboard\n\ndocs: https://ngolacloud.github.io/delonix/ \u00b7 delonix <group> --help",
  "nodes": {
   "(root)": {
    "path": [],
