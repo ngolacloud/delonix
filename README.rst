@@ -21,14 +21,104 @@ to Docker/Podman, with **rootless operation as a first-class design goal** rathe
 than an afterthought, and it ships its own Kubernetes CRI so a ``kubelet`` can
 talk to it with no containerd in between.
 
-Not a low-level OCI *runtime* (that's ``runc``/``crun``): Delonix is a full
-container **and** VM engine — build, run, network, firewall, store, and
-bootstrap Kubernetes clusters, from one binary.
-
 :Docs: https://ngolacloud.github.io/delonix/
 :Contributor handbook: https://ngolacloud.github.io/delonix/handbook/ (English, Português de Angola, Français)
 :Rust tutorial: https://angolardevops.github.io/delonix-rust-tutorial/ (Português de Angola — Rust, containers, OCI/CRI and a from-scratch rootless runtime)
 :Repo: https://github.com/ngolacloud/delonix
+
+----
+
+What Delonix actually is
+========================
+
+An **execution engine** — not a low-level OCI *runtime* (that is ``runc``/``crun``)
+and not a platform. It is the layer that creates, runs, networks, protects and
+stores containers and microVMs on one node, and that *is* a Kubernetes node while
+doing it. What normally means assembling Docker plus containerd plus a CNI plus a
+hypervisor plus Terraform, done from one binary, with no daemon and no root.
+
+**What it does, concretely**
+
+- **Runs containers by talking straight to the kernel** — ``clone()``, namespaces,
+  cgroups v2, ``pivot_root``, seccomp, capabilities. No residing process: every
+  command is an ephemeral process that speaks to the kernel and exits, state is
+  JSON under ``$DELONIX_ROOT``, and a detached container gets a short-lived
+  supervisor (the same model as ``conmon``) — which is what makes its exit code
+  knowable and runs its health probe without systemd.
+- **Brings a rootless SDN of its own** — a holder network namespace, the
+  ``delonix0`` bridge, one shared ``slirp4netns`` and nftables: port publishing by
+  DNAT, a per-container L4 firewall, namespace isolation, a VXLAN/WireGuard
+  overlay between nodes, internal DNS (``<name>.<namespace>.delonix.internal``), an
+  L7 reverse proxy and an L4 service VIP with readiness. Because the dataplane does
+  not belong to the process lifecycle, ports, volumes and networks swap **hot, with
+  the PID unchanged** — the structural difference from Docker.
+- **Runs declarative microVMs** — ``kind: VirtualMachine`` over a pluggable
+  ``VmBackend``: Cloud Hypervisor, libvirt/KVM, or a remote Proxmox VE node. With
+  per-instance cloud-init, system checkpoints, pause/resume, and its own golden
+  images and appliances (``delonix vm image build``).
+- **Is a Kubernetes node** — it serves its own CRI to a ``kubelet``, with no
+  containerd in between, and ``delonix cluster kubeadm`` provisions the VMs,
+  prepares the hosts over SSH, runs ``init``/``join``, puts HAProxy in front for
+  HA and installs a pod-network profile (Cilium, Calico or Flannel).
+- **Converges declarative infrastructure without a state file** — 34 Kinds across
+  seven API groups, ``delonix stack plan``/``apply``/``destroy`` with a three-way
+  diff against the ``delonix.io/last-applied`` stamp on the resource itself,
+  ownership by label, hot convergence, ``delonix drift``, and a GitOps pull pass on
+  a systemd timer.
+- **Reaches third-party infrastructure through typed ports** — Proxmox VE (VMs,
+  SDN, system containers, per-VM firewall), TrueNAS (datasets, quotas, exports),
+  OPNsense (perimeter firewall), PowerDNS; and storage pools on btrfs, ZFS,
+  LVM-thin and Ceph.
+- **Speaks the ecosystem's protocols** — ``docker-compose.yml`` natively
+  (``delonix compose up``), a published subset of the Docker Engine API
+  (``delonix serve docker-api``), and a Model Context Protocol server
+  (``delonix mcp serve``) for AI agents.
+
+**The size of it**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 76
+
+   * - Dimension
+     - Measured in this tree
+   * - Rust
+     - **392 609** lines across 41 workspace members (35 library crates + 6
+       binaries) — the layer-by-layer census is generated into
+       `reports/architecture.md <reports/architecture.md>`_
+   * - Tests
+     - **4 360** ``#[test]`` / ``#[tokio::test]``
+   * - CLI surface
+     - **272 of 280** leaves executed *and asserted* by the E2E battery
+       (``scripts/cli_exec_trace.tsv``, 2026-10-22)
+   * - Decisions
+     - **107** ADRs, **313** documentation pages
+   * - CI
+     - **21** jobs, running **23** of the repository's gate scripts
+   * - Kubernetes
+     - **79 of 103** upstream ``critest`` specs — see `Kubernetes CRI conformance`_
+
+**Measured, not asserted.** The doctrine this repository runs on is that only the
+*verified effect* counts — ``exit 0`` is not enough. The benchmarks measure the
+bench before they measure the engine, and refuse to publish when the machine's
+contention would contaminate the number. Every "supported" in the capability
+catalogue has to cite the evidence that exists, or it stays ``partial``
+(``delonix provider ls``). The gates are ratchets: they fail when the debt rises
+**and** when it falls without the baseline falling in the same commit. And
+``reports/`` carries dated measurements with what failed written out in full,
+rather than a summary of what went well.
+
+**And the honest verdict.** This is a ``0.1.x`` line, with one maintainer. The
+``delonix-runtime`` line (v1.0.0 … v5.1.1) is frozen history and the Delonix line
+opens at ``0.1.0`` — a new line, not a regression (see
+`VERSIONING.md <VERSIONING.md>`_). **GO** for a single node without failover:
+development, CI, edge, and a *Kubernetes node without Docker*, where the
+daemonless/rootless model and the integrated CRI are a real advantage today.
+**NO-GO** as a drop-in Docker/Podman replacement for high-criticality production —
+not because of a benchmark, but because the operational guarantees are not proven
+yet. Each gap is tracked with its way out in `Production readiness`_, and a good
+part of the surface — the privileged and remote paths above all — is ``partial`` in
+the engine's own capability matrix rather than claimed.
 
 ----
 
@@ -44,15 +134,6 @@ Then a container — rootless, no daemon, no root:
 .. code-block:: bash
 
    delonix container run -d -p 8080:80 nginx && curl localhost:8080
-
-**The pitch, in one paragraph.** Docker's Kubernetes lineage and Podman's
-daemonless, rootless model — in a single Rust binary that *also* runs declarative
-microVMs and *is* a Kubernetes node (it serves its own CRI, no containerd in
-between). Not a benchmark win and not a drop-in replacement: it is the
-**integrated, daemonless, rootless path from a container to a production-grade
-Kubernetes node with VM-grade isolation**, without stitching half a dozen tools
-together. This is a ``0.1.x`` line — where it fits today, and where it does not
-yet, is stated plainly in `Production readiness`_, measured rather than asserted.
 
 Why it's different
 ==================
@@ -638,7 +719,11 @@ shortnames, apiVersion, and the FORM of each Kind (``primary``, ``sugar → X``,
    * - ``gitops``
      - Pull sources (ADR-0021): a ``kind: GitOpsSource`` names a git repository, a ref and a path, and an opt-in systemd timer runs ONE pass and exits — fetch, verify, plan, apply. ``reconcile`` runs a pass now, ``status`` names the commit each source saw and the one applied, ``suspend``/``resume`` stop the passes without a commit. A commit the guard or the safety policy refuses leaves the running stack untouched.
    * - ``serve``
-     - Serve a protocol endpoint on a unix socket, grouped: ``cri`` (Kubernetes ``runtime.v1``), ``api`` (management API, HTTP+JSON, plus Prometheus ``/metrics``), ``docker-api`` (a slice of the Docker Engine API, full container lifecycle).
+     - Serve a protocol endpoint, grouped: ``cri`` (Kubernetes ``runtime.v1``), ``api`` (management API, HTTP+JSON, plus Prometheus ``/metrics``), ``docker-api`` (a slice of the Docker Engine API, full container lifecycle), ``node-api`` (the ``delonix.node.v1`` contract, gRPC + HTTP/JSON) and ``node-enroll`` (the enrollment authority, ADR-0097).
+   * - ``node-ca``
+     - The node CA that signs the fleet members' certificates (ADR-0097, not stable): ``init`` writes the trust anchor every server gets as ``serve node-api --tls-client-ca`` and the key that stays with the enrollment authority; ``revoke`` lists a serial in the CRL that ``--tls-client-crl`` consults.
+   * - ``node-enroll``
+     - Enrolls this host as a fleet member (not stable): generates the key pair locally, sends a CSR and spends a one-time token at the authority — pinned to the node CA, which is what stops a man-in-the-middle from harvesting the token — for the short client certificate the node API (ADR-0096) accepts.
    * - ``mcp``
      - Model Context Protocol server — a LOCAL, tenancy-free AI control surface: ``serve``, ``capabilities`` (the tool risk table), ``doctor``.
    * - ``hosts``
@@ -821,7 +906,7 @@ ls/describe/stop/rm``, which routes by name across containers and VMs.
 Architecture
 ============
 
-The crates of the workspace, in five layers (ADR-0040) — the directory a crate lives in
+The main crates of the workspace, in five layers (ADR-0040) — the directory a crate lives in
 is its layer, and ``scripts/arch_fitness.py`` fails when the two disagree — one ``delonix``
 command, no residing process:
 
@@ -845,7 +930,7 @@ command, no residing process:
      - Manifests: the Kind table, the three-way reconciler, conditions and revisions.
    * - ``delonix-node``
      - The node: the event log, host checks, local-socket peer credentials, the dispatch contract, host/process queries.
-   * - ``delonix-security-runtime``
+   * - ``delonix-security``
      - Security decisions: policy, the single admission point for containers and VMs, events, score, redaction.
    * - **Adapters — one technology each**
      -
@@ -867,13 +952,13 @@ command, no residing process:
      - Structured logging, OpenTelemetry spans and the shared Prometheus registry.
    * - **Providers — remote management APIs**
      -
-   * - ``delonix-proxmox``
+   * - ``delonix-provider-proxmox``
      - A ``VmBackend`` against one Proxmox VE node's API.
-   * - ``delonix-truenas``
+   * - ``delonix-provider-truenas``
      - Dataset, quota and share provisioning on a TrueNAS appliance.
-   * - ``delonix-opnsense``
+   * - ``delonix-provider-opnsense``
      - A ``GatewayProvider`` against an OPNsense appliance's REST API (``kind: NetworkGateway``, ADR-0051).
-   * - ``delonix-powerdns``
+   * - ``delonix-provider-powerdns``
      - A minimal PowerDNS API client with the engine's own credential: removes the gateway records a Proxmox node leaves behind (ADR-0064 D6).
    * - **Interfaces and binaries**
      -
@@ -888,7 +973,10 @@ command, no residing process:
    * - ``delonix-bin`` / ``delonix-mcp-bin`` / ``delonix-mgmt-bin`` / ``delonix-node-api-bin``
      - The ``delonix`` CLI — the one door; it runs the servers as sibling binaries.
 
-See the `architecture page
+The table above is the backbone, not the full census: the authoritative list of
+the 41 workspace members is ``[workspace] members`` in
+`Cargo.toml <Cargo.toml>`_, and each crate's directory is its layer. See the
+`architecture page
 <https://ngolacloud.github.io/delonix/arquitectura.html>`_ and the
 `C4 model <https://ngolacloud.github.io/delonix/c4.html>`_ for the
 full picture.
