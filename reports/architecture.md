@@ -13,8 +13,8 @@
 | provider | 10 | 55,077 | 14.0% |
 | interface | 4 | 40,467 | 10.3% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 167,398 | 42.6% |
-| **total** | **41** | **392,768** | 100% |
+| bin | 6 | 167,418 | 42.6% |
+| **total** | **41** | **392,788** | 100% |
 
 ## Lines per crate
 
@@ -88,7 +88,7 @@
 | Crate | Lines |
 | --- | ---: |
 | delonix-bin ⚠️ >20k | 164,017 |
-| delonix-node-api-bin | 1,445 |
+| delonix-node-api-bin | 1,465 |
 | delonix-cri-bin | 838 |
 | delonix-storage-helper | 645 |
 | delonix-mcp-bin | 236 |

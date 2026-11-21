@@ -4639,7 +4639,7 @@ PowerDNS; e pools de armazenamento em btrfs, ZFS, LVM-thin e Ceph.</li>
 <h2>A escala do que está lá</h2>
 <table>
 <tr><th>Dimensão</th><th>Medido nesta árvore</th></tr>
-<tr><td>Rust</td><td><b>392 609</b> linhas em 41 membros de workspace (35 crates de biblioteca + 6 binários), por camada em <code>reports/architecture.md</code></td></tr>
+<tr><td>Rust</td><td><b>392 788</b> linhas em 41 membros de workspace (35 crates de biblioteca + 6 binários), por camada em <code>reports/architecture.md</code></td></tr>
 <tr><td>Testes</td><td><b>4 360</b> <code>#[test]</code> / <code>#[tokio::test]</code></td></tr>
 <tr><td>Superfície de CLI</td><td><b>272 de 280</b> folhas executadas <em>e asseridas</em> pela bateria E2E (2026-10-22)</td></tr>
 <tr><td>Decisões</td><td><b>107</b> ADRs, <b>313</b> páginas de documentação</td></tr>
@@ -4838,7 +4838,7 @@ firewall), PowerDNS; and storage pools on btrfs, ZFS, LVM-thin and Ceph.</li>
 <h2>The size of it</h2>
 <table>
 <tr><th>Dimension</th><th>Measured in this tree</th></tr>
-<tr><td>Rust</td><td><b>392 609</b> lines across 41 workspace members (35 library crates + 6 binaries), per layer in <code>reports/architecture.md</code></td></tr>
+<tr><td>Rust</td><td><b>392 788</b> lines across 41 workspace members (35 library crates + 6 binaries), per layer in <code>reports/architecture.md</code></td></tr>
 <tr><td>Tests</td><td><b>4 360</b> <code>#[test]</code> / <code>#[tokio::test]</code></td></tr>
 <tr><td>CLI surface</td><td><b>272 of 280</b> leaves executed <em>and asserted</em> by the E2E battery (2026-10-22)</td></tr>
 <tr><td>Decisions</td><td><b>107</b> ADRs, <b>313</b> documentation pages</td></tr>

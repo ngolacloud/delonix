@@ -83,7 +83,7 @@ hypervisor plus Terraform, done from one binary, with no daemon and no root.
    * - Dimension
      - Measured in this tree
    * - Rust
-     - **392 609** lines across 41 workspace members (35 library crates + 6
+     - **392 788** lines across 41 workspace members (35 library crates + 6
        binaries) — the layer-by-layer census is generated into
        `reports/architecture.md <reports/architecture.md>`_
    * - Tests
