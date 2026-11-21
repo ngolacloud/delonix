@@ -11,7 +11,7 @@ Engine for **daemonless, rootless-first, kernel-native containers and microVMs, 
 > (`scripts/agents_budget_gate.py`).
 <!-- agents-toc:begin -->
 
-## Index (124 sections)
+## Index (125 sections)
 
 - [Quick start (read this; the rest is consulted by section)](#quick-start-read-this-the-rest-is-consulted-by-section)
 - [Engine identity and boundary (read first)](#engine-identity-and-boundary-read-first)
@@ -137,6 +137,7 @@ Engine for **daemonless, rootless-first, kernel-native containers and microVMs, 
 - [`kind: GitOpsSource` — the pull pass without a daemon (ADR-0021, 2026-10-12)](#kind-gitopssource--the-pull-pass-without-a-daemon-adr-0021-2026-10-12)
 - [`kind: Service type VirtualIP` — the L4 VIP with readiness (ADR-0066, 2026-10-12)](#kind-service-type-virtualip--the-l4-vip-with-readiness-adr-0066-2026-10-12)
 - [The cgroup group also holds as root, and the Cloud Hypervisor VMM is born in a leaf (ADR-0079, proposed)](#the-cgroup-group-also-holds-as-root-and-the-cloud-hypervisor-vmm-is-born-in-a-leaf-adr-0079-proposed)
+- [The CDI path measured on a real GPU host (RTX 4060, 2026-11-21)](#the-cdi-path-measured-on-a-real-gpu-host-rtx-4060-2026-11-21)
 
 <!-- agents-toc:end -->
 
@@ -720,9 +721,10 @@ a flat list, one module per group under `bins/delonix-runtime-bin/src/cmd/`:
   `createContainer` hook of a CDI spec (which needs the OCI-hook-stdin-state protocol, not
   implemented); a spec that declares hooks warns (not silently) that they were not executed.
   `--gpus dri` remains unchanged (raw bind of `/dev/dri/*` — Mesa/VAAPI is open-source, already ships
-  in the image's own package). **To be confirmed on a real GPU host** (impossible in this sandbox):
-  the exact precedence `/etc/cdi` vs `/var/run/cdi`, and whether `ldconfig -r` suffices as a substitute
-  for the real hooks.
+  in the image's own package). **MEASURED on a real GPU host on 2026-11-21** — see "The CDI path
+  measured on a real GPU host" below: `ldconfig -r` DOES suffice for the CUDA path, and
+  `/var/run/cdi` wins over `/etc/cdi`. What stays unmeasured is anything beyond CUDA (Vulkan/EGL,
+  which may need the symlinks the hooks create).
 - `delonix pod` — **real multi-container pods** (create/ls/describe/rm/logs/exec/cp/attach). N containers
   share the **pod's netns** (same IP, `localhost` between them), like a k8s Pod. `cmd/pod.rs`:
   creates a NAMED SDN netns on the holder (`pod-<name>`, via `infra::attach_container`) and runs each
@@ -10475,3 +10477,87 @@ Hypervisor VMM ran in the cgroup of whoever launched it: the VM's vCPUs and memo
 persisted field for `vm start`, a manifest field and a flag), and the `OOMKilled` of a VM. Proofs to be
 run: `tests/cgroup_parent.rs` (`root_mode_*`, with sudo) and `tests/process_leaf.rs` (root or
 delegated scope).
+
+## The CDI path measured on a real GPU host (RTX 4060, 2026-11-21)
+
+The `--gpus nvidia` bullet above carried, since it was written, an open item: the precedence
+`/etc/cdi` vs `/var/run/cdi` and whether `ldconfig -r` substitutes for the `createContainer` hooks
+were "to be confirmed on a real GPU host (impossible in this sandbox)". A host with an NVIDIA GPU
+and a generated CDI spec showed up, so it was measured. **Part of that note was already stale
+before the measurement**: it points at `cmd/cdi.rs`, a path that has not existed since ADR-0040's
+P3a moved the consumer to `crates/adapters/delonix-linux/src/cdi.rs` (2026-09-17), and the module's
+own doc-comment already recorded a measurement against an RTX 5060 with driver 580.
+
+**The host**: Intel Core Ultra 9 185H (16C/22T), 32 GiB LPDDR5, **two** GPUs — Intel Arc iGPU
+(`i915`) and NVIDIA RTX 4060 Laptop (AD107M, 8188 MiB, 35 W cap), driver 580.178.04, CUDA 13.0,
+`nvidia-ctk` **1.20.1** with `/var/run/cdi/nvidia.yaml` already generated (`cdiVersion 0.7.0`,
+3 devices — `0`, `GPU-<uuid>`, `all` —, 4 top-level device nodes, **56** top-level mounts, **12**
+declared hooks, and no `nvidia-caps`, so no root-only node is ever bound).
+
+**No build was needed, and that was measured rather than assumed.** The installed binary is v5.1.1
+(`a0da90f5`); the diff of its `cdi.rs` against the tree's HEAD is **one comment and four test
+names/assertion messages — zero production lines**. So testing the installed binary measures the
+tree's logic. It is the inverse of the trap this file already records ("two builds with the same
+version are not the same build"): here two different versions are the same build of what matters,
+and the way to know is to diff the file, not to compare `--version`.
+
+**CUDA initialises for real, not just device nodes present.** `nvidia-smi` only proves NVML, so the
+probe was a small C program that exercises the driver API (`dlopen libcuda.so.1` → `cuInit` →
+`cuDeviceGetCount` → `cuDeviceGetName` → `cuCtxCreate` → `cuMemAlloc`). Inside an `ubuntu:24.04`
+container, rootless, with `--gpus nvidia`: every call returns 0, `cuCtxCreate` builds a real context
+and 16 MiB is allocated on the device — identical to the host. **And the control is what makes it a
+proof**: the SAME container without `--gpus` fails at `dlopen libcuda.so.1: cannot open shared
+object file`, rc=1. The result comes from the CDI edits, not from something already in the image.
+
+**`ldconfig -r` suffices for the CUDA path.** The 12 hooks did not run (the warning came out, as
+designed), and inside the container `libcuda.so.1 -> libcuda.so.580.178.04` exists anyway: creating
+SONAME links is `ldconfig`'s own job, and it is what `dlopen` resolves. **What stays unmeasured is
+everything past CUDA** — Vulkan/EGL/X11 need links the `create-symlinks` hook writes outside the
+cache (`libglxserver_nvidia.so`, the `/dev/dri/by-path` entries), and nothing here exercised them.
+
+**`/var/run/cdi` wins over `/etc/cdi` — and the precedence is EMERGENT, not a rule.** Measured with
+two specs of the same kind and the same device name, one per directory, differing only in a marker:
+the container saw the `/var/run/cdi` marker in both the mounted file and the environment variable.
+But nothing in the code decides that. `CdiEdits::dedupe` is *first occurrence wins* and only
+collapses **identical** entries, so two conflicting entries both survive and what decides is being
+applied LAST — the bind that lands on top, and `apply_env`
+(`crates/adapters/delonix-linux/src/lib.rs`), which does one `set_var` per entry, so the last value
+wins by key. The right answer falls out of the scan order.
+
+**The fragility is one line away, and it was measured too**: keying `dedupe` on the mount `target`
+alone — a perfectly plausible "never mount twice on the same path" change — **inverts the precedence
+to `/etc/cdi` in silence**. Reverted on purpose: `left: 1, right: 2`, survivor `/host/etc.txt`. No
+test covered two directories in conflict, so it would have landed green;
+`the_spec_directory_read_last_wins_a_conflicting_device` now pins it.
+
+**`--gpus dri` works, and had a small defect of its own.** The four DRM nodes arrive and the Intel
+render node **opens O_RDWR** inside the container, rootless, with zero nvidia libraries — it is the
+raw glob, no CDI, as documented. But `expand_gpu_devices` globbed EVERY entry of `/dev/dri` without
+filtering by type, and `/dev/dri/by-path` is a **directory**: inside the container it showed up as
+`-rw-rw-r-- 1 root root 0 by-path`, an empty regular file where the host has a directory of
+symlinks. Nothing reads it today, but it is exactly the path the `create-symlinks` hook populates.
+Corrected in `fix(cdi): o glob do --gpus dri só entrega nós de dispositivo`, on its own branch
+because the defect is on the published line; `/dev/nvidia-caps` had the same shape in the `nvidia`
+branch of the glob.
+
+**Both refusals land before anything is created** (0 containers in each): an unknown device name
+gives `DX-4102` and **exit 4** (the "does not exist" class); no spec at all gives `DX-1902` with the
+full text and — the branch a GPU-less sandbox can never reach — **"`nvidia-ctk` IS installed —
+generate the spec and retry"**. **Observation, not a bug**: that second one exits **1**
+(*invalid argument*), while the same species of condition — "this host cannot provide what you
+asked" — exits **69** elsewhere in the engine (refused controller limits, DX-6305 of isolation,
+DX-6515 of the VM leaf). Defensible, since the operator fixes it with one command, but a CI gate
+that distinguishes "fix the host" from "fix the argument" gets different numbers for the same kind
+of thing.
+
+**What this host does NOT let us measure**, and it bounds the above: `user@<uid>.service` delegates
+only `cpu memory pids`, so `--cpuset`, `--io-weight` and the four `--device-*-bps/iops` are refused
+(exit 69) — a GPU workload cannot be combined with device I/O ceilings here without the
+`Delegate=` drop-in and a `user@` restart. Also unmeasured: a second vendor's spec resolved
+alongside NVIDIA's on a real host, GPU passthrough to a VM, and the CRI path.
+
+**Two traps of the measurement itself**, both cheap and both already in the catalogue: a probe
+ending in `grep -c` returns 1 when the count is zero, which reads as the engine having failed
+(it had not — the container was fine); and `DELONIX_ROOT=` **empty** is accepted as a state root of
+`""` instead of falling back to the default, so a sloppy "measure without the isolated root" check
+measures nothing. Use `env -u`.
