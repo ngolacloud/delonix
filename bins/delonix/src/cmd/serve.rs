@@ -173,16 +173,16 @@ pub fn run(action: ServeCmd) -> Result<()> {
             install_units,
         } => {
             if install_units {
-                return install_node_api_units(
-                    addr.as_deref(),
-                    idle_timeout.as_deref(),
-                    tls_cert.as_deref(),
-                    tls_key.as_deref(),
-                    tls_client_ca.as_deref(),
-                    tls_client_crl.as_deref(),
-                    authz_policy.as_deref(),
-                    audit_log.as_deref(),
-                );
+                return install_node_api_units(NodeApiUnitRequest {
+                    addr: addr.as_deref(),
+                    idle: idle_timeout.as_deref(),
+                    tls_cert: tls_cert.as_deref(),
+                    tls_key: tls_key.as_deref(),
+                    tls_client_ca: tls_client_ca.as_deref(),
+                    tls_client_crl: tls_client_crl.as_deref(),
+                    authz_policy: authz_policy.as_deref(),
+                    audit_log: audit_log.as_deref(),
+                });
             }
             let mut args = Vec::new();
             let mut env = Vec::new();
@@ -512,18 +512,45 @@ fn node_api_units(u: &NodeApiUnits) -> (String, String) {
     (socket, service)
 }
 
+/// The `serve node-api --install-units` request, as the operator gave it: the
+/// eight flags before any validation. They are ONE decision — what to bake into
+/// the unit — and as positional parameters the call site was a column of eight
+/// bare `Option<&str>` in which a swapped pair would compile and write the
+/// wrong unit. Named at the call site, that cannot happen.
+struct NodeApiUnitRequest<'a> {
+    /// `--addr`: a `tcp://host:port`, an absolute unix path, or absent.
+    addr: Option<&'a str>,
+    /// `--idle-timeout`; absent takes `UNIT_DEFAULT_IDLE`.
+    idle: Option<&'a str>,
+    /// `--tls-cert`. With `--tls-key` and `--tls-client-ca` it is required for a
+    /// `tcp://` address and refused for a unix one (ADR-0096).
+    tls_cert: Option<&'a str>,
+    /// `--tls-key`, the private key of the certificate above.
+    tls_key: Option<&'a str>,
+    /// `--tls-client-ca`: the CA every client certificate must chain to.
+    tls_client_ca: Option<&'a str>,
+    /// `--tls-client-crl`: optional even on a `tcp://` address (ADR-0097).
+    tls_client_crl: Option<&'a str>,
+    /// `--authz-policy` (ADR-0098): meaningful only on the TLS transport, since
+    /// a unix socket has no client certificate to read an identity from.
+    authz_policy: Option<&'a str>,
+    /// `--audit-log` (ADR-0098), refused on a unix socket for the same reason.
+    audit_log: Option<&'a str>,
+}
+
 /// `delonix serve node-api --install-units`: writes the socket and service
 /// units, reloads systemd and enables the socket (ADR-0040 P5).
-fn install_node_api_units(
-    addr: Option<&str>,
-    idle: Option<&str>,
-    tls_cert: Option<&str>,
-    tls_key: Option<&str>,
-    tls_client_ca: Option<&str>,
-    tls_client_crl: Option<&str>,
-    authz_policy: Option<&str>,
-    audit_log: Option<&str>,
-) -> Result<()> {
+fn install_node_api_units(req: NodeApiUnitRequest<'_>) -> Result<()> {
+    let NodeApiUnitRequest {
+        addr,
+        idle,
+        tls_cert,
+        tls_key,
+        tls_client_ca,
+        tls_client_crl,
+        authz_policy,
+        audit_log,
+    } = req;
     let rootless = delonix_node::is_rootless();
     let exec = resolve_server("delonix-node-api", "install.sh")?;
     if !exec.is_absolute() {
