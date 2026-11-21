@@ -256,10 +256,7 @@ async fn status_arrives_over_the_real_grpc_transport() {
         .await
         .expect("Version over the gRPC transport")
         .into_inner();
-    assert!(
-        !v.runtime_name.is_empty(),
-        "Version must name the runtime"
-    );
+    assert!(!v.runtime_name.is_empty(), "Version must name the runtime");
 
     let st = cli
         .status(StatusRequest { verbose: false })

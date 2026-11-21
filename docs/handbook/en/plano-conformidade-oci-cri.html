@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Plano de conformidade OCI + CRI — alinhar o Delonix com Docker/Podman · Delonix — Contributor handbook</title>
+<title>OCI + CRI conformance plan — aligning Delonix with Docker/Podman · Delonix — Contributor handbook</title>
 <script>try{var t=localStorage.getItem('delonix-handbook-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
@@ -206,48 +206,48 @@ th:first-child,td:first-child{white-space:nowrap}
   </div>
 </header>
 <div class="frame">
-<nav class="side" aria-label="Contributor handbook"><div class="group"><div class="gtitle">Overview</div><a href="index.html"><span class="n">·</span><span>Delonix — Contributor Handbook</span></a></div><div class="group"><div class="gtitle">Get started</div><a href="start-here.html"><span class="n">01</span><span>Start here</span></a><a href="iaas-and-cloud-native.html"><span class="n">02</span><span>IaaS and cloud native — where the engine fits</span></a></div><div class="group"><div class="gtitle">Foundations</div><a href="linux-foundations.html"><span class="n">03</span><span>Linux foundations</span></a><a href="cloud-native-primer.html"><span class="n">04</span><span>Cloud native primer</span></a><a href="rust-primer.html"><span class="n">05</span><span>Rust primer for this codebase</span></a></div><div class="group"><div class="gtitle">Set up &amp; build</div><a href="environment.html"><span class="n">06</span><span>Preparing your environment</span></a><a href="build-and-test.html"><span class="n">07</span><span>Clone, build and test</span></a></div><div class="group"><div class="gtitle">Architecture</div><a href="project-structure.html"><span class="n">08</span><span>Project structure</span></a><a href="architecture.html"><span class="n">09</span><span>Architecture</span></a><a href="crates.html"><span class="n">10</span><span>The crates</span></a><a href="system-design-interview.html"><span class="n">11</span><span>System Design Interview — the Delonix Engine</span></a></div><div class="group"><div class="gtitle">Images &amp; microVMs</div><a href="delonixfile-and-vmfile.html"><span class="n">12</span><span>Delonixfile and VMfile</span></a><a href="microvm-setup.html"><span class="n">13</span><span>Building microVMs</span></a></div><div class="group"><div class="gtitle">Operate &amp; debug</div><a href="troubleshooting.html"><span class="n">14</span><span>Troubleshooting</span></a><a href="service-names-and-hosts.html"><span class="n">15</span><span>How names reach /etc/hosts</span></a></div><div class="group"><div class="gtitle">Contributing</div><a href="coding-conventions.html"><span class="n">16</span><span>Coding conventions</span></a><a href="adding-a-kind.html"><span class="n">17</span><span>Adding a Kind</span></a><a href="engineering-process.html"><span class="n">18</span><span>Engineering process (canonical)</span></a><a href="harness-governance.html"><span class="n">19</span><span>Harness governance — changing a control needs a reason and a reviewer</span></a><a href="evidence-schema.html"><span class="n">20</span><span>Evidence schema — a result is only evidence if it says where it ran</span></a><a href="contributing-workflow.html"><span class="n">21</span><span>Contribution workflow</span></a><a href="releases-and-stability.html"><span class="n">22</span><span>Releases and stability</span></a><a href="publishing-docs.html"><span class="n">23</span><span>Publishing the documentation</span></a></div><div class="group"><div class="gtitle">Reference</div><a href="cloud-native-standards.html"><span class="n">24</span><span>Cloud native standards, layer by layer</span></a><a class="on" aria-current="page" href="plano-conformidade-oci-cri.html"><span class="n">25</span><span>Plano de conformidade OCI + CRI — alinhar o Delonix com Docker/Podman</span></a><a href="environment-variables.html"><span class="n">26</span><span>Environment variables (DELONIX_*)</span></a><a href="glossary.html"><span class="n">27</span><span>Glossary</span></a></div></nav>
+<nav class="side" aria-label="Contributor handbook"><div class="group"><div class="gtitle">Overview</div><a href="index.html"><span class="n">·</span><span>Delonix — Contributor Handbook</span></a></div><div class="group"><div class="gtitle">Get started</div><a href="start-here.html"><span class="n">01</span><span>Start here</span></a><a href="iaas-and-cloud-native.html"><span class="n">02</span><span>IaaS and cloud native — where the engine fits</span></a></div><div class="group"><div class="gtitle">Foundations</div><a href="linux-foundations.html"><span class="n">03</span><span>Linux foundations</span></a><a href="cloud-native-primer.html"><span class="n">04</span><span>Cloud native primer</span></a><a href="rust-primer.html"><span class="n">05</span><span>Rust primer for this codebase</span></a></div><div class="group"><div class="gtitle">Set up &amp; build</div><a href="environment.html"><span class="n">06</span><span>Preparing your environment</span></a><a href="build-and-test.html"><span class="n">07</span><span>Clone, build and test</span></a></div><div class="group"><div class="gtitle">Architecture</div><a href="project-structure.html"><span class="n">08</span><span>Project structure</span></a><a href="architecture.html"><span class="n">09</span><span>Architecture</span></a><a href="crates.html"><span class="n">10</span><span>The crates</span></a><a href="system-design-interview.html"><span class="n">11</span><span>System Design Interview — the Delonix Engine</span></a></div><div class="group"><div class="gtitle">Images &amp; microVMs</div><a href="delonixfile-and-vmfile.html"><span class="n">12</span><span>Delonixfile and VMfile</span></a><a href="microvm-setup.html"><span class="n">13</span><span>Building microVMs</span></a></div><div class="group"><div class="gtitle">Operate &amp; debug</div><a href="troubleshooting.html"><span class="n">14</span><span>Troubleshooting</span></a><a href="service-names-and-hosts.html"><span class="n">15</span><span>How names reach /etc/hosts</span></a></div><div class="group"><div class="gtitle">Contributing</div><a href="coding-conventions.html"><span class="n">16</span><span>Coding conventions</span></a><a href="adding-a-kind.html"><span class="n">17</span><span>Adding a Kind</span></a><a href="engineering-process.html"><span class="n">18</span><span>Engineering process (canonical)</span></a><a href="harness-governance.html"><span class="n">19</span><span>Harness governance — changing a control needs a reason and a reviewer</span></a><a href="evidence-schema.html"><span class="n">20</span><span>Evidence schema — a result is only evidence if it says where it ran</span></a><a href="contributing-workflow.html"><span class="n">21</span><span>Contribution workflow</span></a><a href="releases-and-stability.html"><span class="n">22</span><span>Releases and stability</span></a><a href="publishing-docs.html"><span class="n">23</span><span>Publishing the documentation</span></a></div><div class="group"><div class="gtitle">Reference</div><a href="cloud-native-standards.html"><span class="n">24</span><span>Cloud native standards, layer by layer</span></a><a class="on" aria-current="page" href="plano-conformidade-oci-cri.html"><span class="n">25</span><span>OCI + CRI conformance plan — aligning Delonix with Docker/Podman</span></a><a href="environment-variables.html"><span class="n">26</span><span>Environment variables (DELONIX_*)</span></a><a href="glossary.html"><span class="n">27</span><span>Glossary</span></a></div></nav>
 <main><div class="content">
 <p class="kicker">Reference</p>
-<h1 id="plano-de-conformidade-oci-cri-alinhar-o-delonix-com-dockerpodman">Plano de conformidade OCI + CRI — alinhar o Delonix com Docker/Podman</h1>
+<h1 id="oci-cri-conformance-plan-aligning-delonix-with-dockerpodman">OCI + CRI conformance plan — aligning Delonix with Docker/Podman</h1>
 <blockquote>
-<p><strong>Objetivo.</strong> Fazer o Delonix passar os <strong>mesmos contratos de interoperabilidade</strong> que o
-containerd/CRI-O (CRI) e qualquer runtime OCI (image/distribution/runtime) passam, para ser
-drop-in para o kubelet e para registries — e, num track separado e com ressalva, cobrir a
-Docker Engine API que ferramentas de terceiros chamam via <code>DOCKER_HOST</code>.</p>
-<p><strong>Princípio de medição.</strong> Cada fase fecha contra uma <strong>suite upstream com um número</strong>, não
-"parece feito". Nunca divergência silenciosa (recusa explícita + razão). Teste que falha sem a
-correção e passa com ela, como o resto do projeto. Onde um teste não se aplica ao modelo
-(daemonless, rootless), nomeia-se <strong>N/A</strong> com a razão — não se inflaciona a percentagem.</p>
-<p><strong>Âmbito e a ressalva do <code>paridade-docker-podman.md §5</code>.</strong> OCI (image/distribution/runtime) e
-CRI são contratos de interop onde conformidade total vale a pena — fazem do Delonix um
-substituto real. A Docker Engine API (Track D) é conveniência de ecossistema; o próprio projeto
-desaconselha perseguir paridade total com a Docker CLI, por isso o Track D cobre só o que
-ferramentas automáticas chamam, não <code>docker run</code> interactivo.</p>
+<p><strong>Goal.</strong> Make Delonix pass the <strong>same interoperability contracts</strong> that
+containerd/CRI-O (CRI) and any OCI runtime (image/distribution/runtime) pass, to be
+drop-in for the kubelet and for registries — and, on a separate track with a caveat,
+cover the Docker Engine API that third-party tools call via <code>DOCKER_HOST</code>.</p>
+<p><strong>Measurement principle.</strong> Each phase closes against an <strong>upstream suite with a number</strong>, not
+"looks done". Never silent divergence (explicit refusal + reason). A test that fails without the
+fix and passes with it, like the rest of the project. Where a test does not apply to the model
+(daemonless, rootless), it is named <strong>N/A</strong> with the reason — the percentage is never inflated.</p>
+<p><strong>Scope and the <code>paridade-docker-podman.md §5</code> caveat.</strong> OCI (image/distribution/runtime) and
+CRI are interop contracts where full conformance is worth it — they make Delonix a real
+drop-in replacement. The Docker Engine API (Track D) is ecosystem convenience; the project
+itself advises against chasing full Docker CLI parity, so Track D covers only what
+automated tools call, not interactive <code>docker run</code>.</p>
 </blockquote>
-<h2 id="baseline-medido-binario-ee615f3b-2026-10-24">Baseline medido (binário <code>ee615f3b</code>, 2026-10-24)<a class="hanchor" href="#baseline-medido-binario-ee615f3b-2026-10-24" aria-label="#">#</a></h2>
+<h2 id="measured-baseline-binary-ee615f3b-2026-10-24">Measured baseline (binary <code>ee615f3b</code>, 2026-10-24)<a class="hanchor" href="#measured-baseline-binary-ee615f3b-2026-10-24" aria-label="#">#</a></h2>
 <div class="tablewrap"><table>
 <thead>
 <tr>
-<th>Contrato</th>
-<th>Estado</th>
-<th>Fonte</th>
+<th>Contract</th>
+<th>Status</th>
+<th>Source</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>CRI — critest v1.36.0</td>
-<td><strong>RE-MEDIDO 2026-10-24 na v5.1.1 (<code>main @ ab4751ac</code>): 84/104 (<code>84 Passed | 20 Failed \| 18 Skipped</code>)</strong> — supera o 79/103 de v0.63 (2026-08). Linha que hoje embarca como 0.1.0</td>
+<td><strong>RE-MEASURED 2026-10-24 on v5.1.1 (<code>main @ ab4751ac</code>): 84/104 (<code>84 Passed | 20 Failed \| 18 Skipped</code>)</strong> — beats the 79/103 from v0.63 (2026-08). The line that ships today as 0.1.0</td>
 <td><code>reports/<wbr>cri-conformance-2026-10-24/<wbr>00-audit-report.<wbr>md</code> · <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/critest.sh" target="_blank" rel="noopener"><code>scripts/critest.sh</code></a></td>
 </tr>
 <tr>
 <td>OCI Image</td>
-<td><strong>interop provada na v5.1.1</strong>: delonix→docker <strong>e</strong> delonix→podman + docker→delonix, por digest (IMG-1 corrigido 2026-10-24)</td>
+<td><strong>interop proven on v5.1.1</strong>: delonix→docker <strong>and</strong> delonix→podman + docker→delonix, by digest (IMG-1 fixed 2026-10-24)</td>
 <td><code>reports/<wbr>conformance/<wbr>A1-oci-image-distribution.<wbr>md</code></td>
 </tr>
 <tr>
 <td>OCI Distribution</td>
-<td>push/pull cross-engine OK na v5.1.1; suite <code>distribution-spec</code> é server-side → <strong>N/A</strong> (Delonix é cliente)</td>
+<td>push/pull cross-engine OK on v5.1.1; the <code>distribution-spec</code> suite is server-side → <strong>N/A</strong> (Delonix is a client)</td>
 <td>A1</td>
 </tr>
 <tr>
@@ -256,50 +256,53 @@ ferramentas automáticas chamam, não <code>docker run</code> interactivo.</p>
 <td>B1/B2 reports</td>
 </tr>
 <tr>
-<td>OCI Runtime — CLI runc</td>
-<td><strong>não existe</strong> (o único gap de runtime real) — RT-4 / ADR-0080</td>
+<td>OCI Runtime — runc CLI</td>
+<td><strong>does not exist</strong> (the one real runtime gap) — RT-4 / ADR-0080</td>
 <td>B1</td>
 </tr>
 <tr>
 <td>Docker Engine API</td>
-<td><strong>15/26</strong> rotas (medido ao vivo na v5.1.1)</td>
+<td><strong>15/26</strong> routes (measured live on v5.1.1)</td>
 <td><code>delonix serve docker-api --matrix</code></td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p><strong>Aviso de proveniência (importante).</strong> A primeira versão deste plano herdou a matriz de gaps do
-relatório <strong>v3.1.0</strong> (<code>fa8c6297</code>). Estamos na <strong>v5.1.1</strong>: re-medir contra o código actual mostrou
-que vários "gaps" estão <strong>stale</strong> — a mount-propagation já funciona (B2), o <code>.tmp</code> de layer já é
-limpo em-processo (G-035), e o <code>tag@digest</code> é formato válido, não bug (G-033). <strong>Este plano é
-conduzido por medições na v5.1.1, não pela matriz v3.1.0.</strong> Um "gap" só entra se REPRODUZIR na v5.1.1.</p>
+<p><strong>Provenance warning (important).</strong> This plan's first version inherited the gap matrix from the
+<strong>v3.1.0</strong> report (<code>fa8c6297</code>). We are on <strong>v5.1.1</strong>: re-measuring against current code showed
+that several "gaps" are <strong>stale</strong> — mount propagation already works (B2), a layer's <code>.tmp</code> is
+already cleaned in-process (G-035), and <code>tag@digest</code> is a valid format, not a bug (G-033). <strong>This
+plan is driven by measurements on v5.1.1, not by the v3.1.0 matrix.</strong> A "gap" only counts if it
+REPRODUCES on v5.1.1.</p>
 </blockquote>
-<p><strong>As 20 falhas do CRI (medição de 2026-10-24), por área:</strong> AppArmor 6 · Mount Propagation 3 ·
-Security Context 3 (HostPID, PodPID, SeccompProfilePath) · Rede 2 · Streaming 2 (portforward) ·
-Image Manager 2 (ambas já corrigidas, #18/#19) · RO-mount 1 · Image Identifier Consistency 1.
-(A repartição antiga — 24 falhas de v0.63, AppArmor 9 — fica no histórico de <code>cri-conformance.md</code>.)</p>
-<h2 id="decisoes-do-dono-2026-10-24">Decisões do dono (2026-10-24)<a class="hanchor" href="#decisoes-do-dono-2026-10-24" aria-label="#">#</a></h2>
+<p><strong>The CRI's 20 failures (2026-10-24 measurement), by area:</strong> AppArmor 6 · Mount Propagation 3 ·
+Security Context 3 (HostPID, PodPID, SeccompProfilePath) · Networking 2 · Streaming 2 (portforward) ·
+Image Manager 2 (both already fixed, #18/#19) · RO-mount 1 · Image Identifier Consistency 1.
+(The old breakdown — 24 failures from v0.63, AppArmor 9 — stays in <code>cri-conformance.md</code>'s history.)</p>
+<h2 id="owner-decisions-2026-10-24">Owner decisions (2026-10-24)<a class="hanchor" href="#owner-decisions-2026-10-24" aria-label="#">#</a></h2>
 <ol>
-<li><strong>Prioridade: CRI primeiro</strong> (kubelet drop-in — o diferenciador container+VM+k8s).</li>
-<li><strong><code>NoNewPrivs=false</code>:</strong> honrar o pedido do CRI (passa a conformidade) <strong>mantendo NNP sempre-ligado
-   por omissão no caminho CLI/normal</strong>. A garantia por omissão não muda; só o CRI a pode relaxar.</li>
-<li><strong>OOM post-mortem:</strong> <strong>investir no supervisor</strong> — o supervisor por-container (que já existe para
-   <code>--restart</code>/<code>wait</code>) lê o cgroup ANTES do teardown e regista <code>OOMKilled</code>/137. Não é N/A.</li>
+<li><strong>Priority: CRI first</strong> (kubelet drop-in — the container+VM+k8s differentiator).</li>
+<li><strong><code>NoNewPrivs=false</code>:</strong> honor the CRI's request (passes conformance) <strong>while keeping NNP
+   always-on by default on the CLI/normal path</strong>. The default guarantee does not change; only
+   the CRI may relax it.</li>
+<li><strong>OOM post-mortem:</strong> <strong>invest in the supervisor</strong> — the per-container supervisor (which
+   already exists for <code>--restart</code>/<code>wait</code>) reads the cgroup BEFORE teardown and records
+   <code>OOMKilled</code>/137. Not N/A.</li>
 </ol>
 <hr />
-<h2 id="track-c-cri-prioritario-gate-re-medir-na-v511-depois-100103-em-rootful">Track C — CRI (PRIORITÁRIO) · gate: re-medir na v5.1.1, depois → ~100/103 em rootful<a class="hanchor" href="#track-c-cri-prioritario-gate-re-medir-na-v511-depois-100103-em-rootful" aria-label="#">#</a></h2>
-<p><strong>Passo zero: re-medir o critest na v5.1.1 — FEITO (2026-10-24): 84/104</strong> (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/critest.sh" target="_blank" rel="noopener"><code>scripts/critest.sh</code></a>;
-relatório em <code>reports/cri-conformance-2026-10-24/</code>). O 79/103 era de v0.63 (2026-08); a repartição
-de falhas abaixo foi actualizada para a corrida de 2026-10-24. Os fixes #18/#19 do <code>ImageService</code>
-(C2, worktree <code>cri-image-repodigests-and-user</code>) já entraram; falta portforward (C3,
-<code>cri-portforward-conformance</code>). As fases abaixo mantêm-se como mapa das ÁREAS.</p>
-<p>Cada fase = uma área de falha do critest, com a spec que falha nomeada.</p>
+<h2 id="track-c-cri-priority-gate-re-measure-on-v511-then-100103-in-rootful">Track C — CRI (PRIORITY) · gate: re-measure on v5.1.1, then → ~100/103 in rootful<a class="hanchor" href="#track-c-cri-priority-gate-re-measure-on-v511-then-100103-in-rootful" aria-label="#">#</a></h2>
+<p><strong>Step zero: re-measure critest on v5.1.1 — DONE (2026-10-24): 84/104</strong> (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/critest.sh" target="_blank" rel="noopener"><code>scripts/critest.sh</code></a>;
+report in <code>reports/cri-conformance-2026-10-24/</code>). The 79/103 was from v0.63 (2026-08); the
+failure breakdown below has been updated for the 2026-10-24 run. The <code>ImageService</code> fixes</p>
+<h1 id="1819-c2-worktree-cri-image-repodigests-and-user-have-already-landed-portforward">18/#19 (C2, worktree <code>cri-image-repodigests-and-user</code>) have already landed; portforward</h1>
+<p>(C3, <code>cri-portforward-conformance</code>) remains. The phases below still stand as a map of the AREAS.</p>
+<p>Each phase = one area of critest failure, with the failing spec named.</p>
 <div class="tablewrap"><table>
 <thead>
 <tr>
-<th>Fase</th>
-<th>Área (nº specs)</th>
-<th>O que fazer</th>
+<th>Phase</th>
+<th>Area (# specs)</th>
+<th>What to do</th>
 <th>Gate</th>
 </tr>
 </thead>
@@ -307,199 +310,202 @@ de falhas abaixo foi actualizada para a corrida de 2026-10-24. Os fixes #18/#19 
 <tr>
 <td><strong>C1</strong></td>
 <td>Security Context (4)</td>
-<td><code>PodPID</code> namespace; <code>RunAsUserName</code>; <code>SeccompProfilePath</code> por caminho (liga ao seccomp-custom que já erra em vez de ignorar); <strong><code>NoNewPrivs=false</code></strong> (decisão 2 — relaxável só pelo CRI)</td>
+<td><code>PodPID</code> namespace; <code>RunAsUserName</code>; <code>SeccompProfilePath</code> by path (wires into the custom-seccomp path that already errors instead of ignoring); <strong><code>NoNewPrivs=false</code></strong> (decision 2 — relaxable only by the CRI)</td>
 <td>+4</td>
 </tr>
 <tr>
 <td><strong>C2</strong></td>
 <td>Image Manager (2)</td>
-<td>pull por digest via CRI; <code>Uid</code>/<code>Username</code> no <code>ImageStatus</code></td>
+<td>pull by digest via CRI; <code>Uid</code>/<code>Username</code> in <code>ImageStatus</code></td>
 <td>+2</td>
 </tr>
 <tr>
 <td><strong>C3</strong></td>
 <td>Streaming (2)</td>
-<td>servidor de streaming CRI: <code>PortForward</code> + base de <code>Exec</code>/<code>Attach</code> com hijack (<strong>partilhado com D3</strong>)</td>
+<td>CRI streaming server: <code>PortForward</code> + the <code>Exec</code>/<code>Attach</code> base with hijack (<strong>shared with D3</strong>)</td>
 <td>+2</td>
 </tr>
 <tr>
 <td><strong>C4</strong></td>
 <td>Networking (1) + Mount Propagation (3)</td>
-<td>port mapping só com porta de container; <code>rshared</code>/<code>rslave</code> (<strong>vem do Track B2</strong>)</td>
+<td>port mapping with container port only; <code>rshared</code>/<code>rslave</code> (<strong>comes from Track B2</strong>)</td>
 <td>+4</td>
 </tr>
 <tr>
 <td><strong>C5</strong></td>
 <td>RO-mount (1) + Multiple Containers (1)</td>
-<td>mounts read-only não-recursivos; caso multi-container</td>
+<td>non-recursive read-only mounts; multi-container case</td>
 <td>+2</td>
 </tr>
 <tr>
 <td><strong>C6</strong></td>
 <td>OOM (1)</td>
-<td>supervisor capta OOM antes do teardown do cgroup (decisão 3)</td>
+<td>supervisor captures OOM before cgroup teardown (decision 3)</td>
 <td>+1</td>
 </tr>
 <tr>
 <td><strong>C7</strong></td>
 <td>AppArmor (9)</td>
-<td>traduzir o perfil por-container do CRI; correr a suite <strong>rootful</strong> (carregar perfis exige privilégio — N/A em rootless, nomeado); provar os que não são de ambiente</td>
-<td>+0 a +9 conforme rootful/rootless</td>
+<td>translate the CRI's per-container profile; run the suite <strong>rootful</strong> (loading profiles needs privilege — N/A in rootless, named); prove the ones that are not environment-dependent</td>
+<td>+0 to +9 depending on rootful/rootless</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p><strong>N/A honestos a nomear no relatório final:</strong> as specs de AppArmor que exigem carregar um perfil
-(privilégio que o rootless não tem) ficam N/A em rootless e provam-se em rootful. Nenhuma outra.</p>
+<p><strong>Honest N/As to name in the final report:</strong> the AppArmor specs that require loading a
+profile (privilege rootless doesn't have) stay N/A in rootless and are proven in rootful. No
+others.</p>
 </blockquote>
-<p><strong>Pré-requisito do Track B:</strong> C4 depende de B2 (mount propagation). Fazer B2 no arranque do Track C.</p>
+<p><strong>Track B prerequisite:</strong> C4 depends on B2 (mount propagation). Do B2 at the start of Track C.</p>
 <hr />
-<h2 id="track-b-oci-runtime-spec-habilita-o-cri">Track B — OCI Runtime Spec (habilita o CRI)<a class="hanchor" href="#track-b-oci-runtime-spec-habilita-o-cri" aria-label="#">#</a></h2>
+<h2 id="track-b-oci-runtime-spec-enables-cri">Track B — OCI Runtime Spec (enables CRI)<a class="hanchor" href="#track-b-oci-runtime-spec-enables-cri" aria-label="#">#</a></h2>
 <div class="tablewrap"><table>
 <thead>
 <tr>
-<th>Fase</th>
-<th>O que fazer</th>
+<th>Phase</th>
+<th>What to do</th>
 <th>Gate</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>B1</strong></td>
-<td>Correr <code>opencontainers/<wbr>runtime-tools</code> validation contra (a) o bundle de <code>image export</code> + runc/crun e (b) o init próprio do Delonix (config.json → namespaces/caps/seccomp/mounts/hooks/rlimits). Script reproduzível.</td>
-<td>baseline publicado</td>
+<td>Run <code>opencontainers/<wbr>runtime-tools</code> validation against (a) the bundle from <code>image export</code> + runc/crun and (b) Delonix's own init (config.json → namespaces/caps/seccomp/mounts/hooks/rlimits). Reproducible script.</td>
+<td>published baseline</td>
 </tr>
 <tr>
 <td><strong>B2</strong></td>
-<td>Mount propagation <code>rshared</code>/<code>rslave</code> (<strong>fecha 3 do CRI — C4</strong>)</td>
+<td>Mount propagation <code>rshared</code>/<code>rslave</code> (<strong>closes 3 of CRI's — C4</strong>)</td>
 <td>runtime-tools + critest</td>
 </tr>
 <tr>
 <td><strong>B3</strong></td>
-<td>Readonly recursivo + masked/readonly paths (decisão G-009)</td>
+<td>Recursive readonly + masked/readonly paths (decision G-009)</td>
 <td>runtime-tools</td>
 </tr>
 </tbody>
 </table></div>
-<h2 id="track-a-oci-image-distribution-fundacao-de-interop-de-imagens">Track A — OCI Image + Distribution (fundação de interop de imagens)<a class="hanchor" href="#track-a-oci-image-distribution-fundacao-de-interop-de-imagens" aria-label="#">#</a></h2>
-<p><strong>Re-baseline na v5.1.1 (2026-10-24): esta track está em grande parte FEITA — o resto é opcional.</strong>
-A interop OCI de imagem foi <strong>provada ao vivo</strong> nos três motores (IMG-1 corrigido: <code>push</code> publica
-manifesto OCI, puxável por docker E podman). Os "gaps" G-033/035/039 do relatório v3.1.0 <strong>saíram</strong>
-após re-medição:</p>
+<h2 id="track-a-oci-image-distribution-image-interop-foundation">Track A — OCI Image + Distribution (image interop foundation)<a class="hanchor" href="#track-a-oci-image-distribution-image-interop-foundation" aria-label="#">#</a></h2>
+<p><strong>Re-baseline on v5.1.1 (2026-10-24): this track is largely DONE — the rest is optional.</strong>
+OCI image interop was <strong>proven live</strong> across all three engines (IMG-1 fixed: <code>push</code> publishes
+an OCI manifest, pullable by both docker AND podman). The v3.1.0 report's "gaps" G-033/035/039
+<strong>fell away</strong> on re-measurement:</p>
 <ul>
-<li><strong>G-033</strong> (tag+digest) — <strong>NÃO é bug</strong>: <code>repo:tag@digest</code> é formato OCI/Docker válido e comum (o
-  kind usa-o); recusar partiria o kind. Se um dia se quiser detectar um <em>conflito</em> real (a tag
-  resolve para outro digest), é uma decisão de representação local — fora do âmbito até ser pedido.</li>
-<li><strong>G-035</strong> (<code>.tmp</code> de layer) — <strong>já limpo em-processo</strong> (<code>overlay.rs:492-508</code>). Resíduo mínimo: só
-  um <code>.tmp</code> órfão de um processo MORTO a meio, que o <code>prune</code> não varre — melhoria pequena, agrupável
-  numa futura passagem do <code>prune</code>, não um gap de conformidade.</li>
-<li><strong>G-039</strong> (archive docker-save LEGADO <code>&lt;hash&gt;/layer.tar</code>) — real mas <strong>só afecta archives
-  pré-OCI</strong>; o <code>docker save</code> moderno produz o layout <code>blobs/sha256/</code> que o <code>load</code> já aceita. Baixa
-  prioridade; a correcção (mapa path→digest) tem subtileza nos layers.</li>
+<li><strong>G-033</strong> (tag+digest) — <strong>NOT a bug</strong>: <code>repo:tag@digest</code> is a valid and common OCI/Docker
+  format (the kind uses it); refusing it would break the kind. If one day a real <em>conflict</em>
+  (the tag resolving to a different digest) needs detecting, that's a local representation
+  decision — out of scope until requested.</li>
+<li><strong>G-035</strong> (layer <code>.tmp</code>) — <strong>already cleaned in-process</strong> (<code>overlay.rs:492-508</code>). Minimal
+  residue: only an orphan <code>.tmp</code> from a process that DIED midway, which <code>prune</code> doesn't sweep —
+  a small improvement, groupable into a future <code>prune</code> pass, not a conformance gap.</li>
+<li><strong>G-039</strong> (LEGACY docker-save archive <code>&lt;hash&gt;/layer.tar</code>) — real but <strong>only affects
+  pre-OCI archives</strong>; modern <code>docker save</code> produces the <code>blobs/sha256/</code> layout that <code>load</code>
+  already accepts. Low priority; the fix (path→digest map) has subtlety around layers.</li>
 </ul>
 <div class="tablewrap"><table>
 <thead>
 <tr>
-<th>Opcional</th>
-<th>O que fica</th>
+<th>Optional</th>
+<th>What remains</th>
 <th>Gate</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>A-sbom/scan/sign</td>
-<td><code>image sbom</code>/<code>scan</code>/<code>verify</code>/<code>sign</code> — medir a cobertura real na v5.1.1 (não medido nesta campanha)</td>
-<td>baseline publicado</td>
+<td><code>image sbom</code>/<code>scan</code>/<code>verify</code>/<code>sign</code> — measure real coverage on v5.1.1 (not measured in this campaign)</td>
+<td>published baseline</td>
 </tr>
 <tr>
 <td>A-manifest-list</td>
-<td>multi-arch no <code>push</code> (hoje 1 arch por invocação)</td>
-<td>round-trip multi-arch</td>
+<td>multi-arch on <code>push</code> (today 1 arch per invocation)</td>
+<td>multi-arch round-trip</td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p><code>oci-image-tool</code> (image-spec) <strong>não compila</strong> (breakage <code>Sirupsen/logrus</code>) e a <code>distribution-spec</code>
-é server-side — por isso a prova de imagem na v5.1.1 é a <strong>interop entre motores</strong>, não uma suite.</p>
+<p><code>oci-image-tool</code> (image-spec) <strong>does not compile</strong> (breakage in <code>Sirupsen/logrus</code>) and
+<code>distribution-spec</code> is server-side — so the v5.1.1 image proof is <strong>cross-engine interop</strong>,
+not a suite.</p>
 </blockquote>
-<h2 id="track-d-docker-engine-api-ecossistema-ressalva-5">Track D — Docker Engine API (ecossistema; ressalva §5)<a class="hanchor" href="#track-d-docker-engine-api-ecossistema-ressalva-5" aria-label="#">#</a></h2>
+<h2 id="track-d-docker-engine-api-ecosystem-5-caveat">Track D — Docker Engine API (ecosystem; §5 caveat)<a class="hanchor" href="#track-d-docker-engine-api-ecosystem-5-caveat" aria-label="#">#</a></h2>
 <div class="tablewrap"><table>
 <thead>
 <tr>
-<th>Fase</th>
-<th>Rota(s)</th>
-<th>Porquê</th>
+<th>Phase</th>
+<th>Route(s)</th>
+<th>Why</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><strong>D1</strong></td>
-<td><code>GET /<wbr>containers/<wbr>{id}/<wbr>logs</code> (framing stdout/stderr)</td>
-<td>desbloqueia <code>wait_for_logs</code> do testcontainers — maior valor isolado</td>
+<td><code>GET /<wbr>containers/<wbr>{id}/<wbr>logs</code> (stdout/stderr framing)</td>
+<td>unblocks testcontainers' <code>wait_for_logs</code> — the biggest isolated value</td>
 </tr>
 <tr>
 <td><strong>D2</strong></td>
 <td><code>/events</code>, <code>/build</code>, <code>/networks</code>, <code>/volumes</code>, <code>GET …/stats</code></td>
-<td>superfície que compose/kind/ferramentas tocam</td>
+<td>the surface compose/kind/tools touch</td>
 </tr>
 <tr>
 <td><strong>D3</strong></td>
-<td><code>POST …/exec</code> + <code>…/attach</code> (hijack HTTP)</td>
-<td><strong>partilha o servidor de streaming do C3</strong></td>
+<td><code>POST …/exec</code> + <code>…/attach</code> (HTTP hijack)</td>
+<td><strong>shares C3's streaming server</strong></td>
 </tr>
 </tbody>
 </table></div>
 <blockquote>
-<p>Fora de âmbito deliberado: <code>docker run</code> interactivo contra o servidor (comportamento interno do
-CLI Go), e paridade de <code>--format</code>/CLI que o <code>§5</code> desaconselha.</p>
+<p>Deliberately out of scope: interactive <code>docker run</code> against the server (internal Go CLI
+behavior), and <code>--format</code>/CLI parity, which <code>§5</code> advises against.</p>
 </blockquote>
 <hr />
-<h2 id="sequencia-e-dependencias">Sequência e dependências<a class="hanchor" href="#sequencia-e-dependencias" aria-label="#">#</a></h2>
-<p><strong>Estado na v5.1.1:</strong> Track A (imagem) <strong>provada</strong> (IMG-1); Track B RT-1/2/3 + B2 <strong>feitos</strong> — só falta
-<strong>RT-4</strong> (CLI runc, ADR-0080, GO-gated). O trabalho real restante é RT-4, o Track C (a re-medir) e o
-Track D.</p>
-<div class="code"><div class="code-head"><span class="lang">text</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copy</span></button></div><pre><code class="nohighlight">[v5.1.1 feito]  A (interop) ✅   B2 mount-prop ✅   RT-1/2/3 bundle ✅
-[real restante]
-   RT-4 (ADR-0080, GO) ─► runtime-tools validation suite contra o Delonix
-   C0 re-medir critest ─► C1 ─► C2 ─► C3 ─┬─► C4 ─► C5 ─► C6 ─► C7
+<h2 id="sequence-and-dependencies">Sequence and dependencies<a class="hanchor" href="#sequence-and-dependencies" aria-label="#">#</a></h2>
+<p><strong>Status on v5.1.1:</strong> Track A (image) <strong>proven</strong> (IMG-1); Track B RT-1/2/3 + B2 <strong>done</strong> — only
+<strong>RT-4</strong> (runc CLI, ADR-0080, GO-gated) remains. The real remaining work is RT-4, Track C (to
+re-measure), and Track D.</p>
+<div class="code"><div class="code-head"><span class="lang">text</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copy</span></button></div><pre><code class="nohighlight">[v5.1.1 done]  A (interop) ✅   B2 mount-prop ✅   RT-1/2/3 bundle ✅
+[real remaining]
+   RT-4 (ADR-0080, GO) ─► runtime-tools validation suite against Delonix
+   C0 re-measure critest ─► C1 ─► C2 ─► C3 ─┬─► C4 ─► C5 ─► C6 ─► C7
                                           └─(C3 streaming)─► D3 ─► D1 ─► D2
 </code></pre></div>
 <ol>
-<li><strong>Track C</strong>: re-medir o critest na v5.1.1 (C0), depois fechar por área — o retorno estratégico
-   (em curso pelo dono: C2/C3).</li>
-<li><strong>RT-4</strong> (quando o dono der GO): desbloqueia medir o runtime pela suite upstream.</li>
-<li><strong>Track D</strong> por último, com a ressalva; D3 cai de borla com o C3 (mesmo servidor de streaming).</li>
-<li><strong>Track A</strong>: só o opcional (sbom/scan/sign, manifest-list) — a interop já está provada.</li>
+<li><strong>Track C</strong>: re-measure critest on v5.1.1 (C0), then close area by area — the strategic
+   return (underway by the owner: C2/C3).</li>
+<li><strong>RT-4</strong> (when the owner gives GO): unblocks measuring the runtime through the upstream suite.</li>
+<li><strong>Track D</strong> last, with the caveat; D3 comes for free with C3 (same streaming server).</li>
+<li><strong>Track A</strong>: only the optional items (sbom/scan/sign, manifest-list) — interop is already proven.</li>
 </ol>
-<h2 id="como-medir-reproduzivel-por-fase">Como medir (reproduzível, por fase)<a class="hanchor" href="#como-medir-reproduzivel-por-fase" aria-label="#">#</a></h2>
+<h2 id="how-to-measure-reproducible-per-phase">How to measure (reproducible, per phase)<a class="hanchor" href="#how-to-measure-reproducible-per-phase" aria-label="#">#</a></h2>
 <ul>
-<li>CRI: <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/critest.sh" target="_blank" rel="noopener"><code>scripts/critest.sh</code></a> → <code>Ran N of 122 ... X Passed | Y Failed</code>. Publicar o diff de X a cada fase.</li>
-<li>OCI runtime: <code>runtime-tools</code> validation (instalar em A1/B1); publicar pass/fail por secção do spec.</li>
-<li>OCI image/distribution: suites upstream <code>image-spec</code>/<code>distribution-spec</code>; publicar baseline e deltas.</li>
-<li>Docker API: <code>delonix serve docker-api --matrix</code> (rotas servidas/recusadas) + <code>tests/compat/docker_api_smoke.py</code> e um run de testcontainers.</li>
-<li>Cada fase traz um teste que falha sem a correção (o método do projeto).</li>
+<li>CRI: <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/critest.sh" target="_blank" rel="noopener"><code>scripts/critest.sh</code></a> → <code>Ran N of 122 ... X Passed | Y Failed</code>. Publish the delta in X at each phase.</li>
+<li>OCI runtime: <code>runtime-tools</code> validation (install in A1/B1); publish pass/fail per spec section.</li>
+<li>OCI image/distribution: upstream <code>image-spec</code>/<code>distribution-spec</code> suites; publish baseline and deltas.</li>
+<li>Docker API: <code>delonix serve docker-api --matrix</code> (served/refused routes) + <code>tests/compat/docker_api_smoke.py</code> and a testcontainers run.</li>
+<li>Each phase brings a test that fails without the fix (the project's method).</li>
 </ul>
-<h2 id="riscos-tensoes-conhecidas">Riscos / tensões conhecidas<a class="hanchor" href="#riscos-tensoes-conhecidas" aria-label="#">#</a></h2>
+<h2 id="known-risks-tensions">Known risks / tensions<a class="hanchor" href="#known-risks-tensions" aria-label="#">#</a></h2>
 <ul>
-<li><strong>NNP vs CRI</strong> (decisão 2): o caminho que relaxa NNP só pode ser alcançável pelo CRI, nunca pela CLI.</li>
-<li><strong>AppArmor rootless</strong> (C7): parte das 9 specs é limite de privilégio, não lacuna — medir rootful para separar.</li>
-<li><strong>OOM daemonless</strong> (C6): o supervisor tem de ler o cgroup na janela entre a morte e o teardown; corrida real.</li>
-<li><strong>Disco do host a 96%</strong>: as suites OCI/CRI puxam imagens e escrevem artefactos — libertar espaço antes de A1/B1.</li>
+<li><strong>NNP vs CRI</strong> (decision 2): the path that relaxes NNP must only be reachable through the CRI, never the CLI.</li>
+<li><strong>AppArmor rootless</strong> (C7): part of the 9 specs is a privilege limit, not a gap — measure rootful to tell them apart.</li>
+<li><strong>Daemonless OOM</strong> (C6): the supervisor must read the cgroup in the window between death and teardown; a real race.</li>
+<li><strong>Host disk at 96%</strong>: the OCI/CRI suites pull images and write artifacts — free up space before A1/B1.</li>
 </ul>
 <nav class="pager"><a href="cloud-native-standards.html"><span>← Previous</span>Cloud native standards, layer by layer</a><a class="next" href="environment-variables.html"><span>Next →</span>Environment variables (DELONIX_*)</a></nav>
 <footer class="foot"><a href="https://github.com/ngolacloud/delonix/blob/main/docs/dev/plano-conformidade-oci-cri.md" target="_blank" rel="noopener">Edit this page</a><code>docs/dev/plano-conformidade-oci-cri.md</code></footer>
 </div></main>
 <aside class="toc"><p class="ttitle">On this page</p><div class="toc">
 <ul>
-<li><a href="#baseline-medido-binario-ee615f3b-2026-10-24">Baseline medido (binário ee615f3b, 2026-10-24)</a></li>
-<li><a href="#decisoes-do-dono-2026-10-24">Decisões do dono (2026-10-24)</a></li>
-<li><a href="#track-c-cri-prioritario-gate-re-medir-na-v511-depois-100103-em-rootful">Track C — CRI (PRIORITÁRIO) · gate: re-medir na v5.1.1, depois → ~100/103 em rootful</a></li>
-<li><a href="#track-b-oci-runtime-spec-habilita-o-cri">Track B — OCI Runtime Spec (habilita o CRI)</a></li>
-<li><a href="#track-a-oci-image-distribution-fundacao-de-interop-de-imagens">Track A — OCI Image + Distribution (fundação de interop de imagens)</a></li>
-<li><a href="#track-d-docker-engine-api-ecossistema-ressalva-5">Track D — Docker Engine API (ecossistema; ressalva §5)</a></li>
-<li><a href="#sequencia-e-dependencias">Sequência e dependências</a></li>
-<li><a href="#como-medir-reproduzivel-por-fase">Como medir (reproduzível, por fase)</a></li>
-<li><a href="#riscos-tensoes-conhecidas">Riscos / tensões conhecidas</a></li>
+<li><a href="#measured-baseline-binary-ee615f3b-2026-10-24">Measured baseline (binary ee615f3b, 2026-10-24)</a></li>
+<li><a href="#owner-decisions-2026-10-24">Owner decisions (2026-10-24)</a></li>
+<li><a href="#track-c-cri-priority-gate-re-measure-on-v511-then-100103-in-rootful">Track C — CRI (PRIORITY) · gate: re-measure on v5.1.1, then → ~100/103 in rootful</a></li>
+<li><a href="#track-b-oci-runtime-spec-enables-cri">Track B — OCI Runtime Spec (enables CRI)</a></li>
+<li><a href="#track-a-oci-image-distribution-image-interop-foundation">Track A — OCI Image + Distribution (image interop foundation)</a></li>
+<li><a href="#track-d-docker-engine-api-ecosystem-5-caveat">Track D — Docker Engine API (ecosystem; §5 caveat)</a></li>
+<li><a href="#sequence-and-dependencies">Sequence and dependencies</a></li>
+<li><a href="#how-to-measure-reproducible-per-phase">How to measure (reproducible, per phase)</a></li>
+<li><a href="#known-risks-tensions">Known risks / tensions</a></li>
 </ul>
 </div>
 </aside>

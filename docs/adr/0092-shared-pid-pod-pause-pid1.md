@@ -1,6 +1,6 @@
 # ADR-0092 — A `shareProcessNamespace` pod needs a pause process as PID 1
 
-**State:** Proposed — **IMPLEMENTED and PROVEN** (2026-11-08). The `critest` PodPID
+**Status:** Proposed — **IMPLEMENTED and PROVEN** (2026-11-08). The `critest` PodPID
 passes on rootful-VM+CNI with the pause as PID 1; the suite rose to **102/103** (only
 `rshared` remains, ADR-0093). Awaiting owner GO for Acceptance. Identified and measured in
 the CRI conformance campaign that took `critest v1.36.0` from **84 → 102/103** on

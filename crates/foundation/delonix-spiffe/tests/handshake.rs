@@ -30,7 +30,10 @@ async fn mutual_handshake(server: ServerConfig, client: ClientConfig) -> Result<
     let addr = listener.local_addr().unwrap();
 
     let server = tokio::spawn(async move {
-        let (tcp, _) = listener.accept().await.map_err(|e| format!("accept: {e}"))?;
+        let (tcp, _) = listener
+            .accept()
+            .await
+            .map_err(|e| format!("accept: {e}"))?;
         let mut tls = acceptor
             .accept(tcp)
             .await
@@ -85,7 +88,12 @@ async fn own_ca_mutual_handshake_succeeds() {
     let (svid, bundle) = self_signed(&id).unwrap();
     assert_eq!(svid.spiffe_id().unwrap(), id);
 
-    let server = server_config(&svid, &bundle, PeerPolicy::TrustDomain("example.org".into())).unwrap();
+    let server = server_config(
+        &svid,
+        &bundle,
+        PeerPolicy::TrustDomain("example.org".into()),
+    )
+    .unwrap();
     let client = client_config(&svid, &bundle, PeerPolicy::Id(id)).unwrap();
 
     mutual_handshake(server, client)
@@ -119,7 +127,8 @@ async fn wrong_trust_domain_policy_is_rejected() {
     let id = SpiffeId::parse("spiffe://example.org/node").unwrap();
     let (svid, bundle) = self_signed(&id).unwrap();
 
-    let server = server_config(&svid, &bundle, PeerPolicy::TrustDomain("other.org".into())).unwrap();
+    let server =
+        server_config(&svid, &bundle, PeerPolicy::TrustDomain("other.org".into())).unwrap();
     let client = client_config(&svid, &bundle, PeerPolicy::AnyInBundle).unwrap();
 
     mutual_handshake(server, client)
@@ -139,9 +148,13 @@ async fn spire_issued_svid_is_accepted() {
         std::env::var(var)
             .unwrap_or_else(|_| panic!("{var} must be set by tests/interop/spiffe/run.sh"))
     };
-    let svid = SvidMaterial::from_files(path("DELONIX_SPIFFE_SVID_CERT"), path("DELONIX_SPIFFE_SVID_KEY"))
-        .expect("load SPIRE-issued SVID");
-    let trust = TrustBundle::from_file(path("DELONIX_SPIFFE_SVID_BUNDLE")).expect("load SPIRE trust bundle");
+    let svid = SvidMaterial::from_files(
+        path("DELONIX_SPIFFE_SVID_CERT"),
+        path("DELONIX_SPIFFE_SVID_KEY"),
+    )
+    .expect("load SPIRE-issued SVID");
+    let trust = TrustBundle::from_file(path("DELONIX_SPIFFE_SVID_BUNDLE"))
+        .expect("load SPIRE trust bundle");
     let id = svid
         .spiffe_id()
         .expect("a SPIRE X.509-SVID must carry a spiffe:// URI SAN");

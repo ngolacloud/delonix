@@ -538,11 +538,7 @@ mod tests {
         devices.sort();
         let before = devices.len();
         devices.dedup();
-        assert_eq!(
-            before,
-            devices.len(),
-            "duplicate device nodes: {devices:?}"
-        );
+        assert_eq!(before, devices.len(), "duplicate device nodes: {devices:?}");
         assert_eq!(
             out.mounts
                 .iter()

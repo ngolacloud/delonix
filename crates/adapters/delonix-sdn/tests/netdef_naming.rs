@@ -167,7 +167,8 @@ fn legacy_record_is_still_read_and_the_write_migrates_it() {
     )
     .unwrap();
 
-    let read = delonix_sdn::infra::network_get("arquivo-antigo").expect("the legacy record should be read");
+    let read = delonix_sdn::infra::network_get("arquivo-antigo")
+        .expect("the legacy record should be read");
     assert_eq!(read.bridge, "dlxnaaaabbbb");
     assert_eq!(read.prefix, "10.249");
 

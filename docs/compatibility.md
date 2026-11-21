@@ -12,7 +12,7 @@ This matrix is **generated** from the measured interoperability records in `test
 
 **Result.** ✅ pass (proven) · ◑ partial (measured, incomplete) · ✗ fail (measured not to work) · ☐ not tested (no proof yet).
 
-**Totals:** ✅ pass: 2 · ◑ partial: 10 · ✗ fail: 0 · ☐ not tested: 20 · records: 32
+**Totals:** ✅ pass: 2 · ◑ partial: 11 · ✗ fail: 0 · ☐ not tested: 20 · records: 33
 
 ## H0 — SPIFFE identity
 
@@ -79,6 +79,7 @@ This matrix is **generated** from the measured interoperability records in `test
 | `oci-runtime` | — | — | 1 (K8s) | rootless | — | ◑ partial | [reports/conformance/B1-oci-runtime-baseline.md](../reports/conformance/B1-oci-runtime-baseline.md) |
 | `opencontainers-runtime-tools` | v0.9.1-0.20261017090856-bd3b0bd00f44 | 0.1.2 | 1 (K8s) | rootless | — | ✅ pass | [reports/conformance/B1b-oci-runtime-delonix-measured.md](../reports/conformance/B1b-oci-runtime-delonix-measured.md) |
 | `opencontainers-runtime-tools` | v0.9.1-0.20261017090856-bd3b0bd00f44 | 0.1.2 | 1 (K8s) | root | — | ◑ partial | [reports/conformance/B1c-oci-runtime-root-vm-measured.md](../reports/conformance/B1c-oci-runtime-root-vm-measured.md) |
+| `opencontainers-runtime-tools` | v0.9.1-0.20261017090856-bd3b0bd00f44 | 0.1.2 | 1 (K8s) | root | — | ◑ partial | [reports/conformance/B1e-oci-runtime-root-stdio-measured.md](../reports/conformance/B1e-oci-runtime-root-stdio-measured.md) |
 
 <details><summary>Notes</summary>
 
@@ -87,6 +88,7 @@ This matrix is **generated** from the measured interoperability records in `test
 - **`oci-runtime`** — delonix oci-runtime create/start/state/kill/delete present (ADR-0080); runtime-tools suite wired. Structural baseline (config.json now ociVersion 1.3.0, closing GAP-RT-1's version snag). The behavioural measurement now exists as a separate line (opencontainers-runtime-tools, PASS, rootless parity with runc) — see reports/conformance/B1b-oci-runtime-delonix-measured.md. A full-green root run of the privileged cases is still future work.
 - **`opencontainers-runtime-tools`** — First run of the upstream opencontainers/runtime-tools validation suite against Delonix itself (GAP-RT-4 closed by ADR-0080). Delonix reaches PARITY with runc 1.5.3 on the rootless-measurable subset: 15 ok / 26 not ok, per-file verdicts byte-for-byte identical to the reference. The 15 ok are the privilege-free assertions (linux_ns_path namespace-path semantics; state-without-id error); the 26 not ok require root (cgroups/namespaces/mounts/seccomp/hooks) and fail identically for runc rootless. PASS is scoped to the rootless tier (see the Privilege column) — a full-green root run is future work (an H3 root line).
 - **`opencontainers-runtime-tools`** — Privileged tier measured in a VM (the root run B1b deferred). Delonix 19 ok / 31 not ok vs runc 1.5.3 53 ok / 53 not ok in the SAME root env (7 vs 24 clean-pass files) — NOT at parity, so NOT PASS. delonix oci-runtime fail-closes (DX-1000) on OCI features outside its subset — argument-filtered seccomp, ambient capabilities, process.terminal, hooks, netns-by-path, block devices, cpuset, per-container pids, RLIMIT_DATA — which the suite's default config uses, so it rejects most container launches before any behaviour. A seccomp-stripped diagnostic still scored 19/31, confirming seccomp is only the first wall. Separately the upstream suite does not support cgroup v2 (every linux_cgroups_* case fails for runc too: '# cgroupv2 is not supported yet'), capping even the reference at 24/58 — so literal 58/58 is unreachable here for any runtime. Closing the gap is engine work (grow the oci-runtime subset). Root raises the number above the rootless 15, but the full-green/parity claim is PARTIAL.
+- **`opencontainers-runtime-tools`** — Inherited-fd stdio (runc model) wired into the oci-runtime create+start pair: create resolves /proc/self/fd/{1,2} to the suite's stdout-<uuid>/stderr-<uuid> files and persists them; start reopens them and the init dup2s them straight onto 1/2 (no log shim/rotation/CRI framing). The runtimetest TAP now reaches the files ReadStandardStreams reads, so every RuntimeInsideValidate case stops being 'No subtests run'. Delonix 21->32 ok (B1d->B1e), 7->17 fully-green .t files, linux_ns_path_type still 14/14; runc 1.5.3 reference 53/53 same env. default.t/process.t/process_capabilities.t/misc_props.t now complete. Still short of 53: a process.capabilities bundle shape hits DX-1000 'oci-spec serde failed' upstream in the crate, rshared refused for non-privileged (misc_props/mounts), killsig timeout, and non-relative linux_cgroups_* unsupported on cgroup v2 for runc too. PARTIAL (growing the subset is the remaining engine work).
 
 </details>
 

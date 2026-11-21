@@ -1001,10 +1001,7 @@ mod tests {
         let err = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
             .expect_err("netns path refused");
         let msg = err.to_string();
-        assert!(
-            msg.contains("Network namespace with a `path`"),
-            "{err}"
-        );
+        assert!(msg.contains("Network namespace with a `path`"), "{err}");
     }
 
     /// Joining ANY namespace by path (not only the network one) is refused — the
@@ -1029,12 +1026,10 @@ mod tests {
                 .namespaces(vec![ns])
                 .build()
                 .expect("linux");
-            let err = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
-                .expect_err("ns path refused");
-            assert!(
-                err.to_string().contains("with a `path`"),
-                "{ty:?}: {err}"
-            );
+            let err =
+                spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
+                    .expect_err("ns path refused");
+            assert!(err.to_string().contains("with a `path`"), "{ty:?}: {err}");
         }
     }
 

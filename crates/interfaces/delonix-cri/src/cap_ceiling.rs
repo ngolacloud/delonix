@@ -473,7 +473,10 @@ mod tests {
     #[test]
     fn clamp_mode_does_not_reject_and_trims_the_privileged() {
         let c = CapCeiling::parse("default,NET_ADMIN", "clamp", CAPS).unwrap();
-        assert!(c.rejected(&[], true, CAPS).is_empty(), "clamp never rejects");
+        assert!(
+            c.rejected(&[], true, CAPS).is_empty(),
+            "clamp never rejects"
+        );
         let args = c.cap_args(&[], &[], true, CAPS).unwrap();
         assert_eq!(args[0], "--cap-drop");
         assert_eq!(args[1], "ALL");

@@ -695,6 +695,7 @@ flowchart TB
   subgraph foundation["Foundation"]
     delonix_model["delonix-model"]
     delonix_net_rules["delonix-net-rules"]
+    delonix_spiffe["delonix-spiffe"]
   end
   subgraph context["Contexts"]
     delonix_compute["delonix-compute"]
@@ -715,6 +716,7 @@ flowchart TB
     delonix_telemetry["delonix-telemetry"]
     delonix_vm["delonix-vm"]
     delonix_volume["delonix-volume"]
+    delonix_warm["delonix-warm"]
   end
   subgraph provider["Providers"]
     delonix_provider_btrfs["delonix-provider-btrfs"]
@@ -773,6 +775,7 @@ flowchart TB
   delonix_bin --> delonix_telemetry
   delonix_bin --> delonix_vm
   delonix_bin --> delonix_volume
+  delonix_bin --> delonix_warm
   delonix_compute --> delonix_model
   delonix_compute --> delonix_net_rules
   delonix_compute --> delonix_node
@@ -790,6 +793,7 @@ flowchart TB
   delonix_cri_bin --> delonix_model
   delonix_cri_bin --> delonix_sdn
   delonix_cri_bin --> delonix_telemetry
+  delonix_cri_bin --> delonix_warm
   delonix_engine --> delonix_compute
   delonix_engine --> delonix_linux
   delonix_engine --> delonix_model
@@ -948,6 +952,7 @@ flowchart TB
   class delonix_scanner block
   class delonix_sdn block
   class delonix_security block
+  class delonix_spiffe store
   class delonix_stack block
   class delonix_state block
   class delonix_storage block
@@ -955,6 +960,7 @@ flowchart TB
   class delonix_telemetry block
   class delonix_vm block
   class delonix_volume block
+  class delonix_warm block
   classDef engine fill:#cc2823,stroke:#8f1b17,color:#ffffff
   classDef iface fill:#ffffff,stroke:#cc2823,stroke-width:2px,color:#191513
   classDef block fill:#ffffff,stroke:#8a817c,color:#191513

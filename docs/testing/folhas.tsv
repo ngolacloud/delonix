@@ -180,6 +180,11 @@ cli	network vip-pool set	A	scripts/cli_exec_trace.tsv (2026-10-21, 6dc31582, PAS
 cli	network vip-pool show	A	scripts/cli_exec_trace.tsv (2026-10-21, 6dc31582, PASS=1537 FAIL=0)
 cli	network vlan	A	scripts/cli_exec_trace.tsv (2026-10-16, e5be0903, PASS=1324 FAIL=0)
 cli	oci-runtime create	B	implementada (RT-4 oci-runtime runc-compativel, ADR-0080); nenhum teste a exercita neste ramo — o harness feat/rt4-runtime-tools-harness corre-la-ia; ainda nao em scripts/cli_exec_trace.tsv
+cli	node-ca init	B	ADR-0097; implemented, and no run exercises it — not in scripts/cli_exec_trace.tsv (the trace is from 2026-10-22, before the command existed)
+cli	node-ca revoke	B	ADR-0097; implemented, and no run exercises it — not in scripts/cli_exec_trace.tsv
+cli	node-enroll	B	ADR-0097; implemented, and no run exercises it — it needs a live enrollment authority, so the battery cannot reach it unattended
+cli	serve node-enroll	B	ADR-0097; implemented, and no run exercises it — not in scripts/cli_exec_trace.tsv
+cli	vm logs	B	implemented, and no run exercises it — not in scripts/cli_exec_trace.tsv
 cli	oci-runtime delete	B	implementada (RT-4 oci-runtime runc-compativel, ADR-0080); nenhum teste a exercita neste ramo — o harness feat/rt4-runtime-tools-harness corre-la-ia; ainda nao em scripts/cli_exec_trace.tsv
 cli	oci-runtime kill	B	implementada (RT-4 oci-runtime runc-compativel, ADR-0080); nenhum teste a exercita neste ramo — o harness feat/rt4-runtime-tools-harness corre-la-ia; ainda nao em scripts/cli_exec_trace.tsv
 cli	oci-runtime start	B	implementada (RT-4 oci-runtime runc-compativel, ADR-0080); nenhum teste a exercita neste ramo — o harness feat/rt4-runtime-tools-harness corre-la-ia; ainda nao em scripts/cli_exec_trace.tsv
@@ -638,6 +643,10 @@ node-api	ListCephfsSubvolumes	B	ADR-0081; provada ao vivo (reports/ceph-live), t
 node-api	ListObjectStoreBuckets	B	ADR-0081; provada ao vivo (reports/ceph-live RGW), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
 node-api	GetObjectStoreBucket	B	ADR-0081; provada ao vivo (reports/ceph-live RGW), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
 node-api	CreateObjectStoreUser	B	ADR-0081; provada ao vivo (user S3 criado no MicroCeph), teste #[ignore] fora do e2e.sh — herdada de feat/ceph-native-storage
+node-api	SetNodeLabels	A	ADR-0101 (A6); run and asserted live over mTLS — reports/node-api-node-scheduling-surface-live-acceptance-20261120.md
+node-api	SetNodeTaints	A	ADR-0101 (A6); run and asserted live over mTLS — reports/node-api-node-scheduling-surface-live-acceptance-20261120.md
+node-api	SetSchedulability	A	ADR-0101 (A6); run live over mTLS, with the cordon ENFORCED on create (409, DX-5003) — reports/node-api-node-scheduling-surface-live-acceptance-20261120.md
+node-api	AttestWorkload	B	ADR-0102 (H0); implemented, and the h0-spiffe run proves the SVID and the mTLS handshake, NOT this RPC — tests/interop/results/h0-spiffe.jsonl says it «lands in the same phase»
 cli	commit	B	atalho de raiz Docker/Podman; partilha a struct e o handler da forma de grupo (classe A no trace); a bateria exerce a canonica, nao o atalho
 cli	container checkpoint	B	stub accionavel na campanha de paridade: CRIU ainda nao integrado; devolve erro DX-6000, provado ao vivo
 cli	container clone	B	implementado na campanha de paridade Docker/Podman; provado ao vivo em DELONIX_ROOT isolado, ainda nao na bateria e2e

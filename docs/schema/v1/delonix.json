@@ -4105,39 +4105,6 @@
           },
           "type": "array"
         },
-        "nodes": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "annotations": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              "labels": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              "name": {
-                "type": "string"
-              },
-              "namespace": {
-                "type": "string"
-              },
-              "spec": {
-                "$ref": "#/$defs/NodeSpec"
-              }
-            },
-            "required": [
-              "name"
-            ],
-            "type": "object"
-          },
-          "type": "array"
-        },
         "objectStorages": {
           "items": {
             "additionalProperties": false,

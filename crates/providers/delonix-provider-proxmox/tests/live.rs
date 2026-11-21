@@ -293,10 +293,7 @@ fn create_start_and_destroy_against_a_real_node() {
     // Stop only: `stop` STOPS and does not remove, now that the two verbs were
     // split (it used to be `vm stop` deleting the disk). The domain stays defined.
     b.stop(vmdir, &vm).expect("stop");
-    assert!(
-        !b.is_running(&vm),
-        "the VM must stay stopped after stop"
-    );
+    assert!(!b.is_running(&vm), "the VM must stay stopped after stop");
     assert!(
         b.client().config(vmid).is_ok(),
         "`stop` REMOVED the VM — stopping and destroying are different verbs"
