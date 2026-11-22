@@ -2224,7 +2224,12 @@ fn decide(
     // rollback, so a broken reference (an `Ingress` pointing to a container that
     // nobody declares) must stop everything BEFORE the first creation, not halfway
     // with half the stack already in the kernel.
-    let issues = validate_graph(docs);
+    let (issues, advisories) = validate_graph_both(docs);
+    // Printed BEFORE the refusal check, so an advisory is seen even on the run
+    // that stops for another reason.
+    for a in &advisories {
+        eprintln!("  ⚠ {a}");
+    }
     if !issues.is_empty() {
         for i in &issues {
             eprintln!("  ✗ {i}");
@@ -3974,7 +3979,10 @@ fn history(
 fn validate(file: Option<PathBuf>, strict: bool) -> Result<()> {
     let path = manifest::resolve_path(file)?;
     let docs = manifest::load_lenient(&path)?;
-    let mut issues = validate_graph(&docs);
+    let (mut issues, advisories) = validate_graph_both(&docs);
+    for a in &advisories {
+        println!("  ⚠ {a}");
+    }
     // A source whose passes apply into the stack this manifest would be
     // applied as: the apply refuses it, so validation does too.
     let self_targets = super::gitops::self_target_problems(&docs, &stack_name(&path, None));
@@ -4112,11 +4120,18 @@ pub(crate) struct ExistingWorkload {
     pub labels: std::collections::BTreeMap<String, String>,
 }
 
-/// Resolves all the manifest cross-references against what it DECLARES plus
-/// what already EXISTS in the stores (read, best-effort). Returns the list of
-/// problems (empty = intact graph). **Touches nothing** — it is the base shared
-/// by `stack validate` (dry-run) and by the `apply` gate.
+/// The problems only (empty = intact graph), for a caller that has nothing to do
+/// with an advisory. See [`validate_graph_both`].
 pub(crate) fn validate_graph(docs: &[manifest::ManifestDoc]) -> Vec<String> {
+    validate_graph_both(docs).0
+}
+
+/// Resolves all the manifest cross-references against what it DECLARES plus
+/// what already EXISTS in the stores (read, best-effort). Returns
+/// `(problems, advisories)`: a problem stops the apply before the first
+/// creation, an advisory is printed and the apply goes on. **Touches nothing** —
+/// it is the base shared by `stack validate` (dry-run) and by the `apply` gate.
+pub(crate) fn validate_graph_both(docs: &[manifest::ManifestDoc]) -> (Vec<String>, Vec<String>) {
     let root = super::util::state_root();
 
     // Resources already present on the machine count as resolved (a manifest may
@@ -4228,6 +4243,7 @@ fn validate_graph_with(
         &[],
         &[],
     )
+    .0
 }
 
 /// [`validate_graph_with`] with the registered system containers too: the
@@ -4240,7 +4256,7 @@ fn validate_graph_full(
     existing_secrets: &[String],
     existing_configs: &[String],
     existing_system_containers: &[String],
-) -> Vec<String> {
+) -> (Vec<String>, Vec<String>) {
     use std::collections::HashSet;
 
     let declared = |kinds: &[&str]| -> HashSet<String> {
@@ -4413,6 +4429,9 @@ fn validate_graph_full(
     };
 
     let mut issues = Vec::new();
+    // Findings the operator should SEE without the apply being refused.
+    // `issues` stop everything before the first creation; these do not.
+    let mut advisories: Vec<String> = Vec::new();
 
     // A route names TWO networks, and naming one that does not exist is the
     // same mistake `vm init` used to make: a manifest that refuses itself. Both
@@ -4905,11 +4924,11 @@ fn validate_graph_full(
                 // DNS index and `match_count` use, against what is declared in this
                 // manifest AND what already runs on the machine, both scoped to the
                 // Service's namespace (`match_count` scopes the same way). Matching
-                // NEITHER means nothing will ever answer the Service's name, so it is
-                // refused here. This only became safe once the graph could see the
-                // LABELS of the existing workloads: a Service resolving against a
-                // live-but-undeclared backend must NOT be refused, and now it is not
-                // — `existing_workloads` carries exactly those labels.
+                // NEITHER means nothing answers the Service's name YET, which is an
+                // ADVISORY and not a refusal — the reason is where it is pushed. The
+                // graph seeing the LABELS of the existing workloads is what keeps it
+                // quiet for a Service resolving against a live-but-undeclared
+                // backend: `existing_workloads` carries exactly those labels.
                 match manifest::spec_of::<super::service::ServiceSpec>(doc) {
                     Ok(spec) => {
                         let sel = &spec.selector.match_labels;
@@ -4936,8 +4955,14 @@ fn validate_graph_full(
                                 .filter(|w| w.namespace.eq_ignore_ascii_case(svc_ns))
                                 .any(|w| delonix_sdn::matches_labels(&w.labels, sel));
                             if !declared_match && !existing_match {
-                                issues.push(super::po::tf(
-                                    "Service '{name}' → selector matches no declared or existing workload in namespace '{ns}'; nothing will answer its name",
+                                // ADVISORY, not an issue: ADR-0045 says so, and
+                                // ADR-0066 has the VIP answer an RST while no
+                                // backend is ready. Refusing made the normal
+                                // order impossible — the Service applied before
+                                // its workloads (a GitOpsSource pass, a
+                                // scale-up). See the test for the full why.
+                                advisories.push(super::po::tf(
+                                    "Service '{name}' → selector matches no declared or existing workload in namespace '{ns}'; nothing answers its name yet",
                                     &[("name", name), ("ns", svc_ns)],
                                 ));
                             }
@@ -5034,7 +5059,7 @@ fn validate_graph_full(
         }
     }
 
-    issues
+    (issues, advisories)
 }
 
 /// Handles the `init` of this group (see `cmd::scaffold`).
@@ -5845,10 +5870,11 @@ spec: {target: other, direction: ingress, scope: systemcontainer}
             &[],
             &[],
             &[],
-        );
+        )
+        .0;
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(issues[0].contains("'other'"), "{issues:?}");
-        let issues = validate_graph_full(&docs(yaml), &[], &[], &[], &[], &[], &["other".into()]);
+        let issues = validate_graph_full(&docs(yaml), &[], &[], &[], &[], &[], &["other".into()]).0;
         assert!(issues.is_empty(), "{issues:?}");
     }
 
@@ -5956,36 +5982,37 @@ spec:
         assert!(issues.is_empty(), "{issues:?}");
     }
 
-    /// Now that the graph sees the labels of what is declared AND of what runs, a
-    /// `Service` whose non-empty selector matches NEITHER is refused: nothing will
-    /// ever answer its name. Before this slice the graph had no labels to check
-    /// against, so it had to let a dead selector pass (the old
-    /// `a_service_selecting_nothing_yet_still_validates`).
+    /// A `Service` whose non-empty selector matches NEITHER what is declared nor
+    /// what runs is an ADVISORY, never a refusal: the apply must go through.
+    /// Applying the Service BEFORE its workloads is the normal order for a
+    /// GitOpsSource pass and for a later scale-up, and ADR-0066 has the VIP
+    /// answer an RST while no backend is ready — so «nothing answers it yet» is
+    /// a state the engine supports, not a broken manifest. It is still said.
     #[test]
-    fn a_service_matching_no_workload_is_refused() {
-        let issues = check(
-            "\
+    fn a_service_matching_no_workload_is_an_advisory_and_not_a_refusal() {
+        let yaml = "\
 apiVersion: core.delonix.io/v1alpha1
 kind: Stack
 metadata: { name: s, namespace: prod }
 spec:
   services:
     - { name: svc, spec: { selector: { matchLabels: { app: later } }, port: 80 } }
-",
-        );
-        assert_eq!(issues.len(), 1, "{issues:?}");
+";
+        let (issues, advisories) = validate_graph_full(&docs(yaml), &[], &[], &[], &[], &[], &[]);
+        assert!(issues.is_empty(), "o apply tem de passar: {issues:?}");
+        assert_eq!(advisories.len(), 1, "{advisories:?}");
         assert!(
-            issues[0].contains("matches no declared or existing workload"),
-            "{issues:?}"
+            advisories[0].contains("matches no declared or existing workload"),
+            "{advisories:?}"
         );
     }
 
-    /// The honesty the refusal above hinges on: a selector that matches a
-    /// LIVE-but-undeclared workload (in the Service's namespace) must NOT be
-    /// refused — the Service resolves against it at apply. No false positive
+    /// The honesty the advisory above hinges on: a selector that matches a
+    /// LIVE-but-undeclared workload (in the Service's namespace) must say
+    /// NOTHING — the Service resolves against it at apply. No false advisory
     /// against the running machine.
     #[test]
-    fn a_service_matching_a_live_workload_is_not_refused() {
+    fn a_service_matching_a_live_workload_says_nothing() {
         let yaml = "\
 apiVersion: core.delonix.io/v1alpha1
 kind: Stack
@@ -6003,10 +6030,11 @@ spec:
             &[],
             &[],
             &[],
-        );
+        )
+        .1;
         assert!(issues.is_empty(), "{issues:?}");
         // A live container with the label in ANOTHER namespace does not rescue it:
-        // the Service selects namespace-scoped, so this one is still refused.
+        // the Service selects namespace-scoped, so this one still gets the advisory.
         let other_ns = validate_graph_full(
             &docs(yaml),
             &[],
@@ -6015,7 +6043,8 @@ spec:
             &[],
             &[],
             &[],
-        );
+        )
+        .1;
         assert_eq!(other_ns.len(), 1, "{other_ns:?}");
         assert!(
             other_ns[0].contains("matches no declared or existing workload"),
@@ -6044,7 +6073,8 @@ spec: { target: web, direction: ingress, port: '80' }
             &[],
             &[],
             &[],
-        );
+        )
+        .0;
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(issues[0].contains("ambiguous"), "{issues:?}");
         assert!(issues[0].contains("prod/web"), "{issues:?}");
@@ -6058,7 +6088,8 @@ spec: { target: web, direction: ingress, port: '80' }
             &[],
             &[],
             &[],
-        );
+        )
+        .0;
         assert!(one.is_empty(), "{one:?}");
     }
 
