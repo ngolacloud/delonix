@@ -1,0 +1,1422 @@
+{
+  "note": "Metadata of the delonix-runtime line (v1.0.0 to v5.1.1) as it stood on GitHub immediately before its releases and tags were deleted on 2026-11-22. The line was frozen when the product was renamed and the version re-based to 0.1.0 (see CHANGELOG.md). The prose notes of each release live beside this file; this is what the prose does not carry — what was published, when, against which commit, and how often each asset was downloaded.",
+  "captured": "2026-11-22",
+  "totals": {
+    "releases": 17,
+    "assets": 255,
+    "downloads": 737
+  },
+  "releases": [
+    {
+      "tag": "v1.0.0",
+      "name": "v1.0.0 — os atalhos de topo saem, o resto do contrato fica como estava",
+      "published_at": "2026-08-29T10:30:06Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 609,
+          "download_count": 2
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 10872720,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 10982368,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 327216,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 0
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 26444872,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 26609592,
+          "download_count": 1
+        },
+        {
+          "name": "install.sh",
+          "size": 65772,
+          "download_count": 1
+        }
+      ]
+    },
+    {
+      "tag": "v1.1.0",
+      "name": "v1.1.0 — a admissão passa a ser um ponto só, e o motor ganha uma superfície para agentes",
+      "published_at": "2026-08-30T07:57:33Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 609,
+          "download_count": 7
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 10870848,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 10980656,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 28449912,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 28637744,
+          "download_count": 5
+        },
+        {
+          "name": "install.sh",
+          "size": 65796,
+          "download_count": 7
+        }
+      ]
+    },
+    {
+      "tag": "v2.0.0",
+      "name": "v2.0.0 — `image list`/`backup list` voltam a `ls`",
+      "published_at": "2026-09-02T08:47:55Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 609,
+          "download_count": 5
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 10872896,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 10982448,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 0
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 28950688,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 29145336,
+          "download_count": 1
+        },
+        {
+          "name": "install.sh",
+          "size": 75040,
+          "download_count": 2
+        }
+      ]
+    },
+    {
+      "tag": "v3.0.0",
+      "name": "v3.0.0 — o `--vm` e o `sharevolume` desaparecem, e o compose fica completo",
+      "published_at": "2026-09-09T06:32:06Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 609,
+          "download_count": 5
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 10897808,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11004512,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 29474944,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 29673368,
+          "download_count": 3
+        },
+        {
+          "name": "install.sh",
+          "size": 75676,
+          "download_count": 2
+        }
+      ]
+    },
+    {
+      "tag": "v3.1.0",
+      "name": "v3.1.0 — a auditoria grupo a grupo: 33 achados, zero folha nova, e o README já não ensina uma CLI de há duas versões",
+      "published_at": "2026-09-11T12:45:51Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 609,
+          "download_count": 7
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 10910160,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11021536,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 29565440,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 29765816,
+          "download_count": 5
+        },
+        {
+          "name": "install.sh",
+          "size": 75676,
+          "download_count": 5
+        }
+      ]
+    },
+    {
+      "tag": "v4.0.0",
+      "name": "v4.0.0 — o motor ganha camadas e ports (ADR-0040), os erros ganham número (ADR-0043), e três crates mudam de nome",
+      "published_at": "2026-09-18T07:27:58Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 981,
+          "download_count": 2
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11121736,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11218312,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7508256,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7536120,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7317592,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7358648,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 0
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 24062664,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 24126296,
+          "download_count": 1
+        },
+        {
+          "name": "install.sh",
+          "size": 76634,
+          "download_count": 0
+        }
+      ]
+    },
+    {
+      "tag": "v4.1.0",
+      "name": "v4.1.0 — o ADR-0043 fecha nos últimos cinco crates, e um nó root novo volta a aceitar `-m`/`--cpus`",
+      "published_at": "2026-09-19T17:13:08Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 981,
+          "download_count": 4
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11120416,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11221280,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7519104,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7546536,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7330696,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7371688,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 24216248,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 24278024,
+          "download_count": 3
+        },
+        {
+          "name": "install.sh",
+          "size": 76634,
+          "download_count": 2
+        }
+      ]
+    },
+    {
+      "tag": "v4.1.1",
+      "name": "v4.1.1 — endurecimento de segurança, `vm destroy`, e o CRI de um cluster deixa de vir do cwd",
+      "published_at": "2026-09-20T00:13:55Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 981,
+          "download_count": 2
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11119824,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11216080,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7520336,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7547592,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7333104,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7373968,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 0
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 24274144,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 24341872,
+          "download_count": 1
+        },
+        {
+          "name": "install.sh",
+          "size": 76634,
+          "download_count": 2
+        }
+      ]
+    },
+    {
+      "tag": "v4.2.0",
+      "name": "v4.2.0 — `vm build` com `vm.yaml`, receitas por distro e por appliance, serviços de VM por nome",
+      "published_at": "2026-09-21T20:18:50Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 1346,
+          "download_count": 4
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-aarch64-linux",
+          "size": 24894384,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-cri-aarch64-linux",
+          "size": 9908912,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11124232,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11219408,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-mcp-aarch64-linux",
+          "size": 6725552,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7523672,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7551248,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-aarch64-linux",
+          "size": 6606480,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7341848,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7381744,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 27804048,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 27869696,
+          "download_count": 3
+        },
+        {
+          "name": "install.sh",
+          "size": 88120,
+          "download_count": 3
+        }
+      ]
+    },
+    {
+      "tag": "v4.3.0",
+      "name": "v4.3.0 — `delonix hosts sync`, e o instalador passa a aceitar aarch64",
+      "published_at": "2026-09-21T22:02:58Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 1346,
+          "download_count": 2
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-aarch64-linux",
+          "size": 24909712,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-cri-aarch64-linux",
+          "size": 9904816,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11123800,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11218976,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-aarch64-linux",
+          "size": 6721456,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7521936,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7549432,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-aarch64-linux",
+          "size": 6606480,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7341592,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7381488,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 0
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 27825672,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 27891672,
+          "download_count": 1
+        },
+        {
+          "name": "install.sh",
+          "size": 89279,
+          "download_count": 1
+        }
+      ]
+    },
+    {
+      "tag": "v4.4.0",
+      "name": "v4.4.0 — `drift`, a matriz do Compose com denominador, e um portão de performance que se recusa a julgar",
+      "published_at": "2026-09-23T12:48:06Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 1346,
+          "download_count": 2
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-aarch64-linux",
+          "size": 25110048,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-aarch64-linux",
+          "size": 9921200,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11123800,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11218976,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-aarch64-linux",
+          "size": 6725552,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7524664,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7552272,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-aarch64-linux",
+          "size": 6577808,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7341592,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7381488,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 342836,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 28073592,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 28148152,
+          "download_count": 2
+        },
+        {
+          "name": "install.sh",
+          "size": 89279,
+          "download_count": 3
+        }
+      ]
+    },
+    {
+      "tag": "v4.5.0",
+      "name": "v4.5.0 — rede que falha fechada, Proxmox medido rota a rota, providers num ficheiro por nó",
+      "published_at": "2026-09-28T15:57:38Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 1638,
+          "download_count": 6
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-aarch64-linux",
+          "size": 27087800,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-aarch64-linux",
+          "size": 9990832,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11195968,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11290640,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-aarch64-linux",
+          "size": 6823880,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7653016,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7680880,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-mgmt-aarch64-linux",
+          "size": 6479432,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7216520,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7252304,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-node-api-aarch64-linux",
+          "size": 5270936,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-node-api-x86_64-linux",
+          "size": 5775536,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-node-api-x86_64-v3-linux",
+          "size": 5808336,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 346248,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 30291064,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 30363352,
+          "download_count": 6
+        },
+        {
+          "name": "install.sh",
+          "size": 93765,
+          "download_count": 6
+        }
+      ]
+    },
+    {
+      "tag": "v5.0.0",
+      "name": "v5.0.0 — o `USER` da imagem é quem corre, o bloco `provider` tipado, e o contrato de nó servido",
+      "published_at": "2026-10-08T15:57:27Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 1638,
+          "download_count": 7
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 6
+        },
+        {
+          "name": "delonix-aarch64-linux",
+          "size": 30568832,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-cri-aarch64-linux",
+          "size": 10023648,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11242104,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11338520,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-mcp-aarch64-linux",
+          "size": 6914088,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7731448,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7767320,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-mgmt-aarch64-linux",
+          "size": 6557352,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7295584,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7340008,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-node-api-aarch64-linux",
+          "size": 10120776,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-node-api-x86_64-linux",
+          "size": 10940136,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-node-api-x86_64-v3-linux",
+          "size": 11036104,
+          "download_count": 5
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 346248,
+          "download_count": 4
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 34179032,
+          "download_count": 6
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 34285880,
+          "download_count": 5
+        },
+        {
+          "name": "install.sh",
+          "size": 94086,
+          "download_count": 3
+        }
+      ]
+    },
+    {
+      "tag": "v5.0.1",
+      "name": "v5.0.1 — duas falhas que abriam em vez de fechar: `--secret-files` e a admissão por scan",
+      "published_at": "2026-10-10T20:39:55Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 1638,
+          "download_count": 3
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-aarch64-linux",
+          "size": 30563576,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-aarch64-linux",
+          "size": 10044128,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11240096,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11336384,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mcp-aarch64-linux",
+          "size": 6909992,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7732712,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7768552,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-aarch64-linux",
+          "size": 6581928,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7296688,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7341080,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-node-api-aarch64-linux",
+          "size": 10141256,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-node-api-x86_64-linux",
+          "size": 10943256,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-node-api-x86_64-v3-linux",
+          "size": 11039224,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 346248,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 34177688,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 34278320,
+          "download_count": 2
+        },
+        {
+          "name": "install.sh",
+          "size": 94086,
+          "download_count": 1
+        }
+      ]
+    },
+    {
+      "tag": "v5.0.2",
+      "name": "v5.0.2 — uma rota entre redes passa a servir os containers ligados a mais de uma",
+      "published_at": "2026-10-11T00:50:37Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 1638,
+          "download_count": 14
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 13
+        },
+        {
+          "name": "delonix-aarch64-linux",
+          "size": 30565072,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-aarch64-linux",
+          "size": 10019552,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11242104,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11338520,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mcp-aarch64-linux",
+          "size": 6909992,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7731448,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7767320,
+          "download_count": 7
+        },
+        {
+          "name": "delonix-mgmt-aarch64-linux",
+          "size": 6557352,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7295584,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7340008,
+          "download_count": 7
+        },
+        {
+          "name": "delonix-node-api-aarch64-linux",
+          "size": 10141256,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-node-api-x86_64-linux",
+          "size": 10942904,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-node-api-x86_64-v3-linux",
+          "size": 11038808,
+          "download_count": 7
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 346248,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 6
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 34216504,
+          "download_count": 9
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 34318216,
+          "download_count": 7
+        },
+        {
+          "name": "install.sh",
+          "size": 94086,
+          "download_count": 7
+        }
+      ]
+    },
+    {
+      "tag": "v5.1.0",
+      "name": "v5.1.0 — o que o motor não consegue impor passa a recusar, e os projectos que ele gera nascem com portão",
+      "published_at": "2026-10-15T08:08:22Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 1638,
+          "download_count": 3
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-aarch64-linux",
+          "size": 31899904,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-aarch64-linux",
+          "size": 10216256,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11449984,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11552216,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mcp-aarch64-linux",
+          "size": 7008312,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7849960,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7884888,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-aarch64-linux",
+          "size": 6663864,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7409024,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7451976,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-node-api-aarch64-linux",
+          "size": 11227064,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-node-api-x86_64-linux",
+          "size": 12236624,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-node-api-x86_64-v3-linux",
+          "size": 12367824,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 346248,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 35710568,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 35814696,
+          "download_count": 2
+        },
+        {
+          "name": "install.sh",
+          "size": 97788,
+          "download_count": 4
+        }
+      ]
+    },
+    {
+      "tag": "v5.1.1",
+      "name": "v5.1.1 — o instalador mostra onde está a release, e o `--l18n` deixa de ser aceite depois de um subcomando",
+      "published_at": "2026-10-15T10:22:19Z",
+      "commit_ish": "main",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 1638,
+          "download_count": 5
+        },
+        {
+          "name": "SHA256SUMS.minisig",
+          "size": 272,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-aarch64-linux",
+          "size": 31909320,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-cri-aarch64-linux",
+          "size": 10199872,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-linux",
+          "size": 11451944,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-cri-x86_64-v3-linux",
+          "size": 11554208,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-mcp-aarch64-linux",
+          "size": 7016504,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-linux",
+          "size": 7853080,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mcp-x86_64-v3-linux",
+          "size": 7888008,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-mgmt-aarch64-linux",
+          "size": 6663864,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-linux",
+          "size": 7414480,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-mgmt-x86_64-v3-linux",
+          "size": 7457464,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-node-api-aarch64-linux",
+          "size": 11231160,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-node-api-x86_64-linux",
+          "size": 12239824,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-node-api-x86_64-v3-linux",
+          "size": 12371008,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-sbom.spdx.json",
+          "size": 346248,
+          "download_count": 1
+        },
+        {
+          "name": "delonix-vscode",
+          "size": 16454,
+          "download_count": 2
+        },
+        {
+          "name": "delonix-x86_64-linux",
+          "size": 35716544,
+          "download_count": 3
+        },
+        {
+          "name": "delonix-x86_64-v3-linux",
+          "size": 35819424,
+          "download_count": 2
+        },
+        {
+          "name": "install.sh",
+          "size": 97974,
+          "download_count": 108
+        }
+      ]
+    }
+  ]
+}
